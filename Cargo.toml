@@ -1,0 +1,14 @@
+[package]
+name = "mehari"
+version = "0.1.0"
+edition = "2021"
+authors = ["Manuel Holtgrewe <manuel.holtgrewe@bih-charite.de>"]
+description = "Variant effect prediction all in Rust"
+license = "MIT"
+homepage = "https://github.com/bihealth/mehari"
+readme = "README.md"
+
+[[bin]]
+name = "mehari"
+
+[dependencies]
