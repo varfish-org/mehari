@@ -1,13 +1,12 @@
 //! Reading of variants.
 
 use std::{
-    cell::RefCell,
     collections::{BTreeMap, HashMap},
     io::BufRead,
 };
 
 use hgvs::static_data::{Assembly, ASSEMBLY_INFOS};
-use noodles::vcf::{record::Position as VcfPosition, Header as VcfHeader, Record as VcfRecord};
+use noodles::vcf::{Header as VcfHeader, Record as VcfRecord};
 use noodles_util::variant::reader::{Builder as VariantReaderBuilder, Reader as VariantReader};
 
 /// Provide mapping from contig names to numeric contig IDs.
@@ -62,37 +61,28 @@ pub struct MultiVcfReader {
 
 impl MultiVcfReader {
     /// Create a new multi VCF reader.
-    pub fn new(paths: &Vec<String>, ambiguous_assembly_ok: bool) -> Result<Self, anyhow::Error> {
+    pub fn new(
+        paths: &Vec<String>,
+        initial_assembly: Option<Assembly>,
+    ) -> Result<Self, anyhow::Error> {
         let mut assembly: Option<Assembly> = None;
-        let mut assembly_from = String::new();
 
         let mut readers = Vec::new();
-        let headers = Vec::new();
+        let mut headers = Vec::new();
         let mut nexts = Vec::new();
         for path in paths {
-            readers.push(Box::new(
-                VariantReaderBuilder::default().build_from_path(path)?,
-            ));
-            let reader = readers.last().unwrap();
-            // let header = Box::new(reader.as_mut().read_header()?);
-
-            // let this_assembly = guess_assembly(header.as_ref());
-            // if let Some(assembly) = assembly {
-            //     if assembly != this_assembly {
-            //         return anyhow::anyhow!(
-            //             "Assembly mismatch {} from {} vs {} from {}",
-            //             assembly,
-            //             &assembly_from,
-            //             this_assembly,
-            //             &path
-            //         );
-            //     }
-            // } else {
-            //     assembly = Some(this_assembly);
-            // }
-
-            // let mut records = reader.records(header.as_ref());
-            // nexts.push(records.next().transpose()?);
+            let mut reader = Box::new(VariantReaderBuilder::default().build_from_path(path)?);
+            let header = Box::new(reader.as_mut().read_header()?);
+            assembly = Some(guess_assembly(header.as_ref(), true, initial_assembly)?);
+            nexts.push(
+                reader
+                    .as_mut()
+                    .records(header.as_ref())
+                    .next()
+                    .transpose()?,
+            );
+            readers.push(reader);
+            headers.push(header);
         }
 
         let contig_map = ContigMap::new(assembly.unwrap());
@@ -114,13 +104,13 @@ impl MultiVcfReader {
     }
 
     /// Return reference to next record from all input files.
-    pub fn peek(&self) -> &Option<VcfRecord> {
-        &self.nexts[0]
+    pub fn peek(&self) -> (&Option<VcfRecord>, usize) {
+        (&self.nexts[self.next], self.next)
     }
 
     /// Pop the next record and read next record from that file into reader.
-    pub fn pop(&mut self) -> Result<Option<VcfRecord>, anyhow::Error> {
-        let result = self.nexts[self.next].clone();
+    pub fn pop(&mut self) -> Result<(Option<VcfRecord>, usize), anyhow::Error> {
+        let result = (self.nexts[self.next].clone(), self.next);
         self.nexts[self.next] = self.readers[self.next]
             .as_mut()
             .records(&self.headers[self.next])
@@ -146,11 +136,20 @@ impl MultiVcfReader {
     }
 }
 
+/// Canonical chromosome names.
+///
+/// Note that the mitochondrial genome runs under two names.
 const CANONICAL: &'static [&'static str] = &[
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17",
     "18", "19", "20", "21", "22", "X", "Y", "M", "MT",
 ];
 
+/// Guess the assembly from the given header.
+///
+/// If the header only contains chrM, for example, the result may be ambiguous. Use `ambiguous_ok`
+/// to allow or disallow this.  You can specify an initial value for the assembly to overcome
+/// issues.  If the result is incompatible with the `initial_assembly` then an error will
+/// be returned.
 pub fn guess_assembly(
     vcf_header: &VcfHeader,
     ambiguous_ok: bool,
@@ -167,13 +166,7 @@ pub fn guess_assembly(
                     contig_map.name_map.get(seq.name.as_str()).unwrap(),
                     seq.length,
                 );
-                // println!("{} => {}", &seq.name, seq.length);
             }
-        }
-
-        println!("--");
-        for key in contig_map.name_map.iter() {
-            println!(" ~~ {} => {}", &key.0, key.1);
         }
 
         let mut incompatible = 0;
@@ -238,7 +231,7 @@ mod test {
     use noodles_util::variant::reader::Builder as VariantReaderBuilder;
 
     #[test]
-    fn guess_helix_assembly_chrmt_ambiguous_ok_initial_none() -> Result<(), anyhow::Error> {
+    fn guess_assembly_helix_chrmt_ambiguous_ok_initial_none() -> Result<(), anyhow::Error> {
         let path = "tests/data/db/create/seqvar_freqs/helix.chrM.vcf";
         let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
         let header = reader.read_header()?;
@@ -250,7 +243,7 @@ mod test {
     }
 
     #[test]
-    fn guess_helix_assembly_chrmt_ambiguous_ok_initial_override() -> Result<(), anyhow::Error> {
+    fn guess_assembly_helix_chrmt_ambiguous_ok_initial_override() -> Result<(), anyhow::Error> {
         let path = "tests/data/db/create/seqvar_freqs/helix.chrM.vcf";
         let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
         let header = reader.read_header()?;
@@ -262,7 +255,7 @@ mod test {
     }
 
     #[test]
-    fn guess_helix_assembly_chrmt_ambiguous_ok_initial_override_fails() -> Result<(), anyhow::Error>
+    fn guess_assembly_helix_chrmt_ambiguous_ok_initial_override_fails() -> Result<(), anyhow::Error>
     {
         let path = "tests/data/db/create/seqvar_freqs/helix.chrM.vcf";
         let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
@@ -274,12 +267,42 @@ mod test {
     }
 
     #[test]
-    fn guess_helix_assembly_chrmt_ambiguous_fail() -> Result<(), anyhow::Error> {
+    fn guess_assembly_helix_chrmt_ambiguous_fail() -> Result<(), anyhow::Error> {
         let path = "tests/data/db/create/seqvar_freqs/helix.chrM.vcf";
         let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
         let header = reader.read_header()?;
 
         assert!(guess_assembly(&header, false, None).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn contig_map_smoke() {
+        ContigMap::new(Assembly::Grch37p10);
+        ContigMap::new(Assembly::Grch38);
+    }
+
+    #[test]
+    fn test_multivcf_reader() -> Result<(), anyhow::Error> {
+        let mut reader = MultiVcfReader::new(
+            &vec![
+                String::from("tests/data/db/create/seqvar_freqs/gnomad.chrM.vcf"),
+                String::from("tests/data/db/create/seqvar_freqs/helix.chrM.vcf"),
+            ],
+            Some(Assembly::Grch37p10),
+        )?;
+
+        let top = reader.peek();
+        assert_eq!(top.1, 0);
+        if let Some(record) = top.0 {
+            assert_eq!(Into::<usize>::into(record.position()), 3);
+        };
+
+        for i in 0..6 {
+            assert!(reader.pop()?.0.is_some());
+        }
+        assert!(reader.peek().0.is_none());
 
         Ok(())
     }
