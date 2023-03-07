@@ -47,8 +47,10 @@ pub struct MultiVcfReader {
     /// The contig mapping to use.
     contig_map: ContigMap,
     /// One reader per file to read from.
+    #[allow(clippy::vec_box)]
     readers: Vec<Box<VariantReader<Box<dyn BufRead>>>>,
     /// The headers as read from `readers`.
+    #[allow(clippy::vec_box)]
     headers: Vec<Box<VcfHeader>>,
     /// The next record from each reader, if any.
     nexts: Vec<Option<VcfRecord>>,
