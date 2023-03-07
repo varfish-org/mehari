@@ -288,8 +288,8 @@ mod test {
     fn test_multivcf_reader() -> Result<(), anyhow::Error> {
         let mut reader = MultiVcfReader::new(
             &[
-                "tests/data/db/create/seqvar_freqs/gnomad.chrM.vcf",
-                "tests/data/db/create/seqvar_freqs/helix.chrM.vcf",
+                "tests/data/db/create/seqvar_freqs/mt/gnomad.chrM.vcf",
+                "tests/data/db/create/seqvar_freqs/mt/helix.chrM.vcf",
             ],
             Some(Assembly::Grch37p10),
         )?;

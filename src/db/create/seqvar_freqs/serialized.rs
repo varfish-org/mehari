@@ -1,145 +1,343 @@
-//! Serialized population frequencies.
+//! Serialization of population frequencies.
 
-use std::{ops::Deref, str::FromStr};
+/// Mitochondrial counts.
+pub mod mt {
+    use std::str::FromStr;
 
-use byteorder::{ByteOrder, LittleEndian};
-use noodles::vcf::{
-    self,
-    header::info::{key::Other as InfoOther, key::Standard as InfoStandard, Key as InfoKey},
-    record::Chromosome,
-    Record as VcfRecord,
-};
+    use byteorder::{ByteOrder, LittleEndian};
+    use noodles::vcf::{
+        self,
+        header::info::{key::Other as InfoOther, key::Standard as InfoStandard, Key as InfoKey},
+        Record as VcfRecord,
+    };
 
-/// Record type for storing AN, AC_hom, AC_het counts for chrMT.
-#[derive(Default, Debug, PartialEq, Eq, Clone)]
-pub struct MtCounts {
-    /// Total number of alleles.
-    pub an: u32,
-    /// Number of homoplasmic alleles.
-    pub ac_hom: u32,
-    /// Number of heteroplasmic alleles.
-    pub ac_het: u32,
-}
-
-impl MtCounts {
-    /// Create from the given VCF record.
-    pub fn from_vcf(value: &VcfRecord) -> Self {
-        let ac_hom = match value
-            .info()
-            .get(&InfoKey::Other(
-                InfoOther::from_str("AC_hom").expect("Invalid key: AC_hom?"),
-            ))
-            .unwrap()
-            .unwrap()
-        {
-            vcf::record::info::field::Value::Integer(ac_hom) => *ac_hom as u32,
-            _ => panic!("invalid type for AC_hom"),
-        };
-        let ac_het = match value
-            .info()
-            .get(&InfoKey::Other(
-                InfoOther::from_str("AC_het").expect("Invalid key: AC_het?"),
-            ))
-            .unwrap()
-            .unwrap()
-        {
-            vcf::record::info::field::Value::Integer(ac_het) => *ac_het as u32,
-            _ => panic!("invalid type for AC_het"),
-        };
-        let an = match value
-            .info()
-            .get(&InfoKey::Standard(InfoStandard::TotalAlleleCount))
-            .unwrap()
-            .unwrap()
-        {
-            vcf::record::info::field::Value::Integer(an) => *an as u32,
-            _ => panic!("invalid type for AN"),
-        };
-
-        MtCounts { ac_hom, ac_het, an }
+    /// Record type for storing AN, AC_hom, AC_het counts for chrMT.
+    #[derive(Default, Debug, PartialEq, Eq, Clone)]
+    pub struct Counts {
+        /// Total number of alleles.
+        pub an: u32,
+        /// Number of homoplasmic alleles.
+        pub ac_hom: u32,
+        /// Number of heteroplasmic alleles.
+        pub ac_het: u32,
     }
 
-    /// Read from buffer.
-    pub fn from_buf(buf: &[u8]) -> Self {
-        Self {
-            an: LittleEndian::read_u32(&buf[0..4]),
-            ac_hom: LittleEndian::read_u32(&buf[4..8]),
-            ac_het: LittleEndian::read_u32(&buf[8..12]),
+    impl Counts {
+        /// Create from the given VCF record.
+        pub fn from_vcf(value: &VcfRecord) -> Self {
+            let ac_hom = match value
+                .info()
+                .get(&InfoKey::Other(
+                    InfoOther::from_str("AC_hom").expect("Invalid key: AC_hom?"),
+                ))
+                .unwrap()
+                .unwrap()
+            {
+                vcf::record::info::field::Value::Integer(ac_hom) => *ac_hom as u32,
+                _ => panic!("invalid type for AC_hom"),
+            };
+            let ac_het = match value
+                .info()
+                .get(&InfoKey::Other(
+                    InfoOther::from_str("AC_het").expect("Invalid key: AC_het?"),
+                ))
+                .unwrap()
+                .unwrap()
+            {
+                vcf::record::info::field::Value::Integer(ac_het) => *ac_het as u32,
+                _ => panic!("invalid type for AC_het"),
+            };
+            let an = match value
+                .info()
+                .get(&InfoKey::Standard(InfoStandard::TotalAlleleCount))
+                .unwrap()
+                .unwrap()
+            {
+                vcf::record::info::field::Value::Integer(an) => *an as u32,
+                _ => panic!("invalid type for AN"),
+            };
+
+            Counts { ac_hom, ac_het, an }
+        }
+
+        /// Read from buffer.
+        pub fn from_buf(buf: &[u8]) -> Self {
+            Self {
+                an: LittleEndian::read_u32(&buf[0..4]),
+                ac_hom: LittleEndian::read_u32(&buf[4..8]),
+                ac_het: LittleEndian::read_u32(&buf[8..12]),
+            }
+        }
+
+        /// Write to buffer.
+        pub fn to_buf(&self, buf: &mut [u8]) {
+            LittleEndian::write_u32(&mut buf[0..4], self.an);
+            LittleEndian::write_u32(&mut buf[4..8], self.ac_hom);
+            LittleEndian::write_u32(&mut buf[8..12], self.ac_het);
         }
     }
 
-    /// Write to buffer.
-    pub fn to_buf(&self, buf: &mut [u8]) {
-        LittleEndian::write_u32(&mut buf[0..4], self.an);
-        LittleEndian::write_u32(&mut buf[4..8], self.an);
-        LittleEndian::write_u32(&mut buf[8..12], self.an);
+    /// Record type for the "mitochondrial" column family.
+    pub struct Record {
+        /// Counts from gnomAD mtDNA.
+        pub gnomad_mtdna: Counts,
+        /// Counts from HelixMtDb.
+        pub helix_mtdb: Counts,
     }
-}
 
-/// Record type for the "mitochondrial" column family.
-pub struct MtRecord {
-    /// Counts from gnomAD mtDNA.
-    pub gnomad_mtdna: MtCounts,
-    /// Counts from HelixMtDb.
-    pub helix_mtdb: MtCounts,
-}
-
-impl MtRecord {
-    /// Read from buffer.
-    pub fn from_buf(buf: &[u8]) -> Self {
-        Self {
-            gnomad_mtdna: MtCounts::from_buf(&buf[0..12]),
-            helix_mtdb: MtCounts::from_buf(&buf[12..24]),
+    impl Record {
+        /// Read from buffer.
+        pub fn from_buf(buf: &[u8]) -> Self {
+            Self {
+                gnomad_mtdna: Counts::from_buf(&buf[0..12]),
+                helix_mtdb: Counts::from_buf(&buf[12..24]),
+            }
         }
-    }
 
-    /// Write to buffer.
-    pub fn to_buf(&self, buf: &mut [u8]) {
-        self.gnomad_mtdna.to_buf(&mut buf[0..12]);
-        self.helix_mtdb.to_buf(&mut buf[12..24]);
-    }
-}
-
-/// A chromosomal change `CHROM-POS-REF-ALT`.
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct VcfVar {
-    pub chrom: String,
-    pub pos: u32,
-    pub reference: String,
-    pub alternative: String,
-}
-
-impl VcfVar {
-    /// Create from the given VCF record.
-    pub fn from_vcf(value: &VcfRecord) -> Self {
-        let chrom = match value.chromosome() {
-            Chromosome::Name(name) | Chromosome::Symbol(name) => name.to_owned(),
-        };
-        let pos: usize = value.position().into();
-        let pos = pos as u32;
-        let reference = value.reference_bases().to_string();
-        let alternative = value.alternate_bases().deref()[0].to_string();
-
-        VcfVar {
-            chrom,
-            pos,
-            reference,
-            alternative,
+        /// Write to buffer.
+        pub fn to_buf(&self, buf: &mut [u8]) {
+            self.gnomad_mtdna.to_buf(&mut buf[0..12]);
+            self.helix_mtdb.to_buf(&mut buf[12..24]);
         }
     }
 }
 
-impl From<VcfVar> for Vec<u8> {
-    fn from(val: VcfVar) -> Self {
-        let mut result = Vec::new();
+/// Gonomosomal counts.
+pub mod xy {
+    use std::str::FromStr;
 
-        result.extend_from_slice(chrom_name_to_key(&val.chrom).as_bytes());
-        result.extend_from_slice(&val.pos.to_be_bytes());
-        result.extend_from_slice(val.reference.as_bytes());
-        result.push(b'>');
-        result.extend_from_slice(val.alternative.as_bytes());
+    use byteorder::{ByteOrder, LittleEndian};
+    use noodles::vcf::{
+        self,
+        header::info::{key::Other as InfoOther, key::Standard as InfoStandard, Key as InfoKey},
+        Record as VcfRecord,
+    };
 
-        result
+    /// Record type for storing AN, AC_hom, AC_het counts for chrMT.
+    #[derive(Default, Debug, PartialEq, Eq, Clone)]
+    pub struct Counts {
+        /// Total number of alleles.
+        pub an: u32,
+        /// Number of hom. alt. alleles.
+        pub ac_hom: u32,
+        /// Number of het. alt. alleles.
+        pub ac_het: u32,
+        /// Number of hemi. alt. alleles.
+        pub ac_hemi: u32,
+    }
+
+    impl Counts {
+        /// Create from the given VCF record.
+        pub fn from_vcf(value: &VcfRecord) -> Self {
+            let ac_hom_xx = match value
+                .info()
+                .get(&InfoKey::Other(
+                    InfoOther::from_str("nhomalt_female").expect("Invalid key: nhomalt_female?"),
+                ))
+                .unwrap_or_else(|| {
+                    value
+                        .info()
+                        .get(&InfoKey::Other(
+                            InfoOther::from_str("nhomalt_XX").expect("Invalid key: nhomalt_XX?"),
+                        ))
+                        .unwrap()
+                })
+                .unwrap()
+            {
+                vcf::record::info::field::Value::IntegerArray(ac_hom_xx) => {
+                    ac_hom_xx[0].unwrap() as u32
+                }
+                _ => panic!("invalid type for nhomalt_female/nhomalt_XX"),
+            };
+
+            let ac_xx = match value
+                .info()
+                .get(&InfoKey::Other(
+                    InfoOther::from_str("AC_female").expect("Invalid key: AC_female?"),
+                ))
+                .unwrap_or_else(|| {
+                    value
+                        .info()
+                        .get(&InfoKey::Other(
+                            InfoOther::from_str("AC_XX").expect("Invalid key: AC_XX?"),
+                        ))
+                        .unwrap()
+                })
+                .unwrap()
+            {
+                vcf::record::info::field::Value::IntegerArray(ac_het) => ac_het[0].unwrap() as u32,
+                _ => panic!("invalid type for AC_female/AC_XX"),
+            };
+
+            let ac_hom_xy = match value
+                .info()
+                .get(&InfoKey::Other(
+                    InfoOther::from_str("nhomalt_male").expect("Invalid key: nhomalt_male?"),
+                ))
+                .unwrap_or_else(|| {
+                    value
+                        .info()
+                        .get(&InfoKey::Other(
+                            InfoOther::from_str("nhomalt_XY").expect("Invalid key: nhomalt_XY?"),
+                        ))
+                        .unwrap()
+                })
+                .unwrap()
+            {
+                vcf::record::info::field::Value::IntegerArray(ac_hom_xx) => {
+                    ac_hom_xx[0].unwrap() as u32
+                }
+                _ => panic!("invalid type for nhomalt_male/nhomalt_XY"),
+            };
+
+            let ac_xy = match value
+                .info()
+                .get(&InfoKey::Other(
+                    InfoOther::from_str("AC_male").expect("Invalid key: AC_male/AC_XY?"),
+                ))
+                .unwrap_or_else(|| {
+                    value
+                        .info()
+                        .get(&InfoKey::Other(
+                            InfoOther::from_str("AC_XY").expect("Invalid key: AC_XY?"),
+                        ))
+                        .unwrap()
+                })
+                .unwrap()
+            {
+                vcf::record::info::field::Value::IntegerArray(ac_het) => ac_het[0].unwrap() as u32,
+                _ => panic!("invalid type for AC_male/AC_XY"),
+            };
+
+            let nonpar = value
+                .info()
+                .get(&InfoKey::Other(
+                    InfoOther::from_str("nonpar").expect("Invalid key: nonpar?"),
+                ))
+                .is_some();
+
+            let an = match value
+                .info()
+                .get(&InfoKey::Standard(InfoStandard::TotalAlleleCount))
+                .unwrap()
+                .unwrap()
+            {
+                vcf::record::info::field::Value::Integer(an) => *an as u32,
+                _ => panic!("invalid type for AN"),
+            };
+
+            if nonpar {
+                // not in PAR
+                Counts {
+                    ac_hom: ac_hom_xx,
+                    ac_het: ac_xx - 2 * ac_hom_xx,
+                    ac_hemi: ac_xy,
+                    an,
+                }
+            } else {
+                // is in PAR
+                Counts {
+                    ac_hom: ac_hom_xx + ac_hom_xy,
+                    ac_het: ac_xx.saturating_sub(2 * ac_hom_xx + 2 * ac_hom_xy),
+                    ac_hemi: 0,
+                    an,
+                }
+            }
+        }
+
+        /// Read from buffer.
+        pub fn from_buf(buf: &[u8]) -> Self {
+            Self {
+                an: LittleEndian::read_u32(&buf[0..4]),
+                ac_hom: LittleEndian::read_u32(&buf[4..8]),
+                ac_het: LittleEndian::read_u32(&buf[8..12]),
+                ac_hemi: LittleEndian::read_u32(&buf[12..16]),
+            }
+        }
+
+        /// Write to buffer.
+        pub fn to_buf(&self, buf: &mut [u8]) {
+            LittleEndian::write_u32(&mut buf[0..4], self.an);
+            LittleEndian::write_u32(&mut buf[4..8], self.ac_hom);
+            LittleEndian::write_u32(&mut buf[8..12], self.ac_het);
+            LittleEndian::write_u32(&mut buf[12..16], self.ac_hemi);
+        }
+    }
+
+    /// Record type for the "mitochondrial" column family.
+    pub struct Record {
+        /// Counts from gnomAD exomes.
+        pub gnomad_exomes: Counts,
+        /// Counts from gnomAD genomes.
+        pub gnomad_genomes: Counts,
+    }
+
+    impl Record {
+        /// Read from buffer.
+        pub fn from_buf(buf: &[u8]) -> Self {
+            Self {
+                gnomad_exomes: Counts::from_buf(&buf[0..16]),
+                gnomad_genomes: Counts::from_buf(&buf[16..32]),
+            }
+        }
+
+        /// Write to buffer.
+        pub fn to_buf(&self, buf: &mut [u8]) {
+            self.gnomad_exomes.to_buf(&mut buf[0..16]);
+            self.gnomad_genomes.to_buf(&mut buf[16..32]);
+        }
+    }
+}
+
+/// Code for reading VCF.
+pub mod vcf {
+    use std::ops::Deref;
+
+    use noodles::vcf::{record::Chromosome, Record as VcfRecord};
+
+    use super::chrom_name_to_key;
+
+    /// A chromosomal change `CHROM-POS-REF-ALT`.
+    #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct Var {
+        pub chrom: String,
+        pub pos: u32,
+        pub reference: String,
+        pub alternative: String,
+    }
+
+    impl Var {
+        /// Create from the given VCF record.
+        pub fn from_vcf(value: &VcfRecord) -> Self {
+            let chrom = match value.chromosome() {
+                Chromosome::Name(name) | Chromosome::Symbol(name) => name.to_owned(),
+            };
+            let pos: usize = value.position().into();
+            let pos = pos as u32;
+            let reference = value.reference_bases().to_string();
+            let alternative = value.alternate_bases().deref()[0].to_string();
+
+            Var {
+                chrom,
+                pos,
+                reference,
+                alternative,
+            }
+        }
+    }
+
+    impl From<Var> for Vec<u8> {
+        fn from(val: Var) -> Self {
+            let mut result = Vec::new();
+
+            result.extend_from_slice(chrom_name_to_key(&val.chrom).as_bytes());
+            result.extend_from_slice(&val.pos.to_be_bytes());
+            result.extend_from_slice(val.reference.as_bytes());
+            result.push(b'>');
+            result.extend_from_slice(val.alternative.as_bytes());
+
+            result
+        }
     }
 }
 
@@ -182,7 +380,9 @@ mod test {
 
     use noodles_util::variant::reader::Builder as VariantReaderBuilder;
 
-    use super::*;
+    use super::mt::Counts as MtCounts;
+    use super::vcf::Var as VcfVar;
+    use super::{chrom_key_to_name, chrom_name_to_key};
 
     #[test]
     fn test_chrom_name_to_key() {
