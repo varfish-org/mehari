@@ -448,7 +448,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     let cf_mtdna = db.cf_handle("mitochondrial").unwrap();
 
     tracing::info!("Writing meta data to database");
-    db.put_cf(cf_meta, "genome-release", format!("{:?}", genome_release))?;
+    db.put_cf(cf_meta, "genome-release", format!("{genome_release:?}"))?;
 
     // Import gnomAD variants in a chromosome-wise fashion.
     tracing::info!("Processing autosomal variant data ...");
