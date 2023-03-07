@@ -67,6 +67,7 @@ impl MultiVcfReader {
         let mut headers = Vec::new();
         let mut nexts = Vec::new();
         for path in paths {
+            tracing::trace!("Opening file {}", path);
             let mut reader = Box::new(VariantReaderBuilder::default().build_from_path(path)?);
             let header = Box::new(reader.as_mut().read_header()?);
             assembly = Some(guess_assembly(header.as_ref(), true, initial_assembly)?);

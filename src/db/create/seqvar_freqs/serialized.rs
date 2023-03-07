@@ -129,7 +129,9 @@ pub mod xy {
     impl Counts {
         /// Create from the given VCF record.
         pub fn from_vcf(value: &VcfRecord) -> Self {
-            let ac_hom_xx = match value
+            tracing::trace!("@ {:?}", &value);
+
+            let ac_hom_xx = value
                 .info()
                 .get(&InfoKey::Other(
                     InfoOther::from_str("nhomalt_female").expect("Invalid key: nhomalt_female?"),
@@ -140,17 +142,20 @@ pub mod xy {
                         .get(&InfoKey::Other(
                             InfoOther::from_str("nhomalt_XX").expect("Invalid key: nhomalt_XX?"),
                         ))
-                        .unwrap()
-                })
-                .unwrap()
-            {
-                vcf::record::info::field::Value::IntegerArray(ac_hom_xx) => {
-                    ac_hom_xx[0].unwrap() as u32
+                        .unwrap_or_default()
+                });
+            let ac_hom_xx = if let Some(ac_hom_xx) = ac_hom_xx {
+                match ac_hom_xx {
+                    noodles::vcf::record::info::field::Value::IntegerArray(ac_hom_xx) => {
+                        ac_hom_xx[0].unwrap() as u32
+                    }
+                    _ => panic!("invalid type for nhomalt_female/nhomalt_XX"),
                 }
-                _ => panic!("invalid type for nhomalt_female/nhomalt_XX"),
+            } else {
+                0
             };
 
-            let ac_xx = match value
+            let ac_xx = value
                 .info()
                 .get(&InfoKey::Other(
                     InfoOther::from_str("AC_female").expect("Invalid key: AC_female?"),
@@ -161,15 +166,20 @@ pub mod xy {
                         .get(&InfoKey::Other(
                             InfoOther::from_str("AC_XX").expect("Invalid key: AC_XX?"),
                         ))
-                        .unwrap()
-                })
-                .unwrap()
-            {
-                vcf::record::info::field::Value::IntegerArray(ac_het) => ac_het[0].unwrap() as u32,
-                _ => panic!("invalid type for AC_female/AC_XX"),
+                        .unwrap_or_default()
+                });
+            let ac_xx = if let Some(ac_xx) = ac_xx {
+                match ac_xx {
+                    noodles::vcf::record::info::field::Value::IntegerArray(ac_het) => {
+                        ac_het[0].unwrap() as u32
+                    }
+                    _ => panic!("invalid type for AC_female/AC_XX"),
+                }
+            } else {
+                0
             };
 
-            let ac_hom_xy = match value
+            let ac_hom_xy = value
                 .info()
                 .get(&InfoKey::Other(
                     InfoOther::from_str("nhomalt_male").expect("Invalid key: nhomalt_male?"),
@@ -180,17 +190,20 @@ pub mod xy {
                         .get(&InfoKey::Other(
                             InfoOther::from_str("nhomalt_XY").expect("Invalid key: nhomalt_XY?"),
                         ))
-                        .unwrap()
-                })
-                .unwrap()
-            {
-                vcf::record::info::field::Value::IntegerArray(ac_hom_xx) => {
-                    ac_hom_xx[0].unwrap() as u32
+                        .unwrap_or_default()
+                });
+            let ac_hom_xy = if let Some(ac_hom_xy) = ac_hom_xy {
+                match ac_hom_xy {
+                    vcf::record::info::field::Value::IntegerArray(ac_hom_xx) => {
+                        ac_hom_xx[0].unwrap() as u32
+                    }
+                    _ => panic!("invalid type for nhomalt_male/nhomalt_XY"),
                 }
-                _ => panic!("invalid type for nhomalt_male/nhomalt_XY"),
+            } else {
+                0
             };
 
-            let ac_xy = match value
+            let ac_xy = value
                 .info()
                 .get(&InfoKey::Other(
                     InfoOther::from_str("AC_male").expect("Invalid key: AC_male/AC_XY?"),
@@ -201,12 +214,17 @@ pub mod xy {
                         .get(&InfoKey::Other(
                             InfoOther::from_str("AC_XY").expect("Invalid key: AC_XY?"),
                         ))
-                        .unwrap()
-                })
-                .unwrap()
-            {
-                vcf::record::info::field::Value::IntegerArray(ac_het) => ac_het[0].unwrap() as u32,
-                _ => panic!("invalid type for AC_male/AC_XY"),
+                        .unwrap_or_default()
+                });
+            let ac_xy = if let Some(ac_xy) = ac_xy {
+                match ac_xy {
+                    vcf::record::info::field::Value::IntegerArray(ac_het) => {
+                        ac_het[0].unwrap() as u32
+                    }
+                    _ => panic!("invalid type for AC_male/AC_XY"),
+                }
+            } else {
+                0
             };
 
             let nonpar = value

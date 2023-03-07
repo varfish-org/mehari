@@ -452,8 +452,6 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
     // Import gnomAD variants in a chromosome-wise fashion.
     tracing::info!("Processing autosomal variant data ...");
-    tracing::info!("Opening gnomAD exomes file(s)");
-    tracing::info!("Opening gnomAD genomes file(s)");
 
     import_gonomosomal(args, genome_release, &db, cf_gonosomal)?;
     import_chrmt(args, genome_release, &db, cf_mtdna)?;
