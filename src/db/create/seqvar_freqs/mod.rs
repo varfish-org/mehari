@@ -3,6 +3,8 @@
 pub mod reading;
 pub mod serialized;
 
+use std::time::Instant;
+
 use clap::Parser;
 use hgvs::static_data::Assembly;
 use noodles::vcf::Record as VcfRecord;
@@ -93,8 +95,6 @@ impl MtReader {
         } else {
             None
         };
-
-        tracing::info!("... done opening and popping");
 
         Ok(Self {
             gnomad_reader,
@@ -197,6 +197,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     tracing::info!("Opening gnomAD genomes file(s)");
 
     // Import chrMT variants.
+    let before_chrmt = Instant::now();
     tracing::info!("Processing chrMT data ...");
     let mut chrmt_written = 0usize;
     let mut mt_reader = MtReader::new(
@@ -227,7 +228,11 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
             Ok(())
         })?;
     }
-    tracing::info!("  wrote {} chrMT records", chrmt_written);
+    tracing::info!(
+        "  wrote {} chrMT records in {:?}",
+        chrmt_written,
+        before_chrmt.elapsed()
+    );
 
     tracing::info!("Opening gnomAD mtDNA file(s)");
     tracing::info!("Opening HelixMtDb file(s)");
