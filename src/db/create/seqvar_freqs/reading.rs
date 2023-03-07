@@ -37,7 +37,7 @@ impl ContigMap {
             | noodles::vcf::record::Chromosome::Symbol(s) => *self
                 .name_map
                 .get(s)
-                .expect(&format!("Invalid contig {}", s)),
+                .unwrap_or_else(|| panic!("Invalid contig {s}")),
         }
     }
 }
@@ -178,7 +178,7 @@ pub fn guess_assembly(
                 if let Some(idx) = idx {
                     let name = &info.sequences[*idx].name;
                     if CANONICAL.contains(&name.as_ref()) {
-                        if lengths.get(idx).unwrap().clone() == length {
+                        if *lengths.get(idx).unwrap() == length {
                             compatible += 1;
                         } else {
                             incompatible += 1;
@@ -287,7 +287,7 @@ mod test {
     #[test]
     fn test_multivcf_reader() -> Result<(), anyhow::Error> {
         let mut reader = MultiVcfReader::new(
-            &vec![
+            &[
                 "tests/data/db/create/seqvar_freqs/gnomad.chrM.vcf",
                 "tests/data/db/create/seqvar_freqs/helix.chrM.vcf",
             ],

@@ -129,15 +129,15 @@ impl VcfVar {
     }
 }
 
-impl Into<Vec<u8>> for VcfVar {
-    fn into(self) -> Vec<u8> {
+impl From<VcfVar> for Vec<u8> {
+    fn from(val: VcfVar) -> Self {
         let mut result = Vec::new();
 
-        result.extend_from_slice(chrom_name_to_key(&self.chrom).as_bytes());
-        result.extend_from_slice(&self.pos.to_be_bytes());
-        result.extend_from_slice(self.reference.as_bytes());
+        result.extend_from_slice(chrom_name_to_key(&val.chrom).as_bytes());
+        result.extend_from_slice(&val.pos.to_be_bytes());
+        result.extend_from_slice(val.reference.as_bytes());
         result.push(b'>');
-        result.extend_from_slice(self.alternative.as_bytes());
+        result.extend_from_slice(val.alternative.as_bytes());
 
         result
     }
@@ -145,31 +145,31 @@ impl Into<Vec<u8>> for VcfVar {
 
 /// Convert chromosome to key in RocksDB.
 pub fn chrom_name_to_key(name: &str) -> String {
-    let chrom = if name.starts_with("chr") {
-        &name[3..]
+    let chrom = if let Some(stripped) = name.strip_prefix("chr") {
+        stripped
     } else {
-        &name[..]
+        name
     };
     let chrom = if chrom == "M" {
         String::from("MT")
     } else if "XY".contains(chrom) {
-        format!(" {}", chrom)
+        format!(" {chrom}")
     } else {
         String::from(chrom)
     };
     assert!(chrom.len() <= 2);
-    assert!(chrom.len() >= 1);
+    assert!(!chrom.is_empty());
     if chrom.len() == 1 {
-        format!("0{}", chrom)
+        format!("0{chrom}")
     } else {
-        chrom.to_string()
+        chrom
     }
 }
 
 /// Convert from RocksDB chromosome key part to chromosome name.
 pub fn chrom_key_to_name(key: &str) -> String {
     assert!(key.len() == 2);
-    if key.starts_with("0") || key.starts_with(" ") {
+    if key.starts_with('0') || key.starts_with(' ') {
         key[1..].to_string()
     } else {
         key.to_string()

@@ -72,14 +72,14 @@ impl MtReader {
             .as_ref()
             .map(|path_gnomad| {
                 tracing::info!("Opening gnomAD chrMT file {}", &path_gnomad);
-                MultiVcfReader::new(&[&path_gnomad], assembly)
+                MultiVcfReader::new(&[path_gnomad], assembly)
             })
             .transpose()?;
         let mut helix_reader = path_helix
             .as_ref()
             .map(|path_helix| {
                 tracing::info!("Opening HelixMtDb chrMT file {}", &path_helix);
-                MultiVcfReader::new(&[&path_helix], assembly)
+                MultiVcfReader::new(&[path_helix], assembly)
             })
             .transpose()?;
 
@@ -114,16 +114,16 @@ impl MtReader {
         match (&self.gnomad_next, &self.helix_next) {
             (None, Some(helix)) => {
                 func(
-                    VcfVar::from_vcf(&helix),
+                    VcfVar::from_vcf(helix),
                     MtCounts::default(),
-                    MtCounts::from_vcf(&helix),
+                    MtCounts::from_vcf(helix),
                 )?;
                 self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0;
             }
             (Some(gnomad), None) => {
                 func(
-                    VcfVar::from_vcf(&gnomad),
-                    MtCounts::from_vcf(&gnomad),
+                    VcfVar::from_vcf(gnomad),
+                    MtCounts::from_vcf(gnomad),
                     MtCounts::default(),
                 )?;
                 self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0;
@@ -133,21 +133,21 @@ impl MtReader {
                 let var_helix = VcfVar::from_vcf(helix);
                 match var_gnomad.cmp(&var_helix) {
                     std::cmp::Ordering::Less => {
-                        func(var_gnomad, MtCounts::from_vcf(&gnomad), MtCounts::default())?;
+                        func(var_gnomad, MtCounts::from_vcf(gnomad), MtCounts::default())?;
                         self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0;
                     }
                     std::cmp::Ordering::Equal => {
                         func(
                             var_gnomad,
-                            MtCounts::from_vcf(&gnomad),
-                            MtCounts::from_vcf(&helix),
+                            MtCounts::from_vcf(gnomad),
+                            MtCounts::from_vcf(helix),
                         )?;
-                        self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0.clone();
-                        self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0.clone();
+                        self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0;
+                        self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0;
                     }
                     std::cmp::Ordering::Greater => {
-                        func(var_helix, MtCounts::default(), MtCounts::from_vcf(&helix))?;
-                        self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0.clone();
+                        func(var_helix, MtCounts::default(), MtCounts::from_vcf(helix))?;
+                        self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0;
                     }
                 }
             }
@@ -181,7 +181,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     let db = rocksdb::DB::open_cf(
         &options,
         &args.path_output_db,
-        &["meta", "nuclear", "mitochondrial"],
+        ["meta", "nuclear", "mitochondrial"],
     )?;
 
     let _cf_meta = db.cf_handle("meta").unwrap();
@@ -204,25 +204,28 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         args.path_helix_mtdb.as_deref(),
         genome_release,
     )?;
-    while mt_reader.run(|variant, gnomad_mtdna, helix_mtdb| {
-        tracing::trace!(
-            "at {:?} | {:?} | {:?}",
-            &variant,
-            &gnomad_mtdna,
-            &helix_mtdb
-        );
-        let key: Vec<u8> = variant.into();
-        let mut value = [0u8; 24];
-        MtRecord {
-            gnomad_mtdna,
-            helix_mtdb,
-        }
-        .to_buf(&mut value);
-        db.put_cf(cf_mtdna, key, value)?;
+    let mut has_next = true;
+    while has_next {
+        has_next = mt_reader.run(|variant, gnomad_mtdna, helix_mtdb| {
+            tracing::trace!(
+                "at {:?} | {:?} | {:?}",
+                &variant,
+                &gnomad_mtdna,
+                &helix_mtdb
+            );
+            let key: Vec<u8> = variant.into();
+            let mut value = [0u8; 24];
+            MtRecord {
+                gnomad_mtdna,
+                helix_mtdb,
+            }
+            .to_buf(&mut value);
+            db.put_cf(cf_mtdna, key, value)?;
 
-        Ok(())
-    })? {
-        chrmt_written += 1;
+            chrmt_written += 1;
+
+            Ok(())
+        })?;
     }
     tracing::info!("  wrote {} chrMT records", chrmt_written);
 
