@@ -61,9 +61,9 @@ impl MultiVcfReader {
     pub fn new(paths: &[&str], initial_assembly: Option<Assembly>) -> Result<Self, anyhow::Error> {
         let mut assembly: Option<Assembly> = None;
 
-        let mut readers: Vec<Box<VariantReader<Box<dyn BufRead>>>> = Vec::new();
-        let mut headers: Vec<Box<VcfHeader>> = Vec::new();
-        let mut nexts: Vec<Option<VcfRecord>> = Vec::new();
+        let mut readers = Vec::new();
+        let mut headers = Vec::new();
+        let mut nexts = Vec::new();
         for path in paths {
             let mut reader = Box::new(VariantReaderBuilder::default().build_from_path(path)?);
             let header = Box::new(reader.as_mut().read_header()?);
@@ -110,11 +110,11 @@ impl MultiVcfReader {
     /// Pop the next record and read next record from that file into reader.
     pub fn pop(&mut self) -> Result<(Option<VcfRecord>, usize), anyhow::Error> {
         let result = (self.nexts[self.next].clone(), self.next);
-        self.nexts[self.next] = self.readers[self.next]
-            .as_mut()
-            .records(&self.headers[self.next])
-            .next()
-            .transpose()?;
+        // self.nexts[self.next] = self.readers[self.next]
+        //     .as_mut()
+        //     .records(&self.headers[self.next])
+        //     .next()
+        //     .transpose()?;
 
         self.next = 0;
         for i in 1..self.nexts.len() {
