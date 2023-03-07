@@ -9,6 +9,7 @@ use clap::Parser;
 use hgvs::static_data::Assembly;
 use noodles::vcf::Record as VcfRecord;
 
+use rocksdb::{DBWithThreadMode, SingleThreaded};
 use serialized::*;
 
 use self::reading::MultiVcfReader;
@@ -158,6 +159,53 @@ impl MtReader {
     }
 }
 
+
+/// Import chrMT frequencies.
+fn import_chrmt(
+    args: &Args,
+    genome_release: Option<Assembly>,
+    db: &DBWithThreadMode<SingleThreaded>,
+    cf_mtdna: &rocksdb::ColumnFamily,
+) -> Result<(), anyhow::Error> {
+    let before_chrmt = Instant::now();
+    tracing::info!("Processing chrMT data ...");
+    let mut chrmt_written = 0usize;
+    let mut mt_reader = MtReader::new(
+        args.path_gnomad_mtdna.as_deref(),
+        args.path_helix_mtdb.as_deref(),
+        genome_release,
+    )?;
+    let mut has_next = true;
+    while has_next {
+        has_next = mt_reader.run(|variant, gnomad_mtdna, helix_mtdb| {
+            tracing::trace!(
+                "at {:?} | {:?} | {:?}",
+                &variant,
+                &gnomad_mtdna,
+                &helix_mtdb
+            );
+            let key: Vec<u8> = variant.into();
+            let mut value = [0u8; 24];
+            MtRecord {
+                gnomad_mtdna,
+                helix_mtdb,
+            }
+            .to_buf(&mut value);
+            db.put_cf(cf_mtdna, key, value)?;
+
+            chrmt_written += 1;
+
+            Ok(())
+        })?;
+    }
+    tracing::info!(
+        "  wrote {} chrMT records in {:?}",
+        chrmt_written,
+        before_chrmt.elapsed()
+    );
+    Ok(())
+}
+
 /// Main entry point for `db create seqvar_freqs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!(
@@ -197,42 +245,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     tracing::info!("Opening gnomAD genomes file(s)");
 
     // Import chrMT variants.
-    let before_chrmt = Instant::now();
-    tracing::info!("Processing chrMT data ...");
-    let mut chrmt_written = 0usize;
-    let mut mt_reader = MtReader::new(
-        args.path_gnomad_mtdna.as_deref(),
-        args.path_helix_mtdb.as_deref(),
-        genome_release,
-    )?;
-    let mut has_next = true;
-    while has_next {
-        has_next = mt_reader.run(|variant, gnomad_mtdna, helix_mtdb| {
-            tracing::trace!(
-                "at {:?} | {:?} | {:?}",
-                &variant,
-                &gnomad_mtdna,
-                &helix_mtdb
-            );
-            let key: Vec<u8> = variant.into();
-            let mut value = [0u8; 24];
-            MtRecord {
-                gnomad_mtdna,
-                helix_mtdb,
-            }
-            .to_buf(&mut value);
-            db.put_cf(cf_mtdna, key, value)?;
-
-            chrmt_written += 1;
-
-            Ok(())
-        })?;
-    }
-    tracing::info!(
-        "  wrote {} chrMT records in {:?}",
-        chrmt_written,
-        before_chrmt.elapsed()
-    );
+    import_chrmt(args, genome_release, &db, cf_mtdna)?;
 
     tracing::info!("Opening gnomAD mtDNA file(s)");
     tracing::info!("Opening HelixMtDb file(s)");
