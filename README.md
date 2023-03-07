@@ -75,8 +75,8 @@ zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-dow
 
 ## 38 genomes y
 
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrY.vcf.bgz | head -n 5000 | grep ^# > tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r2.1.1.sites.chrY.vcf
+zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrY.vcf.bgz | head -n 5000 | grep ^# > tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r3.1.1.sites.chrY.vcf
 
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrY.vcf.bgz | grep -v ^# | head -n 3 >> tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r2.1.1.sites.chrY.vcf
+zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrY.vcf.bgz | grep -v ^# | head -n 3 >> tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r3.1.1.sites.chrY.vcf
 
 ```
