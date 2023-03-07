@@ -61,9 +61,9 @@ impl MultiVcfReader {
     pub fn new(paths: &[&str], initial_assembly: Option<Assembly>) -> Result<Self, anyhow::Error> {
         let mut assembly: Option<Assembly> = None;
 
-        let mut readers = Vec::new();
-        let mut headers = Vec::new();
-        let mut nexts = Vec::new();
+        let mut readers: Vec<Box<VariantReader<Box<dyn BufRead>>>> = Vec::new();
+        let mut headers: Vec<Box<VcfHeader>> = Vec::new();
+        let mut nexts: Vec<Option<VcfRecord>> = Vec::new();
         for path in paths {
             let mut reader = Box::new(VariantReaderBuilder::default().build_from_path(path)?);
             let header = Box::new(reader.as_mut().read_header()?);
