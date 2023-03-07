@@ -3,12 +3,13 @@
 pub mod reading;
 pub mod serialized;
 
-use std::{fs::File, io::BufReader};
-
 use clap::Parser;
-use noodles::{bgzf, vcf};
+use hgvs::static_data::Assembly;
+use noodles::vcf::Record as VcfRecord;
 
 use serialized::*;
+
+use self::reading::MultiVcfReader;
 
 /// Select the genome release to use.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,185 +48,113 @@ pub struct Args {
 }
 
 /// Helper for reading through gnomAD mtDNA and HelixMtDb data;
-struct MtReader {
-    /// CSV reader for the gnomad mitochondrial records.
-    gnomad_reader: Option<vcf::Reader<BufReader<bgzf::reader::Reader<File>>>>,
+pub struct MtReader {
+    /// CSV reader for the gnomAD mitochondrial records.
+    gnomad_reader: Option<MultiVcfReader>,
+    /// Next variant from gnomAD.
+    gnomad_next: Option<VcfRecord>,
     /// CSV reader for the HelixMtDb records.
-    helix_reader: Option<csv::Reader<BufReader<File>>>,
+    helix_reader: Option<MultiVcfReader>,
+    /// Next variant from gnomAD.
+    helix_next: Option<VcfRecord>,
 }
 
 impl MtReader {
+    /// Construct new reader with optional paths to HelixMtDb and gnomAD mtDNA.
+    ///
+    /// Optionally, you can provide an assembly to validate the VCF contigs against.
     pub fn new(
-        path_gnomad: &Option<String>,
-        path_helix: &Option<String>,
+        path_gnomad: Option<&str>,
+        path_helix: Option<&str>,
+        assembly: Option<Assembly>,
     ) -> Result<Self, anyhow::Error> {
-        let gnomad_reader = if let Some(path_gnomad) = path_gnomad {
-            tracing::info!("Opening gnomAD chrMT file {}", &path_gnomad);
-            let bgzf = bgzf::reader::Builder::default().build_from_path(path_gnomad)?;
-            let buf_reader = BufReader::new(bgzf);
-            let vcf_reader = vcf::Reader::new(buf_reader);
+        let mut gnomad_reader = path_gnomad
+            .as_ref()
+            .map(|path_gnomad| {
+                tracing::info!("Opening gnomAD chrMT file {}", &path_gnomad);
+                MultiVcfReader::new(&[&path_gnomad], assembly)
+            })
+            .transpose()?;
+        let mut helix_reader = path_helix
+            .as_ref()
+            .map(|path_helix| {
+                tracing::info!("Opening HelixMtDb chrMT file {}", &path_helix);
+                MultiVcfReader::new(&[&path_helix], assembly)
+            })
+            .transpose()?;
 
-            Some(vcf_reader)
+        let gnomad_next = if let Some(gnomad_reader) = gnomad_reader.as_mut() {
+            gnomad_reader.pop()?.0
+        } else {
+            None
+        };
+        let helix_next = if let Some(helix_reader) = helix_reader.as_mut() {
+            helix_reader.pop()?.0
         } else {
             None
         };
 
-        let helix_reader = if let Some(path_helix) = path_helix {
-            tracing::info!("Opening HelixMtDb chrMT file {}", &path_helix);
-            let f = File::open(path_helix)?;
-            let buf_reader = BufReader::new(f);
-            let csv_reader = csv::ReaderBuilder::new()
-                .has_headers(true)
-                .delimiter(b'\t')
-                .from_reader(buf_reader);
-
-            Some(csv_reader)
-        } else {
-            None
-        };
+        tracing::info!("... done opening and popping");
 
         Ok(Self {
             gnomad_reader,
             helix_reader,
+            gnomad_next,
+            helix_next,
         })
     }
 
-    pub fn run<F>(&mut self, mut func: F) -> Result<(), anyhow::Error>
+    /// Run the reading of the chrMT frequencies.
+    ///
+    /// Returns whether there is a next value.
+    pub fn run<F>(&mut self, mut func: F) -> Result<bool, anyhow::Error>
     where
-        F: FnMut(Option<(VcfVar, MtCounts)>, Option<(VcfVar, MtCounts)>),
+        F: FnMut(VcfVar, MtCounts, MtCounts) -> Result<(), anyhow::Error>,
     {
-        // // Prepare VCF.
-        // let vcf_header = self
-        //     .gnomad_reader
-        //     .as_mut()
-        //     .map(|gnomad_reader| {
-        //         Rc::new(
-        //             gnomad_reader
-        //                 .read_header()
-        //                 .expect("could not read vcf header")
-        //                 .parse::<vcf::Header>()
-        //                 .expect("could not parse VCF header"),
-        //         )
-        //     })
-        //     .unwrap_or(Rc::default());
-        // let vcf_records = self
-        //     .gnomad_reader
-        //     .as_mut()
-        //     .map(|gnomad_reader| gnomad_reader.records(vcf_header.as_ref()));
+        match (&self.gnomad_next, &self.helix_next) {
+            (None, Some(helix)) => {
+                func(
+                    VcfVar::from_vcf(&helix),
+                    MtCounts::default(),
+                    MtCounts::from_vcf(&helix),
+                )?;
+                self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0;
+            }
+            (Some(gnomad), None) => {
+                func(
+                    VcfVar::from_vcf(&gnomad),
+                    MtCounts::from_vcf(&gnomad),
+                    MtCounts::default(),
+                )?;
+                self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0;
+            }
+            (Some(gnomad), Some(helix)) => {
+                let var_gnomad = VcfVar::from_vcf(gnomad);
+                let var_helix = VcfVar::from_vcf(helix);
+                match var_gnomad.cmp(&var_helix) {
+                    std::cmp::Ordering::Less => {
+                        func(var_gnomad, MtCounts::from_vcf(&gnomad), MtCounts::default())?;
+                        self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0;
+                    }
+                    std::cmp::Ordering::Equal => {
+                        func(
+                            var_gnomad,
+                            MtCounts::from_vcf(&gnomad),
+                            MtCounts::from_vcf(&helix),
+                        )?;
+                        self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0.clone();
+                        self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0.clone();
+                    }
+                    std::cmp::Ordering::Greater => {
+                        func(var_helix, MtCounts::default(), MtCounts::from_vcf(&helix))?;
+                        self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0.clone();
+                    }
+                }
+            }
+            (None, None) => (),
+        }
 
-        // // Prepare TSV.
-        // let csv_xs: Option<csv::DeserializeRecordsIter<_, HelixRecord>> = self
-        //     .helix_reader
-        //     .as_mut()
-        //     .map(|helix_reader| helix_reader.deserialize());
-
-        // // Read initial "next" records into buffers.
-        // let mut next_gnomad = vcf_records.map(|mut vcf_records| -> Option<_> {
-        //     if let Some(Ok(vcf_record)) = vcf_records.next() {
-        //         let chrom = match vcf_record.chromosome() {
-        //             vcf::record::Chromosome::Name(s) | vcf::record::Chromosome::Symbol(s) => {
-        //                 s.clone()
-        //             }
-        //         };
-        //         let pos: usize = vcf_record.position().into();
-        //         let reference = vcf_record.reference_bases().to_string();
-        //         let alternative = vcf_record.alternate_bases().deref()[0].to_string();
-
-        //         let ac_hom = match vcf_record
-        //             .info()
-        //             .get(&Key::Other("AC_hom".to_string()))
-        //             .unwrap()
-        //             .unwrap()
-        //         {
-        //             vcf::record::info::field::Value::Integer(ac_hom) => *ac_hom as u32,
-        //             _ => panic!("invalid type for AC_hom"),
-        //         };
-        //         let ac_het = match vcf_record
-        //             .info()
-        //             .get(&Key::Other("AC_het".to_string()))
-        //             .unwrap()
-        //             .unwrap()
-        //         {
-        //             vcf::record::info::field::Value::Integer(ac_het) => *ac_het as u32,
-        //             _ => panic!("invalid type for AC_het"),
-        //         };
-        //         let an = match vcf_record
-        //             .info()
-        //             .get(&Key::TotalAlleleCount)
-        //             .unwrap()
-        //             .unwrap()
-        //         {
-        //             vcf::record::info::field::Value::Integer(an) => *an as u32,
-        //             _ => panic!("invalid type for AN"),
-        //         };
-
-        //         let var = VcfVar {
-        //             chrom,
-        //             pos: pos as i32,
-        //             reference,
-        //             alternative,
-        //         };
-        //         let mt_counts = MtCounts { ac_hom, ac_het, an };
-        //         tracing::info!("Read VCF variant {:?} -- {:?}", &var, &mt_counts);
-
-        //         Some(0)
-        //     } else {
-        //         None
-        //     }
-        // });
-
-        todo!()
-    }
-}
-
-/// Check genome release from gnomAD and compare with the provided one from arguments.
-fn check_release_with_guessed_from_gnomad(args: &Args) -> Result<GenomeRelease, anyhow::Error> {
-    let release = if args.path_gnomad_exomes.is_some() || args.path_gnomad_genomes.is_some() {
-        tracing::info!("Genome release evaluation for gnomAD files...");
-        let mut paths = args
-            .path_gnomad_exomes
-            .as_ref()
-            .map(|s| s.clone())
-            .unwrap_or(Vec::new());
-        paths.append(
-            &mut args
-                .path_gnomad_genomes
-                .as_ref()
-                .map(|s| s.clone())
-                .unwrap_or(Vec::new()),
-        );
-
-        let mut current = None;
-        let mut current_from = String::new();
-        // for path in &paths {
-        //     let guessed = gnomad_nuclear::guess_genome_release(path)?;
-        //     if let Some(current) = &current {
-        //         if current != &guessed {
-        //             let msg = format!(
-        //                 "Inconsistent gnomAD releases. Earlier, we guessed {:?} from {} but \
-        //                 now we guessed {:?} from {}",
-        //                 current, &current_from, guessed, &path
-        //             );
-        //             tracing::error!(msg);
-        //             return Err(anyhow::anyhow!(msg));
-        //         }
-        //     } else {
-        //         current = Some(guessed);
-        //         current_from = path.clone();
-        //     }
-        // }
-
-        current
-    } else {
-        args.genome_release
-    };
-
-    if let Some(release) = release {
-        Ok(release)
-    } else {
-        let msg = "Could not determine genome release from gnomAD and none given on command line";
-        tracing::error!(msg);
-        Err(anyhow::anyhow!(msg))
+        Ok(self.gnomad_next.is_some() || self.helix_next.is_some())
     }
 }
 
@@ -238,7 +167,10 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     );
 
     // Guess genome release from paths.
-    let release = check_release_with_guessed_from_gnomad(args)?;
+    let genome_release = args.genome_release.map(|gr| match gr {
+        GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
+        GenomeRelease::Grch38 => Assembly::Grch38,
+    });
 
     // Open the output database, obtain column family handles, and write out meta data.
     tracing::info!("Opening output database");
@@ -246,18 +178,18 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     options.create_if_missing(true);
     options.create_missing_column_families(true);
     options.prepare_for_bulk_load();
-    let mut db = rocksdb::DB::open_cf(
+    let db = rocksdb::DB::open_cf(
         &options,
         &args.path_output_db,
         &["meta", "nuclear", "mitochondrial"],
     )?;
 
-    let cf_meta = db.cf_handle("meta").unwrap();
+    let _cf_meta = db.cf_handle("meta").unwrap();
     let cf_ndna = db.cf_handle("nuclear").unwrap();
     let cf_mtdna = db.cf_handle("mitochondrial").unwrap();
 
     tracing::info!("Writing meta data to database");
-    db.put_cf(cf_meta, "genome-release", format!("{:?}", release))?;
+    // db.put_cf(cf_meta, "genome-release", format!("{:?}", release))?;
 
     // Import gnomAD variants in a chromosome-wise fashion.
     tracing::info!("Processing gnomAD nuclear variant data ...");
@@ -266,8 +198,33 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
     // Import chrMT variants.
     tracing::info!("Processing chrMT data ...");
-    MtReader::new(&args.path_gnomad_mtdna, &args.path_helix_mtdb)?
-        .run(|gnomad: Option<(VcfVar, MtCounts)>, helix: Option<(VcfVar, MtCounts)>| {})?;
+    let mut chrmt_written = 0usize;
+    let mut mt_reader = MtReader::new(
+        args.path_gnomad_mtdna.as_deref(),
+        args.path_helix_mtdb.as_deref(),
+        genome_release,
+    )?;
+    while mt_reader.run(|variant, gnomad_mtdna, helix_mtdb| {
+        tracing::trace!(
+            "at {:?} | {:?} | {:?}",
+            &variant,
+            &gnomad_mtdna,
+            &helix_mtdb
+        );
+        let key: Vec<u8> = variant.into();
+        let mut value = [0u8; 24];
+        MtRecord {
+            gnomad_mtdna,
+            helix_mtdb,
+        }
+        .to_buf(&mut value);
+        db.put_cf(cf_mtdna, key, value)?;
+
+        Ok(())
+    })? {
+        chrmt_written += 1;
+    }
+    tracing::info!("  wrote {} chrMT records", chrmt_written);
 
     tracing::info!("Opening gnomAD mtDNA file(s)");
     tracing::info!("Opening HelixMtDb file(s)");
@@ -279,4 +236,179 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
     tracing::info!("Done building sequence variant frequency table");
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    #[test]
+    fn test_mt_reader() -> Result<(), anyhow::Error> {
+        let mut reader = MtReader::new(
+            Some("tests/data/db/create/seqvar_freqs/gnomad.chrM.vcf"),
+            Some("tests/data/db/create/seqvar_freqs/helix.chrM.vcf"),
+            Some(Assembly::Grch37p10),
+        )?;
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, gnomad, helix| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("chrM"),
+                        pos: 3,
+                        reference: String::from("T"),
+                        alternative: String::from("C")
+                    }
+                );
+                assert_eq!(
+                    gnomad,
+                    MtCounts {
+                        an: 56434,
+                        ac_hom: 19,
+                        ac_het: 1
+                    }
+                );
+                assert_eq!(helix, MtCounts::default());
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, gnomad, helix| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("chrM"),
+                        pos: 5,
+                        reference: String::from("A"),
+                        alternative: String::from("C")
+                    }
+                );
+                assert_eq!(
+                    helix,
+                    MtCounts {
+                        an: 196554,
+                        ac_hom: 1,
+                        ac_het: 0
+                    }
+                );
+                assert_eq!(gnomad, MtCounts::default());
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, gnomad, helix| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("chrM"),
+                        pos: 6,
+                        reference: String::from("C"),
+                        alternative: String::from("CCTCAA")
+                    }
+                );
+                assert_eq!(
+                    gnomad,
+                    MtCounts {
+                        an: 56433,
+                        ac_hom: 0,
+                        ac_het: 0
+                    }
+                );
+                assert_eq!(helix, MtCounts::default());
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, gnomad, helix| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("chrM"),
+                        pos: 10,
+                        reference: String::from("T"),
+                        alternative: String::from("C")
+                    }
+                );
+                assert_eq!(
+                    helix,
+                    MtCounts {
+                        an: 196554,
+                        ac_hom: 7,
+                        ac_het: 1
+                    }
+                );
+                assert_eq!(
+                    gnomad,
+                    MtCounts {
+                        an: 56433,
+                        ac_hom: 0,
+                        ac_het: 0
+                    }
+                );
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, gnomad, helix| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("chrM"),
+                        pos: 11,
+                        reference: String::from("C"),
+                        alternative: String::from("T")
+                    }
+                );
+                assert_eq!(
+                    helix,
+                    MtCounts {
+                        an: 196554,
+                        ac_hom: 0,
+                        ac_het: 1
+                    }
+                );
+                assert_eq!(gnomad, MtCounts::default());
+                called = true;
+                Ok(())
+            })?;
+            assert!(!res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|_var, _gnomad, _helix| {
+                called = true;
+                Ok(())
+            })?;
+            assert!(!res);
+            assert!(!called);
+        }
+
+        Ok(())
+    }
 }

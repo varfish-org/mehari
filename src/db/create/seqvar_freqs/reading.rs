@@ -1,9 +1,6 @@
 //! Reading of variants.
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    io::BufRead,
-};
+use std::{collections::HashMap, io::BufRead};
 
 use hgvs::static_data::{Assembly, ASSEMBLY_INFOS};
 use noodles::vcf::{Header as VcfHeader, Record as VcfRecord};
@@ -14,7 +11,7 @@ pub struct ContigMap {
     /// The corresponding assembly.
     pub assembly: Assembly,
     /// Map from contig name to contig ID.
-    pub name_map: BTreeMap<String, usize>,
+    pub name_map: HashMap<String, usize>,
 }
 
 impl ContigMap {
@@ -22,7 +19,7 @@ impl ContigMap {
     ///
     /// NB: Grch37 does not include chrMT, Grch7p10 does.
     pub fn new(assembly: Assembly) -> Self {
-        let mut name_map = BTreeMap::new();
+        let mut name_map = HashMap::new();
         let info = &ASSEMBLY_INFOS[assembly];
         for (idx, seq) in info.sequences.iter().enumerate() {
             name_map.insert(seq.name.clone(), idx);
@@ -61,10 +58,7 @@ pub struct MultiVcfReader {
 
 impl MultiVcfReader {
     /// Create a new multi VCF reader.
-    pub fn new(
-        paths: &Vec<String>,
-        initial_assembly: Option<Assembly>,
-    ) -> Result<Self, anyhow::Error> {
+    pub fn new(paths: &[&str], initial_assembly: Option<Assembly>) -> Result<Self, anyhow::Error> {
         let mut assembly: Option<Assembly> = None;
 
         let mut readers = Vec::new();
@@ -94,6 +88,11 @@ impl MultiVcfReader {
             nexts,
             next: 0,
         })
+    }
+
+    /// Obtain the number of input files.
+    pub fn input_count(&self) -> usize {
+        self.readers.len()
     }
 
     /// Helper that returns integer pair for `VcfRecord`.
@@ -139,7 +138,7 @@ impl MultiVcfReader {
 /// Canonical chromosome names.
 ///
 /// Note that the mitochondrial genome runs under two names.
-const CANONICAL: &'static [&'static str] = &[
+const CANONICAL: &[&str] = &[
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17",
     "18", "19", "20", "21", "22", "X", "Y", "M", "MT",
 ];
@@ -287,8 +286,8 @@ mod test {
     fn test_multivcf_reader() -> Result<(), anyhow::Error> {
         let mut reader = MultiVcfReader::new(
             &vec![
-                String::from("tests/data/db/create/seqvar_freqs/gnomad.chrM.vcf"),
-                String::from("tests/data/db/create/seqvar_freqs/helix.chrM.vcf"),
+                "tests/data/db/create/seqvar_freqs/gnomad.chrM.vcf",
+                "tests/data/db/create/seqvar_freqs/helix.chrM.vcf",
             ],
             Some(Assembly::Grch37p10),
         )?;
@@ -299,7 +298,7 @@ mod test {
             assert_eq!(Into::<usize>::into(record.position()), 3);
         };
 
-        for i in 0..6 {
+        for _i in 0..6 {
             assert!(reader.pop()?.0.is_some());
         }
         assert!(reader.peek().0.is_none());
