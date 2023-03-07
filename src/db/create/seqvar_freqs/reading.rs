@@ -49,7 +49,7 @@ pub struct MultiVcfReader {
     /// One reader per file to read from.
     readers: Vec<Box<VariantReader<Box<dyn BufRead>>>>,
     /// The headers as read from `readers`.
-    hdrs: Vec<Box<VcfHeader>>,
+    headers: Vec<Box<VcfHeader>>,
     /// The next record from each reader, if any.
     nexts: Vec<Option<VcfRecord>>,
     /// The smallest from nexts.
@@ -84,7 +84,7 @@ impl MultiVcfReader {
         Ok(Self {
             contig_map,
             readers,
-            hdrs: headers,
+            headers,
             nexts,
             next: 0,
         })
@@ -112,7 +112,7 @@ impl MultiVcfReader {
         let result = (self.nexts[self.next].clone(), self.next);
         self.nexts[self.next] = self.readers[self.next]
             .as_mut()
-            .records(&self.hdrs[self.next])
+            .records(&self.headers[self.next])
             .next()
             .transpose()?;
 
