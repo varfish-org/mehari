@@ -49,7 +49,7 @@ prepare()
     zcat $in \
     | grep -v ^# \
     | head -n 3 \
-    > $out
+    >> $out
 }
 
 base=/data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/
