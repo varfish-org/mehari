@@ -474,6 +474,8 @@ mod test {
     use super::mt::Reader as MtReader;
     use super::serialized::mt::Counts as MtCounts;
     use super::serialized::vcf::Var as VcfVar;
+    use super::serialized::xy::Counts as XyCounts;
+    use super::xy::Reader as XyReader;
 
     #[test]
     fn test_mt_reader() -> Result<(), anyhow::Error> {
@@ -633,6 +635,291 @@ mod test {
         {
             let mut called = false;
             let res = reader.run(|_var, _gnomad, _helix| {
+                called = true;
+                Ok(())
+            })?;
+            assert!(!res);
+            assert!(!called);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_xy_reader() -> Result<(), anyhow::Error> {
+        let mut reader = XyReader::new(
+            Some(&[
+                "tests/data/db/create/seqvar_freqs/xy-37/gnomad.exomes.r2.1.1.sites.chrX.vcf",
+                "tests/data/db/create/seqvar_freqs/xy-37/gnomad.exomes.r2.1.1.sites.chrY.vcf",
+            ]),
+            Some(&["tests/data/db/create/seqvar_freqs/xy-37/gnomad.genomes.r2.1.1.sites.chrX.vcf"]),
+            Some(Assembly::Grch37p10),
+        )?;
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, exomes, genomes| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("X"),
+                        pos: 60003,
+                        reference: String::from("A"),
+                        alternative: String::from("G")
+                    }
+                );
+                assert_eq!(exomes, XyCounts::default());
+                assert_eq!(
+                    genomes,
+                    XyCounts {
+                        an: 2488,
+                        ac_hom: 0,
+                        ac_het: 10,
+                        ac_hemi: 0
+                    }
+                );
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, exomes, genomes| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("X"),
+                        pos: 60008,
+                        reference: String::from("T"),
+                        alternative: String::from("G")
+                    }
+                );
+                assert_eq!(exomes, XyCounts::default());
+                assert_eq!(
+                    genomes,
+                    XyCounts {
+                        an: 8576,
+                        ac_hom: 0,
+                        ac_het: 0,
+                        ac_hemi: 0
+                    }
+                );
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, exomes, genomes| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("X"),
+                        pos: 60009,
+                        reference: String::from("A"),
+                        alternative: String::from("G")
+                    }
+                );
+                assert_eq!(exomes, XyCounts::default());
+                assert_eq!(
+                    genomes,
+                    XyCounts {
+                        an: 3214,
+                        ac_hom: 1,
+                        ac_het: 3,
+                        ac_hemi: 0
+                    }
+                );
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, exomes, genomes| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("X"),
+                        pos: 200808,
+                        reference: String::from("C"),
+                        alternative: String::from("A")
+                    }
+                );
+                assert_eq!(genomes, XyCounts::default());
+                assert_eq!(
+                    exomes,
+                    XyCounts {
+                        an: 249706,
+                        ac_hom: 0,
+                        ac_het: 0,
+                        ac_hemi: 0
+                    }
+                );
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, exomes, genomes| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("X"),
+                        pos: 200808,
+                        reference: String::from("C"),
+                        alternative: String::from("G")
+                    }
+                );
+                assert_eq!(genomes, XyCounts::default());
+                assert_eq!(
+                    exomes,
+                    XyCounts {
+                        an: 249706,
+                        ac_hom: 0,
+                        ac_het: 1,
+                        ac_hemi: 0
+                    }
+                );
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, exomes, genomes| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("X"),
+                        pos: 200808,
+                        reference: String::from("C"),
+                        alternative: String::from("T")
+                    }
+                );
+                assert_eq!(genomes, XyCounts::default());
+                assert_eq!(
+                    exomes,
+                    XyCounts {
+                        an: 249706,
+                        ac_hom: 0,
+                        ac_het: 1,
+                        ac_hemi: 0
+                    }
+                );
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, exomes, genomes| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("Y"),
+                        pos: 2654979,
+                        reference: String::from("G"),
+                        alternative: String::from("C")
+                    }
+                );
+                assert_eq!(genomes, XyCounts::default());
+                assert_eq!(
+                    exomes,
+                    XyCounts {
+                        an: 67174,
+                        ac_hom: 0,
+                        ac_het: 0,
+                        ac_hemi: 2
+                    }
+                );
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, exomes, genomes| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("Y"),
+                        pos: 2655003,
+                        reference: String::from("C"),
+                        alternative: String::from("G")
+                    }
+                );
+                assert_eq!(genomes, XyCounts::default());
+                assert_eq!(
+                    exomes,
+                    XyCounts {
+                        an: 67694,
+                        ac_hom: 0,
+                        ac_het: 0,
+                        ac_hemi: 1
+                    }
+                );
+                called = true;
+                Ok(())
+            })?;
+            assert!(res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|var, exomes, genomes| {
+                assert_eq!(
+                    var,
+                    VcfVar {
+                        chrom: String::from("Y"),
+                        pos: 2655009,
+                        reference: String::from("A"),
+                        alternative: String::from("G")
+                    }
+                );
+                assert_eq!(genomes, XyCounts::default());
+                assert_eq!(
+                    exomes,
+                    XyCounts {
+                        an: 67729,
+                        ac_hom: 0,
+                        ac_het: 0,
+                        ac_hemi: 1
+                    }
+                );
+                called = true;
+                Ok(())
+            })?;
+            assert!(!res);
+            assert!(called);
+        }
+
+        {
+            let mut called = false;
+            let res = reader.run(|_var, _exomes, _genomes| {
                 called = true;
                 Ok(())
             })?;

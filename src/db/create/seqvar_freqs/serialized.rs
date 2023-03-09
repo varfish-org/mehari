@@ -430,7 +430,7 @@ mod test {
 
     #[test]
     fn test_vcf_var_from_vcf() -> Result<(), anyhow::Error> {
-        let path = "tests/data/db/create/seqvar_freqs/helix.chrM.vcf";
+        let path = "tests/data/db/create/seqvar_freqs/mt/helix.chrM.vcf";
         let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
         let header = reader.read_header()?;
         let mut records = reader.records(&header);
@@ -452,7 +452,7 @@ mod test {
 
     #[test]
     fn test_mtcounts_from_vcf() -> Result<(), anyhow::Error> {
-        let path = "tests/data/db/create/seqvar_freqs/helix.chrM.vcf";
+        let path = "tests/data/db/create/seqvar_freqs/mt/helix.chrM.vcf";
         let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
         let header = reader.read_header()?;
         let mut records = reader.records(&header);

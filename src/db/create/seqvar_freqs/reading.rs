@@ -234,7 +234,7 @@ mod test {
 
     #[test]
     fn guess_assembly_helix_chrmt_ambiguous_ok_initial_none() -> Result<(), anyhow::Error> {
-        let path = "tests/data/db/create/seqvar_freqs/helix.chrM.vcf";
+        let path = "tests/data/db/create/seqvar_freqs/mt/helix.chrM.vcf";
         let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
         let header = reader.read_header()?;
 
@@ -246,7 +246,7 @@ mod test {
 
     #[test]
     fn guess_assembly_helix_chrmt_ambiguous_ok_initial_override() -> Result<(), anyhow::Error> {
-        let path = "tests/data/db/create/seqvar_freqs/helix.chrM.vcf";
+        let path = "tests/data/db/create/seqvar_freqs/mt/helix.chrM.vcf";
         let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
         let header = reader.read_header()?;
 
@@ -259,7 +259,7 @@ mod test {
     #[test]
     fn guess_assembly_helix_chrmt_ambiguous_ok_initial_override_fails() -> Result<(), anyhow::Error>
     {
-        let path = "tests/data/db/create/seqvar_freqs/helix.chrM.vcf";
+        let path = "tests/data/db/create/seqvar_freqs/mt/helix.chrM.vcf";
         let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
         let header = reader.read_header()?;
 
@@ -270,7 +270,7 @@ mod test {
 
     #[test]
     fn guess_assembly_helix_chrmt_ambiguous_fail() -> Result<(), anyhow::Error> {
-        let path = "tests/data/db/create/seqvar_freqs/helix.chrM.vcf";
+        let path = "tests/data/db/create/seqvar_freqs/mt/helix.chrM.vcf";
         let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
         let header = reader.read_header()?;
 
