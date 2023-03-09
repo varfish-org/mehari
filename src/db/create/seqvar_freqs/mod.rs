@@ -10,9 +10,9 @@ use hgvs::static_data::Assembly;
 
 use rocksdb::{DBWithThreadMode, SingleThreaded};
 
+use self::serialized::auto::Record as AutoRecord;
 use self::serialized::mt::Record as MtRecord;
 use self::serialized::xy::Record as XyRecord;
-use self::serialized::auto::Record as AutoRecord;
 
 /// Select the genome release to use.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,68 +56,70 @@ pub struct Args {
     pub max_var_count: Option<usize>,
 }
 
-/// Reading of chrMT records.
-pub mod mt {
+/// Reading of autosomal records.
+pub mod auto {
     use hgvs::static_data::Assembly;
     use noodles::vcf::Record as VcfRecord;
 
-    use super::serialized::mt::Counts as MtCounts;
+    use super::serialized::auto::Counts as AutoCounts;
     use super::serialized::vcf::Var as VcfVar;
 
     use super::reading::MultiVcfReader;
 
-    /// Helper for reading through gnomAD mtDNA and HelixMtDb data;
+    /// Helper for reading through gnomAD exomes and genomes data;
     pub struct Reader {
         /// CSV reader for the gnomAD mitochondrial records.
-        gnomad_reader: Option<MultiVcfReader>,
+        gnomad_exomes_reader: Option<MultiVcfReader>,
         /// Next variant from gnomAD.
-        gnomad_next: Option<VcfRecord>,
+        gnomad_exomes_next: Option<VcfRecord>,
         /// CSV reader for the HelixMtDb records.
-        helix_reader: Option<MultiVcfReader>,
+        gnomad_genomes_reader: Option<MultiVcfReader>,
         /// Next variant from gnomAD.
-        helix_next: Option<VcfRecord>,
+        gnomad_genomes_next: Option<VcfRecord>,
     }
 
     impl Reader {
-        /// Construct new reader with optional paths to HelixMtDb and gnomAD mtDNA.
+        /// Construct new reader with optional paths to gnomAD genomes and exomes data.
         ///
         /// Optionally, you can provide an assembly to validate the VCF contigs against.
         pub fn new(
-            path_gnomad: Option<&str>,
-            path_helix: Option<&str>,
+            path_gnomad_exomes: Option<&[&str]>,
+            path_gnomad_genomes: Option<&[&str]>,
             assembly: Option<Assembly>,
         ) -> Result<Self, anyhow::Error> {
-            let mut gnomad_reader = path_gnomad
-                .as_ref()
-                .map(|path_gnomad| {
-                    tracing::info!("Opening gnomAD chrMT file {}", &path_gnomad);
-                    MultiVcfReader::new(&[path_gnomad], assembly)
-                })
-                .transpose()?;
-            let mut helix_reader = path_helix
-                .as_ref()
-                .map(|path_helix| {
-                    tracing::info!("Opening HelixMtDb chrMT file {}", &path_helix);
-                    MultiVcfReader::new(&[path_helix], assembly)
+            let mut gnomad_exomes_reader = path_gnomad_exomes
+                .map(|path_gnomad_exomes| {
+                    tracing::info!("Opening gnomAD exomes file {:?}", &path_gnomad_exomes);
+                    MultiVcfReader::new(path_gnomad_exomes, assembly)
                 })
                 .transpose()?;
 
-            let gnomad_next = if let Some(gnomad_reader) = gnomad_reader.as_mut() {
-                gnomad_reader.pop()?.0
-            } else {
-                None
-            };
-            let helix_next = if let Some(helix_reader) = helix_reader.as_mut() {
-                helix_reader.pop()?.0
-            } else {
-                None
-            };
+            let gnomad_exomes_next =
+                if let Some(gnomad_exomes_reader) = gnomad_exomes_reader.as_mut() {
+                    gnomad_exomes_reader.pop()?.0
+                } else {
+                    None
+                };
+
+            let mut gnomad_genomes_reader = path_gnomad_genomes
+                .map(|path_gnomad_genomes| {
+                    tracing::info!("Opening gnomAD genomes file {:?}", &path_gnomad_genomes);
+                    MultiVcfReader::new(path_gnomad_genomes, assembly)
+                })
+                .transpose()?;
+
+            let gnomad_genomes_next =
+                if let Some(gnomad_genomes_reader) = gnomad_genomes_reader.as_mut() {
+                    gnomad_genomes_reader.pop()?.0
+                } else {
+                    None
+                };
 
             Ok(Self {
-                gnomad_reader,
-                helix_reader,
-                gnomad_next,
-                helix_next,
+                gnomad_exomes_reader,
+                gnomad_genomes_reader,
+                gnomad_exomes_next,
+                gnomad_genomes_next,
             })
         }
 
@@ -126,52 +128,65 @@ pub mod mt {
         /// Returns whether there is a next value.
         pub fn run<F>(&mut self, mut func: F) -> Result<bool, anyhow::Error>
         where
-            F: FnMut(VcfVar, MtCounts, MtCounts) -> Result<(), anyhow::Error>,
+            F: FnMut(VcfVar, AutoCounts, AutoCounts) -> Result<(), anyhow::Error>,
         {
-            match (&self.gnomad_next, &self.helix_next) {
-                (None, Some(helix)) => {
+            match (&self.gnomad_exomes_next, &self.gnomad_genomes_next) {
+                (None, Some(gnomad_genomes)) => {
                     func(
-                        VcfVar::from_vcf(helix),
-                        MtCounts::default(),
-                        MtCounts::from_vcf(helix),
+                        VcfVar::from_vcf(gnomad_genomes),
+                        AutoCounts::default(),
+                        AutoCounts::from_vcf(gnomad_genomes),
                     )?;
-                    self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0;
+                    self.gnomad_genomes_next =
+                        self.gnomad_genomes_reader.as_mut().unwrap().pop()?.0;
                 }
-                (Some(gnomad), None) => {
+                (Some(gnomad_exomes), None) => {
                     func(
-                        VcfVar::from_vcf(gnomad),
-                        MtCounts::from_vcf(gnomad),
-                        MtCounts::default(),
+                        VcfVar::from_vcf(gnomad_exomes),
+                        AutoCounts::from_vcf(gnomad_exomes),
+                        AutoCounts::default(),
                     )?;
-                    self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0;
+                    self.gnomad_exomes_next = self.gnomad_exomes_reader.as_mut().unwrap().pop()?.0;
                 }
-                (Some(gnomad), Some(helix)) => {
-                    let var_gnomad = VcfVar::from_vcf(gnomad);
-                    let var_helix = VcfVar::from_vcf(helix);
-                    match var_gnomad.cmp(&var_helix) {
+                (Some(gnomad_exomes), Some(gnomad_genomes)) => {
+                    let var_gnomad_exomes = VcfVar::from_vcf(gnomad_exomes);
+                    let var_gnomad_genomes = VcfVar::from_vcf(gnomad_genomes);
+                    match var_gnomad_exomes.cmp(&var_gnomad_genomes) {
                         std::cmp::Ordering::Less => {
-                            func(var_gnomad, MtCounts::from_vcf(gnomad), MtCounts::default())?;
-                            self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0;
+                            func(
+                                var_gnomad_exomes,
+                                AutoCounts::from_vcf(gnomad_exomes),
+                                AutoCounts::default(),
+                            )?;
+                            self.gnomad_exomes_next =
+                                self.gnomad_exomes_reader.as_mut().unwrap().pop()?.0;
                         }
                         std::cmp::Ordering::Equal => {
                             func(
-                                var_gnomad,
-                                MtCounts::from_vcf(gnomad),
-                                MtCounts::from_vcf(helix),
+                                var_gnomad_exomes,
+                                AutoCounts::from_vcf(gnomad_exomes),
+                                AutoCounts::from_vcf(gnomad_genomes),
                             )?;
-                            self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0;
-                            self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0;
+                            self.gnomad_exomes_next =
+                                self.gnomad_exomes_reader.as_mut().unwrap().pop()?.0;
+                            self.gnomad_genomes_next =
+                                self.gnomad_genomes_reader.as_mut().unwrap().pop()?.0;
                         }
                         std::cmp::Ordering::Greater => {
-                            func(var_helix, MtCounts::default(), MtCounts::from_vcf(helix))?;
-                            self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0;
+                            func(
+                                var_gnomad_genomes,
+                                AutoCounts::default(),
+                                AutoCounts::from_vcf(gnomad_genomes),
+                            )?;
+                            self.gnomad_genomes_next =
+                                self.gnomad_genomes_reader.as_mut().unwrap().pop()?.0;
                         }
                     }
                 }
                 (None, None) => (),
             }
 
-            Ok(self.gnomad_next.is_some() || self.helix_next.is_some())
+            Ok(self.gnomad_exomes_next.is_some() || self.gnomad_genomes_next.is_some())
         }
     }
 }
@@ -307,6 +322,126 @@ pub mod xy {
             }
 
             Ok(self.gnomad_exomes_next.is_some() || self.gnomad_genomes_next.is_some())
+        }
+    }
+}
+
+/// Reading of chrMT records.
+pub mod mt {
+    use hgvs::static_data::Assembly;
+    use noodles::vcf::Record as VcfRecord;
+
+    use super::serialized::mt::Counts as MtCounts;
+    use super::serialized::vcf::Var as VcfVar;
+
+    use super::reading::MultiVcfReader;
+
+    /// Helper for reading through gnomAD mtDNA and HelixMtDb data;
+    pub struct Reader {
+        /// CSV reader for the gnomAD mitochondrial records.
+        gnomad_reader: Option<MultiVcfReader>,
+        /// Next variant from gnomAD.
+        gnomad_next: Option<VcfRecord>,
+        /// CSV reader for the HelixMtDb records.
+        helix_reader: Option<MultiVcfReader>,
+        /// Next variant from gnomAD.
+        helix_next: Option<VcfRecord>,
+    }
+
+    impl Reader {
+        /// Construct new reader with optional paths to HelixMtDb and gnomAD mtDNA.
+        ///
+        /// Optionally, you can provide an assembly to validate the VCF contigs against.
+        pub fn new(
+            path_gnomad: Option<&str>,
+            path_helix: Option<&str>,
+            assembly: Option<Assembly>,
+        ) -> Result<Self, anyhow::Error> {
+            let mut gnomad_reader = path_gnomad
+                .as_ref()
+                .map(|path_gnomad| {
+                    tracing::info!("Opening gnomAD chrMT file {}", &path_gnomad);
+                    MultiVcfReader::new(&[path_gnomad], assembly)
+                })
+                .transpose()?;
+            let mut helix_reader = path_helix
+                .as_ref()
+                .map(|path_helix| {
+                    tracing::info!("Opening HelixMtDb chrMT file {}", &path_helix);
+                    MultiVcfReader::new(&[path_helix], assembly)
+                })
+                .transpose()?;
+
+            let gnomad_next = if let Some(gnomad_reader) = gnomad_reader.as_mut() {
+                gnomad_reader.pop()?.0
+            } else {
+                None
+            };
+            let helix_next = if let Some(helix_reader) = helix_reader.as_mut() {
+                helix_reader.pop()?.0
+            } else {
+                None
+            };
+
+            Ok(Self {
+                gnomad_reader,
+                helix_reader,
+                gnomad_next,
+                helix_next,
+            })
+        }
+
+        /// Run the reading of the chrMT frequencies.
+        ///
+        /// Returns whether there is a next value.
+        pub fn run<F>(&mut self, mut func: F) -> Result<bool, anyhow::Error>
+        where
+            F: FnMut(VcfVar, MtCounts, MtCounts) -> Result<(), anyhow::Error>,
+        {
+            match (&self.gnomad_next, &self.helix_next) {
+                (None, Some(helix)) => {
+                    func(
+                        VcfVar::from_vcf(helix),
+                        MtCounts::default(),
+                        MtCounts::from_vcf(helix),
+                    )?;
+                    self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0;
+                }
+                (Some(gnomad), None) => {
+                    func(
+                        VcfVar::from_vcf(gnomad),
+                        MtCounts::from_vcf(gnomad),
+                        MtCounts::default(),
+                    )?;
+                    self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0;
+                }
+                (Some(gnomad), Some(helix)) => {
+                    let var_gnomad = VcfVar::from_vcf(gnomad);
+                    let var_helix = VcfVar::from_vcf(helix);
+                    match var_gnomad.cmp(&var_helix) {
+                        std::cmp::Ordering::Less => {
+                            func(var_gnomad, MtCounts::from_vcf(gnomad), MtCounts::default())?;
+                            self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0;
+                        }
+                        std::cmp::Ordering::Equal => {
+                            func(
+                                var_gnomad,
+                                MtCounts::from_vcf(gnomad),
+                                MtCounts::from_vcf(helix),
+                            )?;
+                            self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0;
+                            self.gnomad_next = self.gnomad_reader.as_mut().unwrap().pop()?.0;
+                        }
+                        std::cmp::Ordering::Greater => {
+                            func(var_helix, MtCounts::default(), MtCounts::from_vcf(helix))?;
+                            self.helix_next = self.helix_reader.as_mut().unwrap().pop()?.0;
+                        }
+                    }
+                }
+                (None, None) => (),
+            }
+
+            Ok(self.gnomad_next.is_some() || self.helix_next.is_some())
         }
     }
 }
