@@ -36,47 +36,80 @@ rm -rf /tmp/out ; cargo run -- db create seqvar-freqs --path-output-db /tmp/out 
 ```
 
 ```
-## 37 exomes x
+prepare()
+{
+    in=$1
+    out=$2
 
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh37/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrX.vcf.bgz | head -n 5000 | grep ^# > tests/data/db/create/seqvar_freqs/xy-37/gnomad.exomes.r2.1.1.sites.chrX.vcf
+    zcat $in \
+    | head -n 5000 \
+    | grep ^# \
+    > $out
 
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh37/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrX.vcf.bgz | grep -v ^# | head -n 3 >>tests/data/db/create/seqvar_freqs/xy-37/gnomad.exomes.r2.1.1.sites.chrX.vcf
+    zcat $in \
+    | grep -v ^# \
+    | head -n 3 \
+    > $out
+}
 
-## 37 exomes y
+base=/data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/
 
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh37/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrY.vcf.bgz | head -n 5000 | grep ^# > tests/data/db/create/seqvar_freqs/xy-37/gnomad.exomes.r2.1.1.sites.chrY.vcf
+mkdir -p tests/data/db/create/seqvar_freqs/{12,xy}-{37,38}
 
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh37/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrY.vcf.bgz | grep -v ^# | head -n 3 >>tests/data/db/create/seqvar_freqs/xy-37/gnomad.exomes.r2.1.1.sites.chrY.vcf
+## 37 exomes
 
-## 37 genomes x
+prepare \
+    $base/GRCh37/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chr1.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/12-37/gnomad.exomes.r2.1.1.sites.chr1.vcf
+prepare \
+    $base/GRCh37/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chr2.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/12-37/gnomad.exomes.r2.1.1.sites.chr2.vcf
+prepare \
+    $base/GRCh37/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrX.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/xy-37/gnomad.exomes.r2.1.1.sites.chrX.vcf
+prepare \
+    $base/GRCh37/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrY.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/xy-37/gnomad.exomes.r2.1.1.sites.chrY.vcf
 
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh37/gnomAD_genomes/r2.1.1/download/gnomad.genomes.r2.1.1.sites.chrX.vcf.bgz | head -n 5000 | grep ^# > tests/data/db/create/seqvar_freqs/xy-37/gnomad.genomes.r2.1.1.sites.chrX.vcf
+## 37 genomes
 
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh37/gnomAD_genomes/r2.1.1/download/gnomad.genomes.r2.1.1.sites.chrX.vcf.bgz | grep -v ^# | head -n 3 >> tests/data/db/create/seqvar_freqs/xy-37/gnomad.genomes.r2.1.1.sites.chrX.vcf
+prepare \
+    $base/GRCh37/gnomAD_genomes/r2.1.1/download/gnomad.genomes.r2.1.1.sites.chr1.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/12-37/gnomad.genomes.r2.1.1.sites.chr1.vcf
+prepare \
+    $base/GRCh37/gnomAD_genomes/r2.1.1/download/gnomad.genomes.r2.1.1.sites.chr2.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/12-37/gnomad.genomes.r2.1.1.sites.chr2.vcf
+prepare \
+    $base/GRCh37/gnomAD_genomes/r2.1.1/download/gnomad.genomes.r2.1.1.sites.chrX.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/xy-37/gnomad.genomes.r2.1.1.sites.chrX.vcf
 
+## 38 exomes
 
-## 38 exomes x
+prepare \
+    $base/GRCh38/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chr1.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/12-38/gnomad.exomes.r2.1.1.sites.chr1.vcf
+prepare \
+    $base/GRCh38/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chr2.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/12-38/gnomad.exomes.r2.1.1.sites.chr2.vcf
+prepare \
+    $base/GRCh38/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrX.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/xy-38/gnomad.exomes.r2.1.1.sites.chrX.vcf
+prepare \
+    $base/GRCh38/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrY.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/xy-38/gnomad.exomes.r2.1.1.sites.chrY.vcf
 
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrX.vcf.bgz | head -n 5000 | grep ^# > tests/data/db/create/seqvar_freqs/xy-38/gnomad.exomes.r2.1.1.sites.chrX.vcf
+## 38 genomes
 
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrX.vcf.bgz | grep -v ^# | head -n 3 >>tests/data/db/create/seqvar_freqs/xy-38/gnomad.exomes.r2.1.1.sites.chrX.vcf
-
-## 38 exomes y
-
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrY.vcf.bgz | head -n 5000 | grep ^# > tests/data/db/create/seqvar_freqs/xy-38/gnomad.exomes.r2.1.1.sites.chrY.vcf
-
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_exomes/r2.1.1/download/gnomad.exomes.r2.1.1.sites.chrY.vcf.bgz | grep -v ^# | head -n 3 >>tests/data/db/create/seqvar_freqs/xy-38/gnomad.exomes.r2.1.1.sites.chrY.vcf
-
-## 38 genomes x
-
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrX.vcf.bgz | head -n 5000 | grep ^# > tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r2.1.1.sites.chrX.vcf
-
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrX.vcf.bgz | grep -v ^# | head -n 3 >> tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r2.1.1.sites.chrX.vcf
-
-## 38 genomes y
-
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrY.vcf.bgz | head -n 5000 | grep ^# > tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r3.1.1.sites.chrY.vcf
-
-zcat /data/sshfs/data/gpfs-1/groups/cubi/work/projects/2021-07-20_varfish-db-downloader-holtgrewe/varfish-db-downloader/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrY.vcf.bgz | grep -v ^# | head -n 3 >> tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r3.1.1.sites.chrY.vcf
-
+prepare \
+    $base/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chr1.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r2.1.1.sites.chr1.vcf
+prepare \
+    $base/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chr2.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r2.1.1.sites.chr2.vcf
+prepare \
+    $base/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrX.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r2.1.1.sites.chrX.vcf
+prepare \
+    $base/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrY.vcf.bgz \
+    tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r2.1.1.sites.chrY.vcf
 ```
