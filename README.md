@@ -102,10 +102,10 @@ prepare \
 
 prepare \
     $base/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chr1.vcf.bgz \
-    tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r2.1.1.sites.chr1.vcf
+    tests/data/db/create/seqvar_freqs/12-38/gnomad.genomes.r2.1.1.sites.chr1.vcf
 prepare \
     $base/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chr2.vcf.bgz \
-    tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r2.1.1.sites.chr2.vcf
+    tests/data/db/create/seqvar_freqs/12-38/gnomad.genomes.r2.1.1.sites.chr2.vcf
 prepare \
     $base/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrX.vcf.bgz \
     tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r2.1.1.sites.chrX.vcf

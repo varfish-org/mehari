@@ -102,6 +102,124 @@ pub mod mt {
     }
 }
 
+/// Autosomal counts.
+pub mod auto {
+    use std::str::FromStr;
+
+    use byteorder::{ByteOrder, LittleEndian};
+    use noodles::vcf::{
+        self,
+        header::info::{key::Other as InfoOther, key::Standard as InfoStandard, Key as InfoKey},
+        Record as VcfRecord,
+    };
+
+    /// Record type for storing AN, AC_hom, AC_het counts for autosomal chromosomes.
+    #[derive(Default, Debug, PartialEq, Eq, Clone)]
+    pub struct Counts {
+        /// Total number of alleles.
+        pub an: u32,
+        /// Number of hom. alt. alleles.
+        pub ac_hom: u32,
+        /// Number of het. alt. alleles.
+        pub ac_het: u32,
+    }
+
+    impl Counts {
+        /// Create from the given VCF record.
+        pub fn from_vcf(value: &VcfRecord) -> Self {
+            tracing::trace!("@ {:?}", &value);
+
+            let ac = value
+                .info()
+                .get(&InfoKey::Other(
+                    InfoOther::from_str("AC").expect("Invalid key: AC?"),
+                ))
+                .unwrap_or_default();
+            let ac = if let Some(ac) = ac {
+                match ac {
+                    vcf::record::info::field::Value::Integer(ac) => *ac as u32,
+                    _ => panic!("invalid type for AC"),
+                }
+            } else {
+                0
+            };
+
+            let ac_hom = value
+                .info()
+                .get(&InfoKey::Other(
+                    InfoOther::from_str("nhomalt").expect("Invalid key: nhomalt?"),
+                ))
+                .unwrap_or_default();
+            let ac_hom = if let Some(ac_hom) = ac_hom {
+                match ac_hom {
+                    noodles::vcf::record::info::field::Value::IntegerArray(nhomalt) => {
+                        nhomalt[0].unwrap() as u32
+                    }
+                    _ => panic!("invalid type for nhomalt"),
+                }
+            } else {
+                0
+            };
+
+            let an = match value
+                .info()
+                .get(&InfoKey::Standard(InfoStandard::TotalAlleleCount))
+                .unwrap()
+                .unwrap()
+            {
+                vcf::record::info::field::Value::Integer(an) => *an as u32,
+                _ => panic!("invalid type for AN"),
+            };
+
+            Counts {
+                ac_hom,
+                ac_het: an - 2 * ac_hom,
+                an,
+            }
+        }
+
+        /// Read from buffer.
+        pub fn from_buf(buf: &[u8]) -> Self {
+            Self {
+                an: LittleEndian::read_u32(&buf[0..4]),
+                ac_hom: LittleEndian::read_u32(&buf[4..8]),
+                ac_het: LittleEndian::read_u32(&buf[8..12]),
+            }
+        }
+
+        /// Write to buffer.
+        pub fn to_buf(&self, buf: &mut [u8]) {
+            LittleEndian::write_u32(&mut buf[0..4], self.an);
+            LittleEndian::write_u32(&mut buf[4..8], self.ac_hom);
+            LittleEndian::write_u32(&mut buf[8..12], self.ac_het);
+        }
+    }
+
+    /// Record type for the "autosomal" column family.
+    pub struct Record {
+        /// Counts from gnomAD exomes.
+        pub gnomad_exomes: Counts,
+        /// Counts from gnomAD genomes.
+        pub gnomad_genomes: Counts,
+    }
+
+    impl Record {
+        /// Read from buffer.
+        pub fn from_buf(buf: &[u8]) -> Self {
+            Self {
+                gnomad_exomes: Counts::from_buf(&buf[0..16]),
+                gnomad_genomes: Counts::from_buf(&buf[16..32]),
+            }
+        }
+
+        /// Write to buffer.
+        pub fn to_buf(&self, buf: &mut [u8]) {
+            self.gnomad_exomes.to_buf(&mut buf[0..16]);
+            self.gnomad_genomes.to_buf(&mut buf[16..32]);
+        }
+    }
+}
+
 /// Gonomosomal counts.
 pub mod xy {
     use std::str::FromStr;
@@ -113,7 +231,7 @@ pub mod xy {
         Record as VcfRecord,
     };
 
-    /// Record type for storing AN, AC_hom, AC_het counts for chrMT.
+    /// Record type for storing AN, AC_hom, AC_het, AC_hemi counts for chrX/chrY.
     #[derive(Default, Debug, PartialEq, Eq, Clone)]
     pub struct Counts {
         /// Total number of alleles.

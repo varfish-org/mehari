@@ -12,6 +12,7 @@ use rocksdb::{DBWithThreadMode, SingleThreaded};
 
 use self::serialized::mt::Record as MtRecord;
 use self::serialized::xy::Record as XyRecord;
+use self::serialized::auto::Record as AutoRecord;
 
 /// Select the genome release to use.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -310,6 +311,63 @@ pub mod xy {
     }
 }
 
+/// Import autosomal data.
+fn import_autosomal(
+    args: &Args,
+    genome_release: Option<Assembly>,
+    db: &DBWithThreadMode<SingleThreaded>,
+    cf_gonosomal: &rocksdb::ColumnFamily,
+) -> Result<(), anyhow::Error> {
+    tracing::info!("Processing chr1, ..., chr22 data ...");
+    let start = Instant::now();
+    let mut chrauto_written = 0usize;
+    let path_gnomad_exomes: Option<Vec<&str>> = args
+        .path_gnomad_exomes_auto
+        .as_ref()
+        .map(|paths| paths.iter().map(|s| s.as_str()).collect());
+    let path_gnomad_genomes: Option<Vec<&str>> = args
+        .path_gnomad_genomes_auto
+        .as_ref()
+        .map(|paths| paths.iter().map(|s| s.as_str()).collect());
+    let mut auto_reader = auto::Reader::new(
+        path_gnomad_exomes.as_deref(),
+        path_gnomad_genomes.as_deref(),
+        genome_release,
+    )?;
+
+    let mut has_next = true;
+    while has_next {
+        has_next = auto_reader.run(|variant, gnomad_exomes, gnomad_genomes| {
+            tracing::trace!(
+                "at {:?} | {:?} | {:?}",
+                &variant,
+                &gnomad_exomes,
+                &gnomad_genomes
+            );
+
+            let key: Vec<u8> = variant.into();
+            let mut value = [0u8; 32];
+            AutoRecord {
+                gnomad_exomes,
+                gnomad_genomes,
+            }
+            .to_buf(&mut value);
+            db.put_cf(cf_gonosomal, key, value)?;
+
+            chrauto_written += 1;
+
+            Ok(())
+        })?;
+    }
+
+    tracing::info!(
+        "  wrote {} chr1, ..., chr22 records in {:?}",
+        chrauto_written,
+        start.elapsed()
+    );
+    Ok(())
+}
+
 /// Import gonomosomal data.
 fn import_gonomosomal(
     args: &Args,
@@ -453,6 +511,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // Import gnomAD variants in a chromosome-wise fashion.
     tracing::info!("Processing autosomal variant data ...");
 
+    import_autosomal(args, genome_release, &db, cf_autosomal)?;
     import_gonomosomal(args, genome_release, &db, cf_gonosomal)?;
     import_chrmt(args, genome_release, &db, cf_mtdna)?;
 
