@@ -173,7 +173,7 @@ pub mod auto {
 
             Counts {
                 ac_hom,
-                ac_het: an - 2 * ac_hom,
+                ac_het: ac - 2 * ac_hom,
                 an,
             }
         }
