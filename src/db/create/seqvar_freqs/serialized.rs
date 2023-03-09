@@ -196,6 +196,7 @@ pub mod auto {
     }
 
     /// Record type for the "autosomal" column family.
+    #[derive(Debug)]
     pub struct Record {
         /// Counts from gnomAD exomes.
         pub gnomad_exomes: Counts,
