@@ -470,15 +470,14 @@ fn import_autosomal(
         genome_release,
     )?;
 
+    let mut prev = Instant::now();
     let mut has_next = true;
     while has_next {
         has_next = auto_reader.run(|variant, gnomad_exomes, gnomad_genomes| {
-            tracing::trace!(
-                "at {:?} | {:?} | {:?}",
-                &variant,
-                &gnomad_exomes,
-                &gnomad_genomes
-            );
+            if prev.elapsed().as_secs() > 60 {
+                tracing::info!("at {:?}", &variant);
+                prev = Instant::now();
+            }
 
             let key: Vec<u8> = variant.into();
             let mut value = [0u8; 32];
