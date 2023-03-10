@@ -1,8 +1,8 @@
 //! Annotation of sequence variants.
 
+use std::collections::HashSet;
 use std::fs::File;
-use std::io::{BufRead, Write};
-use std::str::FromStr;
+use std::io::Write;
 use std::time::Instant;
 
 use clap::Parser;
@@ -12,15 +12,14 @@ use noodles::vcf::header::{
     Number,
 };
 use noodles::vcf::record::info::field::Value;
-use noodles::vcf::{
-    header::info::key::Key as InfoKey, header::info::key::Other as InfoKeyOther,
-    header::record::value::map::Map, Header as VcfHeader, Writer as VcfWriter,
-};
+use noodles::vcf::{header::record::value::map::Map, Header as VcfHeader, Writer as VcfWriter};
 use noodles_util::variant::reader::Builder as VariantReaderBuilder;
-use rocksdb::{DBWithThreadMode, ThreadMode};
+use rocksdb::ThreadMode;
 
-use crate::db::create::seqvar_freqs::serialized::auto::Record as AutoRecord;
 use crate::db::create::seqvar_freqs::serialized::vcf::Var as VcfVar;
+use crate::db::create::seqvar_freqs::serialized::{
+    auto::Record as AutoRecord, mt::Record as MtRecord, xy::Record as XyRecord,
+};
 
 /// Command line arguments for `annotate seqvars` sub command.
 #[derive(Parser, Debug)]
@@ -59,6 +58,11 @@ pub mod keys {
         pub static ref GNOMAD_GENOMES_HOM: InfoKey = InfoKey::Other(InfoKeyOther::from_str("gnomad_genomes_hom").unwrap());
         pub static ref GNOMAD_GENOMES_HET: InfoKey = InfoKey::Other(InfoKeyOther::from_str("gnomad_genomes_het").unwrap());
         pub static ref GNOMAD_GENOMES_HEMI: InfoKey = InfoKey::Other(InfoKeyOther::from_str("gnomad_genomes_hemi").unwrap());
+
+        pub static ref GNOMAD_MTDNA_AN: InfoKey = InfoKey::Other(InfoKeyOther::from_str("gnomad_mtdna_an").unwrap());
+        pub static ref GNOMAD_MTDNA_HOM: InfoKey = InfoKey::Other(InfoKeyOther::from_str("gnomad_mtdna_hom").unwrap());
+        pub static ref GNOMAD_MTDNA_HET: InfoKey = InfoKey::Other(InfoKeyOther::from_str("gnomad_mtdna_het").unwrap());
+        pub static ref GNOMAD_MTDNA_HEMI: InfoKey = InfoKey::Other(InfoKeyOther::from_str("gnomad_mtdna_hemi").unwrap());
 
         pub static ref HELIX_AN: InfoKey = InfoKey::Other(InfoKeyOther::from_str("helix_an").unwrap());
         pub static ref HELIX_HOM: InfoKey = InfoKey::Other(InfoKeyOther::from_str("helix_hom").unwrap());
@@ -162,6 +166,155 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
     header_out
 }
 
+/// Annotate record on autosomal chromosome with gnomAD exomes/genomes.
+fn annotate_record_auto<T>(
+    db: &rocksdb::DBWithThreadMode<T>,
+    cf: &rocksdb::ColumnFamily,
+    vcf_var: VcfVar,
+    vcf_record: &mut noodles::vcf::Record,
+) -> Result<(), anyhow::Error>
+where
+    T: ThreadMode,
+{
+    let key: Vec<u8> = vcf_var.into();
+    if let Some(freq) = db.get_cf(cf, key)? {
+        let auto_record = AutoRecord::from_buf(&freq);
+
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_EXOMES_AN.clone(),
+            Some(Value::Integer(auto_record.gnomad_exomes.an as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_EXOMES_HOM.clone(),
+            Some(Value::Integer(auto_record.gnomad_exomes.ac_hom as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_EXOMES_HET.clone(),
+            Some(Value::Integer(auto_record.gnomad_exomes.ac_het as i32)),
+        );
+
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_GENOMES_AN.clone(),
+            Some(Value::Integer(auto_record.gnomad_genomes.an as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_GENOMES_HOM.clone(),
+            Some(Value::Integer(auto_record.gnomad_genomes.ac_hom as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_GENOMES_HET.clone(),
+            Some(Value::Integer(auto_record.gnomad_genomes.ac_het as i32)),
+        );
+    };
+    Ok(())
+}
+
+/// Annotate record on gonomosomal chromosome with gnomAD exomes/genomes.
+fn annotate_record_xy<T>(
+    db: &rocksdb::DBWithThreadMode<T>,
+    cf: &rocksdb::ColumnFamily,
+    vcf_var: VcfVar,
+    vcf_record: &mut noodles::vcf::Record,
+) -> Result<(), anyhow::Error>
+where
+    T: ThreadMode,
+{
+    let key: Vec<u8> = vcf_var.into();
+    if let Some(freq) = db.get_cf(cf, key)? {
+        let auto_record = XyRecord::from_buf(&freq);
+
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_EXOMES_AN.clone(),
+            Some(Value::Integer(auto_record.gnomad_exomes.an as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_EXOMES_HOM.clone(),
+            Some(Value::Integer(auto_record.gnomad_exomes.ac_hom as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_EXOMES_HET.clone(),
+            Some(Value::Integer(auto_record.gnomad_exomes.ac_het as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_EXOMES_HEMI.clone(),
+            Some(Value::Integer(auto_record.gnomad_exomes.ac_hemi as i32)),
+        );
+
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_GENOMES_AN.clone(),
+            Some(Value::Integer(auto_record.gnomad_genomes.an as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_GENOMES_HOM.clone(),
+            Some(Value::Integer(auto_record.gnomad_genomes.ac_hom as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_GENOMES_HET.clone(),
+            Some(Value::Integer(auto_record.gnomad_genomes.ac_het as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_GENOMES_HEMI.clone(),
+            Some(Value::Integer(auto_record.gnomad_genomes.ac_hemi as i32)),
+        );
+    };
+    Ok(())
+}
+
+/// Annotate record on mitochondrial genome with gnomAD mtDNA and HelixMtDb.
+fn annotate_record_mt<T>(
+    db: &rocksdb::DBWithThreadMode<T>,
+    cf: &rocksdb::ColumnFamily,
+    vcf_var: VcfVar,
+    vcf_record: &mut noodles::vcf::Record,
+) -> Result<(), anyhow::Error>
+where
+    T: ThreadMode,
+{
+    let key: Vec<u8> = vcf_var.into();
+    if let Some(freq) = db.get_cf(cf, key)? {
+        let mt_record = MtRecord::from_buf(&freq);
+
+        vcf_record.info_mut().insert(
+            keys::HELIX_AN.clone(),
+            Some(Value::Integer(mt_record.helix_mtdb.an as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::HELIX_HOM.clone(),
+            Some(Value::Integer(mt_record.helix_mtdb.ac_hom as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::HELIX_HET.clone(),
+            Some(Value::Integer(mt_record.helix_mtdb.ac_het as i32)),
+        );
+
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_GENOMES_AN.clone(),
+            Some(Value::Integer(mt_record.gnomad_mtdna.an as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_GENOMES_HOM.clone(),
+            Some(Value::Integer(mt_record.gnomad_mtdna.ac_hom as i32)),
+        );
+        vcf_record.info_mut().insert(
+            keys::GNOMAD_GENOMES_HET.clone(),
+            Some(Value::Integer(mt_record.gnomad_mtdna.ac_het as i32)),
+        );
+    };
+    Ok(())
+}
+
+lazy_static::lazy_static! {
+    static ref CHROM_MT: HashSet<&'static str> =HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
+    static ref CHROM_XY: HashSet<&'static str> =HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
+    static ref CHROM_AUTO: HashSet<&'static str> =HashSet::from_iter([
+        "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18",
+        "19", "20", "21", "22", "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9",
+        "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20",
+        "chr21", "chr22"
+    ].into_iter());
+}
+
+/// Run the annotation with the given `Write` within the `VcfWriter`.
 fn run_with_writer<Inner: Write>(
     mut writer: VcfWriter<Inner>,
     args: &Args,
@@ -195,39 +348,19 @@ fn run_with_writer<Inner: Write>(
         if let Some(record) = records.next() {
             let mut vcf_record = record?;
             let vcf_var = VcfVar::from_vcf(&vcf_record);
-            let key: Vec<u8> = vcf_var.into();
 
-            if let Some(freq) = db.get_cf(cf_autosomal, key)? {
-                let auto_record = AutoRecord::from_buf(&freq);
-
-                vcf_record.info_mut().insert(
-                    keys::GNOMAD_EXOMES_AN.clone(),
-                    Some(Value::Integer(auto_record.gnomad_exomes.an as i32)),
+            if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
+                annotate_record_auto(&db, cf_autosomal, vcf_var, &mut vcf_record)?;
+            } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
+                annotate_record_xy(&db, cf_gonosomal, vcf_var, &mut vcf_record)?;
+            } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
+                annotate_record_mt(&db, cf_mtdna, vcf_var, &mut vcf_record)?;
+            } else {
+                tracing::trace!(
+                    "Record @{:?} on non-canonical chromosomoe, skipping.",
+                    &vcf_var
                 );
-                vcf_record.info_mut().insert(
-                    keys::GNOMAD_EXOMES_HOM.clone(),
-                    Some(Value::Integer(auto_record.gnomad_exomes.ac_hom as i32)),
-                );
-                vcf_record.info_mut().insert(
-                    keys::GNOMAD_EXOMES_HET.clone(),
-                    Some(Value::Integer(auto_record.gnomad_exomes.ac_het as i32)),
-                );
-
-                vcf_record.info_mut().insert(
-                    keys::GNOMAD_GENOMES_AN.clone(),
-                    Some(Value::Integer(auto_record.gnomad_genomes.an as i32)),
-                );
-                vcf_record.info_mut().insert(
-                    keys::GNOMAD_GENOMES_HOM.clone(),
-                    Some(Value::Integer(auto_record.gnomad_genomes.ac_hom as i32)),
-                );
-                vcf_record.info_mut().insert(
-                    keys::GNOMAD_GENOMES_HET.clone(),
-                    Some(Value::Integer(auto_record.gnomad_genomes.ac_het as i32)),
-                );
-
-                println!("{:?}", &vcf_record);
-            };
+            }
 
             writer.write_record(&vcf_record)?;
         } else {
