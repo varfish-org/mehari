@@ -131,13 +131,11 @@ pub mod auto {
 
             let ac = value
                 .info()
-                .get(&InfoKey::Other(
-                    InfoOther::from_str("AC").expect("Invalid key: AC?"),
-                ))
-                .unwrap_or_default();
+                .get(&InfoKey::Standard(InfoStandard::AlleleCount))
+                .expect("INFO/AC not found?");
             let ac = if let Some(ac) = ac {
                 match ac {
-                    vcf::record::info::field::Value::Integer(ac) => *ac as u32,
+                    vcf::record::info::field::Value::IntegerArray(ac) => ac[0].unwrap() as u32,
                     _ => panic!("invalid type for AC"),
                 }
             } else {

@@ -1,6 +1,7 @@
 //! Annotation of sequence variants.
 
 use std::fs::File;
+use std::io::{BufRead, Write};
 use std::str::FromStr;
 use std::time::Instant;
 
@@ -16,6 +17,7 @@ use noodles::vcf::{
     header::record::value::map::Map, Header as VcfHeader, Writer as VcfWriter,
 };
 use noodles_util::variant::reader::Builder as VariantReaderBuilder;
+use rocksdb::{DBWithThreadMode, ThreadMode};
 
 use crate::db::create::seqvar_freqs::serialized::auto::Record as AutoRecord;
 use crate::db::create::seqvar_freqs::serialized::vcf::Var as VcfVar;
@@ -160,8 +162,10 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
     header_out
 }
 
-/// Main entry point for `annotate seqvars` sub command.
-pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
+fn run_with_writer<Inner: Write>(
+    mut writer: VcfWriter<Inner>,
+    args: &Args,
+) -> Result<(), anyhow::Error> {
     // Open the database in read only mode.
     tracing::info!("Opening database");
     let options = rocksdb::Options::default();
@@ -178,15 +182,14 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     tracing::info!("Annotating VCF ...");
     let start = Instant::now();
-    let mut total_written = 0usize;
 
     let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
     let header_in = reader.read_header()?;
     let header_out = build_header(&header_in);
 
-    let mut writer = VcfWriter::new(File::create(&args.path_output_vcf).map(BgzfWriter::new)?);
-    writer.write_header(&header_out)?;
+    let mut total_written = 0usize;
 
+    writer.write_header(&header_out)?;
     let mut records = reader.records(&header_in);
     loop {
         if let Some(record) = records.next() {
@@ -242,12 +245,62 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             }
         }
     }
-
     tracing::info!(
         "... annotated {} records in {:?}",
         total_written,
         start.elapsed()
     );
+    Ok(())
+}
+
+/// Main entry point for `annotate seqvars` sub command.
+pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
+    if args.path_output_vcf.ends_with(".vcf.gz") || args.path_output_vcf.ends_with(".vcf.bgzf") {
+        let writer = VcfWriter::new(File::create(&args.path_output_vcf).map(BgzfWriter::new)?);
+        run_with_writer(writer, args)?;
+    } else {
+        let writer = VcfWriter::new(File::create(&args.path_output_vcf)?);
+        run_with_writer(writer, args)?;
+    }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use clap_verbosity_flag::Verbosity;
+    use pretty_assertions::assert_eq;
+    use temp_testdir::TempDir;
+
+    use super::{run, Args};
+
+    #[test]
+    fn smoke_test() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_out = temp.join("output.vcf");
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 0),
+        };
+        let args = Args {
+            path_db: String::from(
+                "tests/data/db/create/seqvar_freqs/db-rs1263393206/seqvars/freqs",
+            ),
+            path_input_vcf: String::from(
+                "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf",
+            ),
+            path_output_vcf: path_out.into_os_string().into_string().unwrap(),
+            max_var_count: None,
+        };
+
+        run(&args_common, &args)?;
+
+        let actual = std::fs::read_to_string(args.path_output_vcf)?;
+        let expected = std::fs::read_to_string(
+            "tests/data/db/create/seqvar_freqs/db-rs1263393206/output.vcf",
+        )?;
+        assert_eq!(&expected, &actual);
+
+        Ok(())
+    }
 }

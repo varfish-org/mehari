@@ -893,7 +893,7 @@ mod test {
                     AutoCounts {
                         an: 26342,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 1,
                     }
                 );
                 called = true;
@@ -921,7 +921,7 @@ mod test {
                     AutoCounts {
                         an: 1982,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 2,
                     }
                 );
                 called = true;
@@ -949,7 +949,7 @@ mod test {
                     AutoCounts {
                         an: 296,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 19,
                     }
                 );
                 called = true;
@@ -1145,7 +1145,7 @@ mod test {
                     AutoCounts {
                         an: 246318,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 1,
                     }
                 );
                 called = true;
@@ -1173,7 +1173,7 @@ mod test {
                     AutoCounts {
                         an: 248504,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 1,
                     }
                 );
                 called = true;
@@ -1201,7 +1201,7 @@ mod test {
                     AutoCounts {
                         an: 248610,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 2,
                     }
                 );
                 called = true;
