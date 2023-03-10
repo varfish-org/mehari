@@ -1,0 +1,901 @@
+##fileformat=VCFv4.2
+##hailversion=0.2.7-fff3c70bdaf7
+##FILTER=<ID=AC0,Description="Allele count is zero after filtering out low-confidence genotypes (GQ < 20; DP < 10; and AB < 0.2 for het calls)">
+##FILTER=<ID=InbreedingCoeff,Description="InbreedingCoeff < -0.3">
+##FILTER=<ID=PASS,Description="Passed all variant filters">
+##FILTER=<ID=RF,Description="Failed random forest filtering thresholds of 0.055272738028512555, 0.20641025579497013 (probabilities of being a true positive variant) for SNPs, indels">
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Alternate allele count for samples">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="Total number of alleles in samples">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Alternate allele frequency in samples">
+##INFO=<ID=rf_tp_probability,Number=1,Type=Float,Description="Random forest prediction probability for a site being a true variant">
+##INFO=<ID=FS,Number=1,Type=Float,Description="Phred-scaled p-value of Fisher's exact test for strand bias">
+##INFO=<ID=InbreedingCoeff,Number=1,Type=Float,Description="Inbreeding coefficient as estimated from the genotype likelihoods per-sample when compared against the Hardy-Weinberg expectation">
+##INFO=<ID=MQ,Number=1,Type=Float,Description="Root mean square of the mapping quality of reads across all samples">
+##INFO=<ID=MQRankSum,Number=1,Type=Float,Description="Z-score from Wilcoxon rank sum test of alternate vs. reference read mapping qualities">
+##INFO=<ID=QD,Number=1,Type=Float,Description="Variant call confidence normalized by depth of sample reads supporting a variant">
+##INFO=<ID=ReadPosRankSum,Number=1,Type=Float,Description="Z-score from Wilcoxon rank sum test of alternate vs. reference read position bias">
+##INFO=<ID=SOR,Number=1,Type=Float,Description="Strand bias estimated by the symmetric odds ratio test">
+##INFO=<ID=VQSR_POSITIVE_TRAIN_SITE,Number=0,Type=Flag,Description="Variant was used to build the positive training set of high-quality variants for VQSR">
+##INFO=<ID=VQSR_NEGATIVE_TRAIN_SITE,Number=0,Type=Flag,Description="Variant was used to build the negative training set of low-quality variants for VQSR">
+##INFO=<ID=BaseQRankSum,Number=1,Type=Float,Description="Z-score from Wilcoxon rank sum test of alternate vs. reference base qualities">
+##INFO=<ID=ClippingRankSum,Number=1,Type=Float,Description="Z-score from Wilcoxon rank sum test of alternate vs. reference number of hard clipped bases">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth of informative coverage for each sample; reads with MQ=255 or with bad mates are filtered">
+##INFO=<ID=VQSLOD,Number=1,Type=Float,Description="Log-odds ratio of being a true variant versus being a false positive under the trained VQSR Gaussian mixture model">
+##INFO=<ID=VQSR_culprit,Number=1,Type=String,Description="Worst-performing annotation in the VQSR Gaussian mixture model">
+##INFO=<ID=segdup,Number=0,Type=Flag,Description="Variant falls within a segmental duplication region">
+##INFO=<ID=lcr,Number=0,Type=Flag,Description="Variant falls within a low complexity region">
+##INFO=<ID=decoy,Number=0,Type=Flag,Description="Variant falls within a reference decoy region">
+##INFO=<ID=nonpar,Number=0,Type=Flag,Description="Variant (on sex chromosome) falls outside a pseudoautosomal region">
+##INFO=<ID=rf_positive_label,Number=0,Type=Flag,Description="Variant was labelled as a positive example for training of random forest model">
+##INFO=<ID=rf_negative_label,Number=0,Type=Flag,Description="Variant was labelled as a negative example for training of random forest model">
+##INFO=<ID=rf_label,Number=1,Type=String,Description="Random forest training label">
+##INFO=<ID=rf_train,Number=0,Type=Flag,Description="Variant was used in training random forest model">
+##INFO=<ID=transmitted_singleton,Number=0,Type=Flag,Description="Variant was a callset-wide doubleton that was transmitted within a family (i.e., a singleton amongst unrelated sampes in cohort)">
+##INFO=<ID=variant_type,Number=1,Type=String,Description="Variant type (snv, indel, multi-snv, multi-indel, or mixed)">
+##INFO=<ID=allele_type,Number=A,Type=String,Description="Allele type (snv, ins, del, or mixed)">
+##INFO=<ID=n_alt_alleles,Number=A,Type=Integer,Description="Total number of alternate alleles observed at variant locus">
+##INFO=<ID=was_mixed,Number=0,Type=Flag,Description="Variant type was mixed">
+##INFO=<ID=has_star,Number=0,Type=Flag,Description="Variant locus coincides with a spanning deletion (represented by a star) observed elsewhere in the callset">
+##INFO=<ID=pab_max,Number=A,Type=Float,Description="Maximum p-value over callset for binomial test of observed allele balance for a heterozygous genotype, given expectation of AB=0.5">
+##INFO=<ID=gq_hist_alt_bin_freq,Number=A,Type=String,Description="Histogram for GQ in heterozygous individuals; bin edges are: 0|5|10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95|100">
+##INFO=<ID=gq_hist_all_bin_freq,Number=A,Type=String,Description="Histogram for GQ; bin edges are: 0|5|10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95|100">
+##INFO=<ID=dp_hist_alt_bin_freq,Number=A,Type=String,Description="Histogram for DP in heterozygous individuals; bin edges are: 0|5|10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95|100">
+##INFO=<ID=dp_hist_alt_n_larger,Number=A,Type=Integer,Description="Count of DP values falling above highest histogram bin edge">
+##INFO=<ID=dp_hist_all_bin_freq,Number=A,Type=String,Description="Histogram for DP; bin edges are: 0|5|10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95|100">
+##INFO=<ID=dp_hist_all_n_larger,Number=A,Type=Integer,Description="Count of DP values falling above highest histogram bin edge">
+##INFO=<ID=ab_hist_alt_bin_freq,Number=A,Type=String,Description="Histogram for AB in heterozygous individuals; bin edges are: 0.00|0.05|0.10|0.15|0.20|0.25|0.30|0.35|0.40|0.45|0.50|0.55|0.60|0.65|0.70|0.75|0.80|0.85|0.90|0.95|1.00">
+##INFO=<ID=AC_nfe_seu,Number=A,Type=Integer,Description="Alternate allele count for samples of Southern European ancestry">
+##INFO=<ID=AN_nfe_seu,Number=1,Type=Integer,Description="Total number of alleles in samples of Southern European ancestry">
+##INFO=<ID=AF_nfe_seu,Number=A,Type=Float,Description="Alternate allele frequency in samples of Southern European ancestry">
+##INFO=<ID=nhomalt_nfe_seu,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Southern European ancestry">
+##INFO=<ID=controls_AC_afr_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=controls_AN_afr_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=controls_AF_afr_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_afr_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_eas_kor,Number=A,Type=Integer,Description="Alternate allele count for samples of Korean ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_eas_kor,Number=1,Type=Integer,Description="Total number of alleles in samples of Korean ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_eas_kor,Number=A,Type=Float,Description="Alternate allele frequency in samples of Korean ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_eas_kor,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Korean ancestry in the non_neuro subset">
+##INFO=<ID=non_topmed_AC_amr,Number=A,Type=Integer,Description="Alternate allele count for samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_amr,Number=1,Type=Integer,Description="Total number of alleles in samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_amr,Number=A,Type=Float,Description="Alternate allele frequency in samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_amr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_asj_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_asj_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_asj_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_asj_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=AC_raw,Number=A,Type=Integer,Description="Alternate allele count for samples, before removing low-confidence genotypes">
+##INFO=<ID=AN_raw,Number=1,Type=Integer,Description="Total number of alleles in samples, before removing low-confidence genotypes">
+##INFO=<ID=AF_raw,Number=A,Type=Float,Description="Alternate allele frequency in samples, before removing low-confidence genotypes">
+##INFO=<ID=nhomalt_raw,Number=A,Type=Integer,Description="Count of homozygous individuals in samples, before removing low-confidence genotypes">
+##INFO=<ID=AC_fin_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Finnish ancestry">
+##INFO=<ID=AN_fin_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Finnish ancestry">
+##INFO=<ID=AF_fin_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Finnish ancestry">
+##INFO=<ID=nhomalt_fin_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Finnish ancestry">
+##INFO=<ID=non_cancer_AC_oth_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_oth_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_oth_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_oth_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=AC_nfe_bgr,Number=A,Type=Integer,Description="Alternate allele count for samples of Bulgarian (Eastern European) ancestry">
+##INFO=<ID=AN_nfe_bgr,Number=1,Type=Integer,Description="Total number of alleles in samples of Bulgarian (Eastern European) ancestry">
+##INFO=<ID=AF_nfe_bgr,Number=A,Type=Float,Description="Alternate allele frequency in samples of Bulgarian (Eastern European) ancestry">
+##INFO=<ID=nhomalt_nfe_bgr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Bulgarian (Eastern European) ancestry">
+##INFO=<ID=non_neuro_AC_asj_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_asj_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_asj_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_asj_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=AC_sas_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of South Asian ancestry">
+##INFO=<ID=AN_sas_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of South Asian ancestry">
+##INFO=<ID=AF_sas_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of South Asian ancestry">
+##INFO=<ID=nhomalt_sas_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of South Asian ancestry">
+##INFO=<ID=non_neuro_AC_afr_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_afr_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_afr_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_afr_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=AC_afr_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of African-American/African ancestry">
+##INFO=<ID=AN_afr_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of African-American/African ancestry">
+##INFO=<ID=AF_afr_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of African-American/African ancestry">
+##INFO=<ID=nhomalt_afr_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of African-American/African ancestry">
+##INFO=<ID=AC_afr,Number=A,Type=Integer,Description="Alternate allele count for samples of African-American/African ancestry">
+##INFO=<ID=AN_afr,Number=1,Type=Integer,Description="Total number of alleles in samples of African-American/African ancestry">
+##INFO=<ID=AF_afr,Number=A,Type=Float,Description="Alternate allele frequency in samples of African-American/African ancestry">
+##INFO=<ID=nhomalt_afr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of African-American/African ancestry">
+##INFO=<ID=controls_AC_nfe_swe,Number=A,Type=Integer,Description="Alternate allele count for samples of Swedish ancestry in the controls subset">
+##INFO=<ID=controls_AN_nfe_swe,Number=1,Type=Integer,Description="Total number of alleles in samples of Swedish ancestry in the controls subset">
+##INFO=<ID=controls_AF_nfe_swe,Number=A,Type=Float,Description="Alternate allele frequency in samples of Swedish ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_nfe_swe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Swedish ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_afr_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_afr_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_afr_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_afr_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_topmed_AC_amr_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_amr_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_amr_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_amr_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_female,Number=A,Type=Integer,Description="Alternate allele count for female samples in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_female,Number=1,Type=Integer,Description="Total number of alleles in female samples in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples in the non_cancer subset">
+##INFO=<ID=non_cancer_AC_nfe_onf,Number=A,Type=Integer,Description="Alternate allele count for samples of Other Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_nfe_onf,Number=1,Type=Integer,Description="Total number of alleles in samples of Other Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_nfe_onf,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_nfe_onf,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AC_male,Number=A,Type=Integer,Description="Alternate allele count for male samples in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_male,Number=1,Type=Integer,Description="Total number of alleles in male samples in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples in the non_cancer subset">
+##INFO=<ID=non_topmed_AC_oth_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_oth_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_oth_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_oth_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=AC_eas_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of East Asian ancestry">
+##INFO=<ID=AN_eas_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of East Asian ancestry">
+##INFO=<ID=AF_eas_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of East Asian ancestry">
+##INFO=<ID=nhomalt_eas_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of East Asian ancestry">
+##INFO=<ID=non_cancer_AC_sas_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_sas_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_sas_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_sas_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=AC_afr_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of African-American/African ancestry">
+##INFO=<ID=AN_afr_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of African-American/African ancestry">
+##INFO=<ID=AF_afr_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of African-American/African ancestry">
+##INFO=<ID=nhomalt_afr_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of African-American/African ancestry">
+##INFO=<ID=AC_sas,Number=A,Type=Integer,Description="Alternate allele count for samples of South Asian ancestry">
+##INFO=<ID=AN_sas,Number=1,Type=Integer,Description="Total number of alleles in samples of South Asian ancestry">
+##INFO=<ID=AF_sas,Number=A,Type=Float,Description="Alternate allele frequency in samples of South Asian ancestry">
+##INFO=<ID=nhomalt_sas,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of South Asian ancestry">
+##INFO=<ID=non_neuro_AC_female,Number=A,Type=Integer,Description="Alternate allele count for female samples in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_female,Number=1,Type=Integer,Description="Total number of alleles in female samples in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples in the non_neuro subset">
+##INFO=<ID=controls_AC_afr,Number=A,Type=Integer,Description="Alternate allele count for samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=controls_AN_afr,Number=1,Type=Integer,Description="Total number of alleles in samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=controls_AF_afr,Number=A,Type=Float,Description="Alternate allele frequency in samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_afr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_eas_jpn,Number=A,Type=Integer,Description="Alternate allele count for samples of Japanese ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_eas_jpn,Number=1,Type=Integer,Description="Total number of alleles in samples of Japanese ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_eas_jpn,Number=A,Type=Float,Description="Alternate allele frequency in samples of Japanese ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_eas_jpn,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Japanese ancestry in the non_neuro subset">
+##INFO=<ID=AC_nfe_onf,Number=A,Type=Integer,Description="Alternate allele count for samples of Other Non-Finnish European ancestry">
+##INFO=<ID=AN_nfe_onf,Number=1,Type=Integer,Description="Total number of alleles in samples of Other Non-Finnish European ancestry">
+##INFO=<ID=AF_nfe_onf,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other Non-Finnish European ancestry">
+##INFO=<ID=nhomalt_nfe_onf,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other Non-Finnish European ancestry">
+##INFO=<ID=non_cancer_AC_amr_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_amr_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_amr_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_amr_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=controls_AC_fin_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Finnish ancestry in the controls subset">
+##INFO=<ID=controls_AN_fin_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Finnish ancestry in the controls subset">
+##INFO=<ID=controls_AF_fin_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Finnish ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_fin_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Finnish ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_nfe_nwe,Number=A,Type=Integer,Description="Alternate allele count for samples of North-Western European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_nfe_nwe,Number=1,Type=Integer,Description="Total number of alleles in samples of North-Western European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_nfe_nwe,Number=A,Type=Float,Description="Alternate allele frequency in samples of North-Western European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_nfe_nwe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of North-Western European ancestry in the non_neuro subset">
+##INFO=<ID=AC_fin_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Finnish ancestry">
+##INFO=<ID=AN_fin_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Finnish ancestry">
+##INFO=<ID=AF_fin_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Finnish ancestry">
+##INFO=<ID=nhomalt_fin_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Finnish ancestry">
+##INFO=<ID=AC_nfe_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Non-Finnish European ancestry">
+##INFO=<ID=AN_nfe_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Non-Finnish European ancestry">
+##INFO=<ID=AF_nfe_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Non-Finnish European ancestry">
+##INFO=<ID=nhomalt_nfe_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Non-Finnish European ancestry">
+##INFO=<ID=AC_amr,Number=A,Type=Integer,Description="Alternate allele count for samples of Latino ancestry">
+##INFO=<ID=AN_amr,Number=1,Type=Integer,Description="Total number of alleles in samples of Latino ancestry">
+##INFO=<ID=AF_amr,Number=A,Type=Float,Description="Alternate allele frequency in samples of Latino ancestry">
+##INFO=<ID=nhomalt_amr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Latino ancestry">
+##INFO=<ID=non_topmed_AC_nfe_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_nfe_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_nfe_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_nfe_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_neuro_AC_sas,Number=A,Type=Integer,Description="Alternate allele count for samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_sas,Number=1,Type=Integer,Description="Total number of alleles in samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_sas,Number=A,Type=Float,Description="Alternate allele frequency in samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_sas,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_cancer_AC_fin_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_fin_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_fin_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_fin_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AC_nfe_seu,Number=A,Type=Integer,Description="Alternate allele count for samples of Southern European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_nfe_seu,Number=1,Type=Integer,Description="Total number of alleles in samples of Southern European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_nfe_seu,Number=A,Type=Float,Description="Alternate allele frequency in samples of Southern European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_nfe_seu,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Southern European ancestry in the non_cancer subset">
+##INFO=<ID=AC_eas,Number=A,Type=Integer,Description="Alternate allele count for samples of East Asian ancestry">
+##INFO=<ID=AN_eas,Number=1,Type=Integer,Description="Total number of alleles in samples of East Asian ancestry">
+##INFO=<ID=AF_eas,Number=A,Type=Float,Description="Alternate allele frequency in samples of East Asian ancestry">
+##INFO=<ID=nhomalt_eas,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of East Asian ancestry">
+##INFO=<ID=nhomalt,Number=A,Type=Integer,Description="Count of homozygous individuals in samples">
+##INFO=<ID=non_neuro_AC_nfe_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_nfe_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_nfe_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_nfe_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AC_afr,Number=A,Type=Integer,Description="Alternate allele count for samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_afr,Number=1,Type=Integer,Description="Total number of alleles in samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_afr,Number=A,Type=Float,Description="Alternate allele frequency in samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_afr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=controls_AC_raw,Number=A,Type=Integer,Description="Alternate allele count for samples in the controls subset, before removing low-confidence genotypes">
+##INFO=<ID=controls_AN_raw,Number=1,Type=Integer,Description="Total number of alleles in samples in the controls subset, before removing low-confidence genotypes">
+##INFO=<ID=controls_AF_raw,Number=A,Type=Float,Description="Alternate allele frequency in samples in the controls subset, before removing low-confidence genotypes">
+##INFO=<ID=controls_nhomalt_raw,Number=A,Type=Integer,Description="Count of homozygous individuals in samples in the controls subset, before removing low-confidence genotypes">
+##INFO=<ID=non_cancer_AC_eas,Number=A,Type=Integer,Description="Alternate allele count for samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_eas,Number=1,Type=Integer,Description="Total number of alleles in samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_eas,Number=A,Type=Float,Description="Alternate allele frequency in samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_eas,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AC_amr_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_amr_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_amr_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_amr_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_neuro_AC_nfe_swe,Number=A,Type=Integer,Description="Alternate allele count for samples of Swedish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_nfe_swe,Number=1,Type=Integer,Description="Total number of alleles in samples of Swedish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_nfe_swe,Number=A,Type=Float,Description="Alternate allele frequency in samples of Swedish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_nfe_swe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Swedish ancestry in the non_neuro subset">
+##INFO=<ID=controls_AC_male,Number=A,Type=Integer,Description="Alternate allele count for male samples in the controls subset">
+##INFO=<ID=controls_AN_male,Number=1,Type=Integer,Description="Total number of alleles in male samples in the controls subset">
+##INFO=<ID=controls_AF_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples in the controls subset">
+##INFO=<ID=controls_nhomalt_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples in the controls subset">
+##INFO=<ID=non_topmed_AC_male,Number=A,Type=Integer,Description="Alternate allele count for male samples in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_male,Number=1,Type=Integer,Description="Total number of alleles in male samples in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples in the non_topmed subset">
+##INFO=<ID=controls_AC_eas_jpn,Number=A,Type=Integer,Description="Alternate allele count for samples of Japanese ancestry in the controls subset">
+##INFO=<ID=controls_AN_eas_jpn,Number=1,Type=Integer,Description="Total number of alleles in samples of Japanese ancestry in the controls subset">
+##INFO=<ID=controls_AF_eas_jpn,Number=A,Type=Float,Description="Alternate allele frequency in samples of Japanese ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_eas_jpn,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Japanese ancestry in the controls subset">
+##INFO=<ID=controls_AC_nfe_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_AN_nfe_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_AF_nfe_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_nfe_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_amr,Number=A,Type=Integer,Description="Alternate allele count for samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_amr,Number=1,Type=Integer,Description="Total number of alleles in samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_amr,Number=A,Type=Float,Description="Alternate allele frequency in samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_amr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AC_eas_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_eas_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_eas_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_eas_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=AC_asj_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=AN_asj_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=AF_asj_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=nhomalt_asj_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=controls_AC_nfe_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_AN_nfe_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_AF_nfe_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_nfe_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_fin,Number=A,Type=Integer,Description="Alternate allele count for samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_fin,Number=1,Type=Integer,Description="Total number of alleles in samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_fin,Number=A,Type=Float,Description="Alternate allele frequency in samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_fin,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=non_topmed_AC_sas,Number=A,Type=Integer,Description="Alternate allele count for samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_sas,Number=1,Type=Integer,Description="Total number of alleles in samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_sas,Number=A,Type=Float,Description="Alternate allele frequency in samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_sas,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_nfe_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_nfe_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_nfe_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_nfe_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=AC_oth_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Other ancestry">
+##INFO=<ID=AN_oth_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Other ancestry">
+##INFO=<ID=AF_oth_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Other ancestry">
+##INFO=<ID=nhomalt_oth_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Other ancestry">
+##INFO=<ID=non_cancer_AC_asj,Number=A,Type=Integer,Description="Alternate allele count for samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_asj,Number=1,Type=Integer,Description="Total number of alleles in samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_asj,Number=A,Type=Float,Description="Alternate allele frequency in samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_asj,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=AC_nfe_swe,Number=A,Type=Integer,Description="Alternate allele count for samples of Swedish ancestry">
+##INFO=<ID=AN_nfe_swe,Number=1,Type=Integer,Description="Total number of alleles in samples of Swedish ancestry">
+##INFO=<ID=AF_nfe_swe,Number=A,Type=Float,Description="Alternate allele frequency in samples of Swedish ancestry">
+##INFO=<ID=nhomalt_nfe_swe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Swedish ancestry">
+##INFO=<ID=controls_AC_nfe,Number=A,Type=Integer,Description="Alternate allele count for samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_AN_nfe,Number=1,Type=Integer,Description="Total number of alleles in samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_AF_nfe,Number=A,Type=Float,Description="Alternate allele frequency in samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_nfe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_AC_oth_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Other ancestry in the controls subset">
+##INFO=<ID=controls_AN_oth_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Other ancestry in the controls subset">
+##INFO=<ID=controls_AF_oth_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Other ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_oth_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Other ancestry in the controls subset">
+##INFO=<ID=controls_AC_asj,Number=A,Type=Integer,Description="Alternate allele count for samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=controls_AN_asj,Number=1,Type=Integer,Description="Total number of alleles in samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=controls_AF_asj,Number=A,Type=Float,Description="Alternate allele frequency in samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_asj,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_amr_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_amr_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_amr_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_amr_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=controls_AC_nfe_nwe,Number=A,Type=Integer,Description="Alternate allele count for samples of North-Western European ancestry in the controls subset">
+##INFO=<ID=controls_AN_nfe_nwe,Number=1,Type=Integer,Description="Total number of alleles in samples of North-Western European ancestry in the controls subset">
+##INFO=<ID=controls_AF_nfe_nwe,Number=A,Type=Float,Description="Alternate allele frequency in samples of North-Western European ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_nfe_nwe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of North-Western European ancestry in the controls subset">
+##INFO=<ID=AC_nfe_nwe,Number=A,Type=Integer,Description="Alternate allele count for samples of North-Western European ancestry">
+##INFO=<ID=AN_nfe_nwe,Number=1,Type=Integer,Description="Total number of alleles in samples of North-Western European ancestry">
+##INFO=<ID=AF_nfe_nwe,Number=A,Type=Float,Description="Alternate allele frequency in samples of North-Western European ancestry">
+##INFO=<ID=nhomalt_nfe_nwe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of North-Western European ancestry">
+##INFO=<ID=controls_AC_nfe_seu,Number=A,Type=Integer,Description="Alternate allele count for samples of Southern European ancestry in the controls subset">
+##INFO=<ID=controls_AN_nfe_seu,Number=1,Type=Integer,Description="Total number of alleles in samples of Southern European ancestry in the controls subset">
+##INFO=<ID=controls_AF_nfe_seu,Number=A,Type=Float,Description="Alternate allele frequency in samples of Southern European ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_nfe_seu,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Southern European ancestry in the controls subset">
+##INFO=<ID=controls_AC_sas_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of South Asian ancestry in the controls subset">
+##INFO=<ID=controls_AN_sas_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of South Asian ancestry in the controls subset">
+##INFO=<ID=controls_AF_sas_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of South Asian ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_sas_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of South Asian ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_amr_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_amr_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_amr_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_amr_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_cancer_AC_eas_jpn,Number=A,Type=Integer,Description="Alternate allele count for samples of Japanese ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_eas_jpn,Number=1,Type=Integer,Description="Total number of alleles in samples of Japanese ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_eas_jpn,Number=A,Type=Float,Description="Alternate allele frequency in samples of Japanese ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_eas_jpn,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Japanese ancestry in the non_cancer subset">
+##INFO=<ID=non_neuro_AC_nfe_onf,Number=A,Type=Integer,Description="Alternate allele count for samples of Other Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_nfe_onf,Number=1,Type=Integer,Description="Total number of alleles in samples of Other Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_nfe_onf,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_nfe_onf,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_topmed_AC_eas_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_eas_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_eas_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_eas_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=AC_eas_jpn,Number=A,Type=Integer,Description="Alternate allele count for samples of Japanese ancestry">
+##INFO=<ID=AN_eas_jpn,Number=1,Type=Integer,Description="Total number of alleles in samples of Japanese ancestry">
+##INFO=<ID=AF_eas_jpn,Number=A,Type=Float,Description="Alternate allele frequency in samples of Japanese ancestry">
+##INFO=<ID=nhomalt_eas_jpn,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Japanese ancestry">
+##INFO=<ID=non_cancer_AC_afr_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_afr_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_afr_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_afr_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AC_afr,Number=A,Type=Integer,Description="Alternate allele count for samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_afr,Number=1,Type=Integer,Description="Total number of alleles in samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_afr,Number=A,Type=Float,Description="Alternate allele frequency in samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_afr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=controls_AC_amr_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Latino ancestry in the controls subset">
+##INFO=<ID=controls_AN_amr_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Latino ancestry in the controls subset">
+##INFO=<ID=controls_AF_amr_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Latino ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_amr_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Latino ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_fin_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_fin_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_fin_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_fin_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=AC_female,Number=A,Type=Integer,Description="Alternate allele count for female samples">
+##INFO=<ID=AN_female,Number=1,Type=Integer,Description="Total number of alleles in female samples">
+##INFO=<ID=AF_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples">
+##INFO=<ID=nhomalt_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples">
+##INFO=<ID=non_neuro_AC_nfe_bgr,Number=A,Type=Integer,Description="Alternate allele count for samples of Bulgarian (Eastern European) ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_nfe_bgr,Number=1,Type=Integer,Description="Total number of alleles in samples of Bulgarian (Eastern European) ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_nfe_bgr,Number=A,Type=Float,Description="Alternate allele frequency in samples of Bulgarian (Eastern European) ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_nfe_bgr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Bulgarian (Eastern European) ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AC_oth_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_oth_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_oth_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_oth_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=non_topmed_AC_nfe_est,Number=A,Type=Integer,Description="Alternate allele count for samples of Estonian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_nfe_est,Number=1,Type=Integer,Description="Total number of alleles in samples of Estonian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_nfe_est,Number=A,Type=Float,Description="Alternate allele frequency in samples of Estonian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_nfe_est,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Estonian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AC_nfe_nwe,Number=A,Type=Integer,Description="Alternate allele count for samples of North-Western European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_nfe_nwe,Number=1,Type=Integer,Description="Total number of alleles in samples of North-Western European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_nfe_nwe,Number=A,Type=Float,Description="Alternate allele frequency in samples of North-Western European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_nfe_nwe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of North-Western European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AC_amr_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_amr_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_amr_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_amr_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_amr,Number=A,Type=Integer,Description="Alternate allele count for samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_amr,Number=1,Type=Integer,Description="Total number of alleles in samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_amr,Number=A,Type=Float,Description="Alternate allele frequency in samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_amr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_topmed_AC_nfe_swe,Number=A,Type=Integer,Description="Alternate allele count for samples of Swedish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_nfe_swe,Number=1,Type=Integer,Description="Total number of alleles in samples of Swedish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_nfe_swe,Number=A,Type=Float,Description="Alternate allele frequency in samples of Swedish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_nfe_swe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Swedish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AC_nfe_onf,Number=A,Type=Integer,Description="Alternate allele count for samples of Other Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_nfe_onf,Number=1,Type=Integer,Description="Total number of alleles in samples of Other Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_nfe_onf,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_nfe_onf,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=controls_AC_eas_kor,Number=A,Type=Integer,Description="Alternate allele count for samples of Korean ancestry in the controls subset">
+##INFO=<ID=controls_AN_eas_kor,Number=1,Type=Integer,Description="Total number of alleles in samples of Korean ancestry in the controls subset">
+##INFO=<ID=controls_AF_eas_kor,Number=A,Type=Float,Description="Alternate allele frequency in samples of Korean ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_eas_kor,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Korean ancestry in the controls subset">
+##INFO=<ID=non_topmed_AC_eas_oea,Number=A,Type=Integer,Description="Alternate allele count for samples of Other East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_eas_oea,Number=1,Type=Integer,Description="Total number of alleles in samples of Other East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_eas_oea,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_eas_oea,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other East Asian ancestry in the non_topmed subset">
+##INFO=<ID=controls_AC_eas_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_AN_eas_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_AF_eas_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_eas_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_AC_oth_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Other ancestry in the controls subset">
+##INFO=<ID=controls_AN_oth_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Other ancestry in the controls subset">
+##INFO=<ID=controls_AF_oth_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Other ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_oth_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Other ancestry in the controls subset">
+##INFO=<ID=non_topmed_AC,Number=A,Type=Integer,Description="Alternate allele count for samples in the non_topmed subset">
+##INFO=<ID=non_topmed_AN,Number=1,Type=Integer,Description="Total number of alleles in samples in the non_topmed subset">
+##INFO=<ID=non_topmed_AF,Number=A,Type=Float,Description="Alternate allele frequency in samples in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt,Number=A,Type=Integer,Description="Count of homozygous individuals in samples in the non_topmed subset">
+##INFO=<ID=controls_AC_fin,Number=A,Type=Integer,Description="Alternate allele count for samples of Finnish ancestry in the controls subset">
+##INFO=<ID=controls_AN_fin,Number=1,Type=Integer,Description="Total number of alleles in samples of Finnish ancestry in the controls subset">
+##INFO=<ID=controls_AF_fin,Number=A,Type=Float,Description="Alternate allele frequency in samples of Finnish ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_fin,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Finnish ancestry in the controls subset">
+##INFO=<ID=AC_eas_kor,Number=A,Type=Integer,Description="Alternate allele count for samples of Korean ancestry">
+##INFO=<ID=AN_eas_kor,Number=1,Type=Integer,Description="Total number of alleles in samples of Korean ancestry">
+##INFO=<ID=AF_eas_kor,Number=A,Type=Float,Description="Alternate allele frequency in samples of Korean ancestry">
+##INFO=<ID=nhomalt_eas_kor,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Korean ancestry">
+##INFO=<ID=non_neuro_AC_nfe,Number=A,Type=Integer,Description="Alternate allele count for samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_nfe,Number=1,Type=Integer,Description="Total number of alleles in samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_nfe,Number=A,Type=Float,Description="Alternate allele frequency in samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_nfe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AC_fin_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_fin_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_fin_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_fin_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Finnish ancestry in the non_neuro subset">
+##INFO=<ID=non_cancer_AC_nfe_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_nfe_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_nfe_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_nfe_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=controls_AC_eas_oea,Number=A,Type=Integer,Description="Alternate allele count for samples of Other East Asian ancestry in the controls subset">
+##INFO=<ID=controls_AN_eas_oea,Number=1,Type=Integer,Description="Total number of alleles in samples of Other East Asian ancestry in the controls subset">
+##INFO=<ID=controls_AF_eas_oea,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other East Asian ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_eas_oea,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other East Asian ancestry in the controls subset">
+##INFO=<ID=non_topmed_AC_nfe_seu,Number=A,Type=Integer,Description="Alternate allele count for samples of Southern European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_nfe_seu,Number=1,Type=Integer,Description="Total number of alleles in samples of Southern European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_nfe_seu,Number=A,Type=Float,Description="Alternate allele frequency in samples of Southern European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_nfe_seu,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Southern European ancestry in the non_topmed subset">
+##INFO=<ID=controls_AC_eas_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_AN_eas_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_AF_eas_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_eas_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of East Asian ancestry in the controls subset">
+##INFO=<ID=non_topmed_AC_asj,Number=A,Type=Integer,Description="Alternate allele count for samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_asj,Number=1,Type=Integer,Description="Total number of alleles in samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_asj,Number=A,Type=Float,Description="Alternate allele frequency in samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_asj,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=controls_AC_nfe_onf,Number=A,Type=Integer,Description="Alternate allele count for samples of Other Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_AN_nfe_onf,Number=1,Type=Integer,Description="Total number of alleles in samples of Other Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_AF_nfe_onf,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_nfe_onf,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC,Number=A,Type=Integer,Description="Alternate allele count for samples in the non_neuro subset">
+##INFO=<ID=non_neuro_AN,Number=1,Type=Integer,Description="Total number of alleles in samples in the non_neuro subset">
+##INFO=<ID=non_neuro_AF,Number=A,Type=Float,Description="Alternate allele frequency in samples in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt,Number=A,Type=Integer,Description="Count of homozygous individuals in samples in the non_neuro subset">
+##INFO=<ID=AC_eas_oea,Number=A,Type=Integer,Description="Alternate allele count for samples of Other East Asian ancestry">
+##INFO=<ID=AN_eas_oea,Number=1,Type=Integer,Description="Total number of alleles in samples of Other East Asian ancestry">
+##INFO=<ID=AF_eas_oea,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other East Asian ancestry">
+##INFO=<ID=nhomalt_eas_oea,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other East Asian ancestry">
+##INFO=<ID=non_topmed_AC_nfe,Number=A,Type=Integer,Description="Alternate allele count for samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_nfe,Number=1,Type=Integer,Description="Total number of alleles in samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_nfe,Number=A,Type=Float,Description="Alternate allele frequency in samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_nfe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_oth,Number=A,Type=Integer,Description="Alternate allele count for samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_oth,Number=1,Type=Integer,Description="Total number of alleles in samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_oth,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_oth,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=non_topmed_AC_raw,Number=A,Type=Integer,Description="Alternate allele count for samples in the non_topmed subset, before removing low-confidence genotypes">
+##INFO=<ID=non_topmed_AN_raw,Number=1,Type=Integer,Description="Total number of alleles in samples in the non_topmed subset, before removing low-confidence genotypes">
+##INFO=<ID=non_topmed_AF_raw,Number=A,Type=Float,Description="Alternate allele frequency in samples in the non_topmed subset, before removing low-confidence genotypes">
+##INFO=<ID=non_topmed_nhomalt_raw,Number=A,Type=Integer,Description="Count of homozygous individuals in samples in the non_topmed subset, before removing low-confidence genotypes">
+##INFO=<ID=non_neuro_AC_nfe_est,Number=A,Type=Integer,Description="Alternate allele count for samples of Estonian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_nfe_est,Number=1,Type=Integer,Description="Total number of alleles in samples of Estonian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_nfe_est,Number=A,Type=Float,Description="Alternate allele frequency in samples of Estonian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_nfe_est,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Estonian ancestry in the non_neuro subset">
+##INFO=<ID=non_topmed_AC_oth_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_oth_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_oth_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_oth_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_oth_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_oth_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_oth_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_oth_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Other ancestry in the non_cancer subset">
+##INFO=<ID=AC_nfe_est,Number=A,Type=Integer,Description="Alternate allele count for samples of Estonian ancestry">
+##INFO=<ID=AN_nfe_est,Number=1,Type=Integer,Description="Total number of alleles in samples of Estonian ancestry">
+##INFO=<ID=AF_nfe_est,Number=A,Type=Float,Description="Alternate allele frequency in samples of Estonian ancestry">
+##INFO=<ID=nhomalt_nfe_est,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Estonian ancestry">
+##INFO=<ID=non_cancer_AC_afr_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_afr_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_afr_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_afr_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_topmed_AC_afr_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_afr_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_afr_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_afr_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=AC_eas_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of East Asian ancestry">
+##INFO=<ID=AN_eas_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of East Asian ancestry">
+##INFO=<ID=AF_eas_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of East Asian ancestry">
+##INFO=<ID=nhomalt_eas_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of East Asian ancestry">
+##INFO=<ID=controls_AC_eas,Number=A,Type=Integer,Description="Alternate allele count for samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_AN_eas,Number=1,Type=Integer,Description="Total number of alleles in samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_AF_eas,Number=A,Type=Float,Description="Alternate allele frequency in samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_eas,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of East Asian ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_eas_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_eas_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_eas_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_eas_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_cancer_AC_nfe_nwe,Number=A,Type=Integer,Description="Alternate allele count for samples of North-Western European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_nfe_nwe,Number=1,Type=Integer,Description="Total number of alleles in samples of North-Western European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_nfe_nwe,Number=A,Type=Float,Description="Alternate allele frequency in samples of North-Western European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_nfe_nwe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of North-Western European ancestry in the non_cancer subset">
+##INFO=<ID=controls_AC_sas,Number=A,Type=Integer,Description="Alternate allele count for samples of South Asian ancestry in the controls subset">
+##INFO=<ID=controls_AN_sas,Number=1,Type=Integer,Description="Total number of alleles in samples of South Asian ancestry in the controls subset">
+##INFO=<ID=controls_AF_sas,Number=A,Type=Float,Description="Alternate allele frequency in samples of South Asian ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_sas,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of South Asian ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_sas_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_sas_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_sas_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_sas_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AC_asj_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_asj_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_asj_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_asj_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=non_cancer_AC_nfe_bgr,Number=A,Type=Integer,Description="Alternate allele count for samples of Bulgarian (Eastern European) ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_nfe_bgr,Number=1,Type=Integer,Description="Total number of alleles in samples of Bulgarian (Eastern European) ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_nfe_bgr,Number=A,Type=Float,Description="Alternate allele frequency in samples of Bulgarian (Eastern European) ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_nfe_bgr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Bulgarian (Eastern European) ancestry in the non_cancer subset">
+##INFO=<ID=controls_AC_oth,Number=A,Type=Integer,Description="Alternate allele count for samples of Other ancestry in the controls subset">
+##INFO=<ID=controls_AN_oth,Number=1,Type=Integer,Description="Total number of alleles in samples of Other ancestry in the controls subset">
+##INFO=<ID=controls_AF_oth,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_oth,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other ancestry in the controls subset">
+##INFO=<ID=non_cancer_AC_eas_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_eas_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_eas_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_eas_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=AC_nfe,Number=A,Type=Integer,Description="Alternate allele count for samples of Non-Finnish European ancestry">
+##INFO=<ID=AN_nfe,Number=1,Type=Integer,Description="Total number of alleles in samples of Non-Finnish European ancestry">
+##INFO=<ID=AF_nfe,Number=A,Type=Float,Description="Alternate allele frequency in samples of Non-Finnish European ancestry">
+##INFO=<ID=nhomalt_nfe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Non-Finnish European ancestry">
+##INFO=<ID=non_topmed_AC_female,Number=A,Type=Integer,Description="Alternate allele count for female samples in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_female,Number=1,Type=Integer,Description="Total number of alleles in female samples in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples in the non_topmed subset">
+##INFO=<ID=non_neuro_AC_asj,Number=A,Type=Integer,Description="Alternate allele count for samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_asj,Number=1,Type=Integer,Description="Total number of alleles in samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_asj,Number=A,Type=Float,Description="Alternate allele frequency in samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_asj,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Ashkenazi Jewish ancestry in the non_neuro subset">
+##INFO=<ID=non_topmed_AC_eas_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_eas_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_eas_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_eas_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_neuro_AC_raw,Number=A,Type=Integer,Description="Alternate allele count for samples in the non_neuro subset, before removing low-confidence genotypes">
+##INFO=<ID=non_neuro_AN_raw,Number=1,Type=Integer,Description="Total number of alleles in samples in the non_neuro subset, before removing low-confidence genotypes">
+##INFO=<ID=non_neuro_AF_raw,Number=A,Type=Float,Description="Alternate allele frequency in samples in the non_neuro subset, before removing low-confidence genotypes">
+##INFO=<ID=non_neuro_nhomalt_raw,Number=A,Type=Integer,Description="Count of homozygous individuals in samples in the non_neuro subset, before removing low-confidence genotypes">
+##INFO=<ID=non_topmed_AC_eas,Number=A,Type=Integer,Description="Alternate allele count for samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_eas,Number=1,Type=Integer,Description="Total number of alleles in samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_eas,Number=A,Type=Float,Description="Alternate allele frequency in samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_eas,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AC_fin_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_fin_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_fin_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_fin_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_asj_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_asj_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_asj_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_asj_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Ashkenazi Jewish ancestry in the non_cancer subset">
+##INFO=<ID=AC_fin,Number=A,Type=Integer,Description="Alternate allele count for samples of Finnish ancestry">
+##INFO=<ID=AN_fin,Number=1,Type=Integer,Description="Total number of alleles in samples of Finnish ancestry">
+##INFO=<ID=AF_fin,Number=A,Type=Float,Description="Alternate allele frequency in samples of Finnish ancestry">
+##INFO=<ID=nhomalt_fin,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Finnish ancestry">
+##INFO=<ID=AC_nfe_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Non-Finnish European ancestry">
+##INFO=<ID=AN_nfe_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Non-Finnish European ancestry">
+##INFO=<ID=AF_nfe_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Non-Finnish European ancestry">
+##INFO=<ID=nhomalt_nfe_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Non-Finnish European ancestry">
+##INFO=<ID=non_topmed_AC_eas_kor,Number=A,Type=Integer,Description="Alternate allele count for samples of Korean ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_eas_kor,Number=1,Type=Integer,Description="Total number of alleles in samples of Korean ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_eas_kor,Number=A,Type=Float,Description="Alternate allele frequency in samples of Korean ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_eas_kor,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Korean ancestry in the non_topmed subset">
+##INFO=<ID=controls_AC_amr_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Latino ancestry in the controls subset">
+##INFO=<ID=controls_AN_amr_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Latino ancestry in the controls subset">
+##INFO=<ID=controls_AF_amr_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Latino ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_amr_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Latino ancestry in the controls subset">
+##INFO=<ID=non_neuro_AC_eas_oea,Number=A,Type=Integer,Description="Alternate allele count for samples of Other East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_eas_oea,Number=1,Type=Integer,Description="Total number of alleles in samples of Other East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_eas_oea,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_eas_oea,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other East Asian ancestry in the non_neuro subset">
+##INFO=<ID=AC_sas_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of South Asian ancestry">
+##INFO=<ID=AN_sas_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of South Asian ancestry">
+##INFO=<ID=AF_sas_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of South Asian ancestry">
+##INFO=<ID=nhomalt_sas_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of South Asian ancestry">
+##INFO=<ID=controls_AC_afr_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=controls_AN_afr_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=controls_AF_afr_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_afr_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=controls_AC_amr,Number=A,Type=Integer,Description="Alternate allele count for samples of Latino ancestry in the controls subset">
+##INFO=<ID=controls_AN_amr,Number=1,Type=Integer,Description="Total number of alleles in samples of Latino ancestry in the controls subset">
+##INFO=<ID=controls_AF_amr,Number=A,Type=Float,Description="Alternate allele frequency in samples of Latino ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_amr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Latino ancestry in the controls subset">
+##INFO=<ID=non_topmed_AC_eas_jpn,Number=A,Type=Integer,Description="Alternate allele count for samples of Japanese ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_eas_jpn,Number=1,Type=Integer,Description="Total number of alleles in samples of Japanese ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_eas_jpn,Number=A,Type=Float,Description="Alternate allele frequency in samples of Japanese ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_eas_jpn,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Japanese ancestry in the non_topmed subset">
+##INFO=<ID=AC_asj_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=AN_asj_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=AF_asj_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=nhomalt_asj_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=non_topmed_AC_nfe_bgr,Number=A,Type=Integer,Description="Alternate allele count for samples of Bulgarian (Eastern European) ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_nfe_bgr,Number=1,Type=Integer,Description="Total number of alleles in samples of Bulgarian (Eastern European) ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_nfe_bgr,Number=A,Type=Float,Description="Alternate allele frequency in samples of Bulgarian (Eastern European) ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_nfe_bgr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Bulgarian (Eastern European) ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_nfe_est,Number=A,Type=Integer,Description="Alternate allele count for samples of Estonian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_nfe_est,Number=1,Type=Integer,Description="Total number of alleles in samples of Estonian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_nfe_est,Number=A,Type=Float,Description="Alternate allele frequency in samples of Estonian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_nfe_est,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Estonian ancestry in the non_cancer subset">
+##INFO=<ID=non_neuro_AC_eas,Number=A,Type=Integer,Description="Alternate allele count for samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_eas,Number=1,Type=Integer,Description="Total number of alleles in samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_eas,Number=A,Type=Float,Description="Alternate allele frequency in samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_eas,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_cancer_AC_nfe,Number=A,Type=Integer,Description="Alternate allele count for samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_nfe,Number=1,Type=Integer,Description="Total number of alleles in samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_nfe,Number=A,Type=Float,Description="Alternate allele frequency in samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_nfe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_neuro_AC_male,Number=A,Type=Integer,Description="Alternate allele count for male samples in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_male,Number=1,Type=Integer,Description="Total number of alleles in male samples in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples in the non_neuro subset">
+##INFO=<ID=non_neuro_AC_sas_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_sas_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_sas_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_sas_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=AC_asj,Number=A,Type=Integer,Description="Alternate allele count for samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=AN_asj,Number=1,Type=Integer,Description="Total number of alleles in samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=AF_asj,Number=A,Type=Float,Description="Alternate allele frequency in samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=nhomalt_asj,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Ashkenazi Jewish ancestry">
+##INFO=<ID=controls_AC_nfe_est,Number=A,Type=Integer,Description="Alternate allele count for samples of Estonian ancestry in the controls subset">
+##INFO=<ID=controls_AN_nfe_est,Number=1,Type=Integer,Description="Total number of alleles in samples of Estonian ancestry in the controls subset">
+##INFO=<ID=controls_AF_nfe_est,Number=A,Type=Float,Description="Alternate allele frequency in samples of Estonian ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_nfe_est,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Estonian ancestry in the controls subset">
+##INFO=<ID=non_topmed_AC_asj_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_asj_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_asj_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_asj_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_nfe_swe,Number=A,Type=Integer,Description="Alternate allele count for samples of Swedish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_nfe_swe,Number=1,Type=Integer,Description="Total number of alleles in samples of Swedish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_nfe_swe,Number=A,Type=Float,Description="Alternate allele frequency in samples of Swedish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_nfe_swe,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Swedish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AC,Number=A,Type=Integer,Description="Alternate allele count for samples in the non_cancer subset">
+##INFO=<ID=non_cancer_AN,Number=1,Type=Integer,Description="Total number of alleles in samples in the non_cancer subset">
+##INFO=<ID=non_cancer_AF,Number=A,Type=Float,Description="Alternate allele frequency in samples in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt,Number=A,Type=Integer,Description="Count of homozygous individuals in samples in the non_cancer subset">
+##INFO=<ID=non_topmed_AC_oth,Number=A,Type=Integer,Description="Alternate allele count for samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_oth,Number=1,Type=Integer,Description="Total number of alleles in samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_oth,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_oth,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AC_fin_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_fin_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_fin_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_fin_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_fin_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_fin_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_fin_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_fin_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=AC_oth,Number=A,Type=Integer,Description="Alternate allele count for samples of Other ancestry">
+##INFO=<ID=AN_oth,Number=1,Type=Integer,Description="Total number of alleles in samples of Other ancestry">
+##INFO=<ID=AF_oth,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other ancestry">
+##INFO=<ID=nhomalt_oth,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other ancestry">
+##INFO=<ID=non_neuro_AC_nfe_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_nfe_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_nfe_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_nfe_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=controls_AC_female,Number=A,Type=Integer,Description="Alternate allele count for female samples in the controls subset">
+##INFO=<ID=controls_AN_female,Number=1,Type=Integer,Description="Total number of alleles in female samples in the controls subset">
+##INFO=<ID=controls_AF_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples in the controls subset">
+##INFO=<ID=controls_nhomalt_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples in the controls subset">
+##INFO=<ID=non_cancer_AC_fin,Number=A,Type=Integer,Description="Alternate allele count for samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_fin,Number=1,Type=Integer,Description="Total number of alleles in samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_fin,Number=A,Type=Float,Description="Alternate allele frequency in samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_fin,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Finnish ancestry in the non_cancer subset">
+##INFO=<ID=non_topmed_AC_fin,Number=A,Type=Integer,Description="Alternate allele count for samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_fin,Number=1,Type=Integer,Description="Total number of alleles in samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_fin,Number=A,Type=Float,Description="Alternate allele frequency in samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_fin,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Finnish ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_eas_oea,Number=A,Type=Integer,Description="Alternate allele count for samples of Other East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_eas_oea,Number=1,Type=Integer,Description="Total number of alleles in samples of Other East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_eas_oea,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_eas_oea,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_topmed_AC_nfe_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_nfe_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_nfe_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_nfe_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_cancer_AC_sas_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_sas_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_sas_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_sas_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=controls_AC_asj_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=controls_AN_asj_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=controls_AF_asj_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_asj_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=non_cancer_AC_raw,Number=A,Type=Integer,Description="Alternate allele count for samples in the non_cancer subset, before removing low-confidence genotypes">
+##INFO=<ID=non_cancer_AN_raw,Number=1,Type=Integer,Description="Total number of alleles in samples in the non_cancer subset, before removing low-confidence genotypes">
+##INFO=<ID=non_cancer_AF_raw,Number=A,Type=Float,Description="Alternate allele frequency in samples in the non_cancer subset, before removing low-confidence genotypes">
+##INFO=<ID=non_cancer_nhomalt_raw,Number=A,Type=Integer,Description="Count of homozygous individuals in samples in the non_cancer subset, before removing low-confidence genotypes">
+##INFO=<ID=non_cancer_AC_eas_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_eas_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_eas_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_eas_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_topmed_AC_asj_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_asj_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_asj_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_asj_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Ashkenazi Jewish ancestry in the non_topmed subset">
+##INFO=<ID=non_neuro_AC_oth,Number=A,Type=Integer,Description="Alternate allele count for samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_oth,Number=1,Type=Integer,Description="Total number of alleles in samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_oth,Number=A,Type=Float,Description="Alternate allele frequency in samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_oth,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=AC_male,Number=A,Type=Integer,Description="Alternate allele count for male samples">
+##INFO=<ID=AN_male,Number=1,Type=Integer,Description="Total number of alleles in male samples">
+##INFO=<ID=AF_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples">
+##INFO=<ID=nhomalt_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples">
+##INFO=<ID=controls_AC_fin_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Finnish ancestry in the controls subset">
+##INFO=<ID=controls_AN_fin_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Finnish ancestry in the controls subset">
+##INFO=<ID=controls_AF_fin_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Finnish ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_fin_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Finnish ancestry in the controls subset">
+##INFO=<ID=controls_AC_nfe_bgr,Number=A,Type=Integer,Description="Alternate allele count for samples of Bulgarian (Eastern European) ancestry in the controls subset">
+##INFO=<ID=controls_AN_nfe_bgr,Number=1,Type=Integer,Description="Total number of alleles in samples of Bulgarian (Eastern European) ancestry in the controls subset">
+##INFO=<ID=controls_AF_nfe_bgr,Number=A,Type=Float,Description="Alternate allele frequency in samples of Bulgarian (Eastern European) ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_nfe_bgr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Bulgarian (Eastern European) ancestry in the controls subset">
+##INFO=<ID=controls_AC_asj_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=controls_AN_asj_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=controls_AF_asj_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_asj_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Ashkenazi Jewish ancestry in the controls subset">
+##INFO=<ID=AC_amr_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Latino ancestry">
+##INFO=<ID=AN_amr_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Latino ancestry">
+##INFO=<ID=AF_amr_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Latino ancestry">
+##INFO=<ID=nhomalt_amr_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Latino ancestry">
+##INFO=<ID=AC_amr_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Latino ancestry">
+##INFO=<ID=AN_amr_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Latino ancestry">
+##INFO=<ID=AF_amr_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Latino ancestry">
+##INFO=<ID=nhomalt_amr_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Latino ancestry">
+##INFO=<ID=non_topmed_AC_sas_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_sas_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_sas_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_sas_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=AC_oth_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of Other ancestry">
+##INFO=<ID=AN_oth_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of Other ancestry">
+##INFO=<ID=AF_oth_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of Other ancestry">
+##INFO=<ID=nhomalt_oth_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of Other ancestry">
+##INFO=<ID=non_cancer_AC_sas,Number=A,Type=Integer,Description="Alternate allele count for samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_sas,Number=1,Type=Integer,Description="Total number of alleles in samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_sas,Number=A,Type=Float,Description="Alternate allele frequency in samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_sas,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_neuro_AC_nfe_seu,Number=A,Type=Integer,Description="Alternate allele count for samples of Southern European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_nfe_seu,Number=1,Type=Integer,Description="Total number of alleles in samples of Southern European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_nfe_seu,Number=A,Type=Float,Description="Alternate allele frequency in samples of Southern European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_nfe_seu,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Southern European ancestry in the non_neuro subset">
+##INFO=<ID=non_cancer_AC_eas_kor,Number=A,Type=Integer,Description="Alternate allele count for samples of Korean ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_eas_kor,Number=1,Type=Integer,Description="Total number of alleles in samples of Korean ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_eas_kor,Number=A,Type=Float,Description="Alternate allele frequency in samples of Korean ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_eas_kor,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of Korean ancestry in the non_cancer subset">
+##INFO=<ID=non_topmed_AC_afr_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_afr_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_afr_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_afr_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=controls_AC_sas_male,Number=A,Type=Integer,Description="Alternate allele count for male samples of South Asian ancestry in the controls subset">
+##INFO=<ID=controls_AN_sas_male,Number=1,Type=Integer,Description="Total number of alleles in male samples of South Asian ancestry in the controls subset">
+##INFO=<ID=controls_AF_sas_male,Number=A,Type=Float,Description="Alternate allele frequency in male samples of South Asian ancestry in the controls subset">
+##INFO=<ID=controls_nhomalt_sas_male,Number=A,Type=Integer,Description="Count of homozygous individuals in male samples of South Asian ancestry in the controls subset">
+##INFO=<ID=non_topmed_AC_sas_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_sas_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_sas_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_sas_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AC_afr,Number=A,Type=Integer,Description="Alternate allele count for samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_afr,Number=1,Type=Integer,Description="Total number of alleles in samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_afr,Number=A,Type=Float,Description="Alternate allele frequency in samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_afr,Number=A,Type=Integer,Description="Count of homozygous individuals in samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=controls_AC,Number=A,Type=Integer,Description="Alternate allele count for samples in the controls subset">
+##INFO=<ID=controls_AN,Number=1,Type=Integer,Description="Total number of alleles in samples in the controls subset">
+##INFO=<ID=controls_AF,Number=A,Type=Float,Description="Alternate allele frequency in samples in the controls subset">
+##INFO=<ID=controls_nhomalt,Number=A,Type=Integer,Description="Count of homozygous individuals in samples in the controls subset">
+##INFO=<ID=non_neuro_AC_oth_female,Number=A,Type=Integer,Description="Alternate allele count for female samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_oth_female,Number=1,Type=Integer,Description="Total number of alleles in female samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_oth_female,Number=A,Type=Float,Description="Alternate allele frequency in female samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_oth_female,Number=A,Type=Integer,Description="Count of homozygous individuals in female samples of Other ancestry in the non_neuro subset">
+##INFO=<ID=non_topmed_faf95_amr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_faf99_amr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of Latino ancestry in the non_topmed subset">
+##INFO=<ID=faf95_afr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of African-American/African ancestry">
+##INFO=<ID=faf99_afr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of African-American/African ancestry">
+##INFO=<ID=faf95_sas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of South Asian ancestry">
+##INFO=<ID=faf99_sas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of South Asian ancestry">
+##INFO=<ID=controls_faf95_afr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=controls_faf99_afr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of African-American/African ancestry in the controls subset">
+##INFO=<ID=faf95_amr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of Latino ancestry">
+##INFO=<ID=faf99_amr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of Latino ancestry">
+##INFO=<ID=non_neuro_faf95_sas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_faf99_sas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of South Asian ancestry in the non_neuro subset">
+##INFO=<ID=faf95_eas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of East Asian ancestry">
+##INFO=<ID=faf99_eas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of East Asian ancestry">
+##INFO=<ID=faf95,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples">
+##INFO=<ID=faf99,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples">
+##INFO=<ID=non_neuro_faf95_afr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_faf99_afr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of African-American/African ancestry in the non_neuro subset">
+##INFO=<ID=non_cancer_faf95_eas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_faf99_eas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of East Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_neuro_faf95_amr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_faf99_amr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of Latino ancestry in the non_neuro subset">
+##INFO=<ID=non_topmed_faf95_sas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_faf99_sas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of South Asian ancestry in the non_topmed subset">
+##INFO=<ID=controls_faf95_nfe,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=controls_faf99_nfe,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of Non-Finnish European ancestry in the controls subset">
+##INFO=<ID=non_cancer_faf95_afr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_faf99_afr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of African-American/African ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_faf95_amr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_faf99_amr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of Latino ancestry in the non_cancer subset">
+##INFO=<ID=non_topmed_faf95,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples in the non_topmed subset">
+##INFO=<ID=non_topmed_faf99,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples in the non_topmed subset">
+##INFO=<ID=non_neuro_faf95_nfe,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_faf99_nfe,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of Non-Finnish European ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_faf95,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples in the non_neuro subset">
+##INFO=<ID=non_neuro_faf99,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples in the non_neuro subset">
+##INFO=<ID=non_topmed_faf95_nfe,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_faf99_nfe,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of Non-Finnish European ancestry in the non_topmed subset">
+##INFO=<ID=controls_faf95_eas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_faf99_eas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of East Asian ancestry in the controls subset">
+##INFO=<ID=controls_faf95_sas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of South Asian ancestry in the controls subset">
+##INFO=<ID=controls_faf99_sas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of South Asian ancestry in the controls subset">
+##INFO=<ID=faf95_nfe,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of Non-Finnish European ancestry">
+##INFO=<ID=faf99_nfe,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of Non-Finnish European ancestry">
+##INFO=<ID=non_topmed_faf95_eas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_faf99_eas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of East Asian ancestry in the non_topmed subset">
+##INFO=<ID=controls_faf95_amr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of Latino ancestry in the controls subset">
+##INFO=<ID=controls_faf99_amr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of Latino ancestry in the controls subset">
+##INFO=<ID=non_neuro_faf95_eas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_neuro_faf99_eas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of East Asian ancestry in the non_neuro subset">
+##INFO=<ID=non_cancer_faf95_nfe,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_faf99_nfe,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of Non-Finnish European ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_faf95,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples in the non_cancer subset">
+##INFO=<ID=non_cancer_faf99,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples in the non_cancer subset">
+##INFO=<ID=non_cancer_faf95_sas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_cancer_faf99_sas,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of South Asian ancestry in the non_cancer subset">
+##INFO=<ID=non_topmed_faf95_afr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=non_topmed_faf99_afr,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples of African-American/African ancestry in the non_topmed subset">
+##INFO=<ID=controls_faf95,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 95% CI) for samples in the controls subset">
+##INFO=<ID=controls_faf99,Number=A,Type=Float,Description="Filtering allele frequency (using Poisson 99% CI) for samples in the controls subset">
+##INFO=<ID=popmax,Number=A,Type=String,Description="Population with maximum AF">
+##INFO=<ID=AC_popmax,Number=A,Type=Integer,Description="Allele count in the population with the maximum AF">
+##INFO=<ID=AN_popmax,Number=A,Type=Integer,Description="Total number of alleles in the population with the maximum AF">
+##INFO=<ID=AF_popmax,Number=A,Type=Float,Description="Maximum allele frequency across populations (excluding samples of Ashkenazi, Finnish, and indeterminate ancestry)">
+##INFO=<ID=nhomalt_popmax,Number=A,Type=Integer,Description="Count of homozygous individuals in the population with the maximum allele frequency">
+##INFO=<ID=age_hist_het_bin_freq,Number=A,Type=String,Description="Histogram of ages of heterozygous individuals; bin edges are: 30.0|35.0|40.0|45.0|50.0|55.0|60.0|65.0|70.0|75.0|80.0; total number of individuals of any genotype bin: 2547|3423|4546|8487|10355|12693|11933|10534|8882|5991|4136|1935">
+##INFO=<ID=age_hist_het_n_smaller,Number=A,Type=Integer,Description="Count of age values falling below lowest histogram bin edge for heterozygous individuals">
+##INFO=<ID=age_hist_het_n_larger,Number=A,Type=Integer,Description="Count of age values falling above highest histogram bin edge for heterozygous individuals">
+##INFO=<ID=age_hist_hom_bin_freq,Number=A,Type=String,Description="Histogram of ages of homozygous alternate individuals; bin edges are: 30.0|35.0|40.0|45.0|50.0|55.0|60.0|65.0|70.0|75.0|80.0; total number of individuals of any genotype bin: 2547|3423|4546|8487|10355|12693|11933|10534|8882|5991|4136|1935">
+##INFO=<ID=age_hist_hom_n_smaller,Number=A,Type=Integer,Description="Count of age values falling below lowest histogram bin edge for homozygous alternate individuals">
+##INFO=<ID=age_hist_hom_n_larger,Number=A,Type=Integer,Description="Count of age values falling above highest histogram bin edge for homozygous alternate individuals">
+##INFO=<ID=non_topmed_popmax,Number=A,Type=String,Description="Population with maximum AF in the non_topmed subset">
+##INFO=<ID=non_topmed_AC_popmax,Number=A,Type=Integer,Description="Allele count in the population with the maximum AF in the non_topmed subset">
+##INFO=<ID=non_topmed_AN_popmax,Number=A,Type=Integer,Description="Total number of alleles in the population with the maximum AF in the non_topmed subset">
+##INFO=<ID=non_topmed_AF_popmax,Number=A,Type=Float,Description="Maximum allele frequency across populations (excluding samples of Ashkenazi, Finnish, and indeterminate ancestry) in the non_topmed subset">
+##INFO=<ID=non_topmed_nhomalt_popmax,Number=A,Type=Integer,Description="Count of homozygous individuals in the population with the maximum allele frequency in the non_topmed subset">
+##INFO=<ID=non_neuro_popmax,Number=A,Type=String,Description="Population with maximum AF in the non_neuro subset">
+##INFO=<ID=non_neuro_AC_popmax,Number=A,Type=Integer,Description="Allele count in the population with the maximum AF in the non_neuro subset">
+##INFO=<ID=non_neuro_AN_popmax,Number=A,Type=Integer,Description="Total number of alleles in the population with the maximum AF in the non_neuro subset">
+##INFO=<ID=non_neuro_AF_popmax,Number=A,Type=Float,Description="Maximum allele frequency across populations (excluding samples of Ashkenazi, Finnish, and indeterminate ancestry) in the non_neuro subset">
+##INFO=<ID=non_neuro_nhomalt_popmax,Number=A,Type=Integer,Description="Count of homozygous individuals in the population with the maximum allele frequency in the non_neuro subset">
+##INFO=<ID=non_cancer_popmax,Number=A,Type=String,Description="Population with maximum AF in the non_cancer subset">
+##INFO=<ID=non_cancer_AC_popmax,Number=A,Type=Integer,Description="Allele count in the population with the maximum AF in the non_cancer subset">
+##INFO=<ID=non_cancer_AN_popmax,Number=A,Type=Integer,Description="Total number of alleles in the population with the maximum AF in the non_cancer subset">
+##INFO=<ID=non_cancer_AF_popmax,Number=A,Type=Float,Description="Maximum allele frequency across populations (excluding samples of Ashkenazi, Finnish, and indeterminate ancestry) in the non_cancer subset">
+##INFO=<ID=non_cancer_nhomalt_popmax,Number=A,Type=Integer,Description="Count of homozygous individuals in the population with the maximum allele frequency in the non_cancer subset">
+##INFO=<ID=controls_popmax,Number=A,Type=String,Description="Population with maximum AF in the controls subset">
+##INFO=<ID=controls_AC_popmax,Number=A,Type=Integer,Description="Allele count in the population with the maximum AF in the controls subset">
+##INFO=<ID=controls_AN_popmax,Number=A,Type=Integer,Description="Total number of alleles in the population with the maximum AF in the controls subset">
+##INFO=<ID=controls_AF_popmax,Number=A,Type=Float,Description="Maximum allele frequency across populations (excluding samples of Ashkenazi, Finnish, and indeterminate ancestry) in the controls subset">
+##INFO=<ID=controls_nhomalt_popmax,Number=A,Type=Integer,Description="Count of homozygous individuals in the population with the maximum allele frequency in the controls subset">
+##INFO=<ID=vep,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP. Format: Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|BIOTYPE|EXON|INTRON|HGVSc|HGVSp|cDNA_position|CDS_position|Protein_position|Amino_acids|Codons|Existing_variation|ALLELE_NUM|DISTANCE|STRAND|FLAGS|VARIANT_CLASS|MINIMISED|SYMBOL_SOURCE|HGNC_ID|CANONICAL|TSL|APPRIS|CCDS|ENSP|SWISSPROT|TREMBL|UNIPARC|GENE_PHENO|SIFT|PolyPhen|DOMAINS|HGVS_OFFSET|GMAF|AFR_MAF|AMR_MAF|EAS_MAF|EUR_MAF|SAS_MAF|AA_MAF|EA_MAF|ExAC_MAF|ExAC_Adj_MAF|ExAC_AFR_MAF|ExAC_AMR_MAF|ExAC_EAS_MAF|ExAC_FIN_MAF|ExAC_NFE_MAF|ExAC_OTH_MAF|ExAC_SAS_MAF|CLIN_SIG|SOMATIC|PHENO|PUBMED|MOTIF_NAME|MOTIF_POS|HIGH_INF_POS|MOTIF_SCORE_CHANGE|LoF|LoF_filter|LoF_flags|LoF_info">
+##contig=<ID=1,length=249250621,assembly=gnomAD_GRCh37>
+##contig=<ID=2,length=243199373,assembly=gnomAD_GRCh37>
+##contig=<ID=3,length=198022430,assembly=gnomAD_GRCh37>
+##contig=<ID=4,length=191154276,assembly=gnomAD_GRCh37>
+##contig=<ID=5,length=180915260,assembly=gnomAD_GRCh37>
+##contig=<ID=6,length=171115067,assembly=gnomAD_GRCh37>
+##contig=<ID=7,length=159138663,assembly=gnomAD_GRCh37>
+##contig=<ID=8,length=146364022,assembly=gnomAD_GRCh37>
+##contig=<ID=9,length=141213431,assembly=gnomAD_GRCh37>
+##contig=<ID=10,length=135534747,assembly=gnomAD_GRCh37>
+##contig=<ID=11,length=135006516,assembly=gnomAD_GRCh37>
+##contig=<ID=12,length=133851895,assembly=gnomAD_GRCh37>
+##contig=<ID=13,length=115169878,assembly=gnomAD_GRCh37>
+##contig=<ID=14,length=107349540,assembly=gnomAD_GRCh37>
+##contig=<ID=15,length=102531392,assembly=gnomAD_GRCh37>
+##contig=<ID=16,length=90354753,assembly=gnomAD_GRCh37>
+##contig=<ID=17,length=81195210,assembly=gnomAD_GRCh37>
+##contig=<ID=18,length=78077248,assembly=gnomAD_GRCh37>
+##contig=<ID=19,length=59128983,assembly=gnomAD_GRCh37>
+##contig=<ID=20,length=63025520,assembly=gnomAD_GRCh37>
+##contig=<ID=21,length=48129895,assembly=gnomAD_GRCh37>
+##contig=<ID=22,length=51304566,assembly=gnomAD_GRCh37>
+##contig=<ID=X,length=155270560,assembly=gnomAD_GRCh37>
+##contig=<ID=Y,length=59373566,assembly=gnomAD_GRCh37>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	13656	rs1263393206	CAG	C	422117.14	RF	AC=759;AN=25700;AF=2.95331e-02;rf_tp_probability=6.69564e-02;FS=0.00000e+00;InbreedingCoeff=-6.07000e-02;MQ=2.28200e+01;MQRankSum=1.42000e+00;QD=6.08000e+00;ReadPosRankSum=-2.79900e+00;SOR=5.43000e-01;VQSR_NEGATIVE_TRAIN_SITE;BaseQRankSum=-2.77100e+00;ClippingRankSum=-1.24000e-01;DP=1138707;VQSLOD=-1.43200e+00;VQSR_culprit=FS;segdup;rf_negative_label;rf_label=FP;rf_train;variant_type=indel;allele_type=del;n_alt_alleles=1;pab_max=1.00000e+00;gq_hist_alt_bin_freq=10|119|79|161|88|57|76|46|35|22|45|40|57|71|72|68|82|55|53|1053;gq_hist_all_bin_freq=16280|4849|1325|1248|846|699|763|715|655|709|644|494|812|438|672|387|702|307|564|4830;dp_hist_alt_bin_freq=228|371|142|255|354|274|199|144|108|84|46|34|20|18|7|2|1|1|1|0;dp_hist_alt_n_larger=0;dp_hist_all_bin_freq=100993|2088|1641|2930|3430|2868|2651|2331|2006|1439|1093|731|517|330|226|163|96|70|47|32;dp_hist_all_n_larger=66;ab_hist_alt_bin_freq=0|49|482|418|298|219|110|44|30|11|11|2|14|26|6|31|51|39|2|0;AC_nfe_seu=0;AN_nfe_seu=2;AF_nfe_seu=0.00000e+00;nhomalt_nfe_seu=0;controls_AC_afr_male=5;controls_AN_afr_male=722;controls_AF_afr_male=6.92521e-03;controls_nhomalt_afr_male=0;non_neuro_AC_eas_kor=4;non_neuro_AN_eas_kor=1456;non_neuro_AF_eas_kor=2.74725e-03;non_neuro_nhomalt_eas_kor=0;non_topmed_AC_amr=161;non_topmed_AN_amr=3644;non_topmed_AF_amr=4.41822e-02;non_topmed_nhomalt_amr=3;non_cancer_AC_asj_female=29;non_cancer_AN_asj_female=278;non_cancer_AF_asj_female=1.04317e-01;non_cancer_nhomalt_asj_female=1;AC_raw=2735;AN_raw=75878;AF_raw=3.60447e-02;nhomalt_raw=446;AC_fin_female=6;AN_fin_female=90;AF_fin_female=6.66667e-02;nhomalt_fin_female=0;non_cancer_AC_oth_female=9;non_cancer_AN_oth_female=384;non_cancer_AF_oth_female=2.34375e-02;non_cancer_nhomalt_oth_female=0;AC_nfe_bgr=0;AN_nfe_bgr=0;nhomalt_nfe_bgr=0;non_neuro_AC_asj_female=9;non_neuro_AN_asj_female=82;non_neuro_AF_asj_female=1.09756e-01;non_neuro_nhomalt_asj_female=0;AC_sas_male=56;AN_sas_male=1542;AF_sas_male=3.63165e-02;nhomalt_sas_male=1;non_neuro_AC_afr_male=14;non_neuro_AN_afr_male=1682;non_neuro_AF_afr_male=8.32342e-03;non_neuro_nhomalt_afr_male=0;AC_afr_male=14;AN_afr_male=1698;AF_afr_male=8.24499e-03;nhomalt_afr_male=0;AC_afr=25;AN_afr=3936;AF_afr=6.35163e-03;nhomalt_afr=0;controls_AC_nfe_swe=0;controls_AN_nfe_swe=0;controls_nhomalt_nfe_swe=0;non_neuro_AC_afr_female=11;non_neuro_AN_afr_female=2230;non_neuro_AF_afr_female=4.93274e-03;non_neuro_nhomalt_afr_female=0;non_topmed_AC_amr_female=87;non_topmed_AN_amr_female=1922;non_topmed_AF_amr_female=4.52653e-02;non_topmed_nhomalt_amr_female=1;non_cancer_AC_female=356;non_cancer_AN_female=12560;non_cancer_AF_female=2.83439e-02;non_cancer_nhomalt_female=9;non_cancer_AC_nfe_onf=79;non_cancer_AN_nfe_onf=1468;non_cancer_AF_nfe_onf=5.38147e-02;non_cancer_nhomalt_nfe_onf=3;non_cancer_AC_male=403;non_cancer_AN_male=13140;non_cancer_AF_male=3.06697e-02;non_cancer_nhomalt_male=16;non_topmed_AC_oth_female=9;non_topmed_AN_oth_female=374;non_topmed_AF_oth_female=2.40642e-02;non_topmed_nhomalt_oth_female=0;AC_eas_female=7;AN_eas_female=2926;AF_eas_female=2.39234e-03;nhomalt_eas_female=0;non_cancer_AC_sas_female=33;non_cancer_AN_sas_female=962;non_cancer_AF_sas_female=3.43035e-02;non_cancer_nhomalt_sas_female=1;AC_afr_female=11;AN_afr_female=2238;AF_afr_female=4.91510e-03;nhomalt_afr_female=0;AC_sas=89;AN_sas=2504;AF_sas=3.55431e-02;nhomalt_sas=2;non_neuro_AC_female=272;non_neuro_AN_female=11132;non_neuro_AF_female=2.44341e-02;non_neuro_nhomalt_female=4;controls_AC_afr=10;controls_AN_afr=1698;controls_AF_afr=5.88928e-03;controls_nhomalt_afr=0;non_neuro_AC_eas_jpn=0;non_neuro_AN_eas_jpn=0;non_neuro_nhomalt_eas_jpn=0;AC_nfe_onf=79;AN_nfe_onf=1468;AF_nfe_onf=5.38147e-02;nhomalt_nfe_onf=3;non_cancer_AC_amr_male=74;non_cancer_AN_amr_male=1734;non_cancer_AF_amr_male=4.26759e-02;non_cancer_nhomalt_amr_male=2;controls_AC_fin_male=0;controls_AN_fin_male=10;controls_AF_fin_male=0.00000e+00;controls_nhomalt_fin_male=0;non_neuro_AC_nfe_nwe=232;non_neuro_AN_nfe_nwe=5144;non_neuro_AF_nfe_nwe=4.51011e-02;non_neuro_nhomalt_nfe_nwe=8;AC_fin_male=9;AN_fin_male=152;AF_fin_male=5.92105e-02;nhomalt_fin_male=1;AC_nfe_female=174;AN_nfe_female=3748;AF_nfe_female=4.64248e-02;nhomalt_nfe_female=6;AC_amr=161;AN_amr=3668;AF_amr=4.38931e-02;nhomalt_amr=3;non_topmed_AC_nfe_male=203;non_topmed_AN_nfe_male=4022;non_topmed_AF_nfe_male=5.04724e-02;non_topmed_nhomalt_nfe_male=11;non_neuro_AC_sas=89;non_neuro_AN_sas=2502;non_neuro_AF_sas=3.55715e-02;non_neuro_nhomalt_sas=2;non_cancer_AC_fin_male=9;non_cancer_AN_fin_male=152;non_cancer_AF_fin_male=5.92105e-02;non_cancer_nhomalt_fin_male=1;non_cancer_AC_nfe_seu=0;non_cancer_AN_nfe_seu=2;non_cancer_AF_nfe_seu=0.00000e+00;non_cancer_nhomalt_nfe_seu=0;AC_eas=19;AN_eas=6140;AF_eas=3.09446e-03;nhomalt_eas=0;nhomalt=25;non_neuro_AC_nfe_female=149;non_neuro_AN_nfe_female=3224;non_neuro_AF_nfe_female=4.62159e-02;non_neuro_nhomalt_nfe_female=3;non_neuro_AC_afr=25;non_neuro_AN_afr=3912;non_neuro_AF_afr=6.39059e-03;non_neuro_nhomalt_afr=0;controls_AC_raw=1042;controls_AN_raw=30400;controls_AF_raw=3.42763e-02;controls_nhomalt_raw=162;non_cancer_AC_eas=19;non_cancer_AN_eas=6140;non_cancer_AF_eas=3.09446e-03;non_cancer_nhomalt_eas=0;non_cancer_AC_amr_female=87;non_cancer_AN_amr_female=1934;non_cancer_AF_amr_female=4.49845e-02;non_cancer_nhomalt_amr_female=1;non_neuro_AC_nfe_swe=0;non_neuro_AN_nfe_swe=4;non_neuro_AF_nfe_swe=0.00000e+00;non_neuro_nhomalt_nfe_swe=0;controls_AC_male=120;controls_AN_male=5330;controls_AF_male=2.25141e-02;controls_nhomalt_male=0;non_topmed_AC_male=395;non_topmed_AN_male=12872;non_topmed_AF_male=3.06868e-02;non_topmed_nhomalt_male=16;controls_AC_eas_jpn=0;controls_AN_eas_jpn=0;controls_nhomalt_eas_jpn=0;controls_AC_nfe_female=59;controls_AN_nfe_female=1466;controls_AF_nfe_female=4.02456e-02;controls_nhomalt_nfe_female=1;non_neuro_AC_amr=95;non_neuro_AN_amr=2526;non_neuro_AF_amr=3.76089e-02;non_neuro_nhomalt_amr=0;non_neuro_AC_eas_female=7;non_neuro_AN_eas_female=2916;non_neuro_AF_eas_female=2.40055e-03;non_neuro_nhomalt_eas_female=0;AC_asj_male=13;AN_asj_male=186;AF_asj_male=6.98925e-02;nhomalt_asj_male=0;controls_AC_nfe_male=50;controls_AN_nfe_male=1348;controls_AF_nfe_male=3.70920e-02;controls_nhomalt_nfe_male=0;non_neuro_AC_fin=10;non_neuro_AN_fin=176;non_neuro_AF_fin=5.68182e-02;non_neuro_nhomalt_fin=0;non_topmed_AC_sas=89;non_topmed_AN_sas=2504;non_topmed_AF_sas=3.55431e-02;non_topmed_nhomalt_sas=2;non_cancer_AC_nfe_female=174;non_cancer_AN_nfe_female=3748;non_cancer_AF_nfe_female=4.64248e-02;non_cancer_nhomalt_nfe_female=6;AC_oth_female=9;AN_oth_female=384;AF_oth_female=2.34375e-02;nhomalt_oth_female=0;non_cancer_AC_asj=42;non_cancer_AN_asj=464;non_cancer_AF_asj=9.05172e-02;non_cancer_nhomalt_asj=1;AC_nfe_swe=0;AN_nfe_swe=4;AF_nfe_swe=0.00000e+00;nhomalt_nfe_swe=0;controls_AC_nfe=109;controls_AN_nfe=2814;controls_AF_nfe=3.87349e-02;controls_nhomalt_nfe=1;controls_AC_oth_female=2;controls_AN_oth_female=158;controls_AF_oth_female=1.26582e-02;controls_nhomalt_oth_female=0;controls_AC_asj=7;controls_AN_asj=86;controls_AF_asj=8.13953e-02;controls_nhomalt_asj=0;non_neuro_AC_amr_male=41;non_neuro_AN_amr_male=1188;non_neuro_AF_amr_male=3.45118e-02;non_neuro_nhomalt_amr_male=0;controls_AC_nfe_nwe=90;controls_AN_nfe_nwe=2354;controls_AF_nfe_nwe=3.82328e-02;controls_nhomalt_nfe_nwe=1;AC_nfe_nwe=303;AN_nfe_nwe=6462;AF_nfe_nwe=4.68895e-02;nhomalt_nfe_nwe=14;controls_AC_nfe_seu=0;controls_AN_nfe_seu=0;controls_nhomalt_nfe_seu=0;controls_AC_sas_female=16;controls_AN_sas_female=454;controls_AF_sas_female=3.52423e-02;controls_nhomalt_sas_female=0;non_neuro_AC_amr_female=54;non_neuro_AN_amr_female=1338;non_neuro_AF_amr_female=4.03587e-02;non_neuro_nhomalt_amr_female=0;non_cancer_AC_eas_jpn=0;non_cancer_AN_eas_jpn=0;non_cancer_nhomalt_eas_jpn=0;non_neuro_AC_nfe_onf=65;non_neuro_AN_nfe_onf=1218;non_neuro_AF_nfe_onf=5.33662e-02;non_neuro_nhomalt_nfe_onf=2;non_topmed_AC_eas_male=12;non_topmed_AN_eas_male=3212;non_topmed_AF_eas_male=3.73599e-03;non_topmed_nhomalt_eas_male=0;AC_eas_jpn=0;AN_eas_jpn=0;nhomalt_eas_jpn=0;non_cancer_AC_afr_male=14;non_cancer_AN_afr_male=1698;non_cancer_AF_afr_male=8.24499e-03;non_cancer_nhomalt_afr_male=0;non_cancer_AC_afr=25;non_cancer_AN_afr=3936;non_cancer_AF_afr=6.35163e-03;non_cancer_nhomalt_afr=0;controls_AC_amr_female=46;controls_AN_amr_female=946;controls_AF_amr_female=4.86258e-02;controls_nhomalt_amr_female=0;non_neuro_AC_fin_male=7;non_neuro_AN_fin_male=126;non_neuro_AF_fin_male=5.55556e-02;non_neuro_nhomalt_fin_male=0;AC_female=356;AN_female=12560;AF_female=2.83439e-02;nhomalt_female=9;non_neuro_AC_nfe_bgr=0;non_neuro_AN_nfe_bgr=0;non_neuro_nhomalt_nfe_bgr=0;non_neuro_AC_oth_male=9;non_neuro_AN_oth_male=310;non_neuro_AF_oth_male=2.90323e-02;non_neuro_nhomalt_oth_male=0;non_topmed_AC_nfe_est=2;non_topmed_AN_nfe_est=26;non_topmed_AF_nfe_est=7.69231e-02;non_topmed_nhomalt_nfe_est=0;non_topmed_AC_nfe_nwe=293;non_topmed_AN_nfe_nwe=6202;non_topmed_AF_nfe_nwe=4.72428e-02;non_topmed_nhomalt_nfe_nwe=14;non_topmed_AC_amr_male=74;non_topmed_AN_amr_male=1722;non_topmed_AF_amr_male=4.29733e-02;non_topmed_nhomalt_amr_male=2;non_cancer_AC_amr=161;non_cancer_AN_amr=3668;non_cancer_AF_amr=4.38931e-02;non_cancer_nhomalt_amr=3;non_topmed_AC_nfe_swe=0;non_topmed_AN_nfe_swe=4;non_topmed_AF_nfe_swe=0.00000e+00;non_topmed_nhomalt_nfe_swe=0;non_topmed_AC_nfe_onf=73;non_topmed_AN_nfe_onf=1348;non_topmed_AF_nfe_onf=5.41543e-02;non_topmed_nhomalt_nfe_onf=3;controls_AC_eas_kor=2;controls_AN_eas_kor=736;controls_AF_eas_kor=2.71739e-03;controls_nhomalt_eas_kor=0;non_topmed_AC_eas_oea=15;non_topmed_AN_eas_oea=4680;non_topmed_AF_eas_oea=3.20513e-03;non_topmed_nhomalt_eas_oea=0;controls_AC_eas_male=4;controls_AN_eas_male=1512;controls_AF_eas_male=2.64550e-03;controls_nhomalt_eas_male=0;controls_AC_oth_male=4;controls_AN_oth_male=140;controls_AF_oth_male=2.85714e-02;controls_nhomalt_oth_male=0;non_topmed_AC=738;non_topmed_AN=25154;non_topmed_AF=2.93393e-02;non_topmed_nhomalt=25;controls_AC_fin=0;controls_AN_fin=12;controls_AF_fin=0.00000e+00;controls_nhomalt_fin=0;AC_eas_kor=4;AN_eas_kor=1458;AF_eas_kor=2.74348e-03;nhomalt_eas_kor=0;non_neuro_AC_nfe=299;non_neuro_AN_nfe=6392;non_neuro_AF_nfe=4.67772e-02;non_neuro_nhomalt_nfe=10;non_neuro_AC_fin_female=3;non_neuro_AN_fin_female=50;non_neuro_AF_fin_female=6.00000e-02;non_neuro_nhomalt_fin_female=0;non_cancer_AC_nfe_male=210;non_cancer_AN_nfe_male=4216;non_cancer_AF_nfe_male=4.98102e-02;non_cancer_nhomalt_nfe_male=11;controls_AC_eas_oea=6;controls_AN_eas_oea=2262;controls_AF_eas_oea=2.65252e-03;controls_nhomalt_eas_oea=0;non_topmed_AC_nfe_seu=0;non_topmed_AN_nfe_seu=2;non_topmed_AF_nfe_seu=0.00000e+00;non_topmed_nhomalt_nfe_seu=0;controls_AC_eas_female=4;controls_AN_eas_female=1486;controls_AF_eas_female=2.69179e-03;controls_nhomalt_eas_female=0;non_topmed_AC_asj=41;non_topmed_AN_asj=456;non_topmed_AF_asj=8.99123e-02;non_topmed_nhomalt_asj=1;controls_AC_nfe_onf=19;controls_AN_nfe_onf=448;controls_AF_nfe_onf=4.24107e-02;controls_nhomalt_nfe_onf=0;non_neuro_AC=566;non_neuro_AN=22460;non_neuro_AF=2.52004e-02;non_neuro_nhomalt=12;AC_eas_oea=15;AN_eas_oea=4682;AF_eas_oea=3.20376e-03;nhomalt_eas_oea=0;non_topmed_AC_nfe=368;non_topmed_AN_nfe=7582;non_topmed_AF_nfe=4.85360e-02;non_topmed_nhomalt_nfe=17;non_cancer_AC_oth=24;non_cancer_AN_oth=782;non_cancer_AF_oth=3.06905e-02;non_cancer_nhomalt_oth=1;non_topmed_AC_raw=2647;non_topmed_AN_raw=74640;non_topmed_AF_raw=3.54636e-02;non_topmed_nhomalt_raw=436;non_neuro_AC_nfe_est=2;non_neuro_AN_nfe_est=26;non_neuro_AF_nfe_est=7.69231e-02;non_neuro_nhomalt_nfe_est=0;non_topmed_AC_oth_male=14;non_topmed_AN_oth_male=388;non_topmed_AF_oth_male=3.60825e-02;non_topmed_nhomalt_oth_male=1;non_cancer_AC_oth_male=15;non_cancer_AN_oth_male=398;non_cancer_AF_oth_male=3.76884e-02;non_cancer_nhomalt_oth_male=1;AC_nfe_est=2;AN_nfe_est=28;AF_nfe_est=7.14286e-02;nhomalt_nfe_est=0;non_cancer_AC_afr_female=11;non_cancer_AN_afr_female=2238;non_cancer_AF_afr_female=4.91510e-03;non_cancer_nhomalt_afr_female=0;non_topmed_AC_afr_male=14;non_topmed_AN_afr_male=1654;non_topmed_AF_afr_male=8.46433e-03;non_topmed_nhomalt_afr_male=0;AC_eas_male=12;AN_eas_male=3214;AF_eas_male=3.73367e-03;nhomalt_eas_male=0;controls_AC_eas=8;controls_AN_eas=2998;controls_AF_eas=2.66845e-03;controls_nhomalt_eas=0;non_neuro_AC_eas_male=12;non_neuro_AN_eas_male=3212;non_neuro_AF_eas_male=3.73599e-03;non_neuro_nhomalt_eas_male=0;non_cancer_AC_nfe_nwe=303;non_cancer_AN_nfe_nwe=6462;non_cancer_AF_nfe_nwe=4.68895e-02;non_cancer_nhomalt_nfe_nwe=14;controls_AC_sas=41;controls_AN_sas=1168;controls_AF_sas=3.51027e-02;controls_nhomalt_sas=0;non_neuro_AC_sas_male=56;non_neuro_AN_sas_male=1540;non_neuro_AF_sas_male=3.63636e-02;non_neuro_nhomalt_sas_male=1;non_neuro_AC_asj_male=5;non_neuro_AN_asj_male=102;non_neuro_AF_asj_male=4.90196e-02;non_neuro_nhomalt_asj_male=0;non_cancer_AC_nfe_bgr=0;non_cancer_AN_nfe_bgr=0;non_cancer_nhomalt_nfe_bgr=0;controls_AC_oth=6;controls_AN_oth=298;controls_AF_oth=2.01342e-02;controls_nhomalt_oth=0;non_cancer_AC_eas_female=7;non_cancer_AN_eas_female=2926;non_cancer_AF_eas_female=2.39234e-03;non_cancer_nhomalt_eas_female=0;AC_nfe=384;AN_nfe=7964;AF_nfe=4.82170e-02;nhomalt_nfe=17;non_topmed_AC_female=343;non_topmed_AN_female=12282;non_topmed_AF_female=2.79270e-02;non_topmed_nhomalt_female=9;non_neuro_AC_asj=14;non_neuro_AN_asj=184;non_neuro_AF_asj=7.60870e-02;non_neuro_nhomalt_asj=0;non_topmed_AC_eas_female=7;non_topmed_AN_eas_female=2926;non_topmed_AF_eas_female=2.39234e-03;non_topmed_nhomalt_eas_female=0;non_neuro_AC_raw=2181;non_neuro_AN_raw=64450;non_neuro_AF_raw=3.38402e-02;non_neuro_nhomalt_raw=353;non_topmed_AC_eas=19;non_topmed_AN_eas=6138;non_topmed_AF_eas=3.09547e-03;non_topmed_nhomalt_eas=0;non_topmed_AC_fin_male=9;non_topmed_AN_fin_male=152;non_topmed_AF_fin_male=5.92105e-02;non_topmed_nhomalt_fin_male=1;non_cancer_AC_asj_male=13;non_cancer_AN_asj_male=186;non_cancer_AF_asj_male=6.98925e-02;non_cancer_nhomalt_asj_male=0;AC_fin=15;AN_fin=242;AF_fin=6.19835e-02;nhomalt_fin=1;AC_nfe_male=210;AN_nfe_male=4216;AF_nfe_male=4.98102e-02;nhomalt_nfe_male=11;non_topmed_AC_eas_kor=4;non_topmed_AN_eas_kor=1458;non_topmed_AF_eas_kor=2.74348e-03;non_topmed_nhomalt_eas_kor=0;controls_AC_amr_male=30;controls_AN_amr_male=838;controls_AF_amr_male=3.57995e-02;controls_nhomalt_amr_male=0;non_neuro_AC_eas_oea=15;non_neuro_AN_eas_oea=4672;non_neuro_AF_eas_oea=3.21062e-03;non_neuro_nhomalt_eas_oea=0;AC_sas_female=33;AN_sas_female=962;AF_sas_female=3.43035e-02;nhomalt_sas_female=1;controls_AC_afr_female=5;controls_AN_afr_female=976;controls_AF_afr_female=5.12295e-03;controls_nhomalt_afr_female=0;controls_AC_amr=76;controls_AN_amr=1784;controls_AF_amr=4.26009e-02;controls_nhomalt_amr=0;non_topmed_AC_eas_jpn=0;non_topmed_AN_eas_jpn=0;non_topmed_nhomalt_eas_jpn=0;AC_asj_female=29;AN_asj_female=278;AF_asj_female=1.04317e-01;nhomalt_asj_female=1;non_topmed_AC_nfe_bgr=0;non_topmed_AN_nfe_bgr=0;non_topmed_nhomalt_nfe_bgr=0;non_cancer_AC_nfe_est=2;non_cancer_AN_nfe_est=28;non_cancer_AF_nfe_est=7.14286e-02;non_cancer_nhomalt_nfe_est=0;non_neuro_AC_eas=19;non_neuro_AN_eas=6128;non_neuro_AF_eas=3.10052e-03;non_neuro_nhomalt_eas=0;non_cancer_AC_nfe=384;non_cancer_AN_nfe=7964;non_cancer_AF_nfe=4.82170e-02;non_cancer_nhomalt_nfe=17;non_neuro_AC_male=294;non_neuro_AN_male=11328;non_neuro_AF_male=2.59534e-02;non_neuro_nhomalt_male=8;non_neuro_AC_sas_female=33;non_neuro_AN_sas_female=962;non_neuro_AF_sas_female=3.43035e-02;non_neuro_nhomalt_sas_female=1;AC_asj=42;AN_asj=464;AF_asj=9.05172e-02;nhomalt_asj=1;controls_AC_nfe_est=0;controls_AN_nfe_est=12;controls_AF_nfe_est=0.00000e+00;controls_nhomalt_nfe_est=0;non_topmed_AC_asj_female=28;non_topmed_AN_asj_female=276;non_topmed_AF_asj_female=1.01449e-01;non_topmed_nhomalt_asj_female=1;non_cancer_AC_nfe_swe=0;non_cancer_AN_nfe_swe=4;non_cancer_AF_nfe_swe=0.00000e+00;non_cancer_nhomalt_nfe_swe=0;non_cancer_AC=759;non_cancer_AN=25700;non_cancer_AF=2.95331e-02;non_cancer_nhomalt=25;non_topmed_AC_oth=23;non_topmed_AN_oth=762;non_topmed_AF_oth=3.01837e-02;non_topmed_nhomalt_oth=1;non_topmed_AC_fin_female=6;non_topmed_AN_fin_female=90;non_topmed_AF_fin_female=6.66667e-02;non_topmed_nhomalt_fin_female=0;non_cancer_AC_fin_female=6;non_cancer_AN_fin_female=90;non_cancer_AF_fin_female=6.66667e-02;non_cancer_nhomalt_fin_female=0;AC_oth=24;AN_oth=782;AF_oth=3.06905e-02;nhomalt_oth=1;non_neuro_AC_nfe_male=150;non_neuro_AN_nfe_male=3168;non_neuro_AF_nfe_male=4.73485e-02;non_neuro_nhomalt_nfe_male=7;controls_AC_female=137;controls_AN_female=5528;controls_AF_female=2.47829e-02;controls_nhomalt_female=1;non_cancer_AC_fin=15;non_cancer_AN_fin=242;non_cancer_AF_fin=6.19835e-02;non_cancer_nhomalt_fin=1;non_topmed_AC_fin=15;non_topmed_AN_fin=242;non_topmed_AF_fin=6.19835e-02;non_topmed_nhomalt_fin=1;non_cancer_AC_eas_oea=15;non_cancer_AN_eas_oea=4682;non_cancer_AF_eas_oea=3.20376e-03;non_cancer_nhomalt_eas_oea=0;non_topmed_AC_nfe_female=165;non_topmed_AN_nfe_female=3560;non_topmed_AF_nfe_female=4.63483e-02;non_topmed_nhomalt_nfe_female=6;non_cancer_AC_sas_male=56;non_cancer_AN_sas_male=1542;non_cancer_AF_sas_male=3.63165e-02;non_cancer_nhomalt_sas_male=1;controls_AC_asj_male=2;controls_AN_asj_male=46;controls_AF_asj_male=4.34783e-02;controls_nhomalt_asj_male=0;non_cancer_AC_raw=2735;non_cancer_AN_raw=75588;non_cancer_AF_raw=3.61830e-02;non_cancer_nhomalt_raw=446;non_cancer_AC_eas_male=12;non_cancer_AN_eas_male=3214;non_cancer_AF_eas_male=3.73367e-03;non_cancer_nhomalt_eas_male=0;non_topmed_AC_asj_male=13;non_topmed_AN_asj_male=180;non_topmed_AF_asj_male=7.22222e-02;non_topmed_nhomalt_asj_male=0;non_neuro_AC_oth=15;non_neuro_AN_oth=640;non_neuro_AF_oth=2.34375e-02;non_neuro_nhomalt_oth=0;AC_male=403;AN_male=13140;AF_male=3.06697e-02;nhomalt_male=16;controls_AC_fin_female=0;controls_AN_fin_female=2;controls_AF_fin_female=0.00000e+00;controls_nhomalt_fin_female=0;controls_AC_nfe_bgr=0;controls_AN_nfe_bgr=0;controls_nhomalt_nfe_bgr=0;controls_AC_asj_female=5;controls_AN_asj_female=40;controls_AF_asj_female=1.25000e-01;controls_nhomalt_asj_female=0;AC_amr_male=74;AN_amr_male=1734;AF_amr_male=4.26759e-02;nhomalt_amr_male=2;AC_amr_female=87;AN_amr_female=1934;AF_amr_female=4.49845e-02;nhomalt_amr_female=1;non_topmed_AC_sas_male=56;non_topmed_AN_sas_male=1542;non_topmed_AF_sas_male=3.63165e-02;non_topmed_nhomalt_sas_male=1;AC_oth_male=15;AN_oth_male=398;AF_oth_male=3.76884e-02;nhomalt_oth_male=1;non_cancer_AC_sas=89;non_cancer_AN_sas=2504;non_cancer_AF_sas=3.55431e-02;non_cancer_nhomalt_sas=2;non_neuro_AC_nfe_seu=0;non_neuro_AN_nfe_seu=0;non_neuro_nhomalt_nfe_seu=0;non_cancer_AC_eas_kor=4;non_cancer_AN_eas_kor=1458;non_cancer_AF_eas_kor=2.74348e-03;non_cancer_nhomalt_eas_kor=0;non_topmed_AC_afr_female=8;non_topmed_AN_afr_female=2172;non_topmed_AF_afr_female=3.68324e-03;non_topmed_nhomalt_afr_female=0;controls_AC_sas_male=25;controls_AN_sas_male=714;controls_AF_sas_male=3.50140e-02;controls_nhomalt_sas_male=0;non_topmed_AC_sas_female=33;non_topmed_AN_sas_female=962;non_topmed_AF_sas_female=3.43035e-02;non_topmed_nhomalt_sas_female=1;non_topmed_AC_afr=22;non_topmed_AN_afr=3826;non_topmed_AF_afr=5.75013e-03;non_topmed_nhomalt_afr=0;controls_AC=257;controls_AN=10858;controls_AF=2.36692e-02;controls_nhomalt=1;non_neuro_AC_oth_female=6;non_neuro_AN_oth_female=330;non_neuro_AF_oth_female=1.81818e-02;non_neuro_nhomalt_oth_female=0;non_topmed_faf95_amr=3.86150e-02;non_topmed_faf99_amr=3.86149e-02;faf95_afr=4.41565e-03;faf99_afr=4.41602e-03;faf95_sas=2.95804e-02;faf99_sas=2.95804e-02;controls_faf95_afr=3.19448e-03;controls_faf99_afr=3.19496e-03;faf95_amr=3.83620e-02;faf99_amr=3.83617e-02;non_neuro_faf95_sas=2.96043e-02;non_neuro_faf99_sas=2.96045e-02;faf95_eas=2.02605e-03;faf99_eas=2.02596e-03;faf95=2.77913e-02;faf99=2.77914e-02;non_neuro_faf95_afr=4.44245e-03;non_neuro_faf99_afr=4.44308e-03;non_cancer_faf95_eas=2.02605e-03;non_cancer_faf99_eas=2.02596e-03;non_neuro_faf95_amr=3.14941e-02;non_neuro_faf99_amr=3.14945e-02;non_topmed_faf95_sas=2.95804e-02;non_topmed_faf99_sas=2.95804e-02;controls_faf95_nfe=3.28405e-02;controls_faf99_nfe=3.28405e-02;non_cancer_faf95_afr=4.41565e-03;non_cancer_faf99_afr=4.41602e-03;non_cancer_faf95_amr=3.83620e-02;non_cancer_faf99_amr=3.83617e-02;non_topmed_faf95=2.75848e-02;non_topmed_faf99=2.75856e-02;non_neuro_faf95_nfe=4.24178e-02;non_neuro_faf99_nfe=4.24173e-02;non_neuro_faf95=2.34830e-02;non_neuro_faf99=2.34833e-02;non_topmed_faf95_nfe=4.44499e-02;non_topmed_faf99_nfe=4.44505e-02;controls_faf95_eas=1.32732e-03;controls_faf99_eas=1.32697e-03;controls_faf95_sas=2.65970e-02;controls_faf99_sas=2.65974e-02;faf95_nfe=4.42414e-02;faf99_nfe=4.42423e-02;non_topmed_faf95_eas=2.02668e-03;non_topmed_faf99_eas=2.02661e-03;controls_faf95_amr=3.48941e-02;controls_faf99_amr=3.48932e-02;non_neuro_faf95_eas=2.02998e-03;non_neuro_faf99_eas=2.03019e-03;non_cancer_faf95_nfe=4.42414e-02;non_cancer_faf99_nfe=4.42423e-02;non_cancer_faf95=2.77913e-02;non_cancer_faf99=2.77914e-02;non_cancer_faf95_sas=2.95804e-02;non_cancer_faf99_sas=2.95804e-02;non_topmed_faf95_afr=3.89226e-03;non_topmed_faf99_afr=3.89258e-03;controls_faf95=2.12941e-02;controls_faf99=2.12936e-02;popmax=nfe;AC_popmax=384;AN_popmax=7964;AF_popmax=4.82170e-02;nhomalt_popmax=17;age_hist_het_bin_freq=4|8|21|38|54|47|34|36|15|5;age_hist_het_n_smaller=7;age_hist_het_n_larger=6;age_hist_hom_bin_freq=0|2|0|1|0|1|0|0|0|0;age_hist_hom_n_smaller=0;age_hist_hom_n_larger=1;non_topmed_popmax=nfe;non_topmed_AC_popmax=368;non_topmed_AN_popmax=7582;non_topmed_AF_popmax=4.85360e-02;non_topmed_nhomalt_popmax=17;non_neuro_popmax=nfe;non_neuro_AC_popmax=299;non_neuro_AN_popmax=6392;non_neuro_AF_popmax=4.67772e-02;non_neuro_nhomalt_popmax=10;non_cancer_popmax=nfe;non_cancer_AC_popmax=384;non_cancer_AN_popmax=7964;non_cancer_AF_popmax=4.82170e-02;non_cancer_nhomalt_popmax=17;controls_popmax=amr;controls_AC_popmax=76;controls_AN_popmax=1784;controls_AF_popmax=4.26009e-02;controls_nhomalt_popmax=0;vep=-|downstream_gene_variant|MODIFIER|WASH7P|ENSG00000227232|Transcript|ENST00000423562|unprocessed_pseudogene|||||||||||1|705|-1||deletion|1|HGNC|38034||||||||||||||||||||||||||||||||||||||||||,-|downstream_gene_variant|MODIFIER|WASH7P|ENSG00000227232|Transcript|ENST00000438504|unprocessed_pseudogene|||||||||||1|705|-1||deletion|1|HGNC|38034|YES|||||||||||||||||||||||||||||||||||||||||,-|non_coding_transcript_exon_variant&non_coding_transcript_variant|MODIFIER|DDX11L1|ENSG00000223972|Transcript|ENST00000450305|transcribed_unprocessed_pseudogene|6/6||ENST00000450305.2:n.619_620delAG||619-620||||||1||1||deletion|1|HGNC|37102||||||||||||||||||||||||||||||||||||||||||,-|non_coding_transcript_exon_variant&non_coding_transcript_variant|MODIFIER|DDX11L1|ENSG00000223972|Transcript|ENST00000456328|processed_transcript|3/3||ENST00000456328.2:n.905_906delAG||905-906||||||1||1||deletion|1|HGNC|37102|YES|||||||||||||||||||||||||||||||||||||||||,-|downstream_gene_variant|MODIFIER|WASH7P|ENSG00000227232|Transcript|ENST00000488147|unprocessed_pseudogene|||||||||||1|746|-1||deletion|1|HGNC|38034||||||||||||||||||||||||||||||||||||||||||,-|non_coding_transcript_exon_variant&non_coding_transcript_variant|MODIFIER|DDX11L1|ENSG00000223972|Transcript|ENST00000515242|transcribed_unprocessed_pseudogene|3/3||ENST00000515242.2:n.898_899delAG||898-899||||||1||1||deletion|1|HGNC|37102||||||||||||||||||||||||||||||||||||||||||,-|non_coding_transcript_variant|MODIFIER|DDX11L1|ENSG00000223972|Transcript|ENST00000518655|transcribed_unprocessed_pseudogene||3/3|ENST00000518655.2:n.734+2_734+3delAG||||||||1||1||deletion|1|HGNC|37102||||||||||||||||||||||||||||||||||||||||||,-|downstream_gene_variant|MODIFIER|WASH7P|ENSG00000227232|Transcript|ENST00000538476|unprocessed_pseudogene|||||||||||1|753|-1||deletion|1|HGNC|38034||||||||||||||||||||||||||||||||||||||||||,-|downstream_gene_variant|MODIFIER|WASH7P|ENSG00000227232|Transcript|ENST00000541675|unprocessed_pseudogene|||||||||||1|705|-1||deletion|1|HGNC|38034||||||||||||||||||||||||||||||||||||||||||

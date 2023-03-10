@@ -41,6 +41,13 @@ jobs:
           override: true
           components: clippy
 
+      # - uses: Swatinem/rust-cache@v1.3.0
+      # Enable caching of the 'librocksdb-sys' crate by additionally caching the
+      # 'librocksdb-sys' src directory which is managed by cargo
+      - uses: bmwill/rust-cache@v1 # Fork of 'Swatinem/rust-cache' which allows caching additional paths
+        with:
+          path: ~/.cargo/registry/src/**/librocksdb-sys-*
+
       - name: Lint with clippy
         uses: actions-rs/clippy-check@v1
         with:
@@ -79,7 +86,12 @@ jobs:
           toolchain: stable
           override: true
 
-      - uses: Swatinem/rust-cache@v1.3.0
+      # - uses: Swatinem/rust-cache@v1.3.0
+      # Enable caching of the 'librocksdb-sys' crate by additionally caching the
+      # 'librocksdb-sys' src directory which is managed by cargo
+      - uses: bmwill/rust-cache@v1 # Fork of 'Swatinem/rust-cache' which allows caching additional paths
+        with:
+          path: ~/.cargo/registry/src/**/librocksdb-sys-*
 
       - name: Run cargo-tarpaulin with fast tests
         uses: actions-rs/tarpaulin@v0.1

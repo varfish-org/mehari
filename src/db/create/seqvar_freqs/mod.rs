@@ -627,6 +627,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     options.create_if_missing(true);
     options.create_missing_column_families(true);
     options.prepare_for_bulk_load();
+    options.set_disable_auto_compactions(true);
     let db = rocksdb::DB::open_cf(
         &options,
         &args.path_output_db,
@@ -653,6 +654,27 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     db.compact_range_cf(cf_autosomal, None::<&[u8]>, None::<&[u8]>);
     db.compact_range_cf(cf_gonosomal, None::<&[u8]>, None::<&[u8]>);
     db.compact_range_cf(cf_mtdna, None::<&[u8]>, None::<&[u8]>);
+
+    let compaction_start = Instant::now();
+    let mut last_printed = compaction_start;
+    while db
+        .property_int_value(rocksdb::properties::COMPACTION_PENDING)?
+        .unwrap()
+        > 0
+        || db
+            .property_int_value(rocksdb::properties::NUM_RUNNING_COMPACTIONS)?
+            .unwrap()
+            > 0
+    {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if last_printed.elapsed() > std::time::Duration::from_millis(1000) {
+            log::info!(
+                "... waiting for compaction for {:?}",
+                compaction_start.elapsed()
+            );
+            last_printed = Instant::now();
+        }
+    }
 
     tracing::info!("Done building sequence variant frequency table");
     Ok(())
@@ -871,7 +893,7 @@ mod test {
                     AutoCounts {
                         an: 26342,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 1,
                     }
                 );
                 called = true;
@@ -899,7 +921,7 @@ mod test {
                     AutoCounts {
                         an: 1982,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 2,
                     }
                 );
                 called = true;
@@ -927,7 +949,7 @@ mod test {
                     AutoCounts {
                         an: 296,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 19,
                     }
                 );
                 called = true;
@@ -1123,7 +1145,7 @@ mod test {
                     AutoCounts {
                         an: 246318,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 1,
                     }
                 );
                 called = true;
@@ -1151,7 +1173,7 @@ mod test {
                     AutoCounts {
                         an: 248504,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 1,
                     }
                 );
                 called = true;
@@ -1179,7 +1201,7 @@ mod test {
                     AutoCounts {
                         an: 248610,
                         ac_hom: 0,
-                        ac_het: 0,
+                        ac_het: 2,
                     }
                 );
                 called = true;
