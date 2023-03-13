@@ -5,7 +5,7 @@ use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, time::Instan
 
 use clap::Parser;
 use flatbuffers::FlatBufferBuilder;
-use hgvs::data::cdot::json::models;
+use hgvs::data::cdot::json::models::{self, BioType};
 use seqrepo::SeqRepo;
 
 use crate::common::trace_rss_now;
@@ -66,6 +66,8 @@ fn load_and_extract(
                 && !gene.gene_symbol.as_ref().unwrap().is_empty()
                 && gene.map_location.is_some()
                 && !gene.map_location.as_ref().unwrap().is_empty()
+                && gene.hgnc.is_some()
+                && !gene.hgnc.as_ref().unwrap().is_empty()
         })
         .for_each(|gene| {
             let gene_symbol = gene.gene_symbol.as_ref().unwrap().clone();
@@ -93,80 +95,137 @@ fn load_and_extract(
 fn build_flatbuffers(
     path_out: &str,
     _seqrepo: SeqRepo,
-    _genes: HashMap<String, models::Gene>,
-    _transcripts: HashMap<String, models::Transcript>,
+    genes: HashMap<String, models::Gene>,
+    transcripts: HashMap<String, models::Transcript>,
     transcript_ids_for_gene: HashMap<String, Vec<String>>,
 ) -> Result<(), anyhow::Error> {
     tracing::info!("Constructing flatbuffers file ...");
     trace_rss_now();
-
-    // First Pass: Select transcripts for each gene.
-
-    // Second Pass: Build flatbuffers.
-
     let mut builder = FlatBufferBuilder::new();
 
-    let cigar = Some(builder.create_shared_string("x"));
+    tracing::info!("  Creating transcript records for each gene...");
+    let gene_symbols = {
+        let mut gene_symbols: Vec<_> = genes.keys().into_iter().cloned().collect();
+        gene_symbols.sort();
+        gene_symbols
+    };
+    let mut flat_txs = Vec::new();
+    // For each gene (in lexicographic symbol order) ...
+    for gene_symbol in &gene_symbols {
+        let gene = genes.get(gene_symbol).unwrap();
+        let tx_ids = transcript_ids_for_gene
+            .get(gene_symbol.as_str())
+            .expect(&format!("No transcripts for gene {:?}", &gene_symbol));
 
-    let exon = ExonAlignment::create(
-        &mut builder,
-        &ExonAlignmentArgs {
-            alt_start_i: -1,
-            alt_end_i: -1,
-            ord: -1,
-            alt_cds_start_i: -1,
-            alt_cds_end_i: -1,
-            cigar,
-        },
-    );
+        // ... for each transcript of the gene ...
+        for tx_id in tx_ids {
+            let tx_model = transcripts
+                .get(tx_id)
+                .expect(&format!("No transcript model for id {:?}", tx_id));
+            // ... build genome alignment for each genome release:
+            let mut genome_alignments = Vec::new();
+            for (genome_build, alignment) in &tx_model.genome_builds {
+                // obtain basic properties
+                let genome_build = match genome_build.as_ref() {
+                    "GRCh37" => GenomeBuild::Grch37,
+                    "GRCh38" => GenomeBuild::Grch38,
+                    _ => panic!("Unknown genome build {:?}", genome_build),
+                };
+                let contig = Some(builder.create_shared_string(&alignment.contig));
+                let cds_start = alignment.cds_start.unwrap_or(-1);
+                let cds_end = alignment.cds_end.unwrap_or(-1);
+                let strand = match alignment.strand {
+                    models::Strand::Plus => Strand::Plus,
+                    models::Strand::Minus => Strand::Minus,
+                };
+                // and construct vector of all exons
+                let exons: Vec<_> = alignment
+                    .exons
+                    .iter()
+                    .map(|exon| {
+                        let cigar = Some(builder.create_shared_string(&exon.cigar));
+                        ExonAlignment::create(
+                            &mut builder,
+                            &ExonAlignmentArgs {
+                                alt_start_i: exon.alt_start_i,
+                                alt_end_i: exon.alt_end_i,
+                                ord: exon.ord,
+                                alt_cds_start_i: exon.alt_cds_start_i,
+                                alt_cds_end_i: exon.alt_end_i,
+                                cigar,
+                            },
+                        )
+                    })
+                    .collect();
+                let exons = Some(builder.create_vector(exons.as_slice()));
+                // and finally push the genome alignment
+                genome_alignments.push(GenomeAlignment::create(
+                    &mut builder,
+                    &GenomeAlignmentArgs {
+                        genome_build,
+                        contig,
+                        cds_start,
+                        cds_end,
+                        strand,
+                        exons,
+                    },
+                ));
+            }
 
-    let genome_build = GenomeBuild::Grch37;
-    let contig = Some(builder.create_shared_string("x"));
-    let cds_start = -1;
-    let cds_end = -1;
-    let strand = Strand::Plus;
-    let exons = Some(builder.create_vector(&[exon]));
+            // Now, just obtain the basic properties and create a new transcript using the
+            // flatbuffers builder.
+            let id = Some(builder.create_shared_string(tx_id));
+            let gene_name = Some(builder.create_shared_string(gene.gene_symbol.as_ref().unwrap()));
+            let gene_id = Some(builder.create_shared_string(gene.hgnc.as_ref().unwrap()));
+            let biotype = if gene
+                .biotype
+                .as_ref()
+                .unwrap()
+                .contains(&BioType::ProteinCoding)
+            {
+                TranscriptBiotype::Coding
+            } else {
+                TranscriptBiotype::NonCoding
+            };
+            let mut tags = 0u8;
+            if let Some(tag) = tx_model.tag.as_ref() {
+                for t in tag {
+                    tags = tags | match t {
+                        models::Tag::Basic => TranscriptTag::Basic.0 as u8,
+                        models::Tag::EnsemblCanonical => TranscriptTag::EnsemblCanonical.0 as u8,
+                        models::Tag::ManeSelect => TranscriptTag::ManeSelect.0 as u8,
+                        models::Tag::ManePlusClinical => TranscriptTag::ManePlusClinical.0 as u8,
+                        models::Tag::RefSeqSelect => TranscriptTag::RefSeqSelect.0 as u8,
+                    }
+                }
+            }
+            let protein = tx_model.protein.as_ref().map(|protein| builder.create_shared_string(&protein));
+            let start_codon = tx_model.start_codon.unwrap_or(-1);
+            let stop_codon = tx_model.stop_codon.unwrap_or(-1);
+            let genome_alignments = Some(builder.create_vector(genome_alignments.as_slice()));
 
-    let aln = GenomeAlignment::create(
-        &mut builder,
-        &GenomeAlignmentArgs {
-            genome_build,
-            contig,
-            cds_start,
-            cds_end,
-            strand,
-            exons,
-        },
-    );
+            flat_txs.push(Transcript::create(
+                &mut builder,
+                &TranscriptArgs {
+                    id,
+                    gene_name,
+                    gene_id,
+                    biotype,
+                    tags,
+                    protein,
+                    start_codon,
+                    stop_codon,
+                    genome_alignments,
+                },
+            ));
+        }
+    }
 
-    let id = Some(builder.create_shared_string("x"));
-    let gene_name = Some(builder.create_shared_string("x"));
-    let gene_id = Some(builder.create_shared_string("x"));
-    let biotype = TranscriptBiotype::Coding;
-    let tags = TranscriptTag::Basic.0 as u8;
-    let protein = Some(builder.create_shared_string("x"));
-    let start_codon = -1;
-    let stop_codon = -1;
-    let genome_alignments = Some(builder.create_vector(&[aln]));
-
-    let tx = Transcript::create(
-        &mut builder,
-        &TranscriptArgs {
-            id,
-            gene_name,
-            gene_id,
-            biotype,
-            tags,
-            protein,
-            start_codon,
-            stop_codon,
-            genome_alignments,
-        },
-    );
-
-    let transcripts = builder.create_vector(&[tx]);
+    let transcripts = builder.create_vector(flat_txs.as_slice());
+    tracing::info!(" ... done creating transcripts");
 
     // Build mapping of gene HGNC symbol to transcript IDs.
+    tracing::info!("  Build gene symbol to transcript ID mapping ...");
     let gene_to_tx = {
         let items = transcript_ids_for_gene
             .iter()
@@ -182,7 +241,10 @@ fn build_flatbuffers(
             .collect::<Vec<_>>();
         builder.create_vector(&items)
     };
+    tracing::info!(" ... done building gene symbol to transcript ID mapping");
 
+    // Compose transcript database from transcripts and gene to transcript mapping.
+    tracing::info!("  Composing transcript database ...");
     let tx_db = TranscriptDb::create(
         &mut builder,
         &TranscriptDbArgs {
@@ -190,10 +252,14 @@ fn build_flatbuffers(
             gene_to_tx: Some(gene_to_tx),
         },
     );
+    tracing::info!(" ... done composing transcript database");
 
+    // Construct sequence database.
+    tracing::info!("  Constructing sequence database ...");
+    // !!! TODO !!! WE NEED TO LOAD THE SEQUENCES HERE
     let s = builder.create_shared_string("x");
     let aliases = builder.create_vector(&[s]);
-    let aliases_idx = builder.create_vector(&[1u32]);
+    let aliases_idx = builder.create_vector(&[0u32]);
     let seqs = builder.create_vector(&[s]);
 
     let seq_db = SequenceDb::create(
@@ -204,7 +270,10 @@ fn build_flatbuffers(
             seqs: Some(seqs),
         },
     );
+    tracing::info!("  ... done constructing sequence database");
 
+    // Compose the final transcript and sequence database.
+    tracing::info!("  Constructing final tx and seq database ...");
     let tx_seq_db = TxSeqDatabase::create(
         &mut builder,
         &TxSeqDatabaseArgs {
@@ -212,11 +281,15 @@ fn build_flatbuffers(
             seq_db: Some(seq_db),
         },
     );
+    tracing::info!("  ... done constructing final tx and seq database");
 
+    // Write out the final transcript and sequence database.
+    tracing::info!("  Writing out final database ...");
     builder.finish_minimal(tx_seq_db);
     let mut output_file = File::create(path_out)?;
     output_file.write_all(builder.finished_data())?;
     output_file.flush()?;
+    tracing::info!("  ... done writing out final database");
 
     trace_rss_now();
     tracing::info!("... done with constructing flatbuffers file");
