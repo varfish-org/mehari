@@ -61,7 +61,6 @@ fn load_and_extract(
     let start = Instant::now();
     c_genes
         .values()
-        .into_iter()
         .filter(|gene| {
             gene.gene_symbol.is_some()
                 && !gene.gene_symbol.as_ref().unwrap().is_empty()
@@ -77,7 +76,6 @@ fn load_and_extract(
         });
     c_txs
         .values()
-        .into_iter()
         .filter(|tx| tx.gene_name.is_some() && !tx.gene_name.as_ref().unwrap().is_empty())
         .for_each(|tx| {
             let gene_name = tx.gene_name.as_ref().unwrap();
@@ -173,7 +171,7 @@ fn build_flatbuffers(
         let items = transcript_ids_for_gene
             .iter()
             .map(|(gene_name, tx_ids)| {
-                let gene_name = Some(builder.create_shared_string(&gene_name));
+                let gene_name = Some(builder.create_shared_string(gene_name));
                 let tx_ids = tx_ids
                     .iter()
                     .map(|s| builder.create_shared_string(s))
@@ -248,7 +246,7 @@ fn filter_transcripts(
                     if tx_id.starts_with("NM_") {
                         seen_nm = true;
                     }
-                    let s: Vec<_> = tx_id.split(".").collect();
+                    let s: Vec<_> = tx_id.split('.').collect();
                     (s[0], s[1].parse::<u32>().expect("invalid version"))
                 })
                 .collect();
@@ -267,18 +265,18 @@ fn filter_transcripts(
                     .map(|tx| {
                         tx.genome_builds
                             .keys()
-                            .into_iter()
                             .cloned()
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
 
                 for release in releases {
+                    #[allow(clippy::if_same_then_else)]
                     if seen_ac.contains(&(ac.clone(), release.clone())) {
                         continue; // skip, already have later version
                     } else if ac.starts_with("NR_") && seen_nm {
                         continue; // skip NR transcript as we have NM one
-                    } else if ac.starts_with("X") {
+                    } else if ac.starts_with('X') {
                         continue; // skip XR/XM transcript
                     } else {
                         next_tx_ids.push(full_ac.clone());
