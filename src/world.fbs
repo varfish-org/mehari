@@ -10,7 +10,7 @@ table SequenceDb {
     // The sequence aliases, cf. `aliases_idx`.
     aliases: [string];
     // The corresponding index in `seqs`, cf. `aliases`.
-    aliases_idx: uint;
+    aliases_idx: [uint];
     // The corresponding sequences.
     seqs: [string];
 }
@@ -47,7 +47,7 @@ table Transcript {
     biotype: TranscriptBiotype;
     // Transcript flags, values from `TranscriptTag`, stored as OR-ed ubyte values.
     tags: ubyte;
-    // Identifier of the corresponding protein, empty string indicates "None".
+    // Identifier of the corresponding protein.
     protein: string;
     // CDS start codon.
     start_codon: int;
@@ -98,7 +98,7 @@ table ExonAlignment {
     // CDS end coordinate.
     alt_cds_end_i: int;
     // CIGAR string of alignment, empty indicates full matches.
-    cigar: string = "";
+    cigar: string;
 }
 
 // Database of transcripts with sequences.
