@@ -15,9 +15,20 @@ table SequenceDb {
     seqs: [string];
 }
 
+// Mapping from gene to transcript ID.
+table GeneToTxId {
+    // Gene HGNC symbol; serves as gene identifier.
+    gene_name: string;
+    // Vector of all transcript IDs.
+    tx_ids: [string];
+}
+
 // Container for the transcript-related database.
 table TranscriptDb {
+    // Vector of all transcripts.
     transcripts: [Transcript];
+    // Mapping from gene ID to vector of all transcript IDs.
+    gene_to_tx: [GeneToTxId];
 }
 
 // Enumeration for `Transcript::biotype`.

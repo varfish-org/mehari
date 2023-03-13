@@ -9,9 +9,10 @@ use seqrepo::SeqRepo;
 
 use crate::common::trace_rss_now;
 use crate::world_flatbuffers::mehari::{
-    ExonAlignment, ExonAlignmentArgs, GenomeAlignment, GenomeAlignmentArgs, GenomeBuild,
-    SequenceDb, SequenceDbArgs, Strand, Transcript, TranscriptArgs, TranscriptBiotype,
-    TranscriptDb, TranscriptDbArgs, TranscriptTag, TxSeqDatabase, TxSeqDatabaseArgs,
+    ExonAlignment, ExonAlignmentArgs, GeneToTxId, GeneToTxIdArgs, GenomeAlignment,
+    GenomeAlignmentArgs, GenomeBuild, SequenceDb, SequenceDbArgs, Strand, Transcript,
+    TranscriptArgs, TranscriptBiotype, TranscriptDb, TranscriptDbArgs, TranscriptTag,
+    TxSeqDatabase, TxSeqDatabaseArgs,
 };
 
 /// Command line arguments for `db create txs` sub command.
@@ -95,14 +96,14 @@ fn build_flatbuffers(
     _seqrepo: SeqRepo,
     _genes: HashMap<String, models::Gene>,
     _transcripts: HashMap<String, models::Transcript>,
-    _transcript_ids_for_gene: HashMap<String, Vec<String>>,
+    transcript_ids_for_gene: HashMap<String, Vec<String>>,
 ) -> Result<(), anyhow::Error> {
     tracing::info!("Constructing flatbuffers file ...");
     trace_rss_now();
 
     let mut builder = FlatBufferBuilder::new();
 
-    let cigar = Some(builder.create_string("x"));
+    let cigar = Some(builder.create_shared_string("x"));
 
     let exon = ExonAlignment::create(
         &mut builder,
@@ -117,7 +118,7 @@ fn build_flatbuffers(
     );
 
     let genome_build = GenomeBuild::Grch37;
-    let contig = Some(builder.create_string("x"));
+    let contig = Some(builder.create_shared_string("x"));
     let cds_start = -1;
     let cds_end = -1;
     let strand = Strand::Plus;
@@ -135,12 +136,12 @@ fn build_flatbuffers(
         },
     );
 
-    let id = Some(builder.create_string("x"));
-    let gene_name = Some(builder.create_string("x"));
-    let gene_id = Some(builder.create_string("x"));
+    let id = Some(builder.create_shared_string("x"));
+    let gene_name = Some(builder.create_shared_string("x"));
+    let gene_id = Some(builder.create_shared_string("x"));
     let biotype = TranscriptBiotype::Coding;
     let tags = TranscriptTag::Basic.0 as u8;
-    let protein = Some(builder.create_string("x"));
+    let protein = Some(builder.create_shared_string("x"));
     let start_codon = -1;
     let stop_codon = -1;
     let genome_alignments = Some(builder.create_vector(&[aln]));
@@ -162,14 +163,32 @@ fn build_flatbuffers(
 
     let transcripts = builder.create_vector(&[tx]);
 
+    // Build mapping of gene HGNC symbol to transcript IDs.
+    let gene_to_tx = {
+        let items = transcript_ids_for_gene
+            .iter()
+            .map(|(gene_name, tx_ids)| {
+                let gene_name = Some(builder.create_shared_string(&gene_name));
+                let tx_ids = tx_ids
+                    .iter()
+                    .map(|s| builder.create_shared_string(s))
+                    .collect::<Vec<_>>();
+                let tx_ids = Some(builder.create_vector(&tx_ids));
+                GeneToTxId::create(&mut builder, &GeneToTxIdArgs { gene_name, tx_ids })
+            })
+            .collect::<Vec<_>>();
+        builder.create_vector(&items)
+    };
+
     let tx_db = TranscriptDb::create(
         &mut builder,
         &TranscriptDbArgs {
             transcripts: Some(transcripts),
+            gene_to_tx: Some(gene_to_tx),
         },
     );
 
-    let s = builder.create_string("x");
+    let s = builder.create_shared_string("x");
     let aliases = builder.create_vector(&[s]);
     let aliases_idx = builder.create_vector(&[1u32]);
     let seqs = builder.create_vector(&[s]);
