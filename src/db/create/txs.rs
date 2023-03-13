@@ -1,5 +1,6 @@
 //! Transcript database.
 
+use std::collections::HashSet;
 use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, time::Instant};
 
 use clap::Parser;
@@ -100,6 +101,10 @@ fn build_flatbuffers(
 ) -> Result<(), anyhow::Error> {
     tracing::info!("Constructing flatbuffers file ...");
     trace_rss_now();
+
+    // First Pass: Select transcripts for each gene.
+
+    // Second Pass: Build flatbuffers.
 
     let mut builder = FlatBufferBuilder::new();
 
@@ -220,6 +225,76 @@ fn build_flatbuffers(
     Ok(())
 }
 
+/// Filter transcripts for gene.
+///
+/// We employ the following rules:
+///
+/// - Remove redundant transcripts with the same identifier and pick only the
+///   transcripts that have the highest version number for one assembly.
+/// - Do not pick any `XM_`/`XR_` (NCBI predicted only) transcripts.
+/// - Do not pick any `NR_` transcripts when there are coding `NM_` transcripts.
+fn filter_transcripts(
+    transcripts: &HashMap<String, models::Transcript>,
+    transcript_ids_for_gene: HashMap<String, Vec<String>>,
+) -> HashMap<String, Vec<String>> {
+    transcript_ids_for_gene
+        .into_iter()
+        .map(|(gene_symbol, prev_tx_ids)| {
+            // Split off transcript versions from accessions and look for NM transcript.
+            let mut seen_nm = false;
+            let mut versioned: Vec<_> = prev_tx_ids
+                .iter()
+                .map(|tx_id| {
+                    if tx_id.starts_with("NM_") {
+                        seen_nm = true;
+                    }
+                    let s: Vec<_> = tx_id.split(".").collect();
+                    (s[0], s[1].parse::<u32>().expect("invalid version"))
+                })
+                .collect();
+            // Sort descendingly by version.
+            versioned.sort_by(|a, b| b.1.cmp(&a.1));
+
+            // Build `next_tx_ids`.
+            let mut seen_ac = HashSet::new();
+            let mut next_tx_ids = Vec::new();
+            for (ac, version) in versioned {
+                let full_ac = format!("{}.{}", &ac, version);
+                let ac = ac.to_string();
+
+                let releases = transcripts
+                    .get(&full_ac)
+                    .map(|tx| {
+                        tx.genome_builds
+                            .keys()
+                            .into_iter()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+
+                for release in releases {
+                    if seen_ac.contains(&(ac.clone(), release.clone())) {
+                        continue; // skip, already have later version
+                    } else if ac.starts_with("NR_") && seen_nm {
+                        continue; // skip NR transcript as we have NM one
+                    } else if ac.starts_with("X") {
+                        continue; // skip XR/XM transcript
+                    } else {
+                        next_tx_ids.push(full_ac.clone());
+                        seen_ac.insert((ac.clone(), release));
+                    }
+                }
+            }
+
+            next_tx_ids.sort();
+            next_tx_ids.dedup();
+
+            (gene_symbol, next_tx_ids)
+        })
+        .collect()
+}
+
 /// Main entry point for `db create txs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!(
@@ -273,6 +348,9 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         transcript_ids_for_gene.len()
     );
 
+    // Filter out redundant (NR if we have NM, older versions) and predicted only transcripts.
+    transcript_ids_for_gene = filter_transcripts(&transcripts, transcript_ids_for_gene);
+
     build_flatbuffers(
         &args.path_out,
         seqrepo,
@@ -283,4 +361,78 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
     tracing::info!("Done building transcript and sequence database file");
     Ok(())
+}
+
+#[cfg(test)]
+pub mod test {
+    use std::collections::HashMap;
+
+    use pretty_assertions::assert_eq;
+
+    use super::{filter_transcripts, load_and_extract};
+
+    #[test]
+    fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {
+        let mut genes = HashMap::new();
+        let mut transcripts = HashMap::new();
+        let mut transcript_ids_for_gene = HashMap::new();
+        load_and_extract(
+            "tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1.json",
+            &mut transcript_ids_for_gene,
+            &mut genes,
+            &mut transcripts,
+        )?;
+
+        assert_eq!(
+            &transcript_ids_for_gene
+                .get("BRCA1")
+                .unwrap()
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>(),
+            &vec![
+                "NM_007294.3",
+                "NM_007294.4",
+                "NM_007297.3",
+                "NM_007297.4",
+                "NM_007298.3",
+                "NM_007299.3",
+                "NM_007299.4",
+                "NM_007300.3",
+                "NM_007300.4",
+                "NR_027676.1",
+                "NR_027676.2",
+                "XM_006722029.1",
+                "XM_006722030.1",
+                "XM_006722031.1",
+                "XM_006722032.1",
+                "XM_006722033.1",
+                "XM_006722034.1",
+                "XM_006722035.1",
+                "XM_006722036.1",
+                "XM_006722037.1",
+                "XM_006722038.1",
+                "XM_006722039.1",
+                "XM_006722040.1",
+                "XM_006722041.1"
+            ]
+        );
+        let filtered = filter_transcripts(&transcripts, transcript_ids_for_gene);
+        assert_eq!(
+            &filtered
+                .get("BRCA1")
+                .unwrap()
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>(),
+            &vec![
+                "NM_007294.4",
+                "NM_007297.4",
+                "NM_007298.3",
+                "NM_007299.4",
+                "NM_007300.4"
+            ]
+        );
+        Ok(())
+    }
 }
