@@ -113,3 +113,12 @@ prepare \
     $base/GRCh38/gnomAD_genomes/r3.1.1/download/gnomad.genomes.r3.1.1.sites.chrY.vcf.bgz \
     tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r3.1.1.sites.chrY.vcf
 ```
+
+## Development Setup
+
+You will need a recent version of flatbuffers, e.g.:
+
+```
+# bash utils/install-flatbuffers.sh
+# export PATH=$PATH:$HOME/.local/share/flatbuffers/bin
+```

@@ -22,6 +22,9 @@ jobs:
           override: true
           components: rustfmt
 
+      - name: Install flatbuffers
+        uses: ./.github/actions/install-flatbuffers
+
       - name: Check format
         run: |
           cargo fmt -- --check
@@ -40,6 +43,9 @@ jobs:
           toolchain: stable
           override: true
           components: clippy
+
+      - name: Install flatbuffers
+        uses: ./.github/actions/install-flatbuffers
 
       # - uses: Swatinem/rust-cache@v1.3.0
       # Enable caching of the 'librocksdb-sys' crate by additionally caching the
@@ -85,6 +91,9 @@ jobs:
         with:
           toolchain: stable
           override: true
+
+      - name: Install flatbuffers
+        uses: ./.github/actions/install-flatbuffers
 
       # - uses: Swatinem/rust-cache@v1.3.0
       # Enable caching of the 'librocksdb-sys' crate by additionally caching the

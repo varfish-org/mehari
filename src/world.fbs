@@ -1,0 +1,110 @@
+namespace Mehari;
+
+// Stores long array of sequences with an "index" of sequence names to their
+// index.
+//
+// The fields `aliases` and `aliases_idx` have the same length and `aliases_idx[i]`
+// stores the index into `seqs` for the sequence `aliases[i]`.  In other words.
+// `seqs[aliases_idx[i]]` stores the sequence for `aliases[i]`.
+table SequenceDb {
+    // The sequence aliases, cf. `aliases_idx`.
+    aliases: [string];
+    // The corresponding index in `seqs`, cf. `aliases`.
+    aliases_idx: uint;
+    // The corresponding sequences.
+    seqs: [string];
+}
+
+// Container for the transcript-related database.
+table TranscriptDb {
+    transcripts: [Transcript];
+}
+
+// Enumeration for `Transcript::biotype`.
+enum TranscriptBiotype: byte {
+  Coding,
+  NonCoding,
+}
+
+// Bit values for the transcript tags.
+enum TranscriptTag: byte {
+    Basic = 1,
+    EnsemblCanonical = 2,
+    ManeSelect = 4,
+    ManePlusClinical = 8,
+    RefSeqSelect = 16,
+}
+
+// Store information about a transcript.
+table Transcript {
+    // Transcript accession with version, e.g., `"NM_007294.3"` or `"ENST00000461574.1"` for BRCA1.
+    id: string;
+    // HGNC symbol, e.g., `"BRCA1"`
+    gene_name: string;
+    // HGNC gene identifier, e.g., `"1100"` for BRCA1.
+    gene_id: string;
+    // Transcript biotype.
+    biotype: TranscriptBiotype;
+    // Transcript flags, values from `TranscriptTag`, stored as OR-ed ubyte values.
+    tags: ubyte;
+    // Identifier of the corresponding protein, empty string indicates "None".
+    protein: string;
+    // CDS start codon.
+    start_codon: int;
+    // CDS stop codon.
+    stop_codon: int;
+    // Alignments on the different genome builds.
+    genome_alignments: [GenomeAlignment];
+}
+
+// Enumeration for the known genome builds.
+enum GenomeBuild: byte {
+    Grch37,
+    Grch38,
+}
+
+// Enumeration for the two strands of the genome.
+enum Strand: byte {
+    Plus,
+    Minus,
+}
+
+// Store information about a transcript aligning to a genome.
+table GenomeAlignment {
+    // The genome build identifier.
+    genome_build: GenomeBuild;
+    // Accession of the contig sequence.
+    contig: string;
+    // CDS end position, `-1` to indicate `None`.
+    cds_start: int;
+    // CDS end position, `-1` to indicate `None`.
+    cds_end: int;
+    // The strand.
+    strand: Strand;
+    // Exons of the alignment.
+    exons: [ExonAlignment];
+}
+
+// Store the alignment of one exon to the reference.
+table ExonAlignment {
+    // Start position on reference.
+    alt_start_i: int;
+    // End position on reference.
+    alt_end_i: int;
+    // Exon number.
+    ord: int;
+    // CDS start coordinate.
+    alt_cds_start_i: int;
+    // CDS end coordinate.
+    alt_cds_end_i: int;
+    // CIGAR string of alignment, empty indicates full matches.
+    cigar: string = "";
+}
+
+// Database of transcripts with sequences.
+table TxSeqDatabase {
+    /// Store transcripts with their aliases.
+    tx_db: TranscriptDb;
+    /// Store sequence with their aliases.
+    seq_db: SequenceDb;
+}
