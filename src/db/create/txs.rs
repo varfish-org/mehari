@@ -262,12 +262,7 @@ fn filter_transcripts(
 
                 let releases = transcripts
                     .get(&full_ac)
-                    .map(|tx| {
-                        tx.genome_builds
-                            .keys()
-                            .cloned()
-                            .collect::<Vec<_>>()
-                    })
+                    .map(|tx| tx.genome_builds.keys().cloned().collect::<Vec<_>>())
                     .unwrap_or_default();
 
                 for release in releases {
@@ -347,7 +342,10 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     );
 
     // Filter out redundant (NR if we have NM, older versions) and predicted only transcripts.
+    tracing::info!("Filtering transcripts ...");
+    let start = Instant::now();
     transcript_ids_for_gene = filter_transcripts(&transcripts, transcript_ids_for_gene);
+    tracing::info!("... done filtering transcripts in {:?}", start.elapsed());
 
     build_flatbuffers(
         &args.path_out,
