@@ -94,7 +94,7 @@ fn load_and_extract(
     );
     tracing::debug!(
         "some 10 genes: {:?}",
-        genes.keys().into_iter().take(10).collect::<Vec<_>>()
+        genes.keys().take(10).collect::<Vec<_>>()
     );
 
     tracing::info!("Processing transcripts");
@@ -127,10 +127,14 @@ fn load_and_extract(
 fn build_flatbuffers(
     path_out: &str,
     seqrepo: SeqRepo,
-    genes: HashMap<String, models::Gene>,
-    transcripts: HashMap<String, models::Transcript>,
-    transcript_ids_for_gene: HashMap<String, Vec<String>>,
+    tx_data: TranscriptData,
 ) -> Result<(), anyhow::Error> {
+    let TranscriptData {
+        genes,
+        transcripts,
+        transcript_ids_for_gene,
+    } = tx_data;
+
     tracing::info!("Constructing flatbuffers file ...");
     trace_rss_now();
     let mut builder = FlatBufferBuilder::new();
@@ -145,7 +149,7 @@ fn build_flatbuffers(
         let mut seqs = Vec::new();
         let pb = ProgressBar::new(transcripts.len() as u64);
         pb.set_style(PROGRESS_STYLE.clone());
-        for tx_id in transcripts.keys().into_iter() {
+        for tx_id in transcripts.keys() {
             pb.inc(1);
             let res_seq = seqrepo.fetch_sequence(&AliasOrSeqId::Alias {
                 value: tx_id.clone(),
@@ -188,7 +192,7 @@ fn build_flatbuffers(
     tracing::info!("  Creating transcript records for each gene...");
     let flat_txs = {
         let gene_symbols = {
-            let mut gene_symbols: Vec<_> = genes.keys().into_iter().cloned().collect();
+            let mut gene_symbols: Vec<_> = genes.keys().cloned().collect();
             gene_symbols.sort();
             gene_symbols
         };
@@ -198,9 +202,9 @@ fn build_flatbuffers(
             let gene = genes.get(gene_symbol).unwrap();
             let tx_ids = transcript_ids_for_gene
                 .get(gene_symbol.as_str())
-                .expect(&format!("No transcripts for gene {:?}", &gene_symbol));
+                .unwrap_or_else(|| panic!("No transcripts for gene {:?}", &gene_symbol));
             let tx_ids = tx_ids
-                .into_iter()
+                .iter()
                 .filter(|tx_id| !tx_skipped_noseq.contains(*tx_id))
                 .collect::<Vec<_>>();
             if tx_ids.is_empty() {
@@ -215,7 +219,7 @@ fn build_flatbuffers(
             for tx_id in tx_ids {
                 let tx_model = transcripts
                     .get(tx_id)
-                    .expect(&format!("No transcript model for id {:?}", tx_id));
+                    .unwrap_or_else(|| panic!("No transcript model for id {:?}", tx_id));
                 // ... build genome alignment for each genome release:
                 let mut genome_alignments = Vec::new();
                 for (genome_build, alignment) in &tx_model.genome_builds {
@@ -285,24 +289,23 @@ fn build_flatbuffers(
                 let mut tags = 0u8;
                 if let Some(tag) = tx_model.tag.as_ref() {
                     for t in tag {
-                        tags = tags
-                            | match t {
-                                models::Tag::Basic => TranscriptTag::Basic.0 as u8,
-                                models::Tag::EnsemblCanonical => {
-                                    TranscriptTag::EnsemblCanonical.0 as u8
-                                }
-                                models::Tag::ManeSelect => TranscriptTag::ManeSelect.0 as u8,
-                                models::Tag::ManePlusClinical => {
-                                    TranscriptTag::ManePlusClinical.0 as u8
-                                }
-                                models::Tag::RefSeqSelect => TranscriptTag::RefSeqSelect.0 as u8,
+                        tags |= match t {
+                            models::Tag::Basic => TranscriptTag::Basic.0 as u8,
+                            models::Tag::EnsemblCanonical => {
+                                TranscriptTag::EnsemblCanonical.0 as u8
                             }
+                            models::Tag::ManeSelect => TranscriptTag::ManeSelect.0 as u8,
+                            models::Tag::ManePlusClinical => {
+                                TranscriptTag::ManePlusClinical.0 as u8
+                            }
+                            models::Tag::RefSeqSelect => TranscriptTag::RefSeqSelect.0 as u8,
+                        }
                     }
                 }
                 let protein = tx_model
                     .protein
                     .as_ref()
-                    .map(|protein| builder.create_shared_string(&protein));
+                    .map(|protein| builder.create_shared_string(protein));
                 let start_codon = tx_model.start_codon.unwrap_or(-1);
                 let stop_codon = tx_model.stop_codon.unwrap_or(-1);
                 let genome_alignments = Some(builder.create_vector(genome_alignments.as_slice()));
@@ -391,6 +394,13 @@ fn build_flatbuffers(
     Ok(())
 }
 
+/// Data as loaded from cdot after processing.
+struct TranscriptData {
+    pub genes: HashMap<String, models::Gene>,
+    pub transcripts: HashMap<String, models::Transcript>,
+    pub transcript_ids_for_gene: HashMap<String, Vec<String>>,
+}
+
 /// Filter transcripts for gene.
 ///
 /// We employ the following rules:
@@ -399,17 +409,15 @@ fn build_flatbuffers(
 ///   transcripts that have the highest version number for one assembly.
 /// - Do not pick any `XM_`/`XR_` (NCBI predicted only) transcripts.
 /// - Do not pick any `NR_` transcripts when there are coding `NM_` transcripts.
-fn filter_transcripts(
-    genes: HashMap<String, models::Gene>,
-    transcripts: HashMap<String, models::Transcript>,
-    transcript_ids_for_gene: HashMap<String, Vec<String>>,
-) -> (
-    HashMap<String, models::Gene>,
-    HashMap<String, models::Transcript>,
-    HashMap<String, Vec<String>>,
-) {
+fn filter_transcripts(tx_data: TranscriptData) -> TranscriptData {
     tracing::info!("Filtering transcripts ...");
     let start = Instant::now();
+
+    let TranscriptData {
+        genes,
+        transcripts,
+        transcript_ids_for_gene,
+    } = tx_data;
 
     let mut chosen = HashSet::new();
     let transcript_ids_for_gene = transcript_ids_for_gene
@@ -477,7 +485,11 @@ fn filter_transcripts(
         .collect();
 
     tracing::info!("... done filtering transcripts in {:?}", start.elapsed());
-    (genes, transcripts, transcript_ids_for_gene)
+    TranscriptData {
+        genes,
+        transcripts,
+        transcript_ids_for_gene,
+    }
 }
 
 /// Create file-backed `SeqRepo`.
@@ -509,16 +521,7 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
 }
 
 /// Load the cdot JSON files.
-fn load_cdot_files(
-    args: &Args,
-) -> Result<
-    (
-        HashMap<String, models::Gene>,
-        HashMap<String, models::Transcript>,
-        HashMap<String, Vec<String>>,
-    ),
-    anyhow::Error,
-> {
+fn load_cdot_files(args: &Args) -> Result<TranscriptData, anyhow::Error> {
     tracing::info!("Loading cdot JSON files ...");
     let start = Instant::now();
     let mut genes = HashMap::new();
@@ -540,7 +543,11 @@ fn load_cdot_files(
         transcript_ids_for_gene.len().separate_with_commas()
     );
 
-    Ok((genes, transcripts, transcript_ids_for_gene))
+    Ok(TranscriptData {
+        genes,
+        transcripts,
+        transcript_ids_for_gene,
+    })
 }
 
 /// Main entry point for `db create txs` sub command.
@@ -554,18 +561,11 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // Open seqrepo,
     let seqrepo = open_seqrepo(args)?;
     // then load cdot files,
-    let (genes, transcripts, transcript_ids_for_gene) = load_cdot_files(args)?;
+    let tx_data = load_cdot_files(args)?;
     // then remove redundant onces, and
-    let (genes, transcripts, transcript_ids_for_gene) =
-        filter_transcripts(genes, transcripts, transcript_ids_for_gene);
+    let tx_data = filter_transcripts(tx_data);
     // finally build flatbuffers file.
-    build_flatbuffers(
-        &args.path_out,
-        seqrepo,
-        genes,
-        transcripts,
-        transcript_ids_for_gene,
-    )?;
+    build_flatbuffers(&args.path_out, seqrepo, tx_data)?;
 
     tracing::info!("Done building transcript and sequence database file");
     Ok(())
@@ -576,6 +576,8 @@ pub mod test {
     use std::collections::HashMap;
 
     use pretty_assertions::assert_eq;
+
+    use crate::db::create::txs::TranscriptData;
 
     use super::{filter_transcripts, load_and_extract};
 
@@ -591,8 +593,15 @@ pub mod test {
             &mut transcripts,
         )?;
 
+        let tx_data = TranscriptData {
+            genes,
+            transcripts,
+            transcript_ids_for_gene,
+        };
+
         assert_eq!(
-            &transcript_ids_for_gene
+            &tx_data
+                .transcript_ids_for_gene
                 .get("BRCA1")
                 .unwrap()
                 .iter()
@@ -625,10 +634,10 @@ pub mod test {
                 "XM_006722041.1"
             ]
         );
-        let (_genes, _transcripts, filtered) =
-            filter_transcripts(genes, transcripts, transcript_ids_for_gene);
+        let filtered = filter_transcripts(tx_data);
         assert_eq!(
             &filtered
+                .transcript_ids_for_gene
                 .get("BRCA1")
                 .unwrap()
                 .iter()
