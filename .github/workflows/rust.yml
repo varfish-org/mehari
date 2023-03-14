@@ -22,8 +22,13 @@ jobs:
           override: true
           components: rustfmt
 
+      - name: Install flatbuffers
+        uses: ./.github/actions/install-flatbuffers
+
       - name: Check format
         run: |
+          flatc -o target/flatbuffers --rust src/world.fbs
+          rustfmt target/flatbuffers/world_generated.rs
           cargo fmt -- --check
 
   Linting:
@@ -40,6 +45,9 @@ jobs:
           toolchain: stable
           override: true
           components: clippy
+
+      - name: Install flatbuffers
+        uses: ./.github/actions/install-flatbuffers
 
       # - uses: Swatinem/rust-cache@v1.3.0
       # Enable caching of the 'librocksdb-sys' crate by additionally caching the
@@ -85,6 +93,9 @@ jobs:
         with:
           toolchain: stable
           override: true
+
+      - name: Install flatbuffers
+        uses: ./.github/actions/install-flatbuffers
 
       # - uses: Swatinem/rust-cache@v1.3.0
       # Enable caching of the 'librocksdb-sys' crate by additionally caching the
