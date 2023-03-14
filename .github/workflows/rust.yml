@@ -27,6 +27,8 @@ jobs:
 
       - name: Check format
         run: |
+          flatc -o target/flatbuffers --rust src/world.fbs
+          rustfmt target/flatbuffers/world_generated.rs
           cargo fmt -- --check
 
   Linting:
