@@ -1,12 +1,13 @@
 //! Transcript database.
 
 use std::collections::HashSet;
+use std::path::Path;
 use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, time::Instant};
 
 use clap::Parser;
 use flatbuffers::FlatBufferBuilder;
 use hgvs::data::cdot::json::models::{self, BioType};
-use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
+use indicatif::{ProgressBar, ProgressStyle};
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
 use thousands::Separable;
 
@@ -32,18 +33,18 @@ lazy_static::lazy_static! {
 pub struct Args {
     /// Path to output flatbuffers file to write to.
     #[arg(long)]
-    pub path_out: String,
+    pub path_out: PathBuf,
     /// Paths to the cdot JSON transcripts to import.
     #[arg(long, required = true)]
-    pub path_cdot_json: Vec<String>,
+    pub path_cdot_json: Vec<PathBuf>,
     /// Path to the seqrepo instance directory to use.
     #[arg(long)]
-    pub path_seqrepo_instance: String,
+    pub path_seqrepo_instance: PathBuf,
 }
 
 /// Load and extract from cdot JSON.
 fn load_and_extract(
-    json_path: &str,
+    json_path: &Path,
     transcript_ids_for_gene: &mut HashMap<String, Vec<String>>,
     genes: &mut HashMap<String, models::Gene>,
     transcripts: &mut HashMap<String, models::Transcript>,
@@ -71,7 +72,6 @@ fn load_and_extract(
     let start = Instant::now();
     c_genes
         .values()
-        .progress_with_style(PROGRESS_STYLE.clone())
         .filter(|gene| {
             gene.gene_symbol.is_some()
                 && !gene.gene_symbol.as_ref().unwrap().is_empty()
@@ -100,7 +100,6 @@ fn load_and_extract(
     tracing::info!("Processing transcripts");
     c_txs
         .values()
-        .progress_with_style(PROGRESS_STYLE.clone())
         .filter(|tx| {
             tx.gene_name.is_some()
                 && !tx.gene_name.as_ref().unwrap().is_empty()
@@ -125,9 +124,10 @@ fn load_and_extract(
 
 /// Perform flatbuffers file construction.
 fn build_flatbuffers(
-    path_out: &str,
+    path_out: &Path,
     seqrepo: SeqRepo,
     tx_data: TranscriptData,
+    is_silent: bool,
 ) -> Result<(), anyhow::Error> {
     let TranscriptData {
         genes,
@@ -147,7 +147,11 @@ fn build_flatbuffers(
         let mut aliases = Vec::new();
         let mut aliases_idx = Vec::new();
         let mut seqs = Vec::new();
-        let pb = ProgressBar::new(transcripts.len() as u64);
+        let pb = if is_silent {
+            ProgressBar::hidden()
+        } else {
+            ProgressBar::new(transcripts.len() as u64)
+        };
         pb.set_style(PROGRESS_STYLE.clone());
         for tx_id in transcripts.keys() {
             pb.inc(1);
@@ -500,7 +504,7 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
     let path = seqrepo
         .parent()
         .ok_or(anyhow::anyhow!(
-            "Could not get parent from {}",
+            "Could not get parent from {:?}",
             &args.path_seqrepo_instance
         ))?
         .to_str()
@@ -509,7 +513,7 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
     let instance = seqrepo
         .file_name()
         .ok_or(anyhow::anyhow!(
-            "Could not get basename from {}",
+            "Could not get basename from {:?}",
             &args.path_seqrepo_instance
         ))?
         .to_str()
@@ -565,7 +569,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // then remove redundant onces, and
     let tx_data = filter_transcripts(tx_data);
     // finally build flatbuffers file.
-    build_flatbuffers(&args.path_out, seqrepo, tx_data)?;
+    build_flatbuffers(&args.path_out, seqrepo, tx_data, common.verbose.is_silent())?;
 
     tracing::info!("Done building transcript and sequence database file");
     Ok(())
@@ -574,12 +578,16 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 #[cfg(test)]
 pub mod test {
     use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
 
+    use clap_verbosity_flag::Verbosity;
     use pretty_assertions::assert_eq;
+    use temp_testdir::TempDir;
 
+    use crate::common::Args as CommonArgs;
     use crate::db::create::txs::TranscriptData;
 
-    use super::{filter_transcripts, load_and_extract};
+    use super::{filter_transcripts, load_and_extract, run, Args};
 
     #[test]
     fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {
@@ -587,7 +595,7 @@ pub mod test {
         let mut transcripts = HashMap::new();
         let mut transcript_ids_for_gene = HashMap::new();
         load_and_extract(
-            "tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1.json",
+            Path::new("tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1.json"),
             &mut transcript_ids_for_gene,
             &mut genes,
             &mut transcripts,
@@ -651,6 +659,26 @@ pub mod test {
                 "NM_007300.4"
             ]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn run_smoke() -> Result<(), anyhow::Error> {
+        let tmp_dir = TempDir::default();
+
+        let common_args = CommonArgs {
+            verbose: Verbosity::new(0, 1),
+        };
+        let args = Args {
+            path_out: tmp_dir.join("out.bin"),
+            path_cdot_json: vec![PathBuf::from(
+                "tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1.json",
+            )],
+            path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
+        };
+
+        run(&common_args, &args)?;
+
         Ok(())
     }
 }
