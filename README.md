@@ -114,6 +114,51 @@ prepare \
     tests/data/db/create/seqvar_freqs/xy-38/gnomad.genomes.r3.1.1.sites.chrY.vcf
 ```
 
+Building tx database
+
+
+```
+cd hgvs-rs-data
+
+seqrepo --root-directory seqrepo-data/master init
+
+mkdir -p mirror/ftp.ncbi.nih.gov/refseq/H_sapiens/mRNA_Prot
+cd !$
+wget https://ftp.ncbi.nih.gov/refseq/H_sapiens/mRNA_Prot/human.files.installed
+parallel -j 16 'wget https://ftp.ncbi.nih.gov/refseq/H_sapiens/mRNA_Prot/{}' ::: $(cut -f 2 human.files.installed | grep fna)
+cd -
+
+mkdir -p mirror/ftp.ensembl.org/pub/release-108/fasta/homo_sapiens/cdna
+cd !$
+wget https://ftp.ensembl.org/pub/release-108/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz
+cd -
+mkdir -p mirror/ftp.ensembl.org/pub/release-108/fasta/homo_sapiens/ncrna
+cd !$
+wget https://ftp.ensembl.org/pub/release-109/fasta/homo_sapiens/ncrna/Homo_sapiens.GRCh38.ncrna.fa.gz
+cd -
+mkdir -p mirror/ftp.ensembl.org/pub/grch37/release-108/fasta/homo_sapiens/cdna/
+cd !$
+wget https://ftp.ensembl.org/pub/grch37/release-108/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh37.cdna.all.fa.gz
+cd -
+mkdir -p mirror/ftp.ensembl.org/pub/grch37/release-108/fasta/homo_sapiens/ncrna/
+cd !$
+wget https://ftp.ensembl.org/pub/grch37/release-108/fasta/homo_sapiens/ncrna/Homo_sapiens.GRCh37.ncrna.fa.gz
+cd -
+
+seqrepo --root-directory seqrepo-data/master load -n NCBI $(find mirror/ftp.ncbi.nih.gov -name '*.fna.gz' | sort)
+seqrepo --root-directory seqrepo-data/master load -n ENSEMBL $(find mirror/ftp.ensembl.org -name '*.fa.gz' | sort)
+
+cd ../mehari
+
+cargo run --release -- \
+    -v \
+    db create txs \
+        --path-out /tmp/txs-out.bin \
+        --path-cdot-json ../cdot-0.2.12.ensembl.grch37_grch38.json.gz \
+        --path-cdot-json ../cdot-0.2.12.refseq.grch37_grch38.json.gz \
+        --path-seqrepo-instance ../hgvs-rs-data/seqrepo-data/master/master
+```
+
 ## Development Setup
 
 You will need a recent version of flatbuffers, e.g.:
