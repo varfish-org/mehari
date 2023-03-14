@@ -27,11 +27,13 @@ noodles = { version = "0.33.0", features = ["vcf", "bcf", "csi", "fasta", "bgzf"
 noodles-util = { version = "0.5.0", features = ["noodles-bcf", "noodles-bgzf", "noodles-vcf", "variant"] }
 procfs = "0.15.1"
 rocksdb = "0.20.1"
-seqrepo = "0.2.2"
+seqrepo = "0.2.3"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.94"
 tracing = { version = "0.1.37", features = ["log"] }
 tracing-subscriber = "0.3.16"
+indicatif = "0.17.3"
+thousands = "0.2.0"
 
 [build-dependencies]
 flatc-rust = "0.2.0"
