@@ -1,12 +1,14 @@
 //! Annotation of sequence variants.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::time::Instant;
 
+use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use clap::Parser;
 use hgvs::static_data::Assembly;
+use memmap2::Mmap;
 use noodles::bgzf::Writer as BgzfWriter;
 use noodles::vcf::header::{
     record::value::map::{info::Type, Info},
@@ -24,6 +26,8 @@ use crate::db::create::seqvar_freqs::serialized::vcf::Var as VcfVar;
 use crate::db::create::seqvar_freqs::serialized::{
     auto::Record as AutoRecord, mt::Record as MtRecord, xy::Record as XyRecord,
 };
+
+use crate::world_flatbuffers::mehari::TxSeqDatabase;
 
 /// Command line arguments for `annotate seqvars` sub command.
 #[derive(Parser, Debug)]
@@ -324,8 +328,67 @@ lazy_static::lazy_static! {
 /// Return path component for the assembly.
 fn path_component(assembly: Assembly) -> &'static str {
     match assembly {
-        Assembly::Grch37 | Assembly::Grch37p10 => &"grch37",
-        Assembly::Grch38 => &"grch38",
+        Assembly::Grch37 | Assembly::Grch37p10 => "grch37",
+        Assembly::Grch38 => "grch38",
+    }
+}
+
+type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
+
+struct TxIntervalTrees {
+    /// Mapping from contig accession to index in `trees`.
+    pub contig_to_idx: HashMap<String, usize>,
+    /// Interval tree to index in `TxSeqDatabase::tx_db::transcripts`, for each contig.
+    pub trees: Vec<IntervalTree>,
+}
+
+impl TxIntervalTrees {
+    pub fn new(db: &TxSeqDatabase) -> Self {
+        let (contig_to_idx, trees) = Self::build_indices(db);
+        Self {
+            contig_to_idx,
+            trees,
+        }
+    }
+
+    fn build_indices(db: &TxSeqDatabase) -> (HashMap<String, usize>, Vec<IntervalTree>) {
+        let mut contig_to_idx = HashMap::new();
+        let mut trees: Vec<IntervalTree> = Vec::new();
+
+        let mut txs = 0;
+
+        for (tx_id, tx) in db
+            .tx_db()
+            .unwrap()
+            .transcripts()
+            .unwrap()
+            .iter()
+            .enumerate()
+        {
+            for genome_alignment in tx.genome_alignments().unwrap() {
+                let contig = genome_alignment.contig().unwrap();
+                let contig_idx = *contig_to_idx
+                    .entry(contig.to_string())
+                    .or_insert(trees.len());
+                if contig_idx >= trees.len() {
+                    trees.push(IntervalTree::new());
+                }
+                let mut start = std::i32::MAX;
+                let mut stop = std::i32::MIN;
+                for exon in genome_alignment.exons().unwrap().iter() {
+                    start = std::cmp::min(start, exon.alt_start_i() - 1);
+                    stop = std::cmp::max(stop, exon.alt_end_i());
+                }
+                trees[contig_idx].insert(start..stop, tx_id as u32);
+            }
+
+            txs += 1;
+        }
+
+        tracing::debug!("Loaded {} transcript", txs);
+        trees.iter_mut().for_each(|t| t.index());
+
+        (contig_to_idx, trees)
     }
 }
 
@@ -347,8 +410,8 @@ fn run_with_writer<Inner: Write>(
     let assembly = guess_assembly(&header_in, false, genome_release)?;
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
-    // Open the database in read only mode.
-    tracing::info!("Opening database");
+    // Open the RocksDB database in read only mode.
+    tracing::info!("Opening frequency database");
     let options = rocksdb::Options::default();
     let db = rocksdb::DB::open_cf_for_read_only(
         &options,
@@ -364,6 +427,20 @@ fn run_with_writer<Inner: Write>(
     let cf_autosomal = db.cf_handle("autosomal").unwrap();
     let cf_gonosomal = db.cf_handle("gonosomal").unwrap();
     let cf_mtdna = db.cf_handle("mitochondrial").unwrap();
+
+    // Open the transcript flatbuffer.
+    tracing::info!("Opening transcript database");
+    let tx_path = format!(
+        "{}/seqvars/{}/txs.bin",
+        &args.path_db,
+        path_component(assembly)
+    );
+    let tx_file = File::open(tx_path)?;
+    let tx_mmap = unsafe { Mmap::map(&tx_file)? };
+    let tx_db = flatbuffers::root::<TxSeqDatabase>(&tx_mmap)?;
+    tracing::info!("Building transcript interval trees ...");
+    let tx_trees = TxIntervalTrees::new(&tx_db);
+    tracing::info!("... done building transcript interval trees");
 
     // Perform the VCf annotation.
     tracing::info!("Annotating VCF ...");

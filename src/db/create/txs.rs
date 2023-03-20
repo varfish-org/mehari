@@ -60,7 +60,7 @@ fn load_and_extract(
         transcripts: c_txs,
         ..
     } = if json_path.ends_with(".gz") {
-        serde_json::from_reader(flate2::bufread::GzDecoder::new(std::io::BufReader::new(
+        serde_json::from_reader(std::io::BufReader::new(flate2::read::GzDecoder::new(
             std::fs::File::open(json_path)?,
         )))?
     } else {
@@ -108,9 +108,11 @@ fn load_and_extract(
             genome_builds: tx
                 .genome_builds
                 .iter()
-                .filter(|(key, _)| match (key.as_str(), genome_release) {
-                    ("GRCh37", GenomeRelease::Grch37) | ("GRCh38", GenomeRelease::Grch38) => true,
-                    _ => false,
+                .filter(|(key, _)| {
+                    matches!(
+                        (key.as_str(), genome_release),
+                        ("GRCh37", GenomeRelease::Grch37) | ("GRCh38", GenomeRelease::Grch38)
+                    )
                 })
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
@@ -441,7 +443,7 @@ fn filter_transcripts(tx_data: TranscriptData) -> TranscriptData {
     } = tx_data;
 
     let mut chosen = HashSet::new();
-    let transcript_ids_for_gene = transcript_ids_for_gene
+    let transcript_ids_for_gene: HashMap<_, _> = transcript_ids_for_gene
         .into_iter()
         .map(|(gene_symbol, prev_tx_ids)| {
             // Split off transcript versions from accessions and look for NM transcript.
@@ -497,13 +499,18 @@ fn filter_transcripts(tx_data: TranscriptData) -> TranscriptData {
 
     let transcripts: HashMap<_, _> = transcripts
         .into_iter()
-        .filter(|(key, _)| chosen.contains(key))
+        .filter(|(tx_id, _)| chosen.contains(tx_id))
         .collect();
+    tracing::debug!(
+        "  => {} transcripts left",
+        transcripts.len().separate_with_commas()
+    );
 
-    let genes = genes
+    let genes: HashMap<_, _> = genes
         .into_iter()
-        .filter(|(key, _)| transcripts.contains_key(key))
+        .filter(|(gene_id, _)| transcript_ids_for_gene.contains_key(gene_id))
         .collect();
+    tracing::debug!("  => {} genes left", genes.len().separate_with_commas());
 
     tracing::info!("... done filtering transcripts in {:?}", start.elapsed());
     TranscriptData {

@@ -34,6 +34,8 @@ tracing = { version = "0.1.37", features = ["log"] }
 tracing-subscriber = "0.3.16"
 indicatif = "0.17.3"
 thousands = "0.2.0"
+memmap2 = "0.5.10"
+bio = "1.1.0"
 
 [build-dependencies]
 flatc-rust = "0.2.0"
