@@ -43,6 +43,9 @@ pub struct Args {
     /// Path to the seqrepo instance directory to use.
     #[arg(long)]
     pub path_seqrepo_instance: PathBuf,
+    /// Maximal number of transcripts to process.
+    #[arg(long)]
+    pub max_txs: Option<u32>,
 }
 
 /// Load and extract from cdot JSON.
@@ -432,7 +435,7 @@ struct TranscriptData {
 ///   transcripts that have the highest version number for one assembly.
 /// - Do not pick any `XM_`/`XR_` (NCBI predicted only) transcripts.
 /// - Do not pick any `NR_` transcripts when there are coding `NM_` transcripts.
-fn filter_transcripts(tx_data: TranscriptData) -> TranscriptData {
+fn filter_transcripts(tx_data: TranscriptData, max_txs: Option<u32>) -> TranscriptData {
     tracing::info!("Filtering transcripts ...");
     let start = Instant::now();
 
@@ -441,6 +444,16 @@ fn filter_transcripts(tx_data: TranscriptData) -> TranscriptData {
         transcripts,
         transcript_ids_for_gene,
     } = tx_data;
+
+    let transcript_ids_for_gene = if let Some(max_txs) = max_txs {
+        tracing::warn!("Limiting to {} transcripts!", max_txs);
+        transcript_ids_for_gene
+            .into_iter()
+            .take(max_txs as usize)
+            .collect()
+    } else {
+        transcript_ids_for_gene
+    };
 
     let mut chosen = HashSet::new();
     let transcript_ids_for_gene: HashMap<_, _> = transcript_ids_for_gene
@@ -592,7 +605,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // then load cdot files,
     let tx_data = load_cdot_files(args)?;
     // then remove redundant onces, and
-    let tx_data = filter_transcripts(tx_data);
+    let tx_data = filter_transcripts(tx_data, args.max_txs);
     // finally build flatbuffers file.
     build_flatbuffers(&args.path_out, seqrepo, tx_data, common.verbose.is_silent())?;
 

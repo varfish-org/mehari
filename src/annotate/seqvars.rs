@@ -50,6 +50,9 @@ pub struct Args {
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
     pub max_var_count: Option<usize>,
+    /// Maximal number of flatbuffers tables, should not need tweaking.
+    #[arg(long, default_value_t = 5_000_000)]
+    pub max_fb_tables: usize,
 }
 
 pub mod keys {
@@ -333,6 +336,151 @@ fn path_component(assembly: Assembly) -> &'static str {
     }
 }
 
+/// Code for annotating variants based on molecular consequence.
+pub mod ann {
+    use serde::{Deserialize, Serialize};
+
+    /// Putative impact level.
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+    #[serde(rename_all = "UPPERCASE")]
+    pub enum ImpactLevel {
+        High,
+        Moderate,
+        Low,
+        Modifier,
+    }
+
+    /// Putative impact.
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Impact {
+        // high impact
+        ChromosomeNumberVariation,
+        ExonLossVariant,
+        FrameshiftVariant,
+        RareAminoAcidVariant,
+        SpliceAcceptorVariant,
+        SpliceDonorVariant,
+        StartLost,
+        StopGained,
+        StopLost,
+        TranscriptAblation,
+        // moderate impact
+        #[serde(rename = "3_prime_UTR_truncation")]
+        ThreePrimeUtrTruncation,
+        #[serde(rename = "5_prime_UTR_truncation")]
+        FivePrimeUtrTruncaction,
+        CodingSequenceVairant,
+        ConservativeInframeDeletion,
+        ConservativeInframeInsertion,
+        DisruptiveInframeDeletion,
+        DisruptiveInframeInsertion,
+        MissenseVariant,
+        RegulatoryRegionAblation,
+        SpliceRegionVariant,
+        #[serde(rename = "TFBS_ablation")]
+        TbfsAblation,
+        // low impact
+        #[serde(rename = "5_prime_UTR_premature_start_codon_gain_variant")]
+        FivePrimeUtrPrematureStartCodonGainVariant,
+        InitiatorCodonVariant,
+        StartRetained,
+        StopRetainedVariant,
+        SynonymousVariant,
+        // modifier
+        #[serde(rename = "3_prime_UTR_variant")]
+        ThreePrimeUtrVariant,
+        #[serde(rename = "5_prime_UTR_variant")]
+        FivePrimeUtrVariant,
+        CodingSequenceVariant,
+        ConservedIntergenicVariant,
+        ConservedIntronVariant,
+        DownstreamGeneVariant,
+        ExonVariant,
+        FeatureElongation,
+        FeatureTruncation,
+        GeneVariant,
+        IntergenicVegion,
+        IntragenicVariant,
+        IntronVariant,
+        #[serde(rename = "mature_miRNA_variant")]
+        MatureMirnaVariant,
+        #[serde(rename = "miRNA")]
+        Mirna,
+        #[serde(rename = "NMD_transcript_variant")]
+        NmdTranscriptVariant,
+        NonCodingTranscriptExonVariant,
+        NonCodingTranscriptVariant,
+        RegulatoryRegionAmplification,
+        RegulatoryRegionVariant,
+        #[serde(rename = "TF_binding_site_variant")]
+        TfBindingSiteVariant,
+        #[serde(rename = "TFBS_amplification")]
+        TfbsAmplification,
+        TranscriptAmplification,
+        TranscriptVariant,
+        UpstreamGeneVariant,
+    }
+
+    impl Impact {
+        pub fn to_level(&self) -> ImpactLevel {
+            match self {
+                Impact::ChromosomeNumberVariation
+                | Impact::ExonLossVariant
+                | Impact::FrameshiftVariant
+                | Impact::RareAminoAcidVariant
+                | Impact::SpliceAcceptorVariant
+                | Impact::SpliceDonorVariant
+                | Impact::StartLost
+                | Impact::StopGained
+                | Impact::StopLost
+                | Impact::TranscriptAblation => ImpactLevel::High,
+                Impact::ThreePrimeUtrTruncation
+                | Impact::FivePrimeUtrTruncaction
+                | Impact::CodingSequenceVairant
+                | Impact::ConservativeInframeDeletion
+                | Impact::ConservativeInframeInsertion
+                | Impact::DisruptiveInframeDeletion
+                | Impact::DisruptiveInframeInsertion
+                | Impact::MissenseVariant
+                | Impact::RegulatoryRegionAblation
+                | Impact::SpliceRegionVariant
+                | Impact::TbfsAblation => ImpactLevel::Moderate,
+                Impact::FivePrimeUtrPrematureStartCodonGainVariant
+                | Impact::InitiatorCodonVariant
+                | Impact::StartRetained
+                | Impact::StopRetainedVariant
+                | Impact::SynonymousVariant => ImpactLevel::Low,
+                Impact::ThreePrimeUtrVariant
+                | Impact::FivePrimeUtrVariant
+                | Impact::CodingSequenceVariant
+                | Impact::ConservedIntergenicVariant
+                | Impact::ConservedIntronVariant
+                | Impact::DownstreamGeneVariant
+                | Impact::ExonVariant
+                | Impact::FeatureElongation
+                | Impact::FeatureTruncation
+                | Impact::GeneVariant
+                | Impact::IntergenicVegion
+                | Impact::IntragenicVariant
+                | Impact::IntronVariant
+                | Impact::MatureMirnaVariant
+                | Impact::Mirna
+                | Impact::NmdTranscriptVariant
+                | Impact::NonCodingTranscriptExonVariant
+                | Impact::NonCodingTranscriptVariant
+                | Impact::RegulatoryRegionAmplification
+                | Impact::RegulatoryRegionVariant
+                | Impact::TfBindingSiteVariant
+                | Impact::TfbsAmplification
+                | Impact::TranscriptAmplification
+                | Impact::TranscriptVariant
+                | Impact::UpstreamGeneVariant => ImpactLevel::Modifier,
+            }
+        }
+    }
+}
+
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
 
 struct TxIntervalTrees {
@@ -437,7 +585,9 @@ fn run_with_writer<Inner: Write>(
     );
     let tx_file = File::open(tx_path)?;
     let tx_mmap = unsafe { Mmap::map(&tx_file)? };
-    let tx_db = flatbuffers::root::<TxSeqDatabase>(&tx_mmap)?;
+    let mut fb_opts = flatbuffers::VerifierOptions::default();
+    fb_opts.max_tables = args.max_fb_tables;
+    let tx_db = flatbuffers::root_with_opts::<TxSeqDatabase>(&fb_opts, &tx_mmap)?;
     tracing::info!("Building transcript interval trees ...");
     let tx_trees = TxIntervalTrees::new(&tx_db);
     tracing::info!("... done building transcript interval trees");
@@ -532,6 +682,7 @@ mod test {
             ),
             path_output_vcf: path_out.into_os_string().into_string().unwrap(),
             max_var_count: None,
+            max_fb_tables: 5_000_000,
         };
 
         run(&args_common, &args)?;

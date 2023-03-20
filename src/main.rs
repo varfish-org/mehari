@@ -112,7 +112,7 @@ fn main() -> Result<(), anyhow::Error> {
 
     // Install collector and go into sub commands.
     tracing::subscriber::with_default(collector, || {
-        tracing::info!("Mehari startup -- letting the dromedary from the leash...");
+        tracing::info!("Mehari startup -- letting the dromedary off the leash...");
 
         match &cli.command {
             Commands::Db(db) => match &db.command {
