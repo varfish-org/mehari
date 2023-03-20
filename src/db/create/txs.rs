@@ -11,7 +11,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
 use thousands::Separable;
 
-use crate::common::trace_rss_now;
+use crate::common::{trace_rss_now, GenomeRelease};
 use crate::world_flatbuffers::mehari::{
     ExonAlignment, ExonAlignmentArgs, GeneToTxId, GeneToTxIdArgs, GenomeAlignment,
     GenomeAlignmentArgs, GenomeBuild, SequenceDb, SequenceDbArgs, Strand, Transcript,
@@ -31,6 +31,9 @@ lazy_static::lazy_static! {
 #[derive(Parser, Debug)]
 #[command(about = "Construct mehari transcripts and sequence database", long_about = None)]
 pub struct Args {
+    /// Genome release to extract transcripts for.
+    #[arg(long)]
+    pub genome_release: GenomeRelease,
     /// Path to output flatbuffers file to write to.
     #[arg(long)]
     pub path_out: PathBuf,
@@ -48,6 +51,7 @@ fn load_and_extract(
     transcript_ids_for_gene: &mut HashMap<String, Vec<String>>,
     genes: &mut HashMap<String, models::Gene>,
     transcripts: &mut HashMap<String, models::Transcript>,
+    genome_release: GenomeRelease,
 ) -> Result<(), anyhow::Error> {
     tracing::info!("Loading cdot transcripts from {:?}", json_path);
     let start = Instant::now();
@@ -100,10 +104,23 @@ fn load_and_extract(
     tracing::info!("Processing transcripts");
     c_txs
         .values()
+        .map(|tx| models::Transcript {
+            genome_builds: tx
+                .genome_builds
+                .iter()
+                .filter(|(key, _)| match (key.as_str(), genome_release) {
+                    ("GRCh37", GenomeRelease::Grch37) | ("GRCh38", GenomeRelease::Grch38) => true,
+                    _ => false,
+                })
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            ..tx.clone()
+        })
         .filter(|tx| {
             tx.gene_name.is_some()
                 && !tx.gene_name.as_ref().unwrap().is_empty()
                 && genes.contains_key(tx.gene_name.as_ref().unwrap())
+                && !tx.genome_builds.is_empty()
         })
         .for_each(|tx| {
             let gene_name = tx.gene_name.as_ref().unwrap();
@@ -224,7 +241,7 @@ fn build_flatbuffers(
                 let tx_model = transcripts
                     .get(tx_id)
                     .unwrap_or_else(|| panic!("No transcript model for id {:?}", tx_id));
-                // ... build genome alignment for each genome release:
+                // ... build genome alignment for selected:
                 let mut genome_alignments = Vec::new();
                 for (genome_build, alignment) in &tx_model.genome_builds {
                     // obtain basic properties
@@ -537,6 +554,7 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptData, anyhow::Error> {
             &mut transcript_ids_for_gene,
             &mut genes,
             &mut transcripts,
+            args.genome_release,
         )?;
     }
     tracing::info!(
@@ -584,7 +602,7 @@ pub mod test {
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
 
-    use crate::common::Args as CommonArgs;
+    use crate::common::{Args as CommonArgs, GenomeRelease};
     use crate::db::create::txs::TranscriptData;
 
     use super::{filter_transcripts, load_and_extract, run, Args};
@@ -599,6 +617,7 @@ pub mod test {
             &mut transcript_ids_for_gene,
             &mut genes,
             &mut transcripts,
+            GenomeRelease::Grch37,
         )?;
 
         let tx_data = TranscriptData {
@@ -627,19 +646,6 @@ pub mod test {
                 "NM_007300.4",
                 "NR_027676.1",
                 "NR_027676.2",
-                "XM_006722029.1",
-                "XM_006722030.1",
-                "XM_006722031.1",
-                "XM_006722032.1",
-                "XM_006722033.1",
-                "XM_006722034.1",
-                "XM_006722035.1",
-                "XM_006722036.1",
-                "XM_006722037.1",
-                "XM_006722038.1",
-                "XM_006722039.1",
-                "XM_006722040.1",
-                "XM_006722041.1"
             ]
         );
         let filtered = filter_transcripts(tx_data);
@@ -675,6 +681,7 @@ pub mod test {
                 "tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1.json",
             )],
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
+            genome_release: GenomeRelease::Grch38,
         };
 
         run(&common_args, &args)?;
