@@ -21,3 +21,10 @@ pub fn trace_rss_now() {
         Byte::from_bytes((me.stat().unwrap().rss * page_size) as u128).get_appropriate_unit(true)
     );
 }
+
+/// Select the genome release to use.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GenomeRelease {
+    Grch37,
+    Grch38,
+}

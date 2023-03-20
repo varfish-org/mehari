@@ -2,10 +2,11 @@
 
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::time::Instant;
 
 use clap::Parser;
+use hgvs::static_data::Assembly;
 use noodles::bgzf::Writer as BgzfWriter;
 use noodles::vcf::header::{
     record::value::map::{info::Type, Info},
@@ -15,7 +16,10 @@ use noodles::vcf::record::info::field::Value;
 use noodles::vcf::{header::record::value::map::Map, Header as VcfHeader, Writer as VcfWriter};
 use noodles_util::variant::reader::Builder as VariantReaderBuilder;
 use rocksdb::ThreadMode;
+use thousands::Separable;
 
+use crate::common::GenomeRelease;
+use crate::db::create::seqvar_freqs::reading::guess_assembly;
 use crate::db::create::seqvar_freqs::serialized::vcf::Var as VcfVar;
 use crate::db::create::seqvar_freqs::serialized::{
     auto::Record as AutoRecord, mt::Record as MtRecord, xy::Record as XyRecord,
@@ -29,6 +33,9 @@ pub struct Args {
     #[arg(long)]
     pub path_db: String,
 
+    /// Genome release to use, default is to auto-detect.
+    #[arg(long, value_enum)]
+    pub genome_release: Option<GenomeRelease>,
     /// Path to the input VCF file.
     #[arg(long)]
     pub path_input_vcf: String,
@@ -304,9 +311,9 @@ where
 }
 
 lazy_static::lazy_static! {
-    static ref CHROM_MT: HashSet<&'static str> =HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
-    static ref CHROM_XY: HashSet<&'static str> =HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
-    static ref CHROM_AUTO: HashSet<&'static str> =HashSet::from_iter([
+    static ref CHROM_MT: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
+    static ref CHROM_XY: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
+    static ref CHROM_AUTO: HashSet<&'static str> = HashSet::from_iter([
         "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18",
         "19", "20", "21", "22", "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9",
         "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20",
@@ -314,17 +321,42 @@ lazy_static::lazy_static! {
     ].into_iter());
 }
 
+/// Return path component for the assembly.
+fn path_component(assembly: Assembly) -> &'static str {
+    match assembly {
+        Assembly::Grch37 | Assembly::Grch37p10 => &"grch37",
+        Assembly::Grch38 => &"grch38",
+    }
+}
+
 /// Run the annotation with the given `Write` within the `VcfWriter`.
 fn run_with_writer<Inner: Write>(
     mut writer: VcfWriter<Inner>,
     args: &Args,
 ) -> Result<(), anyhow::Error> {
+    tracing::info!("Open VCF and read header");
+    let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
+    let header_in = reader.read_header()?;
+    let header_out = build_header(&header_in);
+
+    // Guess genome release from paths.
+    let genome_release = args.genome_release.map(|gr| match gr {
+        GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
+        GenomeRelease::Grch38 => Assembly::Grch38,
+    });
+    let assembly = guess_assembly(&header_in, false, genome_release)?;
+    tracing::info!("Determined input assembly to be {:?}", &assembly);
+
     // Open the database in read only mode.
     tracing::info!("Opening database");
     let options = rocksdb::Options::default();
     let db = rocksdb::DB::open_cf_for_read_only(
         &options,
-        &args.path_db,
+        &format!(
+            "{}/seqvars/{}/freqs",
+            &args.path_db,
+            path_component(assembly)
+        ),
         ["meta", "autosomal", "gonosomal", "mitochondrial"],
         false,
     )?;
@@ -333,13 +365,9 @@ fn run_with_writer<Inner: Write>(
     let cf_gonosomal = db.cf_handle("gonosomal").unwrap();
     let cf_mtdna = db.cf_handle("mitochondrial").unwrap();
 
+    // Perform the VCf annotation.
     tracing::info!("Annotating VCF ...");
     let start = Instant::now();
-
-    let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
-    let header_in = reader.read_header()?;
-    let header_out = build_header(&header_in);
-
     let mut total_written = 0usize;
 
     writer.write_header(&header_out)?;
@@ -380,7 +408,7 @@ fn run_with_writer<Inner: Write>(
     }
     tracing::info!(
         "... annotated {} records in {:?}",
-        total_written,
+        total_written.separate_with_commas(),
         start.elapsed()
     );
     Ok(())
@@ -389,10 +417,14 @@ fn run_with_writer<Inner: Write>(
 /// Main entry point for `annotate seqvars` sub command.
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     if args.path_output_vcf.ends_with(".vcf.gz") || args.path_output_vcf.ends_with(".vcf.bgzf") {
-        let writer = VcfWriter::new(File::create(&args.path_output_vcf).map(BgzfWriter::new)?);
+        let writer = VcfWriter::new(
+            File::create(&args.path_output_vcf)
+                .map(BufWriter::new)
+                .map(BgzfWriter::new)?,
+        );
         run_with_writer(writer, args)?;
     } else {
-        let writer = VcfWriter::new(File::create(&args.path_output_vcf)?);
+        let writer = VcfWriter::new(File::create(&args.path_output_vcf).map(BufWriter::new)?);
         run_with_writer(writer, args)?;
     }
 
@@ -416,9 +448,8 @@ mod test {
             verbose: Verbosity::new(0, 0),
         };
         let args = Args {
-            path_db: String::from(
-                "tests/data/db/create/seqvar_freqs/db-rs1263393206/seqvars/freqs",
-            ),
+            genome_release: None,
+            path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from(
                 "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf",
             ),

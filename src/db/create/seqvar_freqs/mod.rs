@@ -10,16 +10,11 @@ use hgvs::static_data::Assembly;
 
 use rocksdb::{DBWithThreadMode, SingleThreaded};
 
+use crate::common::GenomeRelease;
+
 use self::serialized::auto::Record as AutoRecord;
 use self::serialized::mt::Record as MtRecord;
 use self::serialized::xy::Record as XyRecord;
-
-/// Select the genome release to use.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GenomeRelease {
-    Grch37,
-    Grch38,
-}
 
 /// Command line arguments for `db create seqvar-freqs` sub command.
 #[derive(Parser, Debug)]
