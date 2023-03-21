@@ -595,7 +595,7 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptData, anyhow::Error> {
                 genes
                     .into_iter()
                     .filter(|(key, _)| gene_symbols.contains(key))
-                    .map(|(key, value)| (key.clone(), value.clone())),
+                    .map(|(key, value)| (key, value)),
             );
         }
     }
@@ -718,6 +718,7 @@ pub mod test {
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
             genome_release: GenomeRelease::Grch38,
             max_txs: None,
+            gene_symbols: None,
         };
 
         run(&common_args, &args)?;
