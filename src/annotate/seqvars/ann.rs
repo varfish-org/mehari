@@ -93,9 +93,9 @@ pub enum Consequence {
     UpstreamGeneVariant,
 }
 
-impl Into<PutativeImpact> for Consequence {
-    fn into(self) -> PutativeImpact {
-        match self {
+impl From<Consequence> for PutativeImpact {
+    fn from(val: Consequence) -> Self {
+        match val {
             Consequence::ChromosomeNumberVariation
             | Consequence::ExonLossVariant
             | Consequence::FrameshiftVariant
@@ -588,31 +588,19 @@ mod test {
     fn consequence_to_impact() {
         {
             let p: PutativeImpact = Consequence::ChromosomeNumberVariation.into();
-            assert_eq!(
-                p,
-                PutativeImpact::High,
-            );
+            assert_eq!(p, PutativeImpact::High,);
         }
         {
-            let p: PutativeImpact = Consequence::ChromosomeNumberVariation.into();
-            assert_eq!(
-                p,
-                PutativeImpact::Moderate,
-            );
+            let p: PutativeImpact = Consequence::MissenseVariant.into();
+            assert_eq!(p, PutativeImpact::Moderate,);
         }
         {
-            let p: PutativeImpact = Consequence::ChromosomeNumberVariation.into();
-            assert_eq!(
-                p,
-                PutativeImpact::Low,
-            );
+            let p: PutativeImpact = Consequence::SynonymousVariant.into();
+            assert_eq!(p, PutativeImpact::Low,);
         }
         {
-            let p: PutativeImpact = Consequence::ChromosomeNumberVariation.into();
-            assert_eq!(
-                p,
-                PutativeImpact::Modifier,
-            );
+            let p: PutativeImpact = Consequence::UpstreamGeneVariant.into();
+            assert_eq!(p, PutativeImpact::Modifier,);
         }
     }
 

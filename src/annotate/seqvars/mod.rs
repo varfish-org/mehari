@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::time::Instant;
 
+use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use clap::Parser;
 use flatbuffers::VerifierOptions;
 use hgvs::static_data::Assembly;
