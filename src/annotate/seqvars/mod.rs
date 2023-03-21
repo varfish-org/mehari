@@ -10,6 +10,7 @@ use std::io::{BufWriter, Write};
 use std::time::Instant;
 
 use clap::Parser;
+use enumset::EnumSet;
 use flatbuffers::VerifierOptions;
 use hgvs::static_data::Assembly;
 use memmap2::Mmap;
@@ -24,7 +25,7 @@ use noodles_util::variant::reader::Builder as VariantReaderBuilder;
 use rocksdb::ThreadMode;
 use thousands::Separable;
 
-use crate::annotate::seqvars::provider::FlatbufferBasedProvider;
+use crate::annotate::seqvars::provider::MehariProvider;
 use crate::common::GenomeRelease;
 use crate::db::create::seqvar_freqs::reading::guess_assembly;
 use crate::db::create::seqvar_freqs::serialized::vcf::Var as VcfVar;
@@ -32,7 +33,14 @@ use crate::db::create::seqvar_freqs::serialized::{
     auto::Record as AutoRecord, mt::Record as MtRecord, xy::Record as XyRecord,
 };
 
-use crate::world_flatbuffers::mehari::TxSeqDatabase;
+use crate::db::create::txs::data::{
+    ExonAlignment, GeneToTxId, GenomeAlignment, GenomeBuild, SequenceDb, Strand, Transcript,
+    TranscriptBiotype, TranscriptDb, TranscriptTag, TxSeqDatabase,
+};
+use crate::world_flatbuffers::mehari::{
+    GenomeBuild as FlatGenomeBuild, Strand as FlatStrand,
+    TranscriptBiotype as FlatTranscriptBiotype, TxSeqDatabase as FlatTxSeqDatabase,
+};
 
 /// Command line arguments for `annotate seqvars` sub command.
 #[derive(Parser, Debug)]
@@ -342,6 +350,176 @@ fn path_component(assembly: Assembly) -> &'static str {
     }
 }
 
+/// Load flatbuffers transcripts.
+pub fn load_tx_db(tx_path: &str, max_fb_tables: usize) -> Result<TxSeqDatabase, anyhow::Error> {
+    let tx_file = File::open(tx_path)?;
+    let tx_mmap = unsafe { Mmap::map(&tx_file)? };
+    let fb_opts = VerifierOptions {
+        max_tables: max_fb_tables,
+        ..Default::default()
+    };
+    let fb_tx_db = flatbuffers::root_with_opts::<FlatTxSeqDatabase>(&fb_opts, &tx_mmap)?;
+
+    let transcripts = fb_tx_db
+        .tx_db()
+        .unwrap()
+        .transcripts()
+        .unwrap()
+        .into_iter()
+        .map(|rec| {
+            let mut tags = EnumSet::new();
+            let flat_tags = rec.biotype().0;
+            if flat_tags & 1 != 0 {
+                tags.insert(TranscriptTag::Basic);
+            }
+            if flat_tags & 2 != 0 {
+                tags.insert(TranscriptTag::EnsemblCanonical);
+            }
+            if flat_tags & 4 != 0 {
+                tags.insert(TranscriptTag::ManeSelect);
+            }
+            if flat_tags & 8 != 0 {
+                tags.insert(TranscriptTag::ManePlusClinical);
+            }
+            if flat_tags & 16 != 0 {
+                tags.insert(TranscriptTag::RefSeqSelect);
+            }
+
+            let genome_alignments = rec
+                .genome_alignments()
+                .unwrap()
+                .iter()
+                .map(|rec| {
+                    let exons = rec
+                        .exons()
+                        .unwrap()
+                        .iter()
+                        .map(|rec| ExonAlignment {
+                            alt_start_i: rec.alt_start_i(),
+                            alt_end_i: rec.alt_end_i(),
+                            ord: rec.ord(),
+                            alt_cds_start_i: if rec.alt_cds_start_i() >= 0 {
+                                Some(rec.alt_cds_start_i())
+                            } else {
+                                None
+                            },
+                            alt_cds_end_i: if rec.alt_cds_end_i() >= 0 {
+                                Some(rec.alt_cds_end_i())
+                            } else {
+                                None
+                            },
+                            cigar: rec.cigar().unwrap().to_string(),
+                        })
+                        .collect();
+
+                    GenomeAlignment {
+                        genome_build: match rec.genome_build() {
+                            FlatGenomeBuild::Grch37 => GenomeBuild::Grch37,
+                            FlatGenomeBuild::Grch38 => GenomeBuild::Grch38,
+                            _ => panic!("Invalid genome build: {:?}", rec.genome_build()),
+                        },
+                        contig: rec.contig().unwrap().to_string(),
+                        cds_start: if rec.cds_start() >= 0 {
+                            Some(rec.cds_start())
+                        } else {
+                            None
+                        },
+                        cds_end: if rec.cds_end() >= 0 {
+                            Some(rec.cds_end())
+                        } else {
+                            None
+                        },
+                        strand: match rec.strand() {
+                            FlatStrand::Plus => Strand::Plus,
+                            FlatStrand::Minus => Strand::Minus,
+                            _ => panic!("invalid strand: {:?}", rec.strand()),
+                        },
+                        exons,
+                    }
+                })
+                .collect();
+
+            Transcript {
+                id: rec.id().unwrap().to_string(),
+                gene_name: rec.gene_name().unwrap().to_string(),
+                gene_id: rec.gene_id().unwrap().to_string(),
+                biotype: match rec.biotype() {
+                    FlatTranscriptBiotype::Coding => TranscriptBiotype::Coding,
+                    FlatTranscriptBiotype::NonCoding => TranscriptBiotype::NonCoding,
+                    _ => panic!("Invalid biotype: {:?}", rec.biotype()),
+                },
+                tags,
+                protein: if rec.protein().is_none() || rec.protein().unwrap().is_empty() {
+                    None
+                } else {
+                    Some(rec.protein().unwrap().to_string())
+                },
+                start_codon: if rec.start_codon() >= 0 {
+                    Some(rec.start_codon())
+                } else {
+                    None
+                },
+                stop_codon: if rec.stop_codon() >= 0 {
+                    Some(rec.stop_codon())
+                } else {
+                    None
+                },
+                genome_alignments: genome_alignments,
+            }
+        })
+        .collect();
+
+    let gene_to_tx = fb_tx_db
+        .tx_db()
+        .unwrap()
+        .gene_to_tx()
+        .unwrap()
+        .into_iter()
+        .map(|rec| GeneToTxId {
+            gene_name: rec.gene_name().unwrap().to_string(),
+            tx_ids: rec
+                .tx_ids()
+                .unwrap()
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect(),
+        })
+        .collect();
+
+    let tx_db = TranscriptDb {
+        transcripts,
+        gene_to_tx,
+    };
+
+    let seq_db = SequenceDb {
+        aliases: fb_tx_db
+            .seq_db()
+            .unwrap()
+            .aliases()
+            .unwrap()
+            .into_iter()
+            .map(|alias| alias.to_string())
+            .collect(),
+        aliases_idx: fb_tx_db
+            .seq_db()
+            .unwrap()
+            .aliases_idx()
+            .unwrap()
+            .into_iter()
+            .collect(),
+        seqs: fb_tx_db
+            .seq_db()
+            .unwrap()
+            .aliases()
+            .unwrap()
+            .into_iter()
+            .map(|seq| seq.to_string())
+            .collect(),
+    };
+
+    Ok(TxSeqDatabase { tx_db, seq_db })
+}
+
 /// Run the annotation with the given `Write` within the `VcfWriter`.
 fn run_with_writer<Inner: Write>(
     mut writer: VcfWriter<Inner>,
@@ -380,20 +558,16 @@ fn run_with_writer<Inner: Write>(
 
     // Open the transcript flatbuffer.
     tracing::info!("Opening transcript database");
-    let tx_path = format!(
-        "{}/seqvars/{}/txs.bin",
-        &args.path_db,
-        path_component(assembly)
-    );
-    let tx_file = File::open(tx_path)?;
-    let tx_mmap = unsafe { Mmap::map(&tx_file)? };
-    let fb_opts = VerifierOptions {
-        max_tables: args.max_fb_tables,
-        ..Default::default()
-    };
-    let tx_db = flatbuffers::root_with_opts::<TxSeqDatabase>(&fb_opts, &tx_mmap)?;
+    let tx_db = load_tx_db(
+        &format!(
+            "{}/seqvars/{}/txs.bin",
+            &args.path_db,
+            path_component(assembly)
+        ),
+        args.max_fb_tables,
+    )?;
     tracing::info!("Building transcript interval trees ...");
-    let _provider = FlatbufferBasedProvider::new(tx_db);
+    let _provider = MehariProvider::new(tx_db);
     tracing::info!("... done building transcript interval trees");
 
     // Perform the VCf annotation.

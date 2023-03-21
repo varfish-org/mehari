@@ -6,7 +6,7 @@ use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use hgvs::{data::interface::Provider as ProviderInterface, static_data::ASSEMBLY_INFOS};
 use linked_hash_map::LinkedHashMap;
 
-use crate::world_flatbuffers::mehari::{Transcript, TxSeqDatabase};
+use crate::db::create::txs::data::{TxSeqDatabase, Transcript};
 
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
 
@@ -33,26 +33,24 @@ impl TxIntervalTrees {
         let mut txs = 0;
 
         for (tx_id, tx) in db
-            .tx_db()
-            .unwrap()
-            .transcripts()
-            .unwrap()
+            .tx_db
+            .transcripts
             .iter()
             .enumerate()
         {
-            for genome_alignment in tx.genome_alignments().unwrap() {
-                let contig = genome_alignment.contig().unwrap();
+            for genome_alignment in &tx.genome_alignments {
+                let contig = &genome_alignment.contig;
                 let contig_idx = *contig_to_idx
-                    .entry(contig.to_string())
+                    .entry(contig.clone())
                     .or_insert(trees.len());
                 if contig_idx >= trees.len() {
                     trees.push(IntervalTree::new());
                 }
                 let mut start = std::i32::MAX;
                 let mut stop = std::i32::MIN;
-                for exon in genome_alignment.exons().unwrap().iter() {
-                    start = std::cmp::min(start, exon.alt_start_i() - 1);
-                    stop = std::cmp::max(stop, exon.alt_end_i());
+                for exon in &genome_alignment.exons {
+                    start = std::cmp::min(start, exon.alt_start_i - 1);
+                    stop = std::cmp::max(stop, exon.alt_end_i);
                 }
                 trees[contig_idx].insert(start..stop, tx_id as u32);
             }
@@ -67,24 +65,22 @@ impl TxIntervalTrees {
     }
 }
 
-pub struct FlatbufferBasedProvider<'a> {
-    pub tx_db: TxSeqDatabase<'a>,
+pub struct MehariProvider {
+    pub tx_db: TxSeqDatabase,
     pub tx_trees: TxIntervalTrees,
     tx_map: HashMap<String, u32>,
 }
 
-impl<'a> FlatbufferBasedProvider<'a> {
-    pub fn new(tx_db: TxSeqDatabase<'a>) -> Self {
+impl MehariProvider {
+    pub fn new(tx_db: TxSeqDatabase) -> Self {
         let tx_trees = TxIntervalTrees::new(&tx_db);
         let tx_map = HashMap::from_iter(
             tx_db
-                .tx_db()
-                .unwrap()
-                .transcripts()
-                .unwrap()
+                .tx_db
+                .transcripts
                 .iter()
                 .enumerate()
-                .map(|(idx, tx)| (tx.id().unwrap().to_string(), idx as u32)),
+                .map(|(idx, tx)| (tx.id.clone(), idx as u32)),
         );
 
         Self {
@@ -98,11 +94,9 @@ impl<'a> FlatbufferBasedProvider<'a> {
         if let Some(idx) = self.tx_map.get(tx_id) {
             Some(
                 self.tx_db
-                    .tx_db()
-                    .unwrap()
-                    .transcripts()
-                    .unwrap()
-                    .get(*idx as usize),
+                    .tx_db
+                    .transcripts[*idx as usize]
+                    .clone()
             )
         } else {
             None
@@ -110,7 +104,7 @@ impl<'a> FlatbufferBasedProvider<'a> {
     }
 }
 
-impl<'a> ProviderInterface for FlatbufferBasedProvider<'a> {
+impl ProviderInterface for MehariProvider {
     fn data_version(&self) -> &str {
         panic!("not implemented");
     }

@@ -12,7 +12,7 @@ use crate::world_flatbuffers::mehari::TranscriptBiotype;
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
-    provider::FlatbufferBasedProvider,
+    provider::MehariProvider,
 };
 
 /// A variant description how VCF would do it.
@@ -29,8 +29,7 @@ pub struct VcfVariant {
 }
 
 pub struct ConsequencePredictor {
-    // mapper: AssemblyMapper,
-    // provider: Rc<FlatbufferBasedProvider<'a>>,
+    mapper: AssemblyMapper,
     /// Mapping from chromosome name to accession.
     chrom_to_acc: HashMap<String, String>,
 }
@@ -41,31 +40,29 @@ pub const PADDING: i32 = 5_000;
 pub const ALT_ALN_METHOD: &str = "splign";
 
 impl ConsequencePredictor {
-    pub fn new(assembly: Assembly) -> Self {
-        todo!();
-        // let acc_to_chrom = provider.get_assembly_map(assembly);
-        // let mut chrom_to_acc = HashMap::new();
-        // for (acc, chrom) in &acc_to_chrom {
-        //     let chrom = if chrom.starts_with("chr") {
-        //         chrom.strip_prefix("chr").unwrap()
-        //     } else {
-        //         chrom
-        //     };
-        //     chrom_to_acc.insert(chrom.to_string(), acc.clone());
-        //     chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
-        // }
+    pub fn new(provider: Rc<MehariProvider>, assembly: Assembly) -> Self {
+        let acc_to_chrom = provider.get_assembly_map(assembly);
+        let mut chrom_to_acc = HashMap::new();
+        for (acc, chrom) in &acc_to_chrom {
+            let chrom = if chrom.starts_with("chr") {
+                chrom.strip_prefix("chr").unwrap()
+            } else {
+                chrom
+            };
+            chrom_to_acc.insert(chrom.to_string(), acc.clone());
+            chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
+        }
 
-        // let config = AssemblyConfig {
-        //     replace_reference: false,
-        //     ..Default::default()
-        // };
-        // // let mapper = AssemblyMapper::new(config, provider);
+        let config = AssemblyConfig {
+            replace_reference: false,
+            ..Default::default()
+        };
+        let mapper = AssemblyMapper::new(config, provider);
 
-        // ConsequencePredictor {
-        //     // mapper,
-        //     // provider,
-        //     chrom_to_acc,
-        // }
+        ConsequencePredictor {
+            mapper,
+            chrom_to_acc,
+        }
     }
 
     pub fn predict(&self, var: &VcfVariant) -> Result<Option<Vec<AnnField>>, anyhow::Error> {
@@ -198,36 +195,31 @@ impl ConsequencePredictor {
 
 #[cfg(test)]
 mod test {
-    use std::fs::File;
-
-    use memmap2::Mmap;
     use pretty_assertions::assert_eq;
 
-    use crate::world_flatbuffers::mehari::TxSeqDatabase;
+    use crate::annotate::seqvars::load_tx_db;
 
     use super::*;
 
-    // #[test]
-    // fn annotate_snvs_brca1() -> Result<(), anyhow::Error> {
-    //     let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
-    //     let tx_file = File::open(tx_path)?;
-    //     let tx_mmap = unsafe { Mmap::map(&tx_file)? };
-    //     let tx_db = flatbuffers::root::<TxSeqDatabase>(&tx_mmap)?;
-    //     let provider = FlatbufferBasedProvider::new(tx_db);
+    #[test]
+    fn annotate_snvs_brca1() -> Result<(), anyhow::Error> {
+        let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
+        let tx_db = load_tx_db(tx_path, 5_000_000)?;
+        let provider = Rc::new(MehariProvider::new(tx_db));
 
-    //     let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
+        let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
 
-    //     let res = predictor
-    //         .predict(&VcfVariant {
-    //             chromosome: String::from("17"),
-    //             position: 43_045_682,
-    //             reference: String::from("T"),
-    //             alternative: String::from("C"),
-    //         })?
-    //         .unwrap();
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: String::from("17"),
+                position: 43_045_682,
+                reference: String::from("T"),
+                alternative: String::from("C"),
+            })?
+            .unwrap();
 
-    //     assert_eq!(format!("{:?}", res), "");
+        assert_eq!(format!("{:?}", res), "");
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 }
