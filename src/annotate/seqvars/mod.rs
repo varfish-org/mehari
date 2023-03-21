@@ -2,13 +2,13 @@
 
 pub mod ann;
 pub mod csq;
+pub mod provider;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::time::Instant;
 
-use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use clap::Parser;
 use flatbuffers::VerifierOptions;
 use hgvs::static_data::Assembly;
@@ -24,6 +24,7 @@ use noodles_util::variant::reader::Builder as VariantReaderBuilder;
 use rocksdb::ThreadMode;
 use thousands::Separable;
 
+use crate::annotate::seqvars::provider::FlatbufferBasedProvider;
 use crate::common::GenomeRelease;
 use crate::db::create::seqvar_freqs::reading::guess_assembly;
 use crate::db::create::seqvar_freqs::serialized::vcf::Var as VcfVar;
@@ -341,65 +342,6 @@ fn path_component(assembly: Assembly) -> &'static str {
     }
 }
 
-type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
-
-pub struct TxIntervalTrees {
-    /// Mapping from contig accession to index in `trees`.
-    pub contig_to_idx: HashMap<String, usize>,
-    /// Interval tree to index in `TxSeqDatabase::tx_db::transcripts`, for each contig.
-    pub trees: Vec<IntervalTree>,
-}
-
-impl TxIntervalTrees {
-    pub fn new(db: &TxSeqDatabase) -> Self {
-        let (contig_to_idx, trees) = Self::build_indices(db);
-        Self {
-            contig_to_idx,
-            trees,
-        }
-    }
-
-    fn build_indices(db: &TxSeqDatabase) -> (HashMap<String, usize>, Vec<IntervalTree>) {
-        let mut contig_to_idx = HashMap::new();
-        let mut trees: Vec<IntervalTree> = Vec::new();
-
-        let mut txs = 0;
-
-        for (tx_id, tx) in db
-            .tx_db()
-            .unwrap()
-            .transcripts()
-            .unwrap()
-            .iter()
-            .enumerate()
-        {
-            for genome_alignment in tx.genome_alignments().unwrap() {
-                let contig = genome_alignment.contig().unwrap();
-                let contig_idx = *contig_to_idx
-                    .entry(contig.to_string())
-                    .or_insert(trees.len());
-                if contig_idx >= trees.len() {
-                    trees.push(IntervalTree::new());
-                }
-                let mut start = std::i32::MAX;
-                let mut stop = std::i32::MIN;
-                for exon in genome_alignment.exons().unwrap().iter() {
-                    start = std::cmp::min(start, exon.alt_start_i() - 1);
-                    stop = std::cmp::max(stop, exon.alt_end_i());
-                }
-                trees[contig_idx].insert(start..stop, tx_id as u32);
-            }
-
-            txs += 1;
-        }
-
-        tracing::debug!("Loaded {} transcript", txs);
-        trees.iter_mut().for_each(|t| t.index());
-
-        (contig_to_idx, trees)
-    }
-}
-
 /// Run the annotation with the given `Write` within the `VcfWriter`.
 fn run_with_writer<Inner: Write>(
     mut writer: VcfWriter<Inner>,
@@ -451,7 +393,7 @@ fn run_with_writer<Inner: Write>(
     };
     let tx_db = flatbuffers::root_with_opts::<TxSeqDatabase>(&fb_opts, &tx_mmap)?;
     tracing::info!("Building transcript interval trees ...");
-    let _tx_trees = TxIntervalTrees::new(&tx_db);
+    let _provider = FlatbufferBasedProvider::new(tx_db);
     tracing::info!("... done building transcript interval trees");
 
     // Perform the VCf annotation.

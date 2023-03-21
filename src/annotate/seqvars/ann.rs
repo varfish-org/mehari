@@ -12,7 +12,7 @@ use nom::{
 use parse_display::{Display, FromStr};
 
 /// Putative impact level.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Display, FromStr)]
 #[display(style = "UPPERCASE")]
 pub enum PutativeImpact {
     High,
@@ -22,7 +22,7 @@ pub enum PutativeImpact {
 }
 
 /// Putative impact.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Display, FromStr)]
 #[display(style = "snake_case")]
 pub enum Consequence {
     // high impact
@@ -93,8 +93,8 @@ pub enum Consequence {
     UpstreamGeneVariant,
 }
 
-impl Consequence {
-    pub fn to_impact(&self) -> PutativeImpact {
+impl Into<PutativeImpact> for Consequence {
+    fn into(self) -> PutativeImpact {
         match self {
             Consequence::ChromosomeNumberVariation
             | Consequence::ExonLossVariant
@@ -286,18 +286,18 @@ pub enum FeatureBiotype {
 }
 
 /// Encode exon/intron rank.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr, Default)]
 #[display("{ord}/{total}")]
 pub struct Rank {
-    pub ord: u32,
-    pub total: u32,
+    pub ord: i32,
+    pub total: i32,
 }
 
 /// Position, optionally with total length.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Pos {
-    pub ord: u32,
-    pub total: Option<u32>,
+    pub ord: i32,
+    pub total: Option<i32>,
 }
 
 impl std::fmt::Display for Pos {
@@ -315,15 +315,15 @@ impl Pos {
         map(
             tuple((digit1::<&str, _>, tag("/"), digit1)),
             |(ord, _, total)| Pos {
-                ord: ord.parse::<u32>().unwrap(),
-                total: Some(total.parse::<u32>().unwrap()),
+                ord: ord.parse::<i32>().unwrap(),
+                total: Some(total.parse::<i32>().unwrap()),
             },
         )(input)
     }
 
     fn parse_no_total(input: &str) -> IResult<&str, Self> {
         map(digit1, |ord: &str| Pos {
-            ord: ord.parse::<u32>().unwrap(),
+            ord: ord.parse::<i32>().unwrap(),
             total: None,
         })(input)
     }
@@ -586,22 +586,34 @@ mod test {
 
     #[test]
     fn consequence_to_impact() {
-        assert_eq!(
-            Consequence::ChromosomeNumberVariation.to_impact(),
-            PutativeImpact::High,
-        );
-        assert_eq!(
-            Consequence::ThreePrimeUtrTruncation.to_impact(),
-            PutativeImpact::Moderate,
-        );
-        assert_eq!(
-            Consequence::FivePrimeUtrPrematureStartCodonGainVariant.to_impact(),
-            PutativeImpact::Low,
-        );
-        assert_eq!(
-            Consequence::ThreePrimeUtrVariant.to_impact(),
-            PutativeImpact::Modifier,
-        );
+        {
+            let p: PutativeImpact = Consequence::ChromosomeNumberVariation.into();
+            assert_eq!(
+                p,
+                PutativeImpact::High,
+            );
+        }
+        {
+            let p: PutativeImpact = Consequence::ChromosomeNumberVariation.into();
+            assert_eq!(
+                p,
+                PutativeImpact::Moderate,
+            );
+        }
+        {
+            let p: PutativeImpact = Consequence::ChromosomeNumberVariation.into();
+            assert_eq!(
+                p,
+                PutativeImpact::Low,
+            );
+        }
+        {
+            let p: PutativeImpact = Consequence::ChromosomeNumberVariation.into();
+            assert_eq!(
+                p,
+                PutativeImpact::Modifier,
+            );
+        }
     }
 
     #[test]
