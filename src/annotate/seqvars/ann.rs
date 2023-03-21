@@ -256,9 +256,26 @@ pub enum SoFeature {
 }
 
 /// Enum for `AnnField::feature_type`.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display)]
 pub enum FeatureType {
+    #[display("{term}")]
     SoTerm { term: SoFeature },
+    #[display("{value}")]
     Custom { value: String },
+}
+
+impl FromStr for FeatureType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        SoFeature::from_str(s)
+            .map(|term| FeatureType::SoTerm { term })
+            .or_else(|_| {
+                Ok(FeatureType::Custom {
+                    value: s.to_string(),
+                })
+            })
+    }
 }
 
 /// Encode feature biotype.
@@ -269,18 +286,62 @@ pub enum FeatureBiotype {
 }
 
 /// Encode exon/intron rank.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr)]
+#[display("{ord}/{total}")]
 pub struct Rank {
     pub ord: u32,
     pub total: u32,
 }
 
 /// Position, optionally with total length.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pos {
     pub ord: u32,
     pub total: Option<u32>,
 }
 
+impl std::fmt::Display for Pos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(total) = self.total {
+            write!(f, "{}/{}", self.ord, total)
+        } else {
+            write!(f, "{}", self.ord)
+        }
+    }
+}
+
+impl Pos {
+    fn parse_with_total(input: &str) -> IResult<&str, Self> {
+        map(
+            tuple((digit1::<&str, _>, tag("/"), digit1)),
+            |(ord, _, total)| Pos {
+                ord: ord.parse::<u32>().unwrap(),
+                total: Some(total.parse::<u32>().unwrap()),
+            },
+        )(input)
+    }
+
+    fn parse_no_total(input: &str) -> IResult<&str, Self> {
+        map(digit1, |ord: &str| Pos {
+            ord: ord.parse::<u32>().unwrap(),
+            total: None,
+        })(input)
+    }
+}
+
+impl FromStr for Pos {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        all_consuming(alt((Self::parse_with_total, Self::parse_no_total)))(s)
+            .map(|(_, value)| value)
+            .map_err(|e| anyhow::anyhow!("{}", e))
+    }
+}
+
 /// A message to be used in `AnnField::messages`.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr)]
+#[display(style = "SNAKE_CASE")]
 pub enum Message {
     ErrorChromosomeNotFound,
     ErrorOutOfChromosomeRange,
@@ -295,6 +356,7 @@ pub enum Message {
 }
 
 /// Representation of an `ANN` field.
+#[derive(Debug, PartialEq, Eq)]
 pub struct AnnField {
     /// The alternative allele that this annotation refers to.
     pub allele: Allele,
@@ -313,19 +375,81 @@ pub struct AnnField {
     /// The exon / intron rank.
     pub rank: Rank,
     /// HGVS c. notation.
-    pub hgvs_c: String,
+    pub hgvs_c: Option<String>,
     /// HGVS p. notation.
-    pub hgvs_p: String,
+    pub hgvs_p: Option<String>,
     /// cDNA position.
-    pub cdna_pos: Pos,
+    pub cdna_pos: Option<Pos>,
     /// CDS position.
-    pub cds_pos: Pos,
+    pub cds_pos: Option<Pos>,
     /// Protein position.
-    pub protein_pos: Pos,
+    pub protein_pos: Option<Pos>,
     /// Distance to feature.
     pub distance: Option<i32>,
     /// Optional list of warnings and error messages.
     pub messages: Option<Vec<Message>>,
+}
+
+impl std::fmt::Display for AnnField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.allele)?;
+        write!(f, "|")?;
+        for (i, csq) in self.consequences.iter().enumerate() {
+            if i > 0 {
+                write!(f, "&{}", csq)?;
+            } else {
+                write!(f, "{}", csq)?;
+            }
+        }
+        write!(f, "|")?;
+        write!(f, "{}", self.putative_impact)?;
+        write!(f, "|")?;
+        write!(f, "{}", self.gene_id)?;
+        write!(f, "|")?;
+        write!(f, "{}", self.feature_type)?;
+        write!(f, "|")?;
+        write!(f, "{}", self.feature_id)?;
+        write!(f, "|")?;
+        write!(f, "{}", self.feature_biotype)?;
+        write!(f, "|")?;
+        write!(f, "{}", self.rank)?;
+        write!(f, "|")?;
+        if let Some(hgvs_c) = &self.hgvs_c {
+            write!(f, "{}", hgvs_c)?;
+        }
+        write!(f, "|")?;
+        if let Some(hgvs_p) = &self.hgvs_p {
+            write!(f, "{}", hgvs_p)?;
+        }
+        write!(f, "|")?;
+        if let Some(cdna_pos) = &self.cdna_pos {
+            write!(f, "{}", cdna_pos)?;
+        }
+        write!(f, "|")?;
+        if let Some(cds_pos) = &self.cds_pos {
+            write!(f, "{}", cds_pos)?;
+        }
+        write!(f, "|")?;
+        if let Some(protein_pos) = &self.protein_pos {
+            write!(f, "{}", protein_pos)?;
+        }
+        write!(f, "|")?;
+        if let Some(distance) = self.distance {
+            write!(f, "{}", distance)?;
+        }
+        write!(f, "|")?;
+        if let Some(messages) = &self.messages {
+            for (i, csq) in messages.iter().enumerate() {
+                if i > 0 {
+                    write!(f, "&{}", csq)?;
+                } else {
+                    write!(f, "{}", csq)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -543,5 +667,183 @@ mod test {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn so_feature_display_from_str() -> Result<(), anyhow::Error> {
+        assert_eq!(format!("{}", SoFeature::Transcript), "transcript",);
+        assert_eq!(SoFeature::from_str("transcript")?, SoFeature::Transcript,);
+
+        Ok(())
+    }
+
+    #[test]
+    fn feature_type_display() -> Result<(), anyhow::Error> {
+        assert_eq!(
+            format!(
+                "{}",
+                FeatureType::SoTerm {
+                    term: SoFeature::Transcript
+                }
+            ),
+            "transcript",
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                FeatureType::Custom {
+                    value: String::from("foo")
+                }
+            ),
+            "foo",
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn so_feature_from_str() -> Result<(), anyhow::Error> {
+        assert_eq!(
+            FeatureType::from_str("transcript")?,
+            FeatureType::SoTerm {
+                term: SoFeature::Transcript
+            },
+        );
+        assert_eq!(
+            FeatureType::from_str("foo")?,
+            FeatureType::Custom {
+                value: String::from("foo")
+            },
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn feature_biotype() -> Result<(), anyhow::Error> {
+        assert_eq!(FeatureBiotype::from_str("Coding")?, FeatureBiotype::Coding);
+        assert_eq!(
+            FeatureBiotype::from_str("Noncoding")?,
+            FeatureBiotype::Noncoding
+        );
+
+        assert_eq!(format!("{}", FeatureBiotype::Coding), "Coding");
+        assert_eq!(format!("{}", FeatureBiotype::Noncoding), "Noncoding");
+
+        Ok(())
+    }
+
+    #[test]
+    fn rank_display() -> Result<(), anyhow::Error> {
+        assert_eq!(format!("{}", Rank { ord: 1, total: 2 }), "1/2",);
+
+        Ok(())
+    }
+
+    #[test]
+    fn rank_from_str() -> Result<(), anyhow::Error> {
+        assert_eq!(Rank::from_str("1/2")?, Rank { ord: 1, total: 2 },);
+
+        Ok(())
+    }
+
+    #[test]
+    fn pos_display() -> Result<(), anyhow::Error> {
+        assert_eq!(
+            format!(
+                "{}",
+                Pos {
+                    ord: 1,
+                    total: None
+                }
+            ),
+            "1",
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Pos {
+                    ord: 1,
+                    total: Some(2)
+                }
+            ),
+            "1/2",
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn pos_from_str() -> Result<(), anyhow::Error> {
+        assert_eq!(
+            Pos::from_str("1")?,
+            Pos {
+                ord: 1,
+                total: None
+            },
+        );
+        assert_eq!(
+            Pos::from_str("1/2")?,
+            Pos {
+                ord: 1,
+                total: Some(2)
+            },
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn message() -> Result<(), anyhow::Error> {
+        assert_eq!(
+            format!("{}", Message::ErrorChromosomeNotFound),
+            "ERROR_CHROMOSOME_NOT_FOUND",
+        );
+        assert_eq!(
+            Message::from_str("ERROR_CHROMOSOME_NOT_FOUND")?,
+            Message::ErrorChromosomeNotFound,
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn ann_field_display() {
+        let value = AnnField {
+            allele: Allele::Alt {
+                alternative: String::from("A"),
+            },
+            consequences: vec![Consequence::MissenseVariant],
+            putative_impact: PutativeImpact::Moderate,
+            gene_id: String::from("gene_id"),
+            feature_type: FeatureType::SoTerm {
+                term: SoFeature::Transcript,
+            },
+            feature_id: String::from("feature_id"),
+            feature_biotype: FeatureBiotype::Coding,
+            rank: Rank { ord: 1, total: 2 },
+            hgvs_c: Some(String::from("HGVS.c")),
+            hgvs_p: Some(String::from("HGVS.p")),
+            cdna_pos: Some(Pos {
+                ord: 1,
+                total: None,
+            }),
+            cds_pos: Some(Pos {
+                ord: 1,
+                total: Some(2),
+            }),
+            protein_pos: Some(Pos {
+                ord: 1,
+                total: None,
+            }),
+            distance: Some(1),
+            messages: Some(vec![Message::ErrorChromosomeNotFound]),
+        };
+
+        assert_eq!(
+            format!("{}", &value),
+            "A|missense_variant|MODERATE|gene_id|transcript|feature_id|Coding|1/2|HGVS.c\
+            |HGVS.p|1|1/2|1|1|ERROR_CHROMOSOME_NOT_FOUND"
+        );
     }
 }
