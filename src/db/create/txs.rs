@@ -668,7 +668,7 @@ pub mod test {
                 "NR_027676.2",
             ]
         );
-        let filtered = filter_transcripts(tx_data);
+        let filtered = filter_transcripts(tx_data, None);
         assert_eq!(
             &filtered
                 .transcript_ids_for_gene
@@ -702,6 +702,7 @@ pub mod test {
             )],
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
             genome_release: GenomeRelease::Grch38,
+            max_txs: None,
         };
 
         run(&common_args, &args)?;
