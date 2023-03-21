@@ -9,6 +9,7 @@ use std::time::Instant;
 
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use clap::Parser;
+use flatbuffers::VerifierOptions;
 use hgvs::static_data::Assembly;
 use memmap2::Mmap;
 use noodles::bgzf::Writer as BgzfWriter;
@@ -52,7 +53,8 @@ pub struct Args {
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
     pub max_var_count: Option<usize>,
-    /// Maximal number of flatbuffers tables, should not need tweaking.
+    /// Maximal number of flatbuffers tables, should not need tweaking.  However, if you see a
+    /// "too many tables" error output, increase this value.
     #[arg(long, default_value_t = 5_000_000)]
     pub max_fb_tables: usize,
 }
@@ -442,8 +444,10 @@ fn run_with_writer<Inner: Write>(
     );
     let tx_file = File::open(tx_path)?;
     let tx_mmap = unsafe { Mmap::map(&tx_file)? };
-    let mut fb_opts = flatbuffers::VerifierOptions::default();
-    fb_opts.max_tables = args.max_fb_tables;
+    let fb_opts = VerifierOptions {
+        max_tables: args.max_fb_tables,
+        ..Default::default()
+    };
     let tx_db = flatbuffers::root_with_opts::<TxSeqDatabase>(&fb_opts, &tx_mmap)?;
     tracing::info!("Building transcript interval trees ...");
     let _tx_trees = TxIntervalTrees::new(&tx_db);

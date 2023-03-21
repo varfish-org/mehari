@@ -46,6 +46,10 @@ pub struct Args {
     /// Maximal number of transcripts to process.
     #[arg(long)]
     pub max_txs: Option<u32>,
+    /// Limit transcript database to the following HGNC symbols.  Useful for
+    /// building test databases.
+    #[arg(long)]
+    pub gene_symbols: Option<Vec<String>>,
 }
 
 /// Load and extract from cdot JSON.
@@ -584,6 +588,17 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptData, anyhow::Error> {
         transcripts.len().separate_with_commas(),
         transcript_ids_for_gene.len().separate_with_commas()
     );
+
+    if let Some(gene_symbols) = &args.gene_symbols {
+        if !gene_symbols.is_empty() {
+            genes = HashMap::from_iter(
+                genes
+                    .into_iter()
+                    .filter(|(key, _)| gene_symbols.contains(key))
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
+        }
+    }
 
     Ok(TranscriptData {
         genes,
