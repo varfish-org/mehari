@@ -439,9 +439,14 @@ struct TranscriptData {
 ///   transcripts that have the highest version number for one assembly.
 /// - Do not pick any `XM_`/`XR_` (NCBI predicted only) transcripts.
 /// - Do not pick any `NR_` transcripts when there are coding `NM_` transcripts.
-fn filter_transcripts(tx_data: TranscriptData, max_txs: Option<u32>) -> TranscriptData {
+fn filter_transcripts(
+    tx_data: TranscriptData,
+    max_txs: Option<u32>,
+    gene_symbols: &Option<Vec<String>>,
+) -> TranscriptData {
     tracing::info!("Filtering transcripts ...");
     let start = Instant::now();
+    let gene_symbols = gene_symbols.clone().unwrap_or_default();
 
     let TranscriptData {
         genes,
@@ -462,6 +467,7 @@ fn filter_transcripts(tx_data: TranscriptData, max_txs: Option<u32>) -> Transcri
     let mut chosen = HashSet::new();
     let transcript_ids_for_gene: HashMap<_, _> = transcript_ids_for_gene
         .into_iter()
+        .filter(|(gene_symbol, _)| gene_symbols.is_empty() || gene_symbols.contains(gene_symbol))
         .map(|(gene_symbol, prev_tx_ids)| {
             // Split off transcript versions from accessions and look for NM transcript.
             let mut seen_nm = false;
@@ -589,17 +595,6 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptData, anyhow::Error> {
         transcript_ids_for_gene.len().separate_with_commas()
     );
 
-    if let Some(gene_symbols) = &args.gene_symbols {
-        if !gene_symbols.is_empty() {
-            genes = HashMap::from_iter(
-                genes
-                    .into_iter()
-                    .filter(|(key, _)| gene_symbols.contains(key))
-                    .map(|(key, value)| (key, value)),
-            );
-        }
-    }
-
     Ok(TranscriptData {
         genes,
         transcripts,
@@ -620,7 +615,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // then load cdot files,
     let tx_data = load_cdot_files(args)?;
     // then remove redundant onces, and
-    let tx_data = filter_transcripts(tx_data, args.max_txs);
+    let tx_data = filter_transcripts(tx_data, args.max_txs, &args.gene_symbols);
     // finally build flatbuffers file.
     build_flatbuffers(&args.path_out, seqrepo, tx_data, common.verbose.is_silent())?;
 
@@ -683,7 +678,7 @@ pub mod test {
                 "NR_027676.2",
             ]
         );
-        let filtered = filter_transcripts(tx_data, None);
+        let filtered = filter_transcripts(tx_data, None, &None);
         assert_eq!(
             &filtered
                 .transcript_ids_for_gene

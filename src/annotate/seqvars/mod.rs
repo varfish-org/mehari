@@ -1,6 +1,7 @@
 //! Annotation of sequence variants.
 
 pub mod ann;
+pub mod csq;
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
