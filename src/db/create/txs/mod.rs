@@ -1,5 +1,7 @@
 //! Transcript database.
 
+pub mod data;
+
 use std::collections::HashSet;
 use std::path::Path;
 use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, time::Instant};
