@@ -1,4 +1,14 @@
 //! Code for annotating variants based on molecular consequence.
+use std::str::FromStr;
+
+use nom::{
+    branch::alt,
+    bytes::complete::tag,
+    character::complete::{alphanumeric1, digit1},
+    combinator::{all_consuming, map},
+    sequence::tuple,
+    IResult,
+};
 use parse_display::{Display, FromStr};
 
 /// Putative impact level.
@@ -84,7 +94,7 @@ pub enum Consequence {
 }
 
 impl Consequence {
-    pub fn to_level(&self) -> PutativeImpact {
+    pub fn to_impact(&self) -> PutativeImpact {
         match self {
             Consequence::ChromosomeNumberVariation
             | Consequence::ExonLossVariant
@@ -141,19 +151,23 @@ impl Consequence {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display)]
 /// Enumeration for `AnnField::allele`.
 pub enum Allele {
     /// A simple value for the allele.
+    #[display("{alternative}")]
     Alt { alternative: String },
     /// Allele encoding in the case of cancer samples (when an ALT is the reference).
     ///
     /// For example, if `T` is the major allele, the donor carriers `C` and there is
     /// a somatic mutation to `G`: `G-C`.
+    #[display("{alternative}-{reference}")]
     AltRef {
         alternative: String,
         reference: String,
     },
     /// Compound annotation of other variant in the annotation.
+    #[display("{alternative}-{other_chrom}:{other_pos}_{other_ref}>{other_alt}")]
     Compound {
         alternative: String,
         other_chrom: String,
@@ -161,6 +175,77 @@ pub enum Allele {
         other_ref: String,
         other_alt: String,
     },
+}
+
+mod parse {
+    use nom::bytes::complete::take_while1;
+
+    pub static NA_IUPAC: &str = "ACGTURYMKWSBDHVNacgturymkwsbdhvn";
+
+    pub fn na1(input: &str) -> Result<(&str, &str), nom::Err<nom::error::Error<&str>>> {
+        take_while1(|c: char| NA_IUPAC.contains(c))(input)
+    }
+}
+
+impl Allele {
+    pub fn parse(input: &str) -> IResult<&str, Self> {
+        all_consuming(alt((
+            Self::parse_compound,
+            Self::parse_alt_ref,
+            Self::parse_alt,
+        )))(input)
+    }
+
+    fn parse_compound(input: &str) -> IResult<&str, Self> {
+        map(
+            tuple((
+                parse::na1,
+                tag("-"),
+                alphanumeric1,
+                tag(":"),
+                digit1,
+                tag("_"),
+                parse::na1,
+                tag(">"),
+                parse::na1,
+            )),
+            |(alternative, _, other_chrom, _, other_pos, _, other_ref, _, other_alt)| {
+                Allele::Compound {
+                    alternative: alternative.to_string(),
+                    other_chrom: other_chrom.to_string(),
+                    other_pos: other_pos.parse::<u32>().unwrap(),
+                    other_ref: other_ref.to_string(),
+                    other_alt: other_alt.to_string(),
+                }
+            },
+        )(input)
+    }
+
+    fn parse_alt_ref(input: &str) -> IResult<&str, Self> {
+        map(
+            tuple((parse::na1, tag("-"), parse::na1)),
+            |(alternative, _, reference)| Allele::AltRef {
+                alternative: alternative.to_string(),
+                reference: reference.to_string(),
+            },
+        )(input)
+    }
+
+    fn parse_alt(input: &str) -> IResult<&str, Self> {
+        map(parse::na1, |alternative| Allele::Alt {
+            alternative: alternative.to_string(),
+        })(input)
+    }
+}
+
+impl FromStr for Allele {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+            .map(|(_, value)| value)
+            .map_err(|e| anyhow::anyhow!("{}", e))
+    }
 }
 
 /// Sequence ontology feature.
@@ -245,6 +330,8 @@ pub struct AnnField {
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
+
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -252,5 +339,209 @@ mod test {
     #[test]
     fn putative_impact_display() {
         assert_eq!(format!("{}", PutativeImpact::High), "HIGH");
+        assert_eq!(format!("{}", PutativeImpact::Moderate), "MODERATE");
+        assert_eq!(format!("{}", PutativeImpact::Low), "LOW");
+        assert_eq!(format!("{}", PutativeImpact::Modifier), "MODIFIER");
+    }
+
+    #[test]
+    fn putative_impact_from_str() -> Result<(), anyhow::Error> {
+        assert_eq!(PutativeImpact::from_str("HIGH")?, PutativeImpact::High);
+        assert_eq!(
+            PutativeImpact::from_str("MODERATE")?,
+            PutativeImpact::Moderate
+        );
+        assert_eq!(PutativeImpact::from_str("LOW")?, PutativeImpact::Low);
+        assert_eq!(
+            PutativeImpact::from_str("MODIFIER")?,
+            PutativeImpact::Modifier
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn consequence_display() {
+        assert_eq!(
+            format!("{}", Consequence::ChromosomeNumberVariation),
+            "chromosome_number_variation"
+        );
+        assert_eq!(
+            format!("{}", Consequence::ThreePrimeUtrTruncation),
+            "3_prime_UTR_truncation"
+        );
+        assert_eq!(
+            format!("{}", Consequence::FivePrimeUtrTruncaction),
+            "5_prime_UTR_truncation"
+        );
+        assert_eq!(format!("{}", Consequence::TbfsAblation), "TFBS_ablation");
+        assert_eq!(
+            format!(
+                "{}",
+                Consequence::FivePrimeUtrPrematureStartCodonGainVariant
+            ),
+            "5_prime_UTR_premature_start_codon_gain_variant"
+        );
+        assert_eq!(
+            format!("{}", Consequence::ThreePrimeUtrVariant),
+            "3_prime_UTR_variant"
+        );
+        assert_eq!(
+            format!("{}", Consequence::FivePrimeUtrVariant),
+            "5_prime_UTR_variant"
+        );
+        assert_eq!(
+            format!("{}", Consequence::MatureMirnaVariant),
+            "mature_miRNA_variant"
+        );
+        assert_eq!(format!("{}", Consequence::Mirna), "miRNA");
+        assert_eq!(
+            format!("{}", Consequence::NmdTranscriptVariant),
+            "NMD_transcript_variant"
+        );
+        assert_eq!(
+            format!("{}", Consequence::TfBindingSiteVariant),
+            "TF_binding_site_variant"
+        );
+        assert_eq!(
+            format!("{}", Consequence::TfbsAmplification),
+            "TFBS_amplification"
+        );
+    }
+
+    #[test]
+    fn consequence_from_str() -> Result<(), anyhow::Error> {
+        assert_eq!(
+            Consequence::from_str("chromosome_number_variation")?,
+            Consequence::ChromosomeNumberVariation
+        );
+        assert_eq!(
+            Consequence::from_str("3_prime_UTR_truncation")?,
+            Consequence::ThreePrimeUtrTruncation,
+        );
+        assert_eq!(
+            Consequence::from_str("5_prime_UTR_truncation")?,
+            Consequence::FivePrimeUtrTruncaction,
+        );
+        assert_eq!(
+            Consequence::from_str("TFBS_ablation")?,
+            Consequence::TbfsAblation,
+        );
+        assert_eq!(
+            Consequence::from_str("5_prime_UTR_premature_start_codon_gain_variant")?,
+            Consequence::FivePrimeUtrPrematureStartCodonGainVariant,
+        );
+        assert_eq!(
+            Consequence::from_str("3_prime_UTR_variant")?,
+            Consequence::ThreePrimeUtrVariant,
+        );
+        assert_eq!(
+            Consequence::from_str("5_prime_UTR_variant")?,
+            Consequence::FivePrimeUtrVariant,
+        );
+        assert_eq!(
+            Consequence::from_str("mature_miRNA_variant")?,
+            Consequence::MatureMirnaVariant,
+        );
+        assert_eq!(Consequence::from_str("miRNA")?, Consequence::Mirna,);
+        assert_eq!(
+            Consequence::from_str("NMD_transcript_variant")?,
+            Consequence::NmdTranscriptVariant,
+        );
+        assert_eq!(
+            Consequence::from_str("TF_binding_site_variant")?,
+            Consequence::TfBindingSiteVariant,
+        );
+        assert_eq!(
+            Consequence::from_str("TFBS_amplification")?,
+            Consequence::TfbsAmplification,
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn consequence_to_impact() {
+        assert_eq!(
+            Consequence::ChromosomeNumberVariation.to_impact(),
+            PutativeImpact::High,
+        );
+        assert_eq!(
+            Consequence::ThreePrimeUtrTruncation.to_impact(),
+            PutativeImpact::Moderate,
+        );
+        assert_eq!(
+            Consequence::FivePrimeUtrPrematureStartCodonGainVariant.to_impact(),
+            PutativeImpact::Low,
+        );
+        assert_eq!(
+            Consequence::ThreePrimeUtrVariant.to_impact(),
+            PutativeImpact::Modifier,
+        );
+    }
+
+    #[test]
+    fn allele_display() {
+        assert_eq!(
+            format!(
+                "{}",
+                Allele::Alt {
+                    alternative: String::from("A")
+                }
+            ),
+            "A",
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Allele::AltRef {
+                    alternative: String::from("A"),
+                    reference: String::from("C"),
+                }
+            ),
+            "A-C",
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                Allele::Compound {
+                    alternative: String::from("A"),
+                    other_chrom: String::from("chr1"),
+                    other_pos: 123,
+                    other_ref: String::from("C"),
+                    other_alt: String::from("T"),
+                }
+            ),
+            "A-chr1:123_C>T",
+        );
+    }
+
+    #[test]
+    fn allele_from_str() -> Result<(), anyhow::Error> {
+        assert_eq!(
+            Allele::from_str("A")?,
+            Allele::Alt {
+                alternative: String::from("A")
+            },
+        );
+        assert_eq!(
+            Allele::from_str("A-C")?,
+            Allele::AltRef {
+                alternative: String::from("A"),
+                reference: String::from("C"),
+            }
+        );
+        assert_eq!(
+            Allele::from_str("A-chr1:123_C>T")?,
+            Allele::Compound {
+                alternative: String::from("A"),
+                other_chrom: String::from("chr1"),
+                other_pos: 123,
+                other_ref: String::from("C"),
+                other_alt: String::from("T"),
+            },
+        );
+
+        Ok(())
     }
 }
