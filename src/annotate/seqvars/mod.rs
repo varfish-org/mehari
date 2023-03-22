@@ -95,6 +95,8 @@ pub mod keys {
         pub static ref HELIX_AN: InfoKey = InfoKey::Other(InfoKeyOther::from_str("helix_an").unwrap());
         pub static ref HELIX_HOM: InfoKey = InfoKey::Other(InfoKeyOther::from_str("helix_hom").unwrap());
         pub static ref HELIX_HET: InfoKey = InfoKey::Other(InfoKeyOther::from_str("helix_het").unwrap());
+
+        pub static ref ANN: InfoKey = InfoKey::Other(InfoKeyOther::from_str("ANN").unwrap());
     }
 }
 
@@ -191,6 +193,19 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
             "Number of het. alt. carriers in HelixMtDb",
         ),
     );
+
+    header_out.infos_mut().insert(
+        keys::ANN.clone(),
+        Map::<Info>::new(
+            Number::Unknown,
+            Type::String,
+            "Functional annotations: 'Allele | Annotation | Annotation_Impact | Gene_Name | \
+            Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | \
+            cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | Distance | \
+            ERRORS / WARNINGS / INFO'",
+        ),
+    );
+
     header_out
 }
 
@@ -510,7 +525,7 @@ pub fn load_tx_db(tx_path: &str, max_fb_tables: usize) -> Result<TxSeqDatabase, 
         seqs: fb_tx_db
             .seq_db()
             .unwrap()
-            .aliases()
+            .seqs()
             .unwrap()
             .into_iter()
             .map(|seq| seq.to_string())

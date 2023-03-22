@@ -41,7 +41,6 @@ pub enum Consequence {
     ThreePrimeUtrTruncation,
     #[display("5_prime_UTR_truncation")]
     FivePrimeUtrTruncaction,
-    CodingSequenceVairant,
     ConservativeInframeDeletion,
     ConservativeInframeInsertion,
     DisruptiveInframeDeletion,
@@ -108,7 +107,6 @@ impl From<Consequence> for PutativeImpact {
             | Consequence::TranscriptAblation => PutativeImpact::High,
             Consequence::ThreePrimeUtrTruncation
             | Consequence::FivePrimeUtrTruncaction
-            | Consequence::CodingSequenceVairant
             | Consequence::ConservativeInframeDeletion
             | Consequence::ConservativeInframeInsertion
             | Consequence::DisruptiveInframeDeletion
@@ -285,6 +283,15 @@ pub enum FeatureBiotype {
     Noncoding,
 }
 
+impl FeatureBiotype {
+    pub fn is_coding(&self) -> bool {
+        match self {
+            FeatureBiotype::Coding => true,
+            FeatureBiotype::Noncoding => false,
+        }
+    }
+}
+
 /// Encode exon/intron rank.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr, Default)]
 #[display("{ord}/{total}")]
@@ -375,11 +382,11 @@ pub struct AnnField {
     /// The exon / intron rank.
     pub rank: Rank,
     /// HGVS c. notation.
-    pub hgvs_c: Option<String>,
+    pub hgvs_t: Option<String>,
     /// HGVS p. notation.
     pub hgvs_p: Option<String>,
     /// cDNA position.
-    pub cdna_pos: Option<Pos>,
+    pub tx_pos: Option<Pos>,
     /// CDS position.
     pub cds_pos: Option<Pos>,
     /// Protein position.
@@ -414,7 +421,7 @@ impl std::fmt::Display for AnnField {
         write!(f, "|")?;
         write!(f, "{}", self.rank)?;
         write!(f, "|")?;
-        if let Some(hgvs_c) = &self.hgvs_c {
+        if let Some(hgvs_c) = &self.hgvs_t {
             write!(f, "{}", hgvs_c)?;
         }
         write!(f, "|")?;
@@ -422,7 +429,7 @@ impl std::fmt::Display for AnnField {
             write!(f, "{}", hgvs_p)?;
         }
         write!(f, "|")?;
-        if let Some(cdna_pos) = &self.cdna_pos {
+        if let Some(cdna_pos) = &self.tx_pos {
             write!(f, "{}", cdna_pos)?;
         }
         write!(f, "|")?;
@@ -822,9 +829,9 @@ mod test {
             feature_id: String::from("feature_id"),
             feature_biotype: FeatureBiotype::Coding,
             rank: Rank { ord: 1, total: 2 },
-            hgvs_c: Some(String::from("HGVS.c")),
+            hgvs_t: Some(String::from("HGVS.c")),
             hgvs_p: Some(String::from("HGVS.p")),
-            cdna_pos: Some(Pos {
+            tx_pos: Some(Pos {
                 ord: 1,
                 total: None,
             }),

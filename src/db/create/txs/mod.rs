@@ -281,7 +281,7 @@ fn build_flatbuffers(
                                     alt_end_i: exon.alt_end_i,
                                     ord: exon.ord,
                                     alt_cds_start_i: exon.alt_cds_start_i,
-                                    alt_cds_end_i: exon.alt_end_i,
+                                    alt_cds_end_i: exon.alt_cds_end_i,
                                     cigar,
                                 },
                             )
