@@ -107,7 +107,9 @@ impl MehariProvider {
     }
 
     pub fn get_tx(&self, tx_id: &str) -> Option<Transcript> {
-        self.tx_map.get(tx_id).map(|idx| self.tx_seq_db.tx_db.transcripts[*idx as usize].clone())
+        self.tx_map
+            .get(tx_id)
+            .map(|idx| self.tx_seq_db.tx_db.transcripts[*idx as usize].clone())
     }
 }
 
