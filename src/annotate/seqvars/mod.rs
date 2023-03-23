@@ -479,7 +479,7 @@ pub fn load_tx_db(tx_path: &str, max_fb_tables: usize) -> Result<TxSeqDatabase, 
                 } else {
                     None
                 },
-                genome_alignments: genome_alignments,
+                genome_alignments,
             }
         })
         .collect();

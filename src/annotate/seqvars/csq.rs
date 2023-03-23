@@ -86,17 +86,19 @@ impl ConsequencePredictor {
         };
 
         // Get all affected transcripts.
-        let start = var.position - PADDING;
-        let end = var.position + var.reference.len() as i32 - 1 + PADDING;
-        let mut txs = self
-            .provider
-            .get_tx_for_region(&chrom_acc, ALT_ALN_METHOD, start, end)?;
+        let var_start = var.position;
+        let var_end = var.position + var.reference.len() as i32 - 1;
+        let qry_start = var_start - PADDING;
+        let qry_end = var_end + PADDING;
+        let mut txs =
+            self.provider
+                .get_tx_for_region(&chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)?;
         txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
 
         // Generate `AnnField` records for each transcript.
         Ok(Some(
             txs.into_iter()
-                .map(|tx| self.build_ann_field(var, tx, chrom_acc.clone(), start, end))
+                .map(|tx| self.build_ann_field(var, tx, chrom_acc.clone(), var_start, var_end))
                 .collect::<Result<Vec<_>, _>>()?,
         ))
     }
@@ -126,13 +128,8 @@ impl ConsequencePredictor {
         let mut is_intronic = false;
         let mut distance = None;
         let mut tx_len = 0;
-        let mut cds_len = 0;
         for exon_alignment in &alignment.exons {
-            tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i + 1;
-            cds_len += exon_alignment
-                .alt_cds_end_i
-                .map(|alt_cds_end_i| alt_cds_end_i - exon_alignment.alt_cds_start_i.unwrap() + 1)
-                .unwrap_or(0);
+            tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i;
 
             let exon_start = exon_alignment.alt_start_i;
             let exon_end = exon_alignment.alt_end_i;
@@ -161,11 +158,11 @@ impl ConsequencePredictor {
                 }
             } else if var_start >= intron_start && var_end <= intron_end {
                 // contained within intron: cannot be in next exon
-                rank = Rank {
-                    ord: exon_alignment.ord + 1,
-                    total: alignment.exons.len() as i32 - 1,
-                };
                 if !is_exonic {
+                    rank = Rank {
+                        ord: exon_alignment.ord + 1,
+                        total: alignment.exons.len() as i32 - 1,
+                    };
                     is_intronic = true;
 
                     let dist_start = -(var_start - intron_start + 1);
@@ -182,7 +179,6 @@ impl ConsequencePredictor {
             max_end = std::cmp::min(max_end, exon_end);
             prev_end = exon_end;
         }
-        let prot_len = cds_len / 3;
 
         let is_upstream = var_end < min_start;
         let is_downstream = var_start > max_end;
@@ -232,20 +228,42 @@ impl ConsequencePredictor {
             }),
             _ => panic!("Invalid tx position: {:?}", &var_n),
         };
+        println!(
+            "var_n = {}, tx_pos = {:#?}",
+            &var_n,
+            &tx_pos.as_ref().unwrap()
+        );
 
         let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match feature_biotype {
             FeatureBiotype::Coding => {
+                let cds_len = tx.stop_codon.unwrap() - tx.start_codon.unwrap();
+                let prot_len = cds_len / 3;
+
                 let var_c = self.mapper.n_to_c(&var_n)?;
                 let var_p = self.mapper.c_to_p(&var_c)?;
                 let hgvs_p = Some(format!("{}", &var_p));
-                let cds_pos = Some(Pos {
-                    ord: -1,
-                    total: Some(cds_len),
-                }); // TODO
-                let protein_pos = Some(Pos {
-                    ord: -1,
-                    total: Some(prot_len),
-                }); // TODO
+                let cds_pos = match &var_c {
+                    HgvsVariant::CdsVariant { loc_edit, .. } => Some(Pos {
+                        ord: loc_edit.loc.inner().start.base,
+                        total: Some(cds_len),
+                    }),
+                    _ => panic!("Invalid CDS position: {:?}", &var_n),
+                };
+                println!(
+                    "var_c = {}, cds_pos = {:#?}",
+                    &var_c,
+                    &cds_pos.as_ref().unwrap()
+                );
+                let protein_pos = match &var_p {
+                    HgvsVariant::ProtVariant { loc_edit, .. } => match &loc_edit {
+                        hgvs::parser::ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
+                            ord: loc.inner().start.number,
+                            total: Some(prot_len),
+                        }),
+                        _ => None,
+                    },
+                    _ => panic!("Not a protein position: {:?}", &var_n),
+                };
                 (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
             }
             FeatureBiotype::Noncoding => (var_n, None, None, None, None),
@@ -326,46 +344,21 @@ mod test {
                 hgvs_t: Some(String::from("NM_007294.4:c.5586C>G")),
                 hgvs_p: Some(String::from("NP_009225.1:p.His1862Gln")),
                 tx_pos: Some(Pos {
-                    ord: 0,
+                    ord: 5699,
                     total: Some(7088)
                 }),
                 cds_pos: Some(Pos {
-                    ord: 0,
+                    ord: 5586,
                     total: Some(5592)
                 }),
                 protein_pos: Some(Pos {
                     ord: 1862,
                     total: Some(1864)
                 }),
-                distance: Some(0),
+                distance: Some(-1391),
                 messages: None,
             }
         );
-        // assert_eq!(
-        //     format!("{}", res[1]),
-        //     "T|exon_variant|MODIFIER|1100|transcript|ENST00000309486.4|Coding|21/22|\
-        //     ENST00000309486.4:c.*6229G>A|MD5_555d63f4613b8654d04949014cc53e9a:p.?|11961|||0|"
-        // );
-        // assert_eq!(
-        //     format!("{}", res[2]),
-        //     "T|exon_variant|MODIFIER|1100|transcript|ENST00000346315.3|Coding|18/19|\
-        //     ENST00000346315.3:c.*6226G>A|MD5_e000d3f294909461e2bdb311a8ceb781:p.?|11295|||0|"
-        // );
-        // assert_eq!(
-        //     format!("{}", res[3]),
-        //     "T|exon_variant|MODIFIER|1100|transcript|ENST00000351666.3|Coding|18/19|\
-        //     ENST00000351666.3:c.*6226G>A|MD5_7f256726f0eff1d7208ada2c937df1a9:p.?|8288|||0|"
-        // );
-        // assert_eq!(
-        //     format!("{}", res[4]),
-        //     "T|exon_variant|MODIFIER|1100|transcript|ENST00000352993.3|Coding|21/22|\
-        //     ENST00000352993.3:c.*6229G>A|MD5_920c89c4cdd507c06cc17b6614230efe:p.?|8627|||0|"
-        // );
-        // assert_eq!(
-        //     format!("{}", res[5]),
-        //     "T|exon_variant|MODIFIER|1100|transcript|ENST00000354071.3|Coding|17/18|\
-        //     ENST00000354071.3:c.*6225G>A|MD5_316c7cafc42206aa3030d4fba92a5297:p.?|11254|||0|"
-        // );
 
         Ok(())
     }
