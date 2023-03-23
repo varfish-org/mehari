@@ -92,7 +92,7 @@ impl ConsequencePredictor {
         let qry_end = var_end + PADDING;
         let mut txs =
             self.provider
-                .get_tx_for_region(&chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)?;
+                .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)?;
         txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
 
         // Generate `AnnField` records for each transcript.

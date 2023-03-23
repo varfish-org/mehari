@@ -95,7 +95,7 @@ impl MehariProvider {
                 .aliases
                 .iter()
                 .zip(tx_seq_db.seq_db.aliases_idx.iter())
-                .map(|(alias, idx)| (alias.clone(), idx.clone())),
+                .map(|(alias, idx)| (alias.clone(), *idx)),
         );
 
         Self {
@@ -107,11 +107,7 @@ impl MehariProvider {
     }
 
     pub fn get_tx(&self, tx_id: &str) -> Option<Transcript> {
-        if let Some(idx) = self.tx_map.get(tx_id) {
-            Some(self.tx_seq_db.tx_db.transcripts[*idx as usize].clone())
-        } else {
-            None
-        }
+        self.tx_map.get(tx_id).map(|idx| self.tx_seq_db.tx_db.transcripts[*idx as usize].clone())
     }
 }
 
