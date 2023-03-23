@@ -413,6 +413,8 @@ impl std::fmt::Display for AnnField {
         write!(f, "|")?;
         write!(f, "{}", self.putative_impact)?;
         write!(f, "|")?;
+        write!(f, "{}", self.gene_symbol)?;
+        write!(f, "|")?;
         write!(f, "{}", self.gene_id)?;
         write!(f, "|")?;
         write!(f, "{}", self.feature_type)?;
@@ -852,7 +854,7 @@ mod test {
 
         assert_eq!(
             format!("{}", &value),
-            "A|missense_variant|MODERATE|gene_name|HGNC:gene_id|transcript|feature_id|Coding|1/2|HGVS.c\
+            "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|Coding|1/2|HGVS.c\
             |HGVS.p|1|1/2|1|1|ERROR_CHROMOSOME_NOT_FOUND"
         );
     }

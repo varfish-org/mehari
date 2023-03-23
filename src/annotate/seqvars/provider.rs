@@ -12,13 +12,16 @@ use hgvs::{
         },
     },
     sequences::seq_md5,
-    static_data::ASSEMBLY_INFOS,
+    static_data::{Assembly, ASSEMBLY_INFOS},
 };
 use linked_hash_map::LinkedHashMap;
 
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
-    db::create::txs::data::{Strand, Transcript, TxSeqDatabase},
+    db::create::{
+        seqvar_freqs::reading::CANONICAL,
+        txs::data::{Strand, Transcript, TxSeqDatabase},
+    },
 };
 
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
@@ -31,27 +34,41 @@ pub struct TxIntervalTrees {
 }
 
 impl TxIntervalTrees {
-    pub fn new(db: &TxSeqDatabase) -> Self {
-        let (contig_to_idx, trees) = Self::build_indices(db);
+    pub fn new(db: &TxSeqDatabase, assembly: Assembly) -> Self {
+        let (contig_to_idx, trees) = Self::build_indices(db, assembly);
         Self {
             contig_to_idx,
             trees,
         }
     }
 
-    fn build_indices(db: &TxSeqDatabase) -> (HashMap<String, usize>, Vec<IntervalTree>) {
+    fn build_indices(
+        db: &TxSeqDatabase,
+        assembly: Assembly,
+    ) -> (HashMap<String, usize>, Vec<IntervalTree>) {
         let mut contig_to_idx = HashMap::new();
         let mut trees: Vec<IntervalTree> = Vec::new();
 
         let mut txs = 0;
 
-        for (tx_id, tx) in db.tx_db.transcripts.iter().enumerate() {
-            for genome_alignment in &tx.genome_alignments {
-                let contig = &genome_alignment.contig;
-                let contig_idx = *contig_to_idx.entry(contig.clone()).or_insert(trees.len());
+        // Pre-create interval trees for canonical contigs.
+        ASSEMBLY_INFOS[assembly].sequences.iter().for_each(|seq| {
+            if CANONICAL.contains(&seq.name.as_str()) {
+                let contig_idx = *contig_to_idx
+                    .entry(seq.refseq_ac.clone())
+                    .or_insert(trees.len());
                 if contig_idx >= trees.len() {
                     trees.push(IntervalTree::new());
                 }
+            }
+        });
+
+        for (tx_id, tx) in db.tx_db.transcripts.iter().enumerate() {
+            for genome_alignment in &tx.genome_alignments {
+                let contig = &genome_alignment.contig;
+                let contig_idx = *contig_to_idx
+                    .get(contig)
+                    .expect(&format!("Unknown contig {}", contig));
                 let mut start = std::i32::MAX;
                 let mut stop = std::i32::MIN;
                 for exon in &genome_alignment.exons {
@@ -79,8 +96,8 @@ pub struct MehariProvider {
 }
 
 impl MehariProvider {
-    pub fn new(tx_seq_db: TxSeqDatabase) -> Self {
-        let tx_trees = TxIntervalTrees::new(&tx_seq_db);
+    pub fn new(tx_seq_db: TxSeqDatabase, assembly: Assembly) -> Self {
+        let tx_trees = TxIntervalTrees::new(&tx_seq_db, assembly);
         let tx_map = HashMap::from_iter(
             tx_seq_db
                 .tx_db
@@ -257,7 +274,7 @@ impl ProviderInterface for MehariProvider {
             .tx_trees
             .contig_to_idx
             .get(alt_ac)
-            .ok_or(anyhow::anyhow!("Could not find alc_ac={}", alt_ac))?;
+            .ok_or(anyhow::anyhow!("Could not find alt_ac={}", alt_ac))?;
         let query = start_i..(end_i - 1);
         let tx_idxs = self.tx_trees.trees[contig_idx].find(query);
 

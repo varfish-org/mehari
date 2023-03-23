@@ -1,7 +1,21 @@
 #!/usr/bin/env bash
 
+# Post-process SnpEff results from the clinvar excerpt.
+#
+# The file will contain the variant in column 1, transcript in column 2, and
+# the effect in column 3.  We will limit to to the transcripts in the JSON
+# file.
+
+JSON=tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1.json
 INPUT=tests/data/annotate/vars/clinvar.excerpt.snpeff.vcf.gz
 OUTPUT=${INPUT%.vcf.gz}.tsv.gz
+
+export TMPDIR=$(mktemp -d)
+trap "rm -rf $TMPDIR" ERR EXIT
+
+grep '"id": "NM_' $JSON \
+| cut -b 14-24 \
+> $TMPDIR/txs.txt
 
 bcftools query -f "%CHROM-%POS-%REF-%ALT\t%ANN\n" $INPUT \
 | awk -F'\t' -v OFS='\t' '
@@ -14,6 +28,7 @@ bcftools query -f "%CHROM-%POS-%REF-%ALT\t%ANN\n" $INPUT \
             }
         }
     }' \
+| grep -f $TMPDIR/txs.txt \
 | sort -k1,2 -u \
 | gzip -c \
 >$OUTPUT

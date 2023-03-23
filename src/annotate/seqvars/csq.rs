@@ -305,10 +305,10 @@ mod test {
     use super::*;
 
     #[test]
-    fn annotate_snvs_brca1() -> Result<(), anyhow::Error> {
+    fn annotate_snvs_brca1_one_variant() -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
         let tx_db = load_tx_db(tx_path, 5_000_000)?;
-        let provider = Rc::new(MehariProvider::new(tx_db));
+        let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
 
         let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
 
@@ -330,7 +330,8 @@ mod test {
                 },
                 consequences: vec![Consequence::ExonVariant],
                 putative_impact: PutativeImpact::Modifier,
-                gene_id: String::from("1100"),
+                gene_symbol: String::from("BRCA1"),
+                gene_id: String::from("HGNC:1100"),
                 feature_type: FeatureType::SoTerm {
                     term: SoFeature::Transcript
                 },

@@ -141,7 +141,7 @@ impl MultiVcfReader {
 /// Canonical chromosome names.
 ///
 /// Note that the mitochondrial genome runs under two names.
-const CANONICAL: &[&str] = &[
+pub const CANONICAL: &[&str] = &[
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17",
     "18", "19", "20", "21", "22", "X", "Y", "M", "MT",
 ];
@@ -164,7 +164,9 @@ pub fn guess_assembly(
         (Assembly::Grch38, &ASSEMBLY_INFOS[Assembly::Grch38]),
     ];
 
+    // Check each assembly.
     for (assembly, info) in assembly_infos.iter() {
+        // Collect contig name / length pairs for the assembly.
         let contig_map = ContigMap::new(*assembly);
         let mut lengths = HashMap::new();
         for seq in &info.sequences {
@@ -176,6 +178,7 @@ pub fn guess_assembly(
             }
         }
 
+        // Count compatible and incompatible contigs.
         let mut incompatible = 0;
         let mut compatible = 0;
         for (name, data) in vcf_header.contigs() {
@@ -202,23 +205,32 @@ pub fn guess_assembly(
         }
 
         if compatible > 0 && incompatible == 0 {
-            if let Some(_value) = result {
-                if result != initial_assembly {
+            // Found a compatible assembly.  Check if we already have one and bail out if
+            // ambiguity is not allowed.  Anyway, we only keep the first found compatible
+            // assembly.
+            if result.is_some() {
+                if result.unwrap() != *assembly && !ambiguous_ok {
+                    return Err(anyhow::anyhow!(
+                        "Found ambiguity;  initial={:?}, previous={:?}, current={:?}",
+                        initial_assembly,
+                        result,
+                        assembly,
+                    ));
+                }
+                // else: do not re-assign
+            } else {
+                result = Some(*assembly);
+            }
+        } else {
+            // Found incompatible assembly, bail out if is the initial assembly.
+            if let Some(initial_assembly) = initial_assembly {
+                if initial_assembly == *assembly {
                     return Err(anyhow::anyhow!(
                         "Incompatible with initial assembly {:?}",
                         result.unwrap()
                     ));
-                } else {
-                    result = Some(*assembly);
                 }
-            } else {
-                result = Some(*assembly);
             }
-        } else if initial_assembly.is_some() && *assembly == initial_assembly.unwrap() {
-            return Err(anyhow::anyhow!(
-                "Incompatible with initial assembly {:?}",
-                result.unwrap()
-            ));
         }
     }
 
@@ -243,7 +255,7 @@ mod test {
         let header = reader.read_header()?;
 
         let actual = guess_assembly(&header, true, None)?;
-        assert_eq!(actual, Assembly::Grch38);
+        assert_eq!(actual, Assembly::Grch37p10);
 
         Ok(())
     }
@@ -260,17 +272,17 @@ mod test {
         Ok(())
     }
 
-    // #[test]
-    // fn guess_assembly_helix_chrmt_ambiguous_ok_initial_override_fails() -> Result<(), anyhow::Error>
-    // {
-    //     let path = "tests/data/db/create/seqvar_freqs/mt/helix.chrM.vcf";
-    //     let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
-    //     let header = reader.read_header()?;
+    #[test]
+    fn guess_assembly_helix_chrmt_ambiguous_ok_initial_override_fails() -> Result<(), anyhow::Error>
+    {
+        let path = "tests/data/db/create/seqvar_freqs/mt/helix.chrM.vcf";
+        let mut reader = VariantReaderBuilder::default().build_from_path(path)?;
+        let header = reader.read_header()?;
 
-    //     assert!(guess_assembly(&header, true, Some(Assembly::Grch37)).is_err());
+        assert!(guess_assembly(&header, false, Some(Assembly::Grch37)).is_err());
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     #[test]
     fn guess_assembly_helix_chrmt_ambiguous_fail() -> Result<(), anyhow::Error> {

@@ -584,7 +584,7 @@ fn run_with_writer<Inner: Write>(
         args.max_fb_tables,
     )?;
     tracing::info!("Building transcript interval trees ...");
-    let provider = Rc::new(MehariProvider::new(tx_db));
+    let provider = Rc::new(MehariProvider::new(tx_db, assembly));
     let predictor = ConsequencePredictor::new(provider, assembly);
     tracing::info!("... done building transcript interval trees");
 
@@ -629,12 +629,14 @@ fn run_with_writer<Inner: Write>(
                 reference,
                 alternative,
             })? {
-                vcf_record.info_mut().insert(
-                    keys::ANN.clone(),
-                    Some(Value::StringArray(
-                        ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
-                    )),
-                );
+                if !ann_fields.is_empty() {
+                    vcf_record.info_mut().insert(
+                        keys::ANN.clone(),
+                        Some(Value::StringArray(
+                            ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
+                        )),
+                    );
+                }
             }
 
             writer.write_record(&vcf_record)?;
