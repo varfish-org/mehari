@@ -202,14 +202,13 @@ pub fn guess_assembly(
         }
 
         if compatible > 0 && incompatible == 0 {
-            if let Some(value) = result {
-                if !ambiguous_ok {
+            if let Some(_value) = result {
+                if result != initial_assembly {
                     return Err(anyhow::anyhow!(
-                        "Found two matching assemblies {:?} / {:?}",
-                        value,
-                        assembly
+                        "Incompatible with initial assembly {:?}",
+                        result.unwrap()
                     ));
-                } else if result != initial_assembly {
+                } else {
                     result = Some(*assembly);
                 }
             } else {

@@ -371,6 +371,8 @@ pub struct AnnField {
     pub consequences: Vec<Consequence>,
     /// The putative impact.
     pub putative_impact: PutativeImpact,
+    /// The gene symbol.
+    pub gene_symbol: String,
     /// The gene identifier.
     pub gene_id: String,
     /// The feature type.
@@ -822,7 +824,8 @@ mod test {
             },
             consequences: vec![Consequence::MissenseVariant],
             putative_impact: PutativeImpact::Moderate,
-            gene_id: String::from("gene_id"),
+            gene_symbol: String::from("GENE"),
+            gene_id: String::from("HGNC:gene_id"),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -849,7 +852,7 @@ mod test {
 
         assert_eq!(
             format!("{}", &value),
-            "A|missense_variant|MODERATE|gene_id|transcript|feature_id|Coding|1/2|HGVS.c\
+            "A|missense_variant|MODERATE|gene_name|HGNC:gene_id|transcript|feature_id|Coding|1/2|HGVS.c\
             |HGVS.p|1|1/2|1|1|ERROR_CHROMOSOME_NOT_FOUND"
         );
     }

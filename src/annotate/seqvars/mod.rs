@@ -7,6 +7,7 @@ pub mod provider;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::rc::Rc;
 use std::time::Instant;
 
 use clap::Parser;
@@ -25,6 +26,7 @@ use noodles_util::variant::reader::Builder as VariantReaderBuilder;
 use rocksdb::ThreadMode;
 use thousands::Separable;
 
+use crate::annotate::seqvars::csq::{ConsequencePredictor, VcfVariant};
 use crate::annotate::seqvars::provider::MehariProvider;
 use crate::common::GenomeRelease;
 use crate::db::create::seqvar_freqs::reading::guess_assembly;
@@ -582,7 +584,8 @@ fn run_with_writer<Inner: Write>(
         args.max_fb_tables,
     )?;
     tracing::info!("Building transcript interval trees ...");
-    let _provider = MehariProvider::new(tx_db);
+    let provider = Rc::new(MehariProvider::new(tx_db));
+    let predictor = ConsequencePredictor::new(provider, assembly);
     tracing::info!("... done building transcript interval trees");
 
     // Perform the VCf annotation.
@@ -595,18 +598,42 @@ fn run_with_writer<Inner: Write>(
     loop {
         if let Some(record) = records.next() {
             let mut vcf_record = record?;
+            // TODO: ignores all but the first alternative allele!
             let vcf_var = VcfVar::from_vcf(&vcf_record);
 
+            // Annotate with frequency.
             if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
-                annotate_record_auto(&db, cf_autosomal, vcf_var, &mut vcf_record)?;
+                annotate_record_auto(&db, cf_autosomal, vcf_var.clone(), &mut vcf_record)?;
             } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
-                annotate_record_xy(&db, cf_gonosomal, vcf_var, &mut vcf_record)?;
+                annotate_record_xy(&db, cf_gonosomal, vcf_var.clone(), &mut vcf_record)?;
             } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
-                annotate_record_mt(&db, cf_mtdna, vcf_var, &mut vcf_record)?;
+                annotate_record_mt(&db, cf_mtdna, vcf_var.clone(), &mut vcf_record)?;
             } else {
                 tracing::trace!(
-                    "Record @{:?} on non-canonical chromosomoe, skipping.",
+                    "Record @{:?} on non-canonical chromosome, skipping.",
                     &vcf_var
+                );
+            }
+
+            let VcfVar {
+                chrom,
+                pos,
+                reference,
+                alternative,
+            } = vcf_var;
+
+            // Annotate with variant effect.
+            if let Some(ann_fields) = predictor.predict(&VcfVariant {
+                chromosome: chrom,
+                position: pos as i32,
+                reference,
+                alternative,
+            })? {
+                vcf_record.info_mut().insert(
+                    keys::ANN.clone(),
+                    Some(Value::StringArray(
+                        ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
+                    )),
                 );
             }
 

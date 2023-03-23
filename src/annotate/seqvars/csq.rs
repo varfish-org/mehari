@@ -116,8 +116,8 @@ impl ConsequencePredictor {
 
         let alignment = tx.genome_alignments.first().unwrap();
 
-        let mut min_start = std::i32::MAX;
-        let mut max_end = std::i32::MIN;
+        let mut min_start = None;
+        let mut max_end = None;
 
         // Find first exon that overlaps with variant or intron that contains the variant.
         //
@@ -175,10 +175,13 @@ impl ConsequencePredictor {
                 }
             }
 
-            min_start = std::cmp::min(min_start, exon_start);
-            max_end = std::cmp::min(max_end, exon_end);
+            min_start = Some(std::cmp::min(min_start.unwrap_or(exon_start), exon_start));
+            max_end = Some(std::cmp::min(max_end.unwrap_or(exon_end), exon_end));
             prev_end = exon_end;
         }
+
+        let min_start = min_start.expect("must have seen exon");
+        let max_end = max_end.expect("must have seen exon");
 
         let is_upstream = var_end < min_start;
         let is_downstream = var_start > max_end;
@@ -228,11 +231,6 @@ impl ConsequencePredictor {
             }),
             _ => panic!("Invalid tx position: {:?}", &var_n),
         };
-        println!(
-            "var_n = {}, tx_pos = {:#?}",
-            &var_n,
-            &tx_pos.as_ref().unwrap()
-        );
 
         let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match feature_biotype {
             FeatureBiotype::Coding => {
@@ -249,11 +247,6 @@ impl ConsequencePredictor {
                     }),
                     _ => panic!("Invalid CDS position: {:?}", &var_n),
                 };
-                println!(
-                    "var_c = {}, cds_pos = {:#?}",
-                    &var_c,
-                    &cds_pos.as_ref().unwrap()
-                );
                 let protein_pos = match &var_p {
                     HgvsVariant::ProtVariant { loc_edit, .. } => match &loc_edit {
                         hgvs::parser::ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
@@ -272,6 +265,9 @@ impl ConsequencePredictor {
 
         // Take a highest-ranking consequence and derive putative impact from it.
         consequences.sort();
+        if consequences.is_empty() {
+            tracing::warn!("No consequences for {:?} on {}", var, &tx_record.tx_ac);
+        }
         let putative_impact = (*consequences.first().unwrap()).into();
 
         // Build and return ANN field from the information derived above.
@@ -281,7 +277,8 @@ impl ConsequencePredictor {
             },
             consequences,
             putative_impact,
-            gene_id: tx.gene_id.clone(),
+            gene_symbol: tx.gene_name.clone(),
+            gene_id: format!("HGNC:{}", &tx.gene_id),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -325,7 +322,6 @@ mod test {
             .unwrap();
 
         assert_eq!(res.len(), 4);
-        println!("{:#?}", &res);
         assert_eq!(
             res[0],
             AnnField {
