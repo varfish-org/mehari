@@ -9,7 +9,7 @@ use hgvs::{
     static_data::Assembly,
 };
 
-use crate::db::create::txs::data::{TranscriptBiotype, Strand};
+use crate::db::create::txs::data::{Strand, TranscriptBiotype};
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
@@ -396,10 +396,7 @@ mod test {
         let mut reader = ReaderBuilder::new()
             .delimiter(b'\t')
             .has_headers(false)
-            .from_reader(
-                File::open(path_tsv)
-                    .map(BufReader::new)?,
-            );
+            .from_reader(File::open(path_tsv).map(BufReader::new)?);
 
         for record in reader.deserialize() {
             let record: Record = record?;
@@ -422,8 +419,9 @@ mod test {
                                 .collect::<Vec<_>>()
                                 .join("&"),
                             record.csq,
-                            "variant: {}",
+                            "variant: {}, tx: {}",
                             record.var,
+                            record.tx,
                         );
                     }
                 }
