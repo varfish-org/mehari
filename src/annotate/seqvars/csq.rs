@@ -9,7 +9,7 @@ use hgvs::{
     static_data::Assembly,
 };
 
-use crate::db::create::txs::data::TranscriptBiotype;
+use crate::db::create::txs::data::{TranscriptBiotype, Strand};
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
@@ -192,13 +192,19 @@ impl ConsequencePredictor {
         } else if is_upstream {
             let val = -(min_start - var_end + 1);
             if val.abs() < 5_000 {
-                consequences.push(Consequence::UpstreamGeneVariant);
+                match alignment.strand {
+                    Strand::Plus => consequences.push(Consequence::UpstreamGeneVariant),
+                    Strand::Minus => consequences.push(Consequence::DownstreamGeneVariant),
+                }
             }
             distance = Some(val);
         } else if is_downstream {
             let val = var_start - max_end + 1;
             if val.abs() < 5_000 {
-                consequences.push(Consequence::DownstreamGeneVariant);
+                match alignment.strand {
+                    Strand::Plus => consequences.push(Consequence::DownstreamGeneVariant),
+                    Strand::Minus => consequences.push(Consequence::UpstreamGeneVariant),
+                }
             }
             distance = Some(val);
         }
@@ -298,14 +304,18 @@ impl ConsequencePredictor {
 
 #[cfg(test)]
 mod test {
+    use std::{fs::File, io::BufReader};
+
+    use csv::ReaderBuilder;
     use pretty_assertions::assert_eq;
+    use serde::Deserialize;
 
     use crate::annotate::seqvars::{ann::PutativeImpact, load_tx_db};
 
     use super::*;
 
     #[test]
-    fn annotate_snvs_brca1_one_variant() -> Result<(), anyhow::Error> {
+    fn annotate_snv_brca1_one_variant() -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
         let tx_db = load_tx_db(tx_path, 5_000_000)?;
         let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
@@ -356,6 +366,69 @@ mod test {
                 messages: None,
             }
         );
+
+        Ok(())
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct Record {
+        pub var: String,
+        pub tx: String,
+        pub csq: String,
+    }
+
+    #[test]
+    fn annotate_brca1_clinvar_vars() -> Result<(), anyhow::Error> {
+        let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
+        let tx_db = load_tx_db(tx_path, 5_000_000)?;
+        let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
+        let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
+
+        let txs = vec![
+            String::from("NM_007294.4"),
+            String::from("NM_007297.4"),
+            String::from("NM_007298.3"),
+            String::from("NM_007299.4"),
+            String::from("NM_007300.4"),
+        ];
+        let path_tsv = "tests/data/annotate/vars/clinvar.excerpt.snpeff.tsv";
+
+        let mut reader = ReaderBuilder::new()
+            .delimiter(b'\t')
+            .has_headers(false)
+            .from_reader(
+                File::open(path_tsv)
+                    .map(BufReader::new)?,
+            );
+
+        for record in reader.deserialize() {
+            let record: Record = record?;
+            if txs.contains(&record.tx) {
+                let arr = record.var.split('-').collect::<Vec<_>>();
+                let anns = predictor
+                    .predict(&VcfVariant {
+                        chromosome: arr[0].to_string(),
+                        position: arr[1].parse::<i32>()?,
+                        reference: arr[2].to_string(),
+                        alternative: arr[3].to_string(),
+                    })?
+                    .unwrap();
+                for ann in &anns {
+                    if ann.feature_id == record.tx {
+                        assert_eq!(
+                            ann.consequences
+                                .iter()
+                                .map(|c| c.to_string())
+                                .collect::<Vec<_>>()
+                                .join("&"),
+                            record.csq,
+                            "variant: {}",
+                            record.var,
+                        );
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
