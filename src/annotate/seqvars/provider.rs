@@ -68,7 +68,7 @@ impl TxIntervalTrees {
                 let contig = &genome_alignment.contig;
                 let contig_idx = *contig_to_idx
                     .get(contig)
-                    .expect(&format!("Unknown contig {}", contig));
+                    .unwrap_or_else(|| panic!("Unknown contig {}", contig));
                 let mut start = std::i32::MAX;
                 let mut stop = std::i32::MIN;
                 for exon in &genome_alignment.exons {

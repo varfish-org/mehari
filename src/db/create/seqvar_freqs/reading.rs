@@ -208,8 +208,8 @@ pub fn guess_assembly(
             // Found a compatible assembly.  Check if we already have one and bail out if
             // ambiguity is not allowed.  Anyway, we only keep the first found compatible
             // assembly.
-            if result.is_some() {
-                if result.unwrap() != *assembly && !ambiguous_ok {
+            if let Some(result) = result {
+                if result != *assembly && !ambiguous_ok {
                     return Err(anyhow::anyhow!(
                         "Found ambiguity;  initial={:?}, previous={:?}, current={:?}",
                         initial_assembly,
