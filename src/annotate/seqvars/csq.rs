@@ -87,7 +87,7 @@ impl ConsequencePredictor {
 
         // Get all affected transcripts.
         let var_start = var.position;
-        let var_end = var.position + var.reference.len() as i32 - 1;
+        let var_end = var.position + var.reference.len() as i32;
         let qry_start = var_start - PADDING;
         let qry_end = var_end + PADDING;
         let mut txs =
@@ -98,7 +98,7 @@ impl ConsequencePredictor {
         // Generate `AnnField` records for each transcript.
         Ok(Some(
             txs.into_iter()
-                .map(|tx| self.build_ann_field(var, tx, chrom_acc.clone(), var_start, var_end))
+                .map(|tx| self.build_ann_field(var, tx, chrom_acc.clone(), var_start - 1, var_end))
                 .collect::<Result<Vec<_>, _>>()?,
         ))
     }
@@ -111,6 +111,8 @@ impl ConsequencePredictor {
         var_start: i32,
         var_end: i32,
     ) -> Result<AnnField, anyhow::Error> {
+        // NB: The coordinates of var_start, var_end, and the transcript are all 0-based.
+
         let tx = self.provider.get_tx(&tx_record.tx_ac).unwrap();
         let mut consequences: Vec<Consequence> = Vec::new();
 
@@ -122,7 +124,7 @@ impl ConsequencePredictor {
         // Find first exon that overlaps with variant or intron that contains the variant.
         //
         // Note that exons are stored in genome position order.
-        let mut prev_end = std::i32::MAX;
+        let mut prev_end = None;
         let mut rank = Rank::default();
         let mut is_exonic = false;
         let mut is_intronic = false;
@@ -136,7 +138,9 @@ impl ConsequencePredictor {
             let intron_start = prev_end;
             let intron_end = exon_start;
 
-            if var_start <= exon_end && exon_start <= var_end {
+            // Check the cases where the variant overlaps with the exon or is contained within an
+            // intron.
+            if var_start < exon_end && exon_start < var_end {
                 // overlaps with exon
                 rank = Rank {
                     ord: exon_alignment.ord + 1,
@@ -156,28 +160,68 @@ impl ConsequencePredictor {
                         distance = Some(dist_start);
                     }
                 }
-            } else if var_start >= intron_start && var_end <= intron_end {
-                // contained within intron: cannot be in next exon
-                if !is_exonic {
-                    rank = Rank {
-                        ord: exon_alignment.ord + 1,
-                        total: alignment.exons.len() as i32 - 1,
-                    };
-                    is_intronic = true;
+            } else if let Some(intron_start) = intron_start {
+                if var_start > intron_start && var_end < intron_end {
+                    // contained within intron: cannot be in next exon
+                    if !is_exonic {
+                        rank = Rank {
+                            ord: exon_alignment.ord + 1,
+                            total: alignment.exons.len() as i32 - 1,
+                        };
+                        is_intronic = true;
 
-                    let dist_start = -(var_start - intron_start + 1);
-                    let dist_end = intron_end - var_end + 1;
-                    if dist_end >= dist_start.abs() {
-                        distance = Some(dist_end);
-                    } else {
-                        distance = Some(dist_start);
+                        let dist_start = -(var_start - intron_start);
+                        let dist_end = intron_end - var_end;
+                        if dist_end >= dist_start.abs() {
+                            distance = Some(dist_end);
+                        } else {
+                            distance = Some(dist_start);
+                        }
                     }
                 }
             }
 
+            // Check the cases where the variant overlaps with whole exon.
+            if var_start <= exon_start && var_end >= exon_end {
+                consequences.push(Consequence::ExonLossVariant);
+            }
+            // Check the cases where the variant overlaps with the splice acceptor/donor site.
+            if let Some(intron_start) = intron_start {
+                if var_start < intron_start + 2 && var_end > intron_start {
+                    // Left side, is acceptor/donor depending on transcript's strand.
+                    match alignment.strand {
+                        Strand::Plus => consequences.push(Consequence::SpliceDonorVariant),
+                        Strand::Minus => consequences.push(Consequence::SpliceAcceptorVariant),
+                    }
+                }
+            }
+            // Check the case where the variant overlaps with the splice donor site.
+            if var_start < intron_end && var_end > intron_end - 2 {
+                // Left side, is acceptor/donor depending on transcript's strand.
+                match alignment.strand {
+                    Strand::Plus => consequences.push(Consequence::SpliceAcceptorVariant),
+                    Strand::Minus => consequences.push(Consequence::SpliceDonorVariant),
+                }
+            }
+            // Check the case where the variant overlaps with the splice region (1-3 bases in exon
+            // or 3-8 bases in intron).
+            if let Some(intron_start) = intron_start {
+                if (var_start < exon_end && var_end > exon_end - 3)
+                    || (var_start < intron_start + 8 && var_end > intron_start + 2)
+                    || (var_start < intron_end - 8 && var_end > intron_end - 2)
+                    || (var_start < intron_end + 3 && var_end > intron_end)
+                {
+                    consequences.push(Consequence::SpliceRegionVariant);
+                }
+            }
+            // Check the case where the variant fully contains the stop codon, based on `var_c` coordinates.
+            todo!();
+            // Check the case where the variant fully contains the start codon, based on `var_c` coordinates.
+            todo!();
+
             min_start = Some(std::cmp::min(min_start.unwrap_or(exon_start), exon_start));
             max_end = Some(std::cmp::min(max_end.unwrap_or(exon_end), exon_end));
-            prev_end = exon_end;
+            prev_end = Some(exon_end);
         }
 
         let min_start = min_start.expect("must have seen exon");
@@ -362,7 +406,7 @@ mod test {
                     ord: 1862,
                     total: Some(1864)
                 }),
-                distance: Some(-1391),
+                distance: Some(-1390),
                 messages: None,
             }
         );
@@ -419,9 +463,11 @@ mod test {
                                 .collect::<Vec<_>>()
                                 .join("&"),
                             record.csq,
-                            "variant: {}, tx: {}",
+                            "variant: {}, tx: {}, hgvs_c: {:?}, hgvs_p: {:?}",
                             record.var,
                             record.tx,
+                            ann.hgvs_t.as_ref(),
+                            ann.hgvs_p.as_ref()
                         );
                     }
                 }
