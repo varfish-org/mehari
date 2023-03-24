@@ -75,6 +75,9 @@ impl ConsequencePredictor {
     }
 
     pub fn predict(&self, var: &VcfVariant) -> Result<Option<Vec<AnnField>>, anyhow::Error> {
+        // Normalize variant by stripping common prefix and suffix.
+        let var = self.normalize_variant(var);
+
         // Obtain accession from chromosome name.
         let chrom_acc = self.chrom_to_acc.get(&var.chromosome);
         let chrom_acc = if let Some(chrom_acc) = chrom_acc {
@@ -100,7 +103,7 @@ impl ConsequencePredictor {
         // Generate `AnnField` records for each transcript.
         Ok(Some(
             txs.into_iter()
-                .map(|tx| self.build_ann_field(var, tx, chrom_acc.clone(), var_start - 1, var_end))
+                .map(|tx| self.build_ann_field(&var, tx, chrom_acc.clone(), var_start - 1, var_end))
                 .collect::<Result<Vec<_>, _>>()?,
         ))
     }
@@ -113,7 +116,8 @@ impl ConsequencePredictor {
         var_start: i32,
         var_end: i32,
     ) -> Result<AnnField, anyhow::Error> {
-        // NB: The coordinates of var_start, var_end, and the transcript are all 0-based.
+        // NB: The coordinates of var_start, var_end, as well as the exon boundaries
+        // are 0-based.
 
         let tx = self.provider.get_tx(&tx_record.tx_ac).unwrap();
         let mut consequences: Vec<Consequence> = Vec::new();
@@ -259,15 +263,44 @@ impl ConsequencePredictor {
         let var_g = HgvsVariant::GenomeVariant {
             accession: Accession { value: chrom_acc },
             gene_symbol: None,
-            loc_edit: GenomeLocEdit {
-                loc: Mu::Certain(GenomeInterval {
-                    start: Some(var.position),
-                    end: Some(var.position + var.reference.len() as i32 - 1),
-                }),
-                edit: Mu::Certain(NaEdit::RefAlt {
-                    reference: var.reference.clone(),
-                    alternative: var.alternative.clone(),
-                }),
+            loc_edit: if var.reference.is_empty() {
+                // insertion
+                let x = GenomeLocEdit {
+                    loc: Mu::Certain(GenomeInterval {
+                        start: Some(var.position - 1),
+                        end: Some(var.position),
+                    }),
+                    edit: Mu::Certain(NaEdit::Ins {
+                        alternative: var.alternative.clone(),
+                    }),
+                };
+
+                println!("{}", &x);
+
+                x
+            } else if var.alternative.is_empty() {
+                // deletion
+                GenomeLocEdit {
+                    loc: Mu::Certain(GenomeInterval {
+                        start: Some(var.position),
+                        end: Some(var.position + var.reference.len() as i32 - 1),
+                    }),
+                    edit: Mu::Certain(NaEdit::DelRef {
+                        reference: var.reference.clone(),
+                    }),
+                }
+            } else {
+                // substitution
+                GenomeLocEdit {
+                    loc: Mu::Certain(GenomeInterval {
+                        start: Some(var.position),
+                        end: Some(var.position + var.reference.len() as i32 - 1),
+                    }),
+                    edit: Mu::Certain(NaEdit::RefAlt {
+                        reference: var.reference.clone(),
+                        alternative: var.alternative.clone(),
+                    }),
+                }
             },
         };
 
@@ -472,6 +505,40 @@ impl ConsequencePredictor {
             messages: None,
         })
     }
+
+    // Normalize variant by stripping common suffixes and prefixes.
+    fn normalize_variant(&self, var: &VcfVariant) -> VcfVariant {
+        let mut result = var.clone();
+
+        // Strip common suffixes.
+        while result.reference.len() > 1 && result.alternative.len() > 1 {
+            if result.reference.chars().last().unwrap()
+                == result.alternative.chars().last().unwrap()
+            {
+                result.reference.pop();
+                result.alternative.pop();
+            } else {
+                break;
+            }
+        }
+
+        // Strip common suffixes.
+        while !result.reference.is_empty() && !result.alternative.is_empty() {
+            if result.reference.chars().next().unwrap()
+                == result.alternative.chars().next().unwrap()
+            {
+                result.position += 1;
+                result.reference.remove(0);
+                result.alternative.remove(0);
+            } else {
+                break;
+            }
+        }
+
+        println!("normalized {:?} to {:?}", &var, &result);
+
+        result
+    }
 }
 
 #[cfg(test)]
@@ -611,10 +678,7 @@ mod test {
                     .unwrap();
                 // Now, for the overlapping transcripts, check that we have a match with the
                 // consequences in the highest impact category.
-                for ann in anns
-                    .iter()
-                    .filter(|ann| ann.feature_id == record.tx)
-                {
+                for ann in anns.iter().filter(|ann| ann.feature_id == record.tx) {
                     // We perform a comparison based on strings because we may not be able to parse out
                     // all consequences from the other tool.
                     let record_csqs = record
