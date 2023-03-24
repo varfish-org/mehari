@@ -8,7 +8,7 @@
 
 JSON=tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1.json
 INPUT=tests/data/annotate/vars/clinvar.excerpt.snpeff.vcf.gz
-OUTPUT=${INPUT%.vcf.gz}.tsv.gz
+OUTPUT=${INPUT%.vcf.gz}.tsv
 
 export TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" ERR EXIT
@@ -30,5 +30,4 @@ bcftools query -f "%CHROM-%POS-%REF-%ALT\t%ANN\n" $INPUT \
     }' \
 | grep -f $TMPDIR/txs.txt \
 | sort -k1,2 -u \
-| gzip -c \
 >$OUTPUT

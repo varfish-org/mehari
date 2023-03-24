@@ -5,7 +5,9 @@ use std::{collections::HashMap, rc::Rc};
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
     mapper::assembly::{Config as AssemblyConfig, Mapper as AssemblyMapper},
-    parser::{Accession, GenomeInterval, GenomeLocEdit, HgvsVariant, Mu, NaEdit},
+    parser::{
+        Accession, CdsFrom, GenomeInterval, GenomeLocEdit, HgvsVariant, Mu, NaEdit, ProtLocEdit,
+    },
     static_data::Assembly,
 };
 
@@ -214,10 +216,6 @@ impl ConsequencePredictor {
                     consequences.push(Consequence::SpliceRegionVariant);
                 }
             }
-            // Check the case where the variant fully contains the stop codon, based on `var_c` coordinates.
-            todo!();
-            // Check the case where the variant fully contains the start codon, based on `var_c` coordinates.
-            todo!();
 
             min_start = Some(std::cmp::min(min_start.unwrap_or(exon_start), exon_start));
             max_end = Some(std::cmp::min(max_end.unwrap_or(exon_end), exon_end));
@@ -299,7 +297,7 @@ impl ConsequencePredictor {
                 };
                 let protein_pos = match &var_p {
                     HgvsVariant::ProtVariant { loc_edit, .. } => match &loc_edit {
-                        hgvs::parser::ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
+                        ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
                             ord: loc.inner().start.number,
                             total: Some(prot_len),
                         }),
@@ -307,6 +305,135 @@ impl ConsequencePredictor {
                     },
                     _ => panic!("Not a protein position: {:?}", &var_n),
                 };
+
+                let conservative = match &var_c {
+                    HgvsVariant::CdsVariant { loc_edit, .. } => {
+                        // Handle the cases where the variant touches the start or stop codon based on `var_c`
+                        // coordinates.  The cases where the start/stop codon is touched by the variant
+                        // directly is handled above based on the `var_p` prediction.
+                        let loc = loc_edit.loc.inner();
+                        let start_base = loc.start.base;
+                        let start_cds_from = loc.start.cds_from;
+                        let end_base = loc.end.base;
+                        let end_cds_from = loc.end.cds_from;
+                        // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
+                        //
+                        // start codon
+                        let starts_left_of_start =
+                            start_cds_from == CdsFrom::Start && start_base < 0;
+                        let ends_right_of_start =
+                            start_cds_from != CdsFrom::Start || start_base > 0;
+                        if starts_left_of_start && ends_right_of_start {
+                            consequences.push(Consequence::StartLost)
+                        }
+                        // stop codon
+                        let starts_left_of_stop = start_cds_from == CdsFrom::Start;
+                        let ends_right_of_stop = end_cds_from == CdsFrom::End;
+                        if starts_left_of_stop && ends_right_of_stop {
+                            consequences.push(Consequence::StopLost)
+                        }
+
+                        // Detect variants affecting the 5'/3' UTRs.
+                        if start_cds_from == CdsFrom::Start {
+                            if start_base < 0 {
+                                consequences.push(Consequence::FivePrimeUtrVariant);
+                            } else {
+                                consequences.push(Consequence::CodingSequenceVariant);
+                            }
+                        } else if end_cds_from == CdsFrom::End {
+                            consequences.push(Consequence::ThreePrimeUtrVariant);
+                        } else {
+                            consequences.push(Consequence::CodingSequenceVariant);
+                        }
+
+                        // The range is "conservative" (regarding deletions and insertions) if
+                        // it does not start or end within exons.
+                        start_cds_from == CdsFrom::Start
+                            && end_cds_from == CdsFrom::Start
+                            && start_base % 3 == 1
+                            && end_base % 3 == 1
+                    }
+                    _ => panic!("Must be CDS variant: {}", &var_c),
+                };
+
+                fn is_stop(s: &str) -> bool {
+                    return s == "X" || s == "Ter" || s == "*";
+                }
+
+                // Analyze `var_p` for changes in the protein sequence.
+                match &var_p {
+                    HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
+                        ProtLocEdit::Ordinary { loc, edit } => {
+                            let loc = loc.inner();
+                            match edit.inner() {
+                                hgvs::parser::ProteinEdit::Fs { .. } => {
+                                    consequences.push(Consequence::FrameshiftVariant);
+                                }
+                                hgvs::parser::ProteinEdit::Ext { .. } => {
+                                    consequences.push(Consequence::StopLost);
+                                    consequences.push(Consequence::FeatureElongation);
+                                }
+                                hgvs::parser::ProteinEdit::Subst { alternative } => {
+                                    if alternative.is_empty() {
+                                        consequences.push(Consequence::SynonymousVariant);
+                                    } else if is_stop(alternative) {
+                                        if loc.start == loc.end && is_stop(&loc.start.aa) {
+                                            consequences.push(Consequence::StopRetainedVariant);
+                                        } else {
+                                            consequences.push(Consequence::StopGained);
+                                        }
+                                    } else {
+                                        consequences.push(Consequence::MissenseVariant);
+                                    }
+                                }
+                                hgvs::parser::ProteinEdit::DelIns { alternative } => {
+                                    if conservative {
+                                        consequences.push(Consequence::ConservativeInframeDeletion);
+                                    } else {
+                                        consequences.push(Consequence::DisruptiveInframeDeletion);
+                                    }
+                                    if alternative.contains('*')
+                                        || alternative.contains('X')
+                                        || alternative.contains("Ter")
+                                    {
+                                        consequences.push(Consequence::StopGained);
+                                    }
+                                }
+                                hgvs::parser::ProteinEdit::Ins { .. }
+                                | hgvs::parser::ProteinEdit::Dup => {
+                                    if conservative {
+                                        consequences
+                                            .push(Consequence::ConservativeInframeInsertion);
+                                    } else {
+                                        consequences.push(Consequence::DisruptiveInframeInsertion);
+                                    }
+                                    consequences.push(Consequence::ConservativeInframeInsertion);
+                                }
+                                hgvs::parser::ProteinEdit::Del => {
+                                    if conservative {
+                                        consequences.push(Consequence::ConservativeInframeDeletion);
+                                    } else {
+                                        consequences.push(Consequence::DisruptiveInframeDeletion);
+                                    }
+                                }
+                                hgvs::parser::ProteinEdit::Ident => {
+                                    consequences.push(Consequence::SynonymousVariant)
+                                }
+                            };
+                        }
+                        ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain => {
+                            consequences.push(Consequence::SynonymousVariant)
+                        }
+                        ProtLocEdit::InitiationUncertain => {
+                            consequences.push(Consequence::StartLost)
+                        }
+                        ProtLocEdit::NoProtein
+                        | ProtLocEdit::NoProteinUncertain
+                        | ProtLocEdit::Unknown => (),
+                    },
+                    _ => panic!("Must be protein variant: {}", &var_p),
+                }
+
                 (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
             }
             FeatureBiotype::Noncoding => (var_n, None, None, None, None),
@@ -315,6 +442,7 @@ impl ConsequencePredictor {
 
         // Take a highest-ranking consequence and derive putative impact from it.
         consequences.sort();
+        consequences.dedup();
         if consequences.is_empty() {
             tracing::warn!("No consequences for {:?} on {}", var, &tx_record.tx_ac);
         }
@@ -382,8 +510,12 @@ mod test {
                 allele: Allele::Alt {
                     alternative: String::from("C")
                 },
-                consequences: vec![Consequence::ExonVariant],
-                putative_impact: PutativeImpact::Modifier,
+                consequences: vec![
+                    Consequence::MissenseVariant,
+                    Consequence::CodingSequenceVariant,
+                    Consequence::ExonVariant
+                ],
+                putative_impact: PutativeImpact::Moderate,
                 gene_symbol: String::from("BRCA1"),
                 gene_id: String::from("HGNC:1100"),
                 feature_type: FeatureType::SoTerm {
@@ -422,7 +554,16 @@ mod test {
     }
 
     #[test]
-    fn annotate_brca1_clinvar_vars() -> Result<(), anyhow::Error> {
+    fn annotate_brca1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
+        annotate_brca1_clinvar_vars("tests/data/annotate/vars/clinvar.excerpt.snpeff.tsv")
+    }
+
+    #[test]
+    fn annotate_brca1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
+        annotate_brca1_clinvar_vars("tests/data/annotate/vars/clinvar.excerpt.vep.tsv")
+    }
+
+    fn annotate_brca1_clinvar_vars(path_tsv: &str) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
         let tx_db = load_tx_db(tx_path, 5_000_000)?;
         let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
@@ -435,17 +576,31 @@ mod test {
             String::from("NM_007299.4"),
             String::from("NM_007300.4"),
         ];
-        let path_tsv = "tests/data/annotate/vars/clinvar.excerpt.snpeff.tsv";
 
         let mut reader = ReaderBuilder::new()
             .delimiter(b'\t')
             .has_headers(false)
+            .comment(Some(b'#'))
             .from_reader(File::open(path_tsv).map(BufReader::new)?);
 
+        // Read record with variant, transcript, and predicted consequences.
+        //
+        // We only have a limited set of transcripts for BRCA1 and this may not be the
+        // same as the one in the file.  We thus limit ourselves to the transcripts
+        // in `txs`.
+        //
+        // Also, the predicted ontology terms may not be the same as the ones in the
+        // file.  We thus only check that we have a match in at least one term
+        // of highest impact.
+        let mut lineno = 0;
         for record in reader.deserialize() {
+            lineno += 1;
+
             let record: Record = record?;
             if txs.contains(&record.tx) {
+                // "Parse" out the variant.
                 let arr = record.var.split('-').collect::<Vec<_>>();
+                // Predict consequences for the variant using Mehari.
                 let anns = predictor
                     .predict(&VcfVariant {
                         chromosome: arr[0].to_string(),
@@ -454,22 +609,41 @@ mod test {
                         alternative: arr[3].to_string(),
                     })?
                     .unwrap();
-                for ann in &anns {
-                    if ann.feature_id == record.tx {
-                        assert_eq!(
-                            ann.consequences
-                                .iter()
-                                .map(|c| c.to_string())
-                                .collect::<Vec<_>>()
-                                .join("&"),
-                            record.csq,
-                            "variant: {}, tx: {}, hgvs_c: {:?}, hgvs_p: {:?}",
-                            record.var,
-                            record.tx,
-                            ann.hgvs_t.as_ref(),
-                            ann.hgvs_p.as_ref()
-                        );
-                    }
+                // Now, for the overlapping transcripts, check that we have a match with the
+                // consequences in the highest impact category.
+                for ann in anns
+                    .iter()
+                    .filter(|ann| ann.feature_id == record.tx)
+                {
+                    // We perform a comparison based on strings because we may not be able to parse out
+                    // all consequences from the other tool.
+                    let record_csqs = record
+                        .csq
+                        .split("&")
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>();
+
+                    let highest_impact = ann.consequences.first().unwrap().impact();
+                    let expected_one_of = ann
+                        .consequences
+                        .iter()
+                        .filter(|csq| csq.impact() == highest_impact)
+                        .map(|csq| csq.to_string())
+                        .collect::<Vec<_>>();
+
+                    let found_one = record_csqs.iter().any(|csq| expected_one_of.contains(csq));
+                    assert!(
+                        found_one,
+                        "line no. {}, variant: {}, tx: {}, hgvs_c: {:?}, hgvs_p: {:?}, record_csqs: {:?}, expected_one_of: {:?}, ann_csqs: {:?}",
+                        lineno,
+                        record.var,
+                        record.tx,
+                        ann.hgvs_t.as_ref(),
+                        ann.hgvs_p.as_ref(),
+                        &record_csqs,
+                        &expected_one_of,
+                        &ann.consequences,
+                    );
                 }
             }
         }

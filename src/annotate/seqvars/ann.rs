@@ -149,6 +149,12 @@ impl From<Consequence> for PutativeImpact {
     }
 }
 
+impl Consequence {
+    pub fn impact(&self) -> PutativeImpact {
+        PutativeImpact::from(*self)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display)]
 /// Enumeration for `AnnField::allele`.
 pub enum Allele {
