@@ -89,7 +89,7 @@ impl ConsequencePredictor {
 
         // Get all affected transcripts.
         let var_start = var.position;
-        let var_end = var.position + var.reference.len() as i32;
+        let var_end = var.position + var.reference.len() as i32 - 1;
         let qry_start = var_start - PADDING;
         let qry_end = var_end + PADDING;
         let mut txs =
