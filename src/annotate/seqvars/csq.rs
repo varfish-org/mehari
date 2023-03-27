@@ -204,7 +204,7 @@ impl ConsequencePredictor {
                 let ins_shift = if var.reference.is_empty() { 1 } else { 0 };
 
                 // Check the cases where the variant overlaps with the splice acceptor/donor site.
-                if var_start <= intron_start + 2 && var_end > intron_start - ins_shift {
+                if var_start < intron_start + 2 && var_end > intron_start - ins_shift {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
                         Strand::Plus => {
