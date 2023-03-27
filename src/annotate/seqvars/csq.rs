@@ -196,6 +196,20 @@ impl ConsequencePredictor {
             // Check the cases where the variant overlaps with whole exon.
             if var_start <= exon_start && var_end >= exon_end {
                 consequences.push(Consequence::ExonLossVariant);
+                if var_start <= exon_start - 1 {
+                    if alignment.strand == Strand::Plus && rank.ord != 1 {
+                        consequences.push(Consequence::SpliceAcceptorVariant);
+                    } else if alignment.strand == Strand::Minus && rank.ord != rank.total {
+                        consequences.push(Consequence::SpliceDonorVariant);
+                    }
+                }
+                if var_end >= exon_end + 1 {
+                    if alignment.strand == Strand::Plus && rank.ord != rank.total {
+                        consequences.push(Consequence::SpliceDonorVariant);
+                    } else if alignment.strand == Strand::Minus && rank.ord != rank.total {
+                        consequences.push(Consequence::SpliceAcceptorVariant);
+                    }
+                }
             }
             if is_intronic {
                 let intron_start = intron_start.unwrap();
