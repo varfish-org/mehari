@@ -30,4 +30,19 @@ bcftools query -f "%CHROM-%POS-%REF-%ALT\t%ANN\n" $INPUT \
     }' \
 | grep -f $TMPDIR/txs.txt \
 | sort -k1,2 -u \
->$OUTPUT
+>${OUTPUT%.tsv}.brca1.tsv
+
+bcftools query -f "%CHROM-%POS-%REF-%ALT\t%ANN\n" $INPUT \
+| awk -F'\t' -v OFS='\t' '
+    {
+        split($2, a, ",");
+        for (i in a) {
+            split(a[i], b, "|");
+            if (b[4] == "OPA1") {
+                print $1, b[7], b[2];
+            }
+        }
+    }' \
+| grep -f $TMPDIR/txs.txt \
+| sort -k1,2 -u \
+>${OUTPUT%.tsv}.opa1.tsv

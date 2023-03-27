@@ -72,7 +72,7 @@ impl TxIntervalTrees {
                 let mut start = std::i32::MAX;
                 let mut stop = std::i32::MIN;
                 for exon in &genome_alignment.exons {
-                    start = std::cmp::min(start, exon.alt_start_i - 1);
+                    start = std::cmp::min(start, exon.alt_start_i);
                     stop = std::cmp::max(stop, exon.alt_end_i);
                 }
                 trees[contig_idx].insert(start..stop, tx_id as u32);
@@ -275,7 +275,7 @@ impl ProviderInterface for MehariProvider {
             .contig_to_idx
             .get(alt_ac)
             .ok_or(anyhow::anyhow!("Could not find alt_ac={}", alt_ac))?;
-        let query = start_i..(end_i - 1);
+        let query = start_i..end_i;
         let tx_idxs = self.tx_trees.trees[contig_idx].find(query);
 
         Ok(tx_idxs

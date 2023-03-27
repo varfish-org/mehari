@@ -91,8 +91,14 @@ impl ConsequencePredictor {
         };
 
         // Get all affected transcripts.
-        let var_start = var.position;
-        let var_end = var.position + var.reference.len() as i32 - 1;
+        let (var_start, var_end) = if var.reference.is_empty() {
+            (var.position - 1, var.position - 1)
+        } else {
+            (
+                var.position - 1,
+                var.position + var.reference.len() as i32 - 1,
+            )
+        };
         let qry_start = var_start - PADDING;
         let qry_end = var_end + PADDING;
         let mut txs =
@@ -103,7 +109,7 @@ impl ConsequencePredictor {
         // Generate `AnnField` records for each transcript.
         Ok(Some(
             txs.into_iter()
-                .map(|tx| self.build_ann_field(&var, tx, chrom_acc.clone(), var_start - 1, var_end))
+                .map(|tx| self.build_ann_field(&var, tx, chrom_acc.clone(), var_start, var_end))
                 .collect::<Result<Vec<_>, _>>()?,
         ))
     }
@@ -192,8 +198,13 @@ impl ConsequencePredictor {
                 consequences.push(Consequence::ExonLossVariant);
             }
             if let Some(intron_start) = intron_start {
+                // For insertions, we need to consider the case of the insertion being right at
+                // the exon/intron junction.  We can express this with a shift of 1 for using
+                // "</>" X +/- shift and meaning <=/>= X.
+                let ins_shift = if var.reference.is_empty() { 1 } else { 0 };
+
                 // Check the cases where the variant overlaps with the splice acceptor/donor site.
-                if var_start < intron_start + 2 && var_end > intron_start {
+                if var_start <= intron_start + 2 && var_end > intron_start - ins_shift {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
                         Strand::Plus => {
@@ -209,7 +220,7 @@ impl ConsequencePredictor {
                     }
                 }
                 // Check the case where the variant overlaps with the splice donor site.
-                if var_start < intron_end && var_end > intron_end - 2 {
+                if var_start < intron_end - ins_shift && var_end > intron_end - 2 {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
                         Strand::Plus => {
@@ -677,6 +688,18 @@ mod test {
         annotate_opa1_vars("tests/data/annotate/vars/opa1.hand_picked.tsv")
     }
 
+    // Compare to SnpEff annotated ClinVar variants for OPA1.
+    #[test]
+    fn annotate_opa1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
+        annotate_opa1_vars("tests/data/annotate/vars/clinvar.excerpt.snpeff.opa1.tsv")
+    }
+
+    // Compare to SnpEff annotated ClinVar variants for OPA1.
+    #[test]
+    fn annotate_opa1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
+        annotate_opa1_vars("tests/data/annotate/vars/clinvar.excerpt.vep.opa1.tsv")
+    }
+
     fn annotate_opa1_vars(path_tsv: &str) -> Result<(), anyhow::Error> {
         let txs = vec![
             String::from("NM_001354663.2"),
@@ -689,6 +712,7 @@ mod test {
 
         annotate_vars(path_tsv, &txs)
     }
+
     // Compare to SnpEff annotated variants for BRCA1, touching special cases.
     #[test]
     fn annotate_brca1_hand_picked_vars() -> Result<(), anyhow::Error> {
@@ -698,13 +722,13 @@ mod test {
     // Compare to SnpEff annotated ClinVar variants for BRCA1.
     #[test]
     fn annotate_brca1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
-        annotate_brca1_vars("tests/data/annotate/vars/clinvar.excerpt.snpeff.tsv")
+        annotate_brca1_vars("tests/data/annotate/vars/clinvar.excerpt.snpeff.brca1.tsv")
     }
 
     // Compare to SnpEff annotated ClinVar variants for BRCA1.
     #[test]
     fn annotate_brca1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
-        annotate_brca1_vars("tests/data/annotate/vars/clinvar.excerpt.vep.tsv")
+        annotate_brca1_vars("tests/data/annotate/vars/clinvar.excerpt.vep.brca1.tsv")
     }
 
     fn annotate_brca1_vars(path_tsv: &str) -> Result<(), anyhow::Error> {
@@ -724,7 +748,6 @@ mod test {
         let tx_db = load_tx_db(tx_path, 5_000_000)?;
         let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
         let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
-
 
         let mut reader = ReaderBuilder::new()
             .delimiter(b'\t')
@@ -746,7 +769,7 @@ mod test {
             lineno += 1;
 
             let record: Record = record?;
-            println!("record = {:?}", &record);
+            // let mut printed = false;
             if txs.contains(&record.tx) {
                 // "Parse" out the variant.
                 let arr = record.var.split('-').collect::<Vec<_>>();
@@ -771,14 +794,31 @@ mod test {
                         .collect::<Vec<_>>();
 
                     let highest_impact = ann.consequences.first().unwrap().impact();
-                    let expected_one_of = ann
+                    let mut expected_one_of = ann
                         .consequences
                         .iter()
                         .filter(|csq| csq.impact() == highest_impact)
                         .map(|csq| csq.to_string())
                         .collect::<Vec<_>>();
 
+                    // Map effects a bit for VEP.
+                    if path_tsv.ends_with(".vep.tsv")
+                        && (expected_one_of.contains(&String::from("disruptive_inframe_deletion"))
+                            || expected_one_of
+                                .contains(&String::from("conservative_inframe_deletion")))
+                    {
+                        expected_one_of.push(String::from("inframe_deletion"));
+                    }
+
                     let found_one = record_csqs.iter().any(|csq| expected_one_of.contains(csq));
+
+                    // if found_one {
+                    //     println!("{}\t{}\t{}", record.var, record.tx, record.csq);
+                    // } else {
+                    //     println!("#{}\t{}\t{}", record.var, record.tx, record.csq);
+                    // }
+                    // printed = true;
+
                     assert!(
                         found_one,
                         "line no. {}, variant: {}, tx: {}, hgvs_c: {:?}, hgvs_p: {:?}, \
@@ -794,6 +834,10 @@ mod test {
                     );
                 }
             }
+
+            // if !printed {
+            //     println!("{}\t{}\t{}", record.var, record.tx, record.csq);
+            // }
         }
 
         Ok(())

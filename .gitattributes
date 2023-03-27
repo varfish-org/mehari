@@ -1,3 +1,4 @@
 tests/data/db/create/txs/latest/** filter=lfs diff=lfs merge=lfs -text
 tests/data/vars/*.vcf*
+tests/data/vars/*.tsv*
 *.bin filter=lfs diff=lfs merge=lfs -text
