@@ -6,7 +6,7 @@
 # the effect in column 3.  We will limit to to the transcripts in the JSON
 # file.
 
-JSON=tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1.json
+JSON=tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1_opa1.json
 INPUT=tests/data/annotate/vars/clinvar.excerpt.vep.vcf.gz
 OUTPUT=${INPUT%.vcf.gz}.tsv
 

@@ -15,4 +15,5 @@ cargo \
     ../hgvs-rs-data/seqrepo-data/master/master \
     --genome-release \
     grch37 \
-    --gene-symbols BRCA1
+    --gene-symbols BRCA1 \
+    --gene-symbols OPA1

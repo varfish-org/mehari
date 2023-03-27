@@ -645,7 +645,7 @@ pub mod test {
         let mut transcripts = HashMap::new();
         let mut transcript_ids_for_gene = HashMap::new();
         load_and_extract(
-            Path::new("tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1.json"),
+            Path::new("tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1_opa1.json"),
             &mut transcript_ids_for_gene,
             &mut genes,
             &mut transcripts,
@@ -710,7 +710,7 @@ pub mod test {
         let args = Args {
             path_out: tmp_dir.join("out.bin"),
             path_cdot_json: vec![PathBuf::from(
-                "tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1.json",
+                "tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1_opa1.json",
             )],
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
             genome_release: GenomeRelease::Grch38,
