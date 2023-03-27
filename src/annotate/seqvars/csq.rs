@@ -197,7 +197,9 @@ impl ConsequencePredictor {
             if var_start <= exon_start && var_end >= exon_end {
                 consequences.push(Consequence::ExonLossVariant);
             }
-            if let Some(intron_start) = intron_start {
+            if is_intronic {
+                let intron_start = intron_start.unwrap();
+
                 // For insertions, we need to consider the case of the insertion being right at
                 // the exon/intron junction.  We can express this with a shift of 1 for using
                 // "</>" X +/- shift and meaning <=/>= X.
@@ -208,14 +210,14 @@ impl ConsequencePredictor {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
                         Strand::Plus => {
-                            if rank.ord != rank.total {
+                            // if rank.ord != rank.total {
                                 consequences.push(Consequence::SpliceDonorVariant)
-                            }
+                            // }
                         }
                         Strand::Minus => {
-                            if rank.ord != 1 {
+                            // if rank.ord != 1 {
                                 consequences.push(Consequence::SpliceAcceptorVariant)
-                            }
+                            // }
                         }
                     }
                 }
@@ -224,14 +226,14 @@ impl ConsequencePredictor {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
                         Strand::Plus => {
-                            if rank.ord != 1 {
+                            // if rank.ord != 1 {
                                 consequences.push(Consequence::SpliceAcceptorVariant)
-                            }
+                            // }
                         }
                         Strand::Minus => {
-                            if rank.ord != rank.total {
+                            // if rank.ord != rank.total {
                                 consequences.push(Consequence::SpliceDonorVariant)
-                            }
+                            // }
                         }
                     }
                 }
