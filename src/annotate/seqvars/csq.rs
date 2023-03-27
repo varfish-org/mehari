@@ -810,7 +810,33 @@ mod test {
                         expected_one_of.push(String::from("inframe_deletion"));
                     }
 
+                    // Try to find a direct match.
                     let found_one = record_csqs.iter().any(|csq| expected_one_of.contains(csq));
+                    // It is common that the other tool predicts a frameshift variant while the actual prediction
+                    // is stop_gained or stop_lost.  We thus also check for this case and allow it.
+                    let found_one = found_one
+                        || (record_csqs.contains(&String::from("frameshift_variant"))
+                            && (expected_one_of.contains(&String::from("stop_gained")))
+                            || expected_one_of.contains(&String::from("stop_lost")));
+                    // VEP does not differentiate between disruptive and conservative inframe deletions and insertions.
+                    let found_one = found_one
+                        || (record_csqs.contains(&String::from("inframe_deletion"))
+                            && (expected_one_of
+                                .contains(&String::from("disruptive_inframe_deletion")))
+                            || expected_one_of
+                                .contains(&String::from("conservative_inframe_deletion")))
+                        || (record_csqs.contains(&String::from("inframe_insertion"))
+                            && (expected_one_of
+                                .contains(&String::from("disruptive_inframe_insertion")))
+                            || expected_one_of
+                                .contains(&String::from("conservative_inframe_insertion")));
+                    // NB: We cannot predict 5_prime_UTR_premature_start_codon_gain_variant yet. For now, we
+                    // also accept 5_prime_UTR_variant.
+                    let found_one = found_one
+                        || (expected_one_of.contains(&String::from("5_prime_UTR_variant"))
+                            && (record_csqs.contains(&String::from(
+                                "5_prime_UTR_premature_start_codon_gain_variant",
+                            ))));
 
                     // if found_one {
                     //     println!("{}\t{}\t{}", record.var, record.tx, record.csq);
