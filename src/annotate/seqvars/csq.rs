@@ -167,7 +167,7 @@ impl ConsequencePredictor {
                     }
                 }
             } else if let Some(intron_start) = intron_start {
-                if var_start > intron_start && var_end <= intron_end {
+                if var_start >= intron_start && var_end <= intron_end {
                     // contained within intron: cannot be in next exon
                     if !is_exonic {
                         rank = Rank {
@@ -191,8 +191,8 @@ impl ConsequencePredictor {
             if var_start <= exon_start && var_end >= exon_end {
                 consequences.push(Consequence::ExonLossVariant);
             }
-            // Check the cases where the variant overlaps with the splice acceptor/donor site.
             if let Some(intron_start) = intron_start {
+                // Check the cases where the variant overlaps with the splice acceptor/donor site.
                 if var_start < intron_start + 2 && var_end > intron_start {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
@@ -208,19 +208,19 @@ impl ConsequencePredictor {
                         }
                     }
                 }
-            }
-            // Check the case where the variant overlaps with the splice donor site.
-            if var_start < intron_end && var_end > intron_end - 2 {
-                // Left side, is acceptor/donor depending on transcript's strand.
-                match alignment.strand {
-                    Strand::Plus => {
-                        if rank.ord != 1 {
-                            consequences.push(Consequence::SpliceAcceptorVariant)
+                // Check the case where the variant overlaps with the splice donor site.
+                if var_start < intron_end && var_end > intron_end - 2 {
+                    // Left side, is acceptor/donor depending on transcript's strand.
+                    match alignment.strand {
+                        Strand::Plus => {
+                            if rank.ord != 1 {
+                                consequences.push(Consequence::SpliceAcceptorVariant)
+                            }
                         }
-                    }
-                    Strand::Minus => {
-                        if rank.ord != rank.total {
-                            consequences.push(Consequence::SpliceDonorVariant)
+                        Strand::Minus => {
+                            if rank.ord != rank.total {
+                                consequences.push(Consequence::SpliceDonorVariant)
+                            }
                         }
                     }
                 }
@@ -671,6 +671,24 @@ mod test {
         pub csq: String,
     }
 
+    // Compare to SnpEff annotated variants for OPA1, touching special cases.
+    #[test]
+    fn annotate_opa1_hand_picked_vars() -> Result<(), anyhow::Error> {
+        annotate_opa1_vars("tests/data/annotate/vars/opa1.hand_picked.tsv")
+    }
+
+    fn annotate_opa1_vars(path_tsv: &str) -> Result<(), anyhow::Error> {
+        let txs = vec![
+            String::from("NM_001354663.2"),
+            String::from("NM_001354664.2"),
+            String::from("NM_015560.3"),
+            String::from("NM_130831.3"),
+            String::from("NM_130832.3"),
+            String::from("NM_130837.3"),
+        ];
+
+        annotate_vars(path_tsv, &txs)
+    }
     // Compare to SnpEff annotated variants for BRCA1, touching special cases.
     #[test]
     fn annotate_brca1_hand_picked_vars() -> Result<(), anyhow::Error> {
@@ -690,11 +708,6 @@ mod test {
     }
 
     fn annotate_brca1_vars(path_tsv: &str) -> Result<(), anyhow::Error> {
-        let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
-        let tx_db = load_tx_db(tx_path, 5_000_000)?;
-        let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
-        let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
-
         let txs = vec![
             String::from("NM_007294.4"),
             String::from("NM_007297.4"),
@@ -702,6 +715,16 @@ mod test {
             String::from("NM_007299.4"),
             String::from("NM_007300.4"),
         ];
+
+        annotate_vars(path_tsv, &txs)
+    }
+
+    fn annotate_vars(path_tsv: &str, txs: &Vec<String>) -> Result<(), anyhow::Error> {
+        let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
+        let tx_db = load_tx_db(tx_path, 5_000_000)?;
+        let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
+        let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
+
 
         let mut reader = ReaderBuilder::new()
             .delimiter(b'\t')
