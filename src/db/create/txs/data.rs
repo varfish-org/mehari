@@ -24,14 +24,14 @@ pub enum TranscriptTag {
 }
 
 /// Enumeration for the known genome builds.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum GenomeBuild {
     Grch37,
     Grch38,
 }
 
 /// Enumeration for the two strands of the genome.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum Strand {
     Plus,
     Minus,

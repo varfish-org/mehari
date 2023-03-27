@@ -388,7 +388,7 @@ pub struct AnnField {
     /// The feature biotype.
     pub feature_biotype: FeatureBiotype,
     /// The exon / intron rank.
-    pub rank: Rank,
+    pub rank: Option<Rank>,
     /// HGVS c. notation.
     pub hgvs_t: Option<String>,
     /// HGVS p. notation.
@@ -429,7 +429,9 @@ impl std::fmt::Display for AnnField {
         write!(f, "|")?;
         write!(f, "{}", self.feature_biotype)?;
         write!(f, "|")?;
-        write!(f, "{}", self.rank)?;
+        if let Some(rank) = &self.rank {
+            write!(f, "{}", rank)?;
+        }
         write!(f, "|")?;
         if let Some(hgvs_c) = &self.hgvs_t {
             write!(f, "{}", hgvs_c)?;
@@ -839,7 +841,7 @@ mod test {
             },
             feature_id: String::from("feature_id"),
             feature_biotype: FeatureBiotype::Coding,
-            rank: Rank { ord: 1, total: 2 },
+            rank: Some(Rank { ord: 1, total: 2 }),
             hgvs_t: Some(String::from("HGVS.c")),
             hgvs_p: Some(String::from("HGVS.p")),
             tx_pos: Some(Pos {

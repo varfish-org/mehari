@@ -167,7 +167,7 @@ impl ConsequencePredictor {
                     }
                 }
             } else if let Some(intron_start) = intron_start {
-                if var_start > intron_start && var_end < intron_end {
+                if var_start > intron_start && var_end <= intron_end {
                     // contained within intron: cannot be in next exon
                     if !is_exonic {
                         rank = Rank {
@@ -178,7 +178,7 @@ impl ConsequencePredictor {
 
                         let dist_start = -(var_start - intron_start);
                         let dist_end = intron_end - var_end;
-                        if dist_end >= dist_start.abs() {
+                        if dist_end <= dist_start.abs() {
                             distance = Some(dist_end);
                         } else {
                             distance = Some(dist_start);
@@ -196,8 +196,16 @@ impl ConsequencePredictor {
                 if var_start < intron_start + 2 && var_end > intron_start {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
-                        Strand::Plus => consequences.push(Consequence::SpliceDonorVariant),
-                        Strand::Minus => consequences.push(Consequence::SpliceAcceptorVariant),
+                        Strand::Plus => {
+                            if rank.ord != rank.total {
+                                consequences.push(Consequence::SpliceDonorVariant)
+                            }
+                        }
+                        Strand::Minus => {
+                            if rank.ord != 1 {
+                                consequences.push(Consequence::SpliceAcceptorVariant)
+                            }
+                        }
                     }
                 }
             }
@@ -205,39 +213,68 @@ impl ConsequencePredictor {
             if var_start < intron_end && var_end > intron_end - 2 {
                 // Left side, is acceptor/donor depending on transcript's strand.
                 match alignment.strand {
-                    Strand::Plus => consequences.push(Consequence::SpliceAcceptorVariant),
-                    Strand::Minus => consequences.push(Consequence::SpliceDonorVariant),
+                    Strand::Plus => {
+                        if rank.ord != 1 {
+                            consequences.push(Consequence::SpliceAcceptorVariant)
+                        }
+                    }
+                    Strand::Minus => {
+                        if rank.ord != rank.total {
+                            consequences.push(Consequence::SpliceDonorVariant)
+                        }
+                    }
                 }
             }
             // Check the case where the variant overlaps with the splice region (1-3 bases in exon
             // or 3-8 bases in intron).
             if let Some(intron_start) = intron_start {
-                if (var_start < exon_end && var_end > exon_end - 3)
-                    || (var_start < intron_start + 8 && var_end > intron_start + 2)
+                if (var_start < intron_start + 8 && var_end > intron_start + 2)
                     || (var_start < intron_end - 8 && var_end > intron_end - 2)
-                    || (var_start < intron_end + 3 && var_end > intron_end)
                 {
                     consequences.push(Consequence::SpliceRegionVariant);
+                } else if var_start < exon_end && var_end > exon_end - 3 {
+                    if alignment.strand == Strand::Plus {
+                        if rank.ord != rank.total {
+                            consequences.push(Consequence::SpliceRegionVariant);
+                        }
+                    } else {
+                        // alignment.strand == Strand::Minus
+                        if rank.ord != 1 {
+                            consequences.push(Consequence::SpliceRegionVariant);
+                        }
+                    }
+                } else if var_start < exon_start && var_end > exon_start + 3 {
+                    if alignment.strand == Strand::Plus {
+                        if rank.ord != 1 {
+                            consequences.push(Consequence::SpliceRegionVariant);
+                        }
+                    } else {
+                        // alignment.strand == Strand::Minus
+                        if rank.ord != rank.total {
+                            consequences.push(Consequence::SpliceRegionVariant);
+                        }
+                    }
                 }
             }
 
             min_start = Some(std::cmp::min(min_start.unwrap_or(exon_start), exon_start));
-            max_end = Some(std::cmp::min(max_end.unwrap_or(exon_end), exon_end));
+            max_end = Some(std::cmp::max(max_end.unwrap_or(exon_end), exon_end));
+
             prev_end = Some(exon_end);
         }
 
         let min_start = min_start.expect("must have seen exon");
         let max_end = max_end.expect("must have seen exon");
 
-        let is_upstream = var_end < min_start;
-        let is_downstream = var_start > max_end;
+        let is_upstream = var_end <= min_start;
+        let is_downstream = var_start >= max_end;
         if is_exonic {
             consequences.push(Consequence::ExonVariant);
         } else if is_intronic {
             consequences.push(Consequence::IntronVariant);
         } else if is_upstream {
-            let val = -(min_start - var_end + 1);
-            if val.abs() < 5_000 {
+            let val = -(min_start - var_end);
+            if val.abs() <= 5_000 {
                 match alignment.strand {
                     Strand::Plus => consequences.push(Consequence::UpstreamGeneVariant),
                     Strand::Minus => consequences.push(Consequence::DownstreamGeneVariant),
@@ -245,8 +282,8 @@ impl ConsequencePredictor {
             }
             distance = Some(val);
         } else if is_downstream {
-            let val = var_start - max_end + 1;
-            if val.abs() < 5_000 {
+            let val = var_start - max_end;
+            if val.abs() <= 5_000 {
                 match alignment.strand {
                     Strand::Plus => consequences.push(Consequence::DownstreamGeneVariant),
                     Strand::Minus => consequences.push(Consequence::UpstreamGeneVariant),
@@ -265,7 +302,7 @@ impl ConsequencePredictor {
             gene_symbol: None,
             loc_edit: if var.reference.is_empty() {
                 // insertion
-                let x = GenomeLocEdit {
+                GenomeLocEdit {
                     loc: Mu::Certain(GenomeInterval {
                         start: Some(var.position - 1),
                         end: Some(var.position),
@@ -273,11 +310,7 @@ impl ConsequencePredictor {
                     edit: Mu::Certain(NaEdit::Ins {
                         alternative: var.alternative.clone(),
                     }),
-                };
-
-                println!("{}", &x);
-
-                x
+                }
             } else if var.alternative.is_empty() {
                 // deletion
                 GenomeLocEdit {
@@ -304,174 +337,194 @@ impl ConsequencePredictor {
             },
         };
 
-        let var_n = self.mapper.g_to_n(&var_g, &tx.id)?;
-        let tx_pos = match &var_n {
-            HgvsVariant::TxVariant { loc_edit, .. } => Some(Pos {
-                ord: loc_edit.loc.inner().start.base,
-                total: Some(tx_len),
-            }),
-            _ => panic!("Invalid tx position: {:?}", &var_n),
-        };
+        let (rank, hgvs_t, hgvs_p, tx_pos, cds_pos, protein_pos) = if !is_upstream && !is_downstream
+        {
+            let var_n = self.mapper.g_to_n(&var_g, &tx.id)?;
+            let tx_pos = match &var_n {
+                HgvsVariant::TxVariant { loc_edit, .. } => Some(Pos {
+                    ord: loc_edit.loc.inner().start.base,
+                    total: Some(tx_len),
+                }),
+                _ => panic!("Invalid tx position: {:?}", &var_n),
+            };
 
-        let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match feature_biotype {
-            FeatureBiotype::Coding => {
-                let cds_len = tx.stop_codon.unwrap() - tx.start_codon.unwrap();
-                let prot_len = cds_len / 3;
+            let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match feature_biotype {
+                FeatureBiotype::Coding => {
+                    let cds_len = tx.stop_codon.unwrap() - tx.start_codon.unwrap();
+                    let prot_len = cds_len / 3;
 
-                let var_c = self.mapper.n_to_c(&var_n)?;
-                let var_p = self.mapper.c_to_p(&var_c)?;
-                let hgvs_p = Some(format!("{}", &var_p));
-                let cds_pos = match &var_c {
-                    HgvsVariant::CdsVariant { loc_edit, .. } => Some(Pos {
-                        ord: loc_edit.loc.inner().start.base,
-                        total: Some(cds_len),
-                    }),
-                    _ => panic!("Invalid CDS position: {:?}", &var_n),
-                };
-                let protein_pos = match &var_p {
-                    HgvsVariant::ProtVariant { loc_edit, .. } => match &loc_edit {
-                        ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
-                            ord: loc.inner().start.number,
-                            total: Some(prot_len),
+                    let var_c = self.mapper.n_to_c(&var_n)?;
+                    let var_p = self.mapper.c_to_p(&var_c)?;
+                    let hgvs_p = Some(format!("{}", &var_p));
+                    let cds_pos = match &var_c {
+                        HgvsVariant::CdsVariant { loc_edit, .. } => Some(Pos {
+                            ord: loc_edit.loc.inner().start.base,
+                            total: Some(cds_len),
                         }),
-                        _ => None,
-                    },
-                    _ => panic!("Not a protein position: {:?}", &var_n),
-                };
+                        _ => panic!("Invalid CDS position: {:?}", &var_n),
+                    };
+                    let protein_pos = match &var_p {
+                        HgvsVariant::ProtVariant { loc_edit, .. } => match &loc_edit {
+                            ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
+                                ord: loc.inner().start.number,
+                                total: Some(prot_len),
+                            }),
+                            _ => None,
+                        },
+                        _ => panic!("Not a protein position: {:?}", &var_n),
+                    };
 
-                let conservative = match &var_c {
-                    HgvsVariant::CdsVariant { loc_edit, .. } => {
-                        // Handle the cases where the variant touches the start or stop codon based on `var_c`
-                        // coordinates.  The cases where the start/stop codon is touched by the variant
-                        // directly is handled above based on the `var_p` prediction.
-                        let loc = loc_edit.loc.inner();
-                        let start_base = loc.start.base;
-                        let start_cds_from = loc.start.cds_from;
-                        let end_base = loc.end.base;
-                        let end_cds_from = loc.end.cds_from;
-                        // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
-                        //
-                        // start codon
-                        let starts_left_of_start =
-                            start_cds_from == CdsFrom::Start && start_base < 0;
-                        let ends_right_of_start =
-                            start_cds_from != CdsFrom::Start || start_base > 0;
-                        if starts_left_of_start && ends_right_of_start {
-                            consequences.push(Consequence::StartLost)
-                        }
-                        // stop codon
-                        let starts_left_of_stop = start_cds_from == CdsFrom::Start;
-                        let ends_right_of_stop = end_cds_from == CdsFrom::End;
-                        if starts_left_of_stop && ends_right_of_stop {
-                            consequences.push(Consequence::StopLost)
-                        }
+                    let conservative = match &var_c {
+                        HgvsVariant::CdsVariant { loc_edit, .. } => {
+                            // Handle the cases where the variant touches the start or stop codon based on `var_c`
+                            // coordinates.  The cases where the start/stop codon is touched by the variant
+                            // directly is handled above based on the `var_p` prediction.
+                            let loc = loc_edit.loc.inner();
+                            let start_base = loc.start.base;
+                            let start_cds_from = loc.start.cds_from;
+                            let end_base = loc.end.base;
+                            let end_cds_from = loc.end.cds_from;
+                            // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
+                            //
+                            // start codon
+                            let starts_left_of_start =
+                                start_cds_from == CdsFrom::Start && start_base < 0;
+                            let ends_right_of_start =
+                                start_cds_from != CdsFrom::Start || start_base > 0;
+                            if starts_left_of_start && ends_right_of_start {
+                                consequences.push(Consequence::StartLost)
+                            }
+                            // stop codon
+                            let starts_left_of_stop = start_cds_from == CdsFrom::Start;
+                            let ends_right_of_stop = end_cds_from == CdsFrom::End;
+                            if starts_left_of_stop && ends_right_of_stop {
+                                consequences.push(Consequence::StopLost)
+                            }
 
-                        // Detect variants affecting the 5'/3' UTRs.
-                        if start_cds_from == CdsFrom::Start {
-                            if start_base < 0 {
-                                consequences.push(Consequence::FivePrimeUtrVariant);
+                            // Detect variants affecting the 5'/3' UTRs.
+                            if start_cds_from == CdsFrom::Start {
+                                if start_base < 0 {
+                                    consequences.push(Consequence::FivePrimeUtrVariant);
+                                } else {
+                                    consequences.push(Consequence::CodingSequenceVariant);
+                                }
+                            } else if end_cds_from == CdsFrom::End {
+                                consequences.push(Consequence::ThreePrimeUtrVariant);
                             } else {
                                 consequences.push(Consequence::CodingSequenceVariant);
                             }
-                        } else if end_cds_from == CdsFrom::End {
-                            consequences.push(Consequence::ThreePrimeUtrVariant);
-                        } else {
-                            consequences.push(Consequence::CodingSequenceVariant);
+
+                            // The range is "conservative" (regarding deletions and insertions) if
+                            // it does not start or end within exons.
+                            start_cds_from == CdsFrom::Start
+                                && end_cds_from == CdsFrom::Start
+                                && start_base % 3 == 1
+                                && end_base % 3 == 1
                         }
+                        _ => panic!("Must be CDS variant: {}", &var_c),
+                    };
 
-                        // The range is "conservative" (regarding deletions and insertions) if
-                        // it does not start or end within exons.
-                        start_cds_from == CdsFrom::Start
-                            && end_cds_from == CdsFrom::Start
-                            && start_base % 3 == 1
-                            && end_base % 3 == 1
+                    fn is_stop(s: &str) -> bool {
+                        return s == "X" || s == "Ter" || s == "*";
                     }
-                    _ => panic!("Must be CDS variant: {}", &var_c),
-                };
 
-                fn is_stop(s: &str) -> bool {
-                    return s == "X" || s == "Ter" || s == "*";
-                }
-
-                // Analyze `var_p` for changes in the protein sequence.
-                match &var_p {
-                    HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
-                        ProtLocEdit::Ordinary { loc, edit } => {
-                            let loc = loc.inner();
-                            match edit.inner() {
-                                hgvs::parser::ProteinEdit::Fs { .. } => {
-                                    consequences.push(Consequence::FrameshiftVariant);
-                                }
-                                hgvs::parser::ProteinEdit::Ext { .. } => {
-                                    consequences.push(Consequence::StopLost);
-                                    consequences.push(Consequence::FeatureElongation);
-                                }
-                                hgvs::parser::ProteinEdit::Subst { alternative } => {
-                                    if alternative.is_empty() {
-                                        consequences.push(Consequence::SynonymousVariant);
-                                    } else if is_stop(alternative) {
-                                        if loc.start == loc.end && is_stop(&loc.start.aa) {
-                                            consequences.push(Consequence::StopRetainedVariant);
+                    // Analyze `var_p` for changes in the protein sequence.
+                    match &var_p {
+                        HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
+                            ProtLocEdit::Ordinary { loc, edit } => {
+                                let loc = loc.inner();
+                                match edit.inner() {
+                                    hgvs::parser::ProteinEdit::Fs { .. } => {
+                                        consequences.push(Consequence::FrameshiftVariant);
+                                    }
+                                    hgvs::parser::ProteinEdit::Ext { .. } => {
+                                        consequences.push(Consequence::StopLost);
+                                        consequences.push(Consequence::FeatureElongation);
+                                    }
+                                    hgvs::parser::ProteinEdit::Subst { alternative } => {
+                                        if alternative.is_empty() {
+                                            consequences.push(Consequence::SynonymousVariant);
+                                        } else if is_stop(alternative) {
+                                            if loc.start == loc.end && is_stop(&loc.start.aa) {
+                                                consequences.push(Consequence::StopRetainedVariant);
+                                            } else {
+                                                consequences.push(Consequence::StopGained);
+                                            }
                                         } else {
+                                            consequences.push(Consequence::MissenseVariant);
+                                        }
+                                    }
+                                    hgvs::parser::ProteinEdit::DelIns { alternative } => {
+                                        if conservative {
+                                            consequences
+                                                .push(Consequence::ConservativeInframeDeletion);
+                                        } else {
+                                            consequences
+                                                .push(Consequence::DisruptiveInframeDeletion);
+                                        }
+                                        if alternative.contains('*')
+                                            || alternative.contains('X')
+                                            || alternative.contains("Ter")
+                                        {
                                             consequences.push(Consequence::StopGained);
                                         }
-                                    } else {
-                                        consequences.push(Consequence::MissenseVariant);
                                     }
-                                }
-                                hgvs::parser::ProteinEdit::DelIns { alternative } => {
-                                    if conservative {
-                                        consequences.push(Consequence::ConservativeInframeDeletion);
-                                    } else {
-                                        consequences.push(Consequence::DisruptiveInframeDeletion);
-                                    }
-                                    if alternative.contains('*')
-                                        || alternative.contains('X')
-                                        || alternative.contains("Ter")
-                                    {
-                                        consequences.push(Consequence::StopGained);
-                                    }
-                                }
-                                hgvs::parser::ProteinEdit::Ins { .. }
-                                | hgvs::parser::ProteinEdit::Dup => {
-                                    if conservative {
+                                    hgvs::parser::ProteinEdit::Ins { .. }
+                                    | hgvs::parser::ProteinEdit::Dup => {
+                                        if conservative {
+                                            consequences
+                                                .push(Consequence::ConservativeInframeInsertion);
+                                        } else {
+                                            consequences
+                                                .push(Consequence::DisruptiveInframeInsertion);
+                                        }
                                         consequences
                                             .push(Consequence::ConservativeInframeInsertion);
-                                    } else {
-                                        consequences.push(Consequence::DisruptiveInframeInsertion);
                                     }
-                                    consequences.push(Consequence::ConservativeInframeInsertion);
-                                }
-                                hgvs::parser::ProteinEdit::Del => {
-                                    if conservative {
-                                        consequences.push(Consequence::ConservativeInframeDeletion);
-                                    } else {
-                                        consequences.push(Consequence::DisruptiveInframeDeletion);
+                                    hgvs::parser::ProteinEdit::Del => {
+                                        if conservative {
+                                            consequences
+                                                .push(Consequence::ConservativeInframeDeletion);
+                                        } else {
+                                            consequences
+                                                .push(Consequence::DisruptiveInframeDeletion);
+                                        }
                                     }
-                                }
-                                hgvs::parser::ProteinEdit::Ident => {
-                                    consequences.push(Consequence::SynonymousVariant)
-                                }
-                            };
-                        }
-                        ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain => {
-                            consequences.push(Consequence::SynonymousVariant)
-                        }
-                        ProtLocEdit::InitiationUncertain => {
-                            consequences.push(Consequence::StartLost)
-                        }
-                        ProtLocEdit::NoProtein
-                        | ProtLocEdit::NoProteinUncertain
-                        | ProtLocEdit::Unknown => (),
-                    },
-                    _ => panic!("Must be protein variant: {}", &var_p),
-                }
+                                    hgvs::parser::ProteinEdit::Ident => {
+                                        consequences.push(Consequence::SynonymousVariant)
+                                    }
+                                };
+                            }
+                            ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain => {
+                                consequences.push(Consequence::SynonymousVariant)
+                            }
+                            ProtLocEdit::InitiationUncertain => {
+                                consequences.push(Consequence::StartLost)
+                            }
+                            ProtLocEdit::NoProtein
+                            | ProtLocEdit::NoProteinUncertain
+                            | ProtLocEdit::Unknown => (),
+                        },
+                        _ => panic!("Must be protein variant: {}", &var_p),
+                    }
 
-                (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
-            }
-            FeatureBiotype::Noncoding => (var_n, None, None, None, None),
+                    (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
+                }
+                FeatureBiotype::Noncoding => (var_n, None, None, None, None),
+            };
+            let hgvs_t = format!("{}", &var_t);
+
+            (
+                Some(rank),
+                Some(hgvs_t),
+                hgvs_p,
+                tx_pos,
+                cds_pos,
+                protein_pos,
+            )
+        } else {
+            (None, None, None, None, None, None)
         };
-        let hgvs_t = Some(format!("{}", &var_t));
 
         // Take a highest-ranking consequence and derive putative impact from it.
         consequences.sort();
@@ -535,8 +588,6 @@ impl ConsequencePredictor {
             }
         }
 
-        println!("normalized {:?} to {:?}", &var, &result);
-
         result
     }
 }
@@ -590,7 +641,7 @@ mod test {
                 },
                 feature_id: String::from("NM_007294.4"),
                 feature_biotype: FeatureBiotype::Coding,
-                rank: Rank { ord: 23, total: 23 },
+                rank: Some(Rank { ord: 23, total: 23 }),
                 hgvs_t: Some(String::from("NM_007294.4:c.5586C>G")),
                 hgvs_p: Some(String::from("NP_009225.1:p.His1862Gln")),
                 tx_pos: Some(Pos {
@@ -620,17 +671,25 @@ mod test {
         pub csq: String,
     }
 
+    // Compare to SnpEff annotated variants for BRCA1, touching special cases.
+    #[test]
+    fn annotate_brca1_hand_picked_vars() -> Result<(), anyhow::Error> {
+        annotate_brca1_vars("tests/data/annotate/vars/brca1.hand_picked.tsv")
+    }
+
+    // Compare to SnpEff annotated ClinVar variants for BRCA1.
     #[test]
     fn annotate_brca1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
-        annotate_brca1_clinvar_vars("tests/data/annotate/vars/clinvar.excerpt.snpeff.tsv")
+        annotate_brca1_vars("tests/data/annotate/vars/clinvar.excerpt.snpeff.tsv")
     }
 
+    // Compare to SnpEff annotated ClinVar variants for BRCA1.
     #[test]
     fn annotate_brca1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
-        annotate_brca1_clinvar_vars("tests/data/annotate/vars/clinvar.excerpt.vep.tsv")
+        annotate_brca1_vars("tests/data/annotate/vars/clinvar.excerpt.vep.tsv")
     }
 
-    fn annotate_brca1_clinvar_vars(path_tsv: &str) -> Result<(), anyhow::Error> {
+    fn annotate_brca1_vars(path_tsv: &str) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
         let tx_db = load_tx_db(tx_path, 5_000_000)?;
         let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
@@ -664,6 +723,7 @@ mod test {
             lineno += 1;
 
             let record: Record = record?;
+            println!("record = {:?}", &record);
             if txs.contains(&record.tx) {
                 // "Parse" out the variant.
                 let arr = record.var.split('-').collect::<Vec<_>>();
@@ -698,7 +758,8 @@ mod test {
                     let found_one = record_csqs.iter().any(|csq| expected_one_of.contains(csq));
                     assert!(
                         found_one,
-                        "line no. {}, variant: {}, tx: {}, hgvs_c: {:?}, hgvs_p: {:?}, record_csqs: {:?}, expected_one_of: {:?}, ann_csqs: {:?}",
+                        "line no. {}, variant: {}, tx: {}, hgvs_c: {:?}, hgvs_p: {:?}, \
+                        record_csqs: {:?}, expected_one_of: {:?}, ann_csqs: {:?}",
                         lineno,
                         record.var,
                         record.tx,
