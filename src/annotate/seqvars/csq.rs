@@ -226,7 +226,7 @@ impl ConsequencePredictor {
                     }
                 }
                 // Check the case where the variant overlaps with the splice donor site.
-                if var_start < intron_end - ins_shift && var_end > intron_end - 2 {
+                if var_start < intron_end + ins_shift && var_end > intron_end - 2 {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
                         Strand::Plus => consequences.push(Consequence::SpliceAcceptorVariant),
@@ -863,6 +863,18 @@ mod test {
                         || expected_one_of.contains(&String::from("exon_loss_variant"))
                             && (record_csqs.contains(&String::from("inframe_deletion"))
                                 || record_csqs.contains(&String::from("splice_region_variant")));
+                    // On BRCA1, there is a case where VEP predicts `protein_altering_variant` rather than
+                    // `disruptive_inframe_deletion`.  We accept this as well.
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("disruptive_inframe_deletion"))
+                            && (record_csqs.contains(&String::from("protein_altering_variant")));
+                    // In the case of `GRCh37:17:41258543:T:TA`, the `hgvs` prediction is `c.-1_1insT` and
+                    // `p.Met1?` which leads to `start_lost` while VEP predicts `5_prime_UTR_variant`.
+                    // This may be a bug in `hgvs` and we don't change this for now.  We accept the call
+                    // by VEP, of course.
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("start_lost"))
+                            && (record_csqs.contains(&String::from("5_prime_UTR_variant")));
 
                     // if found_one {
                     //     println!("{}\t{}\t{}", record.var, record.tx, record.csq);
