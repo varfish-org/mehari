@@ -196,14 +196,14 @@ impl ConsequencePredictor {
             // Check the cases where the variant overlaps with whole exon.
             if var_start <= exon_start && var_end >= exon_end {
                 consequences.push(Consequence::ExonLossVariant);
-                if var_start <= exon_start - 1 {
+                if var_start < exon_start {
                     if alignment.strand == Strand::Plus && rank.ord != 1 {
                         consequences.push(Consequence::SpliceAcceptorVariant);
                     } else if alignment.strand == Strand::Minus && rank.ord != rank.total {
                         consequences.push(Consequence::SpliceDonorVariant);
                     }
                 }
-                if var_end >= exon_end + 1 {
+                if var_end > exon_end {
                     if alignment.strand == Strand::Plus && rank.ord != rank.total {
                         consequences.push(Consequence::SpliceDonorVariant);
                     } else if alignment.strand == Strand::Minus && rank.ord != rank.total {
@@ -437,7 +437,7 @@ impl ConsequencePredictor {
                     };
 
                     fn is_stop(s: &str) -> bool {
-                        return s == "X" || s == "Ter" || s == "*";
+                        s == "X" || s == "Ter" || s == "*"
                     }
 
                     // Analyze `var_p` for changes in the protein sequence.
@@ -790,7 +790,7 @@ mod test {
                     // all consequences from the other tool.
                     let record_csqs = record
                         .csq
-                        .split("&")
+                        .split('&')
                         .map(|s| s.to_string())
                         .collect::<Vec<_>>();
 
