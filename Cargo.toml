@@ -8,6 +8,14 @@ license = "MIT"
 homepage = "https://github.com/bihealth/mehari"
 readme = "README.md"
 
+[features]
+default = []
+
+documentation = []
+
+[package.metadata.docs.rs]
+all-features = true
+
 [[bin]]
 name = "mehari"
 
@@ -20,8 +28,6 @@ clap-verbosity-flag = "2.0.0"
 csv = "1.2.0"
 flatbuffers = "23.1.21"
 flate2 = "1.0.25"
-#hgvs = { git = "https://github.com/bihealth/hgvs-rs.git", branch = "main" }
-#hgvs = { path = "/home/holtgrem_c/Development/hgvs-rs" }
 hgvs = "0.4.0"
 lazy_static = "1.4.0"
 log = "0.4.17"

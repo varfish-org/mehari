@@ -5,8 +5,16 @@
 
 <img align="right" width="200" height="200" src="misc/camel.jpeg">
 
-Mehari is a software package for annotating VCF files with variant effect.
+Mehari is a software package for annotating VCF files with variant effect/consequence.
 The program uses [hgvs-rs](https://crates.io/crates/hgvs) for projecting genomic variants to transcripts and proteins and thus has high prediction quality.
+
+Other popular tools offering variant effect/consequence prediction include:
+
+- [SnpEff](http://pcingola.github.io/SnpEff/)
+- [VEP (Variant Effect Predictor)](https://www.ensembl.org/info/docs/tools/vep/index.html)
+
+Mehari offers predictions that aim to mirror VariantValidator, the gold standard for HGVS variant descriptions.
+Further, it is written in the Rust programming language and can be used as a library for users' Rust software.
 
 ## Supported Sequence Variant Frequency Databases
 
