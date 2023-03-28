@@ -190,13 +190,8 @@ impl ConsequencePredictor {
                             distance = Some(dist_start);
                         }
                     }
-                } else {
-                    // Overlaps with boundary, distance is 0.
-                    distance = Some(0);
                 }
             }
-
-            // TODO: properly handle case of intron/exon overlap!!!
 
             // Check the cases where the variant overlaps with whole exon.
             if var_start <= exon_start && var_end >= exon_end {
@@ -216,9 +211,7 @@ impl ConsequencePredictor {
                     }
                 }
             }
-            if is_intronic {
-                let intron_start = intron_start.unwrap();
-
+            if let Some(intron_start) = intron_start {
                 // For insertions, we need to consider the case of the insertion being right at
                 // the exon/intron junction.  We can express this with a shift of 1 for using
                 // "</>" X +/- shift and meaning <=/>= X.
@@ -228,35 +221,29 @@ impl ConsequencePredictor {
                 if var_start < intron_start + 2 && var_end > intron_start - ins_shift {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
-                        Strand::Plus => {
-                            consequences.push(Consequence::SpliceDonorVariant)
-                        }
-                        Strand::Minus => {
-                            consequences.push(Consequence::SpliceAcceptorVariant)
-                        }
+                        Strand::Plus => consequences.push(Consequence::SpliceDonorVariant),
+                        Strand::Minus => consequences.push(Consequence::SpliceAcceptorVariant),
                     }
                 }
                 // Check the case where the variant overlaps with the splice donor site.
                 if var_start < intron_end - ins_shift && var_end > intron_end - 2 {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
-                        Strand::Plus => {
-                            consequences.push(Consequence::SpliceAcceptorVariant)
-                        }
-                        Strand::Minus => {
-                            consequences.push(Consequence::SpliceDonorVariant)
-                        }
+                        Strand::Plus => consequences.push(Consequence::SpliceAcceptorVariant),
+                        Strand::Minus => consequences.push(Consequence::SpliceDonorVariant),
                     }
                 }
             }
             // Check the case where the variant overlaps with the splice region (1-3 bases in exon
-            // or 3-8 bases in intron).
+            // or 3-8 bases in intron).  We have to check all cases independently and not with `else`
+            // because the variant may be larger.
             if let Some(intron_start) = intron_start {
                 if (var_start < intron_start + 8 && var_end > intron_start + 2)
                     || (var_start < intron_end - 8 && var_end > intron_end - 2)
                 {
                     consequences.push(Consequence::SpliceRegionVariant);
-                } else if var_start < exon_end && var_end > exon_end - 3 {
+                }
+                if var_start < exon_end && var_end > exon_end - 3 {
                     if alignment.strand == Strand::Plus {
                         if rank.ord != rank.total {
                             consequences.push(Consequence::SpliceRegionVariant);
@@ -267,7 +254,8 @@ impl ConsequencePredictor {
                             consequences.push(Consequence::SpliceRegionVariant);
                         }
                     }
-                } else if var_start < exon_start && var_end > exon_start + 3 {
+                }
+                if var_start < exon_start && var_end > exon_start + 3 {
                     if alignment.strand == Strand::Plus {
                         if rank.ord != 1 {
                             consequences.push(Consequence::SpliceRegionVariant);
