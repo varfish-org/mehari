@@ -8,6 +8,14 @@ license = "MIT"
 homepage = "https://github.com/bihealth/mehari"
 readme = "README.md"
 
+[features]
+default = []
+
+documentation = []
+
+[package.metadata.docs.rs]
+all-features = true
+
 [[bin]]
 name = "mehari"
 
