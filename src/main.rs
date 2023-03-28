@@ -1,4 +1,18 @@
-//! Main entry point for the Mehari CLI.
+//! Mehari is a software package for annotating VCF files with variant effect/consequence.
+//!
+//! The program uses hgvs-rs for projecting genomic variants to transcripts and proteins and
+//! thus has high prediction quality.  The aim is to provide variant effect prediction that
+//! is identical with the VariantValidator (and the used `hgvs` Python software package).
+//!
+//! ## Command Line Usage
+//!
+//! ## Library Usage
+//!
+//! You can also use Mehari as a library.  Simply add the `mehari` crate to your Cargo.toml file:
+//!
+//! ```text
+//! $ cargo add mehari
+//! ```
 
 pub mod annotate;
 pub mod common;
