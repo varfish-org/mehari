@@ -121,7 +121,7 @@ jobs:
         uses: actions-rs/tarpaulin@v0.1
         with:
           version: 0.21.0
-          args: "--release -- --include-ignored --timeout=180"
+          args: "--release --timeout=180 -- --include-ignored"
         if: ${{ matrix.label == 'full' }}
 
       - name: Codecov submission of fast test results
