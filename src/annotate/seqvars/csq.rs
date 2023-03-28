@@ -161,7 +161,7 @@ impl ConsequencePredictor {
                 is_exonic = true;
 
                 if var_start <= exon_start || var_end >= exon_end {
-                    // overlaps with exon/intron boundary
+                    // Overlaps with exon/intron boundary.
                     distance = Some(0);
                 } else {
                     let dist_start = -(var_start - exon_start + 1);
@@ -174,7 +174,7 @@ impl ConsequencePredictor {
                 }
             } else if let Some(intron_start) = intron_start {
                 if var_start >= intron_start && var_end <= intron_end {
-                    // contained within intron: cannot be in next exon
+                    // Contained within intron: cannot be in next exon.
                     if !is_exonic {
                         rank = Rank {
                             ord: exon_alignment.ord + 1,
@@ -190,8 +190,13 @@ impl ConsequencePredictor {
                             distance = Some(dist_start);
                         }
                     }
+                } else {
+                    // Overlaps with boundary, distance is 0.
+                    distance = Some(0);
                 }
             }
+
+            // TODO: properly handle case of intron/exon overlap!!!
 
             // Check the cases where the variant overlaps with whole exon.
             if var_start <= exon_start && var_end >= exon_end {
@@ -224,14 +229,10 @@ impl ConsequencePredictor {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
                         Strand::Plus => {
-                            // if rank.ord != rank.total {
-                                consequences.push(Consequence::SpliceDonorVariant)
-                            // }
+                            consequences.push(Consequence::SpliceDonorVariant)
                         }
                         Strand::Minus => {
-                            // if rank.ord != 1 {
-                                consequences.push(Consequence::SpliceAcceptorVariant)
-                            // }
+                            consequences.push(Consequence::SpliceAcceptorVariant)
                         }
                     }
                 }
@@ -240,14 +241,10 @@ impl ConsequencePredictor {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match alignment.strand {
                         Strand::Plus => {
-                            // if rank.ord != 1 {
-                                consequences.push(Consequence::SpliceAcceptorVariant)
-                            // }
+                            consequences.push(Consequence::SpliceAcceptorVariant)
                         }
                         Strand::Minus => {
-                            // if rank.ord != rank.total {
-                                consequences.push(Consequence::SpliceDonorVariant)
-                            // }
+                            consequences.push(Consequence::SpliceDonorVariant)
                         }
                     }
                 }
