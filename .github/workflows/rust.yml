@@ -65,6 +65,12 @@ jobs:
     needs: Formatting
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        include:
+          - label: fast
+          - label: full
+
     services:
       # The tests need a postgres server;  the data will be loaded later
       # after checkout.
@@ -109,6 +115,14 @@ jobs:
         with:
           version: 0.21.0
           args: "-- --test-threads 1"
+        if: ${{ matrix.label == 'fast' }}
+
+      - name: Run cargo-tarpaulin with full tests
+        uses: actions-rs/tarpaulin@v0.1
+        with:
+          version: 0.21.0
+          args: "--release --timeout=180 -- --include-ignored"
+        if: ${{ matrix.label == 'full' }}
 
       - name: Codecov submission of fast test results
         uses: codecov/codecov-action@v3
@@ -116,3 +130,4 @@ jobs:
           verbose: true
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
+        if: ${{ matrix.label == 'fast' }}

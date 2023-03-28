@@ -433,7 +433,7 @@ pub mod vcf {
     use super::chrom_name_to_key;
 
     /// A chromosomal change `CHROM-POS-REF-ALT`.
-    #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+    #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
     pub struct Var {
         pub chrom: String,
         pub pos: u32,

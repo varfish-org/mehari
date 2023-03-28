@@ -114,8 +114,8 @@ table ExonAlignment {
 
 // Database of transcripts with sequences.
 table TxSeqDatabase {
-    /// Store transcripts with their aliases.
+    // Store transcripts with their aliases.
     tx_db: TranscriptDb;
-    /// Store sequence with their aliases.
+    // Store sequence with their aliases.
     seq_db: SequenceDb;
 }
