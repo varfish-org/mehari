@@ -255,7 +255,7 @@ impl ConsequencePredictor {
                         }
                     }
                 }
-                if var_start < exon_start && var_end > exon_start + 3 {
+                if var_start < exon_start + 3 && var_end > exon_start {
                     if alignment.strand == Strand::Plus {
                         if rank.ord != 1 {
                             consequences.push(Consequence::SpliceRegionVariant);
@@ -875,6 +875,38 @@ mod test {
                     let found_one = found_one
                         || expected_one_of.contains(&String::from("start_lost"))
                             && (record_csqs.contains(&String::from("5_prime_UTR_variant")));
+                    // SnpEff has a different interpretation of disruptive/conservative inframe deletions.
+                    // We thus allow both.
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("disruptive_inframe_deletion"))
+                            && (record_csqs
+                                .contains(&String::from("conservative_inframe_deletion")))
+                        || expected_one_of.contains(&String::from("disruptive_inframe_insertion"))
+                            && (record_csqs
+                                .contains(&String::from("conservative_inframe_insertion")));
+                    // SnpEff may not predict `splice_region_variant` for 5' UTR correctly, so we
+                    // allow this.
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("splice_region_variant"))
+                            && (record_csqs.contains(&String::from("5_prime_UTR_variant")));
+                    // For `GRCh37:3:193366573:A:ATATTGCCTAGAATGAACT`, SnpEff predicts
+                    // `stop_gained` while this rather is a intron variant.  We skip this variant.
+                    let found_one = found_one
+                        || record_csqs.contains(&String::from("stop_gained"))
+                            && record.var == "3-193366573-A-ATATTGCCTAGAATGAACT";
+                    // For `GRCh37:3:193409913:ATAAAT:A`, there appears to be a model error
+                    // in SnpEff as it predicts `exon_loss`.  We skip this variant.
+                    let found_one = found_one
+                        || record_csqs.contains(&String::from("exon_loss_variant"))
+                            && record.var == "3-193409913-ATAAAT-A";
+                    // SnpEff may predict `pMet1.?` as `initiator_codon_variant` rather than `start_lost`.
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("start_lost"))
+                            && (record_csqs.contains(&String::from("initiator_codon_variant")));
+                    // Similarly, SnpEff may predict `c.-1_1` as `start_retained` rather than `start_lost`.
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("start_lost"))
+                            && (record_csqs.contains(&String::from("start_retained_variant")));
 
                     // if found_one {
                     //     println!("{}\t{}\t{}", record.var, record.tx, record.csq);
