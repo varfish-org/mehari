@@ -838,6 +838,31 @@ mod test {
                             && (record_csqs.contains(&String::from(
                                 "5_prime_UTR_premature_start_codon_gain_variant",
                             ))));
+                    // VEP predicts `splice_donor_5th_base_variant` rather than `splice_region_variant`.
+                    // Same for `splice_donor_region_variant`.
+                    let found_one = found_one
+                        || (expected_one_of.contains(&String::from("splice_region_variant"))
+                            && (record_csqs
+                                .contains(&String::from("splice_donor_5th_base_variant"))
+                                || record_csqs
+                                    .contains(&String::from("splice_donor_region_variant"))));
+                    // In the case of insertions at the end of an exon, VEP predicts `splice_region_variant`
+                    // while we predict `splice_donor_variant`, same for start.
+                    let found_one = found_one
+                        || (expected_one_of.contains(&String::from("splice_donor_variant"))
+                            || expected_one_of.contains(&String::from("splice_acceptor_variant")))
+                            && (record_csqs.contains(&String::from("splice_region_variant")));
+                    // VEP sometimes mispredicts disruptive inframe deletion as missense...
+                    // cf. https://github.com/Ensembl/ensembl-vep/issues/1388
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("disruptive_inframe_deletion"))
+                            && (record_csqs.contains(&String::from("missense_variant")));
+                    // VEP does not provide `exon_loss_variant`, so we also accept `inframe_deletion` and
+                    // `splice_region_variant` (BRA1 test case).
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("exon_loss_variant"))
+                            && (record_csqs.contains(&String::from("inframe_deletion"))
+                                || record_csqs.contains(&String::from("splice_region_variant")));
 
                     // if found_one {
                     //     println!("{}\t{}\t{}", record.var, record.tx, record.csq);
