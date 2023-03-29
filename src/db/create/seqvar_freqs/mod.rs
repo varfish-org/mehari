@@ -9,6 +9,7 @@ use clap::Parser;
 use hgvs::static_data::Assembly;
 
 use rocksdb::{DBWithThreadMode, SingleThreaded};
+use thousands::Separable;
 
 use crate::common::GenomeRelease;
 
@@ -469,7 +470,7 @@ fn import_autosomal(
     let mut has_next = true;
     while has_next {
         has_next = auto_reader.run(|variant, gnomad_exomes, gnomad_genomes| {
-            if prev.elapsed().as_secs() > 60 {
+            if prev.elapsed().as_secs() >= 60 {
                 tracing::info!("at {:?}", &variant);
                 prev = Instant::now();
             }
@@ -491,7 +492,7 @@ fn import_autosomal(
 
     tracing::info!(
         "  wrote {} chr1, ..., chr22 records in {:?}",
-        chrauto_written,
+        chrauto_written.separate_with_commas(),
         start.elapsed()
     );
     Ok(())
@@ -547,7 +548,7 @@ fn import_gonomosomal(
 
     tracing::info!(
         "  wrote {} chrX and chrY records in {:?}",
-        chrxy_written,
+        chrxy_written.separate_with_commas(),
         start.elapsed()
     );
     Ok(())
@@ -596,7 +597,7 @@ fn import_chrmt(
 
     tracing::info!(
         "  wrote {} chrMT records in {:?}",
-        chrmt_written,
+        chrmt_written.separate_with_commas(),
         start.elapsed()
     );
     Ok(())

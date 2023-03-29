@@ -1,15 +1,23 @@
 //! Creation of mehari internal sequence variant ClinVar database.
 
-use std::time::Instant;
+use std::{
+    io::{BufRead, BufReader},
+    time::Instant,
+};
 
+use bgzip::BGZFReader;
 use clap::Parser;
 use hgvs::static_data::Assembly;
+use rocksdb::{DBWithThreadMode, SingleThreaded};
+use thousands::Separable;
 
 use crate::common::GenomeRelease;
 
+use super::seqvar_freqs::serialized::vcf::Var;
+
 /// Reading `clinvar-tsv` sequence variant files.
 pub mod reading {
-    use serde::{Serialize, Deserialize};
+    use serde::{Deserialize, Serialize};
 
     /// Representation of a record from the `clinvar-tsv` output.
     ///
@@ -21,33 +29,35 @@ pub mod reading {
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
     pub struct Record {
         /// Genome release.
-        release: String,
+        pub release: String,
         /// Chromosome name.
-        chromosome: String,
+        pub chromosome: String,
         /// 1-based start position.
-        start: i32,
+        pub start: u32,
         /// 1-based end position.
-        end: i32,
+        pub end: u32,
         /// Reference allele bases in VCF notation.
-        reference: String,
+        pub reference: String,
         /// Alternative allele bases in VCF notation.
-        alternative: String,
+        pub alternative: String,
         /// VCV accession identifier.
-        vcv: String,
+        pub vcv: String,
         /// Pathogenicity summary for the variant (ClinVar style).
         #[serde(rename = "summary_clinvar_pathogenicity_label")]
-        summary_clinvar_pathogenicity: String,
+        pub summary_clinvar_pathogenicity: String,
         /// Pathogenicity review status for the variant (ClinVar style).
-        summary_clinvar_review_status: String,
+        #[serde(rename = "summary_clinvar_review_status_label")]
+        pub summary_clinvar_review_status: String,
         /// Pathogenicity gold stars (ClinVar style).
-        summary_clinvar_gold_stars: i32,
+        pub summary_clinvar_gold_stars: u32,
         /// Pathogenicity summary for the variant ("paranoid" style).
         #[serde(rename = "summary_paranoid_pathogenicity_label")]
-        summary_paranoid_pathogenicity: String,
+        pub summary_paranoid_pathogenicity: String,
         /// Pathogenicity review status for the variant ("paranoid" style).
-        summary_paranoid_review_status: String,
+        #[serde(rename = "summary_paranoid_review_status_label")]
+        pub summary_paranoid_review_status: String,
         /// Pathogenicity gold stars ("paranoid" style).
-        summary_paranoid_gold_stars: i32,
+        pub summary_paranoid_gold_stars: u32,
     }
 }
 
@@ -70,6 +80,137 @@ pub struct Args {
     pub max_var_count: Option<usize>,
 }
 
+/// Convert release string to Assembly.
+fn str_to_assembly(s: &str) -> Result<Assembly, anyhow::Error> {
+    match s {
+        "GRCh37" => Ok(Assembly::Grch37p10),
+        "GRCh38" => Ok(Assembly::Grch38),
+        _ => anyhow::bail!("Unknown genome release: {}", s),
+    }
+}
+
+/// Guess genome release from TSV file.
+fn guess_genome_release(reader: Box<dyn BufRead>) -> Result<Assembly, anyhow::Error> {
+    let reader = std::io::BufReader::new(reader);
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(b'\t')
+        .has_headers(true)
+        .from_reader(reader);
+    let record: reading::Record = reader.deserialize().next().unwrap()?;
+    str_to_assembly(record.release.as_str())
+}
+
+fn open_tsv(args: &Args) -> Result<Box<dyn BufRead>, anyhow::Error> {
+    Ok(if args.path_clinvar_tsv.ends_with(".gz") {
+        Box::new(BGZFReader::new(std::fs::File::open(
+            &args.path_clinvar_tsv,
+        )?)?)
+    } else {
+        Box::new(BufReader::new(std::fs::File::open(&args.path_clinvar_tsv)?))
+    })
+}
+
+/// Import ClinVar TSV file into RocksDB column family.
+fn import_clinvar_seqvars(
+    args: &Args,
+    genome_release: Option<Assembly>,
+    db: &DBWithThreadMode<SingleThreaded>,
+    cf_clinvar: &rocksdb::ColumnFamily,
+) -> Result<(), anyhow::Error> {
+    let start = Instant::now();
+
+    // Read first record from TSV file to guess genome release.
+    let reader = open_tsv(args)?;
+    let guessed_release = guess_genome_release(reader)?;
+    // Check genome release guessed vs the one passed as argument.
+    let genome_release = if let Some(genome_release) = genome_release {
+        if genome_release != guessed_release {
+            anyhow::bail!(
+                "Genome release mismatch: {:?} vs. {:?}",
+                genome_release,
+                guessed_release
+            );
+        } else {
+            genome_release
+        }
+    } else {
+        guessed_release
+    };
+
+    // Open TSV file again and read all records, writing them to db/cf_clinvar.
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(b'\t')
+        .has_headers(true)
+        .from_reader(open_tsv(args)?);
+    let mut prev = Instant::now();
+    let mut records_written = 0;
+    for record in reader.deserialize() {
+        let record: reading::Record = record?;
+        let var = Var {
+            chrom: record.chromosome.clone(),
+            pos: record.start,
+            reference: record.reference.clone(),
+            alternative: record.alternative.clone(),
+        };
+        tracing::trace!("now at {:?}", &var);
+        if var.pos == 865567 {
+            tracing::info!("at {:?}", &var);
+        }
+
+        if prev.elapsed().as_secs() >= 60 {
+            tracing::info!("at {:?}", &var);
+            prev = Instant::now();
+        }
+
+        // Validate record's genome release.
+        let record_release = str_to_assembly(record.release.as_str())?;
+        if record_release != genome_release {
+            anyhow::bail!(
+                "Genome release mismatch: {:?} vs. {:?}",
+                genome_release,
+                record_release
+            );
+        }
+
+        // Serialize record to `Vec<u8>` using `bincode`.
+        let value = bincode::serialize(&record)?;
+        // Derive key from record.
+        let key: Vec<u8> = var.into();
+
+        db.put_cf(cf_clinvar, key, value)?;
+
+        records_written += 1;
+
+        if let Some(max_var_count) = args.max_var_count {
+            if max_var_count >= records_written {
+                tracing::warn!("Stopping after {} records as requested", max_var_count);
+            }
+        }
+    }
+
+    tracing::info!(
+        "  wrote {} ClinVar seqvars records in {:?}",
+        records_written.separate_with_commas(),
+        start.elapsed()
+    );
+
+    Ok(())
+}
+
+fn rocksdb_tuning(options: rocksdb::Options) -> rocksdb::Options {
+    let mut options = options;
+
+    // compress all files with Zstandard
+    options.set_compression_per_level(&[]);
+    options.set_compression_type(rocksdb::DBCompressionType::Zstd);
+    // We only want to set level to 2 but have to set the rest as well using the Rust interface.
+    // The (default) values for the other levels were taken from the output of a RocksDB
+    // output folder created with default settings.
+    options.set_compression_options(-14, 2, 0, 0);
+
+    options
+}
+
 /// Main entry point for `db create seqvar-clinvar` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!(
@@ -86,16 +227,12 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
     // Open the output database, obtain column family handles, and write out meta data.
     tracing::info!("Opening output database");
-    let mut options = rocksdb::Options::default();
+    let mut options = rocksdb_tuning(rocksdb::Options::default());
     options.create_if_missing(true);
     options.create_missing_column_families(true);
     options.prepare_for_bulk_load();
     options.set_disable_auto_compactions(true);
-    let db = rocksdb::DB::open_cf(
-        &options,
-        &args.path_output_db,
-        ["meta", "clinvar_seqvars"],
-    )?;
+    let db = rocksdb::DB::open_cf(&options, &args.path_output_db, ["meta", "clinvar_seqvars"])?;
 
     let cf_meta = db.cf_handle("meta").unwrap();
     let cf_clinvar = db.cf_handle("clinvar_seqvars").unwrap();
@@ -105,7 +242,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
     // Import the ClinVar data TSV file.
     tracing::info!("Processing ClinVar TSV ...");
-    todo!();
+    import_clinvar_seqvars(args, genome_release, &db, cf_clinvar)?;
 
     // Finally, compact manually.
     tracing::info!("Enforcing manual compaction");
