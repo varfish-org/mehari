@@ -68,11 +68,13 @@ fn load_and_extract(
         genes: c_genes,
         transcripts: c_txs,
         ..
-    } = if json_path.ends_with(".gz") {
+    } = if json_path.extension().unwrap_or_default() == "gz" {
+        tracing::info!("(from gzip compressed file)");
         serde_json::from_reader(std::io::BufReader::new(flate2::read::GzDecoder::new(
             std::fs::File::open(json_path)?,
         )))?
     } else {
+        tracing::info!("(from uncompressed file)");
         serde_json::from_reader(std::io::BufReader::new(std::fs::File::open(json_path)?))?
     };
     tracing::info!(
