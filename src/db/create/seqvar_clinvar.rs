@@ -184,6 +184,7 @@ fn import_clinvar_seqvars(
         if let Some(max_var_count) = args.max_var_count {
             if max_var_count >= records_written {
                 tracing::warn!("Stopping after {} records as requested", max_var_count);
+                break;
             }
         }
     }
