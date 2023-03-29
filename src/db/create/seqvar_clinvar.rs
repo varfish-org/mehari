@@ -1,5 +1,6 @@
 //! Creation of mehari internal sequence variant ClinVar database.
 
+use std::{fmt::Display, str::FromStr};
 use std::{
     io::{BufRead, BufReader},
     time::Instant,
@@ -9,78 +10,79 @@ use bgzip::BGZFReader;
 use clap::Parser;
 use hgvs::static_data::Assembly;
 use rocksdb::{DBWithThreadMode, SingleThreaded};
+use serde::{Deserialize, Serialize};
 use thousands::Separable;
 
 use crate::common::GenomeRelease;
 
 use super::seqvar_freqs::serialized::vcf::Var;
 
+/// Enumeration for ClinVar pathogenicity.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Pathogenicity {
+    /// Pathogenic.
+    Pathogenic,
+    /// Likely pathogenic.
+    LikelyPathogenic,
+    /// Uncertain significance.
+    UncertainSignificance,
+    /// Likely benign.
+    LikelyBenign,
+    /// Benign.
+    Benign,
+}
+
+impl Display for Pathogenicity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Pathogenicity::Pathogenic => write!(f, "pathogenic"),
+            Pathogenicity::LikelyPathogenic => write!(f, "likely pathogenic"),
+            Pathogenicity::UncertainSignificance => write!(f, "uncertain significance"),
+            Pathogenicity::LikelyBenign => write!(f, "likely benign"),
+            Pathogenicity::Benign => write!(f, "benign"),
+        }
+    }
+}
+
+impl FromStr for Pathogenicity {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "pathogenic" => Ok(Pathogenicity::Pathogenic),
+            "likely pathogenic" => Ok(Pathogenicity::LikelyPathogenic),
+            "uncertain significance" => Ok(Pathogenicity::UncertainSignificance),
+            "likely benign" => Ok(Pathogenicity::LikelyBenign),
+            "benign" => Ok(Pathogenicity::Benign),
+            _ => anyhow::bail!("Unknown pathogenicity: {}", s),
+        }
+    }
+}
+
+impl Serialize for Pathogenicity {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Pathogenicity {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(d)?;
+        Self::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Reading `clinvar-tsv` sequence variant files.
 pub mod reading {
-    use std::{fmt::Display, str::FromStr};
-
     use serde::{Deserialize, Serialize};
 
-    /// Enumeration for ClinVar pathogenicity.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-    pub enum Pathogenicity {
-        /// Pathogenic.
-        Pathogenic,
-        /// Likely pathogenic.
-        LikelyPathogenic,
-        /// Uncertain significance.
-        UncertainSignificance,
-        /// Likely benign.
-        LikelyBenign,
-        /// Benign.
-        Benign,
-    }
-
-    impl Display for Pathogenicity {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Pathogenicity::Pathogenic => write!(f, "pathogenic"),
-                Pathogenicity::LikelyPathogenic => write!(f, "likely pathogenic"),
-                Pathogenicity::UncertainSignificance => write!(f, "uncertain significance"),
-                Pathogenicity::LikelyBenign => write!(f, "likely benign"),
-                Pathogenicity::Benign => write!(f, "benign"),
-            }
-        }
-    }
-
-    impl FromStr for Pathogenicity {
-        type Err = anyhow::Error;
-
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            match s {
-                "pathogenic" => Ok(Pathogenicity::Pathogenic),
-                "likely pathogenic" => Ok(Pathogenicity::LikelyPathogenic),
-                "uncertain significance" => Ok(Pathogenicity::UncertainSignificance),
-                "likely benign" => Ok(Pathogenicity::LikelyBenign),
-                "benign" => Ok(Pathogenicity::Benign),
-                _ => anyhow::bail!("Unknown pathogenicity: {}", s),
-            }
-        }
-    }
-
-    impl Serialize for Pathogenicity {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            serializer.serialize_str(&self.to_string())
-        }
-    }
-
-    impl<'de> Deserialize<'de> for Pathogenicity {
-        fn deserialize<D>(d: D) -> Result<Self, D::Error>
-        where
-            D: serde::Deserializer<'de>,
-        {
-            let s = String::deserialize(d)?;
-            Self::from_str(&s).map_err(serde::de::Error::custom)
-        }
-    }
+    use super::Pathogenicity;
 
     /// Representation of a record from the `clinvar-tsv` output.
     ///
@@ -124,6 +126,56 @@ pub mod reading {
         let s: &str = Deserialize::deserialize(deserializer)?;
         let s = s.replace('{', "[").replace('}', "]");
         serde_json::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+pub mod serialize {
+    use serde::{Deserialize, Serialize};
+
+    use super::Pathogenicity;
+
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+    pub struct Record {
+        /// Genome release.
+        pub release: String,
+        /// Chromosome name.
+        pub chromosome: String,
+        /// 1-based start position.
+        pub start: u32,
+        /// 1-based end position.
+        pub end: u32,
+        /// Reference allele bases in VCF notation.
+        pub reference: String,
+        /// Alternative allele bases in VCF notation.
+        pub alternative: String,
+        /// VCV accession identifier.
+        pub vcv: String,
+        /// Pathogenicity summary for the variant (ClinVar style).
+        pub summary_clinvar_pathogenicity: Vec<Pathogenicity>,
+        /// Pathogenicity gold stars (ClinVar style).
+        pub summary_clinvar_gold_stars: u32,
+        /// Pathogenicity summary for the variant ("paranoid" style).
+        pub summary_paranoid_pathogenicity: Vec<Pathogenicity>,
+        /// Pathogenicity gold stars ("paranoid" style).
+        pub summary_paranoid_gold_stars: u32,
+    }
+
+    impl From<super::reading::Record> for Record {
+        fn from(r: super::reading::Record) -> Self {
+            Self {
+                release: r.release,
+                chromosome: r.chromosome,
+                start: r.start,
+                end: r.end,
+                reference: r.reference,
+                alternative: r.alternative,
+                vcv: r.vcv,
+                summary_clinvar_pathogenicity: r.summary_clinvar_pathogenicity,
+                summary_clinvar_gold_stars: r.summary_clinvar_gold_stars,
+                summary_paranoid_pathogenicity: r.summary_paranoid_pathogenicity,
+                summary_paranoid_gold_stars: r.summary_paranoid_gold_stars,
+            }
+        }
     }
 }
 
@@ -243,6 +295,7 @@ fn import_clinvar_seqvars(
         }
 
         // Serialize record to `Vec<u8>` using `bincode`.
+        let record: serialize::Record = record.into();
         let value = bincode::serialize(&record)?;
         // Derive key from record.
         let key: Vec<u8> = var.into();

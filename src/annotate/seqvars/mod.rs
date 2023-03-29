@@ -29,7 +29,7 @@ use thousands::Separable;
 use crate::annotate::seqvars::csq::{ConsequencePredictor, VcfVariant};
 use crate::annotate::seqvars::provider::MehariProvider;
 use crate::common::GenomeRelease;
-use crate::db::create::seqvar_clinvar::reading::Record as ClinvarRecord;
+use crate::db::create::seqvar_clinvar::serialize::Record as ClinvarRecord;
 use crate::db::create::seqvar_freqs::reading::guess_assembly;
 use crate::db::create::seqvar_freqs::serialized::vcf::Var as VcfVar;
 use crate::db::create::seqvar_freqs::serialized::{
@@ -660,8 +660,13 @@ fn run_with_writer<Inner: Write>(
     loop {
         if let Some(record) = records.next() {
             let mut vcf_record = record?;
+
             // TODO: ignores all but the first alternative allele!
             let vcf_var = VcfVar::from_vcf(&vcf_record);
+
+            if vcf_var.pos == 874778 {
+                println!("HAHAHAHA");
+            }
 
             // Build key for RocksDB database from `vcf_var`.
             let key: Vec<u8> = vcf_var.clone().into();
