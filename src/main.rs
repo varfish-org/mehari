@@ -165,6 +165,7 @@ struct DbCreate {
 enum DbCreateCommands {
     Txs(db::create::txs::Args),
     SeqvarFreqs(db::create::seqvar_freqs::Args),
+    SeqvarClinvar(db::create::seqvar_clinvar::Args),
 }
 
 /// Parsing of "annotate *" sub commands.
@@ -211,6 +212,9 @@ fn main() -> Result<(), anyhow::Error> {
                     DbCreateCommands::Txs(args) => db::create::txs::run(&cli.common, args)?,
                     DbCreateCommands::SeqvarFreqs(args) => {
                         db::create::seqvar_freqs::run(&cli.common, args)?
+                    }
+                    DbCreateCommands::SeqvarClinvar(args) => {
+                        db::create::seqvar_clinvar::run(&cli.common, args)?
                     }
                 },
             },

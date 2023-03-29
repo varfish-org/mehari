@@ -1,4 +1,4 @@
-//! Population frequencies for sequence variants.
+//! Creation of mehari internal sequence variant population frequency database.
 
 pub mod reading;
 pub mod serialized;
@@ -602,10 +602,10 @@ fn import_chrmt(
     Ok(())
 }
 
-/// Main entry point for `db create seqvar_freqs` sub command.
+/// Main entry point for `db create seqvar-freqs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!(
-        "Building sequence variant frequencies table\ncommon args: {:#?}\nargs: {:#?}",
+        "Building sequence variant frequencies database\ncommon args: {:#?}\nargs: {:#?}",
         common,
         args
     );
@@ -646,6 +646,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
     // Finally, compact manually.
     tracing::info!("Enforcing manual compaction");
+    db.compact_range_cf(cf_meta, None::<&[u8]>, None::<&[u8]>);
     db.compact_range_cf(cf_autosomal, None::<&[u8]>, None::<&[u8]>);
     db.compact_range_cf(cf_gonosomal, None::<&[u8]>, None::<&[u8]>);
     db.compact_range_cf(cf_mtdna, None::<&[u8]>, None::<&[u8]>);
@@ -671,7 +672,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         }
     }
 
-    tracing::info!("Done building sequence variant frequency table");
+    tracing::info!("Done building sequence variant frequency database");
     Ok(())
 }
 
