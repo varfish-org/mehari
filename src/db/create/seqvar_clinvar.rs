@@ -17,7 +17,70 @@ use super::seqvar_freqs::serialized::vcf::Var;
 
 /// Reading `clinvar-tsv` sequence variant files.
 pub mod reading {
+    use std::{fmt::Display, str::FromStr};
+
     use serde::{Deserialize, Serialize};
+
+    /// Enumeration for ClinVar pathogenicity.
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum Pathogenicity {
+        /// Pathogenic.
+        Pathogenic,
+        /// Likely pathogenic.
+        LikelyPathogenic,
+        /// Uncertain significance.
+        UncertainSignificance,
+        /// Likely benign.
+        LikelyBenign,
+        /// Benign.
+        Benign,
+    }
+
+    impl Display for Pathogenicity {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Pathogenicity::Pathogenic => write!(f, "pathogenic"),
+                Pathogenicity::LikelyPathogenic => write!(f, "likely pathogenic"),
+                Pathogenicity::UncertainSignificance => write!(f, "uncertain significance"),
+                Pathogenicity::LikelyBenign => write!(f, "likely benign"),
+                Pathogenicity::Benign => write!(f, "benign"),
+            }
+        }
+    }
+
+    impl FromStr for Pathogenicity {
+        type Err = anyhow::Error;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            match s {
+                "pathogenic" => Ok(Pathogenicity::Pathogenic),
+                "likely pathogenic" => Ok(Pathogenicity::LikelyPathogenic),
+                "uncertain significance" => Ok(Pathogenicity::UncertainSignificance),
+                "likely benign" => Ok(Pathogenicity::LikelyBenign),
+                "benign" => Ok(Pathogenicity::Benign),
+                _ => anyhow::bail!("Unknown pathogenicity: {}", s),
+            }
+        }
+    }
+
+    impl Serialize for Pathogenicity {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            serializer.serialize_str(&self.to_string())
+        }
+    }
+
+    impl<'de> Deserialize<'de> for Pathogenicity {
+        fn deserialize<D>(d: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            let s = String::deserialize(d)?;
+            Self::from_str(&s).map_err(serde::de::Error::custom)
+        }
+    }
 
     /// Representation of a record from the `clinvar-tsv` output.
     ///
@@ -43,21 +106,24 @@ pub mod reading {
         /// VCV accession identifier.
         pub vcv: String,
         /// Pathogenicity summary for the variant (ClinVar style).
-        #[serde(rename = "summary_clinvar_pathogenicity_label")]
-        pub summary_clinvar_pathogenicity: String,
-        /// Pathogenicity review status for the variant (ClinVar style).
-        #[serde(rename = "summary_clinvar_review_status_label")]
-        pub summary_clinvar_review_status: String,
+        #[serde(deserialize_with = "deserialize_pathogenicity")]
+        pub summary_clinvar_pathogenicity: Vec<Pathogenicity>,
         /// Pathogenicity gold stars (ClinVar style).
         pub summary_clinvar_gold_stars: u32,
         /// Pathogenicity summary for the variant ("paranoid" style).
-        #[serde(rename = "summary_paranoid_pathogenicity_label")]
-        pub summary_paranoid_pathogenicity: String,
-        /// Pathogenicity review status for the variant ("paranoid" style).
-        #[serde(rename = "summary_paranoid_review_status_label")]
-        pub summary_paranoid_review_status: String,
+        #[serde(deserialize_with = "deserialize_pathogenicity")]
+        pub summary_paranoid_pathogenicity: Vec<Pathogenicity>,
         /// Pathogenicity gold stars ("paranoid" style).
         pub summary_paranoid_gold_stars: u32,
+    }
+
+    fn deserialize_pathogenicity<'de, D>(deserializer: D) -> Result<Vec<Pathogenicity>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: &str = Deserialize::deserialize(deserializer)?;
+        let s = s.replace('{', "[").replace('}', "]");
+        serde_json::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -145,7 +211,11 @@ fn import_clinvar_seqvars(
     let mut prev = Instant::now();
     let mut records_written = 0;
     for record in reader.deserialize() {
-        let record: reading::Record = record?;
+        let mut record: reading::Record = record?;
+
+        record.summary_clinvar_pathogenicity.sort();
+        record.summary_paranoid_pathogenicity.sort();
+
         let var = Var {
             chrom: record.chromosome.clone(),
             pos: record.start,
@@ -182,7 +252,7 @@ fn import_clinvar_seqvars(
         records_written += 1;
 
         if let Some(max_var_count) = args.max_var_count {
-            if max_var_count >= records_written {
+            if records_written >= max_var_count {
                 tracing::warn!("Stopping after {} records as requested", max_var_count);
                 break;
             }

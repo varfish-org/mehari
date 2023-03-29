@@ -107,10 +107,15 @@ impl ConsequencePredictor {
         txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
 
         // Generate `AnnField` records for each transcript.
+        //
+        // Skip `None` results.
         Ok(Some(
             txs.into_iter()
                 .map(|tx| self.build_ann_field(&var, tx, chrom_acc.clone(), var_start, var_end))
-                .collect::<Result<Vec<_>, _>>()?,
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .filter_map(|x| x)
+                .collect::<Vec<_>>(),
         ))
     }
 
@@ -121,7 +126,7 @@ impl ConsequencePredictor {
         chrom_acc: String,
         var_start: i32,
         var_end: i32,
-    ) -> Result<AnnField, anyhow::Error> {
+    ) -> Result<Option<AnnField>, anyhow::Error> {
         // NB: The coordinates of var_start, var_end, as well as the exon boundaries
         // are 0-based.
 
@@ -366,7 +371,25 @@ impl ConsequencePredictor {
                     let prot_len = cds_len / 3;
 
                     let var_c = self.mapper.n_to_c(&var_n)?;
-                    let var_p = self.mapper.c_to_p(&var_c)?;
+                    // Gracefully handle the case that the transcript is unsupported because the length
+                    // is not a multiple of 3.
+                    let var_p = self.mapper.c_to_p(&var_c).map_or_else(
+                        |e| {
+                            if e.to_string()
+                                .contains("is not supported because its sequence length of")
+                            {
+                                Ok(None)
+                            } else {
+                                Err(e)
+                            }
+                        },
+                        |v| Ok(Some(v)),
+                    )?;
+                    if var_p.is_none() {
+                        return Ok(None);
+                    }
+                    let var_p = var_p.unwrap();
+
                     let hgvs_p = Some(format!("{}", &var_p));
                     let cds_pos = match &var_c {
                         HgvsVariant::CdsVariant { loc_edit, .. } => Some(Pos {
@@ -547,7 +570,7 @@ impl ConsequencePredictor {
         let putative_impact = (*consequences.first().unwrap()).into();
 
         // Build and return ANN field from the information derived above.
-        Ok(AnnField {
+        Ok(Some(AnnField {
             allele: Allele::Alt {
                 alternative: var.alternative.clone(),
             },
@@ -568,7 +591,7 @@ impl ConsequencePredictor {
             protein_pos,
             distance,
             messages: None,
-        })
+        }))
     }
 
     // Normalize variant by stripping common suffixes and prefixes.

@@ -29,6 +29,7 @@ use thousands::Separable;
 use crate::annotate::seqvars::csq::{ConsequencePredictor, VcfVariant};
 use crate::annotate::seqvars::provider::MehariProvider;
 use crate::common::GenomeRelease;
+use crate::db::create::seqvar_clinvar::reading::Record as ClinvarRecord;
 use crate::db::create::seqvar_freqs::reading::guess_assembly;
 use crate::db::create::seqvar_freqs::serialized::vcf::Var as VcfVar;
 use crate::db::create::seqvar_freqs::serialized::{
@@ -98,6 +99,9 @@ pub mod keys {
         pub static ref HELIX_HET: InfoKey = InfoKey::Other(InfoKeyOther::from_str("helix_het").unwrap());
 
         pub static ref ANN: InfoKey = InfoKey::Other(InfoKeyOther::from_str("ANN").unwrap());
+
+        pub static ref CLINVAR_PATHO: InfoKey = InfoKey::Other(InfoKeyOther::from_str("clinvar_patho").unwrap());
+        pub static ref CLINVAR_VCV: InfoKey = InfoKey::Other(InfoKeyOther::from_str("clinvar_vcv").unwrap());
     }
 }
 
@@ -207,6 +211,15 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         ),
     );
 
+    header_out.infos_mut().insert(
+        keys::CLINVAR_PATHO.clone(),
+        Map::<Info>::new(Number::Count(1), Type::String, "ClinVar pathogenicity"),
+    );
+    header_out.infos_mut().insert(
+        keys::CLINVAR_VCV.clone(),
+        Map::<Info>::new(Number::Count(1), Type::String, "ClinVar VCV accession"),
+    );
+
     header_out
 }
 
@@ -214,13 +227,12 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
 fn annotate_record_auto<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &rocksdb::ColumnFamily,
-    vcf_var: VcfVar,
+    key: &Vec<u8>,
     vcf_record: &mut noodles::vcf::Record,
 ) -> Result<(), anyhow::Error>
 where
     T: ThreadMode,
 {
-    let key: Vec<u8> = vcf_var.into();
     if let Some(freq) = db.get_cf(cf, key)? {
         let auto_record = AutoRecord::from_buf(&freq);
 
@@ -257,13 +269,12 @@ where
 fn annotate_record_xy<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &rocksdb::ColumnFamily,
-    vcf_var: VcfVar,
+    key: &Vec<u8>,
     vcf_record: &mut noodles::vcf::Record,
 ) -> Result<(), anyhow::Error>
 where
     T: ThreadMode,
 {
-    let key: Vec<u8> = vcf_var.into();
     if let Some(freq) = db.get_cf(cf, key)? {
         let auto_record = XyRecord::from_buf(&freq);
 
@@ -308,13 +319,12 @@ where
 fn annotate_record_mt<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &rocksdb::ColumnFamily,
-    vcf_var: VcfVar,
+    key: &Vec<u8>,
     vcf_record: &mut noodles::vcf::Record,
 ) -> Result<(), anyhow::Error>
 where
     T: ThreadMode,
 {
-    let key: Vec<u8> = vcf_var.into();
     if let Some(freq) = db.get_cf(cf, key)? {
         let mt_record = MtRecord::from_buf(&freq);
 
@@ -344,6 +354,39 @@ where
             Some(Value::Integer(mt_record.gnomad_mtdna.ac_het as i32)),
         );
     };
+    Ok(())
+}
+
+/// Annotate record with ClinVar information.
+fn annotate_record_clinvar<T>(
+    db: &rocksdb::DBWithThreadMode<T>,
+    cf: &rocksdb::ColumnFamily,
+    key: &Vec<u8>,
+    vcf_record: &mut noodles::vcf::Record,
+) -> Result<(), anyhow::Error>
+where
+    T: ThreadMode,
+{
+    if let Some(clinvar_anno) = db.get_cf(cf, key)? {
+        let clinvar_record: ClinvarRecord = bincode::deserialize(&clinvar_anno)?;
+
+        let ClinvarRecord {
+            summary_clinvar_pathogenicity,
+            vcv,
+            ..
+        } = clinvar_record;
+
+        vcf_record.info_mut().insert(
+            keys::CLINVAR_PATHO.clone(),
+            Some(Value::String(
+                summary_clinvar_pathogenicity.first().unwrap().to_string(),
+            )),
+        );
+        vcf_record
+            .info_mut()
+            .insert(keys::CLINVAR_VCV.clone(), Some(Value::String(vcv.clone())));
+    }
+
     Ok(())
 }
 
@@ -554,23 +597,43 @@ fn run_with_writer<Inner: Write>(
     let assembly = guess_assembly(&header_in, false, genome_release)?;
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
-    // Open the RocksDB database in read only mode.
+    // Open the frequency RocksDB database in read only mode.
     tracing::info!("Opening frequency database");
+    let rocksdb_path = format!(
+        "{}/seqvars/{}/freqs",
+        &args.path_db,
+        path_component(assembly)
+    );
+    tracing::debug!("RocksDB path = {}", &rocksdb_path);
     let options = rocksdb::Options::default();
-    let db = rocksdb::DB::open_cf_for_read_only(
+    let db_freq = rocksdb::DB::open_cf_for_read_only(
         &options,
-        &format!(
-            "{}/seqvars/{}/freqs",
-            &args.path_db,
-            path_component(assembly)
-        ),
+        &rocksdb_path,
         ["meta", "autosomal", "gonosomal", "mitochondrial"],
         false,
     )?;
 
-    let cf_autosomal = db.cf_handle("autosomal").unwrap();
-    let cf_gonosomal = db.cf_handle("gonosomal").unwrap();
-    let cf_mtdna = db.cf_handle("mitochondrial").unwrap();
+    let cf_autosomal = db_freq.cf_handle("autosomal").unwrap();
+    let cf_gonosomal = db_freq.cf_handle("gonosomal").unwrap();
+    let cf_mtdna = db_freq.cf_handle("mitochondrial").unwrap();
+
+    // Open the ClinVar RocksDB database in read only mode.
+    tracing::info!("Opening ClinVar database");
+    let rocksdb_path = format!(
+        "{}/seqvars/{}/clinvar",
+        &args.path_db,
+        path_component(assembly)
+    );
+    tracing::debug!("RocksDB path = {}", &rocksdb_path);
+    let options = rocksdb::Options::default();
+    let db_clinvar = rocksdb::DB::open_cf_for_read_only(
+        &options,
+        &rocksdb_path,
+        ["meta", "clinvar_seqvars"],
+        false,
+    )?;
+
+    let cf_clinvar = db_clinvar.cf_handle("clinvar_seqvars").unwrap();
 
     // Open the transcript flatbuffer.
     tracing::info!("Opening transcript database");
@@ -600,19 +663,25 @@ fn run_with_writer<Inner: Write>(
             // TODO: ignores all but the first alternative allele!
             let vcf_var = VcfVar::from_vcf(&vcf_record);
 
+            // Build key for RocksDB database from `vcf_var`.
+            let key: Vec<u8> = vcf_var.clone().into();
+
             // Annotate with frequency.
             if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
-                annotate_record_auto(&db, cf_autosomal, vcf_var.clone(), &mut vcf_record)?;
+                annotate_record_auto(&db_freq, cf_autosomal, &key, &mut vcf_record)?;
             } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
-                annotate_record_xy(&db, cf_gonosomal, vcf_var.clone(), &mut vcf_record)?;
+                annotate_record_xy(&db_freq, cf_gonosomal, &key, &mut vcf_record)?;
             } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
-                annotate_record_mt(&db, cf_mtdna, vcf_var.clone(), &mut vcf_record)?;
+                annotate_record_mt(&db_freq, cf_mtdna, &key, &mut vcf_record)?;
             } else {
                 tracing::trace!(
                     "Record @{:?} on non-canonical chromosome, skipping.",
                     &vcf_var
                 );
             }
+
+            // Annotate with ClinVar.
+            annotate_record_clinvar(&db_clinvar, cf_clinvar, &key, &mut vcf_record)?;
 
             let VcfVar {
                 chrom,
@@ -637,6 +706,8 @@ fn run_with_writer<Inner: Write>(
                     );
                 }
             }
+
+            // Annotate with ClinVar annotation.
 
             writer.write_record(&vcf_record)?;
         } else {
@@ -664,6 +735,7 @@ fn run_with_writer<Inner: Write>(
 
 /// Main entry point for `annotate seqvars` sub command.
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
+    tracing::info!("config = {:#?}", &args);
     if args.path_output_vcf.ends_with(".vcf.gz") || args.path_output_vcf.ends_with(".vcf.bgzf") {
         let writer = VcfWriter::new(
             File::create(&args.path_output_vcf)

@@ -223,6 +223,7 @@ fn main() -> Result<(), anyhow::Error> {
             },
         }
 
+        tracing::info!("... the dromedary is back in the stable.");
         tracing::info!("All done. Have a nice day!");
 
         Ok::<(), anyhow::Error>(())

@@ -39,7 +39,7 @@ $ bcftools \
 ```
 
 The reduction of this is quite big.
-For GRCh37, the gnomAD raw download files go down from 449GB to 2.8GB and for GRCh38 from 2.2TB to XXXGB.
+For GRCh37, the gnomAD raw download files go down from 449GB to 2.8GB and for GRCh38 from 2.2TB to 4.2GB.
 
 ## Building Frequency Databases
 
