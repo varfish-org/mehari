@@ -9,6 +9,21 @@ Note that we aim to provide prebuilt databases with Zenodo later on so you don't
 - HelixMtDb can be downloaded from [helix.com](https://www.helix.com/pages/mitochondrial-variant-database)
 - gnomAD has a [downloage page](https://gnomad.broadinstitute.org/downloads) where you can find download URLs, e.g., from Microsoft Azure
 
+## Prepare HelixMtDb
+
+You can convert the HelixMtDb TSV file to VCF with the `misc/helix-to-vcf.py` script from the Mehari repository.
+You will first have to install a few dependencies.
+For this, we create a new conda environment using `mamba`.
+
+```text
+$ mamba create -y -n helix-to-vcf python=3.10 vcfpy htslib
+$ cat HelixMTdb_20200327.tsv \
+  | python misc/helix-to-vcf.py \
+  | bgzip -c \
+  > HelixMTdb_20200327.tsv.gz
+$ tabix -f HelixMTdb_20200327.tsv.gz
+```
+
 ## Post-Processing Database Files
 
 You can strip greatly reduce the nuclear variant files using the following [bcftools](https://samtools.github.io/bcftools/bcftools.html) command line:
@@ -23,7 +38,8 @@ $ bcftools \
     OUT.vcf.gz
 ```
 
-For example, you can reduce the gnomAD genomes r2.1.1 file for chr1 from 31GB with full annotations to 384MB which greatly speeds up the import into a Mehari database.
+The reduction of this is quite big.
+For GRCh37, the gnomAD raw download files go down from 449GB to 2.8GB and for GRCh38 from 2.2TB to XXXGB.
 
 ## Building Frequency Databases
 
@@ -96,24 +112,24 @@ Then, download the transcript FASTA files into the current directory:
 
 ```text
 $ wget https://ftp.ensembl.org/pub/grch37/release-108/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh37.cdna.all.fa.gz
-$ wget https://hgvs-rs-data/mirror/ftp.ncbi.nih.gov/refseq/H_sapiens/mRNA_Prot/human.files.installed \
-    https://hgvs-rs-data/mirror/ftp.ncbi.nih.gov/refseq/H_sapiens/mRNA_Prot/human.{1..12}.rna.fna.gz
+$ wget https://ftp.ncbi.nih.gov/refseq/H_sapiens/mRNA_Prot/human.{1..12}.rna.fna.gz \
+    https://ftp.ncbi.nih.gov/refseq/H_sapiens/mRNA_Prot/human.files.installed
 ```
 
-Now, pull the current seqrepo from the biocommons server:
+Now, initialize a new seqrepo from the biocommons server:
 
 ```text
 $ mkdir -p seqrepo-data
 $ export SEQREPO_ROOT_DIR=$PWD/seqrepo-data
-$ seqrepo pull -i 2021-01-29
+$ seqrepo init -i master
 ```
 
 And then load the FASTA files we downloaded above:
 
 ```
-$ seqrepo --instance-name master --namespace ENSEMBL \
+$ seqrepo load --instance-name master --namespace ENSEMBL \
     Homo_sapiens.GRCh37.cdna.all.fa.gz
-$ seqrepo --instance-name master --namespace RefSeq \
+$ seqrepo load --instance-name master --namespace RefSeq \
             human.{1..12}.rna.fna.gz
 ```
 
@@ -129,8 +145,10 @@ You can build the transcript database flatbuffers binary using the following com
 $ mehari db create txs \
     --path-out output/b37/txs.bin \
     \
-    --cdot-json cdot-0.2.12.refseq.grch37_grch38.json \
-    --cdot-json cdot-0.2.12.ensembl.grch37_grch38.json \
+    --path-seqrepo-instance path/to/seqrepo-data/master \
+    \
+    --path-cdot-json cdot-0.2.12.refseq.grch37_grch38.json \
+    --path-cdot-json cdot-0.2.12.ensembl.grch37_grch38.json \
     \
     --path-seqrepo-instance path/to/seqrepo-data/master \
     \
@@ -138,3 +156,4 @@ $ mehari db create txs \
 ```
 
 You will have to build the transcript database for each genome release that you want and manually specify the release to `--genome-release`.
+For GRCh38, simply use `--genome-release grch38`.
