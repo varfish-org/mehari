@@ -157,3 +157,15 @@ $ mehari db create txs \
 
 You will have to build the transcript database for each genome release that you want and manually specify the release to `--genome-release`.
 For GRCh38, simply use `--genome-release grch38`.
+
+## Building ClinVar Database
+
+This assumes that you have converted a recent ClinVar XML file to TSV using [clinvar-tsv](https://github.com/bihealth/clinvar-tsv).
+
+```
+$ mehari db create seqvar-clinvar \
+    --path-output-db ~/Data/mehari/db/seqvars/grch37/clinvar \
+    --path-clinvar-tsv path/to/clinvar_seqvars.b37.tsv.gz
+```
+
+You can specify an optional `--genome-release grch37` argument that will be used to check the ClinVar database to be compatible with your data.
