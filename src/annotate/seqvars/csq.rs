@@ -63,6 +63,7 @@ impl ConsequencePredictor {
             replace_reference: false,
             strict_bounds: false,
             renormalize_g: false,
+            genome_seq_available: false,
             ..Default::default()
         };
         let mapper = AssemblyMapper::new(config, provider.clone());
