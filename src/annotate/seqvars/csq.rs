@@ -131,6 +131,13 @@ impl ConsequencePredictor {
         // are 0-based.
 
         let tx = self.provider.get_tx(&tx_record.tx_ac).unwrap();
+
+        // Skip transcripts that are protein coding but do not have a CDS.
+        // TODO: do not include such transcripts when building the database.
+        if tx.biotype == TranscriptBiotype::Coding && tx.start_codon.is_none() {
+            return Ok(None);
+        }
+
         let mut consequences: Vec<Consequence> = Vec::new();
 
         let alignment = tx.genome_alignments.first().unwrap();
@@ -373,6 +380,7 @@ impl ConsequencePredictor {
                     let var_c = self.mapper.n_to_c(&var_n)?;
                     // Gracefully handle the case that the transcript is unsupported because the length
                     // is not a multiple of 3.
+                    // TODO: do not include such transcripts when building the tx database.
                     let var_p = self.mapper.c_to_p(&var_c).map_or_else(
                         |e| {
                             if e.to_string()

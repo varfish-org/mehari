@@ -664,10 +664,6 @@ fn run_with_writer<Inner: Write>(
             // TODO: ignores all but the first alternative allele!
             let vcf_var = VcfVar::from_vcf(&vcf_record);
 
-            if vcf_var.pos == 874778 {
-                println!("HAHAHAHA");
-            }
-
             // Build key for RocksDB database from `vcf_var`.
             let key: Vec<u8> = vcf_var.clone().into();
 
