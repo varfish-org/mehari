@@ -739,7 +739,7 @@ fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData
 
 /// Main entry point for `db create txs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
-    let mut report_file = File::create(&format!("{}.report", args.path_out.display()))?;
+    let mut report_file = File::create(format!("{}.report", args.path_out.display()))?;
     tracing::info!(
         "Building transcript and sequence database file\ncommon args: {:#?}\nargs: {:#?}",
         common,

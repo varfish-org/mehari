@@ -115,7 +115,7 @@ impl ConsequencePredictor {
                 .map(|tx| self.build_ann_field(&var, tx, chrom_acc.clone(), var_start, var_end))
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
-                .filter_map(|x| x)
+                .flatten()
                 .collect::<Vec<_>>(),
         ))
     }
@@ -796,7 +796,7 @@ mod test {
         annotate_vars(path_tsv, &txs)
     }
 
-    fn annotate_vars(path_tsv: &str, txs: &Vec<String>) -> Result<(), anyhow::Error> {
+    fn annotate_vars(path_tsv: &str, txs: &[String]) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
         let tx_db = load_tx_db(tx_path, 5_000_000)?;
         let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));

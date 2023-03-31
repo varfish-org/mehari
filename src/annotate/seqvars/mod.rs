@@ -384,7 +384,7 @@ where
         );
         vcf_record
             .info_mut()
-            .insert(keys::CLINVAR_VCV.clone(), Some(Value::String(vcv.clone())));
+            .insert(keys::CLINVAR_VCV.clone(), Some(Value::String(vcv)));
     }
 
     Ok(())
