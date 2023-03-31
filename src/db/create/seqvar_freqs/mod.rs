@@ -1,4 +1,4 @@
-//! Population frequencies for sequence variants.
+//! Creation of mehari internal sequence variant population frequency database.
 
 pub mod reading;
 pub mod serialized;
@@ -9,6 +9,7 @@ use clap::Parser;
 use hgvs::static_data::Assembly;
 
 use rocksdb::{DBWithThreadMode, SingleThreaded};
+use thousands::Separable;
 
 use crate::common::GenomeRelease;
 
@@ -469,7 +470,7 @@ fn import_autosomal(
     let mut has_next = true;
     while has_next {
         has_next = auto_reader.run(|variant, gnomad_exomes, gnomad_genomes| {
-            if prev.elapsed().as_secs() > 60 {
+            if prev.elapsed().as_secs() >= 60 {
                 tracing::info!("at {:?}", &variant);
                 prev = Instant::now();
             }
@@ -491,7 +492,7 @@ fn import_autosomal(
 
     tracing::info!(
         "  wrote {} chr1, ..., chr22 records in {:?}",
-        chrauto_written,
+        chrauto_written.separate_with_commas(),
         start.elapsed()
     );
     Ok(())
@@ -547,7 +548,7 @@ fn import_gonomosomal(
 
     tracing::info!(
         "  wrote {} chrX and chrY records in {:?}",
-        chrxy_written,
+        chrxy_written.separate_with_commas(),
         start.elapsed()
     );
     Ok(())
@@ -596,16 +597,16 @@ fn import_chrmt(
 
     tracing::info!(
         "  wrote {} chrMT records in {:?}",
-        chrmt_written,
+        chrmt_written.separate_with_commas(),
         start.elapsed()
     );
     Ok(())
 }
 
-/// Main entry point for `db create seqvar_freqs` sub command.
+/// Main entry point for `db create seqvar-freqs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!(
-        "Building sequence variant frequencies table\ncommon args: {:#?}\nargs: {:#?}",
+        "Building sequence variant frequencies database\ncommon args: {:#?}\nargs: {:#?}",
         common,
         args
     );
@@ -646,6 +647,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
     // Finally, compact manually.
     tracing::info!("Enforcing manual compaction");
+    db.compact_range_cf(cf_meta, None::<&[u8]>, None::<&[u8]>);
     db.compact_range_cf(cf_autosomal, None::<&[u8]>, None::<&[u8]>);
     db.compact_range_cf(cf_gonosomal, None::<&[u8]>, None::<&[u8]>);
     db.compact_range_cf(cf_mtdna, None::<&[u8]>, None::<&[u8]>);
@@ -671,7 +673,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         }
     }
 
-    tracing::info!("Done building sequence variant frequency table");
+    tracing::info!("Done building sequence variant frequency database");
     Ok(())
 }
 

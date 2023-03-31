@@ -66,16 +66,15 @@ impl TxIntervalTrees {
         for (tx_id, tx) in db.tx_db.transcripts.iter().enumerate() {
             for genome_alignment in &tx.genome_alignments {
                 let contig = &genome_alignment.contig;
-                let contig_idx = *contig_to_idx
-                    .get(contig)
-                    .unwrap_or_else(|| panic!("Unknown contig {}", contig));
-                let mut start = std::i32::MAX;
-                let mut stop = std::i32::MIN;
-                for exon in &genome_alignment.exons {
-                    start = std::cmp::min(start, exon.alt_start_i);
-                    stop = std::cmp::max(stop, exon.alt_end_i);
+                if let Some(contig_idx) = contig_to_idx.get(contig) {
+                    let mut start = std::i32::MAX;
+                    let mut stop = std::i32::MIN;
+                    for exon in &genome_alignment.exons {
+                        start = std::cmp::min(start, exon.alt_start_i);
+                        stop = std::cmp::max(stop, exon.alt_end_i);
+                    }
+                    trees[*contig_idx].insert(start..stop, tx_id as u32);
                 }
-                trees[contig_idx].insert(start..stop, tx_id as u32);
             }
 
             txs += 1;
