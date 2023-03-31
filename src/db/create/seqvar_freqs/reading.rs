@@ -154,7 +154,6 @@ pub fn is_canonical(chrom: &str) -> bool {
     CANONICAL.contains(&chrom)
 }
 
-
 /// Guess the assembly from the given header.
 ///
 /// If the header only contains chrM, for example, the result may be ambiguous. Use `ambiguous_ok`
