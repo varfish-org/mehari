@@ -146,6 +146,15 @@ pub const CANONICAL: &[&str] = &[
     "18", "19", "20", "21", "22", "X", "Y", "M", "MT",
 ];
 
+/// Return whether the given chromosome name is a canonical one.
+///
+/// The prefix `"chr"` is stripped from the name before checking.
+pub fn is_canonical(chrom: &str) -> bool {
+    let chrom = chrom.strip_prefix("chr").unwrap_or(chrom);
+    CANONICAL.contains(&chrom)
+}
+
+
 /// Guess the assembly from the given header.
 ///
 /// If the header only contains chrM, for example, the result may be ambiguous. Use `ambiguous_ok`

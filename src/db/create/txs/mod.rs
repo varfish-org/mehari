@@ -65,10 +65,10 @@ fn load_and_extract(
     genome_release: GenomeRelease,
     report_file: &mut File,
 ) -> Result<(), anyhow::Error> {
-    write!(report_file, "genome_release\t{:?}", genome_release)?;
+    writeln!(report_file, "genome_release\t{:?}", genome_release)?;
 
     tracing::info!("Loading cdot transcripts from {:?}", json_path);
-    write!(report_file, "cdot_json_path\t{:?}", json_path)?;
+    writeln!(report_file, "cdot_json_path\t{:?}", json_path)?;
     let start = Instant::now();
     let models::Container {
         genes: c_genes,
@@ -91,7 +91,7 @@ fn load_and_extract(
     );
 
     let start = Instant::now();
-    write!(report_file, "total_genes\t{}", c_genes.len())?;
+    writeln!(report_file, "total_genes\t{}", c_genes.len())?;
     c_genes
         .values()
         .filter(|gene| {
@@ -109,7 +109,7 @@ fn load_and_extract(
                 .or_insert(Vec::new());
             genes.insert(gene_symbol, gene.clone());
         });
-    write!(
+    writeln!(
         report_file,
         "genes with gene_symbol, map_location, hgnc\t{}",
         genes.len()
@@ -125,7 +125,7 @@ fn load_and_extract(
     );
 
     tracing::info!("Processing transcripts");
-    write!(report_file, "total_transcripts\t{}", c_txs.len())?;
+    writeln!(report_file, "total_transcripts\t{}", c_txs.len())?;
     c_txs
         .values()
         .map(|tx| models::Transcript {
@@ -156,7 +156,7 @@ fn load_and_extract(
                 .push(tx.id.clone());
             transcripts.insert(tx.id.clone(), tx.clone());
         });
-    write!(
+    writeln!(
         report_file,
         "transcripts with alignment on genome and link to selected gene\t{}",
         transcripts.len()
@@ -213,7 +213,7 @@ fn build_flatbuffers(
                 seq
             } else {
                 tracing::debug!("Skipping transcript {} because of missing sequence", tx_id);
-                write!(
+                writeln!(
                     report_file,
                     "skip transcript from flatbuffers because it has no sequence\t{}",
                     tx_id
@@ -233,7 +233,7 @@ fn build_flatbuffers(
                         seq.len(),
                         tx_id
                     );
-                    write!(
+                    writeln!(
                         report_file,
                         "skip transcript CDS end {} is longer than sequence length {} for\t{}",
                         cds_end,
@@ -250,7 +250,7 @@ fn build_flatbuffers(
                         "Skipping transcript {} because of missing stop codon in translated CDS",
                         tx_id
                     );
-                    write!(
+                    writeln!(
                         report_file,
                         "Skipping transcript {} because of missing stop codon in translated CDS",
                         tx_id
@@ -306,14 +306,16 @@ fn build_flatbuffers(
                 .unwrap_or_else(|| panic!("No transcripts for gene {:?}", &gene_symbol));
             let tx_ids = tx_ids
                 .iter()
-                .filter(|tx_id| !tx_skipped_noseq.contains(*tx_id))
+                .filter(|tx_id| {
+                    !tx_skipped_noseq.contains(*tx_id) && !tx_skipped_nostop.contains(*tx_id)
+                })
                 .collect::<Vec<_>>();
             if tx_ids.is_empty() {
                 tracing::debug!(
                     "Skipping gene {} as all transcripts have been removed.",
                     gene_symbol
                 );
-                write!(
+                writeln!(
                     report_file,
                     "skip gene from flatbuffers because all transcripts have been removed\t{}",
                     gene_symbol
@@ -586,21 +588,21 @@ fn filter_transcripts(
                 for release in releases {
                     #[allow(clippy::if_same_then_else)]
                     if seen_ac.contains(&(ac.clone(), release.clone())) {
-                        write!(
+                        writeln!(
                             report_file,
                             "skipped transcript {} because we have a later version already",
                             &full_ac
                         )?;
                         continue; // skip, already have later version
                     } else if ac.starts_with("NR_") && seen_nm {
-                        write!(
+                        writeln!(
                             report_file,
                             "skipped transcript {} because we have a NR transcript",
                             &full_ac
                         )?;
                         continue; // skip NR transcript as we have NM one
                     } else if ac.starts_with('X') {
-                        write!(
+                        writeln!(
                             report_file,
                             "skipped transcript {} because it is an XR/XM transcript",
                             &full_ac
@@ -617,7 +619,7 @@ fn filter_transcripts(
                             let cds_len = cds_end - cds_start;
                             if cds_len % 3 != 0 {
                                 tracing::debug!("skipping transcript {} because its CDS length is not a multiple of 3", &full_ac);
-                                write!(report_file, "skipped transcript {} because its CDS length {} is not a multiple of 3", &full_ac, cds_len)?;
+                                writeln!(report_file, "skipped transcript {} because its CDS length {} is not a multiple of 3", &full_ac, cds_len)?;
                                 continue;
                             }
                         }
@@ -636,7 +638,7 @@ fn filter_transcripts(
             if !next_tx_ids.is_empty() {
                 tmp.insert(gene_symbol.clone(), next_tx_ids);
             } else {
-                write!(
+                writeln!(
                     report_file,
                     "skipped gene {} because we have no transcripts left",
                     gene_symbol
@@ -655,7 +657,7 @@ fn filter_transcripts(
         "  => {} transcripts left",
         transcripts.len().separate_with_commas()
     );
-    write!(report_file, "total transcripts\t{}", transcripts.len())?;
+    writeln!(report_file, "total transcripts\t{}", transcripts.len())?;
 
     let genes: HashMap<_, _> = genes
         .into_iter()
@@ -723,7 +725,7 @@ fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData
         transcripts.len().separate_with_commas(),
         transcript_ids_for_gene.len().separate_with_commas()
     );
-    write!(
+    writeln!(
         report_file,
         "total genes\t{}\ntotal transcripts\t{}",
         transcripts.len(),
