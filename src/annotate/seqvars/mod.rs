@@ -30,7 +30,7 @@ use crate::annotate::seqvars::csq::{ConsequencePredictor, VcfVariant};
 use crate::annotate::seqvars::provider::MehariProvider;
 use crate::common::GenomeRelease;
 use crate::db::create::seqvar_clinvar::serialize::Record as ClinvarRecord;
-use crate::db::create::seqvar_freqs::reading::guess_assembly;
+use crate::db::create::seqvar_freqs::reading::{guess_assembly, is_canonical};
 use crate::db::create::seqvar_freqs::serialized::vcf::Var as VcfVar;
 use crate::db::create::seqvar_freqs::serialized::{
     auto::Record as AutoRecord, mt::Record as MtRecord, xy::Record as XyRecord,
@@ -384,7 +384,7 @@ where
         );
         vcf_record
             .info_mut()
-            .insert(keys::CLINVAR_VCV.clone(), Some(Value::String(vcv.clone())));
+            .insert(keys::CLINVAR_VCV.clone(), Some(Value::String(vcv)));
     }
 
     Ok(())
@@ -653,6 +653,7 @@ fn run_with_writer<Inner: Write>(
     // Perform the VCf annotation.
     tracing::info!("Annotating VCF ...");
     let start = Instant::now();
+    let mut prev = Instant::now();
     let mut total_written = 0usize;
 
     writer.write_header(&header_out)?;
@@ -664,26 +665,35 @@ fn run_with_writer<Inner: Write>(
             // TODO: ignores all but the first alternative allele!
             let vcf_var = VcfVar::from_vcf(&vcf_record);
 
-            // Build key for RocksDB database from `vcf_var`.
-            let key: Vec<u8> = vcf_var.clone().into();
-
-            // Annotate with frequency.
-            if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
-                annotate_record_auto(&db_freq, cf_autosomal, &key, &mut vcf_record)?;
-            } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
-                annotate_record_xy(&db_freq, cf_gonosomal, &key, &mut vcf_record)?;
-            } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
-                annotate_record_mt(&db_freq, cf_mtdna, &key, &mut vcf_record)?;
-            } else {
-                tracing::trace!(
-                    "Record @{:?} on non-canonical chromosome, skipping.",
-                    &vcf_var
-                );
+            if prev.elapsed().as_secs() >= 60 {
+                tracing::info!("at {:?}", &vcf_var);
+                prev = Instant::now();
             }
 
-            // Annotate with ClinVar.
-            annotate_record_clinvar(&db_clinvar, cf_clinvar, &key, &mut vcf_record)?;
+            // Only attempt lookups into RocksDB for canonical contigs.
+            if is_canonical(vcf_var.chrom.as_str()) {
+                // Build key for RocksDB database from `vcf_var`.
+                let key: Vec<u8> = vcf_var.clone().into();
 
+                // Annotate with frequency.
+                if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
+                    annotate_record_auto(&db_freq, cf_autosomal, &key, &mut vcf_record)?;
+                } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
+                    annotate_record_xy(&db_freq, cf_gonosomal, &key, &mut vcf_record)?;
+                } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
+                    annotate_record_mt(&db_freq, cf_mtdna, &key, &mut vcf_record)?;
+                } else {
+                    tracing::trace!(
+                        "Record @{:?} on non-canonical chromosome, skipping.",
+                        &vcf_var
+                    );
+                }
+
+                // Annotate with ClinVar information.
+                annotate_record_clinvar(&db_clinvar, cf_clinvar, &key, &mut vcf_record)?;
+            }
+
+            tracing::trace!("var = {:?}", &vcf_var);
             let VcfVar {
                 chrom,
                 pos,
@@ -708,8 +718,7 @@ fn run_with_writer<Inner: Write>(
                 }
             }
 
-            // Annotate with ClinVar annotation.
-
+            // Write out the record.
             writer.write_record(&vcf_record)?;
         } else {
             break; // all done

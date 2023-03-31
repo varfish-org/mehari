@@ -63,6 +63,7 @@ impl ConsequencePredictor {
             replace_reference: false,
             strict_bounds: false,
             renormalize_g: false,
+            genome_seq_available: false,
             ..Default::default()
         };
         let mapper = AssemblyMapper::new(config, provider.clone());
@@ -114,7 +115,7 @@ impl ConsequencePredictor {
                 .map(|tx| self.build_ann_field(&var, tx, chrom_acc.clone(), var_start, var_end))
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
-                .filter_map(|x| x)
+                .flatten()
                 .collect::<Vec<_>>(),
         ))
     }
@@ -363,7 +364,23 @@ impl ConsequencePredictor {
 
         let (rank, hgvs_t, hgvs_p, tx_pos, cds_pos, protein_pos) = if !is_upstream && !is_downstream
         {
-            let var_n = self.mapper.g_to_n(&var_g, &tx.id)?;
+            // Gracefully handle problems in the projection (in this case "Non-adjacent exons for ...").
+            // TODO: do not include such transcripts when building the tx database.
+            let var_n = self.mapper.g_to_n(&var_g, &tx.id).map_or_else(
+                |e| {
+                    if e.to_string().contains("Non-adjacent exons for") {
+                        Ok(None)
+                    } else {
+                        Err(e)
+                    }
+                },
+                |v| Ok(Some(v)),
+            )?;
+            if var_n.is_none() {
+                return Ok(None);
+            }
+            let var_n = var_n.unwrap();
+
             let tx_pos = match &var_n {
                 HgvsVariant::TxVariant { loc_edit, .. } => Some(Pos {
                     ord: loc_edit.loc.inner().start.base,
@@ -779,7 +796,7 @@ mod test {
         annotate_vars(path_tsv, &txs)
     }
 
-    fn annotate_vars(path_tsv: &str, txs: &Vec<String>) -> Result<(), anyhow::Error> {
+    fn annotate_vars(path_tsv: &str, txs: &[String]) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
         let tx_db = load_tx_db(tx_path, 5_000_000)?;
         let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));

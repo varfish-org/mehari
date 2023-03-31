@@ -111,7 +111,7 @@ $ conda activate seqrepo
 Then, download the transcript FASTA files into the current directory:
 
 ```text
-$ wget https://ftp.ensembl.org/pub/grch37/release-108/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh37.cdna.all.fa.gz
+$ wget https://ftp.ensembl.org/pub/grch37/release-109/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh37.cdna.all.fa.gz
 $ wget https://ftp.ncbi.nih.gov/refseq/H_sapiens/mRNA_Prot/human.{1..12}.rna.fna.gz \
     https://ftp.ncbi.nih.gov/refseq/H_sapiens/mRNA_Prot/human.files.installed
 ```
