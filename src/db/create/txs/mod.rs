@@ -3,8 +3,9 @@
 pub mod data;
 
 use std::collections::HashSet;
+use std::fs::File;
 use std::path::Path;
-use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, time::Instant};
+use std::{collections::HashMap, io::Write, path::PathBuf, time::Instant};
 
 use clap::Parser;
 use flatbuffers::FlatBufferBuilder;
@@ -62,8 +63,12 @@ fn load_and_extract(
     genes: &mut HashMap<String, models::Gene>,
     transcripts: &mut HashMap<String, models::Transcript>,
     genome_release: GenomeRelease,
+    report_file: &mut File,
 ) -> Result<(), anyhow::Error> {
+    write!(report_file, "genome_release\t{:?}", genome_release)?;
+
     tracing::info!("Loading cdot transcripts from {:?}", json_path);
+    write!(report_file, "cdot_json_path\t{:?}", json_path)?;
     let start = Instant::now();
     let models::Container {
         genes: c_genes,
@@ -72,11 +77,11 @@ fn load_and_extract(
     } = if json_path.extension().unwrap_or_default() == "gz" {
         tracing::info!("(from gzip compressed file)");
         serde_json::from_reader(std::io::BufReader::new(flate2::read::GzDecoder::new(
-            std::fs::File::open(json_path)?,
+            File::open(json_path)?,
         )))?
     } else {
         tracing::info!("(from uncompressed file)");
-        serde_json::from_reader(std::io::BufReader::new(std::fs::File::open(json_path)?))?
+        serde_json::from_reader(std::io::BufReader::new(File::open(json_path)?))?
     };
     tracing::info!(
         "loading / deserializing {} genes and {} transcripts from cdot took {:?}",
@@ -86,6 +91,7 @@ fn load_and_extract(
     );
 
     let start = Instant::now();
+    write!(report_file, "total_genes\t{}", c_genes.len())?;
     c_genes
         .values()
         .filter(|gene| {
@@ -103,10 +109,15 @@ fn load_and_extract(
                 .or_insert(Vec::new());
             genes.insert(gene_symbol, gene.clone());
         });
+    write!(
+        report_file,
+        "genes with gene_symbol, map_location, hgnc\t{}",
+        genes.len()
+    )?;
     tracing::info!(
         "Processed {} genes; total gene count: {}",
         c_genes.len().separate_with_commas(),
-        genes.len().separate_with_commas()
+        genes.len()
     );
     tracing::debug!(
         "some 10 genes: {:?}",
@@ -114,6 +125,7 @@ fn load_and_extract(
     );
 
     tracing::info!("Processing transcripts");
+    write!(report_file, "total_transcripts\t{}", c_txs.len())?;
     c_txs
         .values()
         .map(|tx| models::Transcript {
@@ -144,6 +156,11 @@ fn load_and_extract(
                 .push(tx.id.clone());
             transcripts.insert(tx.id.clone(), tx.clone());
         });
+    write!(
+        report_file,
+        "transcripts with alignment on genome and link to selected gene\t{}",
+        transcripts.len()
+    )?;
     tracing::info!(
         "Processed {} genes; total transcript count: {}",
         c_txs.len().separate_with_commas(),
@@ -159,6 +176,7 @@ fn build_flatbuffers(
     seqrepo: SeqRepo,
     tx_data: TranscriptData,
     is_silent: bool,
+    report_file: &mut File,
 ) -> Result<(), anyhow::Error> {
     let TranscriptData {
         genes,
@@ -195,6 +213,11 @@ fn build_flatbuffers(
                 seq
             } else {
                 tracing::debug!("Skipping transcript {} because of missing sequence", tx_id);
+                write!(
+                    report_file,
+                    "skip transcript from flatbuffers because it has no sequence\t{}",
+                    tx_id
+                )?;
                 tx_skipped_noseq.insert(tx_id.clone());
                 continue;
             };
@@ -210,6 +233,14 @@ fn build_flatbuffers(
                         seq.len(),
                         tx_id
                     );
+                    write!(
+                        report_file,
+                        "skip transcript CDS end {} is longer than sequence length {} for\t{}",
+                        cds_end,
+                        seq.len(),
+                        tx_id
+                    )?;
+                    continue;
                 }
                 let tx_seq_to_translate = &seq[cds_start..cds_end];
                 let aa_sequence =
@@ -219,6 +250,11 @@ fn build_flatbuffers(
                         "Skipping transcript {} because of missing stop codon in translated CDS",
                         tx_id
                     );
+                    write!(
+                        report_file,
+                        "Skipping transcript {} because of missing stop codon in translated CDS",
+                        tx_id
+                    )?;
                     tx_skipped_nostop.insert(tx_id.clone());
                     continue;
                 }
@@ -277,6 +313,11 @@ fn build_flatbuffers(
                     "Skipping gene {} as all transcripts have been removed.",
                     gene_symbol
                 );
+                write!(
+                    report_file,
+                    "skip gene from flatbuffers because all transcripts have been removed\t{}",
+                    gene_symbol
+                )?;
                 continue;
             }
 
@@ -478,7 +519,8 @@ fn filter_transcripts(
     tx_data: TranscriptData,
     max_genes: Option<u32>,
     gene_symbols: &Option<Vec<String>>,
-) -> TranscriptData {
+    report_file: &mut File,
+) -> Result<TranscriptData, anyhow::Error> {
     tracing::info!("Filtering transcripts ...");
     let start = Instant::now();
     let gene_symbols = gene_symbols.clone().unwrap_or_default();
@@ -503,13 +545,20 @@ fn filter_transcripts(
     // We keep track of the chosen transcript identifiers.
     let mut chosen = HashSet::new();
     // Filter map from gene symbol to Vec of chosen transcript identifiers.
-    let transcript_ids_for_gene: HashMap<_, _> = transcript_ids_for_gene
-        .into_iter()
-        .filter(|(gene_symbol, _)| gene_symbols.is_empty() || gene_symbols.contains(gene_symbol))
-        .map(|(gene_symbol, prev_tx_ids)| {
-            // Split off transcript versions from accessions and look for NM transcript.
+    let transcript_ids_for_gene = {
+        let mut tmp = HashMap::new();
+
+        for (gene_symbol, tx_ids) in &transcript_ids_for_gene {
+            // Skip transcripts where the gene symbol is not contained in `gene_symbols`.
+            if !gene_symbols.is_empty() && !gene_symbols.contains(gene_symbol) {
+                continue;
+            }
+
+            // Only select the highest version of each transcript.
+            //
+            // First, split off transcript versions from accessions and look for NM transcript.
             let mut seen_nm = false;
-            let mut versioned: Vec<_> = prev_tx_ids
+            let mut versioned: Vec<_> = tx_ids
                 .iter()
                 .map(|tx_id| {
                     if tx_id.starts_with("NM_") {
@@ -537,18 +586,38 @@ fn filter_transcripts(
                 for release in releases {
                     #[allow(clippy::if_same_then_else)]
                     if seen_ac.contains(&(ac.clone(), release.clone())) {
+                        write!(
+                            report_file,
+                            "skipped transcript {} because we have a later version already",
+                            &full_ac
+                        )?;
                         continue; // skip, already have later version
                     } else if ac.starts_with("NR_") && seen_nm {
+                        write!(
+                            report_file,
+                            "skipped transcript {} because we have a NR transcript",
+                            &full_ac
+                        )?;
                         continue; // skip NR transcript as we have NM one
                     } else if ac.starts_with('X') {
+                        write!(
+                            report_file,
+                            "skipped transcript {} because it is an XR/XM transcript",
+                            &full_ac
+                        )?;
                         continue; // skip XR/XM transcript
                     } else {
                         // Check transcript's CDS length for being multiple of 3 and skip unless it is.
-                        let tx = transcripts.get(&full_ac).expect("must exist; accession taken from map earlier");
+                        let tx = transcripts
+                            .get(&full_ac)
+                            .expect("must exist; accession taken from map earlier");
                         if let Some(cds_start) = tx.start_codon {
-                            let cds_end = tx.stop_codon.expect("must be some if start_codon is some");
-                            if (cds_end - cds_start) % 3 != 0 {
+                            let cds_end =
+                                tx.stop_codon.expect("must be some if start_codon is some");
+                            let cds_len = cds_end - cds_start;
+                            if cds_len % 3 != 0 {
                                 tracing::debug!("skipping transcript {} because its CDS length is not a multiple of 3", &full_ac);
+                                write!(report_file, "skipped transcript {} because its CDS length {} is not a multiple of 3", &full_ac, cds_len)?;
                                 continue;
                             }
                         }
@@ -564,10 +633,19 @@ fn filter_transcripts(
             next_tx_ids.dedup();
             chosen.extend(next_tx_ids.iter().cloned());
 
-            (gene_symbol, next_tx_ids)
-        })
-        .filter(|(_, next_tx_ids)| !next_tx_ids.is_empty())
-        .collect();
+            if !next_tx_ids.is_empty() {
+                tmp.insert(gene_symbol.clone(), next_tx_ids);
+            } else {
+                write!(
+                    report_file,
+                    "skipped gene {} because we have no transcripts left",
+                    gene_symbol
+                )?;
+            }
+        }
+
+        tmp
+    };
 
     let transcripts: HashMap<_, _> = transcripts
         .into_iter()
@@ -577,6 +655,7 @@ fn filter_transcripts(
         "  => {} transcripts left",
         transcripts.len().separate_with_commas()
     );
+    write!(report_file, "total transcripts\t{}", transcripts.len())?;
 
     let genes: HashMap<_, _> = genes
         .into_iter()
@@ -585,11 +664,11 @@ fn filter_transcripts(
     tracing::debug!("  => {} genes left", genes.len().separate_with_commas());
 
     tracing::info!("... done filtering transcripts in {:?}", start.elapsed());
-    TranscriptData {
+    Ok(TranscriptData {
         genes,
         transcripts,
         transcript_ids_for_gene,
-    }
+    })
 }
 
 /// Create file-backed `SeqRepo`.
@@ -621,7 +700,7 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
 }
 
 /// Load the cdot JSON files.
-fn load_cdot_files(args: &Args) -> Result<TranscriptData, anyhow::Error> {
+fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData, anyhow::Error> {
     tracing::info!("Loading cdot JSON files ...");
     let start = Instant::now();
     let mut genes = HashMap::new();
@@ -634,6 +713,7 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptData, anyhow::Error> {
             &mut genes,
             &mut transcripts,
             args.genome_release,
+            report_file,
         )?;
     }
     tracing::info!(
@@ -643,6 +723,12 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptData, anyhow::Error> {
         transcripts.len().separate_with_commas(),
         transcript_ids_for_gene.len().separate_with_commas()
     );
+    write!(
+        report_file,
+        "total genes\t{}\ntotal transcripts\t{}",
+        transcripts.len(),
+        transcript_ids_for_gene.len()
+    )?;
 
     Ok(TranscriptData {
         genes,
@@ -653,6 +739,7 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptData, anyhow::Error> {
 
 /// Main entry point for `db create txs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
+    let mut report_file = File::create(&format!("{}.report", args.path_out.display()))?;
     tracing::info!(
         "Building transcript and sequence database file\ncommon args: {:#?}\nargs: {:#?}",
         common,
@@ -662,15 +749,16 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // Open seqrepo,
     let seqrepo = open_seqrepo(args)?;
     // then load cdot files,
-    let tx_data = load_cdot_files(args)?;
+    let tx_data = load_cdot_files(args, &mut report_file)?;
     // then remove redundant onces, and
-    let tx_data = filter_transcripts(tx_data, args.max_txs, &args.gene_symbols);
+    let tx_data = filter_transcripts(tx_data, args.max_txs, &args.gene_symbols, &mut report_file)?;
     // finally build flatbuffers file.
     build_flatbuffers(
         &args.path_out,
         seqrepo,
         tx_data,
         common.verbose.is_silent(),
+        &mut report_file,
     )?;
 
     tracing::info!("Done building transcript and sequence database file");
@@ -680,6 +768,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 #[cfg(test)]
 pub mod test {
     use std::collections::HashMap;
+    use std::fs::File;
     use std::path::{Path, PathBuf};
 
     use clap_verbosity_flag::Verbosity;
@@ -693,6 +782,9 @@ pub mod test {
 
     #[test]
     fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {
+        let tmp_dir = TempDir::default();
+        let mut report_file = File::create(tmp_dir.join("report"))?;
+
         let mut genes = HashMap::new();
         let mut transcripts = HashMap::new();
         let mut transcript_ids_for_gene = HashMap::new();
@@ -702,6 +794,7 @@ pub mod test {
             &mut genes,
             &mut transcripts,
             GenomeRelease::Grch37,
+            &mut report_file,
         )?;
 
         let tx_data = TranscriptData {
@@ -732,7 +825,7 @@ pub mod test {
                 "NR_027676.2",
             ]
         );
-        let filtered = filter_transcripts(tx_data, None, &None);
+        let filtered = filter_transcripts(tx_data, None, &None, &mut report_file)?;
         assert_eq!(
             &filtered
                 .transcript_ids_for_gene
