@@ -684,6 +684,7 @@ fn run_with_writer<Inner: Write>(
             // Annotate with ClinVar.
             annotate_record_clinvar(&db_clinvar, cf_clinvar, &key, &mut vcf_record)?;
 
+            tracing::trace!("var = {:?}", &vcf_var);
             let VcfVar {
                 chrom,
                 pos,

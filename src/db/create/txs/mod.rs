@@ -9,6 +9,7 @@ use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, time::Instan
 use clap::Parser;
 use flatbuffers::FlatBufferBuilder;
 use hgvs::data::cdot::json::models::{self, BioType};
+use hgvs::sequences::{translate_cds, TranslationTable};
 use indicatif::{ProgressBar, ProgressStyle};
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
 use thousands::Separable;
@@ -172,6 +173,7 @@ fn build_flatbuffers(
     // Construct sequence database.
     tracing::info!("  Constructing sequence database ...");
     let mut tx_skipped_noseq = HashSet::new(); // skipped because of missing sequence
+    let mut tx_skipped_nostop = HashSet::new(); // skipped because of missing stop codon
     let seq_db = {
         // Insert into flatbuffer and keep track of pointers in `Vec`s.
         let mut aliases = Vec::new();
@@ -183,7 +185,7 @@ fn build_flatbuffers(
             ProgressBar::new(transcripts.len() as u64)
         };
         pb.set_style(PROGRESS_STYLE.clone());
-        for tx_id in transcripts.keys() {
+        for (tx_id, tx) in &transcripts {
             pb.inc(1);
             let res_seq = seqrepo.fetch_sequence(&AliasOrSeqId::Alias {
                 value: tx_id.clone(),
@@ -192,10 +194,37 @@ fn build_flatbuffers(
             let seq = if let Ok(seq) = res_seq {
                 seq
             } else {
+                tracing::debug!("Skipping transcript {} because of missing sequence", tx_id);
                 tx_skipped_noseq.insert(tx_id.clone());
                 continue;
             };
 
+            // Skip transcript if it is coding and the translated CDS does not have a stop codon.
+            if let Some(cds_start) = tx.start_codon {
+                let cds_start = cds_start as usize;
+                let cds_end = tx.stop_codon.expect("must be some if start_codon is some") as usize;
+                if cds_end > seq.len() {
+                    tracing::error!(
+                        "CDS end {} is larger than sequence length {} for {}",
+                        cds_end,
+                        seq.len(),
+                        tx_id
+                    );
+                }
+                let tx_seq_to_translate = &seq[cds_start..cds_end];
+                let aa_sequence =
+                    translate_cds(tx_seq_to_translate, true, "*", TranslationTable::Standard)?;
+                if !aa_sequence.ends_with('*') {
+                    tracing::debug!(
+                        "Skipping transcript {} because of missing stop codon in translated CDS",
+                        tx_id
+                    );
+                    tx_skipped_nostop.insert(tx_id.clone());
+                    continue;
+                }
+            }
+
+            // Register sequence into flatbuffer.
             aliases.push(builder.create_shared_string(tx_id.as_str()));
             aliases_idx.push(seqs.len() as u32);
             let tx_seq = builder.create_shared_string(&seq);
@@ -217,8 +246,10 @@ fn build_flatbuffers(
         )
     };
     tracing::info!(
-        "  ... done constructing sequence database (no seq for {} transcripts, will be skipped)",
-        tx_skipped_noseq.len().separate_with_commas()
+        "  ... done constructing sequence database (no seq for {} transcripts, \
+        no stop codon for {}, will be skipped)",
+        tx_skipped_noseq.len().separate_with_commas(),
+        tx_skipped_nostop.len().separate_with_commas(),
     );
 
     trace_rss_now();
@@ -445,7 +476,7 @@ struct TranscriptData {
 /// - Do not pick any `NR_` transcripts when there are coding `NM_` transcripts.
 fn filter_transcripts(
     tx_data: TranscriptData,
-    max_txs: Option<u32>,
+    max_genes: Option<u32>,
     gene_symbols: &Option<Vec<String>>,
 ) -> TranscriptData {
     tracing::info!("Filtering transcripts ...");
@@ -458,17 +489,20 @@ fn filter_transcripts(
         transcript_ids_for_gene,
     } = tx_data;
 
-    let transcript_ids_for_gene = if let Some(max_txs) = max_txs {
-        tracing::warn!("Limiting to {} transcripts!", max_txs);
+    // Potentially limit number of genes.
+    let transcript_ids_for_gene = if let Some(max_genes) = max_genes {
+        tracing::warn!("Limiting to {} genes!", max_genes);
         transcript_ids_for_gene
             .into_iter()
-            .take(max_txs as usize)
+            .take(max_genes as usize)
             .collect()
     } else {
         transcript_ids_for_gene
     };
 
+    // We keep track of the chosen transcript identifiers.
     let mut chosen = HashSet::new();
+    // Filter map from gene symbol to Vec of chosen transcript identifiers.
     let transcript_ids_for_gene: HashMap<_, _> = transcript_ids_for_gene
         .into_iter()
         .filter(|(gene_symbol, _)| gene_symbols.is_empty() || gene_symbols.contains(gene_symbol))
@@ -509,6 +543,17 @@ fn filter_transcripts(
                     } else if ac.starts_with('X') {
                         continue; // skip XR/XM transcript
                     } else {
+                        // Check transcript's CDS length for being multiple of 3 and skip unless it is.
+                        let tx = transcripts.get(&full_ac).expect("must exist; accession taken from map earlier");
+                        if let Some(cds_start) = tx.start_codon {
+                            let cds_end = tx.stop_codon.expect("must be some if start_codon is some");
+                            if (cds_end - cds_start) % 3 != 0 {
+                                tracing::debug!("skipping transcript {} because its CDS length is not a multiple of 3", &full_ac);
+                                continue;
+                            }
+                        }
+
+                        // Otherwise, mark transcript as included by storing its accession.
                         next_tx_ids.push(full_ac.clone());
                         seen_ac.insert((ac.clone(), release));
                     }
@@ -621,7 +666,12 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // then remove redundant onces, and
     let tx_data = filter_transcripts(tx_data, args.max_txs, &args.gene_symbols);
     // finally build flatbuffers file.
-    build_flatbuffers(&args.path_out, seqrepo, tx_data, common.verbose.is_silent())?;
+    build_flatbuffers(
+        &args.path_out,
+        seqrepo,
+        tx_data,
+        common.verbose.is_silent(),
+    )?;
 
     tracing::info!("Done building transcript and sequence database file");
     Ok(())

@@ -359,7 +359,7 @@ pub enum Message {
     ErrorChromosomeNotFound,
     ErrorOutOfChromosomeRange,
     WarningRefDoesNotMatchGenome,
-    WarningSequnenceNotAvailable,
+    WarningSequenceNotAvailable,
     WarningTranscriptIncomplete,
     WarningTranscriptMultipleStopCodons,
     WarningTranscriptsNoStartCodon,
