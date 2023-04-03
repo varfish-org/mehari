@@ -7,3 +7,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # The crates noodles and noodles-util are peer dependencies.  We need to
+      # update them separately, cf. https://github.com/zaeleus/noodles/issues/159.
+      - dependency-name: noodles
+      - dependency-name: noodles-util
