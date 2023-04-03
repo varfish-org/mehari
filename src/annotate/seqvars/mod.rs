@@ -7,12 +7,15 @@ pub mod provider;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::path::Path;
 use std::rc::Rc;
 use std::time::Instant;
 
-use clap::Parser;
+use clap::{Args as ClapArgs, Parser};
 use enumset::EnumSet;
 use flatbuffers::VerifierOptions;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use hgvs::static_data::Assembly;
 use memmap2::Mmap;
 use noodles::bgzf::Writer as BgzfWriter;
@@ -21,7 +24,9 @@ use noodles::vcf::header::{
     Number,
 };
 use noodles::vcf::record::info::field::Value;
-use noodles::vcf::{header::record::value::map::Map, Header as VcfHeader, Writer as VcfWriter};
+use noodles::vcf::{
+    header::record::value::map::Map, Header as VcfHeader, Record as VcfRecord, Writer as VcfWriter,
+};
 use noodles_util::variant::reader::Builder as VariantReaderBuilder;
 use rocksdb::ThreadMode;
 use thousands::Separable;
@@ -59,9 +64,8 @@ pub struct Args {
     /// Path to the input VCF file.
     #[arg(long)]
     pub path_input_vcf: String,
-    /// Path to the output VCF file.
-    #[arg(long)]
-    pub path_output_vcf: String,
+    #[command(flatten)]
+    pub output: PathOutput,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
@@ -70,6 +74,19 @@ pub struct Args {
     /// "too many tables" error output, increase this value.
     #[arg(long, default_value_t = 5_000_000)]
     pub max_fb_tables: usize,
+}
+
+/// Command line arguments to enforce either `--path-output-vcf` or `--path-output-tsv`.
+#[derive(Debug, ClapArgs)]
+#[group(required = true, multiple = false)]
+pub struct PathOutput {
+    /// Path to the output VCF file.
+    #[arg(long)]
+    pub path_output_vcf: Option<String>,
+
+    /// Path to the output TSV file (for import into VarFish).
+    #[arg(long)]
+    pub path_output_tsv: Option<String>,
 }
 
 pub mod keys {
@@ -579,9 +596,117 @@ pub fn load_tx_db(tx_path: &str, max_fb_tables: usize) -> Result<TxSeqDatabase, 
     Ok(TxSeqDatabase { tx_db, seq_db })
 }
 
+/// Mehari-local trait for writing out annotated VCF records as VCF or VarFish TSV.
+pub trait AnnotatedVcfWriter {
+    fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
+    fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error>;
+}
+
+/// Implement `AnnotatedVcfWriter` for `VcfWriter`.
+impl<Inner: Write> AnnotatedVcfWriter for VcfWriter<Inner> {
+    fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
+        self.write_header(header)
+            .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
+    }
+
+    fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error> {
+        self.write_record(record)
+            .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
+    }
+}
+
+/// Writing of VarFish TSV files.
+struct VarFishTsvWriter {
+    inner: Box<dyn Write>,
+}
+
+impl VarFishTsvWriter {
+    // Create new TSV writer from path.
+    pub fn with_path<P>(p: P) -> Self
+    where
+        P: AsRef<Path>,
+    {
+        if p.as_ref().extension().unwrap() == "gz" {
+            Self {
+                inner: Box::new(GzEncoder::new(
+                    File::create(p).unwrap(),
+                    Compression::default(),
+                )),
+            }
+        } else {
+            Self {
+                inner: Box::new(File::create(p).unwrap()),
+            }
+        }
+    }
+}
+
+/// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
+impl AnnotatedVcfWriter for VarFishTsvWriter {
+    fn write_header(&mut self, _header: &VcfHeader) -> Result<(), anyhow::Error> {
+        let header = &[
+            "release",
+            "chromosome",
+            "chromosome_no",
+            "start",
+            "end",
+            "bin",
+            "reference",
+            "alternative",
+            "var_type",
+            "case_id",
+            "set_id",
+            "info",
+            "genotype",
+            "num_hom_alt",
+            "num_hom_ref",
+            "num_het",
+            "num_hemi_alt",
+            "num_hemi_ref",
+            "in_clinvar",
+            "exac_frequency",
+            "exac_homozygous",
+            "exac_heterozygous",
+            "exac_hemizygous",
+            "thousand_genomes_frequency",
+            "thousand_genomes_homozygous",
+            "thousand_genomes_heterozygous",
+            "thousand_genomes_hemizygous",
+            "gnomad_exomes_frequency",
+            "gnomad_exomes_homozygous",
+            "gnomad_exomes_heterozygous",
+            "gnomad_exomes_hemizygous",
+            "gnomad_genomes_frequency",
+            "gnomad_genomes_homozygous",
+            "gnomad_genomes_heterozygous",
+            "gnomad_genomes_hemizygous",
+            "refseq_gene_id",
+            "refseq_transcript_id",
+            "refseq_transcript_coding",
+            "refseq_hgvs_c",
+            "refseq_hgvs_p",
+            "refseq_effect",
+            "refseq_exon_dist",
+            "ensembl_gene_id",
+            "ensembl_transcript_id",
+            "ensembl_transcript_coding",
+            "ensembl_hgvs_c",
+            "ensembl_hgvs_p",
+            "ensembl_effect",
+            "ensembl_exon_dist",
+        ];
+        writeln!(self.inner, "{}", header.join("\t"))
+            .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
+    }
+
+    fn write_record(&mut self, _record: &VcfRecord) -> Result<(), anyhow::Error> {
+        todo!()
+    }
+}
+
 /// Run the annotation with the given `Write` within the `VcfWriter`.
-fn run_with_writer<Inner: Write>(
-    mut writer: VcfWriter<Inner>,
+fn run_with_writer(
+    writer: &mut dyn AnnotatedVcfWriter,
     args: &Args,
 ) -> Result<(), anyhow::Error> {
     tracing::info!("Open VCF and read header");
@@ -746,16 +871,26 @@ fn run_with_writer<Inner: Write>(
 /// Main entry point for `annotate seqvars` sub command.
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("config = {:#?}", &args);
-    if args.path_output_vcf.ends_with(".vcf.gz") || args.path_output_vcf.ends_with(".vcf.bgzf") {
-        let writer = VcfWriter::new(
-            File::create(&args.path_output_vcf)
-                .map(BufWriter::new)
-                .map(BgzfWriter::new)?,
-        );
-        run_with_writer(writer, args)?;
+    if let Some(path_output_vcf) = &args.output.path_output_vcf {
+        if path_output_vcf.ends_with(".vcf.gz") || path_output_vcf.ends_with(".vcf.bgzf") {
+            let mut writer = VcfWriter::new(
+                File::create(&path_output_vcf)
+                    .map(BufWriter::new)
+                    .map(BgzfWriter::new)?,
+            );
+            run_with_writer(&mut writer, args)?;
+        } else {
+            let mut writer = VcfWriter::new(File::create(&path_output_vcf).map(BufWriter::new)?);
+            run_with_writer(&mut writer, args)?;
+        }
     } else {
-        let writer = VcfWriter::new(File::create(&args.path_output_vcf).map(BufWriter::new)?);
-        run_with_writer(writer, args)?;
+        let path_output_tsv = args
+            .output
+            .path_output_tsv
+            .as_ref()
+            .expect("tsv path must be set; vcf and tsv are mutually exclusive, vcf unset");
+        let mut writer = VarFishTsvWriter::with_path(path_output_tsv);
+        run_with_writer(&mut writer, args)?;
     }
 
     Ok(())
@@ -767,10 +902,10 @@ mod test {
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
 
-    use super::{run, Args};
+    use super::{run, Args, PathOutput};
 
     #[test]
-    fn smoke_test() -> Result<(), anyhow::Error> {
+    fn smoke_test_output_vcf() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
         let path_out = temp.join("output.vcf");
 
@@ -783,16 +918,52 @@ mod test {
             path_input_vcf: String::from(
                 "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf",
             ),
-            path_output_vcf: path_out.into_os_string().into_string().unwrap(),
+            output: PathOutput {
+                path_output_vcf: Some(path_out.into_os_string().into_string().unwrap()),
+                path_output_tsv: None,
+            },
             max_var_count: None,
             max_fb_tables: 5_000_000,
         };
 
         run(&args_common, &args)?;
 
-        let actual = std::fs::read_to_string(args.path_output_vcf)?;
+        let actual = std::fs::read_to_string(args.output.path_output_vcf.unwrap())?;
         let expected = std::fs::read_to_string(
             "tests/data/db/create/seqvar_freqs/db-rs1263393206/output.vcf",
+        )?;
+        assert_eq!(&expected, &actual);
+
+        Ok(())
+    }
+
+    #[test]
+    fn smoke_test_output_tsv() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_out = temp.join("output.tsv");
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let args = Args {
+            genome_release: None,
+            path_db: String::from("tests/data/annotate/db"),
+            path_input_vcf: String::from(
+                "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf",
+            ),
+            output: PathOutput {
+                path_output_vcf: None,
+                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
+            },
+            max_var_count: None,
+            max_fb_tables: 5_000_000,
+        };
+
+        run(&args_common, &args)?;
+
+        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
+        let expected = std::fs::read_to_string(
+            "tests/data/db/create/seqvar_freqs/db-rs1263393206/output.tsv",
         )?;
         assert_eq!(&expected, &actual);
 
