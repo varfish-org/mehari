@@ -641,6 +641,139 @@ impl VarFishTsvWriter {
     }
 }
 
+/// A record, as written out to a VarFish TSV file.
+#[derive(Debug, Default)]
+pub struct VarFishTsvRecord {
+    pub release: String,
+    pub chromosome: String,
+    pub chromosome_no: u32,
+    pub start: String,
+    pub end: String,
+    pub bin: u32,
+    pub reference: String,
+    pub alternative: String,
+    pub var_type: String,
+
+    // Writing out case_id and set_info is not used anyway.
+    // pub case_id: String,
+    // pub set_id: String,
+
+    // The info field is not populated anyway.
+    // pub info: String,
+
+    // TODO: lookup Java code for supported fields in genotype.
+    pub genotype: String,
+
+    pub num_hom_alt: u32,
+    pub num_hom_ref: u32,
+    pub num_het: u32,
+    pub num_hemi_alt: u32,
+    pub num_hemi_ref: u32,
+
+    pub in_clinvar: bool,
+
+    // ExAc and 1000 Genomes are not written out anymore.
+
+    // pub exac_frequency: String,
+    // pub exac_homozygous: String,
+    // pub exac_heterozygous: String,
+    // pub exac_hemizygous: String,
+    // pub thousand_genomes_frequency: String,
+    // pub thousand_genomes_homozygous: String,
+    // pub thousand_genomes_heterozygous: String,
+    // pub thousand_genomes_hemizygous: String,
+
+    pub gnomad_exomes_frequency: f64,
+    pub gnomad_exomes_homozygous: u32,
+    pub gnomad_exomes_heterozygous: u32,
+    pub gnomad_exomes_hemizygous: u32,
+    pub gnomad_genomes_frequency: f64,
+    pub gnomad_genomes_homozygous: u32,
+    pub gnomad_genomes_heterozygous: u32,
+    pub gnomad_genomes_hemizygous: u32,
+
+    pub refseq_gene_id: String,
+    pub refseq_transcript_id: String,
+    pub refseq_transcript_coding: bool,
+    pub refseq_hgvs_c: String,
+    pub refseq_hgvs_p: String,
+    pub refseq_effect: Vec<String>,
+    pub refseq_exon_dist: i32,
+
+    pub ensembl_gene_id: String,
+    pub ensembl_transcript_id: String,
+    pub ensembl_transcript_coding: bool,
+    pub ensembl_hgvs_c: String,
+    pub ensembl_hgvs_p: String,
+    pub ensembl_effect: Vec<String>,
+    pub ensembl_exon_dist: i32,
+}
+
+impl VarFishTsvRecord {
+    pub fn to_tsv(&self) -> Vec<String> {
+        vec![
+            self.release.clone(),
+            self.chromosome.clone(),
+            format!("{}", self.chromosome_no),
+            format!("{}", self.start),
+            format!("{}", self.end),
+            format!("{}", self.bin),
+            self.reference.clone(),
+            self.alternative.clone(),
+            self.var_type.clone(),
+
+            String::from("."),
+            String::from("."),
+            String::from("{}"),
+            self.genotype.clone(),
+
+            format!("{}", self.num_hom_alt),
+            format!("{}", self.num_hom_ref),
+            format!("{}", self.num_het),
+            format!("{}", self.num_hemi_alt),
+            format!("{}", self.num_hemi_ref),
+
+            if self.in_clinvar { "TRUE" } else { "FALSE" }.to_string(),
+
+            // exac
+            String::from("0"),
+            String::from("0"),
+            String::from("0"),
+            String::from("0"),
+            // thousand genomes
+            String::from("0"),
+            String::from("0"),
+            String::from("0"),
+            String::from("0"),
+
+            format!("{}", self.gnomad_exomes_frequency),
+            format!("{}", self.gnomad_exomes_homozygous),
+            format!("{}", self.gnomad_exomes_heterozygous),
+            format!("{}", self.gnomad_exomes_hemizygous),
+            format!("{}", self.gnomad_genomes_frequency),
+            format!("{}", self.gnomad_genomes_homozygous),
+            format!("{}", self.gnomad_genomes_heterozygous),
+            format!("{}", self.gnomad_genomes_hemizygous),
+
+            self.refseq_gene_id.clone(),
+            self.refseq_transcript_id.clone(),
+            if self.refseq_transcript_coding { "TRUE" } else { "FALSE" }.to_string(),
+            self.refseq_hgvs_c.clone(),
+            self.refseq_hgvs_p.clone(),
+            format!("{{{}}}", self.refseq_effect.join(",")),
+            format!("{}", self.refseq_exon_dist),
+
+            self.ensembl_gene_id.clone(),
+            self.ensembl_transcript_id.clone(),
+            if self.ensembl_transcript_coding { "TRUE" } else { "FALSE" }.to_string(),
+            self.ensembl_hgvs_c.clone(),
+            self.ensembl_hgvs_p.clone(),
+            format!("{{{}}}", self.ensembl_effect.join(",")),
+            format!("{}", self.ensembl_exon_dist),
+        ]
+    }
+}
+
 /// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
 impl AnnotatedVcfWriter for VarFishTsvWriter {
     fn write_header(&mut self, _header: &VcfHeader) -> Result<(), anyhow::Error> {
@@ -700,7 +833,9 @@ impl AnnotatedVcfWriter for VarFishTsvWriter {
     }
 
     fn write_record(&mut self, _record: &VcfRecord) -> Result<(), anyhow::Error> {
-        todo!()
+        let tsv_record = VarFishTsvRecord::default();
+        writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
+            .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
     }
 }
 
