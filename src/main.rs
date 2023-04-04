@@ -94,6 +94,7 @@ pub mod user_doc {
 pub mod annotate;
 pub mod common;
 pub mod db;
+pub mod ped;
 
 #[allow(
     non_snake_case,

@@ -4,9 +4,10 @@ pub mod ann;
 pub mod csq;
 pub mod provider;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::ops::Deref;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Instant;
@@ -24,6 +25,7 @@ use noodles::vcf::header::{
     Number,
 };
 use noodles::vcf::record::info::field::Value;
+use noodles::vcf::record::Chromosome;
 use noodles::vcf::{
     header::record::value::map::Map, Header as VcfHeader, Record as VcfRecord, Writer as VcfWriter,
 };
@@ -45,6 +47,7 @@ use crate::db::create::txs::data::{
     ExonAlignment, GeneToTxId, GenomeAlignment, GenomeBuild, SequenceDb, Strand, Transcript,
     TranscriptBiotype, TranscriptDb, TranscriptTag, TxSeqDatabase,
 };
+use crate::ped::PedigreeByName;
 use crate::world_flatbuffers::mehari::{
     GenomeBuild as FlatGenomeBuild, Strand as FlatStrand,
     TranscriptBiotype as FlatTranscriptBiotype, TxSeqDatabase as FlatTxSeqDatabase,
@@ -61,6 +64,9 @@ pub struct Args {
     /// Genome release to use, default is to auto-detect.
     #[arg(long, value_enum)]
     pub genome_release: Option<GenomeRelease>,
+    /// Path to the input PED file.
+    #[arg(long)]
+    pub path_input_ped: String,
     /// Path to the input VCF file.
     #[arg(long)]
     pub path_input_vcf: String,
@@ -416,6 +422,25 @@ lazy_static::lazy_static! {
         "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20",
         "chr21", "chr22"
     ].into_iter());
+
+    static ref CHROM_TO_CHROM_NO: HashMap<String, u32> = {
+        let mut m = HashMap::new();
+
+        for i in 1..=22 {
+            m.insert(format!("chr{}", i), i);
+            m.insert(format!("{}", i), i);
+        }
+        m.insert(String::from("X"), 23);
+        m.insert(String::from("chrX"), 23);
+        m.insert(String::from("Y"), 23);
+        m.insert(String::from("chrY"), 23);
+        m.insert(String::from("M"), 23);
+        m.insert(String::from("chrM"), 23);
+        m.insert(String::from("MT"), 24);
+        m.insert(String::from("chrMT"), 24);
+
+        m
+    };
 }
 
 /// Return path component for the assembly.
@@ -600,6 +625,10 @@ pub fn load_tx_db(tx_path: &str, max_fb_tables: usize) -> Result<TxSeqDatabase, 
 pub trait AnnotatedVcfWriter {
     fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
     fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error>;
+    fn set_assembly(&mut self, assembly: &Assembly) { /* nop */
+    }
+    fn set_pedigree(&mut self, pedigree: &PedigreeByName) { /* nop */
+    }
 }
 
 /// Implement `AnnotatedVcfWriter` for `VcfWriter`.
@@ -618,6 +647,103 @@ impl<Inner: Write> AnnotatedVcfWriter for VcfWriter<Inner> {
 /// Writing of VarFish TSV files.
 struct VarFishTsvWriter {
     inner: Box<dyn Write>,
+    assembly: Option<Assembly>,
+    pedigree: Option<PedigreeByName>,
+}
+
+// Offsets for UCSC binning.
+//
+// cf. http://genomewiki.ucsc.edu/index.php/Bin_indexing_system
+static BIN_OFFSETS: &[i32] = &[512 + 64 + 8 + 1, 64 + 8 + 1, 8 + 1, 1, 0];
+const BIN_FIRST_SHIFT: i32 = 17;
+const BIN_NEXT_SHIFT: i32 = 3;
+
+// Compute UCSC bin from 0-based half-open interval.
+pub fn bin_from_range(begin: i32, end: i32) -> Result<i32, anyhow::Error> {
+    let mut begin_bin = begin >> BIN_FIRST_SHIFT;
+    let mut end_bin = std::cmp::max(begin, end - 1) >> BIN_FIRST_SHIFT;
+
+    for offset in BIN_OFFSETS {
+        if begin_bin == end_bin {
+            return Ok(offset + begin_bin);
+        }
+        begin_bin >>= BIN_NEXT_SHIFT;
+        end_bin >>= BIN_NEXT_SHIFT;
+    }
+
+    anyhow::bail!(
+        "begin {}, end {} out of range in bin_from_range (max is 512M",
+        begin,
+        end
+    );
+}
+
+/// Entry with genotype (`gt`), coverage (`dp`), allele depth (`ad`) and
+/// genotype quality (`gq`).
+#[derive(Debug, Default)]
+struct GenotypeInfo {
+    pub name: String,
+    pub gt: Option<String>,
+    pub dp: Option<i32>,
+    pub ad: Option<i32>,
+    pub gq: Option<i32>,
+}
+
+#[derive(Debug, Default)]
+struct GenotypeCalls {
+    pub entries: Vec<GenotypeInfo>,
+}
+
+impl GenotypeCalls {
+    pub fn for_tsv(&self) -> String {
+        let mut result = String::new();
+        result.push('{');
+
+        let mut first = true;
+        for entry in &self.entries {
+            if first {
+                first = false;
+            } else {
+                result.push(',');
+            }
+            result.push_str(&format!("\"\"\"{}\"\"\":{{", entry.name));
+
+            let mut prev = false;
+            if let Some(gt) = &entry.gt {
+                prev = true;
+                result.push_str(&format!("\"\"\"gt\"\"\"\"\":\"\"\"\"\"{}\"\"\"\"\"", gt));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(ad) = &entry.ad {
+                prev = true;
+                result.push_str(&format!("\"\"\"ad\"\"\"\"\":{}", ad));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(dp) = &entry.dp {
+                prev = true;
+                result.push_str(&format!("\"\"\"dp\"\"\"\"\":{}", dp));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(gq) = &entry.gq {
+                prev = true;
+                result.push_str(&format!("\"\"\"gq\"\"\"\"\":{}", gq));
+            }
+
+            result.push('}');
+        }
+
+        result.push('}');
+        result
+    }
 }
 
 impl VarFishTsvWriter {
@@ -626,18 +752,208 @@ impl VarFishTsvWriter {
     where
         P: AsRef<Path>,
     {
-        if p.as_ref().extension().unwrap() == "gz" {
-            Self {
-                inner: Box::new(GzEncoder::new(
+        Self {
+            inner: if p.as_ref().extension().unwrap() == "gz" {
+                Box::new(GzEncoder::new(
                     File::create(p).unwrap(),
                     Compression::default(),
-                )),
+                ))
+            } else {
+                Box::new(File::create(p).unwrap())
+            },
+            assembly: None,
+            pedigree: None,
+        }
+    }
+
+    /// Fill `record` coordinate fields.
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if the record is to be written to the TSV file and `false` if
+    /// it is to be skipped because it was not on a canonical chromosome (chr1..chr22,
+    /// chrX, chrY, chrM/chrMT).
+    fn fill_coords(
+        &self,
+        assembly: Assembly,
+        record: &VcfRecord,
+        tsv_record: &mut VarFishTsvRecord,
+    ) -> Result<bool, anyhow::Error> {
+        tsv_record.release = match assembly {
+            Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
+            Assembly::Grch38 => String::from("GRCh38"),
+        };
+        if let Chromosome::Name(name) = record.chromosome() {
+            // strip "chr" prefix from `name`
+            let name = if name.starts_with("chr") {
+                &name[3..]
+            } else {
+                name
+            };
+            // add back "chr" prefix if necessary (for GRCh38)
+            tsv_record.chromosome = if assembly == Assembly::Grch38 {
+                format!("chr{}", name)
+            } else {
+                name.to_string()
+            };
+        } else {
+            anyhow::bail!("Cannot handle chromosome: {:?}", record.chromosome())
+        }
+        if let Some(chromosome_no) = CHROM_TO_CHROM_NO.get(&tsv_record.chromosome) {
+            tsv_record.chromosome_no = *chromosome_no;
+        } else {
+            return Ok(false);
+        }
+
+        tsv_record.reference = record.reference_bases().to_string();
+        tsv_record.alternative = record.alternate_bases().deref()[0].to_string();
+
+        tsv_record.start = record.position().into();
+        tsv_record.end = tsv_record.start + tsv_record.reference.len() - 1;
+        tsv_record.bin = bin_from_range(tsv_record.start as i32 - 1, tsv_record.end as i32)? as u32;
+
+        tsv_record.var_type = if tsv_record.reference.len() == tsv_record.alternative.len() {
+            if tsv_record.reference.len() == 1 {
+                String::from("snv")
+            } else {
+                String::from("mnv")
             }
         } else {
-            Self {
-                inner: Box::new(File::create(p).unwrap()),
-            }
+            String::from("indel")
+        };
+
+        Ok(true)
+    }
+
+    /// Fill `record` genotype and family-local allele frequencies.
+    fn fill_genotype_and_freqs(
+        &self,
+        record: &VcfRecord,
+        tsv_record: &mut VarFishTsvRecord,
+    ) -> Result<(), anyhow::Error> {
+        // TODO: genotype, family counts
+        // Extract genotype information.
+
+        // Extract family counts.
+
+        // Extract gnomAD frequencies.
+
+        let gnomad_exomes_an = record
+            .info()
+            .get(&keys::GNOMAD_EXOMES_AN)
+            .unwrap()
+            .map(|v| match v {
+                Value::Integer(value) => *value,
+                _ => panic!("Unexpected value type for GNOMAD_EXOMES_AN"),
+            })
+            .unwrap_or_default();
+        if gnomad_exomes_an > 0 {
+            tsv_record.gnomad_exomes_homozygous = record
+                .info()
+                .get(&keys::GNOMAD_EXOMES_HOM)
+                .unwrap_or(Some(&Value::Integer(0)))
+                .map(|v| match v {
+                    Value::Integer(value) => *value,
+                    _ => panic!("Unexpected value type for GNOMAD_EXOMES_HOM"),
+                })
+                .unwrap_or_default();
+            tsv_record.gnomad_exomes_heterozygous = record
+                .info()
+                .get(&keys::GNOMAD_EXOMES_HET)
+                .unwrap_or(Some(&Value::Integer(0)))
+                .map(|v| match v {
+                    Value::Integer(value) => *value,
+                    _ => panic!("Unexpected value type for GNOMAD_EXOMES_HET"),
+                })
+                .unwrap_or_default();
+            tsv_record.gnomad_exomes_hemizygous = record
+                .info()
+                .get(&keys::GNOMAD_EXOMES_HEMI)
+                .unwrap_or(Some(&Value::Integer(0)))
+                .map(|v| match v {
+                    Value::Integer(value) => *value,
+                    _ => panic!("Unexpected value type for GNOMAD_EXOMES_HEMI"),
+                })
+                .unwrap_or_default();
+            tsv_record.gnomad_exomes_frequency = (tsv_record.gnomad_exomes_hemizygous
+                + tsv_record.gnomad_exomes_heterozygous
+                + tsv_record.gnomad_exomes_homozygous * 2)
+                as f64
+                / gnomad_exomes_an as f64;
         }
+
+        let gnomad_genomes_an = record
+            .info()
+            .get(&keys::GNOMAD_GENOMES_AN)
+            .unwrap()
+            .map(|v| match v {
+                Value::Integer(value) => *value,
+                _ => panic!("Unexpected value type for GNOMAD_GENOMES_AN"),
+            })
+            .unwrap_or_default();
+        if gnomad_genomes_an > 0 {
+            tsv_record.gnomad_genomes_homozygous = record
+                .info()
+                .get(&keys::GNOMAD_GENOMES_HOM)
+                .unwrap_or(Some(&Value::Integer(0)))
+                .map(|v| match v {
+                    Value::Integer(value) => *value,
+                    _ => panic!("Unexpected value type for GNOMAD_GENOMES_HOM"),
+                })
+                .unwrap_or_default();
+            tsv_record.gnomad_genomes_heterozygous = record
+                .info()
+                .get(&keys::GNOMAD_GENOMES_HET)
+                .unwrap_or(Some(&Value::Integer(0)))
+                .map(|v| match v {
+                    Value::Integer(value) => *value,
+                    _ => panic!("Unexpected value type for GNOMAD_GENOMES_HET"),
+                })
+                .unwrap_or_default();
+            tsv_record.gnomad_genomes_hemizygous = record
+                .info()
+                .get(&keys::GNOMAD_GENOMES_HEMI)
+                .unwrap_or(Some(&Value::Integer(0)))
+                .map(|v| match v {
+                    Value::Integer(value) => *value,
+                    _ => panic!("Unexpected value type for GNOMAD_GENOMES_HEMI"),
+                })
+                .unwrap_or_default();
+            tsv_record.gnomad_genomes_frequency = (tsv_record.gnomad_genomes_hemizygous
+                + tsv_record.gnomad_genomes_heterozygous
+                + tsv_record.gnomad_genomes_homozygous * 2)
+                as f64
+                / gnomad_genomes_an as f64;
+        }
+
+        Ok(())
+    }
+
+    /// Fill `record` background frequencies.
+    fn fill_bg_freqs(
+        &self,
+        record: &VcfRecord,
+        tsv_record: &mut VarFishTsvRecord,
+    ) -> Result<(), anyhow::Error> {
+        Ok(())
+    }
+
+    /// Fill `record` RefSeq fields.
+    fn fill_refseq(
+        &self,
+        record: &VcfRecord,
+        tsv_record: &mut VarFishTsvRecord,
+    ) -> Result<(), anyhow::Error> {
+        Ok(())
+    }
+
+    /// Fill `record` ENSEMBL fields.
+    fn fill_ensembl(
+        &self,
+        record: &VcfRecord,
+        tsv_record: &mut VarFishTsvRecord,
+    ) -> Result<(), anyhow::Error> {
+        Ok(())
     }
 }
 
@@ -647,8 +963,8 @@ pub struct VarFishTsvRecord {
     pub release: String,
     pub chromosome: String,
     pub chromosome_no: u32,
-    pub start: String,
-    pub end: String,
+    pub start: usize,
+    pub end: usize,
     pub bin: u32,
     pub reference: String,
     pub alternative: String,
@@ -683,13 +999,13 @@ pub struct VarFishTsvRecord {
     // pub thousand_genomes_heterozygous: String,
     // pub thousand_genomes_hemizygous: String,
     pub gnomad_exomes_frequency: f64,
-    pub gnomad_exomes_homozygous: u32,
-    pub gnomad_exomes_heterozygous: u32,
-    pub gnomad_exomes_hemizygous: u32,
+    pub gnomad_exomes_homozygous: i32,
+    pub gnomad_exomes_heterozygous: i32,
+    pub gnomad_exomes_hemizygous: i32,
     pub gnomad_genomes_frequency: f64,
-    pub gnomad_genomes_homozygous: u32,
-    pub gnomad_genomes_heterozygous: u32,
-    pub gnomad_genomes_hemizygous: u32,
+    pub gnomad_genomes_homozygous: i32,
+    pub gnomad_genomes_heterozygous: i32,
+    pub gnomad_genomes_hemizygous: i32,
 
     pub refseq_gene_id: String,
     pub refseq_transcript_id: String,
@@ -778,6 +1094,13 @@ impl VarFishTsvRecord {
 
 /// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
 impl AnnotatedVcfWriter for VarFishTsvWriter {
+    fn set_assembly(&mut self, assembly: &Assembly) {
+        self.assembly = Some(*assembly)
+    }
+    fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
+        self.pedigree = Some(pedigree.clone())
+    }
+
     fn write_header(&mut self, _header: &VcfHeader) -> Result<(), anyhow::Error> {
         let header = &[
             "release",
@@ -834,8 +1157,24 @@ impl AnnotatedVcfWriter for VarFishTsvWriter {
             .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
     }
 
-    fn write_record(&mut self, _record: &VcfRecord) -> Result<(), anyhow::Error> {
-        let tsv_record = VarFishTsvRecord::default();
+    fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error> {
+        let mut tsv_record = VarFishTsvRecord::default();
+
+        if !self.fill_coords(
+            self.assembly.expect("assembly must have been set"),
+            &record,
+            &mut tsv_record,
+        )? {
+            // Record was not on canonical chromosome and should not be written out.
+            return Ok(());
+        }
+        self.fill_genotype_and_freqs(&record, &mut tsv_record)?;
+        self.fill_bg_freqs(&record, &mut tsv_record)?;
+        self.fill_refseq(&record, &mut tsv_record)?;
+        self.fill_ensembl(&record, &mut tsv_record)?;
+
+        tracing::info!("writing {:?}", tsv_record);
+
         writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
             .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
     }
@@ -854,6 +1193,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
         GenomeRelease::Grch38 => Assembly::Grch38,
     });
     let assembly = guess_assembly(&header_in, false, genome_release)?;
+    writer.set_assembly(&assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
     // Open the frequency RocksDB database in read only mode.
@@ -893,6 +1233,11 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     )?;
 
     let cf_clinvar = db_clinvar.cf_handle("clinvar_seqvars").unwrap();
+
+    // Load the pedigree.
+    tracing::info!("Loading pedigree...");
+    writer.set_pedigree(&PedigreeByName::from_path(&args.path_input_ped)?);
+    tracing::info!("... done loading pedigree");
 
     // Open the transcript flatbuffer.
     tracing::info!("Opening transcript database");
@@ -1037,6 +1382,8 @@ mod test {
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
 
+    use crate::annotate::seqvars::bin_from_range;
+
     use super::{run, Args, PathOutput};
 
     #[test]
@@ -1059,6 +1406,9 @@ mod test {
             },
             max_var_count: None,
             max_fb_tables: 5_000_000,
+            path_input_ped: String::from(
+                "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.ped",
+            ),
         };
 
         run(&args_common, &args)?;
@@ -1092,6 +1442,9 @@ mod test {
             },
             max_var_count: None,
             max_fb_tables: 5_000_000,
+            path_input_ped: String::from(
+                "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.ped",
+            ),
         };
 
         run(&args_common, &args)?;
@@ -1101,6 +1454,18 @@ mod test {
             "tests/data/db/create/seqvar_freqs/db-rs1263393206/output.tsv",
         )?;
         assert_eq!(&expected, &actual);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_bin_from_range() -> Result<(), anyhow::Error> {
+        assert_eq!(bin_from_range(0, 0)?, 585);
+        assert_eq!(bin_from_range(1, 0)?, 585);
+        assert_eq!(bin_from_range(0, 1)?, 585);
+        assert_eq!(bin_from_range(0, 42)?, 585);
+        assert_eq!(bin_from_range(42_424_242, 42_424_243)?, 908);
+        assert_eq!(bin_from_range(0, 42_424_243)?, 1);
 
         Ok(())
     }
