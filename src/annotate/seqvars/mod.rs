@@ -10,6 +10,7 @@ use std::io::{BufWriter, Write};
 use std::ops::Deref;
 use std::path::Path;
 use std::rc::Rc;
+use std::str::FromStr;
 use std::time::Instant;
 
 use clap::{Args as ClapArgs, Parser};
@@ -20,12 +21,18 @@ use flate2::Compression;
 use hgvs::static_data::Assembly;
 use memmap2::Mmap;
 use noodles::bgzf::Writer as BgzfWriter;
+use noodles::vcf::header::format::key::{
+    CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH, READ_DEPTHS,
+};
 use noodles::vcf::header::{
     record::value::map::{info::Type, Info},
     Number,
 };
 use noodles::vcf::record::info::field::Value;
 use noodles::vcf::record::Chromosome;
+use noodles::vcf::{
+    header::format::key::Key as FormatKey, header::format::key::Other as FormatKeyOther,
+};
 use noodles::vcf::{
     header::record::value::map::Map, Header as VcfHeader, Record as VcfRecord, Writer as VcfWriter,
 };
@@ -47,7 +54,7 @@ use crate::db::create::txs::data::{
     ExonAlignment, GeneToTxId, GenomeAlignment, GenomeBuild, SequenceDb, Strand, Transcript,
     TranscriptBiotype, TranscriptDb, TranscriptTag, TxSeqDatabase,
 };
-use crate::ped::PedigreeByName;
+use crate::ped::{PedigreeByName, Sex};
 use crate::world_flatbuffers::mehari::{
     GenomeBuild as FlatGenomeBuild, Strand as FlatStrand,
     TranscriptBiotype as FlatTranscriptBiotype, TxSeqDatabase as FlatTxSeqDatabase,
@@ -99,6 +106,7 @@ pub mod keys {
     use std::str::FromStr;
 
     use noodles::vcf::{
+        header::format::key::Key as FormatKey, header::format::key::Other as FormatKeyOther,
         header::info::key::Key as InfoKey, header::info::key::Other as InfoKeyOther,
     };
 
@@ -649,6 +657,7 @@ struct VarFishTsvWriter {
     inner: Box<dyn Write>,
     assembly: Option<Assembly>,
     pedigree: Option<PedigreeByName>,
+    header: Option<VcfHeader>,
 }
 
 // Offsets for UCSC binning.
@@ -711,7 +720,7 @@ impl GenotypeCalls {
             let mut prev = false;
             if let Some(gt) = &entry.gt {
                 prev = true;
-                result.push_str(&format!("\"\"\"gt\"\"\"\"\":\"\"\"\"\"{}\"\"\"\"\"", gt));
+                result.push_str(&format!("\"\"\"gt\"\"\"\":\"\"\"\"{}\"\"\"\"", gt));
             }
 
             if prev {
@@ -719,7 +728,7 @@ impl GenotypeCalls {
             }
             if let Some(ad) = &entry.ad {
                 prev = true;
-                result.push_str(&format!("\"\"\"ad\"\"\"\"\":{}", ad));
+                result.push_str(&format!("\"\"\"ad\"\"\"\":{}", ad));
             }
 
             if prev {
@@ -727,7 +736,7 @@ impl GenotypeCalls {
             }
             if let Some(dp) = &entry.dp {
                 prev = true;
-                result.push_str(&format!("\"\"\"dp\"\"\"\"\":{}", dp));
+                result.push_str(&format!("\"\"\"dp\"\"\"\":{}", dp));
             }
 
             if prev {
@@ -735,7 +744,7 @@ impl GenotypeCalls {
             }
             if let Some(gq) = &entry.gq {
                 prev = true;
-                result.push_str(&format!("\"\"\"gq\"\"\"\"\":{}", gq));
+                result.push_str(&format!("\"\"\"gq\"\"\"\":{}", gq));
             }
 
             result.push('}');
@@ -763,6 +772,7 @@ impl VarFishTsvWriter {
             },
             assembly: None,
             pedigree: None,
+            header: None,
         }
     }
 
@@ -831,8 +841,143 @@ impl VarFishTsvWriter {
         record: &VcfRecord,
         tsv_record: &mut VarFishTsvRecord,
     ) -> Result<(), anyhow::Error> {
-        // TODO: genotype, family counts
         // Extract genotype information.
+        let hdr = self
+            .header
+            .as_ref()
+            .expect("VCF header must be set/written");
+        let mut gt_calls = GenotypeCalls::default();
+        for (sample, genotype) in hdr.sample_names().iter().zip(record.genotypes().iter()) {
+            let mut gt_info = GenotypeInfo {
+                name: sample.to_string(),
+                ..Default::default()
+            };
+
+            if let Some(gt) = genotype
+                .get(&GENOTYPE)
+                .map(|value| match value {
+                    Some(noodles::vcf::record::genotypes::genotype::field::Value::String(s)) => {
+                        Ok(s.to_owned())
+                    }
+                    _ => anyhow::bail!("invalid GT value"),
+                })
+                .transpose()?
+            {
+                let individual = self
+                    .pedigree
+                    .as_ref()
+                    .expect("pedigree must be set")
+                    .individuals
+                    .get(sample)
+                    .expect(&format!("individual {} not found in pedigree", sample));
+                // Update per-family counts.
+                if ["X", "chrX"]
+                    .iter()
+                    .any(|c| *c == tsv_record.chromosome.as_str())
+                {
+                    match individual.sex {
+                        Sex::Male => {
+                            if gt.contains("1") {
+                                tsv_record.num_hemi_alt += 1;
+                            } else {
+                                tsv_record.num_hemi_ref += 1;
+                            }
+                        }
+                        Sex::Female | Sex::Unknown => {
+                            // assume diploid/female if unknown
+                            let matches = gt.matches("1").count();
+                            if matches == 0 {
+                                tsv_record.num_hom_ref += 1;
+                            } else if matches == 1 {
+                                tsv_record.num_het += 1;
+                            } else {
+                                tsv_record.num_hom_alt += 1;
+                            }
+                        }
+                    }
+                } else if ["Y", "chrY"]
+                    .iter()
+                    .any(|c| *c == tsv_record.chromosome.as_str())
+                {
+                    if individual.sex == Sex::Male {
+                        if gt.contains("1") {
+                            tsv_record.num_hemi_alt += 1;
+                        } else {
+                            tsv_record.num_hemi_ref += 1;
+                        }
+                    }
+                } else {
+                    let matches = gt.matches("1").count();
+                    if matches == 0 {
+                        tsv_record.num_hom_ref += 1;
+                    } else if matches == 1 {
+                        tsv_record.num_het += 1;
+                    } else {
+                        tsv_record.num_hom_alt += 1;
+                    }
+                }
+
+                // Store genotype value.
+                gt_info.gt = Some(gt);
+            }
+
+            if let Some(dp) = genotype
+                .get(&READ_DEPTH)
+                .map(|value| match value {
+                    Some(noodles::vcf::record::genotypes::genotype::field::Value::Integer(i)) => {
+                        Ok(*i)
+                    }
+                    _ => anyhow::bail!("invalid DP value"),
+                })
+                .transpose()?
+            {
+                gt_info.dp = Some(dp);
+            }
+
+            if let Some(ad) = genotype
+                .get(&READ_DEPTHS)
+                .map(|value| match value {
+                    Some(
+                        noodles::vcf::record::genotypes::genotype::field::Value::IntegerArray(arr),
+                    ) => Ok(arr[0].expect("missing AD value")),
+                    _ => anyhow::bail!("invalid AD value"),
+                })
+                .transpose()?
+            {
+                gt_info.ad = Some(ad);
+            }
+
+            if let Some(gq) = genotype
+                .get(&CONDITIONAL_GENOTYPE_QUALITY)
+                .map(|value| match value {
+                    Some(noodles::vcf::record::genotypes::genotype::field::Value::Integer(i)) => {
+                        Ok(*i)
+                    }
+                    _ => anyhow::bail!("invalid GQ value"),
+                })
+                .transpose()?
+            {
+                gt_info.gq = Some(gq);
+            }
+
+            let x = genotype.get(&FormatKey::Other(FormatKeyOther::from_str("SQ").unwrap()));
+
+            if let Some(sq) = genotype
+                .get(&FormatKey::Other(FormatKeyOther::from_str("SQ").unwrap()))
+                .map(|value| match value {
+                    Some(noodles::vcf::record::genotypes::genotype::field::Value::Float(f)) => {
+                        Ok(*f)
+                    }
+                    _ => anyhow::bail!("invalid SQ value"),
+                })
+                .transpose()?
+            {
+                gt_info.gq = Some(sq as i32);
+            }
+
+            gt_calls.entries.push(gt_info);
+        }
+        tsv_record.genotype = gt_calls.for_tsv();
 
         // Extract family counts.
 
@@ -988,8 +1133,7 @@ pub struct VarFishTsvRecord {
 
     pub in_clinvar: bool,
 
-    // ExAc and 1000 Genomes are not written out anymore.
-
+    // NB: ExAc and 1000 Genomes are not written out anymore.
     // pub exac_frequency: String,
     // pub exac_homozygous: String,
     // pub exac_heterozygous: String,
@@ -1097,11 +1241,13 @@ impl AnnotatedVcfWriter for VarFishTsvWriter {
     fn set_assembly(&mut self, assembly: &Assembly) {
         self.assembly = Some(*assembly)
     }
+
     fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
         self.pedigree = Some(pedigree.clone())
     }
 
-    fn write_header(&mut self, _header: &VcfHeader) -> Result<(), anyhow::Error> {
+    fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
+        self.header = Some(header.clone());
         let header = &[
             "release",
             "chromosome",
