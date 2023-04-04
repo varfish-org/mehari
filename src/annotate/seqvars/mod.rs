@@ -63,6 +63,8 @@ use crate::world_flatbuffers::mehari::{
     TranscriptBiotype as FlatTranscriptBiotype, TxSeqDatabase as FlatTxSeqDatabase,
 };
 
+use self::ann::AnnField;
+
 /// Parsing of HGNC xlink records.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HgncRecord {
@@ -648,11 +650,14 @@ pub fn load_tx_db(tx_path: &str, max_fb_tables: usize) -> Result<TxSeqDatabase, 
 pub trait AnnotatedVcfWriter {
     fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
     fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error>;
-    fn set_hgnc_map(&mut self, hgnc_map: FxHashMap<String, HgncRecord>) { /* nop*/
+    fn set_hgnc_map(&mut self, _hgnc_map: FxHashMap<String, HgncRecord>) {
+        // nop
     }
-    fn set_assembly(&mut self, _assembly: &Assembly) { /* nop */
+    fn set_assembly(&mut self, _assembly: &Assembly) {
+        // nop
     }
-    fn set_pedigree(&mut self, _pedigree: &PedigreeByName) { /* nop */
+    fn set_pedigree(&mut self, _pedigree: &PedigreeByName) {
+        // nop
     }
 }
 
@@ -1107,9 +1112,21 @@ impl VarFishTsvWriter {
     /// Fill `record` RefSeq and ENSEMBL fields.
     fn fill_refseq_ensembl(
         &self,
-        _record: &VcfRecord,
+        record: &VcfRecord,
         _tsv_record: &mut VarFishTsvRecord,
     ) -> Result<(), anyhow::Error> {
+        let x = record
+            .info()
+            .get(&keys::ANN)
+            .unwrap_or_default()
+            .map(|v| match v {
+                Value::StringArray(values) => values
+                    .iter()
+                    .filter(|v| v.is_some())
+                    .map(|v| AnnField::from_str(v.as_ref().unwrap())),
+                _ => panic!("Unexpected value type for INFO/clinvar_patho"),
+            });
+
         Ok(())
     }
 
