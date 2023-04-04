@@ -926,7 +926,8 @@ impl VarFishTsvWriter {
                     Some(noodles::vcf::record::genotypes::genotype::field::Value::Integer(i)) => {
                         Ok(*i)
                     }
-                    _ => anyhow::bail!("invalid DP value"),
+                    None => Ok(0),
+                    _ => anyhow::bail!(format!("invalid DP value {:?} in {:#?}", value, genotype)),
                 })
                 .transpose()?
             {
@@ -939,7 +940,8 @@ impl VarFishTsvWriter {
                     Some(
                         noodles::vcf::record::genotypes::genotype::field::Value::IntegerArray(arr),
                     ) => Ok(arr[0].expect("missing AD value")),
-                    _ => anyhow::bail!("invalid AD value"),
+                    None => Ok(0),
+                    _ => anyhow::bail!(format!("invalid AD value {:?} in {:#?}", value, genotype)),
                 })
                 .transpose()?
             {
@@ -952,7 +954,8 @@ impl VarFishTsvWriter {
                     Some(noodles::vcf::record::genotypes::genotype::field::Value::Integer(i)) => {
                         Ok(*i)
                     }
-                    _ => anyhow::bail!("invalid GQ value"),
+                    None => Ok(0),
+                    _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, genotype)),
                 })
                 .transpose()?
             {
@@ -967,7 +970,8 @@ impl VarFishTsvWriter {
                     Some(noodles::vcf::record::genotypes::genotype::field::Value::Float(f)) => {
                         Ok(*f)
                     }
-                    _ => anyhow::bail!("invalid SQ value"),
+                    None => Ok(0f32),
+                    _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, genotype)),
                 })
                 .transpose()?
             {
@@ -985,7 +989,7 @@ impl VarFishTsvWriter {
         let gnomad_exomes_an = record
             .info()
             .get(&keys::GNOMAD_EXOMES_AN)
-            .unwrap()
+            .unwrap_or_default()
             .map(|v| match v {
                 Value::Integer(value) => *value,
                 _ => panic!("Unexpected value type for GNOMAD_EXOMES_AN"),
@@ -1029,7 +1033,7 @@ impl VarFishTsvWriter {
         let gnomad_genomes_an = record
             .info()
             .get(&keys::GNOMAD_GENOMES_AN)
-            .unwrap()
+            .unwrap_or_default()
             .map(|v| match v {
                 Value::Integer(value) => *value,
                 _ => panic!("Unexpected value type for GNOMAD_GENOMES_AN"),
@@ -1317,8 +1321,6 @@ impl AnnotatedVcfWriter for VarFishTsvWriter {
         self.fill_bg_freqs(record, &mut tsv_record)?;
         self.fill_refseq(record, &mut tsv_record)?;
         self.fill_ensembl(record, &mut tsv_record)?;
-
-        tracing::info!("writing {:?}", tsv_record);
 
         writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
             .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
