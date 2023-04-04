@@ -682,7 +682,6 @@ pub struct VarFishTsvRecord {
     // pub thousand_genomes_homozygous: String,
     // pub thousand_genomes_heterozygous: String,
     // pub thousand_genomes_hemizygous: String,
-
     pub gnomad_exomes_frequency: f64,
     pub gnomad_exomes_homozygous: u32,
     pub gnomad_exomes_heterozygous: u32,
@@ -721,20 +720,16 @@ impl VarFishTsvRecord {
             self.reference.clone(),
             self.alternative.clone(),
             self.var_type.clone(),
-
             String::from("."),
             String::from("."),
             String::from("{}"),
             self.genotype.clone(),
-
             format!("{}", self.num_hom_alt),
             format!("{}", self.num_hom_ref),
             format!("{}", self.num_het),
             format!("{}", self.num_hemi_alt),
             format!("{}", self.num_hemi_ref),
-
             if self.in_clinvar { "TRUE" } else { "FALSE" }.to_string(),
-
             // exac
             String::from("0"),
             String::from("0"),
@@ -745,7 +740,6 @@ impl VarFishTsvRecord {
             String::from("0"),
             String::from("0"),
             String::from("0"),
-
             format!("{}", self.gnomad_exomes_frequency),
             format!("{}", self.gnomad_exomes_homozygous),
             format!("{}", self.gnomad_exomes_heterozygous),
@@ -754,18 +748,26 @@ impl VarFishTsvRecord {
             format!("{}", self.gnomad_genomes_homozygous),
             format!("{}", self.gnomad_genomes_heterozygous),
             format!("{}", self.gnomad_genomes_hemizygous),
-
             self.refseq_gene_id.clone(),
             self.refseq_transcript_id.clone(),
-            if self.refseq_transcript_coding { "TRUE" } else { "FALSE" }.to_string(),
+            if self.refseq_transcript_coding {
+                "TRUE"
+            } else {
+                "FALSE"
+            }
+            .to_string(),
             self.refseq_hgvs_c.clone(),
             self.refseq_hgvs_p.clone(),
             format!("{{{}}}", self.refseq_effect.join(",")),
             format!("{}", self.refseq_exon_dist),
-
             self.ensembl_gene_id.clone(),
             self.ensembl_transcript_id.clone(),
-            if self.ensembl_transcript_coding { "TRUE" } else { "FALSE" }.to_string(),
+            if self.ensembl_transcript_coding {
+                "TRUE"
+            } else {
+                "FALSE"
+            }
+            .to_string(),
             self.ensembl_hgvs_c.clone(),
             self.ensembl_hgvs_p.clone(),
             format!("{{{}}}", self.ensembl_effect.join(",")),
@@ -835,15 +837,12 @@ impl AnnotatedVcfWriter for VarFishTsvWriter {
     fn write_record(&mut self, _record: &VcfRecord) -> Result<(), anyhow::Error> {
         let tsv_record = VarFishTsvRecord::default();
         writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
-            .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
+            .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
     }
 }
 
 /// Run the annotation with the given `Write` within the `VcfWriter`.
-fn run_with_writer(
-    writer: &mut dyn AnnotatedVcfWriter,
-    args: &Args,
-) -> Result<(), anyhow::Error> {
+fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("Open VCF and read header");
     let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
     let header_in = reader.read_header()?;
@@ -1000,6 +999,7 @@ fn run_with_writer(
         total_written.separate_with_commas(),
         start.elapsed()
     );
+
     Ok(())
 }
 
