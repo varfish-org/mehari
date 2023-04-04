@@ -38,12 +38,15 @@ use noodles::vcf::{
 };
 use noodles_util::variant::reader::Builder as VariantReaderBuilder;
 use rocksdb::ThreadMode;
+use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
 use thousands::Separable;
 
 use crate::annotate::seqvars::csq::{ConsequencePredictor, VcfVariant};
 use crate::annotate::seqvars::provider::MehariProvider;
 use crate::common::GenomeRelease;
 use crate::db::create::seqvar_clinvar::serialize::Record as ClinvarRecord;
+use crate::db::create::seqvar_clinvar::Pathogenicity;
 use crate::db::create::seqvar_freqs::reading::{guess_assembly, is_canonical};
 use crate::db::create::seqvar_freqs::serialized::vcf::Var as VcfVar;
 use crate::db::create::seqvar_freqs::serialized::{
@@ -59,6 +62,19 @@ use crate::world_flatbuffers::mehari::{
     GenomeBuild as FlatGenomeBuild, Strand as FlatStrand,
     TranscriptBiotype as FlatTranscriptBiotype, TxSeqDatabase as FlatTxSeqDatabase,
 };
+
+/// Parsing of HGNC xlink records.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HgncRecord {
+    /// HGNC ID.
+    pub hgnc_id: String,
+    /// Ensembl gene ID.
+    pub ensembl_gene_id: String,
+    /// Entrez/NCBI gene ID.
+    pub entrez_id: String,
+    /// HGNC approved gene symbol.
+    pub gene_symbol: String,
+}
 
 /// Command line arguments for `annotate seqvars` sub command.
 #[derive(Parser, Debug)]
@@ -632,6 +648,8 @@ pub fn load_tx_db(tx_path: &str, max_fb_tables: usize) -> Result<TxSeqDatabase, 
 pub trait AnnotatedVcfWriter {
     fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
     fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error>;
+    fn set_hgnc_map(&mut self, hgnc_map: FxHashMap<String, HgncRecord>) { /* nop*/
+    }
     fn set_assembly(&mut self, _assembly: &Assembly) { /* nop */
     }
     fn set_pedigree(&mut self, _pedigree: &PedigreeByName) { /* nop */
@@ -657,6 +675,7 @@ struct VarFishTsvWriter {
     assembly: Option<Assembly>,
     pedigree: Option<PedigreeByName>,
     header: Option<VcfHeader>,
+    hgnc_map: Option<FxHashMap<String, HgncRecord>>,
 }
 
 // Offsets for UCSC binning.
@@ -769,6 +788,7 @@ impl VarFishTsvWriter {
             } else {
                 Box::new(File::create(p).unwrap())
             },
+            hgnc_map: None,
             assembly: None,
             pedigree: None,
             header: None,
@@ -982,8 +1002,15 @@ impl VarFishTsvWriter {
         }
         tsv_record.genotype = gt_calls.for_tsv();
 
-        // Extract family counts.
+        Ok(())
+    }
 
+    /// Fill `record` background frequencies.
+    fn fill_bg_freqs(
+        &self,
+        record: &VcfRecord,
+        tsv_record: &mut VarFishTsvRecord,
+    ) -> Result<(), anyhow::Error> {
         // Extract gnomAD frequencies.
 
         let gnomad_exomes_an = record
@@ -1077,8 +1104,8 @@ impl VarFishTsvWriter {
         Ok(())
     }
 
-    /// Fill `record` background frequencies.
-    fn fill_bg_freqs(
+    /// Fill `record` RefSeq and ENSEMBL fields.
+    fn fill_refseq_ensembl(
         &self,
         _record: &VcfRecord,
         _tsv_record: &mut VarFishTsvRecord,
@@ -1086,21 +1113,25 @@ impl VarFishTsvWriter {
         Ok(())
     }
 
-    /// Fill `record` RefSeq fields.
-    fn fill_refseq(
+    /// Fill `record` ClinVar field.
+    fn fill_clinvar(
         &self,
-        _record: &VcfRecord,
-        _tsv_record: &mut VarFishTsvRecord,
+        record: &VcfRecord,
+        tsv_record: &mut VarFishTsvRecord,
     ) -> Result<(), anyhow::Error> {
-        Ok(())
-    }
+        tsv_record.in_clinvar = record
+            .info()
+            .get(&keys::CLINVAR_PATHO)
+            .unwrap_or_default()
+            .map(|v| match v {
+                Value::String(value) => {
+                    Pathogenicity::from_str(value).unwrap_or(Pathogenicity::UncertainSignificance)
+                        >= Pathogenicity::LikelyPathogenic
+                }
+                _ => panic!("Unexpected value type for INFO/clinvar_patho"),
+            })
+            .unwrap_or_default();
 
-    /// Fill `record` ENSEMBL fields.
-    fn fill_ensembl(
-        &self,
-        _record: &VcfRecord,
-        _tsv_record: &mut VarFishTsvRecord,
-    ) -> Result<(), anyhow::Error> {
         Ok(())
     }
 }
@@ -1124,8 +1155,6 @@ pub struct VarFishTsvRecord {
 
     // The info field is not populated anyway.
     // pub info: String,
-
-    // TODO: lookup Java code for supported fields in genotype.
     pub genotype: String,
 
     pub num_hom_alt: u32,
@@ -1241,14 +1270,6 @@ impl VarFishTsvRecord {
 
 /// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
 impl AnnotatedVcfWriter for VarFishTsvWriter {
-    fn set_assembly(&mut self, assembly: &Assembly) {
-        self.assembly = Some(*assembly)
-    }
-
-    fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
-        self.pedigree = Some(pedigree.clone())
-    }
-
     fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.header = Some(header.clone());
         let header = &[
@@ -1319,11 +1340,23 @@ impl AnnotatedVcfWriter for VarFishTsvWriter {
         }
         self.fill_genotype_and_freqs(record, &mut tsv_record)?;
         self.fill_bg_freqs(record, &mut tsv_record)?;
-        self.fill_refseq(record, &mut tsv_record)?;
-        self.fill_ensembl(record, &mut tsv_record)?;
+        self.fill_refseq_ensembl(record, &mut tsv_record)?;
+        self.fill_clinvar(record, &mut tsv_record)?;
 
         writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
             .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
+    }
+
+    fn set_hgnc_map(&mut self, hgnc_map: FxHashMap<String, HgncRecord>) {
+        self.hgnc_map = Some(hgnc_map)
+    }
+
+    fn set_assembly(&mut self, assembly: &Assembly) {
+        self.assembly = Some(*assembly)
+    }
+
+    fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
+        self.pedigree = Some(pedigree.clone())
     }
 }
 
@@ -1511,12 +1544,32 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             run_with_writer(&mut writer, args)?;
         }
     } else {
+        // Load the HGNC xlink map.
+        let hgnc_map = {
+            tracing::info!("Loading HGNC map ...");
+            let mut result = FxHashMap::default();
+
+            let tsv_file = File::open(&format!("{}/hgnc.tsv", &args.path_db,))?;
+            let mut tsv_reader = csv::ReaderBuilder::new()
+                .comment(Some(b'#'))
+                .delimiter(b'\t')
+                .from_reader(tsv_file);
+            for record in tsv_reader.deserialize() {
+                let record: HgncRecord = record?;
+                result.insert(record.hgnc_id.clone(), record);
+            }
+            tracing::info!("... done loading HGNC map");
+
+            result
+        };
+
         let path_output_tsv = args
             .output
             .path_output_tsv
             .as_ref()
             .expect("tsv path must be set; vcf and tsv are mutually exclusive, vcf unset");
         let mut writer = VarFishTsvWriter::with_path(path_output_tsv);
+        writer.set_hgnc_map(hgnc_map);
         run_with_writer(&mut writer, args)?;
     }
 
