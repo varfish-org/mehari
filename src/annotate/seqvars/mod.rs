@@ -106,7 +106,6 @@ pub mod keys {
     use std::str::FromStr;
 
     use noodles::vcf::{
-        header::format::key::Key as FormatKey, header::format::key::Other as FormatKeyOther,
         header::info::key::Key as InfoKey, header::info::key::Other as InfoKeyOther,
     };
 
@@ -633,9 +632,9 @@ pub fn load_tx_db(tx_path: &str, max_fb_tables: usize) -> Result<TxSeqDatabase, 
 pub trait AnnotatedVcfWriter {
     fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
     fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error>;
-    fn set_assembly(&mut self, assembly: &Assembly) { /* nop */
+    fn set_assembly(&mut self, _assembly: &Assembly) { /* nop */
     }
-    fn set_pedigree(&mut self, pedigree: &PedigreeByName) { /* nop */
+    fn set_pedigree(&mut self, _pedigree: &PedigreeByName) { /* nop */
     }
 }
 
@@ -743,7 +742,7 @@ impl GenotypeCalls {
                 result.push(',');
             }
             if let Some(gq) = &entry.gq {
-                prev = true;
+                // prev = true;
                 result.push_str(&format!("\"\"\"gq\"\"\"\":{}", gq));
             }
 
@@ -795,8 +794,8 @@ impl VarFishTsvWriter {
         };
         if let Chromosome::Name(name) = record.chromosome() {
             // strip "chr" prefix from `name`
-            let name = if name.starts_with("chr") {
-                &name[3..]
+            let name = if let Some(stripped) = name.strip_prefix("chr") {
+                stripped
             } else {
                 name
             };
@@ -869,7 +868,7 @@ impl VarFishTsvWriter {
                     .expect("pedigree must be set")
                     .individuals
                     .get(sample)
-                    .expect(&format!("individual {} not found in pedigree", sample));
+                    .unwrap_or_else(|| panic!("individual {} not found in pedigree", sample));
                 // Update per-family counts.
                 if ["X", "chrX"]
                     .iter()
@@ -877,7 +876,7 @@ impl VarFishTsvWriter {
                 {
                     match individual.sex {
                         Sex::Male => {
-                            if gt.contains("1") {
+                            if gt.contains('1') {
                                 tsv_record.num_hemi_alt += 1;
                             } else {
                                 tsv_record.num_hemi_ref += 1;
@@ -885,7 +884,7 @@ impl VarFishTsvWriter {
                         }
                         Sex::Female | Sex::Unknown => {
                             // assume diploid/female if unknown
-                            let matches = gt.matches("1").count();
+                            let matches = gt.matches('1').count();
                             if matches == 0 {
                                 tsv_record.num_hom_ref += 1;
                             } else if matches == 1 {
@@ -900,14 +899,14 @@ impl VarFishTsvWriter {
                     .any(|c| *c == tsv_record.chromosome.as_str())
                 {
                     if individual.sex == Sex::Male {
-                        if gt.contains("1") {
+                        if gt.contains('1') {
                             tsv_record.num_hemi_alt += 1;
                         } else {
                             tsv_record.num_hemi_ref += 1;
                         }
                     }
                 } else {
-                    let matches = gt.matches("1").count();
+                    let matches = gt.matches('1').count();
                     if matches == 0 {
                         tsv_record.num_hom_ref += 1;
                     } else if matches == 1 {
@@ -960,7 +959,7 @@ impl VarFishTsvWriter {
                 gt_info.gq = Some(gq);
             }
 
-            let x = genotype.get(&FormatKey::Other(FormatKeyOther::from_str("SQ").unwrap()));
+            let _x = genotype.get(&FormatKey::Other(FormatKeyOther::from_str("SQ").unwrap()));
 
             if let Some(sq) = genotype
                 .get(&FormatKey::Other(FormatKeyOther::from_str("SQ").unwrap()))
@@ -1077,8 +1076,8 @@ impl VarFishTsvWriter {
     /// Fill `record` background frequencies.
     fn fill_bg_freqs(
         &self,
-        record: &VcfRecord,
-        tsv_record: &mut VarFishTsvRecord,
+        _record: &VcfRecord,
+        _tsv_record: &mut VarFishTsvRecord,
     ) -> Result<(), anyhow::Error> {
         Ok(())
     }
@@ -1086,8 +1085,8 @@ impl VarFishTsvWriter {
     /// Fill `record` RefSeq fields.
     fn fill_refseq(
         &self,
-        record: &VcfRecord,
-        tsv_record: &mut VarFishTsvRecord,
+        _record: &VcfRecord,
+        _tsv_record: &mut VarFishTsvRecord,
     ) -> Result<(), anyhow::Error> {
         Ok(())
     }
@@ -1095,8 +1094,8 @@ impl VarFishTsvWriter {
     /// Fill `record` ENSEMBL fields.
     fn fill_ensembl(
         &self,
-        record: &VcfRecord,
-        tsv_record: &mut VarFishTsvRecord,
+        _record: &VcfRecord,
+        _tsv_record: &mut VarFishTsvRecord,
     ) -> Result<(), anyhow::Error> {
         Ok(())
     }
@@ -1308,16 +1307,16 @@ impl AnnotatedVcfWriter for VarFishTsvWriter {
 
         if !self.fill_coords(
             self.assembly.expect("assembly must have been set"),
-            &record,
+            record,
             &mut tsv_record,
         )? {
             // Record was not on canonical chromosome and should not be written out.
             return Ok(());
         }
-        self.fill_genotype_and_freqs(&record, &mut tsv_record)?;
-        self.fill_bg_freqs(&record, &mut tsv_record)?;
-        self.fill_refseq(&record, &mut tsv_record)?;
-        self.fill_ensembl(&record, &mut tsv_record)?;
+        self.fill_genotype_and_freqs(record, &mut tsv_record)?;
+        self.fill_bg_freqs(record, &mut tsv_record)?;
+        self.fill_refseq(record, &mut tsv_record)?;
+        self.fill_ensembl(record, &mut tsv_record)?;
 
         tracing::info!("writing {:?}", tsv_record);
 
@@ -1500,13 +1499,13 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
         if path_output_vcf.ends_with(".vcf.gz") || path_output_vcf.ends_with(".vcf.bgzf") {
             let mut writer = VcfWriter::new(
-                File::create(&path_output_vcf)
+                File::create(path_output_vcf)
                     .map(BufWriter::new)
                     .map(BgzfWriter::new)?,
             );
             run_with_writer(&mut writer, args)?;
         } else {
-            let mut writer = VcfWriter::new(File::create(&path_output_vcf).map(BufWriter::new)?);
+            let mut writer = VcfWriter::new(File::create(path_output_vcf).map(BufWriter::new)?);
             run_with_writer(&mut writer, args)?;
         }
     } else {
