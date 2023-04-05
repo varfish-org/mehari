@@ -63,7 +63,7 @@ use crate::world_flatbuffers::mehari::{
     TranscriptBiotype as FlatTranscriptBiotype, TxSeqDatabase as FlatTxSeqDatabase,
 };
 
-use self::ann::AnnField;
+use self::ann::{AnnField, Consequence, FeatureBiotype};
 
 /// Parsing of HGNC xlink records.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -743,7 +743,7 @@ impl GenotypeCalls {
             let mut prev = false;
             if let Some(gt) = &entry.gt {
                 prev = true;
-                result.push_str(&format!("\"\"\"gt\"\"\"\":\"\"\"\"{}\"\"\"\"", gt));
+                result.push_str(&format!("\"\"\"gt\"\"\":\"\"\"{}\"\"\"", gt));
             }
 
             if prev {
@@ -751,7 +751,7 @@ impl GenotypeCalls {
             }
             if let Some(ad) = &entry.ad {
                 prev = true;
-                result.push_str(&format!("\"\"\"ad\"\"\"\":{}", ad));
+                result.push_str(&format!("\"\"\"ad\"\"\":{}", ad));
             }
 
             if prev {
@@ -759,7 +759,7 @@ impl GenotypeCalls {
             }
             if let Some(dp) = &entry.dp {
                 prev = true;
-                result.push_str(&format!("\"\"\"dp\"\"\"\":{}", dp));
+                result.push_str(&format!("\"\"\"dp\"\"\":{}", dp));
             }
 
             if prev {
@@ -767,7 +767,7 @@ impl GenotypeCalls {
             }
             if let Some(gq) = &entry.gq {
                 // prev = true;
-                result.push_str(&format!("\"\"\"gq\"\"\"\":{}", gq));
+                result.push_str(&format!("\"\"\"gq\"\"\":{}", gq));
             }
 
             result.push('}');
@@ -909,12 +909,13 @@ impl VarFishTsvWriter {
                         }
                         Sex::Female | Sex::Unknown => {
                             // assume diploid/female if unknown
-                            let matches = gt.matches('1').count();
-                            if matches == 0 {
+                            let matches_1 = gt.matches('1').count();
+                            let matches_0 = gt.matches('0').count();
+                            if matches_0 == 2 {
                                 tsv_record.num_hom_ref += 1;
-                            } else if matches == 1 {
+                            } else if matches_1 == 1 {
                                 tsv_record.num_het += 1;
-                            } else {
+                            } else if matches_1 == 2 {
                                 tsv_record.num_hom_alt += 1;
                             }
                         }
@@ -926,17 +927,18 @@ impl VarFishTsvWriter {
                     if individual.sex == Sex::Male {
                         if gt.contains('1') {
                             tsv_record.num_hemi_alt += 1;
-                        } else {
+                        } else if gt.contains('0') {
                             tsv_record.num_hemi_ref += 1;
                         }
                     }
                 } else {
-                    let matches = gt.matches('1').count();
-                    if matches == 0 {
+                    let matches_1 = gt.matches('1').count();
+                    let matches_0 = gt.matches('0').count();
+                    if matches_0 == 2 {
                         tsv_record.num_hom_ref += 1;
-                    } else if matches == 1 {
+                    } else if matches_1 == 1 {
                         tsv_record.num_het += 1;
-                    } else {
+                    } else if matches_1 == 2 {
                         tsv_record.num_hom_alt += 1;
                     }
                 }
@@ -951,7 +953,7 @@ impl VarFishTsvWriter {
                     Some(noodles::vcf::record::genotypes::genotype::field::Value::Integer(i)) => {
                         Ok(*i)
                     }
-                    None => Ok(0),
+                    None => Ok(-1),
                     _ => anyhow::bail!(format!("invalid DP value {:?} in {:#?}", value, genotype)),
                 })
                 .transpose()?
@@ -964,8 +966,8 @@ impl VarFishTsvWriter {
                 .map(|value| match value {
                     Some(
                         noodles::vcf::record::genotypes::genotype::field::Value::IntegerArray(arr),
-                    ) => Ok(arr[0].expect("missing AD value")),
-                    None => Ok(0),
+                    ) => Ok(arr[1].expect("missing AD value")),
+                    None => Ok(-1),
                     _ => anyhow::bail!(format!("invalid AD value {:?} in {:#?}", value, genotype)),
                 })
                 .transpose()?
@@ -979,7 +981,7 @@ impl VarFishTsvWriter {
                     Some(noodles::vcf::record::genotypes::genotype::field::Value::Integer(i)) => {
                         Ok(*i)
                     }
-                    None => Ok(0),
+                    None => Ok(-1),
                     _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, genotype)),
                 })
                 .transpose()?
@@ -987,15 +989,13 @@ impl VarFishTsvWriter {
                 gt_info.gq = Some(gq);
             }
 
-            let _x = genotype.get(&FormatKey::Other(FormatKeyOther::from_str("SQ").unwrap()));
-
             if let Some(sq) = genotype
                 .get(&FormatKey::Other(FormatKeyOther::from_str("SQ").unwrap()))
                 .map(|value| match value {
                     Some(noodles::vcf::record::genotypes::genotype::field::Value::Float(f)) => {
                         Ok(*f)
                     }
-                    None => Ok(0f32),
+                    None => Ok(-1.0),
                     _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, genotype)),
                 })
                 .transpose()?
@@ -1058,8 +1058,8 @@ impl VarFishTsvWriter {
             tsv_record.gnomad_exomes_frequency = (tsv_record.gnomad_exomes_hemizygous
                 + tsv_record.gnomad_exomes_heterozygous
                 + tsv_record.gnomad_exomes_homozygous * 2)
-                as f64
-                / gnomad_exomes_an as f64;
+                as f32
+                / gnomad_exomes_an as f32;
         }
 
         let gnomad_genomes_an = record
@@ -1102,20 +1102,24 @@ impl VarFishTsvWriter {
             tsv_record.gnomad_genomes_frequency = (tsv_record.gnomad_genomes_hemizygous
                 + tsv_record.gnomad_genomes_heterozygous
                 + tsv_record.gnomad_genomes_homozygous * 2)
-                as f64
-                / gnomad_genomes_an as f64;
+                as f32
+                / gnomad_genomes_an as f32;
         }
 
         Ok(())
     }
 
-    /// Fill `record` RefSeq and ENSEMBL fields.
-    fn fill_refseq_ensembl(
-        &self,
+    /// Fill `record` RefSEq and ENSEMBL and fields and write to `self.inner`.
+    ///
+    /// First, the values in the `ANN` field are parsed and all predictions are extracted
+    /// and limited to the worst per gene.  We combine one prediction each from RefSeq
+    /// and ENSEMBL and write the resulting record out.
+    fn expand_refseq_ensembl_and_write(
+        &mut self,
         record: &VcfRecord,
-        _tsv_record: &mut VarFishTsvRecord,
+        tsv_record: &mut VarFishTsvRecord,
     ) -> Result<(), anyhow::Error> {
-        let x = record
+        if let Some(anns) = record
             .info()
             .get(&keys::ANN)
             .unwrap_or_default()
@@ -1124,13 +1128,115 @@ impl VarFishTsvWriter {
                     .iter()
                     .filter(|v| v.is_some())
                     .map(|v| AnnField::from_str(v.as_ref().unwrap())),
-                _ => panic!("Unexpected value type for INFO/clinvar_patho"),
-            });
+                _ => panic!("Unexpected value type for INFO/ANN"),
+            })
+        {
+            // Extract `AnnField` records, letting the errors bubble up.
+            let anns: Result<Vec<_>, _> = anns.collect();
+            let anns = anns?;
+            // Collect the `AnnField` records by `gene_id`.
+            let mut anns_by_gene: FxHashMap<String, Vec<AnnField>> = FxHashMap::default();
+            for ann in anns {
+                let gene_id = ann.gene_id.clone();
+                anns_by_gene.entry(gene_id).or_default().push(ann);
+            }
+            // Within each `AnnField` record, the `consequences` are already sorted and each record
+            // at least one consequence.  We now sort each gene's `AnnField` records by the worst
+            // (smallest) consequences.
+            for anns in anns_by_gene.values_mut() {
+                anns.sort_by_key(|ann| ann.consequences[0]);
+            }
 
-        Ok(())
+            // For each gene in `anns_by_gene`, assign only the `refseq_*` and `ensembl_*` values into
+            // `tsv_record` and write out the record.  We clear the record before each iteration
+            // so data does not leak to other genes.  We use `self.hgnc_map` to map from the gene
+            // ID stored in the key of `anns` to the appropriate ID for RefSeq and ENSEMBL (the
+            // cdot data contains he HGNC identifiers while the VarFish TSV expects the RefSeq
+            // and ENSEMBL gene IDs.
+            for (hgnc_id, anns) in anns_by_gene.iter() {
+                // Get `HgncRecord` for the `hgnc_id` or skip this gene.  This can happen if the HGNC
+                // xlink table is not on the same version as the cdot data.
+                let hgnc_record = match self.hgnc_map.as_ref().unwrap().get(hgnc_id) {
+                    Some(hgnc_record) => hgnc_record,
+                    None => continue,
+                };
+
+                tsv_record.clear_refseq_ensembl();
+
+                let mut written_refseq = false;
+                let mut written_ensembl = false;
+
+                for ann in anns {
+                    // We only assign the first prediction per gene for either RefSeq or ENSEMBL.
+                    let is_ensembl = ann.feature_id.starts_with("ENST");
+                    if is_ensembl && !written_ensembl {
+                        // Handle ENSEMBL.
+                        tsv_record.ensembl_gene_id = Some(hgnc_record.ensembl_gene_id.clone());
+                        tsv_record.ensembl_transcript_id = Some(ann.feature_id.clone());
+                        tsv_record.ensembl_transcript_coding =
+                            Some(ann.feature_biotype == FeatureBiotype::Coding);
+                        tsv_record.ensembl_hgvs_c = ann.hgvs_t.clone();
+                        tsv_record.ensembl_hgvs_p = ann.hgvs_p.clone();
+                        if !ann.consequences.is_empty() {
+                            tsv_record.ensembl_effect = Some(
+                                ann.consequences
+                                    .iter()
+                                    .map(|c| format!("\"{}\"", &c))
+                                    .collect::<Vec<_>>(),
+                            );
+                        }
+                        if !ann.consequences.contains(&Consequence::IntronVariant)
+                            && !ann.consequences.contains(&Consequence::UpstreamGeneVariant)
+                            && !ann
+                                .consequences
+                                .contains(&Consequence::DownstreamGeneVariant)
+                            && !ann.consequences.contains(&Consequence::IntergenicVariant)
+                        {
+                            tsv_record.ensembl_exon_dist = Some(0);
+                        } else {
+                            tsv_record.ensembl_exon_dist = ann.distance;
+                        }
+
+                        written_ensembl = true;
+                    } else if !is_ensembl && !written_refseq {
+                        // Handle RefSeq.
+                        tsv_record.refseq_gene_id = Some(hgnc_record.entrez_id.clone());
+                        tsv_record.refseq_transcript_id = Some(ann.feature_id.clone());
+                        tsv_record.refseq_transcript_coding =
+                            Some(ann.feature_biotype == FeatureBiotype::Coding);
+                        tsv_record.refseq_hgvs_c = ann.hgvs_t.clone();
+                        tsv_record.refseq_hgvs_p = ann.hgvs_p.clone();
+                        if !ann.consequences.is_empty() {
+                            tsv_record.refseq_effect = Some(
+                                ann.consequences
+                                    .iter()
+                                    .map(|c| format!("\"{}\"", &c))
+                                    .collect::<Vec<_>>(),
+                            );
+                        }
+                        if ann.consequences.contains(&Consequence::ExonVariant) {
+                            tsv_record.refseq_exon_dist = Some(0);
+                        } else {
+                            tsv_record.refseq_exon_dist = ann.distance;
+                        }
+
+                        written_refseq = true;
+                    }
+                }
+            }
+
+            writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
+                .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))?;
+
+            Ok(())
+        } else {
+            // No annotations, write out without expanding `INFO/ANN` fields.
+            writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
+                .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
+        }
     }
 
-    /// Fill `record` ClinVar field.
+    /// Fill `record` ClinVar fields.
     fn fill_clinvar(
         &self,
         record: &VcfRecord,
@@ -1191,33 +1297,53 @@ pub struct VarFishTsvRecord {
     // pub thousand_genomes_homozygous: String,
     // pub thousand_genomes_heterozygous: String,
     // pub thousand_genomes_hemizygous: String,
-    pub gnomad_exomes_frequency: f64,
+    pub gnomad_exomes_frequency: f32,
     pub gnomad_exomes_homozygous: i32,
     pub gnomad_exomes_heterozygous: i32,
     pub gnomad_exomes_hemizygous: i32,
-    pub gnomad_genomes_frequency: f64,
+    pub gnomad_genomes_frequency: f32,
     pub gnomad_genomes_homozygous: i32,
     pub gnomad_genomes_heterozygous: i32,
     pub gnomad_genomes_hemizygous: i32,
 
-    pub refseq_gene_id: String,
-    pub refseq_transcript_id: String,
-    pub refseq_transcript_coding: bool,
-    pub refseq_hgvs_c: String,
-    pub refseq_hgvs_p: String,
-    pub refseq_effect: Vec<String>,
-    pub refseq_exon_dist: i32,
+    pub refseq_gene_id: Option<String>,
+    pub refseq_transcript_id: Option<String>,
+    pub refseq_transcript_coding: Option<bool>,
+    pub refseq_hgvs_c: Option<String>,
+    pub refseq_hgvs_p: Option<String>,
+    pub refseq_effect: Option<Vec<String>>,
+    pub refseq_exon_dist: Option<i32>,
 
-    pub ensembl_gene_id: String,
-    pub ensembl_transcript_id: String,
-    pub ensembl_transcript_coding: bool,
-    pub ensembl_hgvs_c: String,
-    pub ensembl_hgvs_p: String,
-    pub ensembl_effect: Vec<String>,
-    pub ensembl_exon_dist: i32,
+    pub ensembl_gene_id: Option<String>,
+    pub ensembl_transcript_id: Option<String>,
+    pub ensembl_transcript_coding: Option<bool>,
+    pub ensembl_hgvs_c: Option<String>,
+    pub ensembl_hgvs_p: Option<String>,
+    pub ensembl_effect: Option<Vec<String>>,
+    pub ensembl_exon_dist: Option<i32>,
 }
 
 impl VarFishTsvRecord {
+    /// Clear the `refseq_*` and `ensembl_*` fields.
+    pub fn clear_refseq_ensembl(&mut self) {
+        self.refseq_gene_id = None;
+        self.refseq_transcript_id = None;
+        self.refseq_transcript_coding = None;
+        self.refseq_hgvs_c = None;
+        self.refseq_hgvs_p = None;
+        self.refseq_effect = None;
+        self.refseq_exon_dist = None;
+
+        self.ensembl_gene_id = None;
+        self.ensembl_transcript_id = None;
+        self.ensembl_transcript_coding = None;
+        self.ensembl_hgvs_c = None;
+        self.ensembl_hgvs_p = None;
+        self.ensembl_effect = None;
+        self.ensembl_exon_dist = None;
+    }
+
+    /// Convert to a `Vec<String>` suitable for writing to a VarFish TSV file.
     pub fn to_tsv(&self) -> Vec<String> {
         vec![
             self.release.clone(),
@@ -1257,30 +1383,56 @@ impl VarFishTsvRecord {
             format!("{}", self.gnomad_genomes_homozygous),
             format!("{}", self.gnomad_genomes_heterozygous),
             format!("{}", self.gnomad_genomes_hemizygous),
-            self.refseq_gene_id.clone(),
-            self.refseq_transcript_id.clone(),
-            if self.refseq_transcript_coding {
-                "TRUE"
-            } else {
-                "FALSE"
-            }
-            .to_string(),
-            self.refseq_hgvs_c.clone(),
-            self.refseq_hgvs_p.clone(),
-            format!("{{{}}}", self.refseq_effect.join(",")),
-            format!("{}", self.refseq_exon_dist),
-            self.ensembl_gene_id.clone(),
-            self.ensembl_transcript_id.clone(),
-            if self.ensembl_transcript_coding {
-                "TRUE"
-            } else {
-                "FALSE"
-            }
-            .to_string(),
-            self.ensembl_hgvs_c.clone(),
-            self.ensembl_hgvs_p.clone(),
-            format!("{{{}}}", self.ensembl_effect.join(",")),
-            format!("{}", self.ensembl_exon_dist),
+            self.refseq_gene_id.clone().unwrap_or(String::from(".")),
+            self.refseq_transcript_id
+                .clone()
+                .unwrap_or(String::from(".")),
+            self.refseq_transcript_coding
+                .map(|refseq_transcript_coding| {
+                    if refseq_transcript_coding {
+                        String::from("TRUE")
+                    } else {
+                        String::from("FALSE")
+                    }
+                })
+                .unwrap_or(String::from(".")),
+            self.refseq_hgvs_c.clone().unwrap_or(String::from(".")),
+            self.refseq_hgvs_p.clone().unwrap_or(String::from(".")),
+            format!(
+                "{{{}}}",
+                self.refseq_effect
+                    .as_ref()
+                    .map(|refseq_effect| refseq_effect.join(","))
+                    .unwrap_or_default()
+            ),
+            self.refseq_exon_dist
+                .map(|refseq_exon_dist| format!("{}", refseq_exon_dist))
+                .unwrap_or(String::from(".")),
+            self.ensembl_gene_id.clone().unwrap_or(String::from(".")),
+            self.ensembl_transcript_id
+                .clone()
+                .unwrap_or(String::from(".")),
+            self.ensembl_transcript_coding
+                .map(|ensembl_transcript_coding| {
+                    if ensembl_transcript_coding {
+                        String::from("TRUE")
+                    } else {
+                        String::from("FALSE")
+                    }
+                })
+                .unwrap_or(String::from(".")),
+            self.ensembl_hgvs_c.clone().unwrap_or(String::from(".")),
+            self.ensembl_hgvs_p.clone().unwrap_or(String::from(".")),
+            format!(
+                "{{{}}}",
+                self.ensembl_effect
+                    .as_ref()
+                    .map(|ensembl_effect| ensembl_effect.join(","))
+                    .unwrap_or_default()
+            ),
+            self.ensembl_exon_dist
+                .map(|ensembl_exon_dist| format!("{}", ensembl_exon_dist))
+                .unwrap_or(String::from(".")),
         ]
     }
 }
@@ -1357,11 +1509,8 @@ impl AnnotatedVcfWriter for VarFishTsvWriter {
         }
         self.fill_genotype_and_freqs(record, &mut tsv_record)?;
         self.fill_bg_freqs(record, &mut tsv_record)?;
-        self.fill_refseq_ensembl(record, &mut tsv_record)?;
         self.fill_clinvar(record, &mut tsv_record)?;
-
-        writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
-            .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
+        self.expand_refseq_ensembl_and_write(record, &mut tsv_record)
     }
 
     fn set_hgnc_map(&mut self, hgnc_map: FxHashMap<String, HgncRecord>) {

@@ -77,27 +77,27 @@ impl ConsequencePredictor {
 
     pub fn predict(&self, var: &VcfVariant) -> Result<Option<Vec<AnnField>>, anyhow::Error> {
         // Normalize variant by stripping common prefix and suffix.
-        let var = self.normalize_variant(var);
+        let norm_var = self.normalize_variant(var);
 
         // Obtain accession from chromosome name.
-        let chrom_acc = self.chrom_to_acc.get(&var.chromosome);
+        let chrom_acc = self.chrom_to_acc.get(&norm_var.chromosome);
         let chrom_acc = if let Some(chrom_acc) = chrom_acc {
             chrom_acc
         } else {
             tracing::debug!(
                 "Could not determine chromosome accession for {:?}; giving up on annotation",
-                &var
+                &norm_var
             );
             return Ok(None);
         };
 
         // Get all affected transcripts.
-        let (var_start, var_end) = if var.reference.is_empty() {
-            (var.position - 1, var.position - 1)
+        let (var_start, var_end) = if norm_var.reference.is_empty() {
+            (norm_var.position - 1, norm_var.position - 1)
         } else {
             (
-                var.position - 1,
-                var.position + var.reference.len() as i32 - 1,
+                norm_var.position - 1,
+                norm_var.position + norm_var.reference.len() as i32 - 1,
             )
         };
         let qry_start = var_start - PADDING;
@@ -112,7 +112,9 @@ impl ConsequencePredictor {
         // Skip `None` results.
         Ok(Some(
             txs.into_iter()
-                .map(|tx| self.build_ann_field(&var, tx, chrom_acc.clone(), var_start, var_end))
+                .map(|tx| {
+                    self.build_ann_field(&var, &norm_var, tx, chrom_acc.clone(), var_start, var_end)
+                })
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
                 .flatten()
@@ -122,6 +124,7 @@ impl ConsequencePredictor {
 
     fn build_ann_field(
         &self,
+        orig_var: &VcfVariant,
         var: &VcfVariant,
         tx_record: TxForRegionRecord,
         chrom_acc: String,
@@ -291,12 +294,23 @@ impl ConsequencePredictor {
         let min_start = min_start.expect("must have seen exon");
         let max_end = max_end.expect("must have seen exon");
 
+        let feature_biotype = match tx.biotype {
+            TranscriptBiotype::Coding => FeatureBiotype::Coding,
+            TranscriptBiotype::NonCoding => FeatureBiotype::Noncoding,
+        };
+
         let is_upstream = var_end <= min_start;
         let is_downstream = var_start >= max_end;
         if is_exonic {
-            consequences.push(Consequence::ExonVariant);
+            if !feature_biotype.is_coding() {
+                consequences.push(Consequence::NonCodingTranscriptExonVariant);
+            }
         } else if is_intronic {
-            consequences.push(Consequence::IntronVariant);
+            if !feature_biotype.is_coding() {
+                consequences.push(Consequence::NonCodingTranscriptIntronVariant);
+            } else {
+                consequences.push(Consequence::IntronVariant);
+            }
         } else if is_upstream {
             let val = -(min_start - var_end);
             if val.abs() <= 5_000 {
@@ -316,11 +330,6 @@ impl ConsequencePredictor {
             }
             distance = Some(val);
         }
-
-        let feature_biotype = match tx.biotype {
-            TranscriptBiotype::Coding => FeatureBiotype::Coding,
-            TranscriptBiotype::NonCoding => FeatureBiotype::Noncoding,
-        };
 
         let var_g = HgvsVariant::GenomeVariant {
             accession: Accession { value: chrom_acc },
@@ -415,7 +424,12 @@ impl ConsequencePredictor {
                     }
                     let var_p = var_p.unwrap();
 
-                    let hgvs_p = Some(format!("{}", &var_p));
+                    let hgvs_p = format!("{}", &var_p);
+                    let mut hgvs_p = hgvs_p.split(':').nth(1).unwrap().to_owned();
+                    for (aa3, aa1) in hgvs::sequences::AA3_TO_AA1_VEC.iter() {
+                        hgvs_p = hgvs_p.replace(aa3, aa1);
+                    }
+                    let hgvs_p = Some(hgvs_p);
                     let cds_pos = match &var_c {
                         HgvsVariant::CdsVariant { loc_edit, .. } => Some(Pos {
                             ord: loc_edit.loc.inner().start.base,
@@ -465,13 +479,9 @@ impl ConsequencePredictor {
                             if start_cds_from == CdsFrom::Start {
                                 if start_base < 0 {
                                     consequences.push(Consequence::FivePrimeUtrVariant);
-                                } else {
-                                    consequences.push(Consequence::CodingSequenceVariant);
                                 }
                             } else if end_cds_from == CdsFrom::End {
                                 consequences.push(Consequence::ThreePrimeUtrVariant);
-                            } else {
-                                consequences.push(Consequence::CodingSequenceVariant);
                             }
 
                             // The range is "conservative" (regarding deletions and insertions) if
@@ -573,6 +583,7 @@ impl ConsequencePredictor {
                 FeatureBiotype::Noncoding => (var_n, None, None, None, None),
             };
             let hgvs_t = format!("{}", &var_t);
+            let hgvs_t = hgvs_t.split(':').nth(1).unwrap().to_owned();
 
             (
                 Some(rank),
@@ -597,7 +608,7 @@ impl ConsequencePredictor {
         // Build and return ANN field from the information derived above.
         Ok(Some(AnnField {
             allele: Allele::Alt {
-                alternative: var.alternative.clone(),
+                alternative: orig_var.alternative.clone(),
             },
             consequences,
             putative_impact,
@@ -688,11 +699,7 @@ mod test {
                 allele: Allele::Alt {
                     alternative: String::from("C")
                 },
-                consequences: vec![
-                    Consequence::MissenseVariant,
-                    Consequence::CodingSequenceVariant,
-                    Consequence::ExonVariant
-                ],
+                consequences: vec![Consequence::MissenseVariant,],
                 putative_impact: PutativeImpact::Moderate,
                 gene_symbol: String::from("BRCA1"),
                 gene_id: String::from("HGNC:1100"),
@@ -702,8 +709,8 @@ mod test {
                 feature_id: String::from("NM_007294.4"),
                 feature_biotype: FeatureBiotype::Coding,
                 rank: Some(Rank { ord: 23, total: 23 }),
-                hgvs_t: Some(String::from("NM_007294.4:c.5586C>G")),
-                hgvs_p: Some(String::from("NP_009225.1:p.His1862Gln")),
+                hgvs_t: Some(String::from("c.5586C>G")),
+                hgvs_p: Some(String::from("p.H1862Q")),
                 tx_pos: Some(Pos {
                     ord: 5699,
                     total: Some(7088)

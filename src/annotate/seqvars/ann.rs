@@ -70,8 +70,7 @@ pub enum Consequence {
     FeatureElongation,
     FeatureTruncation,
     GeneVariant,
-    IntergenicVegion,
-    IntragenicVariant,
+    IntergenicVariant,
     IntronVariant,
     #[display("mature_miRNA_variant")]
     MatureMirnaVariant,
@@ -80,7 +79,7 @@ pub enum Consequence {
     #[display("NMD_transcript_variant")]
     NmdTranscriptVariant,
     NonCodingTranscriptExonVariant,
-    NonCodingTranscriptVariant,
+    NonCodingTranscriptIntronVariant,
     RegulatoryRegionAmplification,
     RegulatoryRegionVariant,
     #[display("TF_binding_site_variant")]
@@ -130,14 +129,13 @@ impl From<Consequence> for PutativeImpact {
             | Consequence::FeatureElongation
             | Consequence::FeatureTruncation
             | Consequence::GeneVariant
-            | Consequence::IntergenicVegion
-            | Consequence::IntragenicVariant
+            | Consequence::IntergenicVariant
             | Consequence::IntronVariant
             | Consequence::MatureMirnaVariant
             | Consequence::Mirna
             | Consequence::NmdTranscriptVariant
             | Consequence::NonCodingTranscriptExonVariant
-            | Consequence::NonCodingTranscriptVariant
+            | Consequence::NonCodingTranscriptIntronVariant
             | Consequence::RegulatoryRegionAmplification
             | Consequence::RegulatoryRegionVariant
             | Consequence::TfBindingSiteVariant

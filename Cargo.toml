@@ -28,7 +28,7 @@ clap-verbosity-flag = "2.0.0"
 csv = "1.2.0"
 flatbuffers = "23.1.21"
 flate2 = "1.0.25"
-hgvs = "0.5.2"
+hgvs = { path = "/home/holtgrem_c/Development/hgvs-rs" }
 lazy_static = "1.4.0"
 log = "0.4.17"
 noodles = { version = "0.34.0", features = ["vcf", "bcf", "csi", "fasta", "bgzf", "tabix"] }
