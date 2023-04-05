@@ -70,8 +70,7 @@ pub enum Consequence {
     FeatureElongation,
     FeatureTruncation,
     GeneVariant,
-    IntergenicVegion,
-    IntragenicVariant,
+    IntergenicVariant,
     IntronVariant,
     #[display("mature_miRNA_variant")]
     MatureMirnaVariant,
@@ -80,7 +79,7 @@ pub enum Consequence {
     #[display("NMD_transcript_variant")]
     NmdTranscriptVariant,
     NonCodingTranscriptExonVariant,
-    NonCodingTranscriptVariant,
+    NonCodingTranscriptIntronVariant,
     RegulatoryRegionAmplification,
     RegulatoryRegionVariant,
     #[display("TF_binding_site_variant")]
@@ -130,14 +129,13 @@ impl From<Consequence> for PutativeImpact {
             | Consequence::FeatureElongation
             | Consequence::FeatureTruncation
             | Consequence::GeneVariant
-            | Consequence::IntergenicVegion
-            | Consequence::IntragenicVariant
+            | Consequence::IntergenicVariant
             | Consequence::IntronVariant
             | Consequence::MatureMirnaVariant
             | Consequence::Mirna
             | Consequence::NmdTranscriptVariant
             | Consequence::NonCodingTranscriptExonVariant
-            | Consequence::NonCodingTranscriptVariant
+            | Consequence::NonCodingTranscriptIntronVariant
             | Consequence::RegulatoryRegionAmplification
             | Consequence::RegulatoryRegionVariant
             | Consequence::TfBindingSiteVariant
@@ -403,6 +401,98 @@ pub struct AnnField {
     pub distance: Option<i32>,
     /// Optional list of warnings and error messages.
     pub messages: Option<Vec<Message>>,
+}
+
+impl FromStr for AnnField {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut fields = s.split('|');
+        let allele = fields.next().unwrap().parse()?;
+        let consequences = fields
+            .next()
+            .unwrap()
+            .split('&')
+            .map(|s| s.parse())
+            .collect::<Result<Vec<_>, _>>()?;
+        let putative_impact = fields.next().unwrap().parse()?;
+        let gene_symbol = fields.next().unwrap().to_string();
+        let gene_id = fields.next().unwrap().to_string();
+        let feature_type = fields.next().unwrap().parse()?;
+        let feature_id = fields.next().unwrap().to_string();
+        let feature_biotype = fields.next().unwrap().parse()?;
+        let rank = fields.next().unwrap();
+        let rank = if rank.is_empty() {
+            None
+        } else {
+            Some(rank.parse()?)
+        };
+        let hgvs_t = fields.next().unwrap();
+        let hgvs_t = if hgvs_t.is_empty() {
+            None
+        } else {
+            Some(hgvs_t.to_string())
+        };
+        let hgvs_p = fields.next().unwrap();
+        let hgvs_p = if hgvs_p.is_empty() {
+            None
+        } else {
+            Some(hgvs_p.to_string())
+        };
+        let tx_pos = fields.next().unwrap();
+        let tx_pos = if tx_pos.is_empty() {
+            None
+        } else {
+            Some(tx_pos.parse()?)
+        };
+        let cds_pos = fields.next().unwrap();
+        let cds_pos = if cds_pos.is_empty() {
+            None
+        } else {
+            Some(cds_pos.parse()?)
+        };
+        let protein_pos = fields.next().unwrap();
+        let protein_pos = if protein_pos.is_empty() {
+            None
+        } else {
+            Some(protein_pos.parse()?)
+        };
+        let distance = fields.next().unwrap();
+        let distance = if distance.is_empty() {
+            None
+        } else {
+            Some(distance.parse()?)
+        };
+        let messages = fields.next().unwrap();
+        let messages = if messages.is_empty() {
+            None
+        } else {
+            Some(
+                messages
+                    .split('&')
+                    .map(|s| s.parse())
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
+        };
+        Ok(AnnField {
+            allele,
+            consequences,
+            putative_impact,
+            gene_symbol,
+            gene_id,
+            feature_type,
+            feature_id,
+            feature_biotype,
+            rank,
+            hgvs_t,
+            hgvs_p,
+            tx_pos,
+            cds_pos,
+            protein_pos,
+            distance,
+            messages,
+        })
+    }
 }
 
 impl std::fmt::Display for AnnField {
@@ -865,5 +955,16 @@ mod test {
             "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|Coding|1/2|HGVS.c\
             |HGVS.p|1|1/2|1|1|ERROR_CHROMOSOME_NOT_FOUND"
         );
+    }
+
+    #[test]
+    fn ann_field_from_str() -> Result<(), anyhow::Error> {
+        let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
+        Coding|1/2|HGVS.c|HGVS.p|1|1/2|1|1|ERROR_CHROMOSOME_NOT_FOUND";
+
+        let field = AnnField::from_str(value)?;
+        assert_eq!(format!("{}", &field), value);
+
+        Ok(())
     }
 }

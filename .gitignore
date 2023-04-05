@@ -1,3 +1,6 @@
+flamegraph.svg
+perf.*
+
 /target
 #/Cargo.lock
 

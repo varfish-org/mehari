@@ -158,7 +158,7 @@ $ mehari db create txs \
 You will have to build the transcript database for each genome release that you want and manually specify the release to `--genome-release`.
 For GRCh38, simply use `--genome-release grch38`.
 
-## Building ClinVar Database
+# Building ClinVar Database
 
 This assumes that you have converted a recent ClinVar XML file to TSV using [clinvar-tsv](https://github.com/bihealth/clinvar-tsv).
 
@@ -169,3 +169,19 @@ $ mehari db create seqvar-clinvar \
 ```
 
 You can specify an optional `--genome-release grch37` argument that will be used to check the ClinVar database to be compatible with your data.
+
+# Getting HGNC Cross-Link TSV File
+
+You need to provide a TSV file that maps HGNC IDs to gene symbols, RefSeq, and Ensembl gene IDs.
+You will need the [jq](https://stedolan.github.io/jq/) command line tool to generate this file.
+You can use the provided `misc/genes-xlink-hgnc.jq` script to generate the file.
+
+```
+$ wget --no-check-certificate \
+    -O /tmp/hgnc_complete_set.json \
+    http://ftp.ebi.ac.uk/pub/databases/genenames/hgnc/json/hgnc_complete_set.json
+$ jq \
+    --raw-output \
+    --from-file misc/genes-xlink-hgnc.jq \
+  > ~/Data/mehari/db/hgnc.tsv
+```

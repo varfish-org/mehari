@@ -28,3 +28,12 @@ pub enum GenomeRelease {
     Grch37,
     Grch38,
 }
+
+impl GenomeRelease {
+    pub fn name(&self) -> String {
+        match self {
+            GenomeRelease::Grch37 => String::from("GRCh37"),
+            GenomeRelease::Grch38 => String::from("GRCh38"),
+        }
+    }
+}
