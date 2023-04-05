@@ -155,6 +155,13 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
     let mut prev = Instant::now();
     for (i, record) in reader.deserialize().enumerate() {
         let record: vep_tsv::VepRecord = record?;
+        let record = {
+            let mut record = record;
+            record.consequence = record.consequence.replace(",NMD_transcript_variant", "");
+
+            record
+        };
+
         // println!("{:?}", &record.location);
         if prev.elapsed().as_secs() >= 60 {
             tracing::info!("at {:?}", &record.location);
