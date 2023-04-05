@@ -469,7 +469,7 @@ lazy_static::lazy_static! {
 }
 
 /// Return path component for the assembly.
-fn path_component(assembly: Assembly) -> &'static str {
+pub fn path_component(assembly: Assembly) -> &'static str {
     match assembly {
         Assembly::Grch37 | Assembly::Grch37p10 => "grch37",
         Assembly::Grch38 => "grch38",
@@ -1585,7 +1585,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     writer.set_pedigree(&PedigreeByName::from_path(&args.path_input_ped)?);
     tracing::info!("... done loading pedigree");
 
-    // Open the transcript flatbuffer.
+    // Open the serialized transcripts.
     tracing::info!("Opening transcript database");
     let tx_db = load_tx_db(
         &format!(

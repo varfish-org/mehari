@@ -28,10 +28,10 @@ clap-verbosity-flag = "2.0.0"
 csv = "1.2.0"
 flatbuffers = "23.1.21"
 flate2 = "1.0.25"
-hgvs = "0.6.0"
+hgvs = { path = "/home/holtgrem_c/Development/hgvs-rs" }
 lazy_static = "1.4.0"
 log = "0.4.17"
-noodles = { version = "0.34.0", features = ["vcf", "bcf", "csi", "fasta", "bgzf", "tabix"] }
+noodles = { version = "0.34.0", features = ["core", "vcf", "bcf", "csi", "fasta", "bgzf", "tabix"] }
 noodles-util = { version = "0.6.0", features = ["noodles-bcf", "noodles-bgzf", "noodles-vcf", "variant"] }
 procfs = "0.15.1"
 rocksdb = "0.20.1"
@@ -51,6 +51,7 @@ enumset = { version = "1.0.12", features = ["serde"] }
 bincode = "1.3.3"
 bgzip = "0.3.1"
 rustc-hash = "1.1.0"
+quick_cache = "0.2.4"
 
 [build-dependencies]
 flatc-rust = "0.2.0"
