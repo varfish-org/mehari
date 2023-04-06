@@ -3,7 +3,8 @@
 use std::{
     fs::File,
     io::{BufRead, BufReader, Write},
-    rc::Rc, time::Instant,
+    rc::Rc,
+    time::Instant,
 };
 
 use clap::Parser;
@@ -162,8 +163,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             record
         };
 
-        // println!("{:?}", &record.location);
-        if prev.elapsed().as_secs() >= 60 {
+        if prev.elapsed().as_secs() >= 5 {
             tracing::info!("at {:?}", &record.location);
             prev = Instant::now();
         }
@@ -215,12 +215,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         } else if used_ref == Some("-") {
             // Further down, we will need to expand the alternate allele to the
             // left by the single reference allele base.
-            (
-                false,
-                true,
-                start,
-                start.clone(),
-            )
+            (false, true, start, start.clone())
         } else {
             (false, false, start, end)
         };
