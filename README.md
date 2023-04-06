@@ -1,5 +1,9 @@
+[![Crates.io](https://img.shields.io/crates/d/mehari.svg)](https://crates.io/crates/mehari)
+[![Crates.io](https://img.shields.io/crates/v/mehari.svg)](https://crates.io/crates/mehari)
+[![Crates.io](https://img.shields.io/crates/l/mehari.svg)](https://crates.io/crates/mehari)
 [![CI](https://github.com/bihealth/mehari/actions/workflows/rust.yml/badge.svg)](https://github.com/bihealth/mehari/actions/workflows/rust.yml)
 [![codecov](https://codecov.io/gh/bihealth/mehari/branch/main/graph/badge.svg?token=B1dfb7N2n8)](https://codecov.io/gh/bihealth/mehari)
+[![DOI](https://zenodo.org/badge/609124150.svg)](https://zenodo.org/badge/latestdoi/609124150)
 
 # Mehari
 
