@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/bihealth/mehari/compare/v0.1.0...v0.1.1) (2023-04-06)
+
+
+### Bug Fixes
+
+* release 0.1.1 ([5565d93](https://github.com/bihealth/mehari/commit/5565d93e082de77f1f9b532bd581c827390e4b68))
+
 ## 0.1.0 (2023-04-06)
 
 
