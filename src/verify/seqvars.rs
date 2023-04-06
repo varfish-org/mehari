@@ -73,7 +73,7 @@ fn guess_assembly(path_input_tsv: &str) -> Result<Assembly, anyhow::Error> {
 
     if let Some(assembly) = result {
         tracing::info!("... guessed assembly to be: {:?}", assembly);
-        return Ok(assembly);
+        Ok(assembly)
     } else {
         anyhow::bail!("could not guess assembly {}", path_input_tsv);
     }
@@ -169,13 +169,10 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         }
 
         // Exract `USED_REF=` field from `record.extra`.
-        let used_ref = record.extra.split(';').find_map(|x| {
-            if x.starts_with("USED_REF=") {
-                Some(&x[9..])
-            } else {
-                None
-            }
-        });
+        let used_ref = record
+            .extra
+            .split(';')
+            .find_map(|x| x.strip_prefix("USED_REF="));
 
         // Skip if not on an ENST transcript.
         if !record.feature.starts_with("ENST") {
@@ -215,7 +212,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         } else if used_ref == Some("-") {
             // Further down, we will need to expand the alternate allele to the
             // left by the single reference allele base.
-            (false, true, start, start.clone())
+            (false, true, start, start)
         } else {
             (false, false, start, end)
         };

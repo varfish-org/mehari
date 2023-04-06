@@ -113,7 +113,7 @@ impl ConsequencePredictor {
         Ok(Some(
             txs.into_iter()
                 .map(|tx| {
-                    self.build_ann_field(&var, &norm_var, tx, chrom_acc.clone(), var_start, var_end)
+                    self.build_ann_field(var, &norm_var, tx, chrom_acc.clone(), var_start, var_end)
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
@@ -609,7 +609,7 @@ impl ConsequencePredictor {
                 &tx_record.tx_ac,
                 hgvs_p
                     .as_ref()
-                    .map(|s| format!("{}", &s))
+                    .map(|s| (&s).to_string())
                     .unwrap_or(String::from("None"))
             );
             consequences.push(Consequence::GeneVariant);
