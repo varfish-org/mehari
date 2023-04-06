@@ -113,7 +113,7 @@ impl ConsequencePredictor {
         Ok(Some(
             txs.into_iter()
                 .map(|tx| {
-                    self.build_ann_field(&var, &norm_var, tx, chrom_acc.clone(), var_start, var_end)
+                    self.build_ann_field(var, &norm_var, tx, chrom_acc.clone(), var_start, var_end)
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
@@ -601,7 +601,18 @@ impl ConsequencePredictor {
         consequences.sort();
         consequences.dedup();
         if consequences.is_empty() {
-            tracing::warn!("No consequences for {:?} on {}", var, &tx_record.tx_ac);
+            tracing::debug!(
+                "No consequences for {:?} on {} (hgvs_p={}) - adding `gene_variant`;\
+                most likely the transcript has multiple stop codons and the variant \
+                lies behind the first.",
+                var,
+                &tx_record.tx_ac,
+                hgvs_p
+                    .as_ref()
+                    .map(|s| (&s).to_string())
+                    .unwrap_or(String::from("None"))
+            );
+            consequences.push(Consequence::GeneVariant);
         }
         let putative_impact = (*consequences.first().unwrap()).into();
 
@@ -967,13 +978,6 @@ mod test {
                         || expected_one_of.contains(&String::from("start_lost"))
                             && (record_csqs.contains(&String::from("start_retained_variant")));
 
-                    // if found_one {
-                    //     println!("{}\t{}\t{}", record.var, record.tx, record.csq);
-                    // } else {
-                    //     println!("#{}\t{}\t{}", record.var, record.tx, record.csq);
-                    // }
-                    // printed = true;
-
                     assert!(
                         found_one,
                         "line no. {}, variant: {}, tx: {}, hgvs_c: {:?}, hgvs_p: {:?}, \
@@ -989,10 +993,6 @@ mod test {
                     );
                 }
             }
-
-            // if !printed {
-            //     println!("{}\t{}\t{}", record.var, record.tx, record.csq);
-            // }
         }
 
         Ok(())

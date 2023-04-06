@@ -95,6 +95,7 @@ pub mod annotate;
 pub mod common;
 pub mod db;
 pub mod ped;
+pub mod verify;
 
 #[allow(
     non_snake_case,
@@ -133,6 +134,8 @@ enum Commands {
     Db(Db),
     /// Annotation related commands.
     Annotate(Annotate),
+    /// Verification related commands.
+    Verify(Verify),
     // /// Server related commands.
     // Server(Server),
 }
@@ -184,6 +187,21 @@ enum AnnotateCommands {
     Seqvars(annotate::seqvars::Args),
 }
 
+/// Parsing of "verify *" sub commands.
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
+struct Verify {
+    /// The sub command to run
+    #[command(subcommand)]
+    command: VerifyCommands,
+}
+
+/// Enum supporting the parsing of "annotate *" sub commands.
+#[derive(Debug, Subcommand)]
+enum VerifyCommands {
+    Seqvars(verify::seqvars::Args),
+}
+
 fn main() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
 
@@ -221,6 +239,9 @@ fn main() -> Result<(), anyhow::Error> {
             },
             Commands::Annotate(annotate) => match &annotate.command {
                 AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args)?,
+            },
+            Commands::Verify(verify) => match &verify.command {
+                VerifyCommands::Seqvars(args) => verify::seqvars::run(&cli.common, args)?,
             },
         }
 
