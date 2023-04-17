@@ -701,6 +701,9 @@ struct GenotypeCalls {
 }
 
 impl GenotypeCalls {
+    /// Generate and return the dict in Postgres JSON syntax.
+    ///
+    /// The returned string is suitable for a direct TSV import into Postgres.
     pub fn for_tsv(&self) -> String {
         let mut result = String::new();
         result.push('{');
@@ -712,7 +715,7 @@ impl GenotypeCalls {
             } else {
                 result.push(',');
             }
-            result.push_str(&format!("\"\"\"{}\"\"\":{{", entry.name));
+            result.push_str(&format!("\"\"\"{}\"\"\":{", entry.name));
 
             let mut prev = false;
             if let Some(gt) = &entry.gt {
@@ -1678,13 +1681,6 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         } else {
             let mut writer = VcfWriter::new(File::create(path_output_vcf).map(BufWriter::new)?);
 
-            // Load the pedigree.
-            tracing::info!("Loading pedigree...");
-            writer.set_pedigree(&PedigreeByName::from_path(
-                &args.path_input_ped.as_ref().unwrap(),
-            )?);
-            tracing::info!("... done loading pedigree");
-
             run_with_writer(&mut writer, args)?;
         }
     } else {
@@ -1713,6 +1709,14 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             .as_ref()
             .expect("tsv path must be set; vcf and tsv are mutually exclusive, vcf unset");
         let mut writer = VarFishSeqvarTsvWriter::with_path(path_output_tsv);
+
+        // Load the pedigree.
+        tracing::info!("Loading pedigree...");
+        writer.set_pedigree(&PedigreeByName::from_path(
+            &args.path_input_ped.as_ref().unwrap(),
+        )?);
+        tracing::info!("... done loading pedigree");
+
         writer.set_hgnc_map(hgnc_map);
         run_with_writer(&mut writer, args)?;
     }

@@ -2,6 +2,7 @@
 
 use std::io::Write;
 use std::path::Path;
+use std::str::FromStr;
 use std::{fs::File, io::BufWriter};
 
 use crate::annotate::seqvars::HgncRecord;
@@ -14,6 +15,8 @@ use hgvs::static_data::Assembly;
 use noodles::bgzf::Writer as BgzfWriter;
 use noodles::vcf::{Header as VcfHeader, Record as VcfRecord, Writer as VcfWriter};
 use rustc_hash::FxHashMap;
+use strum::{Display, EnumIter};
+use uuid::Uuid;
 
 use super::seqvars::AnnotatedVcfWriter;
 
@@ -61,19 +64,45 @@ pub struct PathOutput {
 
 /// Writing of structural variants to VarFish TSV files.
 struct VarFishStrucvarTsvWriter {
+    /// The actual (compressed) text output writer.
     inner: Box<dyn Write>,
+    /// Assembly information.
     assembly: Option<Assembly>,
+    /// Pedigree information.
     pedigree: Option<PedigreeByName>,
+    /// VCF Header for equivalent output file.
     header: Option<VcfHeader>,
+    /// Mapping from HGNC id to record with gene symbol and gene identifiers.
     hgnc_map: Option<FxHashMap<String, HgncRecord>>,
 }
 
-/// TODO XXX
+/// Per-genotype call information.
 #[derive(Debug, Default)]
 struct GenotypeInfo {
+    /// Sample name.
     pub name: String,
+    /// Genotype value.
     pub gt: Option<String>,
-    // XXX
+    /// Per-genotype filter values.
+    pub ft: Option<Vec<String>>,
+    /// Genotype quality.
+    pub gq: Option<f64>,
+    /// Paired-end coverage.
+    pub pec: Option<i32>,
+    /// Paired-end variant support.
+    pub pev: Option<i32>,
+    /// Split-read coverage.
+    pub src: Option<i32>,
+    /// Split-read variant support.
+    pub srv: Option<i32>,
+    /// Average mapping quality.
+    pub amq: Option<i32>,
+    /// Copy number.
+    pub cn: Option<i32>,
+    /// Average normalized coverage.
+    pub anc: Option<f64>,
+    /// Point count (windows/targets/probes).
+    pub pc: Option<i32>,
 }
 
 #[derive(Debug, Default)]
@@ -82,19 +111,186 @@ struct GenotypeCalls {
 }
 
 impl GenotypeCalls {
+    /// Generate and return the dict in Postgres JSON syntax.
+    ///
+    /// The returned string is suitable for a direct TSV import into Postgres.
     pub fn for_tsv(&self) -> String {
-        todo!()
+        let mut result = String::new();
+        result.push('{');
+
+        let mut first = true;
+        for entry in &self.entries {
+            if first {
+                first = false;
+            } else {
+                result.push(',');
+            }
+            result.push_str(&format!("\"\"\"{}\"\"\":{", entry.name));
+
+            let mut prev = false;
+            if let Some(gt) = &entry.gt {
+                prev = true;
+                result.push_str(&format!("\"\"\"gt\"\"\":\"\"\"{}\"\"\"", gt));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(ft) = &entry.ft {
+                prev = true;
+                result.push_str(&format!("\"\"\"ft\"\"\":["));
+                let mut first_ft = true;
+                for ft_entry in ft {
+                    if first_ft {
+                        first_ft = false;
+                    } else {
+                        result.push(',');
+                    }
+                    result.push_str(&format!("\"\"\"{}\"\"\"", ft_entry));
+                }
+                result.push(']');
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(gq) = &entry.gq {
+                prev = true;
+                result.push_str(&format!("\"\"\"ad\"\"\":{}", gq));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(pec) = &entry.pec {
+                prev = true;
+                result.push_str(&format!("\"\"\"pec\"\"\":{}", pec));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(pev) = &entry.pev {
+                prev = true;
+                result.push_str(&format!("\"\"\"pev\"\"\":{}", pev));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(src) = &entry.src {
+                prev = true;
+                result.push_str(&format!("\"\"\"src\"\"\":{}", src));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(srv) = &entry.srv {
+                prev = true;
+                result.push_str(&format!("\"\"\"srv\"\"\":{}", srv));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(amq) = &entry.amq {
+                prev = true;
+                result.push_str(&format!("\"\"\"amq\"\"\":{}", amq));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(cn) = &entry.cn {
+                prev = true;
+                result.push_str(&format!("\"\"\"cn\"\"\":{}", cn));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(anc) = &entry.anc {
+                prev = true;
+                result.push_str(&format!("\"\"\"anc\"\"\":{}", anc));
+            }
+
+            if prev {
+                result.push(',');
+            }
+            if let Some(pc) = &entry.pc {
+                // prev = true;
+                result.push_str(&format!("\"\"\"pc\"\"\":{}", pc));
+            }
+
+            result.push('}');
+        }
+
+        result.push('}');
+        result
     }
 }
 
 /// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
 impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
     fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
-        todo!()
+        self.header = Some(header.clone());
+        let header = &[
+            "release",
+            "chromosome",
+            "chromosome_no",
+            "bin",
+            "chromosome2",
+            "chromosome_no2",
+            "bin2",
+            "pe_orientation",
+            "start",
+            "end",
+            "start_ci_left",
+            "start_ci_right",
+            "end_ci_left",
+            "end_ci_right",
+            "case_id",
+            "set_id",
+            "sv_uuid",
+            "callers",
+            "sv_type",
+            "sv_sub_type",
+            "info",
+            "genotype",
+        ];
+        writeln!(self.inner, "{}", header.join("\t"))
+            .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
     }
 
     fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error> {
+        let mut tsv_record = VarFishStrucvarTsvRecord::default();
+
+        // if !self.fill_coords(
+        //     self.assembly.expect("assembly must have been set"),
+        //     record,
+        //     &mut tsv_record,
+        // )? {
+        //     // Record was not on canonical chromosome and should not be written out.
+        //     return Ok(());
+        // }
+        // self.fill_genotype_and_freqs(record, &mut tsv_record)?;
+        // self.fill_bg_freqs(record, &mut tsv_record)?;
+        // self.fill_clinvar(record, &mut tsv_record)?;
+        // self.expand_refseq_ensembl_and_write(record, &mut tsv_record)
         todo!()
+    }
+
+    fn set_hgnc_map(&mut self, hgnc_map: FxHashMap<String, HgncRecord>) {
+        self.hgnc_map = Some(hgnc_map)
+    }
+
+    fn set_assembly(&mut self, assembly: &Assembly) {
+        self.assembly = Some(*assembly)
+    }
+
+    fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
+        self.pedigree = Some(pedigree.clone())
     }
 }
 
@@ -121,6 +317,183 @@ impl VarFishStrucvarTsvWriter {
     }
 }
 
+/// Enumeration for describing the orientation of a paired-end read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Display, Default)]
+pub enum PeOrientation {
+    #[strum(serialize = "3to3")]
+    ThreeToThree,
+    #[strum(serialize = "5to5")]
+    FiveToFive,
+    #[strum(serialize = "3to5")]
+    ThreeToFive,
+    #[strum(serialize = "5to3")]
+    FiveToThree,
+    #[strum(serialize = "NtoN")]
+    #[default]
+    Other,
+}
+
+impl FromStr for PeOrientation {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "3to3" => Ok(PeOrientation::ThreeToThree),
+            "5to5" => Ok(PeOrientation::FiveToFive),
+            "3to5" => Ok(PeOrientation::ThreeToFive),
+            "5to3" => Ok(PeOrientation::FiveToThree),
+            "NtoN" => Ok(PeOrientation::Other),
+            _ => Err(anyhow::anyhow!("Invalid PE orientation: {}", s)),
+        }
+    }
+}
+
+/// Encode the type of an SV
+#[derive(EnumIter, PartialEq, Eq, Ord, PartialOrd, Hash, Debug, Clone, Copy, Default, Display)]
+pub enum SvType {
+    /// Deletion
+    #[strum(serialize = "DEL")]
+    #[default]
+    Del,
+    /// Duplication
+    #[strum(serialize = "DUP")]
+    Dup,
+    /// Inversion
+    #[strum(serialize = "INV")]
+    Inv,
+    /// Insertion
+    #[strum(serialize = "INS")]
+    Ins,
+    /// Break-end
+    #[strum(serialize = "BND")]
+    Bnd,
+    /// Copy number variable region
+    #[strum(serialize = "CNV")]
+    Cnv,
+}
+
+impl FromStr for SvType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "DEL" => Ok(SvType::Del),
+            "DUP" => Ok(SvType::Dup),
+            "INV" => Ok(SvType::Inv),
+            "INS" => Ok(SvType::Ins),
+            "BND" => Ok(SvType::Bnd),
+            "CNV" => Ok(SvType::Cnv),
+            _ => Err(anyhow::anyhow!("Invalid SV type: {}", s)),
+        }
+    }
+}
+
+/// Enumeration for describing the SV sub type.
+#[derive(PartialEq, Debug, Clone, Copy, Default, Display)]
+pub enum SvSubType {
+    /// Deletion
+    #[strum(serialize = "DEL")]
+    #[default]
+    Del,
+    /// Mobile element deletion
+    #[strum(serialize = "DEL:ME")]
+    DelMe,
+    /// Mobile element deletion (SVA)
+    #[strum(serialize = "DEL:ME:SVA")]
+    DelMeSva,
+    /// Mobile element deletion (L1)
+    #[strum(serialize = "DEL:ME:L1")]
+    DelMeL1,
+    /// Mobile element deletion (ALU)
+    #[strum(serialize = "DEL:ME:ALU")]
+    DelMeAlu,
+    /// Duplication
+    #[strum(serialize = "DUP")]
+    Dup,
+    /// Tandem duplication
+    #[strum(serialize = "DUP:TANDEM")]
+    DupTandem,
+    /// Inversion
+    #[strum(serialize = "INV")]
+    Inv,
+    /// Insertion
+    #[strum(serialize = "INS")]
+    Ins,
+    /// Mobile element insertion
+    #[strum(serialize = "INS:ME")]
+    InsMe,
+    /// Mobile element insertion (SVA)
+    #[strum(serialize = "INS:ME:SVA")]
+    InsMeSva,
+    /// Mobile element insertion (L1)
+    #[strum(serialize = "INS:ME:L1")]
+    InsMeL1,
+    /// Mobile element insertion (ALU)
+    #[strum(serialize = "INS:ME:ALU")]
+    InsMeAlu,
+    /// Break-end
+    #[strum(serialize = "BND")]
+    Bnd,
+    /// Copy number variable region
+    #[strum(serialize = "CNV")]
+    Cnv,
+}
+
+impl FromStr for SvSubType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "DEL" => Ok(SvSubType::Del),
+            "DEL:ME" => Ok(SvSubType::DelMe),
+            "DEL:ME:SVA" => Ok(SvSubType::DelMeSva),
+            "DEL:ME:L1" => Ok(SvSubType::DelMeL1),
+            "DEL:ME:ALU" => Ok(SvSubType::DelMeAlu),
+            "DUP" => Ok(SvSubType::Dup),
+            "DUP:TANDEM" => Ok(SvSubType::DupTandem),
+            "INV" => Ok(SvSubType::Inv),
+            "INS" => Ok(SvSubType::Ins),
+            "INS:ME" => Ok(SvSubType::InsMe),
+            "INS:ME:SVA" => Ok(SvSubType::InsMeSva),
+            "INS:ME:L1" => Ok(SvSubType::InsMeL1),
+            "INS:ME:ALU" => Ok(SvSubType::InsMeAlu),
+            "BND" => Ok(SvSubType::Bnd),
+            "CNV" => Ok(SvSubType::Cnv),
+            _ => Err(anyhow::anyhow!("Invalid SV sub type: {}", s)),
+        }
+    }
+}
+
+/// A record, as written out to a VarFish TSV file.
+#[derive(Debug, Default)]
+pub struct VarFishStrucvarTsvRecord {
+    pub release: String,
+    pub chromosome: String,
+    pub chromosome_no: u32,
+    pub bin: u32,
+    pub chromosome2: String,
+    pub chromosome_no2: u32,
+    pub bin2: u32,
+    pub pe_orientation: PeOrientation,
+
+    pub start: usize,
+    pub end: usize,
+    pub start_ci_left: i32,
+    pub start_ci_right: i32,
+    pub end_ci_left: i32,
+    pub end_ci_right: i32,
+
+    pub case_id: usize,
+    pub set_id: usize,
+    pub sv_uuid: Uuid,
+    pub callers: Vec<String>,
+    pub sv_type: SvType,
+    pub sv_sub_type: SvSubType,
+
+    // pub info: String,
+    pub genotype: GenotypeCalls,
+}
+
 /// Run the annotation with the given `Write` within the `VcfWriter`.
 fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(), anyhow::Error> {
     todo!()
@@ -139,14 +512,6 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             run_with_writer(&mut writer, args)?;
         } else {
             let mut writer = VcfWriter::new(File::create(path_output_vcf).map(BufWriter::new)?);
-
-            // Load the pedigree.
-            tracing::info!("Loading pedigree...");
-            writer.set_pedigree(&PedigreeByName::from_path(
-                &args.path_input_ped.as_ref().unwrap(),
-            )?);
-            tracing::info!("... done loading pedigree");
-
             run_with_writer(&mut writer, args)?;
         }
     } else {
@@ -175,9 +540,20 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             .as_ref()
             .expect("tsv path must be set; vcf and tsv are mutually exclusive, vcf unset");
         let mut writer = VarFishStrucvarTsvWriter::with_path(path_output_tsv);
+
+        // Load the pedigree.
+        tracing::info!("Loading pedigree...");
+        writer.set_pedigree(&PedigreeByName::from_path(
+            &args.path_input_ped.as_ref().unwrap(),
+        )?);
+        tracing::info!("... done loading pedigree");
+
         writer.set_hgnc_map(hgnc_map);
         run_with_writer(&mut writer, args)?;
     }
 
     Ok(())
 }
+
+#[cfg(test)]
+mod test {}
