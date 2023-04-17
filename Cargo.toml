@@ -53,8 +53,10 @@ bincode = "1.3.3"
 bgzip = "0.3.1"
 rustc-hash = "1.1.0"
 quick_cache = "0.2.4"
-uuid = { version = "1.3.1", features = ["fast-rng"] }
+uuid = { version = "1.3.1", features = ["fast-rng", "serde"] }
 strum = { version = "0.24.1", features = ["derive"] }
+tempdir = "0.3.7"
+jsonl = "4.0.1"
 
 [build-dependencies]
 flatc-rust = "0.2.0"

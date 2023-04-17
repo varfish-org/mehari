@@ -440,16 +440,17 @@ where
 }
 
 lazy_static::lazy_static! {
-    static ref CHROM_MT: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
-    static ref CHROM_XY: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
-    static ref CHROM_AUTO: HashSet<&'static str> = HashSet::from_iter([
+    pub static ref CHROM_MT: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
+    pub static ref CHROM_XY: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
+    pub static ref CHROM_AUTO: HashSet<&'static str> = HashSet::from_iter([
         "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18",
         "19", "20", "21", "22", "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9",
         "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20",
         "chr21", "chr22"
     ].into_iter());
 
-    static ref CHROM_TO_CHROM_NO: HashMap<String, u32> = {
+    /// Mapping from chromosome name to chromsome number.
+    pub static ref CHROM_TO_CHROM_NO: HashMap<String, u32> = {
         let mut m = HashMap::new();
 
         for i in 1..=22 {
@@ -458,14 +459,30 @@ lazy_static::lazy_static! {
         }
         m.insert(String::from("X"), 23);
         m.insert(String::from("chrX"), 23);
-        m.insert(String::from("Y"), 23);
-        m.insert(String::from("chrY"), 23);
-        m.insert(String::from("M"), 23);
-        m.insert(String::from("chrM"), 23);
-        m.insert(String::from("MT"), 24);
-        m.insert(String::from("chrMT"), 24);
+        m.insert(String::from("Y"), 24);
+        m.insert(String::from("chrY"), 24);
+        m.insert(String::from("M"), 25);
+        m.insert(String::from("chrM"), 25);
+        m.insert(String::from("MT"), 25);
+        m.insert(String::from("chrMT"), 25);
 
         m
+    };
+
+    /// Mapping from chromosome number to canonical chromosome name.
+    ///
+    /// We use the names without `"chr"` prefix for the canonical name.  In the case of GRCh38,
+    /// the the prefix must be prepended.
+    pub static ref CHROM_NO_TO_NAME: Vec<String> = {
+        let mut v = Vec::new();
+        v.push(String::from("")); // 0
+        for i in 1..=22 {
+            v.push(format!("{}", i));
+        }
+        v.push(String::from("X"));
+        v.push(String::from("Y"));
+        v.push(String::from("MT"));
+        v
     };
 }
 
@@ -715,7 +732,7 @@ impl GenotypeCalls {
             } else {
                 result.push(',');
             }
-            result.push_str(&format!("\"\"\"{}\"\"\":{", entry.name));
+            result.push_str(&format!("\"\"\"{}\"\"\":{{", entry.name));
 
             let mut prev = false;
             if let Some(gt) = &entry.gt {
@@ -1511,7 +1528,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     let header_in = reader.read_header()?;
     let header_out = build_header(&header_in);
 
-    // Guess genome release from paths.
+    // Guess genome release from contigs in VCF header.
     let genome_release = args.genome_release.map(|gr| match gr {
         GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
         GenomeRelease::Grch38 => Assembly::Grch38,
@@ -1573,7 +1590,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     let predictor = ConsequencePredictor::new(provider, assembly);
     tracing::info!("... done building transcript interval trees");
 
-    // Perform the VCf annotation.
+    // Perform the VCF annotation.
     tracing::info!("Annotating VCF ...");
     let start = Instant::now();
     let mut prev = Instant::now();
