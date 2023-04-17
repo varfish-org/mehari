@@ -534,6 +534,27 @@ pub enum SvSubType {
     Cnv,
 }
 
+impl From<SvSubType> for SvType {
+    fn from(other: SvSubType) -> SvType {
+        match other {
+            SvSubType::Del
+            | SvSubType::DelMe
+            | SvSubType::DelMeSva
+            | SvSubType::DelMeL1
+            | SvSubType::DelMeAlu => SvType::Del,
+            SvSubType::Dup | SvSubType::DupTandem => SvType::Dup,
+            SvSubType::Inv => SvType::Inv,
+            SvSubType::Ins
+            | SvSubType::InsMe
+            | SvSubType::InsMeSva
+            | SvSubType::InsMeL1
+            | SvSubType::InsMeAlu => SvType::Ins,
+            SvSubType::Bnd => SvType::Bnd,
+            SvSubType::Cnv => SvType::Cnv,
+        }
+    }
+}
+
 impl FromStr for SvSubType {
     type Err = anyhow::Error;
 
@@ -628,19 +649,26 @@ pub trait VcfRecordConverter {
     fn convert(
         &self,
         record: &VcfRecord,
-        args: &Args,
+        genome_release: GenomeRelease,
     ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error>;
 
     /// Fill the coordinates of the given record.
+    ///
+    /// In the case of breakends, the second chromosome and end position will be parsed from
+    /// the (only by assumption) alternate allele in `vcf_record`.
+    ///
+    /// # Preconditions
+    ///
+    /// - `tsv_record.sv_type` must have been set
+    /// - `tsv_record.sv_sub_type` must have been set
     fn fill_coords(
         &self,
         vcf_record: &VcfRecord,
-        args: &Args,
-        sv_type: SvType,
+        genome_release: GenomeRelease,
         tsv_record: &mut VarFishStrucvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
         // Genome release.
-        tsv_record.release = match args.genome_release.expect("genome_release must be filled") {
+        tsv_record.release = match genome_release {
             GenomeRelease::Grch37 => String::from("GRCh37"),
             GenomeRelease::Grch38 => String::from("GRCh38"),
         };
@@ -667,14 +695,22 @@ pub trait VcfRecordConverter {
 
         // Extract chromosome 2, from alternative allele for BND.  In the case of BND, also extract
         // end position.
-        let end: Option<i32> = None;
+        let mut end: Option<i32> = None;
         let alleles = &**vcf_record.alternate_bases();
         if alleles.len() != 1 {
             panic!("Only one alternative allele is supported for SVs");
         }
-        let allele = &alleles[0];
+        if let Allele::Breakend(bnd_string) = &alleles[0] {
+            let reference = vcf_record
+                .reference_bases()
+                .iter()
+                .map(|c| char::from(*c))
+                .collect::<String>();
+            let bnd = bnd::Breakend::from_ref_alt_str(&reference, &bnd_string)?;
 
-        // XXX TODO XXX
+            tsv_record.chromosome2 = bnd.chrom.clone();
+            end = Some(bnd.pos);
+        }
 
         // Compute chromosome number of second chromosome.
         tsv_record.chromosome_no2 = CHROM_TO_CHROM_NO
@@ -712,12 +748,12 @@ pub trait VcfRecordConverter {
         // if both positions are on the same chromosome.  Otherwise, the second bin is the same as the
         // first one.  In the latter case, we need to consider insertions as a special case as we simply
         // compute the bin around the single breakpoint position.
-        if sv_type == SvType::Bnd {
+        if tsv_record.sv_type == SvType::Bnd {
             tsv_record.bin =
                 binning::bin_from_range(tsv_record.start - 1, tsv_record.start)? as u32;
             tsv_record.bin2 = binning::bin_from_range(tsv_record.end - 1, tsv_record.end)? as u32;
         } else {
-            if sv_type == SvType::Ins {
+            if tsv_record.sv_type == SvType::Ins {
                 tsv_record.bin =
                     binning::bin_from_range(tsv_record.start - 1, tsv_record.start)? as u32;
             } else {
@@ -733,10 +769,17 @@ pub trait VcfRecordConverter {
 
 /// Conversion from VCF records to `VarFishStrucvarTsvRecord`.
 mod conv {
-    use super::Args;
+    use std::str::FromStr;
+
+    use crate::common::GenomeRelease;
+
+    use super::SvSubType;
     use super::VarFishStrucvarTsvRecord;
-    use super::VcfRecord;
     use super::VcfRecordConverter;
+    use noodles::vcf::{
+        header::info::key::Key as InfoKey, header::info::key::Standard as InfoKeyStandard,
+        record::info::field::value::Value as InfoValue, Record as VcfRecord,
+    };
 
     pub struct MantaVcfRecordConverter {
         pub version: String,
@@ -754,11 +797,23 @@ mod conv {
         fn convert(
             &self,
             record: &VcfRecord,
-            args: &Args,
+            genome_release: GenomeRelease,
         ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error> {
             let mut result = VarFishStrucvarTsvRecord::default();
-            todo!();
-            // self.fill_coords(&record, args, &mut result)?;
+
+            let sv_type = record
+                .info()
+                .get(&InfoKey::Standard(InfoKeyStandard::SvType))
+                .ok_or_else(|| anyhow::anyhow!("SVTYPE not found"))?
+                .ok_or_else(|| anyhow::anyhow!("SVTYPE empty"))?;
+            if let InfoValue::String(value) = sv_type {
+                result.sv_sub_type = SvSubType::from_str(value)?;
+            } else {
+                anyhow::bail!("SVTYPE is not a string");
+            }
+            result.sv_type = result.sv_sub_type.into();
+
+            self.fill_coords(&record, genome_release, &mut result)?;
             Ok(result)
         }
     }
@@ -953,6 +1008,8 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 /// 17 198983 bndZ C [13:123457[C 6 PASS SVTYPE=BND 3to3   !leading      !left_open
 /// ```
 pub mod bnd {
+    use super::PeOrientation;
+
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Breakend {
         /// Name of the chromosome.
@@ -967,6 +1024,8 @@ pub mod bnd {
         pub leading_base: bool,
         /// Whether the square brackets are left open.
         pub left_open: bool,
+        /// The derived paired-end orientation.
+        pub pe_orientation: PeOrientation,
     }
 
     impl Breakend {
@@ -1019,6 +1078,14 @@ pub mod bnd {
             ))?;
             let pos: i32 = pos.parse()?;
 
+            // Determine PE orientation.
+            let pe_orientation = match (!leading_bracket, left_open) {
+                (true, true) => PeOrientation::FiveToFive,
+                (true, false) => PeOrientation::FiveToThree,
+                (false, true) => PeOrientation::ThreeToFive,
+                (false, false) => PeOrientation::ThreeToThree,
+            };
+
             Ok(Self {
                 chrom,
                 pos,
@@ -1026,6 +1093,7 @@ pub mod bnd {
                 alt_base,
                 leading_base: !leading_bracket,
                 left_open,
+                pe_orientation,
             })
         }
     }
@@ -1038,6 +1106,8 @@ mod test {
     use noodles::vcf;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
+
+    use crate::{annotate::strucvars::PeOrientation, common::GenomeRelease};
 
     use super::{bnd::Breakend, conv::MantaVcfRecordConverter, VcfRecordConverter};
 
@@ -1052,6 +1122,7 @@ mod test {
                 alt_base: String::from("A"),
                 leading_base: true,
                 left_open: true,
+                pe_orientation: PeOrientation::FiveToFive,
             },
             Breakend::from_ref_alt_str("G", "A]17:198982]")?,
         );
@@ -1063,6 +1134,7 @@ mod test {
                 alt_base: String::from("A"),
                 leading_base: true,
                 left_open: false,
+                pe_orientation: PeOrientation::FiveToThree,
             },
             Breakend::from_ref_alt_str("G", "A[17:198982[")?,
         );
@@ -1074,6 +1146,7 @@ mod test {
                 alt_base: String::from("A"),
                 leading_base: false,
                 left_open: true,
+                pe_orientation: PeOrientation::ThreeToFive,
             },
             Breakend::from_ref_alt_str("G", "]17:198982]A")?,
         );
@@ -1085,6 +1158,7 @@ mod test {
                 alt_base: String::from("A"),
                 leading_base: false,
                 left_open: false,
+                pe_orientation: PeOrientation::ThreeToThree,
             },
             Breakend::from_ref_alt_str("G", "[17:198982[A")?,
         );
@@ -1105,13 +1179,12 @@ mod test {
         let converter = MantaVcfRecordConverter::new("1.6.0");
         let mut records = reader.records(&header_in);
         loop {
-            todo!();
-            // if let Some(record) = records.next() {
-            //     let record = converter.convert(&record?)?;
-            //     jsonl::write(&out_jsonl, &record)?;
-            // } else {
-            //     break; // all done
-            // }
+            if let Some(record) = records.next() {
+                let record = converter.convert(&record?, GenomeRelease::Grch37)?;
+                jsonl::write(&out_jsonl, &record)?;
+            } else {
+                break; // all done
+            }
         }
         drop(out_jsonl);
 
