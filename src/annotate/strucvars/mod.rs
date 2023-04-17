@@ -14,10 +14,11 @@ use flate2::Compression;
 use hgvs::static_data::Assembly;
 use noodles::bgzf::Writer as BgzfWriter;
 use noodles::vcf::record::alternate_bases::Allele;
-use noodles::vcf::record::Position;
+use noodles::vcf::{self, Header as VcfHeader};
 use noodles::vcf::{
-    self, header::info::key::Key as InfoKey, header::info::key::Standard as InfoKeyStandard,
-    Header as VcfHeader, Record as VcfRecord, Writer as VcfWriter,
+    header::info::key::Key as InfoKey, header::info::key::Standard as InfoKeyStandard,
+    record::info::field::value::Value as InfoValue, Record as VcfRecord,
+    Writer as VcfWriter
 };
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -652,6 +653,26 @@ pub trait VcfRecordConverter {
         genome_release: GenomeRelease,
     ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error>;
 
+    fn fill_sv_type(
+        &self,
+        vcf_record: &VcfRecord,
+        tsv_record: &mut VarFishStrucvarTsvRecord,
+    ) -> Result<(), anyhow::Error> {
+        let sv_type = vcf_record
+            .info()
+            .get(&InfoKey::Standard(InfoKeyStandard::SvType))
+            .ok_or_else(|| anyhow::anyhow!("SVTYPE not found"))?
+            .ok_or_else(|| anyhow::anyhow!("SVTYPE empty"))?;
+        if let InfoValue::String(value) = sv_type {
+            tsv_record.sv_sub_type = SvSubType::from_str(value)?;
+        } else {
+            anyhow::bail!("SVTYPE is not a string");
+        }
+        tsv_record.sv_type = tsv_record.sv_sub_type.into();
+
+        Ok(())
+    }
+
     /// Fill the coordinates of the given record.
     ///
     /// In the case of breakends, the second chromosome and end position will be parsed from
@@ -769,17 +790,12 @@ pub trait VcfRecordConverter {
 
 /// Conversion from VCF records to `VarFishStrucvarTsvRecord`.
 mod conv {
-    use std::str::FromStr;
-
     use crate::common::GenomeRelease;
 
-    use super::SvSubType;
     use super::VarFishStrucvarTsvRecord;
     use super::VcfRecordConverter;
-    use noodles::vcf::{
-        header::info::key::Key as InfoKey, header::info::key::Standard as InfoKeyStandard,
-        record::info::field::value::Value as InfoValue, Record as VcfRecord,
-    };
+
+    use noodles::vcf::Record as VcfRecord;
 
     pub struct MantaVcfRecordConverter {
         pub version: String,
@@ -801,18 +817,33 @@ mod conv {
         ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error> {
             let mut result = VarFishStrucvarTsvRecord::default();
 
-            let sv_type = record
-                .info()
-                .get(&InfoKey::Standard(InfoKeyStandard::SvType))
-                .ok_or_else(|| anyhow::anyhow!("SVTYPE not found"))?
-                .ok_or_else(|| anyhow::anyhow!("SVTYPE empty"))?;
-            if let InfoValue::String(value) = sv_type {
-                result.sv_sub_type = SvSubType::from_str(value)?;
-            } else {
-                anyhow::bail!("SVTYPE is not a string");
-            }
-            result.sv_type = result.sv_sub_type.into();
+            self.fill_sv_type(&record, &mut result)?;
+            self.fill_coords(&record, genome_release, &mut result)?;
+            Ok(result)
+        }
+    }
 
+    pub struct DellyVcfRecordConverter {
+        pub version: String,
+    }
+
+    impl DellyVcfRecordConverter {
+        pub fn new(version: &str) -> Self {
+            Self {
+                version: version.to_string(),
+            }
+        }
+    }
+
+    impl VcfRecordConverter for DellyVcfRecordConverter {
+        fn convert(
+            &self,
+            record: &VcfRecord,
+            genome_release: GenomeRelease,
+        ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error> {
+            let mut result = VarFishStrucvarTsvRecord::default();
+
+            self.fill_sv_type(&record, &mut result)?;
             self.fill_coords(&record, genome_release, &mut result)?;
             Ok(result)
         }
@@ -1109,7 +1140,7 @@ mod test {
 
     use crate::{annotate::strucvars::PeOrientation, common::GenomeRelease};
 
-    use super::{bnd::Breakend, conv::MantaVcfRecordConverter, VcfRecordConverter};
+    use super::{bnd::Breakend, conv::{MantaVcfRecordConverter, DellyVcfRecordConverter}, VcfRecordConverter};
 
     /// Test for the parsing of breakend alleles.
     #[test]
@@ -1166,17 +1197,20 @@ mod test {
         Ok(())
     }
 
-    /// Conversion of minimal Manta VCF to JSONL.
-    #[test]
-    fn vcf_to_jsonl_manta_min() -> Result<(), anyhow::Error> {
-        let temp = TempDir::default();
-        let out_jsonl = File::create(temp.join("out.jsonl"))?;
+    /// Helper function that tests the VCF to JSONL conversion.
+    fn run_test_vcf_to_jsonl(
+        path_input_vcf: &str,
+        path_expected_jsonl: &str,
+        converter: &impl VcfRecordConverter,
+    ) -> Result<(), anyhow::Error> {
+        let out_file_name = "out.jsonl";
 
-        let mut reader = vcf::reader::Builder::default()
-            .build_from_path("tests/data/annotate/strucvars/manta-min.vcf")?;
+        let temp = TempDir::default();
+        let out_jsonl = File::create(temp.join(out_file_name))?;
+
+        let mut reader = vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
         let header_in = reader.read_header()?.parse()?;
 
-        let converter = MantaVcfRecordConverter::new("1.6.0");
         let mut records = reader.records(&header_in);
         loop {
             if let Some(record) = records.next() {
@@ -1188,11 +1222,31 @@ mod test {
         }
         drop(out_jsonl);
 
-        let expected = std::fs::read_to_string("tests/data/annotate/strucvars/manta-min.jsonl")?;
-        let actual = std::fs::read_to_string(temp.join("out.jsonl"))?;
+        let expected = std::fs::read_to_string(path_expected_jsonl)?;
+        let actual = std::fs::read_to_string(temp.join(out_file_name))?;
 
         assert_eq!(expected, actual);
 
         Ok(())
+    }
+
+    /// Conversion of minimal Delly2 VCF to JSONL.
+    #[test]
+    fn vcf_to_jsonl_delly_min() -> Result<(), anyhow::Error> {
+        run_test_vcf_to_jsonl(
+            "tests/data/annotate/strucvars/delly2-min.vcf",
+            "tests/data/annotate/strucvars/delly2-min.out.jsonl",
+            &DellyVcfRecordConverter::new("1.1.3"),
+        )
+    }
+
+    /// Conversion of minimal Manta VCF to JSONL.
+    #[test]
+    fn vcf_to_jsonl_manta_min() -> Result<(), anyhow::Error> {
+        run_test_vcf_to_jsonl(
+            "tests/data/annotate/strucvars/manta-min.vcf",
+            "tests/data/annotate/strucvars/manta-min.out.jsonl",
+            &MantaVcfRecordConverter::new("1.6.0"),
+        )
     }
 }
