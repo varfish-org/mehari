@@ -9,7 +9,7 @@ use std::{
 use bgzip::BGZFReader;
 use clap::Parser;
 use hgvs::static_data::Assembly;
-use rocksdb::{DBWithThreadMode, SingleThreaded};
+use rocksdb::{DBWithThreadMode, SingleThreaded, UniversalCompactOptions};
 use serde::{Deserialize, Serialize};
 use thousands::Separable;
 
@@ -321,16 +321,17 @@ fn import_clinvar_seqvars(
     Ok(())
 }
 
-fn rocksdb_tuning(options: rocksdb::Options) -> rocksdb::Options {
+pub fn rocksdb_tuning(options: rocksdb::Options) -> rocksdb::Options {
     let mut options = options;
 
     // compress all files with Zstandard
-    options.set_compression_per_level(&[]);
+    options.set_compression_per_level(&[rocksdb::DBCompressionType::Zstd, rocksdb::DBCompressionType::Zstd, rocksdb::DBCompressionType::Zstd, rocksdb::DBCompressionType::Zstd, rocksdb::DBCompressionType::Zstd]);
     options.set_compression_type(rocksdb::DBCompressionType::Zstd);
     // We only want to set level to 2 but have to set the rest as well using the Rust interface.
     // The (default) values for the other levels were taken from the output of a RocksDB
     // output folder created with default settings.
     options.set_compression_options(-14, 2, 0, 0);
+    // options.set_zstd_max_train_bytes(100 * 1024);
 
     options
 }
