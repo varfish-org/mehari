@@ -17,8 +17,7 @@ use noodles::vcf::record::alternate_bases::Allele;
 use noodles::vcf::{self, Header as VcfHeader};
 use noodles::vcf::{
     header::info::key::Key as InfoKey, header::info::key::Standard as InfoKeyStandard,
-    record::info::field::value::Value as InfoValue, Record as VcfRecord,
-    Writer as VcfWriter
+    record::info::field::value::Value as InfoValue, Record as VcfRecord, Writer as VcfWriter,
 };
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -647,12 +646,46 @@ pub enum SvCaller {
 /// Trait that allows the conversion from a VCF record into a `VarFishStrucvarTsvRecord`.
 pub trait VcfRecordConverter {
     /// Convert the VCF record into a `VarFishStrucvarTsvRecord`.
+    ///
+    /// The UUID is passed separately to allow for deterministic UUIDs when necessary.
+    ///
+    /// # Arguments
+    ///
+    /// * `record` - The VCF record to convert.
+    /// * `uuid` - The UUID to use for the `sv_uuid` field.
+    /// * `genome_release` - The genome release to use for the `release` field.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(tsv_record)` if the VCF record was successfully converted.
+    ///
+    /// # Errors
+    ///
+    /// * If the VCF record could not be converted.
     fn convert(
         &self,
         record: &VcfRecord,
+        uuid: Uuid,
         genome_release: GenomeRelease,
     ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error>;
 
+    /// Fill the SV type and sub type of `tsv_record` from `vcf_record`.
+    ///
+    /// Also fills paired-end orientation (will be overridden later in `fill_coords` in
+    /// case of BND).
+    ///
+    /// # Arguments
+    ///
+    /// * `vcf_record` - The VCF record to read the SV type and sub type from.
+    /// * `tsv_record` - The TSV record to write the SV type and sub type to.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the SV type and sub type were successfully filled.
+    ///
+    /// # Errors
+    ///
+    /// * If the SV type or sub type could not be read from the VCF record.
     fn fill_sv_type(
         &self,
         vcf_record: &VcfRecord,
@@ -670,18 +703,41 @@ pub trait VcfRecordConverter {
         }
         tsv_record.sv_type = tsv_record.sv_sub_type.into();
 
+        // Fill paired-end orientation.
+        tsv_record.pe_orientation = match tsv_record.sv_type {
+            SvType::Del => PeOrientation::ThreeToFive,
+            SvType::Dup => PeOrientation::ThreeToThree,
+            SvType::Inv => PeOrientation::FiveToFive,
+            SvType::Ins | SvType::Cnv | SvType::Bnd => PeOrientation::Other,
+        };
+
         Ok(())
     }
 
     /// Fill the coordinates of the given record.
     ///
     /// In the case of breakends, the second chromosome and end position will be parsed from
-    /// the (only by assumption) alternate allele in `vcf_record`.
+    /// the (only by assumption) alternate allele in `vcf_record`.  Will also fill the paired-
+    /// end orientation in the case of breakend.
     ///
     /// # Preconditions
     ///
     /// - `tsv_record.sv_type` must have been set
     /// - `tsv_record.sv_sub_type` must have been set
+    ///
+    /// # Arguments
+    ///
+    /// * `vcf_record` - The VCF record to read the coordinates from.
+    /// * `genome_release` - The genome release to use for writing to.
+    /// * `tsv_record` - The TSV record to write the coordinates to.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the coordinates were successfully filled.
+    ///
+    /// # Errors
+    ///
+    /// * If the coordinates could not be read from the VCF record.
     fn fill_coords(
         &self,
         vcf_record: &VcfRecord,
@@ -731,6 +787,9 @@ pub trait VcfRecordConverter {
 
             tsv_record.chromosome2 = bnd.chrom.clone();
             end = Some(bnd.pos);
+
+            // Obtain paired-end orientation.
+            tsv_record.pe_orientation = bnd.pe_orientation;
         }
 
         // Compute chromosome number of second chromosome.
@@ -795,7 +854,52 @@ mod conv {
     use super::VarFishStrucvarTsvRecord;
     use super::VcfRecordConverter;
 
-    use noodles::vcf::Record as VcfRecord;
+    use noodles::vcf::{
+        header::info::key::Key as InfoKey, header::info::key::Standard as InfoKeyStandard,
+        record::info::field::value::Value as InfoValue, Record as VcfRecord, Writer as VcfWriter,
+    };
+    use uuid::Uuid;
+
+    /// Helper function that extract the CIPOS and CIEND fields from `vcf_record` into `tsv_record`.
+    pub fn extract_cis(
+        vcf_record: &VcfRecord,
+        tsv_record: &mut VarFishStrucvarTsvRecord,
+    ) -> Result<(), anyhow::Error> {
+        let cipos = vcf_record.info().get(&InfoKey::Standard(
+            InfoKeyStandard::PositionConfidenceIntervals,
+        ));
+        // Extract CIPOS; missing field is OK, but if present, must be integer array of length 2.
+        if let Some(Some(cipos)) = cipos {
+            if let InfoValue::IntegerArray(cipos) = cipos {
+                if cipos.len() == 2 {
+                    tsv_record.start_ci_left =
+                        cipos[0].ok_or(anyhow::anyhow!("CIPOS[0] is missing"))?;
+                    tsv_record.start_ci_right =
+                        cipos[1].ok_or(anyhow::anyhow!("CIPOS[1] is missing"))?;
+                } else {
+                    anyhow::bail!("CIPOS has wrong number of elements");
+                }
+            }
+        }
+        // Extract CIEND; missing field is OK, but if present, must be integer array of length 2.
+        let ciend = vcf_record
+            .info()
+            .get(&InfoKey::Standard(InfoKeyStandard::EndConfidenceIntervals));
+        if let Some(Some(ciend)) = ciend {
+            if let InfoValue::IntegerArray(ciend) = ciend {
+                if ciend.len() == 2 {
+                    tsv_record.end_ci_left =
+                        ciend[0].ok_or(anyhow::anyhow!("CIEND[0] is missing"))?;
+                    tsv_record.end_ci_right =
+                        ciend[1].ok_or(anyhow::anyhow!("CIEND[1] is missing"))?;
+                } else {
+                    anyhow::bail!("CIEND has wrong number of elements");
+                }
+            }
+        }
+
+        Ok(())
+    }
 
     pub struct MantaVcfRecordConverter {
         pub version: String,
@@ -812,14 +916,20 @@ mod conv {
     impl VcfRecordConverter for MantaVcfRecordConverter {
         fn convert(
             &self,
-            record: &VcfRecord,
+            vcf_record: &VcfRecord,
+            uuid: Uuid,
             genome_release: GenomeRelease,
         ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error> {
-            let mut result = VarFishStrucvarTsvRecord::default();
+            let mut tsv_record = VarFishStrucvarTsvRecord::default();
 
-            self.fill_sv_type(&record, &mut result)?;
-            self.fill_coords(&record, genome_release, &mut result)?;
-            Ok(result)
+            self.fill_sv_type(&vcf_record, &mut tsv_record)?;
+            self.fill_coords(&vcf_record, genome_release, &mut tsv_record)?;
+
+            tsv_record.callers = vec![format!("MANTAv{}", self.version)];
+            tsv_record.sv_uuid = uuid;
+            extract_cis(vcf_record, &mut tsv_record)?;
+
+            Ok(tsv_record)
         }
     }
 
@@ -838,14 +948,20 @@ mod conv {
     impl VcfRecordConverter for DellyVcfRecordConverter {
         fn convert(
             &self,
-            record: &VcfRecord,
+            vcf_record: &VcfRecord,
+            uuid: Uuid,
             genome_release: GenomeRelease,
         ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error> {
-            let mut result = VarFishStrucvarTsvRecord::default();
+            let mut tsv_record = VarFishStrucvarTsvRecord::default();
 
-            self.fill_sv_type(&record, &mut result)?;
-            self.fill_coords(&record, genome_release, &mut result)?;
-            Ok(result)
+            self.fill_sv_type(&vcf_record, &mut tsv_record)?;
+            self.fill_coords(&vcf_record, genome_release, &mut tsv_record)?;
+
+            tsv_record.callers = vec![format!("DELLYv{}", self.version)];
+            tsv_record.sv_uuid = uuid;
+            extract_cis(vcf_record, &mut tsv_record)?;
+
+            Ok(tsv_record)
         }
     }
 }
@@ -1137,10 +1253,15 @@ mod test {
     use noodles::vcf;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
+    use uuid::Uuid;
 
     use crate::{annotate::strucvars::PeOrientation, common::GenomeRelease};
 
-    use super::{bnd::Breakend, conv::{MantaVcfRecordConverter, DellyVcfRecordConverter}, VcfRecordConverter};
+    use super::{
+        bnd::Breakend,
+        conv::{DellyVcfRecordConverter, MantaVcfRecordConverter},
+        VcfRecordConverter,
+    };
 
     /// Test for the parsing of breakend alleles.
     #[test]
@@ -1211,14 +1332,25 @@ mod test {
         let mut reader = vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
         let header_in = reader.read_header()?.parse()?;
 
+        // Setup deterministic bytes for UUID generation.
+        let mut bytes = [
+            0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6,
+            0xd7, 0xd8,
+        ];
+
+        // Convert all VCF records to JSONL, incrementing the first byte for deterministic UUID
+        // generation.
         let mut records = reader.records(&header_in);
         loop {
             if let Some(record) = records.next() {
-                let record = converter.convert(&record?, GenomeRelease::Grch37)?;
+                let uuid = Uuid::from_bytes(bytes);
+                let record = converter.convert(&record?, uuid, GenomeRelease::Grch37)?;
                 jsonl::write(&out_jsonl, &record)?;
             } else {
                 break; // all done
             }
+
+            bytes[0] += 1;
         }
         drop(out_jsonl);
 
@@ -1230,7 +1362,6 @@ mod test {
         Ok(())
     }
 
-    /// Conversion of minimal Delly2 VCF to JSONL.
     #[test]
     fn vcf_to_jsonl_delly_min() -> Result<(), anyhow::Error> {
         run_test_vcf_to_jsonl(
@@ -1240,7 +1371,6 @@ mod test {
         )
     }
 
-    /// Conversion of minimal Manta VCF to JSONL.
     #[test]
     fn vcf_to_jsonl_manta_min() -> Result<(), anyhow::Error> {
         run_test_vcf_to_jsonl(
