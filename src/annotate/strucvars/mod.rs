@@ -664,10 +664,42 @@ pub trait VcfRecordConverter {
     /// * If the VCF record could not be converted.
     fn convert(
         &self,
-        record: &VcfRecord,
+        vcf_record: &VcfRecord,
         uuid: Uuid,
         genome_release: GenomeRelease,
-    ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error>;
+    ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error> {
+        let mut tsv_record = VarFishStrucvarTsvRecord::default();
+
+        self.fill_sv_type(&vcf_record, &mut tsv_record)?;
+        self.fill_coords(&vcf_record, genome_release, &mut tsv_record)?;
+        self.fill_callers_uuid(uuid, &mut tsv_record)?;
+        self.fill_genotypes(&vcf_record, &mut tsv_record)?;
+
+        tsv_record.callers = vec![];
+        tsv_record.sv_uuid = uuid;
+
+        Ok(tsv_record)
+    }
+
+    /// Fill the genotyeps field of `vcf_record` from `tsv_record`.
+    ///
+    /// # Arguments
+    ///
+    /// * `vcf_record` - The VCF record to derive the genotypes from.
+    /// * `tsv_record` - The TSV record to write the genotypes field to.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the genotypes were successfully filled.
+    ///
+    /// # Errors
+    ///
+    /// * If the genotypes could not be derived from the VCF record.
+    fn fill_genotypes(
+        &self,
+        vcf_record: &VcfRecord,
+        tsv_record: &mut VarFishStrucvarTsvRecord,
+    ) -> Result<(), anyhow::Error>;
 
     /// Fill the SV type and sub type of `tsv_record` from `vcf_record`.
     ///
@@ -845,6 +877,28 @@ pub trait VcfRecordConverter {
 
         Ok(())
     }
+
+    /// Fill the `callers` and `sv_uuid` field of `tsv_record`.
+    fn fill_callers_uuid(
+        &self,
+        uuid: Uuid,
+        tsv_record: &mut VarFishStrucvarTsvRecord,
+    ) -> Result<(), anyhow::Error> {
+        tsv_record.callers = vec![self.caller_version()];
+        tsv_record.sv_uuid = uuid;
+
+        Ok(())
+    }
+
+    /// Return the caller/version string for this.
+    fn caller_version(&self) -> String;
+
+    /// Fill the confidence interval fields.
+    fn fill_cis(
+        &self,
+        vcf_record: &VcfRecord,
+        tsv_record: &mut VarFishStrucvarTsvRecord,
+    ) -> Result<(), anyhow::Error>;
 }
 
 /// Conversion from VCF records to `VarFishStrucvarTsvRecord`.
@@ -861,7 +915,7 @@ mod conv {
     use uuid::Uuid;
 
     /// Helper function that extract the CIPOS and CIEND fields from `vcf_record` into `tsv_record`.
-    pub fn extract_cis(
+    pub fn extract_standard_cis(
         vcf_record: &VcfRecord,
         tsv_record: &mut VarFishStrucvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
@@ -914,22 +968,24 @@ mod conv {
     }
 
     impl VcfRecordConverter for MantaVcfRecordConverter {
-        fn convert(
+        fn caller_version(&self) -> String {
+            format!("MANTAv{}", self.version)
+        }
+
+        fn fill_cis(
             &self,
             vcf_record: &VcfRecord,
-            uuid: Uuid,
-            genome_release: GenomeRelease,
-        ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error> {
-            let mut tsv_record = VarFishStrucvarTsvRecord::default();
+            tsv_record: &mut VarFishStrucvarTsvRecord,
+        ) -> Result<(), anyhow::Error> {
+            extract_standard_cis(vcf_record, tsv_record)
+        }
 
-            self.fill_sv_type(&vcf_record, &mut tsv_record)?;
-            self.fill_coords(&vcf_record, genome_release, &mut tsv_record)?;
-
-            tsv_record.callers = vec![format!("MANTAv{}", self.version)];
-            tsv_record.sv_uuid = uuid;
-            extract_cis(vcf_record, &mut tsv_record)?;
-
-            Ok(tsv_record)
+        fn fill_genotypes(
+            &self,
+            vcf_record: &VcfRecord,
+            tsv_record: &mut VarFishStrucvarTsvRecord,
+        ) -> Result<(), anyhow::Error> {
+            todo!()
         }
     }
 
@@ -946,22 +1002,24 @@ mod conv {
     }
 
     impl VcfRecordConverter for DellyVcfRecordConverter {
-        fn convert(
+        fn caller_version(&self) -> String {
+            format!("DELLYv{}", self.version)
+        }
+
+        fn fill_cis(
             &self,
             vcf_record: &VcfRecord,
-            uuid: Uuid,
-            genome_release: GenomeRelease,
-        ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error> {
-            let mut tsv_record = VarFishStrucvarTsvRecord::default();
+            tsv_record: &mut VarFishStrucvarTsvRecord,
+        ) -> Result<(), anyhow::Error> {
+            extract_standard_cis(vcf_record, tsv_record)
+        }
 
-            self.fill_sv_type(&vcf_record, &mut tsv_record)?;
-            self.fill_coords(&vcf_record, genome_release, &mut tsv_record)?;
-
-            tsv_record.callers = vec![format!("DELLYv{}", self.version)];
-            tsv_record.sv_uuid = uuid;
-            extract_cis(vcf_record, &mut tsv_record)?;
-
-            Ok(tsv_record)
+        fn fill_genotypes(
+            &self,
+            vcf_record: &VcfRecord,
+            tsv_record: &mut VarFishStrucvarTsvRecord,
+        ) -> Result<(), anyhow::Error> {
+            todo!()
         }
     }
 }
