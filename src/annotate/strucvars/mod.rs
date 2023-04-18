@@ -723,7 +723,6 @@ impl SvCaller {
             .get(&InfoKey::Other(InfoKeyOther::from_str("SVMETHOD")?))
             .ok_or(anyhow::anyhow!("Problem with INFO/SVMETHOD field"))?
             .ok_or(anyhow::anyhow!("Problem with INFO/SVMETHOD INFO field"))?;
-        println!("{:?}", value);
         if let InfoValue::String(value) = value {
             Ok(value.split('v').last().unwrap().to_string())
         } else {
@@ -1109,7 +1108,6 @@ mod conv {
         vcf_record: &VcfRecord,
         tsv_record: &mut VarFishStrucvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
-        println!("{:?}", vcf_record.info());
         let cipos = vcf_record.info().get(&InfoKey::Standard(
             InfoKeyStandard::PositionConfidenceIntervals,
         ));
@@ -1583,9 +1581,9 @@ mod conv {
 }
 
 /// Construct a `VcfRecordConverter` for the given caller.
-pub fn build_vcf_record_converter(
+pub fn build_vcf_record_converter<T: AsRef<str>>(
     caller: &SvCaller,
-    samples: &[&str],
+    samples: &[T],
 ) -> Box<dyn VcfRecordConverter> {
     match caller {
         SvCaller::Delly { version } => {
@@ -1594,7 +1592,16 @@ pub fn build_vcf_record_converter(
         SvCaller::Manta { version } => {
             Box::new(conv::MantaVcfRecordConverter::new(version, samples))
         }
-        _ => todo!(),
+        SvCaller::DragenSv { version } => {
+            Box::new(conv::DragenSvVcfRecordConverter::new(version, samples))
+        }
+        SvCaller::DragenCnv { version } => {
+            Box::new(conv::DragenCnvVcfRecordConverter::new(version, samples))
+        }
+        SvCaller::Gcnv { version } => Box::new(conv::GcnvVcfRecordConverter::new(version, samples)),
+        SvCaller::Popdel { version } => {
+            Box::new(conv::PopdelVcfRecordConverter::new(version, samples))
+        }
     }
 }
 
@@ -1886,6 +1893,7 @@ mod test {
 
     use super::{
         bnd::Breakend,
+        build_vcf_record_converter,
         conv::{
             DellyVcfRecordConverter, DragenCnvVcfRecordConverter, DragenSvVcfRecordConverter,
             GcnvVcfRecordConverter, MantaVcfRecordConverter, PopdelVcfRecordConverter,
@@ -1952,7 +1960,7 @@ mod test {
     fn run_test_vcf_to_jsonl(
         path_input_vcf: &str,
         path_expected_jsonl: &str,
-        converter: &impl VcfRecordConverter,
+        converter: &dyn VcfRecordConverter,
     ) -> Result<(), anyhow::Error> {
         let out_file_name = "out.jsonl";
 
@@ -1992,16 +2000,21 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn vcf_to_jsonl_delly_min() -> Result<(), anyhow::Error> {
-        let path_input_vcf = "tests/data/annotate/strucvars/delly2-min.vcf";
-        let mut reader = vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
+    /// Helper that returns sample names from VCF.
+    fn vcf_samples(path: &str) -> Result<Vec<String>, anyhow::Error> {
+        let mut reader = vcf::reader::Builder::default().build_from_path(path)?;
         let header: VcfHeader = reader.read_header()?.parse()?;
-        let samples = header
+        Ok(header
             .sample_names()
             .iter()
             .map(|x| x.to_string())
-            .collect::<Vec<_>>();
+            .collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn vcf_to_jsonl_delly_min() -> Result<(), anyhow::Error> {
+        let path_input_vcf = "tests/data/annotate/strucvars/delly2-min.vcf";
+        let samples = vcf_samples(path_input_vcf)?;
 
         run_test_vcf_to_jsonl(
             path_input_vcf,
@@ -2013,67 +2026,43 @@ mod test {
     #[test]
     fn vcf_to_jsonl_dragen_sv_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/dragen-sv-min.vcf";
-        let mut reader = vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
-        let header: VcfHeader = reader.read_header()?.parse()?;
-        let samples = header
-            .sample_names()
-            .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>();
+        let samples = vcf_samples(path_input_vcf)?;
 
         run_test_vcf_to_jsonl(
             path_input_vcf,
             "tests/data/annotate/strucvars/dragen-sv-min.out.jsonl",
-            &DragenSvVcfRecordConverter::new("1.1.3", &samples),
+            &DragenSvVcfRecordConverter::new("07.021.624.3.10.4", &samples),
         )
     }
 
     #[test]
     fn vcf_to_jsonl_dragen_cnv_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/dragen-cnv-min.vcf";
-        let mut reader = vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
-        let header: VcfHeader = reader.read_header()?.parse()?;
-        let samples = header
-            .sample_names()
-            .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>();
+        let samples = vcf_samples(path_input_vcf)?;
 
         run_test_vcf_to_jsonl(
             path_input_vcf,
             "tests/data/annotate/strucvars/dragen-cnv-min.out.jsonl",
-            &DragenCnvVcfRecordConverter::new("1.1.3", &samples),
+            &DragenCnvVcfRecordConverter::new("07.021.624.3.10.4", &samples),
         )
     }
 
     #[test]
     fn vcf_to_jsonl_gcnv_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/gcnv-min.vcf";
-        let mut reader = vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
-        let header: VcfHeader = reader.read_header()?.parse()?;
-        let samples = header
-            .sample_names()
-            .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>();
+        let samples = vcf_samples(path_input_vcf)?;
 
         run_test_vcf_to_jsonl(
             path_input_vcf,
             "tests/data/annotate/strucvars/gcnv-min.out.jsonl",
-            &GcnvVcfRecordConverter::new("1.6.0", &samples),
+            &GcnvVcfRecordConverter::new("4.1.7.0", &samples),
         )
     }
 
     #[test]
     fn vcf_to_jsonl_manta_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/manta-min.vcf";
-        let mut reader = vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
-        let header: VcfHeader = reader.read_header()?.parse()?;
-        let samples = header
-            .sample_names()
-            .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>();
+        let samples = vcf_samples(path_input_vcf)?;
 
         run_test_vcf_to_jsonl(
             path_input_vcf,
@@ -2085,19 +2074,37 @@ mod test {
     #[test]
     fn vcf_to_jsonl_popdel_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/popdel-min.vcf";
-        let mut reader = vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
-        let header: VcfHeader = reader.read_header()?.parse()?;
-        let samples = header
-            .sample_names()
-            .iter()
-            .map(|x| x.to_string())
-            .collect::<Vec<_>>();
+        let samples = vcf_samples(path_input_vcf)?;
 
         run_test_vcf_to_jsonl(
             path_input_vcf,
             "tests/data/annotate/strucvars/popdel-min.out.jsonl",
-            &PopdelVcfRecordConverter::new("1.1.3", &samples),
+            &PopdelVcfRecordConverter::new("1.1.2", &samples),
         )
+    }
+
+    #[test]
+    fn vcf_to_jsonl_with_detection() -> Result<(), anyhow::Error> {
+        let keys = &[
+            "delly2",
+            "dragen-cnv",
+            "dragen-sv",
+            "gcnv",
+            "manta",
+            "popdel",
+        ];
+
+        for key in keys {
+            let path_input_vcf = format!("tests/data/annotate/strucvars/{}-min.vcf", key);
+            let path_expected_txt = format!("tests/data/annotate/strucvars/{}-min.out.jsonl", key);
+            let samples = vcf_samples(&path_input_vcf)?;
+            let sv_caller = guess_sv_caller(&path_input_vcf)?;
+            let converter = build_vcf_record_converter(&sv_caller, &samples);
+
+            run_test_vcf_to_jsonl(&path_input_vcf, &path_expected_txt, converter.as_ref())?;
+        }
+
+        Ok(())
     }
 
     #[test]
