@@ -154,7 +154,7 @@ pub struct GenotypeInfo {
     /// Per-genotype filter values.
     pub ft: Option<Vec<String>>,
     /// Genotype quality.
-    pub gq: Option<f64>,
+    pub gq: Option<i32>,
     /// Paired-end coverage.
     pub pec: Option<i32>,
     /// Paired-end variant support.
@@ -674,9 +674,7 @@ pub trait VcfRecordConverter {
         self.fill_coords(&vcf_record, genome_release, &mut tsv_record)?;
         self.fill_callers_uuid(uuid, &mut tsv_record)?;
         self.fill_genotypes(&vcf_record, &mut tsv_record)?;
-
-        tsv_record.callers = vec![];
-        tsv_record.sv_uuid = uuid;
+        self.fill_cis(vcf_record, &mut tsv_record)?;
 
         Ok(tsv_record)
     }
@@ -803,7 +801,7 @@ pub trait VcfRecordConverter {
         tsv_record.start = start as i32;
 
         // Extract chromosome 2, from alternative allele for BND.  In the case of BND, also extract
-        // end position.
+        // end position.  For non-BND, set chromosome 2 to chromosome 1.
         let mut end: Option<i32> = None;
         let alleles = &**vcf_record.alternate_bases();
         if alleles.len() != 1 {
@@ -822,6 +820,8 @@ pub trait VcfRecordConverter {
 
             // Obtain paired-end orientation.
             tsv_record.pe_orientation = bnd.pe_orientation;
+        } else {
+            tsv_record.chromosome2 = tsv_record.chromosome.clone();
         }
 
         // Compute chromosome number of second chromosome.
@@ -903,22 +903,23 @@ pub trait VcfRecordConverter {
 
 /// Conversion from VCF records to `VarFishStrucvarTsvRecord`.
 mod conv {
-    use crate::common::GenomeRelease;
-
+    use super::GenotypeInfo;
     use super::VarFishStrucvarTsvRecord;
     use super::VcfRecordConverter;
 
+    use lazy_static::__Deref;
     use noodles::vcf::{
         header::info::key::Key as InfoKey, header::info::key::Standard as InfoKeyStandard,
-        record::info::field::value::Value as InfoValue, Record as VcfRecord, Writer as VcfWriter,
+        record::genotypes::genotype::field::value::Value as GenotypeValue,
+        record::info::field::value::Value as InfoValue, Record as VcfRecord,
     };
-    use uuid::Uuid;
 
     /// Helper function that extract the CIPOS and CIEND fields from `vcf_record` into `tsv_record`.
     pub fn extract_standard_cis(
         vcf_record: &VcfRecord,
         tsv_record: &mut VarFishStrucvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
+        println!("{:?}", vcf_record.info());
         let cipos = vcf_record.info().get(&InfoKey::Standard(
             InfoKeyStandard::PositionConfidenceIntervals,
         ));
@@ -956,12 +957,16 @@ mod conv {
     }
 
     pub struct MantaVcfRecordConverter {
+        /// The samples from the VCF file.
+        pub samples: Vec<String>,
+        /// The Manta caller version.
         pub version: String,
     }
 
     impl MantaVcfRecordConverter {
-        pub fn new(version: &str) -> Self {
+        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
             Self {
+                samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
             }
         }
@@ -985,17 +990,66 @@ mod conv {
             vcf_record: &VcfRecord,
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
-            todo!()
+            let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
+
+            // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+            for (sample_no, gt) in vcf_record.genotypes().deref().iter().enumerate() {
+                entries[sample_no].name = self.samples[sample_no].clone();
+
+                for (key, value) in gt.deref().iter() {
+                    match (key.as_ref(), value) {
+                        // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+                        ("GT", Some(GenotypeValue::String(gt))) => {
+                            entries[sample_no].gt = Some(gt.to_string());
+                        }
+                        // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
+                        ("GQ", Some(GenotypeValue::Integer(gq))) => {
+                            entries[sample_no].gq = Some(*gq);
+                        }
+                        // Obtain `GenotypeInfo::ft` from `FORMAT/FT`.
+                        ("FT", Some(GenotypeValue::String(ft))) => {
+                            entries[sample_no].ft =
+                                Some(ft.split(';').map(|s| s.to_string()).collect());
+                        }
+                        // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/PR`.
+                        ("PR", Some(GenotypeValue::IntegerArray(dv))) => {
+                            let cov = dv[0].expect("PR[0] is missing");
+                            let var = dv[1].expect("PR[1] is missing");
+                            entries[sample_no].pec = Some(cov);
+                            entries[sample_no].pev = Some(cov + var);
+                        }
+                        // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/PR`.
+                        ("SR", Some(GenotypeValue::IntegerArray(sr))) => {
+                            let cov = sr[0].expect("SR[0] is missing");
+                            let var = sr[1].expect("SR[1] is missing");
+                            entries[sample_no].src = Some(cov);
+                            entries[sample_no].srv = Some(cov + var);
+                        }
+                        // Ignore all other keys.
+                        _ => (),
+                    }
+                }
+            }
+
+            // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
+
+            tsv_record.genotype.entries = entries;
+
+            Ok(())
         }
     }
 
     pub struct DellyVcfRecordConverter {
+        /// The samples from the VCF file.
+        pub samples: Vec<String>,
+        /// The Manta caller version.
         pub version: String,
     }
 
     impl DellyVcfRecordConverter {
-        pub fn new(version: &str) -> Self {
+        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
             Self {
+                samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
             }
         }
@@ -1019,15 +1073,78 @@ mod conv {
             vcf_record: &VcfRecord,
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
-            todo!()
+            let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
+
+            // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+            for (sample_no, gt) in vcf_record.genotypes().deref().iter().enumerate() {
+                entries[sample_no].name = self.samples[sample_no].clone();
+
+                let mut pec = 0;
+                let mut src = 0;
+
+                for (key, value) in gt.deref().iter() {
+                    match (key.as_ref(), value) {
+                        // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+                        ("GT", Some(GenotypeValue::String(gt))) => {
+                            entries[sample_no].gt = Some(gt.to_string());
+                        }
+                        // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
+                        ("GQ", Some(GenotypeValue::Integer(gq))) => {
+                            entries[sample_no].gq = Some(*gq);
+                        }
+                        // Obtain `GenotypeInfo::ft` from `FORMAT/FT`.
+                        ("FT", Some(GenotypeValue::String(ft))) => {
+                            entries[sample_no].ft =
+                                Some(ft.split(';').map(|s| s.to_string()).collect());
+                        }
+                        // Obtain `GenotypeInfo::pev` from `FORMAT/DV`, and accumulate pec.
+                        ("DV", Some(GenotypeValue::Integer(dv))) => {
+                            entries[sample_no].pev = Some(*dv);
+                            pec += *dv;
+                        }
+                        // Accumulate `FORMAT/DR` for pec.
+                        ("DR", Some(GenotypeValue::Integer(dr))) => {
+                            pec += *dr;
+                        }
+                        // Obtain `GenotypeInfo::src` from `FORMAT/DV`, and accumulate src.
+                        ("RV", Some(GenotypeValue::Integer(rv))) => {
+                            entries[sample_no].srv = Some(*rv);
+                            src += *rv;
+                        }
+                        // Obtain `GenotypeInfo::srv` from `FORMAT/RR`.
+                        ("RR", Some(GenotypeValue::Integer(rr))) => {
+                            src += *rr;
+                        }
+                        // Ignore all other keys.
+                        _ => (),
+                    }
+                }
+
+                entries[sample_no].pec = Some(pec);
+                entries[sample_no].src = Some(src);
+            }
+
+            // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
+
+            tsv_record.genotype.entries = entries;
+
+            Ok(())
         }
     }
 }
 
 /// Construct a `VcfRecordConverter` for the given caller.
-pub fn build_vcf_record_converter(caller: &SvCaller) -> Box<dyn VcfRecordConverter> {
+pub fn build_vcf_record_converter(
+    caller: &SvCaller,
+    samples: &[&str],
+) -> Box<dyn VcfRecordConverter> {
     match caller {
-        SvCaller::Manta { version } => Box::new(conv::MantaVcfRecordConverter::new(version)),
+        SvCaller::Delly { version } => {
+            Box::new(conv::DellyVcfRecordConverter::new(version, samples))
+        }
+        SvCaller::Manta { version } => {
+            Box::new(conv::MantaVcfRecordConverter::new(version, samples))
+        }
         _ => todo!(),
     }
 }
@@ -1318,7 +1435,7 @@ mod test {
     use super::{
         bnd::Breakend,
         conv::{DellyVcfRecordConverter, MantaVcfRecordConverter},
-        VcfRecordConverter,
+        VcfHeader, VcfRecordConverter,
     };
 
     /// Test for the parsing of breakend alleles.
@@ -1422,19 +1539,37 @@ mod test {
 
     #[test]
     fn vcf_to_jsonl_delly_min() -> Result<(), anyhow::Error> {
+        let path_input_vcf = "tests/data/annotate/strucvars/delly2-min.vcf";
+        let mut reader = vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
+        let header: VcfHeader = reader.read_header()?.parse()?;
+        let samples = header
+            .sample_names()
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>();
+
         run_test_vcf_to_jsonl(
-            "tests/data/annotate/strucvars/delly2-min.vcf",
+            path_input_vcf,
             "tests/data/annotate/strucvars/delly2-min.out.jsonl",
-            &DellyVcfRecordConverter::new("1.1.3"),
+            &DellyVcfRecordConverter::new("1.1.3", &samples),
         )
     }
 
     #[test]
     fn vcf_to_jsonl_manta_min() -> Result<(), anyhow::Error> {
+        let path_input_vcf = "tests/data/annotate/strucvars/manta-min.vcf";
+        let mut reader = vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
+        let header: VcfHeader = reader.read_header()?.parse()?;
+        let samples = header
+            .sample_names()
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>();
+
         run_test_vcf_to_jsonl(
-            "tests/data/annotate/strucvars/manta-min.vcf",
+            path_input_vcf,
             "tests/data/annotate/strucvars/manta-min.out.jsonl",
-            &MantaVcfRecordConverter::new("1.6.0"),
+            &MantaVcfRecordConverter::new("1.6.0", &samples),
         )
     }
 }
