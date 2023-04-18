@@ -63,4 +63,5 @@ However, here the caller and version are identified by looking at the `##source=
 The Dragen CNV caller is identified by the header line `##DRAGENVersion=<ID=dragen,Version="SW: <VERSION>, HW: <IGNORED>">`.
 
 - Copy number is extracted from `FORMAT/CN`.
-- Number of points is extracted from `FORMAT/PE`.
+- Number of points is extracted from `FORMAT/BC`.
+- Paired-end variant support is extracted from `FORMAT/PE`.

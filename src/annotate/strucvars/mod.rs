@@ -992,7 +992,7 @@ mod conv {
         ) -> Result<(), anyhow::Error> {
             let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
 
-            // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+            // Extract `FORMAT/*` values.
             for (sample_no, gt) in vcf_record.genotypes().deref().iter().enumerate() {
                 entries[sample_no].name = self.samples[sample_no].clone();
 
@@ -1019,16 +1019,16 @@ mod conv {
                             entries[sample_no].pev = Some(*dv);
                             pec += *dv;
                         }
-                        // Accumulate `FORMAT/DR` for pec.
+                        // Accumulate `FORMAT/DR` into pec.
                         ("DR", Some(GenotypeValue::Integer(dr))) => {
                             pec += *dr;
                         }
-                        // Obtain `GenotypeInfo::src` from `FORMAT/DV`, and accumulate src.
+                        // Obtain `GenotypeInfo::srv` from `FORMAT/DV`, and accumulate src.
                         ("RV", Some(GenotypeValue::Integer(rv))) => {
                             entries[sample_no].srv = Some(*rv);
                             src += *rv;
                         }
-                        // Obtain `GenotypeInfo::srv` from `FORMAT/RR`.
+                        // Accumulate `FORMAT/RR` into src.
                         ("RR", Some(GenotypeValue::Integer(rr))) => {
                             src += *rr;
                         }
@@ -1067,7 +1067,7 @@ mod conv {
 
     impl VcfRecordConverter for DragenCnvVcfRecordConverter {
         fn caller_version(&self) -> String {
-            format!("DragenSVv{}", self.version)
+            format!("DRAGEN_CNVv{}", self.version)
         }
 
         fn fill_cis(
@@ -1084,6 +1084,34 @@ mod conv {
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
             let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
+
+            // Extract `FORMAT/*` values.
+            for (sample_no, gt) in vcf_record.genotypes().deref().iter().enumerate() {
+                entries[sample_no].name = self.samples[sample_no].clone();
+
+                for (key, value) in gt.deref().iter() {
+                    match (key.as_ref(), value) {
+                        // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+                        ("GT", Some(GenotypeValue::String(gt))) => {
+                            entries[sample_no].gt = Some(gt.to_string());
+                        }
+                        // Obtain `GenotypeInfo::pev` from `FORMAT/PE`; no pec is computed.
+                        ("PE", Some(GenotypeValue::Integer(pe))) => {
+                            entries[sample_no].pev = Some(*pe);
+                        }
+                        // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
+                        ("CN", Some(GenotypeValue::Integer(cn))) => {
+                            entries[sample_no].cn = Some(*cn);
+                        }
+                        // Obtain `GenotypeInfo::pc` from `FORMAT/BC`.
+                        ("BC", Some(GenotypeValue::Integer(bc))) => {
+                            entries[sample_no].pc = Some(*bc);
+                        }
+                        // Ignore all other keys.
+                        _ => (),
+                    }
+                }
+            }
 
             // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
 
@@ -1111,7 +1139,7 @@ mod conv {
 
     impl VcfRecordConverter for DragenSvVcfRecordConverter {
         fn caller_version(&self) -> String {
-            format!("DragenSVv{}", self.version)
+            format!("DRAGEN_SVv{}", self.version)
         }
 
         fn fill_cis(
@@ -1127,13 +1155,7 @@ mod conv {
             vcf_record: &VcfRecord,
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
-            let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
-
-            // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
-
-            tsv_record.genotype.entries = entries;
-
-            Ok(())
+            fill_genotypes_illumina_sv(&self.samples, vcf_record, tsv_record)
         }
     }
 
@@ -1155,7 +1177,7 @@ mod conv {
 
     impl VcfRecordConverter for GcnvVcfRecordConverter {
         fn caller_version(&self) -> String {
-            format!("DragenSVv{}", self.version)
+            format!("GATK_GCNVv{}", self.version)
         }
 
         fn fill_cis(
@@ -1172,6 +1194,30 @@ mod conv {
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
             let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
+
+            // Extract `FORMAT/*` values.
+            for (sample_no, gt) in vcf_record.genotypes().deref().iter().enumerate() {
+                entries[sample_no].name = self.samples[sample_no].clone();
+
+                for (key, value) in gt.deref().iter() {
+                    match (key.as_ref(), value) {
+                        // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+                        ("GT", Some(GenotypeValue::String(gt))) => {
+                            entries[sample_no].gt = Some(gt.to_string());
+                        }
+                        // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
+                        ("CN", Some(GenotypeValue::Integer(cn))) => {
+                            entries[sample_no].cn = Some(*cn);
+                        }
+                        // Obtain `GenotypeInfo::pc` from `FORMAT/NP`.
+                        ("NP", Some(GenotypeValue::Integer(np))) => {
+                            entries[sample_no].pc = Some(*np);
+                        }
+                        // Ignore all other keys.
+                        _ => (),
+                    }
+                }
+            }
 
             // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
 
@@ -1197,6 +1243,61 @@ mod conv {
         }
     }
 
+    /// Implementation for filling genotypes of VarFishStrucvarTsvRecord from
+    /// Illumina tooling VCF records (Manta/DragenSV).
+    fn fill_genotypes_illumina_sv(
+        samples: &Vec<String>,
+        vcf_record: &VcfRecord,
+        tsv_record: &mut VarFishStrucvarTsvRecord,
+    ) -> Result<(), anyhow::Error> {
+        let mut entries: Vec<GenotypeInfo> = vec![Default::default(); samples.len()];
+
+        // Extract `FORMAT/*` values.
+        for (sample_no, gt) in vcf_record.genotypes().deref().iter().enumerate() {
+            entries[sample_no].name = samples[sample_no].clone();
+
+            for (key, value) in gt.deref().iter() {
+                match (key.as_ref(), value) {
+                    // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+                    ("GT", Some(GenotypeValue::String(gt))) => {
+                        entries[sample_no].gt = Some(gt.to_string());
+                    }
+                    // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
+                    ("GQ", Some(GenotypeValue::Integer(gq))) => {
+                        entries[sample_no].gq = Some(*gq);
+                    }
+                    // Obtain `GenotypeInfo::ft` from `FORMAT/FT`.
+                    ("FT", Some(GenotypeValue::String(ft))) => {
+                        entries[sample_no].ft =
+                            Some(ft.split(';').map(|s| s.to_string()).collect());
+                    }
+                    // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/PR`.
+                    ("PR", Some(GenotypeValue::IntegerArray(dv))) => {
+                        let ref_ = dv[0].expect("PR[0] is missing");
+                        let var = dv[1].expect("PR[1] is missing");
+                        entries[sample_no].pec = Some(ref_ + var);
+                        entries[sample_no].pev = Some(var);
+                    }
+                    // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/PR`.
+                    ("SR", Some(GenotypeValue::IntegerArray(sr))) => {
+                        let ref_ = sr[0].expect("SR[0] is missing");
+                        let var = sr[1].expect("SR[1] is missing");
+                        entries[sample_no].src = Some(ref_ + var);
+                        entries[sample_no].srv = Some(var);
+                    }
+                    // Ignore all other keys.
+                    _ => (),
+                }
+            }
+        }
+
+        // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
+
+        tsv_record.genotype.entries = entries;
+
+        Ok(())
+    }
+
     impl VcfRecordConverter for MantaVcfRecordConverter {
         fn caller_version(&self) -> String {
             format!("MANTAv{}", self.version)
@@ -1215,52 +1316,7 @@ mod conv {
             vcf_record: &VcfRecord,
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
-            let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
-
-            // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
-            for (sample_no, gt) in vcf_record.genotypes().deref().iter().enumerate() {
-                entries[sample_no].name = self.samples[sample_no].clone();
-
-                for (key, value) in gt.deref().iter() {
-                    match (key.as_ref(), value) {
-                        // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
-                        ("GT", Some(GenotypeValue::String(gt))) => {
-                            entries[sample_no].gt = Some(gt.to_string());
-                        }
-                        // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
-                        ("GQ", Some(GenotypeValue::Integer(gq))) => {
-                            entries[sample_no].gq = Some(*gq);
-                        }
-                        // Obtain `GenotypeInfo::ft` from `FORMAT/FT`.
-                        ("FT", Some(GenotypeValue::String(ft))) => {
-                            entries[sample_no].ft =
-                                Some(ft.split(';').map(|s| s.to_string()).collect());
-                        }
-                        // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/PR`.
-                        ("PR", Some(GenotypeValue::IntegerArray(dv))) => {
-                            let cov = dv[0].expect("PR[0] is missing");
-                            let var = dv[1].expect("PR[1] is missing");
-                            entries[sample_no].pec = Some(cov);
-                            entries[sample_no].pev = Some(cov + var);
-                        }
-                        // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/PR`.
-                        ("SR", Some(GenotypeValue::IntegerArray(sr))) => {
-                            let cov = sr[0].expect("SR[0] is missing");
-                            let var = sr[1].expect("SR[1] is missing");
-                            entries[sample_no].src = Some(cov);
-                            entries[sample_no].srv = Some(cov + var);
-                        }
-                        // Ignore all other keys.
-                        _ => (),
-                    }
-                }
-            }
-
-            // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
-
-            tsv_record.genotype.entries = entries;
-
-            Ok(())
+            fill_genotypes_illumina_sv(&self.samples, vcf_record, tsv_record)
         }
     }
 
@@ -1282,7 +1338,7 @@ mod conv {
 
     impl VcfRecordConverter for PopdelVcfRecordConverter {
         fn caller_version(&self) -> String {
-            format!("DragenSVv{}", self.version)
+            format!("POPDELv{}", self.version)
         }
 
         fn fill_cis(
@@ -1299,6 +1355,33 @@ mod conv {
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
             let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
+
+            // Extract `FORMAT/*` values.
+            for (sample_no, gt) in vcf_record.genotypes().deref().iter().enumerate() {
+                entries[sample_no].name = self.samples[sample_no].clone();
+
+                for (key, value) in gt.deref().iter() {
+                    match (key.as_ref(), value) {
+                        // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+                        ("GT", Some(GenotypeValue::String(gt))) => {
+                            entries[sample_no].gt = Some(gt.to_string());
+                        }
+                        // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
+                        ("GQ", Some(GenotypeValue::Integer(gq))) => {
+                            entries[sample_no].gq = Some(*gq);
+                        }
+                        // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/DAD[{0,3}]`.
+                        ("PR", Some(GenotypeValue::IntegerArray(dad))) => {
+                            let ref_ = dad[0].expect("DAD[0] is missing");
+                            let var = dad[3].expect("DAD[3] is missing");
+                            entries[sample_no].pec = Some(ref_ + var);
+                            entries[sample_no].pev = Some(var);
+                        }
+                        // Ignore all other keys.
+                        _ => (),
+                    }
+                }
+            }
 
             // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
 
@@ -1784,7 +1867,7 @@ mod test {
         run_test_vcf_to_jsonl(
             path_input_vcf,
             "tests/data/annotate/strucvars/gcnv-min.out.jsonl",
-            &MantaVcfRecordConverter::new("1.6.0", &samples),
+            &GcnvVcfRecordConverter::new("1.6.0", &samples),
         )
     }
 
