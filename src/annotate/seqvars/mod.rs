@@ -1648,6 +1648,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
                 reference,
                 alternative,
             })? {
+                tracing::trace!("xxx");
                 if !ann_fields.is_empty() {
                     vcf_record.info_mut().insert(
                         keys::ANN.clone(),
@@ -1657,6 +1658,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
                     );
                 }
             }
+            tracing::trace!("yyy");
 
             // Write out the record.
             writer.write_record(&vcf_record)?;
