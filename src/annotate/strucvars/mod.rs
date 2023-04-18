@@ -1,5 +1,6 @@
 //! Annotation of structural variant VCF files.
 
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::Path;
 use std::str::FromStr;
@@ -16,12 +17,14 @@ use noodles::bgzf::Writer as BgzfWriter;
 use noodles::vcf::record::alternate_bases::Allele;
 use noodles::vcf::{self, Header as VcfHeader};
 use noodles::vcf::{
-    header::info::key::Key as InfoKey, header::info::key::Standard as InfoKeyStandard,
+    header::info::key::Key as InfoKey, header::info::key::Other as InfoKeyOther,
+    header::info::key::Standard as InfoKeyStandard,
+    header::record::value::Other as HeaderValueOther,
     record::info::field::value::Value as InfoValue, Record as VcfRecord, Writer as VcfWriter,
 };
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use strum::{Display, EnumIter};
+use strum::{Display, EnumIter, IntoEnumIterator};
 use tempdir::TempDir;
 use uuid::Uuid;
 
@@ -634,6 +637,7 @@ pub struct VarFishStrucvarTsvRecord {
 }
 
 /// Enumeration for the supported variant callers.
+#[derive(Debug, Clone, PartialEq, EnumIter)]
 pub enum SvCaller {
     Delly { version: String },
     DragenSv { version: String },
@@ -641,6 +645,192 @@ pub enum SvCaller {
     Gcnv { version: String },
     Manta { version: String },
     Popdel { version: String },
+}
+
+impl SvCaller {
+    /// Consider the VCF header and return whether the caller is compatible with `self`.
+    fn caller_compatible(&self, header: &VcfHeader) -> bool {
+        match self {
+            SvCaller::Delly { .. } => {
+                self.all_format_defined(header, &["RC", "RCL", "RCR"])
+                    && self.all_info_defined(header, &["CHR2", "INSLEN", "HOMLEN"])
+            }
+            SvCaller::DragenSv { .. } => {
+                self.all_format_defined(header, &["PL", "PR", "SR"])
+                    && self.all_info_defined(header, &["BND_DEPTH", "MATE_BND_DEPTH"])
+                    && self.source_starts_with(header, "DRAGEN")
+            }
+            SvCaller::Manta { .. } => {
+                self.all_format_defined(header, &["PL", "PR", "SR"])
+                    && self.all_info_defined(header, &["BND_DEPTH", "MATE_BND_DEPTH"])
+                    && self.source_starts_with(header, "GenerateSVCandidates")
+            }
+            SvCaller::DragenCnv { .. } => {
+                self.all_format_defined(header, &["SM", "CN", "BC", "PE"])
+                    && self.all_info_defined(header, &["REFLEN", "CIPOS", "CIEND"])
+            }
+            SvCaller::Gcnv { .. } => {
+                self.all_format_defined(header, &["QA", "QS", "QSE", "QSS"])
+                    && self.all_info_defined(header, &["END", "CIPOS", "CIEND"])
+            }
+            SvCaller::Popdel { .. } => {
+                self.all_format_defined(header, &["LAD", "DAD", "FL"])
+                    && self.all_info_defined(header, &["AF", "IMPRECISE", "SVLEN"])
+            }
+        }
+    }
+
+    /// Extract the caller version from compatible VCF header or first record.
+    fn extract_version(
+        &self,
+        header: &VcfHeader,
+        record: &VcfRecord,
+    ) -> Result<Self, anyhow::Error> {
+        Ok(match self {
+            SvCaller::Delly { .. } => SvCaller::Delly {
+                version: self.version_from_info_svmethod(record)?,
+            },
+            SvCaller::DragenSv { .. } => SvCaller::DragenSv {
+                version: self.version_from_source_trailing(header)?,
+            },
+            SvCaller::Gcnv { .. } => SvCaller::Gcnv {
+                version: self.version_from_mapping_key(header, "GATKCommandLine")?,
+            },
+            SvCaller::DragenCnv { .. } => {
+                let raw_version = self.version_from_mapping_key(header, "DRAGENVersion")?;
+                let mut version = raw_version
+                    .split(' ')
+                    .nth(1)
+                    .expect("Problem extracting version from DRAGENVersion")
+                    .chars();
+                version.next_back();
+                let version = version.as_str().to_owned();
+                SvCaller::DragenCnv { version }
+            }
+            SvCaller::Manta { .. } => SvCaller::Manta {
+                version: self.version_from_source_trailing(header)?,
+            },
+            SvCaller::Popdel { .. } => SvCaller::Popdel {
+                version: self.version_from_info_svmethod(record)?,
+            },
+        })
+    }
+
+    /// Parse out version from `INFO/SVMETHOD` in `record`.
+    fn version_from_info_svmethod(&self, record: &VcfRecord) -> Result<String, anyhow::Error> {
+        let value = record
+            .info()
+            .get(&InfoKey::Other(InfoKeyOther::from_str("SVMETHOD")?))
+            .ok_or(anyhow::anyhow!("Problem with INFO/SVMETHOD field"))?
+            .ok_or(anyhow::anyhow!("Problem with INFO/SVMETHOD INFO field"))?;
+        println!("{:?}", value);
+        if let InfoValue::String(value) = value {
+            Ok(value.split('v').last().unwrap().to_string())
+        } else {
+            anyhow::bail!("Problem with INFO/SVMETHOD INFO field")
+        }
+    }
+
+    /// Parse out version from `##source=<x> <version>` header.
+    fn version_from_source_trailing(&self, header: &VcfHeader) -> Result<String, anyhow::Error> {
+        for (key, values) in header.other_records() {
+            if key.as_ref() == "source" {
+                for value in values {
+                    if let HeaderValueOther::String(value) = value {
+                        if let Some(version) = value.split(' ').last() {
+                            return Ok(version.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        anyhow::bail!("Could not extract ##source header")
+    }
+
+    /// Parse out version from `$row_key=<ID=...,CommandLine="...",\
+    /// Version="<VERSION>",Date="...">`
+    fn version_from_mapping_key(
+        &self,
+        header: &VcfHeader,
+        row_key: &str,
+    ) -> Result<String, anyhow::Error> {
+        for (key, values) in header.other_records() {
+            if key.as_ref() == row_key {
+                for value in values {
+                    if let HeaderValueOther::Map(_, m) = value {
+                        for (k, v) in m.other_fields() {
+                            if k.as_ref() == "Version" {
+                                return Ok(v.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        anyhow::bail!("Could not extract ##{} header", row_key)
+    }
+
+    /// Whether all FORMAT fields are defined.
+    fn all_format_defined(&self, header: &VcfHeader, names: &[&str]) -> bool {
+        let mut missing = names.iter().map(|s| s.to_string()).collect::<HashSet<_>>();
+
+        for (key, _) in header.formats() {
+            missing.remove(key.as_ref());
+        }
+
+        missing.is_empty()
+    }
+
+    /// Whether all INFO fields are defined.
+    fn all_info_defined(&self, header: &VcfHeader, names: &[&str]) -> bool {
+        let mut missing = names.iter().map(|s| s.to_string()).collect::<HashSet<_>>();
+
+        for (key, _) in header.infos() {
+            missing.remove(key.as_ref());
+        }
+
+        missing.is_empty()
+    }
+
+    /// Returns whether a `##source=` line's value starts with `prefix`.
+    fn source_starts_with(&self, header: &VcfHeader, prefix: &str) -> bool {
+        for (key, values) in header.other_records() {
+            if key.as_ref() == "source" {
+                for value in values {
+                    if let HeaderValueOther::String(value) = value {
+                        if value.starts_with(prefix) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+}
+
+/// Guess the `SvCaller` from the VCF file at the given path.
+pub fn guess_sv_caller<P>(p: P) -> Result<SvCaller, anyhow::Error>
+where
+    P: AsRef<Path>,
+{
+    let mut reader = vcf::reader::Builder::default().build_from_path(p)?;
+    let header: VcfHeader = reader.read_header()?.parse()?;
+    let mut records = reader.records(&header);
+    let record = records
+        .next()
+        .ok_or(anyhow::anyhow!("No records found"))??;
+
+    for caller in SvCaller::iter() {
+        if caller.caller_compatible(&header) {
+            return caller.extract_version(&header, &record);
+        }
+    }
+
+    anyhow::bail!("Could not guess SV caller from VCF header and first record.");
 }
 
 /// Trait that allows the conversion from a VCF record into a `VarFishStrucvarTsvRecord`.
@@ -1689,7 +1879,10 @@ mod test {
     use temp_testdir::TempDir;
     use uuid::Uuid;
 
-    use crate::{annotate::strucvars::PeOrientation, common::GenomeRelease};
+    use crate::{
+        annotate::strucvars::{PeOrientation, SvCaller},
+        common::GenomeRelease,
+    };
 
     use super::{
         bnd::Breakend,
@@ -1697,7 +1890,7 @@ mod test {
             DellyVcfRecordConverter, DragenCnvVcfRecordConverter, DragenSvVcfRecordConverter,
             GcnvVcfRecordConverter, MantaVcfRecordConverter, PopdelVcfRecordConverter,
         },
-        VcfHeader, VcfRecordConverter,
+        guess_sv_caller, VcfHeader, VcfRecordConverter,
     };
 
     /// Test for the parsing of breakend alleles.
@@ -1905,5 +2098,89 @@ mod test {
             "tests/data/annotate/strucvars/popdel-min.out.jsonl",
             &PopdelVcfRecordConverter::new("1.1.3", &samples),
         )
+    }
+
+    #[test]
+    fn guess_sv_caller_delly() -> Result<(), anyhow::Error> {
+        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/delly2-min.vcf")?;
+
+        assert_eq!(
+            sv_caller,
+            SvCaller::Delly {
+                version: String::from("1.1.3")
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn guess_sv_caller_dragen_sv() -> Result<(), anyhow::Error> {
+        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/dragen-sv-min.vcf")?;
+
+        assert_eq!(
+            sv_caller,
+            SvCaller::DragenSv {
+                version: String::from("07.021.624.3.10.4")
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn guess_sv_caller_dragen_cnv() -> Result<(), anyhow::Error> {
+        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/dragen-cnv-min.vcf")?;
+
+        assert_eq!(
+            sv_caller,
+            SvCaller::DragenCnv {
+                version: String::from("07.021.624.3.10.4")
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn guess_sv_caller_gcnv() -> Result<(), anyhow::Error> {
+        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/gcnv-min.vcf")?;
+
+        assert_eq!(
+            sv_caller,
+            SvCaller::Gcnv {
+                version: String::from("4.1.7.0")
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn guess_sv_caller_manta() -> Result<(), anyhow::Error> {
+        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/manta-min.vcf")?;
+
+        assert_eq!(
+            sv_caller,
+            SvCaller::Manta {
+                version: String::from("1.6.0")
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn guess_sv_caller_popdel() -> Result<(), anyhow::Error> {
+        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/popdel-min.vcf")?;
+
+        assert_eq!(
+            sv_caller,
+            SvCaller::Popdel {
+                version: String::from("1.1.2")
+            }
+        );
+
+        Ok(())
     }
 }
