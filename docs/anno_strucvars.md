@@ -40,16 +40,27 @@ The string `GenerateSVCandidates <VERSION>` is used to identify Manta and the us
 
 ## GATK gCNV
 
-TODO
+GATK gCNV is identified by looking at the `##source=` header line.
+The tool is identified by `PostprocessGermlineCNVCalls` but the version cannot be identified automatically.
+
+- Copy number is extracted from `FORMAT/CN`
+- Number of points is extracted from `FORMAT/NP`
 
 ## PopDel
 
-TODO
+The PopDel caller and version is identified by the `INFO/SVMETHOD` of the first record.
+
+- Paired-end reference support is extracted from `FORMAT/DAD[0]`.
+- Paired-end variant support is extracted from `FORMAT/DAD[3]`.
 
 ## Dragen SV
 
-TODO
+The Dragen SV caller is identical to Manta.
+However, here the caller and version are identified by looking at the `##source=DRAGEN <VERSION>` line.
 
 ## Dragen CNV
 
-TODO
+The Dragen CNV caller is identified by the header line `##DRAGENVersion=<ID=dragen,Version="SW: <VERSION>, HW: <IGNORED>">`.
+
+- Copy number is extracted from `FORMAT/CN`.
+- Number of points is extracted from `FORMAT/PE`.
