@@ -265,6 +265,16 @@ pub mod vcf_header {
                     "Callers that detected the variant",
                 ),
             )
+            // The SV UUID will only be written out temporarily until we don't need TSV anymore.
+            // TODO: remove this once we don't need TSV anymore.
+            .add_info(
+                Key::from_str("sv_uuid")?,
+                Map::<Info>::new(
+                    Number::Unknown,
+                    Type::String,
+                    "Temporary UUID; needed for TSV output",
+                ),
+            )
             // Note that we will write out the sub type here, actually.
             .add_info(SV_TYPE, Map::<Info>::from(&SV_TYPE)))
     }
@@ -995,11 +1005,15 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
             genotypes,
         );
 
+
+        let info = format!("END={};sv_uuid={}", self.end, self.sv_uuid);
+
         VcfRecord::builder()
             .set_chromosome(self.chromosome.parse()?)
             .set_position(Position::from(self.start as usize))
             .set_reference_bases("N".parse()?)
             .set_alternate_bases(format!("<{}>", self.sv_sub_type).parse()?)
+            .set_info(info.parse()?)
             .set_genotypes(genotypes)
             .build()
             .map_err(|e| anyhow::anyhow!(e))
