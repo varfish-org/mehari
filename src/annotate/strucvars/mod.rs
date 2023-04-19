@@ -30,6 +30,7 @@ use strum::{Display, EnumIter, IntoEnumIterator};
 use tempdir::TempDir;
 use uuid::Uuid;
 
+use super::seqvars::binning::bin_from_range;
 use super::seqvars::{binning, AnnotatedVcfWriter, CHROM_TO_CHROM_NO};
 
 /// Command line arguments for `annotate strucvars` sub command.
@@ -614,19 +615,101 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
     fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error> {
         let mut tsv_record = VarFishStrucvarTsvRecord::default();
 
-        // if !self.fill_coords(
-        //     self.assembly.expect("assembly must have been set"),
-        //     record,
-        //     &mut tsv_record,
-        // )? {
-        //     // Record was not on canonical chromosome and should not be written out.
-        //     return Ok(());
-        // }
-        // self.fill_genotype_and_freqs(record, &mut tsv_record)?;
-        // self.fill_bg_freqs(record, &mut tsv_record)?;
-        // self.fill_clinvar(record, &mut tsv_record)?;
-        // self.expand_refseq_ensembl_and_write(record, &mut tsv_record)
-        todo!()
+        match self.assembly {
+            Some(Assembly::Grch37) | Some(Assembly::Grch37p10) => {
+                tsv_record.release = String::from("GRCh37");
+            }
+            Some(Assembly::Grch38) => {
+                tsv_record.release = String::from("GRCh38");
+            }
+            _ => panic!("assembly must have been set"),
+        }
+
+        tsv_record.chromosome = record.chromosome().to_string();
+        tsv_record.chromosome_no = *CHROM_TO_CHROM_NO
+            .get(&tsv_record.chromosome)
+            .expect("chromosome not canonical");
+        tsv_record.bin = {
+            // xxx what if BND?
+            let pos: usize = record.position().into();
+            let pos_end = record
+                .info()
+                .get(&noodles::vcf::header::info::key::END_POSITION);
+            let pos_end =
+                if let Some(Some(noodles::vcf::record::info::field::Value::Integer(pos_end))) =
+                    pos_end
+                {
+                    *pos_end as usize
+                } else {
+                    pos
+                };
+            bin_from_range(pos as i32 - 1, pos_end as i32)? as u32
+        };
+
+        tsv_record.chromosome2 = record.chromosome().to_string();
+        tsv_record.chromosome_no2 = *CHROM_TO_CHROM_NO
+            .get(&tsv_record.chromosome2)
+            .expect("chromosome not canonical");
+        tsv_record.bin2 = 0; // xxx
+
+        tsv_record.pe_orientation = PeOrientation::Other; // xxx
+        tsv_record.start = {
+            let start: usize = record.position().into();
+            start as i32
+        };
+        tsv_record.end = {
+            let start: usize = record.position().into();
+            let end = start + record.reference_bases().len();
+            end as i32
+        };
+
+        let sv_uuid = record
+            .info()
+            .get(&noodles::vcf::header::info::key::Key::from_str("sv_uuid")?);
+        if let Some(Some(noodles::vcf::record::info::field::Value::String(sv_uuid))) = sv_uuid {
+            tsv_record.sv_uuid = Uuid::from_str(sv_uuid)?;
+        }
+        let callers = record
+            .info()
+            .get(&noodles::vcf::header::info::key::Key::from_str("callers")?);
+        if let Some(Some(noodles::vcf::record::info::field::Value::String(callers))) = callers {
+            tsv_record.callers = callers.split(',').map(|x| x.to_string()).collect();
+        }
+        let sv_sub_type = record.info().get(&noodles::vcf::header::info::key::SV_TYPE);
+        if let Some(Some(noodles::vcf::record::info::field::Value::String(sv_sub_type))) =
+            sv_sub_type
+        {
+            tsv_record.sv_type =
+                SvType::from_str(sv_sub_type.split(':').next().expect("invalid INFO/SVTYPE"))?;
+            tsv_record.sv_sub_type = SvSubType::from_str(sv_sub_type)?;
+        }
+
+        writeln!(
+            self.inner,
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            &tsv_record.release,
+            &tsv_record.chromosome,
+            &tsv_record.chromosome_no,
+            &tsv_record.bin,
+            &tsv_record.chromosome2,
+            &tsv_record.chromosome_no2,
+            &tsv_record.bin2,
+            &tsv_record.pe_orientation,
+            &tsv_record.start,
+            &tsv_record.end,
+            &tsv_record.start_ci_left,
+            &tsv_record.start_ci_right,
+            &tsv_record.end_ci_left,
+            &tsv_record.end_ci_right,
+            &tsv_record.case_id,
+            &tsv_record.set_id,
+            &tsv_record.sv_uuid,
+            tsv_record.callers.join(";"),
+            &tsv_record.sv_type,
+            &tsv_record.sv_sub_type,
+            "{}",
+            &tsv_record.genotype.for_tsv(),
+        ).map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
     }
 
     fn set_assembly(&mut self, assembly: Assembly) {
@@ -1005,8 +1088,13 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
             genotypes,
         );
 
-
-        let info = format!("END={};sv_uuid={}", self.end, self.sv_uuid);
+        let info = format!(
+            "END={};sv_uuid={};callers={};SVTYPE={}",
+            self.end,
+            self.sv_uuid,
+            self.callers.join(","),
+            self.sv_sub_type
+        );
 
         VcfRecord::builder()
             .set_chromosome(self.chromosome.parse()?)
@@ -2242,7 +2330,7 @@ mod test {
     use chrono::NaiveDate;
     use hgvs::static_data::Assembly;
     use linked_hash_map::LinkedHashMap;
-    use noodles::vcf::{self, record::genotypes::Genotype};
+    use noodles::vcf;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
     use uuid::Uuid;
@@ -2665,6 +2753,12 @@ mod test {
 
     /// Example record for writing out.
     fn example_record() -> VarFishStrucvarTsvRecord {
+        // Setup deterministic bytes for UUID generation.
+        let mut bytes = [
+            0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6,
+            0xd7, 0xd8,
+        ];
+
         VarFishStrucvarTsvRecord {
             release: String::from("GRCh37"),
             chromosome: String::from("1"),
@@ -2682,10 +2776,10 @@ mod test {
             end_ci_right: 0,
             case_id: 0,
             set_id: 0,
-            sv_uuid: Uuid::default(),
+            sv_uuid: Uuid::from_bytes(bytes),
             callers: vec![String::from("MANTAv1.1.2")],
-            sv_type: SvType::Del,
-            sv_sub_type: SvSubType::DelMe,
+            sv_type: SvType::Inv,
+            sv_sub_type: SvSubType::Inv,
             genotype: GenotypeCalls {
                 entries: vec![
                     GenotypeInfo {
