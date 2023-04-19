@@ -125,12 +125,279 @@ pub mod keys {
     }
 }
 
-fn build_header() -> VcfHeader {
-    let mut builder = vcf::Header::builder();
+/// Code for building the VCF header to be written out.
+pub mod vcf_header {
+    use std::str::FromStr;
 
-    todo!();
+    use chrono::NaiveDate;
+    use hgvs::static_data::{Assembly, ASSEMBLY_INFOS};
+    use noodles::vcf::header::record::key::Key as HeaderKey;
+    use noodles::vcf::header::record::value::map::{Contig, Filter, Format, Info, Meta};
+    use noodles::vcf::header::record::value::Map;
+    use noodles::vcf::header::{self, record, Number};
+    use noodles::vcf::{
+        header::{Builder, FileFormat},
+        Header,
+    };
 
-    builder.build()
+    use crate::db::create::seqvar_freqs::reading::CANONICAL;
+    use crate::ped::PedigreeByName;
+
+    /// Major VCF version to use.
+    static FILE_FORMAT_MAJOR: u32 = 4;
+    /// Minor VCF version to use.
+    static FILE_FORMAT_MINOR: u32 = 3;
+    /// The string to write out as the source.
+    static SOURCE: &str = "mehari";
+
+    /// Construct VCF header.
+    ///
+    /// # Arguments
+    ///
+    /// * `assembly` - Genome assembly to use.  The canonical contigs will be taken from here.
+    /// * `pedigree` - Pedigree to use.  Will write out appropriate `META`, `SAMPLE`, and
+    ///    `PEDIGREE` header lines.
+    /// * `date` - Date to use for the `fileDate` header line.
+    ///
+    /// # Returns
+    ///
+    /// The constructed VCF header.
+    pub fn build(
+        assembly: Assembly,
+        pedigree: &Option<PedigreeByName>,
+        date: &NaiveDate,
+    ) -> Result<Header, anyhow::Error> {
+        let builder = add_meta_leading(Header::builder(), date)?;
+        let builder = add_meta_contigs(builder, assembly)?;
+        let builder = add_meta_alt(builder)?;
+        let builder = add_meta_info(builder)?;
+        let builder = add_meta_filter(builder)?;
+        let builder = add_meta_format(builder)?;
+        let builder = add_meta_pedigree(builder, pedigree)?;
+
+        Ok(builder.build())
+    }
+
+    /// Add the leading header lines, such as `fileformat`, `fileDate`, `source`, etc.
+    fn add_meta_leading(builder: Builder, date: &NaiveDate) -> Result<Builder, anyhow::Error> {
+        Ok(builder
+            .set_file_format(FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR))
+            .insert(
+                HeaderKey::other("fileDate").unwrap(),
+                record::value::Other::from(date.format("%Y%m%d").to_string()),
+            )
+            .insert(
+                HeaderKey::other("source").unwrap(),
+                record::value::Other::from(SOURCE),
+            ))
+    }
+
+    /// Add the `contig` header lines.
+    ///
+    /// NB: `Assembly::Grch37` does not contain chrMT, but `Assembly::Grch37p10` does.
+    fn add_meta_contigs(builder: Builder, assembly: Assembly) -> Result<Builder, anyhow::Error> {
+        let mut builder = builder;
+        let assembly_info = &ASSEMBLY_INFOS[assembly];
+
+        for sequence in &assembly_info.sequences {
+            if CANONICAL.contains(&sequence.name.as_ref()) {
+                // TODO: add assembly & sequence.refseq_ac https://github.com/zaeleus/noodles/issues/162
+                let mut contig = Map::<Contig>::new();
+                *contig.length_mut() = Some(sequence.length);
+                builder = builder.add_contig(sequence.name.parse()?, contig);
+            }
+        }
+
+        Ok(builder)
+    }
+
+    /// Add the `ALT` header lines.
+    fn add_meta_alt(builder: Builder) -> Result<Builder, anyhow::Error> {
+        use noodles::vcf::{
+            header::record::value::{map::AlternativeAllele, Map},
+            record::alternate_bases::allele::{
+                symbol::{structural_variant::Type, StructuralVariant},
+                Symbol,
+            },
+        };
+
+        let del_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Deletion));
+        let del_alt = Map::<AlternativeAllele>::new("Deletion");
+        let ins_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Insertion));
+        let ins_alt = Map::<AlternativeAllele>::new("Insertion");
+        let dup_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Duplication));
+        let dup_alt = Map::<AlternativeAllele>::new("Duplication");
+        let cnv_id = Symbol::StructuralVariant(StructuralVariant::from(Type::CopyNumberVariation));
+        let cnv_alt = Map::<AlternativeAllele>::new("Copy number variation");
+        let bnd_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Breakend));
+        let bnd_alt = Map::<AlternativeAllele>::new("Breakend");
+
+        Ok(builder
+            .add_alternative_allele(del_id, del_alt)
+            .add_alternative_allele(ins_id, ins_alt)
+            .add_alternative_allele(dup_id, dup_alt)
+            .add_alternative_allele(cnv_id, cnv_alt)
+            .add_alternative_allele(bnd_id, bnd_alt))
+    }
+
+    /// Add the `INFO` header lines.
+    fn add_meta_info(builder: Builder) -> Result<Builder, anyhow::Error> {
+        use header::info::key::*;
+        use header::record::value::map::info::Type;
+
+        Ok(builder
+            .add_info(END_POSITION, Map::<Info>::from(&END_POSITION))
+            .add_info(
+                POSITION_CONFIDENCE_INTERVALS,
+                Map::<Info>::from(&POSITION_CONFIDENCE_INTERVALS),
+            )
+            .add_info(
+                END_CONFIDENCE_INTERVALS,
+                Map::<Info>::from(&END_CONFIDENCE_INTERVALS),
+            )
+            .add_info(
+                Key::from_str("callers")?,
+                Map::<Info>::new(
+                    Number::Unknown,
+                    Type::String,
+                    "Callers that detected the variant",
+                ),
+            )
+            // Note that we will write out the sub type here, actually.
+            .add_info(SV_TYPE, Map::<Info>::from(&SV_TYPE)))
+    }
+
+    /// Add the `FILTER` header lines.
+    fn add_meta_filter(builder: Builder) -> Result<Builder, anyhow::Error> {
+        Ok(builder.add_filter("PASS", Map::<Filter>::new("All filters passed")))
+    }
+
+    /// Add the `FORMAT` header lines.
+    fn add_meta_format(builder: Builder) -> Result<Builder, anyhow::Error> {
+        use header::format::key::*;
+        use header::record::value::map::format::Type;
+
+        Ok(builder
+            .add_format(GENOTYPE, Map::<Format>::from(&GENOTYPE))
+            .add_format(FILTER, Map::<Format>::from(&FILTER))
+            .add_format(
+                CONDITIONAL_GENOTYPE_QUALITY,
+                Map::<Format>::from(&CONDITIONAL_GENOTYPE_QUALITY),
+            )
+            .add_format(
+                Key::from_str("pec")?,
+                Map::<Format>::new(Number::Count(1), Type::Integer, "Paired-end coverage"),
+            )
+            .add_format(
+                Key::from_str("pev")?,
+                Map::<Format>::new(
+                    Number::Count(1),
+                    Type::Integer,
+                    "Paired-end variant support",
+                ),
+            )
+            .add_format(
+                Key::from_str("src")?,
+                Map::<Format>::new(Number::Count(1), Type::Integer, "Split-end coverage"),
+            )
+            .add_format(
+                Key::from_str("src")?,
+                Map::<Format>::new(Number::Count(1), Type::Integer, "Split-end variant support"),
+            )
+            .add_format(
+                Key::from_str("amq")?,
+                Map::<Format>::new(Number::Count(1), Type::Integer, "Average mapping quality"),
+            )
+            .add_format(
+                GENOTYPE_COPY_NUMBER,
+                Map::<Format>::from(&GENOTYPE_COPY_NUMBER),
+            )
+            .add_format(
+                Key::from_str("anc")?,
+                Map::<Format>::new(
+                    Number::Count(1),
+                    Type::Integer,
+                    "Average normalied coverage",
+                ),
+            )
+            .add_format(
+                Key::from_str("pc")?,
+                Map::<Format>::new(
+                    Number::Count(1),
+                    Type::Integer,
+                    "Point count (windows/targets/probes)",
+                ),
+            ))
+    }
+
+    /// Add the `PEDIGREE` and supporting `SAMPLE` and `META` lines; set sample names.
+    fn add_meta_pedigree(
+        builder: Builder,
+        pedigree: &Option<PedigreeByName>,
+    ) -> Result<Builder, anyhow::Error> {
+        if let Some(pedigree) = pedigree.as_ref() {
+            let mut builder = add_meta_fields(builder);
+            // Wait for https://github.com/zaeleus/noodles/issues/162#issuecomment-1514444101
+            // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles::vcf::header::record::value::map::Other>::builder();
+
+            for i in pedigree.individuals.values() {
+                builder = builder.add_sample_name(i.name.clone());
+                //     builder.insert(key, value)
+                //     let k = HeaderKey::from("SAMPLE");
+
+                //     let name = i.name;
+                //     let sex = i.sex;
+                //     let disease = i.disease;
+            }
+
+            Ok(builder)
+        } else {
+            Ok(builder)
+        }
+    }
+
+    // Define fields for the gonosomal karyotype, (sex for canonical), affected status
+    fn add_meta_fields(builder: Builder) -> Builder {
+        builder
+            .add_meta(
+                "Sex",
+                Map::<Meta>::new(vec![
+                    String::from("Male"),
+                    String::from("Female"),
+                    String::from("Other"),
+                    String::from("Unknown"),
+                ]),
+            )
+            .add_meta(
+                "GonosomalKaryotype",
+                Map::<Meta>::new(vec![
+                    // "canonical" female
+                    String::from("XX"),
+                    // "canonical" male
+                    String::from("XY"),
+                    // Turner syndrome
+                    String::from("XO"),
+                    // Klinefelter syndrome
+                    String::from("XXY"),
+                    // Triple X syndrome
+                    String::from("XXX"),
+                    // Jacobs syndrome
+                    String::from("XYY"),
+                    // Other
+                    String::from("Other"),
+                    // Unknown
+                    String::from("Unknown"),
+                ]),
+            )
+            .add_meta(
+                "Affected",
+                Map::<Meta>::new(vec![
+                    String::from("Yes"),
+                    String::from("No"),
+                    String::from("Unknown"),
+                ]),
+            )
+    }
 }
 
 /// Writing of structural variants to VarFish TSV files.
@@ -1643,7 +1910,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     }
 
     // Generate output header and write to `writer`.
-    let header_out = build_header();
+    let header_out = vcf_header::build(todo!(), todo!(), todo!())?;
     writer.write_header(&header_out)?;
 
     // Read through temporary files by contig, cluster by overlap as configured, and write to `writer`.
@@ -1879,8 +2146,11 @@ pub mod bnd {
 
 #[cfg(test)]
 mod test {
-    use std::fs::File;
+    use std::{any, fs::File};
 
+    use chrono::NaiveDate;
+    use hgvs::static_data::Assembly;
+    use linked_hash_map::LinkedHashMap;
     use noodles::vcf;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
@@ -1889,6 +2159,7 @@ mod test {
     use crate::{
         annotate::strucvars::{PeOrientation, SvCaller},
         common::GenomeRelease,
+        ped::{Disease, Individual, PedigreeByName, Sex},
     };
 
     use super::{
@@ -1898,7 +2169,7 @@ mod test {
             DellyVcfRecordConverter, DragenCnvVcfRecordConverter, DragenSvVcfRecordConverter,
             GcnvVcfRecordConverter, MantaVcfRecordConverter, PopdelVcfRecordConverter,
         },
-        guess_sv_caller, VcfHeader, VcfRecordConverter,
+        guess_sv_caller, vcf_header, VcfHeader, VcfRecordConverter,
     };
 
     /// Test for the parsing of breakend alleles.
@@ -2187,6 +2458,106 @@ mod test {
                 version: String::from("1.1.2")
             }
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn build_vcf_header_37_no_pedigree() -> Result<(), anyhow::Error> {
+        let header = vcf_header::build(
+            Assembly::Grch37p10,
+            &None,
+            &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
+        )?;
+
+        let mut writer = vcf::Writer::new(Vec::new());
+        writer.write_header(&header)?;
+        let actual = std::str::from_utf8(&writer.get_ref()[..])?;
+
+        let expected =
+            std::fs::read_to_string("tests/data/annotate/strucvars/header-grch37-noped.vcf")?;
+
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn build_vcf_header_37_trio() -> Result<(), anyhow::Error> {
+        let individuals = LinkedHashMap::from_iter(
+            vec![
+                (
+                    String::from("index"),
+                    Individual {
+                        family: String::from("FAM"),
+                        name: String::from("index"),
+                        father: Some(String::from("father")),
+                        mother: Some(String::from("mother")),
+                        sex: Sex::Female,
+                        disease: Disease::Affected,
+                    },
+                ),
+                (
+                    String::from("father"),
+                    Individual {
+                        family: String::from("FAM"),
+                        name: String::from("father"),
+                        father: None,
+                        mother: None,
+                        sex: Sex::Male,
+                        disease: Disease::Unaffected,
+                    },
+                ),
+                (
+                    String::from("mother"),
+                    Individual {
+                        family: String::from("FAM"),
+                        name: String::from("mother"),
+                        father: None,
+                        mother: None,
+                        sex: Sex::Female,
+                        disease: Disease::Unaffected,
+                    },
+                ),
+            ]
+            .into_iter(),
+        );
+        let pedigree = PedigreeByName { individuals };
+
+        let header = vcf_header::build(
+            Assembly::Grch37p10,
+            &Some(pedigree),
+            &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
+        )?;
+
+        let mut writer = vcf::Writer::new(Vec::new());
+        writer.write_header(&header)?;
+        let actual = std::str::from_utf8(&writer.get_ref()[..])?;
+
+        let expected =
+            std::fs::read_to_string("tests/data/annotate/strucvars/header-grch37-trio.vcf")?;
+
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn build_vcf_header_38_no_pedigree() -> Result<(), anyhow::Error> {
+        let header = vcf_header::build(
+            Assembly::Grch38,
+            &None,
+            &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
+        )?;
+
+        let mut writer = vcf::Writer::new(Vec::new());
+        writer.write_header(&header)?;
+        let actual = std::str::from_utf8(&writer.get_ref()[..])?;
+
+        let expected =
+            std::fs::read_to_string("tests/data/annotate/strucvars/header-grch38-noped.vcf")?;
+
+        assert_eq!(actual, expected);
 
         Ok(())
     }
