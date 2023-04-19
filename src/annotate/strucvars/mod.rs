@@ -15,12 +15,16 @@ use flate2::Compression;
 use hgvs::static_data::Assembly;
 use noodles::bgzf::Writer as BgzfWriter;
 use noodles::vcf::record::alternate_bases::Allele;
+use noodles::vcf::record::genotypes::Keys;
+use noodles::vcf::record::{Genotypes, Position};
+use noodles::vcf::Record as VcfRecord;
 use noodles::vcf::{self, Header as VcfHeader};
 use noodles::vcf::{
     header::info::key::Key as InfoKey, header::info::key::Other as InfoKeyOther,
     header::info::key::Standard as InfoKeyStandard,
     header::record::value::Other as HeaderValueOther,
-    record::info::field::value::Value as InfoValue, Record as VcfRecord, Writer as VcfWriter,
+    record::genotypes::genotype::field::value::Value as GenotypeValue,
+    record::info::field::value::Value as InfoValue, Writer as VcfWriter,
 };
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -438,7 +442,7 @@ pub struct GenotypeInfo {
     /// Copy number.
     pub cn: Option<i32>,
     /// Average normalized coverage.
-    pub anc: Option<f64>,
+    pub anc: Option<f32>,
     /// Point count (windows/targets/probes).
     pub pc: Option<i32>,
 }
@@ -901,6 +905,114 @@ pub struct VarFishStrucvarTsvRecord {
     // pub info: String,
     /// Genotype call information.
     pub genotype: GenotypeCalls,
+}
+
+/// Conversion to VCF record.
+impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<VcfRecord, Self::Error> {
+        use vcf::header::format::key::*;
+
+        let mut genotypes = Vec::new();
+        for genotype in &self.genotype.entries {
+            genotypes.push(
+                [
+                    (
+                        GENOTYPE,
+                        genotype
+                            .gt
+                            .as_ref()
+                            .map(|gt| GenotypeValue::String(gt.clone())),
+                    ),
+                    (
+                        FILTER,
+                        genotype.ft.as_ref().map(|ft| {
+                            GenotypeValue::StringArray(ft.iter().map(|s| Some(s.clone())).collect())
+                        }),
+                    ),
+                    (
+                        CONDITIONAL_GENOTYPE_QUALITY,
+                        genotype.gq.as_ref().map(|gq| GenotypeValue::Integer(*gq)),
+                    ),
+                    (
+                        Key::from_str("pec")?,
+                        genotype
+                            .pec
+                            .as_ref()
+                            .map(|pec| GenotypeValue::Integer(*pec)),
+                    ),
+                    (
+                        Key::from_str("pev")?,
+                        genotype
+                            .pev
+                            .as_ref()
+                            .map(|pev| GenotypeValue::Integer(*pev)),
+                    ),
+                    (
+                        Key::from_str("src")?,
+                        genotype
+                            .src
+                            .as_ref()
+                            .map(|src| GenotypeValue::Integer(*src)),
+                    ),
+                    (
+                        Key::from_str("srv")?,
+                        genotype
+                            .srv
+                            .as_ref()
+                            .map(|srv| GenotypeValue::Integer(*srv)),
+                    ),
+                    (
+                        Key::from_str("amq")?,
+                        genotype
+                            .amq
+                            .as_ref()
+                            .map(|amq| GenotypeValue::Integer(*amq)),
+                    ),
+                    (
+                        GENOTYPE_COPY_NUMBER,
+                        genotype.cn.as_ref().map(|cn| GenotypeValue::Integer(*cn)),
+                    ),
+                    (
+                        Key::from_str("anc")?,
+                        genotype.anc.as_ref().map(|anc| GenotypeValue::Float(*anc)),
+                    ),
+                    (
+                        Key::from_str("pc")?,
+                        genotype.pc.as_ref().map(|pc| GenotypeValue::Integer(*pc)),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            )
+        }
+        let genotypes = Genotypes::new(
+            Keys::try_from(vec![
+                GENOTYPE,
+                FILTER,
+                CONDITIONAL_GENOTYPE_QUALITY,
+                Key::from_str("pec")?,
+                Key::from_str("pev")?,
+                Key::from_str("src")?,
+                Key::from_str("srv")?,
+                Key::from_str("amq")?,
+                GENOTYPE_COPY_NUMBER,
+                Key::from_str("anc")?,
+                Key::from_str("pc")?,
+            ])?,
+            genotypes,
+        );
+
+        VcfRecord::builder()
+            .set_chromosome(self.chromosome.parse()?)
+            .set_position(Position::from(self.start as usize))
+            .set_reference_bases("N".parse()?)
+            .set_alternate_bases(format!("<{}>", self.sv_sub_type).parse()?)
+            .set_genotypes(genotypes)
+            .build()
+            .map_err(|e| anyhow::anyhow!(e))
+    }
 }
 
 /// Enumeration for the supported variant callers.
@@ -2146,18 +2258,21 @@ pub mod bnd {
 
 #[cfg(test)]
 mod test {
-    use std::{any, fs::File};
+    use std::fs::File;
 
     use chrono::NaiveDate;
     use hgvs::static_data::Assembly;
     use linked_hash_map::LinkedHashMap;
-    use noodles::vcf;
+    use noodles::vcf::{self, record::genotypes::Genotype};
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
     use uuid::Uuid;
 
     use crate::{
-        annotate::strucvars::{PeOrientation, SvCaller},
+        annotate::strucvars::{
+            GenotypeCalls, GenotypeInfo, PeOrientation, SvCaller, SvSubType, SvType,
+            VarFishStrucvarTsvRecord,
+        },
         common::GenomeRelease,
         ped::{Disease, Individual, PedigreeByName, Sex},
     };
@@ -2169,7 +2284,7 @@ mod test {
             DellyVcfRecordConverter, DragenCnvVcfRecordConverter, DragenSvVcfRecordConverter,
             GcnvVcfRecordConverter, MantaVcfRecordConverter, PopdelVcfRecordConverter,
         },
-        guess_sv_caller, vcf_header, VcfHeader, VcfRecordConverter,
+        guess_sv_caller, vcf_header, VcfHeader, VcfRecord, VcfRecordConverter,
     };
 
     /// Test for the parsing of breakend alleles.
@@ -2484,6 +2599,26 @@ mod test {
 
     #[test]
     fn build_vcf_header_37_trio() -> Result<(), anyhow::Error> {
+        let header = vcf_header::build(
+            Assembly::Grch37p10,
+            &Some(example_trio()),
+            &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
+        )?;
+
+        let mut writer = vcf::Writer::new(Vec::new());
+        writer.write_header(&header)?;
+        let actual = std::str::from_utf8(&writer.get_ref()[..])?;
+
+        let expected =
+            std::fs::read_to_string("tests/data/annotate/strucvars/header-grch37-trio.vcf")?;
+
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    /// Generate example trio data.
+    fn example_trio() -> PedigreeByName {
         let individuals = LinkedHashMap::from_iter(
             vec![
                 (
@@ -2523,23 +2658,7 @@ mod test {
             .into_iter(),
         );
         let pedigree = PedigreeByName { individuals };
-
-        let header = vcf_header::build(
-            Assembly::Grch37p10,
-            &Some(pedigree),
-            &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
-        )?;
-
-        let mut writer = vcf::Writer::new(Vec::new());
-        writer.write_header(&header)?;
-        let actual = std::str::from_utf8(&writer.get_ref()[..])?;
-
-        let expected =
-            std::fs::read_to_string("tests/data/annotate/strucvars/header-grch37-trio.vcf")?;
-
-        assert_eq!(actual, expected);
-
-        Ok(())
+        pedigree
     }
 
     #[test]
@@ -2556,6 +2675,98 @@ mod test {
 
         let expected =
             std::fs::read_to_string("tests/data/annotate/strucvars/header-grch38-noped.vcf")?;
+
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn write_vcf_from_varfish_records() -> Result<(), anyhow::Error> {
+        let header = vcf_header::build(
+            Assembly::Grch38,
+            &Some(example_trio()),
+            &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
+        )?;
+
+        let mut writer = vcf::Writer::new(Vec::new());
+        writer.write_header(&header)?;
+
+        let varfish_record = VarFishStrucvarTsvRecord {
+            release: String::from("GRCh37"),
+            chromosome: String::from("1"),
+            chromosome_no: 1,
+            bin: 512,
+            chromosome2: String::from("1"),
+            chromosome_no2: 1,
+            bin2: 512,
+            pe_orientation: PeOrientation::FiveToFive,
+            start: 1042,
+            end: 2042,
+            start_ci_left: 0,
+            start_ci_right: 0,
+            end_ci_left: 0,
+            end_ci_right: 0,
+            case_id: 0,
+            set_id: 0,
+            sv_uuid: Uuid::default(),
+            callers: vec![String::from("MANTAv1.1.2")],
+            sv_type: SvType::Del,
+            sv_sub_type: SvSubType::DelMe,
+            genotype: GenotypeCalls {
+                entries: vec![
+                    GenotypeInfo {
+                        name: String::from("index"),
+                        gt: Some(String::from("0/1")),
+                        ft: Some(vec![String::from("PASS")]),
+                        gq: Some(99),
+                        pec: Some(143),
+                        pev: Some(43),
+                        src: Some(143),
+                        srv: Some(43),
+                        amq: Some(99),
+                        cn: Some(1),
+                        anc: Some(0.5),
+                        pc: Some(10),
+                    },
+                    GenotypeInfo {
+                        name: String::from("father"),
+                        gt: Some(String::from("0/0")),
+                        ft: Some(vec![String::from("PASS")]),
+                        gq: Some(98),
+                        pec: Some(43),
+                        pev: Some(0),
+                        src: Some(44),
+                        srv: Some(0),
+                        amq: Some(98),
+                        cn: Some(2),
+                        anc: Some(1.0),
+                        pc: Some(10),
+                    },
+                    GenotypeInfo {
+                        name: String::from("mother"),
+                        gt: Some(String::from("0/0")),
+                        ft: Some(vec![String::from("PASS")]),
+                        gq: Some(97),
+                        pec: Some(32),
+                        pev: Some(0),
+                        src: Some(33),
+                        srv: Some(0),
+                        amq: Some(97),
+                        cn: Some(2),
+                        anc: Some(1.0),
+                        pc: Some(10),
+                    },
+                ],
+            },
+        };
+
+        let vcf_record: VcfRecord = varfish_record.try_into()?;
+        writer.write_record(&vcf_record)?;
+
+        let actual = std::str::from_utf8(&writer.get_ref()[..])?;
+
+        let expected = std::fs::read_to_string("tests/data/annotate/strucvars/example-grch38.vcf")?;
 
         assert_eq!(actual, expected);
 
