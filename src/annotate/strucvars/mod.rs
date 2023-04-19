@@ -25,7 +25,6 @@ use noodles::vcf::{
     record::genotypes::genotype::field::value::Value as GenotypeValue,
     record::info::field::value::Value as InfoValue, Writer as VcfWriter,
 };
-use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, IntoEnumIterator};
 use tempdir::TempDir;
@@ -217,7 +216,7 @@ pub mod vcf_header {
     /// Add the `ALT` header lines.
     fn add_meta_alt(builder: Builder) -> Result<Builder, anyhow::Error> {
         use noodles::vcf::{
-            header::record::value::{map::AlternativeAllele, Map},
+            header::record::value::map::AlternativeAllele,
             record::alternate_bases::allele::{
                 symbol::{structural_variant::Type, StructuralVariant},
                 Symbol,
@@ -1230,10 +1229,10 @@ pub trait VcfRecordConverter {
     ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error> {
         let mut tsv_record = VarFishStrucvarTsvRecord::default();
 
-        self.fill_sv_type(&vcf_record, &mut tsv_record)?;
-        self.fill_coords(&vcf_record, genome_release, &mut tsv_record)?;
+        self.fill_sv_type(vcf_record, &mut tsv_record)?;
+        self.fill_coords(vcf_record, genome_release, &mut tsv_record)?;
         self.fill_callers_uuid(uuid, &mut tsv_record)?;
-        self.fill_genotypes(&vcf_record, &mut tsv_record)?;
+        self.fill_genotypes(vcf_record, &mut tsv_record)?;
         self.fill_cis(vcf_record, &mut tsv_record)?;
 
         Ok(tsv_record)
@@ -1373,7 +1372,7 @@ pub trait VcfRecordConverter {
                 .iter()
                 .map(|c| char::from(*c))
                 .collect::<String>();
-            let bnd = bnd::Breakend::from_ref_alt_str(&reference, &bnd_string)?;
+            let bnd = bnd::Breakend::from_ref_alt_str(&reference, bnd_string)?;
 
             tsv_record.chromosome2 = bnd.chrom.clone();
             end = Some(bnd.pos);
@@ -1483,32 +1482,26 @@ mod conv {
             InfoKeyStandard::PositionConfidenceIntervals,
         ));
         // Extract CIPOS; missing field is OK, but if present, must be integer array of length 2.
-        if let Some(Some(cipos)) = cipos {
-            if let InfoValue::IntegerArray(cipos) = cipos {
-                if cipos.len() == 2 {
-                    tsv_record.start_ci_left =
-                        cipos[0].ok_or(anyhow::anyhow!("CIPOS[0] is missing"))?;
-                    tsv_record.start_ci_right =
-                        cipos[1].ok_or(anyhow::anyhow!("CIPOS[1] is missing"))?;
-                } else {
-                    anyhow::bail!("CIPOS has wrong number of elements");
-                }
+        if let Some(Some(InfoValue::IntegerArray(cipos))) = cipos {
+            if cipos.len() == 2 {
+                tsv_record.start_ci_left =
+                    cipos[0].ok_or(anyhow::anyhow!("CIPOS[0] is missing"))?;
+                tsv_record.start_ci_right =
+                    cipos[1].ok_or(anyhow::anyhow!("CIPOS[1] is missing"))?;
+            } else {
+                anyhow::bail!("CIPOS has wrong number of elements");
             }
         }
         // Extract CIEND; missing field is OK, but if present, must be integer array of length 2.
         let ciend = vcf_record
             .info()
             .get(&InfoKey::Standard(InfoKeyStandard::EndConfidenceIntervals));
-        if let Some(Some(ciend)) = ciend {
-            if let InfoValue::IntegerArray(ciend) = ciend {
-                if ciend.len() == 2 {
-                    tsv_record.end_ci_left =
-                        ciend[0].ok_or(anyhow::anyhow!("CIEND[0] is missing"))?;
-                    tsv_record.end_ci_right =
-                        ciend[1].ok_or(anyhow::anyhow!("CIEND[1] is missing"))?;
-                } else {
-                    anyhow::bail!("CIEND has wrong number of elements");
-                }
+        if let Some(Some(InfoValue::IntegerArray(ciend))) = ciend {
+            if ciend.len() == 2 {
+                tsv_record.end_ci_left = ciend[0].ok_or(anyhow::anyhow!("CIEND[0] is missing"))?;
+                tsv_record.end_ci_right = ciend[1].ok_or(anyhow::anyhow!("CIEND[1] is missing"))?;
+            } else {
+                anyhow::bail!("CIEND has wrong number of elements");
             }
         }
 
@@ -2112,7 +2105,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         // Load the pedigree.
         tracing::info!("Loading pedigree...");
         writer.set_pedigree(&PedigreeByName::from_path(
-            &args.path_input_ped.as_ref().unwrap(),
+            args.path_input_ped.as_ref().unwrap(),
         )?);
         tracing::info!("... done loading pedigree");
 
@@ -2193,7 +2186,7 @@ pub mod bnd {
 
             // Split chrom/pos and parse integer position.
             let chrom_pos = alt_chars.as_str();
-            let mut chrom_pos = chrom_pos.split(":");
+            let mut chrom_pos = chrom_pos.split(':');
             let chrom = chrom_pos
                 .next()
                 .ok_or(anyhow::anyhow!(
@@ -2633,8 +2626,7 @@ mod test {
             ]
             .into_iter(),
         );
-        let pedigree = PedigreeByName { individuals };
-        pedigree
+        PedigreeByName { individuals }
     }
 
     #[test]
