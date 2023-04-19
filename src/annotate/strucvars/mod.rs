@@ -26,6 +26,7 @@ use noodles::vcf::{
     record::info::field::value::Value as InfoValue, Writer as VcfWriter,
 };
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 use strum::{Display, EnumIter, IntoEnumIterator};
 use tempdir::TempDir;
 use uuid::Uuid;
@@ -224,6 +225,7 @@ pub mod vcf_header {
             },
         };
 
+        // TODO: add DEL/INS sub types
         let del_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Deletion));
         let del_alt = Map::<AlternativeAllele>::new("Deletion");
         let ins_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Insertion));
@@ -431,26 +433,37 @@ pub struct GenotypeInfo {
     /// Sample name.
     pub name: String,
     /// Genotype value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gt: Option<String>,
     /// Per-genotype filter values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ft: Option<Vec<String>>,
     /// Genotype quality.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gq: Option<i32>,
     /// Paired-end coverage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pec: Option<i32>,
     /// Paired-end variant support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pev: Option<i32>,
     /// Split-read coverage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub src: Option<i32>,
     /// Split-read variant support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub srv: Option<i32>,
     /// Average mapping quality.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub amq: Option<i32>,
     /// Copy number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cn: Option<i32>,
     /// Average normalized coverage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anc: Option<f32>,
     /// Point count (windows/targets/probes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pc: Option<i32>,
 }
 
@@ -629,38 +642,27 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         tsv_record.chromosome_no = *CHROM_TO_CHROM_NO
             .get(&tsv_record.chromosome)
             .expect("chromosome not canonical");
-        tsv_record.bin = {
-            // xxx what if BND?
-            let pos: usize = record.position().into();
-            let pos_end = record
-                .info()
-                .get(&noodles::vcf::header::info::key::END_POSITION);
-            let pos_end =
-                if let Some(Some(noodles::vcf::record::info::field::Value::Integer(pos_end))) =
-                    pos_end
-                {
-                    *pos_end as usize
-                } else {
-                    pos
-                };
-            bin_from_range(pos as i32 - 1, pos_end as i32)? as u32
-        };
 
         tsv_record.chromosome2 = record.chromosome().to_string();
         tsv_record.chromosome_no2 = *CHROM_TO_CHROM_NO
             .get(&tsv_record.chromosome2)
             .expect("chromosome not canonical");
-        tsv_record.bin2 = 0; // xxx
 
-        tsv_record.pe_orientation = PeOrientation::Other; // xxx
         tsv_record.start = {
             let start: usize = record.position().into();
             start as i32
         };
         tsv_record.end = {
-            let start: usize = record.position().into();
-            let end = start + record.reference_bases().len();
-            end as i32
+            let pos_end = record
+                .info()
+                .get(&noodles::vcf::header::info::key::END_POSITION);
+            if let Some(Some(noodles::vcf::record::info::field::Value::Integer(pos_end))) = pos_end
+            {
+                *pos_end
+            } else {
+                // E.g., if INS
+                tsv_record.start
+            }
         };
 
         let sv_uuid = record
@@ -683,6 +685,28 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
                 SvType::from_str(sv_sub_type.split(':').next().expect("invalid INFO/SVTYPE"))?;
             tsv_record.sv_sub_type = SvSubType::from_str(sv_sub_type)?;
         }
+
+        tsv_record.bin = {
+            if tsv_record.sv_type != SvType::Bnd {
+                bin_from_range(tsv_record.start - 1, tsv_record.end)? as u32
+            } else {
+                bin_from_range(tsv_record.start - 1, tsv_record.start)? as u32
+            }
+        };
+        tsv_record.bin2 = {
+            if tsv_record.sv_type == SvType::Bnd {
+                bin_from_range(tsv_record.end - 1, tsv_record.end)? as u32
+            } else {
+                tsv_record.bin
+            }
+        };
+
+        tsv_record.pe_orientation = if tsv_record.sv_type == SvType::Bnd {
+            let alt = record.alternate_bases().deref()[0].to_string();
+            bnd::Breakend::from_ref_alt_str("N", alt.as_ref())?.pe_orientation
+        } else {
+            tsv_record.sv_type.into()
+        };
 
         writeln!(
             self.inner,
@@ -757,6 +781,17 @@ pub enum PeOrientation {
     #[strum(serialize = "NtoN")]
     #[default]
     Other,
+}
+
+impl From<SvType> for PeOrientation {
+    fn from(sv_type: SvType) -> Self {
+        match sv_type {
+            SvType::Del => Self::ThreeToFive,
+            SvType::Dup => Self::ThreeToThree,
+            SvType::Inv => Self::FiveToFive,
+            SvType::Ins | SvType::Cnv | SvType::Bnd => Self::Other,
+        }
+    }
 }
 
 impl FromStr for PeOrientation {
@@ -938,6 +973,16 @@ impl FromStr for SvSubType {
     }
 }
 
+/// Additional infomation for `VarFishStrucvarTsvRecord`.
+///
+/// Mostly used to store the original `ALT` allele for break-ends.
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq)]
+pub struct InfoRecord {
+    /// The original ALT allele.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt: Option<String>,
+}
+
 /// A record, as written out to a VarFish TSV file.
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq)]
 pub struct VarFishStrucvarTsvRecord {
@@ -986,7 +1031,7 @@ pub struct VarFishStrucvarTsvRecord {
     pub sv_sub_type: SvSubType,
 
     // /// Additional information (currently not used).
-    // pub info: String,
+    pub info: InfoRecord,
     /// Genotype call information.
     pub genotype: GenotypeCalls,
 }
@@ -1096,15 +1141,20 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
             self.sv_sub_type
         );
 
-        VcfRecord::builder()
+        let builder = VcfRecord::builder()
             .set_chromosome(self.chromosome.parse()?)
             .set_position(Position::from(self.start as usize))
             .set_reference_bases("N".parse()?)
-            .set_alternate_bases(format!("<{}>", self.sv_sub_type).parse()?)
             .set_info(info.parse()?)
-            .set_genotypes(genotypes)
-            .build()
-            .map_err(|e| anyhow::anyhow!(e))
+            .set_genotypes(genotypes);
+
+        let builder = if self.sv_sub_type == SvSubType::Bnd {
+            builder.set_alternate_bases(self.info.alt.unwrap().parse()?)
+        } else {
+            builder.set_alternate_bases(format!("<{}>", self.sv_sub_type).parse()?)
+        };
+
+        builder.build().map_err(|e| anyhow::anyhow!(e))
     }
 }
 
@@ -1395,12 +1445,7 @@ pub trait VcfRecordConverter {
         tsv_record.sv_type = tsv_record.sv_sub_type.into();
 
         // Fill paired-end orientation.
-        tsv_record.pe_orientation = match tsv_record.sv_type {
-            SvType::Del => PeOrientation::ThreeToFive,
-            SvType::Dup => PeOrientation::ThreeToThree,
-            SvType::Inv => PeOrientation::FiveToFive,
-            SvType::Ins | SvType::Cnv | SvType::Bnd => PeOrientation::Other,
-        };
+        tsv_record.pe_orientation = tsv_record.sv_type.into();
 
         Ok(())
     }
@@ -2339,8 +2384,8 @@ mod test {
         annotate::{
             seqvars::AnnotatedVcfWriter,
             strucvars::{
-                GenotypeCalls, GenotypeInfo, PeOrientation, SvCaller, SvSubType, SvType,
-                VarFishStrucvarTsvRecord,
+                GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvCaller, SvSubType,
+                SvType, VarFishStrucvarTsvRecord,
             },
         },
         common::GenomeRelease,
@@ -2752,81 +2797,157 @@ mod test {
     }
 
     /// Example record for writing out.
-    fn example_record() -> VarFishStrucvarTsvRecord {
+    fn example_records() -> Vec<VarFishStrucvarTsvRecord> {
         // Setup deterministic bytes for UUID generation.
-        let mut bytes = [
+        let bytes = [
             0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6,
             0xd7, 0xd8,
         ];
+        let mut bytes2 = bytes;
+        bytes2[0] += 1;
 
-        VarFishStrucvarTsvRecord {
-            release: String::from("GRCh37"),
-            chromosome: String::from("1"),
-            chromosome_no: 1,
-            bin: 512,
-            chromosome2: String::from("1"),
-            chromosome_no2: 1,
-            bin2: 512,
-            pe_orientation: PeOrientation::FiveToFive,
-            start: 1042,
-            end: 2042,
-            start_ci_left: 0,
-            start_ci_right: 0,
-            end_ci_left: 0,
-            end_ci_right: 0,
-            case_id: 0,
-            set_id: 0,
-            sv_uuid: Uuid::from_bytes(bytes),
-            callers: vec![String::from("MANTAv1.1.2")],
-            sv_type: SvType::Inv,
-            sv_sub_type: SvSubType::Inv,
-            genotype: GenotypeCalls {
-                entries: vec![
-                    GenotypeInfo {
-                        name: String::from("index"),
-                        gt: Some(String::from("0/1")),
-                        ft: Some(vec![String::from("PASS")]),
-                        gq: Some(99),
-                        pec: Some(143),
-                        pev: Some(43),
-                        src: Some(143),
-                        srv: Some(43),
-                        amq: Some(99),
-                        cn: Some(1),
-                        anc: Some(0.5),
-                        pc: Some(10),
-                    },
-                    GenotypeInfo {
-                        name: String::from("father"),
-                        gt: Some(String::from("0/0")),
-                        ft: Some(vec![String::from("PASS")]),
-                        gq: Some(98),
-                        pec: Some(43),
-                        pev: Some(0),
-                        src: Some(44),
-                        srv: Some(0),
-                        amq: Some(98),
-                        cn: Some(2),
-                        anc: Some(1.0),
-                        pc: Some(10),
-                    },
-                    GenotypeInfo {
-                        name: String::from("mother"),
-                        gt: Some(String::from("0/0")),
-                        ft: Some(vec![String::from("PASS")]),
-                        gq: Some(97),
-                        pec: Some(32),
-                        pev: Some(0),
-                        src: Some(33),
-                        srv: Some(0),
-                        amq: Some(97),
-                        cn: Some(2),
-                        anc: Some(1.0),
-                        pc: Some(10),
-                    },
-                ],
+        vec![
+            VarFishStrucvarTsvRecord {
+                release: String::from("GRCh37"),
+                chromosome: String::from("1"),
+                chromosome_no: 1,
+                bin: 512,
+                chromosome2: String::from("1"),
+                chromosome_no2: 1,
+                bin2: 512,
+                pe_orientation: PeOrientation::FiveToFive,
+                start: 1042,
+                end: 2042,
+                start_ci_left: 0,
+                start_ci_right: 0,
+                end_ci_left: 0,
+                end_ci_right: 0,
+                case_id: 0,
+                set_id: 0,
+                sv_uuid: Uuid::from_bytes(bytes),
+                callers: vec![String::from("MANTAv1.1.2")],
+                sv_type: SvType::Inv,
+                sv_sub_type: SvSubType::Inv,
+                info: Default::default(),
+                genotype: GenotypeCalls {
+                    entries: vec![
+                        GenotypeInfo {
+                            name: String::from("index"),
+                            gt: Some(String::from("0/1")),
+                            ft: Some(vec![String::from("PASS")]),
+                            gq: Some(99),
+                            pec: Some(143),
+                            pev: Some(43),
+                            src: Some(143),
+                            srv: Some(43),
+                            amq: Some(99),
+                            cn: Some(1),
+                            anc: Some(0.5),
+                            pc: Some(10),
+                        },
+                        GenotypeInfo {
+                            name: String::from("father"),
+                            gt: Some(String::from("0/0")),
+                            ft: Some(vec![String::from("PASS")]),
+                            gq: Some(98),
+                            pec: Some(43),
+                            pev: Some(0),
+                            src: Some(44),
+                            srv: Some(0),
+                            amq: Some(98),
+                            cn: Some(2),
+                            anc: Some(1.0),
+                            pc: Some(10),
+                        },
+                        GenotypeInfo {
+                            name: String::from("mother"),
+                            gt: Some(String::from("0/0")),
+                            ft: Some(vec![String::from("PASS")]),
+                            gq: Some(97),
+                            pec: Some(32),
+                            pev: Some(0),
+                            src: Some(33),
+                            srv: Some(0),
+                            amq: Some(97),
+                            cn: Some(2),
+                            anc: Some(1.0),
+                            pc: Some(10),
+                        },
+                    ],
+                },
             },
-        }
+            VarFishStrucvarTsvRecord {
+                release: String::from("GRCh37"),
+                chromosome: String::from("1"),
+                chromosome_no: 1,
+                bin: 512,
+                chromosome2: String::from("17"),
+                chromosome_no2: 1,
+                bin2: 1234,
+                pe_orientation: PeOrientation::FiveToFive,
+                start: 10_1042,
+                end: 198_982,
+                start_ci_left: 0,
+                start_ci_right: 0,
+                end_ci_left: 0,
+                end_ci_right: 0,
+                case_id: 0,
+                set_id: 0,
+                sv_uuid: Uuid::from_bytes(bytes2),
+                callers: vec![String::from("MANTAv1.1.2")],
+                sv_type: SvType::Bnd,
+                sv_sub_type: SvSubType::Bnd,
+                info: InfoRecord {
+                    alt: Some(String::from("]17:198982]A")),
+                },
+                genotype: GenotypeCalls {
+                    entries: vec![
+                        GenotypeInfo {
+                            name: String::from("index"),
+                            gt: Some(String::from("0/1")),
+                            ft: Some(vec![String::from("PASS")]),
+                            gq: Some(99),
+                            pec: Some(143),
+                            pev: Some(43),
+                            src: Some(143),
+                            srv: Some(43),
+                            amq: Some(99),
+                            cn: Some(1),
+                            anc: Some(0.5),
+                            pc: Some(10),
+                        },
+                        GenotypeInfo {
+                            name: String::from("father"),
+                            gt: Some(String::from("0/1")),
+                            ft: Some(vec![String::from("PASS")]),
+                            gq: Some(99),
+                            pec: Some(143),
+                            pev: Some(43),
+                            src: Some(143),
+                            srv: Some(43),
+                            amq: Some(99),
+                            cn: Some(1),
+                            anc: Some(0.5),
+                            pc: Some(10),
+                        },
+                        GenotypeInfo {
+                            name: String::from("mother"),
+                            gt: Some(String::from("0/1")),
+                            ft: Some(vec![String::from("PASS")]),
+                            gq: Some(99),
+                            pec: Some(143),
+                            pev: Some(43),
+                            src: Some(143),
+                            srv: Some(43),
+                            amq: Some(99),
+                            cn: Some(1),
+                            anc: Some(0.5),
+                            pc: Some(10),
+                        },
+                    ],
+                },
+            },
+        ]
     }
 
     #[test]
@@ -2840,9 +2961,10 @@ mod test {
         let mut writer = vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
 
-        let varfish_record = example_record();
-        let vcf_record: VcfRecord = varfish_record.try_into()?;
-        writer.write_record(&vcf_record)?;
+        for varfish_record in example_records() {
+            let vcf_record: VcfRecord = varfish_record.try_into()?;
+            writer.write_record(&vcf_record)?;
+        }
 
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;
 
@@ -2863,9 +2985,10 @@ mod test {
             writer.set_assembly(Assembly::Grch37p10);
             writer.set_pedigree(&example_trio());
 
-            let varfish_record = example_record();
-            let vcf_record: VcfRecord = varfish_record.try_into()?;
-            writer.write_record(&vcf_record)?;
+            for varfish_record in example_records() {
+                let vcf_record: VcfRecord = varfish_record.try_into()?;
+                writer.write_record(&vcf_record)?;
+            }
         }
 
         let expected = std::fs::read_to_string("tests/data/annotate/strucvars/example-grch38.tsv")?;
