@@ -6,7 +6,6 @@ use std::path::Path;
 use std::str::FromStr;
 use std::{fs::File, io::BufWriter};
 
-use crate::annotate::seqvars::HgncRecord;
 use crate::common::GenomeRelease;
 use crate::ped::PedigreeByName;
 use clap::{Args as ClapArgs, Parser};
@@ -414,8 +413,6 @@ struct VarFishStrucvarTsvWriter {
     pedigree: Option<PedigreeByName>,
     /// VCF Header for equivalent output file.
     header: Option<VcfHeader>,
-    /// Mapping from HGNC id to record with gene symbol and gene identifiers.
-    hgnc_map: Option<FxHashMap<String, HgncRecord>>,
 }
 
 /// Per-genotype call information.
@@ -623,10 +620,6 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         todo!()
     }
 
-    fn set_hgnc_map(&mut self, hgnc_map: FxHashMap<String, HgncRecord>) {
-        self.hgnc_map = Some(hgnc_map)
-    }
-
     fn set_assembly(&mut self, assembly: Assembly) {
         self.assembly = Some(assembly)
     }
@@ -651,7 +644,6 @@ impl VarFishStrucvarTsvWriter {
             } else {
                 Box::new(File::create(p).unwrap())
             },
-            hgnc_map: None,
             assembly: None,
             pedigree: None,
             header: None,
@@ -2110,25 +2102,6 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             run_with_writer(&mut writer, args)?;
         }
     } else {
-        // Load the HGNC xlink map.
-        let hgnc_map = {
-            tracing::info!("Loading HGNC map ...");
-            let mut result = FxHashMap::default();
-
-            let tsv_file = File::open(&format!("{}/hgnc.tsv", &args.path_db,))?;
-            let mut tsv_reader = csv::ReaderBuilder::new()
-                .comment(Some(b'#'))
-                .delimiter(b'\t')
-                .from_reader(tsv_file);
-            for record in tsv_reader.deserialize() {
-                let record: HgncRecord = record?;
-                result.insert(record.hgnc_id.clone(), record);
-            }
-            tracing::info!("... done loading HGNC map");
-
-            result
-        };
-
         let path_output_tsv = args
             .output
             .path_output_tsv
@@ -2143,7 +2116,6 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         )?);
         tracing::info!("... done loading pedigree");
 
-        writer.set_hgnc_map(hgnc_map);
         run_with_writer(&mut writer, args)?;
     }
 
