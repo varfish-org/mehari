@@ -671,7 +671,7 @@ pub trait AnnotatedVcfWriter {
     fn set_hgnc_map(&mut self, _hgnc_map: FxHashMap<String, HgncRecord>) {
         // nop
     }
-    fn set_assembly(&mut self, _assembly: &Assembly) {
+    fn set_assembly(&mut self, _assembly: Assembly) {
         // nop
     }
     fn set_pedigree(&mut self, _pedigree: &PedigreeByName) {
@@ -1512,8 +1512,8 @@ impl AnnotatedVcfWriter for VarFishSeqvarTsvWriter {
         self.hgnc_map = Some(hgnc_map)
     }
 
-    fn set_assembly(&mut self, assembly: &Assembly) {
-        self.assembly = Some(*assembly)
+    fn set_assembly(&mut self, assembly: Assembly) {
+        self.assembly = Some(assembly)
     }
 
     fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
@@ -1534,7 +1534,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
         GenomeRelease::Grch38 => Assembly::Grch38,
     });
     let assembly = guess_assembly(&header_in, false, genome_release)?;
-    writer.set_assembly(&assembly);
+    writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
     // Open the frequency RocksDB database in read only mode.

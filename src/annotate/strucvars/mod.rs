@@ -627,8 +627,8 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         self.hgnc_map = Some(hgnc_map)
     }
 
-    fn set_assembly(&mut self, assembly: &Assembly) {
-        self.assembly = Some(*assembly)
+    fn set_assembly(&mut self, assembly: Assembly) {
+        self.assembly = Some(assembly)
     }
 
     fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
@@ -2269,9 +2269,12 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
-        annotate::strucvars::{
-            GenotypeCalls, GenotypeInfo, PeOrientation, SvCaller, SvSubType, SvType,
-            VarFishStrucvarTsvRecord,
+        annotate::{
+            seqvars::AnnotatedVcfWriter,
+            strucvars::{
+                GenotypeCalls, GenotypeInfo, PeOrientation, SvCaller, SvSubType, SvType,
+                VarFishStrucvarTsvRecord,
+            },
         },
         common::GenomeRelease,
         ped::{Disease, Individual, PedigreeByName, Sex},
@@ -2284,7 +2287,8 @@ mod test {
             DellyVcfRecordConverter, DragenCnvVcfRecordConverter, DragenSvVcfRecordConverter,
             GcnvVcfRecordConverter, MantaVcfRecordConverter, PopdelVcfRecordConverter,
         },
-        guess_sv_caller, vcf_header, VcfHeader, VcfRecord, VcfRecordConverter,
+        guess_sv_caller, vcf_header, VarFishStrucvarTsvWriter, VcfHeader, VcfRecord,
+        VcfRecordConverter,
     };
 
     /// Test for the parsing of breakend alleles.
@@ -2681,18 +2685,9 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn write_vcf_from_varfish_records() -> Result<(), anyhow::Error> {
-        let header = vcf_header::build(
-            Assembly::Grch38,
-            &Some(example_trio()),
-            &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
-        )?;
-
-        let mut writer = vcf::Writer::new(Vec::new());
-        writer.write_header(&header)?;
-
-        let varfish_record = VarFishStrucvarTsvRecord {
+    /// Example record for writing out.
+    fn example_record() -> VarFishStrucvarTsvRecord {
+        VarFishStrucvarTsvRecord {
             release: String::from("GRCh37"),
             chromosome: String::from("1"),
             chromosome_no: 1,
@@ -2759,14 +2754,50 @@ mod test {
                     },
                 ],
             },
-        };
+        }
+    }
 
+    #[test]
+    fn write_vcf_from_varfish_records() -> Result<(), anyhow::Error> {
+        let header = vcf_header::build(
+            Assembly::Grch38,
+            &Some(example_trio()),
+            &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
+        )?;
+
+        let mut writer = vcf::Writer::new(Vec::new());
+        writer.write_header(&header)?;
+
+        let varfish_record = example_record();
         let vcf_record: VcfRecord = varfish_record.try_into()?;
         writer.write_record(&vcf_record)?;
 
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;
 
         let expected = std::fs::read_to_string("tests/data/annotate/strucvars/example-grch38.vcf")?;
+
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn write_tsv_from_varfish_records() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+
+        // scope for writer
+        {
+            let mut writer = VarFishStrucvarTsvWriter::with_path(temp.join("out.tsv"));
+            writer.set_assembly(Assembly::Grch37p10);
+            writer.set_pedigree(&example_trio());
+
+            let varfish_record = example_record();
+            let vcf_record: VcfRecord = varfish_record.try_into()?;
+            writer.write_record(&vcf_record)?;
+        }
+
+        let expected = std::fs::read_to_string("tests/data/annotate/strucvars/example-grch38.tsv")?;
+        let actual = std::fs::read_to_string(temp.join("out.tsv"))?;
 
         assert_eq!(actual, expected);
 
