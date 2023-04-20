@@ -3,6 +3,7 @@
 use byte_unit::Byte;
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
+use hgvs::static_data::Assembly;
 
 /// Commonly used command line arguments.
 #[derive(Parser, Debug)]
@@ -34,6 +35,24 @@ impl GenomeRelease {
         match self {
             GenomeRelease::Grch37 => String::from("GRCh37"),
             GenomeRelease::Grch38 => String::from("GRCh38"),
+        }
+    }
+}
+
+impl Into<Assembly> for GenomeRelease {
+    fn into(self) -> Assembly {
+        match self {
+            GenomeRelease::Grch37 => Assembly::Grch37p10,
+            GenomeRelease::Grch38 => Assembly::Grch38,
+        }
+    }
+}
+
+impl From<Assembly> for GenomeRelease {
+    fn from(assembly: Assembly) -> Self {
+        match assembly {
+            Assembly::Grch37 | Assembly::Grch37p10 => GenomeRelease::Grch37,
+            Assembly::Grch38 => GenomeRelease::Grch38,
         }
     }
 }

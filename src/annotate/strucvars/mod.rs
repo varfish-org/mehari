@@ -1,13 +1,16 @@
 //! Annotation of structural variant VCF files.
 
 use std::collections::HashSet;
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::str::FromStr;
 use std::{fs::File, io::BufWriter};
 
 use crate::common::GenomeRelease;
+use crate::db::create::seqvar_freqs::reading::{guess_assembly, CANONICAL};
 use crate::ped::PedigreeByName;
+use chrono::Utc;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -25,6 +28,10 @@ use noodles::vcf::{
     record::genotypes::genotype::field::value::Value as GenotypeValue,
     record::info::field::value::Value as InfoValue, Writer as VcfWriter,
 };
+use noodles_util::variant::reader::Builder as VariantReaderBuilder;
+use rand::rngs::StdRng;
+use rand::RngCore;
+use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use strum::{Display, EnumIter, IntoEnumIterator};
@@ -35,7 +42,7 @@ use super::seqvars::binning::bin_from_range;
 use super::seqvars::{binning, AnnotatedVcfWriter, CHROM_TO_CHROM_NO};
 
 /// Command line arguments for `annotate strucvars` sub command.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(about = "Annotate structural variant VCF files", long_about = None)]
 pub struct Args {
     /// Path to the mehari database folder.
@@ -47,9 +54,9 @@ pub struct Args {
     pub genome_release: Option<GenomeRelease>,
     /// Path to the input PED file.
     #[arg(long)]
-    pub path_input_ped: Option<String>,
+    pub path_input_ped: String,
     /// Path to the input VCF files.
-    #[arg(long)]
+    #[arg(long, required = true)]
     pub path_input_vcf: Vec<String>,
     #[command(flatten)]
     pub output: PathOutput,
@@ -61,10 +68,14 @@ pub struct Args {
     /// "too many tables" error output, increase this value.
     #[arg(long, default_value_t = 5_000_000)]
     pub max_fb_tables: usize,
+
+    /// Seed for random number generator (UUIDs), if any.
+    #[arg(long)]
+    pub rng_seed: Option<u64>,
 }
 
 /// Command line arguments to enforce either `--path-output-vcf` or `--path-output-tsv`.
-#[derive(Debug, ClapArgs)]
+#[derive(Debug, ClapArgs, Clone)]
 #[group(required = true, multiple = false)]
 pub struct PathOutput {
     /// Path to the output VCF file.
@@ -72,7 +83,7 @@ pub struct PathOutput {
     pub path_output_vcf: Option<String>,
 
     /// Path to the output TSV file (for import into VarFish).
-    #[arg(long, requires = "path-input-ped")]
+    #[arg(long)]
     pub path_output_tsv: Option<String>,
 }
 
@@ -168,7 +179,7 @@ pub mod vcf_header {
     /// The constructed VCF header.
     pub fn build(
         assembly: Assembly,
-        pedigree: &Option<PedigreeByName>,
+        pedigree: &PedigreeByName,
         date: &NaiveDate,
     ) -> Result<Header, anyhow::Error> {
         let builder = add_meta_leading(Header::builder(), date)?;
@@ -398,60 +409,56 @@ pub mod vcf_header {
     /// Add the `PEDIGREE` and supporting `SAMPLE` and `META` lines; set sample names.
     fn add_meta_pedigree(
         builder: Builder,
-        pedigree: &Option<PedigreeByName>,
+        pedigree: &PedigreeByName,
     ) -> Result<Builder, anyhow::Error> {
         let pedigree_key =
             header::record::key::Key::other("PEDIGREE").expect("invalid other meta key");
         let sample_key = header::record::key::Key::other("SAMPLE").expect("invalid other meta key");
 
-        if let Some(pedigree) = pedigree.as_ref() {
-            let mut builder = add_meta_fields(builder);
+        let mut builder = add_meta_fields(builder);
 
-            // Wait for https://github.com/zaeleus/noodles/issues/162#issuecomment-1514444101
-            // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles::vcf::header::record::value::map::Other>::builder();
+        // Wait for https://github.com/zaeleus/noodles/issues/162#issuecomment-1514444101
+        // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles::vcf::header::record::value::map::Other>::builder();
 
-            for i in pedigree.individuals.values() {
-                builder = builder.add_sample_name(i.name.clone());
+        for i in pedigree.individuals.values() {
+            builder = builder.add_sample_name(i.name.clone());
 
-                // Add SAMPLE entry.
-                {
-                    let mut entries = vec![(String::from("ID"), i.name.clone())];
-                    entries.push((String::from("Sex"), sex_str(i.sex)));
-                    entries.push((String::from("Disease"), disease_str(i.disease)));
+            // Add SAMPLE entry.
+            {
+                let mut entries = vec![(String::from("ID"), i.name.clone())];
+                entries.push((String::from("Sex"), sex_str(i.sex)));
+                entries.push((String::from("Disease"), disease_str(i.disease)));
 
-                    builder = builder.insert(
-                        sample_key.clone(),
-                        header::record::value::Other::Map(
-                            i.name.clone(),
-                            Map::<Other>::try_from(entries)?,
-                        ),
-                    );
-                }
-
-                // Add PEDIGREE entry.
-                {
-                    let mut entries = vec![(String::from("ID"), i.name.clone())];
-                    if let Some(father) = i.father.as_ref() {
-                        entries.push((String::from("Father"), father.clone()));
-                    }
-                    if let Some(mother) = i.mother.as_ref() {
-                        entries.push((String::from("Mother"), mother.clone()));
-                    }
-
-                    builder = builder.insert(
-                        pedigree_key.clone(),
-                        header::record::value::Other::Map(
-                            i.name.clone(),
-                            Map::<Other>::try_from(entries)?,
-                        ),
-                    );
-                }
+                builder = builder.insert(
+                    sample_key.clone(),
+                    header::record::value::Other::Map(
+                        i.name.clone(),
+                        Map::<Other>::try_from(entries)?,
+                    ),
+                );
             }
 
-            Ok(builder)
-        } else {
-            Ok(builder)
+            // Add PEDIGREE entry.
+            {
+                let mut entries = vec![(String::from("ID"), i.name.clone())];
+                if let Some(father) = i.father.as_ref() {
+                    entries.push((String::from("Father"), father.clone()));
+                }
+                if let Some(mother) = i.mother.as_ref() {
+                    entries.push((String::from("Mother"), mother.clone()));
+                }
+
+                builder = builder.insert(
+                    pedigree_key.clone(),
+                    header::record::value::Other::Map(
+                        i.name.clone(),
+                        Map::<Other>::try_from(entries)?,
+                    ),
+                );
+            }
         }
+
+        Ok(builder)
     }
 
     // Define fields for the gonosomal karyotype, (sex for canonical), affected status
@@ -893,7 +900,7 @@ impl VarFishStrucvarTsvWriter {
         P: AsRef<Path>,
     {
         Self {
-            inner: if p.as_ref().extension().unwrap() == "gz" {
+            inner: if p.as_ref().extension().unwrap_or_default() == "gz" {
                 Box::new(GzEncoder::new(
                     File::create(p).unwrap(),
                     Compression::default(),
@@ -1334,7 +1341,7 @@ impl SvCaller {
             }
             SvCaller::Gcnv { .. } => {
                 self.all_format_defined(header, &["QA", "QS", "QSE", "QSS"])
-                    && self.all_info_defined(header, &["END", "CIPOS", "CIEND"])
+                    && self.all_info_defined(header, &["END", "AC_Orig", "AN_Orig"])
             }
             SvCaller::Popdel { .. } => {
                 self.all_format_defined(header, &["LAD", "DAD", "FL"])
@@ -1437,10 +1444,13 @@ impl SvCaller {
     /// Whether all FORMAT fields are defined.
     fn all_format_defined(&self, header: &VcfHeader, names: &[&str]) -> bool {
         let mut missing = names.iter().map(|s| s.to_string()).collect::<HashSet<_>>();
+        println!("missing = {:?}", missing);
 
         for (key, _) in header.formats() {
             missing.remove(key.as_ref());
+            println!("FORMAT key = {:?}, missing = {:?}", key.as_ref(), missing);
         }
+        println!("\n\n");
 
         missing.is_empty()
     }
@@ -1448,10 +1458,13 @@ impl SvCaller {
     /// Whether all INFO fields are defined.
     fn all_info_defined(&self, header: &VcfHeader, names: &[&str]) -> bool {
         let mut missing = names.iter().map(|s| s.to_string()).collect::<HashSet<_>>();
+        println!("INFO missing = {:?}", missing);
 
         for (key, _) in header.infos() {
             missing.remove(key.as_ref());
+            println!("key = {:?}, missing = {:?}", key.as_ref(), missing);
         }
+        println!("\n\n");
 
         missing.is_empty()
     }
@@ -2260,22 +2273,92 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
 /// Convert the records in the VCF path `path_input` to the JSONL file per contig in `tmp_dir`.
 ///
 /// Note that we will consider the "25 canonical" contigs only (chr1..chr22, chrX, chrY, chrM).
-fn run_vcf_to_jsonl(path_input: &str, tmp_dir: &TempDir) -> Result<(), anyhow::Error> {
-    todo!();
+fn run_vcf_to_jsonl(
+    path_input: &str,
+    tmp_dir: &TempDir,
+    rng: &mut StdRng,
+) -> Result<(), anyhow::Error> {
+    tracing::debug!("opening temporary files in {}", tmp_dir.path().display());
+    let mut tmp_files = {
+        let mut files = Vec::new();
+
+        for i in 1..=25 {
+            let path = tmp_dir.path().join(format!("chrom-{}.jsonl", i));
+            tracing::debug!("  path = {}", path.display());
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .expect("could not open temporary file");
+            files.push(file);
+        }
+
+        files
+    };
+
+    tracing::debug!("processing VCF file {}", path_input);
+    let sv_caller = guess_sv_caller(path_input)?;
+    tracing::debug!("guessed caller/version to be {:?}", &sv_caller);
+
+    let mut reader = vcf::reader::Builder::default().build_from_path(path_input)?;
+    let header: VcfHeader = reader.read_header()?.parse()?;
+
+    let samples = header
+        .sample_names()
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let converter = build_vcf_record_converter(&sv_caller, &samples);
+
+    let mapping = CHROM_TO_CHROM_NO.deref();
+    let mut uuid_buf = [0u8; 16];
+
+    let mut records = reader.records(&header);
+    loop {
+        if let Some(record) = records.next() {
+            rng.fill_bytes(&mut uuid_buf);
+            let uuid = Uuid::from_bytes(uuid_buf);
+
+            let record = converter.convert(&record?, uuid, GenomeRelease::Grch37)?;
+            if let Some(chromosome_no) = mapping.get(&record.chromosome) {
+                let out_jsonl = &mut tmp_files[*chromosome_no as usize - 1];
+                jsonl::write(out_jsonl, &record)?;
+            }
+        } else {
+            break; // all done
+        }
+    }
 
     Ok(())
 }
 
-/// Read through the JSONL file in `tmp_dir` for contig no. `i` and cluster the records.
-fn read_and_cluster(
+/// Read through the JSONL file in `tmp_dir` for contig no. `contig_no` and cluster the records.
+///
+/// # Arguments
+///
+/// * `tmp_dir`: The temporary directory containing the JSONL files.
+/// * `contig_no`: The contig number (1..25).
+/// * `input_file_count`: The number of input files.
+/// * `args`: The command line arguments.
+///
+/// # Returns
+///
+/// The clustered records for the contig.
+fn read_and_cluster_for_contig(
     tmp_dir: &TempDir,
-    i: i32,
+    contig_no: usize,
+    input_file_count: usize,
     args: &Args,
 ) -> Result<Vec<VarFishStrucvarTsvRecord>, anyhow::Error> {
     todo!()
 }
 
 /// Write the clusters to the VCF `writer`.
+///
+/// # Arguments
+///
+/// * `writer`: The VCF writer.
+/// * `clusters`: The clusters to write.
 fn write_for_contig(
     writer: &mut dyn AnnotatedVcfWriter,
     clusters: Vec<VarFishStrucvarTsvRecord>,
@@ -2284,25 +2367,53 @@ fn write_for_contig(
 }
 
 /// Run the annotation with the given `Write` within the `VcfWriter`.
-fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(), anyhow::Error> {
+///
+/// # Arguments
+///
+/// * `writer`: The VCF writer.
+/// * `args`: The command line arguments.
+fn run_with_writer(
+    writer: &mut dyn AnnotatedVcfWriter,
+    args: &Args,
+    pedigree: &PedigreeByName,
+) -> Result<(), anyhow::Error> {
+    let mut rng = if let Some(rng_seed) = args.rng_seed {
+        StdRng::seed_from_u64(rng_seed)
+    } else {
+        StdRng::from_entropy()
+    };
+
     // Create temporary directory.  We will create one temporary file (containing `jsonl`
     // seriealized `VarFishStrucvarTsvRecord`s) for each SV type and contig.
     let tmp_dir = TempDir::new("mehari")?;
 
     // Read through input VCF files and write out to temporary files.
-    for path_input in &args.path_input_vcf {
-        run_vcf_to_jsonl(path_input, &tmp_dir)?;
+    tracing::info!("Input VCF files to temporary files...");
+    for path_input in args.path_input_vcf.iter() {
+        run_vcf_to_jsonl(path_input, &tmp_dir, &mut rng)?;
     }
+    tracing::info!("... done converting input files.");
 
     // Generate output header and write to `writer`.
-    let header_out = vcf_header::build(todo!(), todo!(), todo!())?;
+    tracing::info!("Write output header...");
+    let header_out = vcf_header::build(
+        args.genome_release
+            .expect("genome release must be known here")
+            .into(),
+        pedigree,
+        &Utc::now().date_naive(),
+    )?;
     writer.write_header(&header_out)?;
 
+    tracing::info!("Clustering SVs to output...");
     // Read through temporary files by contig, cluster by overlap as configured, and write to `writer`.
-    for i in 1..=25 {
-        let clusters = read_and_cluster(&tmp_dir, i, args)?;
+    for contig_no in 1..=25 {
+        tracing::info!("  contig: {}", CANONICAL[contig_no - 1]);
+        let clusters =
+            read_and_cluster_for_contig(&tmp_dir, contig_no, args.path_input_vcf.len(), args)?;
         write_for_contig(writer, clusters)?;
     }
+    tracing::info!("... done clustering SVs to output");
 
     // tracing::info!("Open VCF and read header");
     // let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
@@ -2370,6 +2481,32 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
 /// Main entry point for `annotate strucvars` sub command.
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("config = {:#?}", &args);
+    // Load the pedigree.
+    tracing::info!("Loading pedigree...");
+    let pedigree = PedigreeByName::from_path(&args.path_input_ped)?;
+    tracing::info!("... done loading pedigree");
+
+    // Guess genome release from contigs in first VCF header.
+    let assembly = args.genome_release.map(|gr| match gr {
+        GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
+        GenomeRelease::Grch38 => Assembly::Grch38,
+    });
+    let assembly = {
+        let mut reader = VariantReaderBuilder::default().build_from_path(
+            &args
+                .path_input_vcf
+                .first()
+                .expect("must have at least input VCF"),
+        )?;
+        let header = reader.read_header()?;
+        guess_assembly(&header, false, assembly)?
+    };
+    tracing::info!("Determined input assembly to be {:?}", &assembly);
+    let args = Args {
+        genome_release: Some(assembly.into()),
+        ..args.clone()
+    };
+
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
         if path_output_vcf.ends_with(".vcf.gz") || path_output_vcf.ends_with(".vcf.bgzf") {
             let mut writer = VcfWriter::new(
@@ -2377,10 +2514,14 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
                     .map(BufWriter::new)
                     .map(BgzfWriter::new)?,
             );
-            run_with_writer(&mut writer, args)?;
+            writer.set_assembly(assembly);
+            writer.set_pedigree(&pedigree);
+            run_with_writer(&mut writer, &args, &pedigree)?;
         } else {
             let mut writer = VcfWriter::new(File::create(path_output_vcf).map(BufWriter::new)?);
-            run_with_writer(&mut writer, args)?;
+            writer.set_assembly(assembly);
+            writer.set_pedigree(&pedigree);
+            run_with_writer(&mut writer, &args, &pedigree)?;
         }
     } else {
         let path_output_tsv = args
@@ -2389,15 +2530,10 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             .as_ref()
             .expect("tsv path must be set; vcf and tsv are mutually exclusive, vcf unset");
         let mut writer = VarFishStrucvarTsvWriter::with_path(path_output_tsv);
+        writer.set_assembly(assembly);
+        writer.set_pedigree(&pedigree);
 
-        // Load the pedigree.
-        tracing::info!("Loading pedigree...");
-        writer.set_pedigree(&PedigreeByName::from_path(
-            args.path_input_ped.as_ref().unwrap(),
-        )?);
-        tracing::info!("... done loading pedigree");
-
-        run_with_writer(&mut writer, args)?;
+        run_with_writer(&mut writer, &args, &pedigree)?;
     }
 
     Ok(())
@@ -2698,7 +2834,7 @@ mod test {
         run_test_vcf_to_jsonl(
             path_input_vcf,
             "tests/data/annotate/strucvars/gcnv-min.out.jsonl",
-            &GcnvVcfRecordConverter::new("4.1.7.0", &samples),
+            &GcnvVcfRecordConverter::new("4.3.0.0", &samples),
         )
     }
 
@@ -2799,7 +2935,7 @@ mod test {
         assert_eq!(
             sv_caller,
             SvCaller::Gcnv {
-                version: String::from("4.1.7.0")
+                version: String::from("4.3.0.0")
             }
         );
 
@@ -2838,7 +2974,7 @@ mod test {
     fn build_vcf_header_37_no_pedigree() -> Result<(), anyhow::Error> {
         let header = vcf_header::build(
             Assembly::Grch37p10,
-            &None,
+            &Default::default(),
             &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
         )?;
 
@@ -2858,7 +2994,7 @@ mod test {
     fn build_vcf_header_37_trio() -> Result<(), anyhow::Error> {
         let header = vcf_header::build(
             Assembly::Grch37p10,
-            &Some(example_trio()),
+            &example_trio(),
             &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
         )?;
 
@@ -2921,7 +3057,7 @@ mod test {
     fn build_vcf_header_38_no_pedigree() -> Result<(), anyhow::Error> {
         let header = vcf_header::build(
             Assembly::Grch38,
-            &None,
+            &Default::default(),
             &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
         )?;
 
@@ -3095,7 +3231,7 @@ mod test {
     fn write_vcf_from_varfish_records() -> Result<(), anyhow::Error> {
         let header = vcf_header::build(
             Assembly::Grch38,
-            &Some(example_trio()),
+            &example_trio(),
             &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
         )?;
 
