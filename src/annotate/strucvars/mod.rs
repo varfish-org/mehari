@@ -2522,13 +2522,13 @@ fn read_and_cluster_for_contig(
                     match record.sv_type {
                         SvType::Ins | SvType::Bnd => {
                             tree.insert(
-                                ((record.start - 1) as i32)..(record.start as i32),
+                                (record.start - 1)..record.start,
                                 clusters.len(),
                             );
                         }
                         _ => {
                             tree.insert(
-                                ((record.start - 1) as i32)..(record.end as i32),
+                                (record.start - 1)..record.end,
                                 clusters.len(),
                             );
                         }
