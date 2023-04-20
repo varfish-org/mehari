@@ -2,7 +2,7 @@
 
 pub mod maelstrom;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::{BufReader, Write};
 use std::path::Path;
@@ -2395,6 +2395,7 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
 fn run_vcf_to_jsonl(
     path_input: &str,
     tmp_dir: &TempDir,
+    cov_readers: &mut HashMap<String, maelstrom::Reader>,
     rng: &mut StdRng,
 ) -> Result<(), anyhow::Error> {
     tracing::debug!("opening temporary files in {}", tmp_dir.path().display());
@@ -2436,7 +2437,8 @@ fn run_vcf_to_jsonl(
         rng.fill_bytes(&mut uuid_buf);
         let uuid = Uuid::from_bytes(uuid_buf);
 
-        let record = converter.convert(&record?, uuid, GenomeRelease::Grch37)?;
+        let mut record = converter.convert(&record?, uuid, GenomeRelease::Grch37)?;
+        annotate_cov_mq(&mut record, cov_readers)?;
         if let Some(chromosome_no) = mapping.get(&record.chromosome) {
             let out_jsonl = &mut tmp_files[*chromosome_no as usize - 1];
             jsonl::write(out_jsonl, &record)?;
@@ -2445,6 +2447,38 @@ fn run_vcf_to_jsonl(
                 "skipping record on chromosome {} (not in canonical set)",
                 record.chromosome
             );
+        }
+    }
+
+    Ok(())
+}
+
+/// Annotate `record` with coverage information from `cov_readers`.
+fn annotate_cov_mq(
+    record: &mut VarFishStrucvarTsvRecord,
+    cov_readers: &mut HashMap<String, maelstrom::Reader>,
+) -> Result<(), anyhow::Error> {
+    for entry in record.genotype.entries.iter_mut() {
+        if let Some(reader) = cov_readers.get_mut(&entry.name) {
+            // Only read for "linear" SVs (IOW: not for INS or BND).
+            if matches!(record.sv_type, SvType::Del | SvType::Dup | SvType::Inv) {
+                let res = reader
+                    .read(&record.chromosome, record.start..record.end)
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "problem querying {}:{}-{} for {}: {}",
+                            &record.chromosome,
+                            record.start,
+                            record.end,
+                            entry.name,
+                            e
+                        )
+                    })?;
+                entry.anc = Some(res.mean_coverage as f32);
+                entry.amq = Some(res.mean_mapq as i32);
+            }
+        } else {
+            tracing::warn!("no coverage information for sample {}", entry.name);
         }
     }
 
@@ -2574,11 +2608,23 @@ fn run_with_writer(
     args: &Args,
     pedigree: &PedigreeByName,
 ) -> Result<(), anyhow::Error> {
+    // Initialize the random number generator from command line seed if given or local entropy
+    // source.
     let mut rng = if let Some(rng_seed) = args.rng_seed {
         StdRng::seed_from_u64(rng_seed)
     } else {
         StdRng::from_entropy()
     };
+
+    // Load maelstrom coverage tracks if given.
+    tracing::info!("Opening coverage tracks...");
+    let mut cov_readers: HashMap<String, maelstrom::Reader> = HashMap::new();
+    for path_cov in &args.path_cov_vcf {
+        tracing::debug!("  path: {}", path_cov);
+        let reader = maelstrom::Reader::from_path(path_cov)?;
+        cov_readers.insert(reader.sample_name.clone(), reader);
+    }
+    tracing::info!("... done opening coverage tracks");
 
     // Create temporary directory.  We will create one temporary file (containing `jsonl`
     // seriealized `VarFishStrucvarTsvRecord`s) for each SV type and contig.
@@ -2587,7 +2633,7 @@ fn run_with_writer(
     // Read through input VCF files and write out to temporary files.
     tracing::info!("Input VCF files to temporary files...");
     for path_input in args.path_input_vcf.iter() {
-        run_vcf_to_jsonl(path_input, &tmp_dir, &mut rng)?;
+        run_vcf_to_jsonl(path_input, &tmp_dir, &mut cov_readers, &mut rng)?;
     }
     tracing::info!("... done converting input files.");
 
@@ -3411,5 +3457,10 @@ mod test {
         assert_eq!(actual, expected);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_with_maelstrom_reader() -> Result<(), anyhow::Error> {
+        todo!();
     }
 }

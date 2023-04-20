@@ -18,7 +18,7 @@ pub struct Reader {
     /// Path to the VCF file.
     pub path: PathBuf,
     /// Name of the single sample in the VCF file.
-    pub sample: String,
+    pub sample_name: String,
     /// The internal reader.
     pub reader: vcf::IndexedReader<std::fs::File>,
     /// The header from the VCF file.
@@ -57,7 +57,7 @@ impl Reader {
 
         Ok(Self {
             path,
-            sample,
+            sample_name: sample,
             reader,
             header,
         })
@@ -169,7 +169,7 @@ mod test {
     fn reader_from_path() -> Result<(), anyhow::Error> {
         let path = "tests/data/annotate/strucvars/maelstrom/example.SAMPLE.cov.vcf.gz";
         let reader = Reader::from_path(path)?;
-        assert_eq!(reader.sample, "SAMPLE");
+        assert_eq!(reader.sample_name, "SAMPLE");
         assert_eq!(format!("{}", reader.path.display()), path);
 
         Ok(())
