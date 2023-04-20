@@ -1,6 +1,7 @@
 //! Annotation of sequence variants.
 
 pub mod ann;
+pub mod binning;
 pub mod csq;
 pub mod provider;
 
@@ -91,7 +92,7 @@ pub struct Args {
     pub genome_release: Option<GenomeRelease>,
     /// Path to the input PED file.
     #[arg(long)]
-    pub path_input_ped: String,
+    pub path_input_ped: Option<String>,
     /// Path to the input VCF file.
     #[arg(long)]
     pub path_input_vcf: String,
@@ -116,7 +117,7 @@ pub struct PathOutput {
     pub path_output_vcf: Option<String>,
 
     /// Path to the output TSV file (for import into VarFish).
-    #[arg(long)]
+    #[arg(long, requires = "path-input-ped")]
     pub path_output_tsv: Option<String>,
 }
 
@@ -439,16 +440,17 @@ where
 }
 
 lazy_static::lazy_static! {
-    static ref CHROM_MT: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
-    static ref CHROM_XY: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
-    static ref CHROM_AUTO: HashSet<&'static str> = HashSet::from_iter([
+    pub static ref CHROM_MT: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
+    pub static ref CHROM_XY: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
+    pub static ref CHROM_AUTO: HashSet<&'static str> = HashSet::from_iter([
         "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18",
         "19", "20", "21", "22", "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9",
         "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20",
         "chr21", "chr22"
     ].into_iter());
 
-    static ref CHROM_TO_CHROM_NO: HashMap<String, u32> = {
+    /// Mapping from chromosome name to chromsome number.
+    pub static ref CHROM_TO_CHROM_NO: HashMap<String, u32> = {
         let mut m = HashMap::new();
 
         for i in 1..=22 {
@@ -457,14 +459,30 @@ lazy_static::lazy_static! {
         }
         m.insert(String::from("X"), 23);
         m.insert(String::from("chrX"), 23);
-        m.insert(String::from("Y"), 23);
-        m.insert(String::from("chrY"), 23);
-        m.insert(String::from("M"), 23);
-        m.insert(String::from("chrM"), 23);
-        m.insert(String::from("MT"), 24);
-        m.insert(String::from("chrMT"), 24);
+        m.insert(String::from("Y"), 24);
+        m.insert(String::from("chrY"), 24);
+        m.insert(String::from("M"), 25);
+        m.insert(String::from("chrM"), 25);
+        m.insert(String::from("MT"), 25);
+        m.insert(String::from("chrMT"), 25);
 
         m
+    };
+
+    /// Mapping from chromosome number to canonical chromosome name.
+    ///
+    /// We use the names without `"chr"` prefix for the canonical name.  In the case of GRCh38,
+    /// the the prefix must be prepended.
+    pub static ref CHROM_NO_TO_NAME: Vec<String> = {
+        let mut v = Vec::new();
+        v.push(String::from("")); // 0
+        for i in 1..=22 {
+            v.push(format!("{}", i));
+        }
+        v.push(String::from("X"));
+        v.push(String::from("Y"));
+        v.push(String::from("MT"));
+        v
     };
 }
 
@@ -653,7 +671,7 @@ pub trait AnnotatedVcfWriter {
     fn set_hgnc_map(&mut self, _hgnc_map: FxHashMap<String, HgncRecord>) {
         // nop
     }
-    fn set_assembly(&mut self, _assembly: &Assembly) {
+    fn set_assembly(&mut self, _assembly: Assembly) {
         // nop
     }
     fn set_pedigree(&mut self, _pedigree: &PedigreeByName) {
@@ -674,40 +692,13 @@ impl<Inner: Write> AnnotatedVcfWriter for VcfWriter<Inner> {
     }
 }
 
-/// Writing of VarFish TSV files.
-struct VarFishTsvWriter {
+/// Writing of sequence variants to VarFish TSV files.
+struct VarFishSeqvarTsvWriter {
     inner: Box<dyn Write>,
     assembly: Option<Assembly>,
     pedigree: Option<PedigreeByName>,
     header: Option<VcfHeader>,
     hgnc_map: Option<FxHashMap<String, HgncRecord>>,
-}
-
-// Offsets for UCSC binning.
-//
-// cf. http://genomewiki.ucsc.edu/index.php/Bin_indexing_system
-static BIN_OFFSETS: &[i32] = &[512 + 64 + 8 + 1, 64 + 8 + 1, 8 + 1, 1, 0];
-const BIN_FIRST_SHIFT: i32 = 17;
-const BIN_NEXT_SHIFT: i32 = 3;
-
-// Compute UCSC bin from 0-based half-open interval.
-pub fn bin_from_range(begin: i32, end: i32) -> Result<i32, anyhow::Error> {
-    let mut begin_bin = begin >> BIN_FIRST_SHIFT;
-    let mut end_bin = std::cmp::max(begin, end - 1) >> BIN_FIRST_SHIFT;
-
-    for offset in BIN_OFFSETS {
-        if begin_bin == end_bin {
-            return Ok(offset + begin_bin);
-        }
-        begin_bin >>= BIN_NEXT_SHIFT;
-        end_bin >>= BIN_NEXT_SHIFT;
-    }
-
-    anyhow::bail!(
-        "begin {}, end {} out of range in bin_from_range (max is 512M",
-        begin,
-        end
-    );
 }
 
 /// Entry with genotype (`gt`), coverage (`dp`), allele depth (`ad`) and
@@ -727,6 +718,9 @@ struct GenotypeCalls {
 }
 
 impl GenotypeCalls {
+    /// Generate and return the dict in Postgres JSON syntax.
+    ///
+    /// The returned string is suitable for a direct TSV import into Postgres.
     pub fn for_tsv(&self) -> String {
         let mut result = String::new();
         result.push('{');
@@ -778,7 +772,7 @@ impl GenotypeCalls {
     }
 }
 
-impl VarFishTsvWriter {
+impl VarFishSeqvarTsvWriter {
     // Create new TSV writer from path.
     pub fn with_path<P>(p: P) -> Self
     where
@@ -811,7 +805,7 @@ impl VarFishTsvWriter {
         &self,
         assembly: Assembly,
         record: &VcfRecord,
-        tsv_record: &mut VarFishTsvRecord,
+        tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<bool, anyhow::Error> {
         tsv_record.release = match assembly {
             Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
@@ -844,7 +838,8 @@ impl VarFishTsvWriter {
 
         tsv_record.start = record.position().into();
         tsv_record.end = tsv_record.start + tsv_record.reference.len() - 1;
-        tsv_record.bin = bin_from_range(tsv_record.start as i32 - 1, tsv_record.end as i32)? as u32;
+        tsv_record.bin =
+            binning::bin_from_range(tsv_record.start as i32 - 1, tsv_record.end as i32)? as u32;
 
         tsv_record.var_type = if tsv_record.reference.len() == tsv_record.alternative.len() {
             if tsv_record.reference.len() == 1 {
@@ -863,7 +858,7 @@ impl VarFishTsvWriter {
     fn fill_genotype_and_freqs(
         &self,
         record: &VcfRecord,
-        tsv_record: &mut VarFishTsvRecord,
+        tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
         // Extract genotype information.
         let hdr = self
@@ -1014,7 +1009,7 @@ impl VarFishTsvWriter {
     fn fill_bg_freqs(
         &self,
         record: &VcfRecord,
-        tsv_record: &mut VarFishTsvRecord,
+        tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
         // Extract gnomAD frequencies.
 
@@ -1117,7 +1112,7 @@ impl VarFishTsvWriter {
     fn expand_refseq_ensembl_and_write(
         &mut self,
         record: &VcfRecord,
-        tsv_record: &mut VarFishTsvRecord,
+        tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
         if let Some(anns) = record
             .info()
@@ -1240,7 +1235,7 @@ impl VarFishTsvWriter {
     fn fill_clinvar(
         &self,
         record: &VcfRecord,
-        tsv_record: &mut VarFishTsvRecord,
+        tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
         tsv_record.in_clinvar = record
             .info()
@@ -1261,7 +1256,7 @@ impl VarFishTsvWriter {
 
 /// A record, as written out to a VarFish TSV file.
 #[derive(Debug, Default)]
-pub struct VarFishTsvRecord {
+pub struct VarFishSeqvarTsvRecord {
     pub release: String,
     pub chromosome: String,
     pub chromosome_no: u32,
@@ -1323,7 +1318,7 @@ pub struct VarFishTsvRecord {
     pub ensembl_exon_dist: Option<i32>,
 }
 
-impl VarFishTsvRecord {
+impl VarFishSeqvarTsvRecord {
     /// Clear the `refseq_*` and `ensembl_*` fields.
     pub fn clear_refseq_ensembl(&mut self) {
         self.refseq_gene_id = None;
@@ -1438,7 +1433,7 @@ impl VarFishTsvRecord {
 }
 
 /// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
-impl AnnotatedVcfWriter for VarFishTsvWriter {
+impl AnnotatedVcfWriter for VarFishSeqvarTsvWriter {
     fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.header = Some(header.clone());
         let header = &[
@@ -1497,7 +1492,7 @@ impl AnnotatedVcfWriter for VarFishTsvWriter {
     }
 
     fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error> {
-        let mut tsv_record = VarFishTsvRecord::default();
+        let mut tsv_record = VarFishSeqvarTsvRecord::default();
 
         if !self.fill_coords(
             self.assembly.expect("assembly must have been set"),
@@ -1517,8 +1512,8 @@ impl AnnotatedVcfWriter for VarFishTsvWriter {
         self.hgnc_map = Some(hgnc_map)
     }
 
-    fn set_assembly(&mut self, assembly: &Assembly) {
-        self.assembly = Some(*assembly)
+    fn set_assembly(&mut self, assembly: Assembly) {
+        self.assembly = Some(assembly)
     }
 
     fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
@@ -1533,13 +1528,13 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     let header_in = reader.read_header()?;
     let header_out = build_header(&header_in);
 
-    // Guess genome release from paths.
+    // Guess genome release from contigs in VCF header.
     let genome_release = args.genome_release.map(|gr| match gr {
         GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
         GenomeRelease::Grch38 => Assembly::Grch38,
     });
     let assembly = guess_assembly(&header_in, false, genome_release)?;
-    writer.set_assembly(&assembly);
+    writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
     // Open the frequency RocksDB database in read only mode.
@@ -1580,11 +1575,6 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
 
     let cf_clinvar = db_clinvar.cf_handle("clinvar_seqvars").unwrap();
 
-    // Load the pedigree.
-    tracing::info!("Loading pedigree...");
-    writer.set_pedigree(&PedigreeByName::from_path(&args.path_input_ped)?);
-    tracing::info!("... done loading pedigree");
-
     // Open the serialized transcripts.
     tracing::info!("Opening transcript database");
     let tx_db = load_tx_db(
@@ -1600,7 +1590,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     let predictor = ConsequencePredictor::new(provider, assembly);
     tracing::info!("... done building transcript interval trees");
 
-    // Perform the VCf annotation.
+    // Perform the VCF annotation.
     tracing::info!("Annotating VCF ...");
     let start = Instant::now();
     let mut prev = Instant::now();
@@ -1658,6 +1648,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
                 reference,
                 alternative,
             })? {
+                tracing::trace!("xxx");
                 if !ann_fields.is_empty() {
                     vcf_record.info_mut().insert(
                         keys::ANN.clone(),
@@ -1667,6 +1658,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
                     );
                 }
             }
+            tracing::trace!("yyy");
 
             // Write out the record.
             writer.write_record(&vcf_record)?;
@@ -1707,6 +1699,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             run_with_writer(&mut writer, args)?;
         } else {
             let mut writer = VcfWriter::new(File::create(path_output_vcf).map(BufWriter::new)?);
+
             run_with_writer(&mut writer, args)?;
         }
     } else {
@@ -1734,7 +1727,14 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             .path_output_tsv
             .as_ref()
             .expect("tsv path must be set; vcf and tsv are mutually exclusive, vcf unset");
-        let mut writer = VarFishTsvWriter::with_path(path_output_tsv);
+        let mut writer = VarFishSeqvarTsvWriter::with_path(path_output_tsv);
+
+        // Load the pedigree.
+        tracing::info!("Loading pedigree...");
+        let pedigree = PedigreeByName::from_path(args.path_input_ped.as_ref().unwrap())?;
+        writer.set_pedigree(&pedigree);
+        tracing::info!("... done loading pedigree");
+
         writer.set_hgnc_map(hgnc_map);
         run_with_writer(&mut writer, args)?;
     }
@@ -1748,7 +1748,7 @@ mod test {
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
 
-    use crate::annotate::seqvars::bin_from_range;
+    use super::binning::bin_from_range;
 
     use super::{run, Args, PathOutput};
 
@@ -1772,9 +1772,9 @@ mod test {
             },
             max_var_count: None,
             max_fb_tables: 5_000_000,
-            path_input_ped: String::from(
+            path_input_ped: Some(String::from(
                 "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.ped",
-            ),
+            )),
         };
 
         run(&args_common, &args)?;
@@ -1808,9 +1808,9 @@ mod test {
             },
             max_var_count: None,
             max_fb_tables: 5_000_000,
-            path_input_ped: String::from(
+            path_input_ped: Some(String::from(
                 "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.ped",
-            ),
+            )),
         };
 
         run(&args_common, &args)?;

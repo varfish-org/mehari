@@ -185,6 +185,7 @@ struct Annotate {
 #[derive(Debug, Subcommand)]
 enum AnnotateCommands {
     Seqvars(annotate::seqvars::Args),
+    Strucvars(annotate::strucvars::Args),
 }
 
 /// Parsing of "verify *" sub commands.
@@ -239,6 +240,7 @@ fn main() -> Result<(), anyhow::Error> {
             },
             Commands::Annotate(annotate) => match &annotate.command {
                 AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args)?,
+                AnnotateCommands::Strucvars(args) => annotate::strucvars::run(&cli.common, args)?,
             },
             Commands::Verify(verify) => match &verify.command {
                 VerifyCommands::Seqvars(args) => verify::seqvars::run(&cli.common, args)?,
