@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{BufReader, Write};
 use std::path::Path;
 use std::str::FromStr;
 use std::{fs::File, io::BufWriter};
@@ -37,6 +37,8 @@ use std::ops::Deref;
 use strum::{Display, EnumIter, IntoEnumIterator};
 use tempdir::TempDir;
 use uuid::Uuid;
+
+use self::bnd::Breakend;
 
 use super::seqvars::binning::bin_from_range;
 use super::seqvars::{binning, AnnotatedVcfWriter, CHROM_TO_CHROM_NO};
@@ -1444,13 +1446,10 @@ impl SvCaller {
     /// Whether all FORMAT fields are defined.
     fn all_format_defined(&self, header: &VcfHeader, names: &[&str]) -> bool {
         let mut missing = names.iter().map(|s| s.to_string()).collect::<HashSet<_>>();
-        println!("missing = {:?}", missing);
 
         for (key, _) in header.formats() {
             missing.remove(key.as_ref());
-            println!("FORMAT key = {:?}, missing = {:?}", key.as_ref(), missing);
         }
-        println!("\n\n");
 
         missing.is_empty()
     }
@@ -1458,13 +1457,10 @@ impl SvCaller {
     /// Whether all INFO fields are defined.
     fn all_info_defined(&self, header: &VcfHeader, names: &[&str]) -> bool {
         let mut missing = names.iter().map(|s| s.to_string()).collect::<HashSet<_>>();
-        println!("INFO missing = {:?}", missing);
 
         for (key, _) in header.infos() {
             missing.remove(key.as_ref());
-            println!("key = {:?}, missing = {:?}", key.as_ref(), missing);
         }
-        println!("\n\n");
 
         missing.is_empty()
     }
@@ -1540,8 +1536,26 @@ pub trait VcfRecordConverter {
         self.fill_callers_uuid(uuid, &mut tsv_record)?;
         self.fill_genotypes(vcf_record, &mut tsv_record)?;
         self.fill_cis(vcf_record, &mut tsv_record)?;
+        self.fill_info(vcf_record, &mut tsv_record)?;
 
         Ok(tsv_record)
+    }
+
+    /// Fill the info field of `vcf_record` from `tsv_record`.
+    fn fill_info(
+        &self,
+        vcf_record: &VcfRecord,
+        tsv_record: &mut VarFishStrucvarTsvRecord,
+    ) -> Result<(), anyhow::Error> {
+        if let Some(alt) = vcf_record.alternate_bases().deref().first() {
+            let ref_allele = vcf_record.reference_bases().to_string();
+            let alt_allele = alt.to_string();
+            if Breakend::from_ref_alt_str(&ref_allele, &alt_allele).is_ok() {
+                tsv_record.info.alt = Some(alt_allele);
+            }
+        }
+
+        Ok(())
     }
 
     /// Fill the genotyeps field of `vcf_record` from `tsv_record`.
@@ -2323,6 +2337,11 @@ fn run_vcf_to_jsonl(
             if let Some(chromosome_no) = mapping.get(&record.chromosome) {
                 let out_jsonl = &mut tmp_files[*chromosome_no as usize - 1];
                 jsonl::write(out_jsonl, &record)?;
+            } else {
+                tracing::warn!(
+                    "skipping record on chromosome {} (not in canonical set)",
+                    record.chromosome
+                );
             }
         } else {
             break; // all done
@@ -2338,7 +2357,6 @@ fn run_vcf_to_jsonl(
 ///
 /// * `tmp_dir`: The temporary directory containing the JSONL files.
 /// * `contig_no`: The contig number (1..25).
-/// * `input_file_count`: The number of input files.
 /// * `args`: The command line arguments.
 ///
 /// # Returns
@@ -2347,23 +2365,30 @@ fn run_vcf_to_jsonl(
 fn read_and_cluster_for_contig(
     tmp_dir: &TempDir,
     contig_no: usize,
-    input_file_count: usize,
-    args: &Args,
+    _args: &Args,
 ) -> Result<Vec<VarFishStrucvarTsvRecord>, anyhow::Error> {
-    todo!()
-}
+    let jsonl_path = tmp_dir.path().join(format!("chrom-{}.jsonl", contig_no));
+    tracing::debug!("clustering files from {}", jsonl_path.display());
+    let mut reader = File::open(jsonl_path).map(|f| BufReader::new(f))?;
 
-/// Write the clusters to the VCF `writer`.
-///
-/// # Arguments
-///
-/// * `writer`: The VCF writer.
-/// * `clusters`: The clusters to write.
-fn write_for_contig(
-    writer: &mut dyn AnnotatedVcfWriter,
-    clusters: Vec<VarFishStrucvarTsvRecord>,
-) -> Result<(), anyhow::Error> {
-    todo!()
+    let mut result: Vec<VarFishStrucvarTsvRecord> = Vec::new();
+
+    // TODO: actually cluster
+
+    loop {
+        match jsonl::read(&mut reader) {
+            Ok(record) => result.push(record),
+            Err(jsonl::ReadError::Eof) => {
+                break; // all done
+            }
+            _ => anyhow::bail!("Problem reading JSONL file"),
+        }
+    }
+
+    // TODO: actually cluster!
+    result.sort_by(|a, b| a.start.cmp(&b.start));
+
+    Ok(result)
 }
 
 /// Run the annotation with the given `Write` within the `VcfWriter`.
@@ -2409,9 +2434,10 @@ fn run_with_writer(
     // Read through temporary files by contig, cluster by overlap as configured, and write to `writer`.
     for contig_no in 1..=25 {
         tracing::info!("  contig: {}", CANONICAL[contig_no - 1]);
-        let clusters =
-            read_and_cluster_for_contig(&tmp_dir, contig_no, args.path_input_vcf.len(), args)?;
-        write_for_contig(writer, clusters)?;
+        let clusters = read_and_cluster_for_contig(&tmp_dir, contig_no, args)?;
+        for record in clusters {
+            writer.write_record(&record.try_into()?)?;
+        }
     }
     tracing::info!("... done clustering SVs to output");
 
