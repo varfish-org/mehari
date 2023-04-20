@@ -592,7 +592,7 @@ impl GenotypeCalls {
                     result.push(',');
                 }
                 prev = true;
-                result.push_str(&format!("\"\"\"ft\"\"\":["));
+                result.push_str("\"\"\"ft\"\"\":[");
                 let mut first_ft = true;
                 for ft_entry in ft {
                     if first_ft {
@@ -860,7 +860,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
 
         writeln!(
             self.inner,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{{}}\t{}",
             &tsv_record.release,
             &tsv_record.chromosome,
             &tsv_record.chromosome_no,
@@ -881,7 +881,6 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             tsv_record.callers.join(";"),
             &tsv_record.sv_type,
             &tsv_record.sv_sub_type,
-            "{}",
             &tsv_record.genotype.for_tsv(),
         ).map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
     }
@@ -2327,24 +2326,19 @@ fn run_vcf_to_jsonl(
     let mapping = CHROM_TO_CHROM_NO.deref();
     let mut uuid_buf = [0u8; 16];
 
-    let mut records = reader.records(&header);
-    loop {
-        if let Some(record) = records.next() {
-            rng.fill_bytes(&mut uuid_buf);
-            let uuid = Uuid::from_bytes(uuid_buf);
+    for record in reader.records(&header) {
+        rng.fill_bytes(&mut uuid_buf);
+        let uuid = Uuid::from_bytes(uuid_buf);
 
-            let record = converter.convert(&record?, uuid, GenomeRelease::Grch37)?;
-            if let Some(chromosome_no) = mapping.get(&record.chromosome) {
-                let out_jsonl = &mut tmp_files[*chromosome_no as usize - 1];
-                jsonl::write(out_jsonl, &record)?;
-            } else {
-                tracing::warn!(
-                    "skipping record on chromosome {} (not in canonical set)",
-                    record.chromosome
-                );
-            }
+        let record = converter.convert(&record?, uuid, GenomeRelease::Grch37)?;
+        if let Some(chromosome_no) = mapping.get(&record.chromosome) {
+            let out_jsonl = &mut tmp_files[*chromosome_no as usize - 1];
+            jsonl::write(out_jsonl, &record)?;
         } else {
-            break; // all done
+            tracing::warn!(
+                "skipping record on chromosome {} (not in canonical set)",
+                record.chromosome
+            );
         }
     }
 
@@ -2369,7 +2363,7 @@ fn read_and_cluster_for_contig(
 ) -> Result<Vec<VarFishStrucvarTsvRecord>, anyhow::Error> {
     let jsonl_path = tmp_dir.path().join(format!("chrom-{}.jsonl", contig_no));
     tracing::debug!("clustering files from {}", jsonl_path.display());
-    let mut reader = File::open(jsonl_path).map(|f| BufReader::new(f))?;
+    let mut reader = File::open(jsonl_path).map(BufReader::new)?;
 
     let mut result: Vec<VarFishStrucvarTsvRecord> = Vec::new();
 
@@ -2519,8 +2513,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
     });
     let assembly = {
         let mut reader = VariantReaderBuilder::default().build_from_path(
-            &args
-                .path_input_vcf
+            args.path_input_vcf
                 .first()
                 .expect("must have at least input VCF"),
         )?;

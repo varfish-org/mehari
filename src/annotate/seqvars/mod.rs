@@ -1731,7 +1731,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
         // Load the pedigree.
         tracing::info!("Loading pedigree...");
-        let pedigree = PedigreeByName::from_path(&args.path_input_ped.as_ref().unwrap())?;
+        let pedigree = PedigreeByName::from_path(args.path_input_ped.as_ref().unwrap())?;
         writer.set_pedigree(&pedigree);
         tracing::info!("... done loading pedigree");
 
