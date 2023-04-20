@@ -2435,66 +2435,6 @@ fn run_with_writer(
     }
     tracing::info!("... done clustering SVs to output");
 
-    // tracing::info!("Open VCF and read header");
-    // let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
-    // let header_in = reader.read_header()?;
-    // let header_out = build_header(&header_in);
-
-    // // Guess genome release from contigs in VCF header.
-    // let genome_release = args.genome_release.map(|gr| match gr {
-    //     GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
-    //     GenomeRelease::Grch38 => Assembly::Grch38,
-    // });
-    // let assembly = guess_assembly(&header_in, false, genome_release)?;
-    // writer.set_assembly(&assembly);
-    // tracing::info!("Determined input assembly to be {:?}", &assembly);
-
-    // // Open the serialized transcripts.
-    // tracing::info!("Opening transcript database");
-    // let tx_db = load_tx_db(
-    //     &format!(
-    //         "{}/seqvars/{}/txs.bin",
-    //         &args.path_db,
-    //         path_component(assembly)
-    //     ),
-    //     args.max_fb_tables,
-    // )?;
-    // tracing::info!("Building transcript interval trees ...");
-    // let provider = Rc::new(MehariProvider::new(tx_db, assembly));
-    // tracing::info!("... done building transcript interval trees");
-
-    // // Perform the VCF annotation (mostly merging for SVs).
-    // tracing::info!("Annotating VCF ...");
-    // let start = Instant::now();
-    // let mut prev = Instant::now();
-    // let mut total_written = 0usize;
-
-    // writer.write_header(&header_out)?;
-    // let mut records = reader.records(&header_in);
-    // loop {
-    //     if let Some(rec,ord) = records.next() {
-    //         // TODO
-    //     } else {
-    //         break; // all done
-    //     }
-
-    //     total_written += 1;
-    //     if let Some(max_var_count) = args.max_var_count {
-    //         if total_written >= max_var_count {
-    //             tracing::warn!(
-    //                 "Stopping after {} records as requested by --max-var-count",
-    //                 total_written
-    //             );
-    //             break;
-    //         }
-    //     }
-    // }
-    // tracing::info!(
-    //     "... annotated {} records in {:?}",
-    //     total_written.separate_with_commas(),
-    //     start.elapsed()
-    // );
-
     Ok(())
 }
 
