@@ -578,10 +578,10 @@ impl GenotypeCalls {
                 result.push_str(&format!("\"\"\"gt\"\"\":\"\"\"{}\"\"\"", gt));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(ft) = &entry.ft {
+                if prev {
+                    result.push(',');
+                }
                 prev = true;
                 result.push_str(&format!("\"\"\"ft\"\"\":["));
                 let mut first_ft = true;
@@ -596,74 +596,74 @@ impl GenotypeCalls {
                 result.push(']');
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(gq) = &entry.gq {
+                if prev {
+                    result.push(',');
+                }
                 prev = true;
                 result.push_str(&format!("\"\"\"ad\"\"\":{}", gq));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(pec) = &entry.pec {
+                if prev {
+                    result.push(',');
+                }
                 prev = true;
                 result.push_str(&format!("\"\"\"pec\"\"\":{}", pec));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(pev) = &entry.pev {
+                if prev {
+                    result.push(',');
+                }
                 prev = true;
                 result.push_str(&format!("\"\"\"pev\"\"\":{}", pev));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(src) = &entry.src {
+                if prev {
+                    result.push(',');
+                }
                 prev = true;
                 result.push_str(&format!("\"\"\"src\"\"\":{}", src));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(srv) = &entry.srv {
+                if prev {
+                    result.push(',');
+                }
                 prev = true;
                 result.push_str(&format!("\"\"\"srv\"\"\":{}", srv));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(amq) = &entry.amq {
+                if prev {
+                    result.push(',');
+                }
                 prev = true;
                 result.push_str(&format!("\"\"\"amq\"\"\":{}", amq));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(cn) = &entry.cn {
+                if prev {
+                    result.push(',');
+                }
                 prev = true;
                 result.push_str(&format!("\"\"\"cn\"\"\":{}", cn));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(anc) = &entry.anc {
+                if prev {
+                    result.push(',');
+                }
                 prev = true;
                 result.push_str(&format!("\"\"\"anc\"\"\":{}", anc));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(pc) = &entry.pc {
+                if prev {
+                    result.push(',');
+                }
                 // prev = true;
                 result.push_str(&format!("\"\"\"pc\"\"\":{}", pc));
             }
@@ -798,11 +798,55 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             .expect("pedigree must have been set")
             .individuals;
         // First, create genotype info records.
+        let mut gt_it = record.genotypes().deref().iter();
         for (_, indiv) in individuals {
             tsv_record.genotype.entries.push(GenotypeInfo {
                 name: indiv.name.clone(),
                 ..Default::default()
-            })
+            });
+
+            let mut entry = tsv_record.genotype.entries.last_mut().expect("just pushed");
+            let gt = gt_it.next().expect("genotype iterator exhausted");
+
+            for (key, value) in gt.deref().iter() {
+                match (key.as_ref(), value) {
+                    ("GT", Some(GenotypeValue::String(gt))) => {
+                        entry.gt = Some(gt.clone());
+                    }
+                    ("FT", Some(GenotypeValue::String(ft))) => {
+                        entry.ft = Some(ft.split(';').map(|s| s.to_string()).collect());
+                    }
+                    ("GQ", Some(GenotypeValue::Integer(gq))) => {
+                        entry.gq = Some(*gq);
+                    }
+                    // pec
+                    ("pec", Some(GenotypeValue::Integer(pec))) => {
+                        entry.pec = Some(*pec);
+                    }
+                    // pev
+                    ("pev", Some(GenotypeValue::Integer(pev))) => {
+                        entry.pev = Some(*pev);
+                    }
+                    // src
+                    ("src", Some(GenotypeValue::Integer(src))) => {
+                        entry.src = Some(*src);
+                    }
+                    // amq
+                    ("CN", Some(GenotypeValue::Integer(cn))) => {
+                        entry.cn = Some(*cn);
+                    }
+                    // anc
+                    ("anc", Some(GenotypeValue::Float(anc))) => {
+                        entry.anc = Some(*anc);
+                    }
+                    // pc
+                    ("pc", Some(GenotypeValue::Integer(pc))) => {
+                        entry.pc = Some(*pc);
+                    }
+                    // Ignore all other keys.
+                    _ => (),
+                }
+            }
         }
 
         writeln!(
