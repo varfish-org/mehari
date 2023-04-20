@@ -10,6 +10,7 @@ use std::{fs::File, io::BufWriter};
 use crate::common::GenomeRelease;
 use crate::db::create::seqvar_freqs::reading::{guess_assembly, CANONICAL};
 use crate::ped::PedigreeByName;
+use bio::data_structures::interval_tree::IntervalTree;
 use chrono::Utc;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
@@ -74,6 +75,15 @@ pub struct Args {
     /// Seed for random number generator (UUIDs), if any.
     #[arg(long)]
     pub rng_seed: Option<u64>,
+    /// Minimal reciprocal overlap to require.
+    #[arg(long, default_value_t = 0.8)]
+    pub min_overlap: f32,
+    /// Slack to use around break-ends.
+    #[arg(long, default_value_t = 50)]
+    pub slack_bnd: i32,
+    /// Slack to use around insertions.
+    #[arg(long, default_value_t = 50)]
+    pub slack_ins: i32,
 }
 
 /// Command line arguments to enforce either `--path-output-vcf` or `--path-output-tsv`.
@@ -1183,6 +1193,94 @@ pub struct VarFishStrucvarTsvRecord {
     pub info: InfoRecord,
     /// Genotype call information.
     pub genotype: GenotypeCalls,
+}
+
+impl VarFishStrucvarTsvRecord {
+    /// Compute reciprocal overlap between `self` and `other`.
+    pub fn overlap(&self, other: &Self) -> f32 {
+        let s1 = if self.start > 0 { self.start - 1 } else { 0 };
+        let e1 = self.end + 1;
+        let s2 = if other.start > 0 { other.start - 1 } else { 0 };
+        let e2 = other.end;
+
+        let ovl_s = std::cmp::max(s1, s2);
+        let ovl_e = std::cmp::min(e1, e2);
+        if ovl_e <= ovl_s {
+            0.0
+        } else {
+            let len1 = (e1 - s1) as f32;
+            let len2 = (e2 - s2) as f32;
+            let ovl_len = (ovl_e - ovl_s) as f32;
+            (ovl_len / len1).min(ovl_len / len2)
+        }
+    }
+
+    /// Merge the other record into this one.
+    ///
+    /// Currently, the first record's properties are kept except for the `genotype` field.
+    /// Here, we take the values with the hights variant count per category (only `gq`,
+    /// `pe{c,v}`, `sr{c,v}`).
+    ///
+    /// Of course, the list of callers is merged as well.
+    ///
+    /// # Args
+    ///
+    /// * `other` - The other record to merge into this one.
+    ///
+    /// # Preconditions
+    ///
+    /// Both records must have the same SV type and have an appropriate reciprocal overlap.
+    fn merge(&mut self, other: &VarFishStrucvarTsvRecord) {
+        assert_eq!(self.sv_type, other.sv_type);
+        assert_eq!(self.genotype.entries.len(), other.genotype.entries.len());
+
+        self.callers.extend_from_slice(&other.callers);
+        self.callers.sort();
+        self.callers.dedup();
+
+        for i in 0..self.genotype.entries.len() {
+            let mut lhs = self
+                .genotype
+                .entries
+                .get_mut(i)
+                .expect("vecs have same size");
+            let rhs = other.genotype.entries.get(i).expect("vecs have same size");
+
+            if let Some(lhs_gq) = lhs.gq {
+                if let Some(rhs_gq) = rhs.gq {
+                    if lhs_gq < rhs_gq {
+                        lhs.gq = rhs.gq;
+                    }
+                }
+            } else {
+                lhs.gq = rhs.gq;
+            }
+
+            if let (Some(_), Some(lhs_pev)) = (lhs.pec, lhs.pec) {
+                if let (Some(_), Some(rhs_pev)) = (rhs.pec, rhs.pec) {
+                    if lhs_pev < rhs_pev {
+                        lhs.pec = rhs.pec;
+                        lhs.pev = rhs.pev;
+                    }
+                }
+            } else {
+                lhs.pec = rhs.pec;
+                lhs.pev = rhs.pev;
+            }
+
+            if let (Some(_), Some(lhs_srv)) = (lhs.src, lhs.src) {
+                if let (Some(_), Some(rhs_srv)) = (rhs.src, rhs.src) {
+                    if lhs_srv < rhs_srv {
+                        lhs.src = rhs.src;
+                        lhs.srv = rhs.srv;
+                    }
+                }
+            } else {
+                lhs.src = rhs.src;
+                lhs.srv = rhs.srv;
+            }
+        }
+    }
 }
 
 /// Conversion to VCF record.
@@ -2359,19 +2457,87 @@ fn run_vcf_to_jsonl(
 fn read_and_cluster_for_contig(
     tmp_dir: &TempDir,
     contig_no: usize,
-    _args: &Args,
+    args: &Args,
 ) -> Result<Vec<VarFishStrucvarTsvRecord>, anyhow::Error> {
     let jsonl_path = tmp_dir.path().join(format!("chrom-{}.jsonl", contig_no));
     tracing::debug!("clustering files from {}", jsonl_path.display());
     let mut reader = File::open(jsonl_path).map(BufReader::new)?;
 
-    let mut result: Vec<VarFishStrucvarTsvRecord> = Vec::new();
+    // The records will be first written to `records`.  The index serves as the ID.
+    let mut records: Vec<VarFishStrucvarTsvRecord> = Vec::new();
+    // The clusters are build while reading.  The cluster ID is the index into `clusters`.
+    // Each cluster consists of the contained record IDs.
+    let mut clusters: Vec<Vec<usize>> = vec![];
+    // We use the dynamic inteval trees from bio-rust.
+    let mut tree: IntervalTree<i32, usize> = IntervalTree::new();
 
-    // TODO: actually cluster
-
+    // Read through the JSONL file, store records, and create clusters.
     loop {
-        match jsonl::read(&mut reader) {
-            Ok(record) => result.push(record),
+        match jsonl::read::<_, VarFishStrucvarTsvRecord>(&mut reader) {
+            Ok(record) => {
+                let slack = match record.sv_type {
+                    SvType::Ins => args.slack_ins,
+                    SvType::Bnd => args.slack_bnd,
+                    _ => 0,
+                };
+                let query = match record.sv_type {
+                    SvType::Ins | SvType::Bnd => {
+                        let query_start = std::cmp::max(1, record.start - 1 - slack);
+                        let query_end = record.start + slack;
+                        query_start..query_end
+                    }
+                    _ => {
+                        let query_start = std::cmp::max(1, record.start - 1 - slack);
+                        let query_end = record.end + slack;
+                        query_start..query_end
+                    }
+                };
+                let mut found_any_cluster = false;
+                for mut it_tree in tree.find_mut(&query) {
+                    let cluster_idx = *it_tree.data();
+                    let mut match_all_in_cluster = true;
+                    for it_cluster in &clusters[cluster_idx] {
+                        let record_id = it_cluster;
+                        let match_this_range = match record.sv_type {
+                            SvType::Bnd | SvType::Ins => true,
+                            _ => {
+                                let ovl = record.overlap(&records[*record_id]);
+                                assert!(ovl >= 0f32);
+                                ovl >= args.min_overlap
+                            }
+                        };
+                        let match_this_sv_type = record.sv_type == records[*record_id].sv_type;
+                        match_all_in_cluster =
+                            match_all_in_cluster && match_this_range && match_this_sv_type;
+                    }
+                    if match_all_in_cluster {
+                        // extend cluster
+                        clusters[cluster_idx].push(records.len());
+                        found_any_cluster = true;
+                        break;
+                    }
+                }
+                if !found_any_cluster {
+                    // create new cluster
+                    match record.sv_type {
+                        SvType::Ins | SvType::Bnd => {
+                            tree.insert(
+                                ((record.start - 1) as i32)..(record.start as i32),
+                                clusters.len(),
+                            );
+                        }
+                        _ => {
+                            tree.insert(
+                                ((record.start - 1) as i32)..(record.end as i32),
+                                clusters.len(),
+                            );
+                        }
+                    };
+                    clusters.push(vec![records.len()]);
+                }
+                // always register the record
+                records.push(record);
+            }
             Err(jsonl::ReadError::Eof) => {
                 break; // all done
             }
@@ -2379,7 +2545,17 @@ fn read_and_cluster_for_contig(
         }
     }
 
-    // TODO: actually cluster!
+    // Iterate over the clusters, merge into the first one found.
+    let mut result = Vec::new();
+    for cluster in &clusters {
+        let mut record = records[cluster[0]].clone();
+        for other_idx in cluster[1..].iter() {
+            record.merge(&records[*other_idx]);
+        }
+        result.push(record);
+    }
+
+    // Finally, sort records by start position and write out.
     result.sort_by(|a, b| a.start.cmp(&b.start));
 
     Ok(result)

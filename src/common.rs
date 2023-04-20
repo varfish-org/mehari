@@ -1,5 +1,7 @@
 //! Commonly used code.
 
+use std::ops::Range;
+
 use byte_unit::Byte;
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
@@ -54,5 +56,23 @@ impl From<Assembly> for GenomeRelease {
             Assembly::Grch37 | Assembly::Grch37p10 => GenomeRelease::Grch37,
             Assembly::Grch38 => GenomeRelease::Grch38,
         }
+    }
+}
+
+// Compute reciprocal overlap between two ranges.
+pub fn reciprocal_overlap(lhs: Range<i32>, rhs: Range<i32>) -> f32 {
+    let lhs_b = lhs.start;
+    let lhs_e = lhs.end;
+    let rhs_b = rhs.start;
+    let rhs_e = rhs.end;
+    let ovl_b = std::cmp::max(lhs_b, rhs_b);
+    let ovl_e = std::cmp::min(lhs_e, rhs_e);
+    if ovl_b >= ovl_e {
+        0f32
+    } else {
+        let ovl_len = (ovl_e - ovl_b) as f32;
+        let x1 = ovl_len / (lhs_e - lhs_b) as f32;
+        let x2 = ovl_len / (rhs_e - rhs_b) as f32;
+        x1.min(x2)
     }
 }
