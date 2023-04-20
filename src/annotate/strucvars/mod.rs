@@ -136,7 +136,7 @@ pub mod vcf_header {
     use chrono::NaiveDate;
     use hgvs::static_data::{Assembly, ASSEMBLY_INFOS};
     use noodles::vcf::header::record::key::Key as HeaderKey;
-    use noodles::vcf::header::record::value::map::{Contig, Filter, Format, Info, Meta};
+    use noodles::vcf::header::record::value::map::{Contig, Filter, Format, Info, Meta, Other};
     use noodles::vcf::header::record::value::Map;
     use noodles::vcf::header::{self, record, Number};
     use noodles::vcf::{
@@ -145,7 +145,7 @@ pub mod vcf_header {
     };
 
     use crate::db::create::seqvar_freqs::reading::CANONICAL;
-    use crate::ped::PedigreeByName;
+    use crate::ped::{Disease, PedigreeByName, Sex};
 
     /// Major VCF version to use.
     static FILE_FORMAT_MAJOR: u32 = 4;
@@ -202,11 +202,20 @@ pub mod vcf_header {
     fn add_meta_contigs(builder: Builder, assembly: Assembly) -> Result<Builder, anyhow::Error> {
         let mut builder = builder;
         let assembly_info = &ASSEMBLY_INFOS[assembly];
+        let assembly_name = match assembly {
+            Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
+            Assembly::Grch38 => String::from("GRCh38"),
+        };
 
         for sequence in &assembly_info.sequences {
             if CANONICAL.contains(&sequence.name.as_ref()) {
-                // TODO: add assembly & sequence.refseq_ac https://github.com/zaeleus/noodles/issues/162
-                let mut contig = Map::<Contig>::new();
+                let mut contig = Map::<Contig>::try_from(vec![
+                    (String::from("length"), format!("{}", sequence.length)),
+                    (String::from("assembly"), assembly_name.clone()),
+                    (String::from("accession"), sequence.refseq_ac.clone()),
+                ])?;
+
+                Map::<Contig>::new();
                 *contig.length_mut() = Some(sequence.length);
                 builder = builder.add_contig(sequence.name.parse()?, contig);
             }
@@ -225,13 +234,32 @@ pub mod vcf_header {
             },
         };
 
-        // TODO: add DEL/INS sub types
         let del_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Deletion));
         let del_alt = Map::<AlternativeAllele>::new("Deletion");
+        let del_me_id = Symbol::StructuralVariant(StructuralVariant::new(
+            Type::Deletion,
+            vec![String::from("ME")],
+        ));
+        let del_me_alt = Map::<AlternativeAllele>::new("Deletion of mobile element");
         let ins_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Insertion));
         let ins_alt = Map::<AlternativeAllele>::new("Insertion");
+        let ins_me_id = Symbol::StructuralVariant(StructuralVariant::new(
+            Type::Insertion,
+            vec![String::from("ME")],
+        ));
+        let ins_me_alt = Map::<AlternativeAllele>::new("Insertion of mobile element");
         let dup_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Duplication));
         let dup_alt = Map::<AlternativeAllele>::new("Duplication");
+        let dup_tnd_id = Symbol::StructuralVariant(StructuralVariant::new(
+            Type::Duplication,
+            vec![String::from("TANDEM")],
+        ));
+        let dup_tnd_alt = Map::<AlternativeAllele>::new("Tandem Duplication");
+        let dup_dsp_id = Symbol::StructuralVariant(StructuralVariant::new(
+            Type::Duplication,
+            vec![String::from("DISPERSED")],
+        ));
+        let dup_dsp_alt = Map::<AlternativeAllele>::new("Dispersed Duplication");
         let cnv_id = Symbol::StructuralVariant(StructuralVariant::from(Type::CopyNumberVariation));
         let cnv_alt = Map::<AlternativeAllele>::new("Copy number variation");
         let bnd_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Breakend));
@@ -239,8 +267,12 @@ pub mod vcf_header {
 
         Ok(builder
             .add_alternative_allele(del_id, del_alt)
+            .add_alternative_allele(del_me_id, del_me_alt)
             .add_alternative_allele(ins_id, ins_alt)
+            .add_alternative_allele(ins_me_id, ins_me_alt)
             .add_alternative_allele(dup_id, dup_alt)
+            .add_alternative_allele(dup_tnd_id, dup_tnd_alt)
+            .add_alternative_allele(dup_dsp_id, dup_dsp_alt)
             .add_alternative_allele(cnv_id, cnv_alt)
             .add_alternative_allele(bnd_id, bnd_alt))
     }
@@ -345,24 +377,75 @@ pub mod vcf_header {
             ))
     }
 
+    /// Helper that returns header string value for `sex`.
+    fn sex_str(sex: Sex) -> String {
+        match sex {
+            Sex::Male => String::from("Male"),
+            Sex::Female => String::from("Female"),
+            Sex::Unknown => String::from("Unknown"),
+        }
+    }
+
+    // Helper that returns header string value for `disease`.
+    fn disease_str(disease: Disease) -> String {
+        match disease {
+            Disease::Affected => String::from("Affected"),
+            Disease::Unaffected => String::from("Unaffected"),
+            Disease::Unknown => String::from("Unknown"),
+        }
+    }
+
     /// Add the `PEDIGREE` and supporting `SAMPLE` and `META` lines; set sample names.
     fn add_meta_pedigree(
         builder: Builder,
         pedigree: &Option<PedigreeByName>,
     ) -> Result<Builder, anyhow::Error> {
+        let pedigree_key =
+            header::record::key::Key::other("PEDIGREE").expect("invalid other meta key");
+        let sample_key = header::record::key::Key::other("SAMPLE").expect("invalid other meta key");
+
         if let Some(pedigree) = pedigree.as_ref() {
             let mut builder = add_meta_fields(builder);
+
             // Wait for https://github.com/zaeleus/noodles/issues/162#issuecomment-1514444101
             // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles::vcf::header::record::value::map::Other>::builder();
 
             for i in pedigree.individuals.values() {
                 builder = builder.add_sample_name(i.name.clone());
-                //     builder.insert(key, value)
-                //     let k = HeaderKey::from("SAMPLE");
 
-                //     let name = i.name;
-                //     let sex = i.sex;
-                //     let disease = i.disease;
+                // Add SAMPLE entry.
+                {
+                    let mut entries = vec![(String::from("ID"), i.name.clone())];
+                    entries.push((String::from("Sex"), sex_str(i.sex)));
+                    entries.push((String::from("Disease"), disease_str(i.disease)));
+
+                    builder = builder.insert(
+                        sample_key.clone(),
+                        header::record::value::Other::Map(
+                            i.name.clone(),
+                            Map::<Other>::try_from(entries)?,
+                        ),
+                    );
+                }
+
+                // Add PEDIGREE entry.
+                {
+                    let mut entries = vec![(String::from("ID"), i.name.clone())];
+                    if let Some(father) = i.father.as_ref() {
+                        entries.push((String::from("Father"), father.clone()));
+                    }
+                    if let Some(mother) = i.mother.as_ref() {
+                        entries.push((String::from("Mother"), mother.clone()));
+                    }
+
+                    builder = builder.insert(
+                        pedigree_key.clone(),
+                        header::record::value::Other::Map(
+                            i.name.clone(),
+                            Map::<Other>::try_from(entries)?,
+                        ),
+                    );
+                }
             }
 
             Ok(builder)
@@ -707,6 +790,20 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         } else {
             tsv_record.sv_type.into()
         };
+
+        // Fill `tsv_record.genotypes`.
+        let individuals = &self
+            .pedigree
+            .as_ref()
+            .expect("pedigree must have been set")
+            .individuals;
+        // First, create genotype info records.
+        for (_, indiv) in individuals {
+            tsv_record.genotype.entries.push(GenotypeInfo {
+                name: indiv.name.clone(),
+                ..Default::default()
+            })
+        }
 
         writeln!(
             self.inner,
