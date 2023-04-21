@@ -325,7 +325,7 @@ pub fn rocksdb_tuning(options: rocksdb::Options) -> rocksdb::Options {
     let mut options = options;
 
     // compress all files with Zstandard
-    options.set_compression_per_level(&[rocksdb::DBCompressionType::Zstd, rocksdb::DBCompressionType::Zstd, rocksdb::DBCompressionType::Zstd, rocksdb::DBCompressionType::Zstd, rocksdb::DBCompressionType::Zstd]);
+    options.set_compression_per_level(&[]);
     options.set_compression_type(rocksdb::DBCompressionType::Zstd);
     // We only want to set level to 2 but have to set the rest as well using the Rust interface.
     // The (default) values for the other levels were taken from the output of a RocksDB
