@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package mehari.db.create.txs.data;
+
+// Stores long array of sequences with an "index" of sequence names to their
+// index.
+//
+// The fields `aliases` and `aliases_idx` have the same length and `aliases_idx[i]`
+// stores the index into `seqs` for the sequence `aliases[i]`.  In other words.
+// `seqs[aliases_idx[i]]` stores the sequence for `aliases[i]`.
+message SequenceDb {
+    // The sequence aliases, cf. `aliases_idx`.
+    repeated string aliases = 1;
+    // The corresponding index in `seqs`, cf. `aliases`.
+    repeated uint32 aliases_idx = 2;
+    // The corresponding sequences.
+    repeated string seqs = 3;
+}
+
+// Mapping from gene to transcript ID.
+message GeneToTxId {
+    // Gene HGNC symbol; serves as gene identifier.
+    string gene_name = 1;
+    // Vector of all transcript IDs.
+    repeated string tx_ids = 2;
+}
+
+// Container for the transcript-related database.
+message TranscriptDb {
+    // Vector of all transcripts.
+    repeated Transcript transcripts = 1;
+    // Mapping from gene ID to vector of all transcript IDs.
+    repeated GeneToTxId gene_to_tx = 2;
+}
+
+// Enumeration for `Transcript::biotype`.
+enum TranscriptBiotype {
+    CODING = 0;
+    NON_CODING = 1;
+}
+
+// Bit values for the transcript tags.
+enum TranscriptTag{
+    BASIC = 0;
+    ENSEMBL_CANONICAL = 1;
+    MANE_SELECT = 2;
+    MANE_PLUS_CLINICAL = 3;
+    REF_SEQ_SELECT = 4;
+}
+
+// Store information about a transcript.
+message Transcript {
+    // Transcript accession with version, e.g., `"NM_007294.3"` or `"ENST00000461574.1"` for BRCA1.
+    string id = 1;
+    // HGNC symbol, e.g., `"BRCA1"`
+    string gene_name = 2;
+    // HGNC gene identifier, e.g., `"1100"` for BRCA1.
+    string gene_id = 3;
+    // Transcript biotype.
+    TranscriptBiotype biotype = 4;
+    // Transcript flags.
+    repeated TranscriptTag tags = 5;
+    // Identifier of the corresponding protein.
+    optional string protein = 6;
+    // CDS start codon.
+    optional int32 start_codon = 7;
+    // CDS stop codon.
+    optional int32 stop_codon = 8;
+    // Alignments on the different genome builds.
+    repeated GenomeAlignment genome_alignments = 9;
+}
+
+// Enumeration for the known genome builds.
+enum GenomeBuild{
+    GRCH37 = 0;
+    GRCH38 = 1;
+}
+
+// Enumeration for the two strands of the genome.
+enum Strand{
+    PLUS = 0;
+    MINUS = 1;
+}
+
+// Store information about a transcript aligning to a genome.
+message GenomeAlignment {
+    // The genome build identifier.
+    GenomeBuild genome_build = 1;
+    // Accession of the contig sequence.
+    string contig = 2;
+    // CDS end position, `-1` to indicate `None`.
+    optional int32 cds_start = 3;
+    // CDS end position, `-1` to indicate `None`.
+    optional int32 cds_end = 4;
+    // The strand.
+    Strand strand = 5;
+    // Exons of the alignment.
+    repeated ExonAlignment exons = 6;
+}
+
+// Store the alignment of one exon to the reference.
+message ExonAlignment {
+    // Start position on reference.
+    int32 alt_start_i = 1;
+    // End position on reference.
+    int32 alt_end_i = 2;
+    // Exon number.
+    int32 ord = 3;
+    // CDS start coordinate.
+    optional int32 alt_cds_start_i = 4;
+    // CDS end coordinate.
+    optional int32 alt_cds_end_i = 5;
+    // CIGAR string of alignment, empty indicates full matches.
+    string cigar = 6;
+}
+
+// Database of transcripts with sequences.
+message TxSeqDatabase {
+    // Store transcripts with their aliases.
+    TranscriptDb tx_db = 1;
+    // Store sequence with their aliases.
+    SequenceDb seq_db = 2;
+}

@@ -39,10 +39,6 @@ pub struct Args {
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
     pub max_var_count: Option<usize>,
-    /// Maximal number of flatbuffers tables, should not need tweaking.  However, if you see a
-    /// "too many tables" error output, increase this value.
-    #[arg(long, default_value_t = 5_000_000)]
-    pub max_fb_tables: usize,
 }
 
 /// Guess genome release from VEP TSV file.
@@ -123,14 +119,11 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     // Read the serialized transcripts.
     tracing::info!("Opening transcript database");
-    let tx_db = load_tx_db(
-        &format!(
-            "{}/seqvars/{}/txs.bin",
-            &args.path_db,
-            path_component(assembly)
-        ),
-        args.max_fb_tables,
-    )?;
+    let tx_db = load_tx_db(&format!(
+        "{}/seqvars/{}/txs.bin",
+        &args.path_db,
+        path_component(assembly)
+    ))?;
     tracing::info!("Building transcript interval trees ...");
     let provider = Rc::new(MehariProvider::new(tx_db, assembly));
     let predictor = ConsequencePredictor::new(provider, assembly);

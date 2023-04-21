@@ -5,9 +5,11 @@ pub mod binning;
 pub mod csq;
 pub mod provider;
 
+use anyhow::anyhow;
+use prost::Message;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Cursor, Read, Write};
 use std::ops::Deref;
 use std::path::Path;
 use std::rc::Rc;
@@ -15,12 +17,9 @@ use std::str::FromStr;
 use std::time::Instant;
 
 use clap::{Args as ClapArgs, Parser};
-use enumset::EnumSet;
-use flatbuffers::VerifierOptions;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use hgvs::static_data::Assembly;
-use memmap2::Mmap;
 use noodles::bgzf::Writer as BgzfWriter;
 use noodles::vcf::header::format::key::{
     CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH, READ_DEPTHS,
@@ -54,15 +53,8 @@ use crate::db::create::seqvar_freqs::serialized::{
     auto::Record as AutoRecord, mt::Record as MtRecord, xy::Record as XyRecord,
 };
 
-use crate::db::create::txs::data::{
-    ExonAlignment, GeneToTxId, GenomeAlignment, GenomeBuild, SequenceDb, Strand, Transcript,
-    TranscriptBiotype, TranscriptDb, TranscriptTag, TxSeqDatabase,
-};
+use crate::db::create::txs::data::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
-use crate::world_flatbuffers::mehari::{
-    GenomeBuild as FlatGenomeBuild, Strand as FlatStrand,
-    TranscriptBiotype as FlatTranscriptBiotype, TxSeqDatabase as FlatTxSeqDatabase,
-};
 
 use self::ann::{AnnField, Consequence, FeatureBiotype};
 
@@ -102,10 +94,6 @@ pub struct Args {
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
     pub max_var_count: Option<usize>,
-    /// Maximal number of flatbuffers tables, should not need tweaking.  However, if you see a
-    /// "too many tables" error output, increase this value.
-    #[arg(long, default_value_t = 5_000_000)]
-    pub max_fb_tables: usize,
 }
 
 /// Command line arguments to enforce either `--path-output-vcf` or `--path-output-tsv`.
@@ -494,174 +482,33 @@ pub fn path_component(assembly: Assembly) -> &'static str {
     }
 }
 
-/// Load flatbuffers transcripts.
-pub fn load_tx_db(tx_path: &str, max_fb_tables: usize) -> Result<TxSeqDatabase, anyhow::Error> {
-    let tx_file = File::open(tx_path)?;
-    let tx_mmap = unsafe { Mmap::map(&tx_file)? };
-    let fb_opts = VerifierOptions {
-        max_tables: max_fb_tables,
-        ..Default::default()
-    };
-    let fb_tx_db = flatbuffers::root_with_opts::<FlatTxSeqDatabase>(&fb_opts, &tx_mmap)?;
-
-    let transcripts = fb_tx_db
-        .tx_db()
-        .unwrap()
-        .transcripts()
-        .unwrap()
-        .into_iter()
-        .map(|rec| {
-            let mut tags = EnumSet::new();
-            let flat_tags = rec.biotype().0;
-            if flat_tags & 1 != 0 {
-                tags.insert(TranscriptTag::Basic);
-            }
-            if flat_tags & 2 != 0 {
-                tags.insert(TranscriptTag::EnsemblCanonical);
-            }
-            if flat_tags & 4 != 0 {
-                tags.insert(TranscriptTag::ManeSelect);
-            }
-            if flat_tags & 8 != 0 {
-                tags.insert(TranscriptTag::ManePlusClinical);
-            }
-            if flat_tags & 16 != 0 {
-                tags.insert(TranscriptTag::RefSeqSelect);
-            }
-
-            let genome_alignments = rec
-                .genome_alignments()
-                .unwrap()
-                .iter()
-                .map(|rec| {
-                    let exons = rec
-                        .exons()
-                        .unwrap()
-                        .iter()
-                        .map(|rec| ExonAlignment {
-                            alt_start_i: rec.alt_start_i(),
-                            alt_end_i: rec.alt_end_i(),
-                            ord: rec.ord(),
-                            alt_cds_start_i: if rec.alt_cds_start_i() >= 0 {
-                                Some(rec.alt_cds_start_i())
-                            } else {
-                                None
-                            },
-                            alt_cds_end_i: if rec.alt_cds_end_i() >= 0 {
-                                Some(rec.alt_cds_end_i())
-                            } else {
-                                None
-                            },
-                            cigar: rec.cigar().unwrap().to_string(),
-                        })
-                        .collect();
-
-                    GenomeAlignment {
-                        genome_build: match rec.genome_build() {
-                            FlatGenomeBuild::Grch37 => GenomeBuild::Grch37,
-                            FlatGenomeBuild::Grch38 => GenomeBuild::Grch38,
-                            _ => panic!("Invalid genome build: {:?}", rec.genome_build()),
-                        },
-                        contig: rec.contig().unwrap().to_string(),
-                        cds_start: if rec.cds_start() >= 0 {
-                            Some(rec.cds_start())
-                        } else {
-                            None
-                        },
-                        cds_end: if rec.cds_end() >= 0 {
-                            Some(rec.cds_end())
-                        } else {
-                            None
-                        },
-                        strand: match rec.strand() {
-                            FlatStrand::Plus => Strand::Plus,
-                            FlatStrand::Minus => Strand::Minus,
-                            _ => panic!("invalid strand: {:?}", rec.strand()),
-                        },
-                        exons,
-                    }
-                })
-                .collect();
-
-            Transcript {
-                id: rec.id().unwrap().to_string(),
-                gene_name: rec.gene_name().unwrap().to_string(),
-                gene_id: rec.gene_id().unwrap().to_string(),
-                biotype: match rec.biotype() {
-                    FlatTranscriptBiotype::Coding => TranscriptBiotype::Coding,
-                    FlatTranscriptBiotype::NonCoding => TranscriptBiotype::NonCoding,
-                    _ => panic!("Invalid biotype: {:?}", rec.biotype()),
-                },
-                tags,
-                protein: if rec.protein().is_none() || rec.protein().unwrap().is_empty() {
-                    None
-                } else {
-                    Some(rec.protein().unwrap().to_string())
-                },
-                start_codon: if rec.start_codon() >= 0 {
-                    Some(rec.start_codon())
-                } else {
-                    None
-                },
-                stop_codon: if rec.stop_codon() >= 0 {
-                    Some(rec.stop_codon())
-                } else {
-                    None
-                },
-                genome_alignments,
-            }
-        })
-        .collect();
-
-    let gene_to_tx = fb_tx_db
-        .tx_db()
-        .unwrap()
-        .gene_to_tx()
-        .unwrap()
-        .into_iter()
-        .map(|rec| GeneToTxId {
-            gene_name: rec.gene_name().unwrap().to_string(),
-            tx_ids: rec
-                .tx_ids()
-                .unwrap()
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect(),
-        })
-        .collect();
-
-    let tx_db = TranscriptDb {
-        transcripts,
-        gene_to_tx,
+/// Load protobuf transcripts.
+pub fn load_tx_db(tx_path: &str) -> Result<TxSeqDatabase, anyhow::Error> {
+    // Open file and if necessary, wrap in a decompressor.
+    let file = std::fs::File::open(tx_path)
+        .map_err(|e| anyhow!("failed to open file {}: {}", tx_path, e))?;
+    let mut reader: Box<dyn Read> = if tx_path.ends_with(".gz") {
+        Box::new(flate2::read::MultiGzDecoder::new(file))
+    } else if tx_path.ends_with(".zstd") {
+        Box::new(
+            zstd::Decoder::new(file)
+                .map_err(|e| anyhow!("failed to open zstd decoder for {}: {}", tx_path, e))?,
+        )
+    } else {
+        Box::new(file)
     };
 
-    let seq_db = SequenceDb {
-        aliases: fb_tx_db
-            .seq_db()
-            .unwrap()
-            .aliases()
-            .unwrap()
-            .into_iter()
-            .map(|alias| alias.to_string())
-            .collect(),
-        aliases_idx: fb_tx_db
-            .seq_db()
-            .unwrap()
-            .aliases_idx()
-            .unwrap()
-            .into_iter()
-            .collect(),
-        seqs: fb_tx_db
-            .seq_db()
-            .unwrap()
-            .seqs()
-            .unwrap()
-            .into_iter()
-            .map(|seq| seq.to_string())
-            .collect(),
-    };
+    // Now read the whole file into a byte buffer.
+    let metadata = std::fs::metadata(tx_path)
+        .map_err(|e| anyhow!("failed to get metadata for {}: {}", tx_path, e))?;
+    let mut buffer = vec![0; metadata.len() as usize];
+    reader
+        .read(&mut buffer)
+        .map_err(|e| anyhow!("failed to read file {}: {}", tx_path, e))?;
 
-    Ok(TxSeqDatabase { tx_db, seq_db })
+    // Deserialize the buffer with prost.
+    TxSeqDatabase::decode(&mut Cursor::new(buffer))
+        .map_err(|e| anyhow!("failed to decode protobuf file {}: {}", tx_path, e))
 }
 
 /// Mehari-local trait for writing out annotated VCF records as VCF or VarFish TSV.
@@ -1577,14 +1424,11 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
 
     // Open the serialized transcripts.
     tracing::info!("Opening transcript database");
-    let tx_db = load_tx_db(
-        &format!(
-            "{}/seqvars/{}/txs.bin",
-            &args.path_db,
-            path_component(assembly)
-        ),
-        args.max_fb_tables,
-    )?;
+    let tx_db = load_tx_db(&format!(
+        "{}/seqvars/{}/txs.bin",
+        &args.path_db,
+        path_component(assembly)
+    ))?;
     tracing::info!("Building transcript interval trees ...");
     let provider = Rc::new(MehariProvider::new(tx_db, assembly));
     let predictor = ConsequencePredictor::new(provider, assembly);
@@ -1771,7 +1615,6 @@ mod test {
                 path_output_tsv: None,
             },
             max_var_count: None,
-            max_fb_tables: 5_000_000,
             path_input_ped: Some(String::from(
                 "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.ped",
             )),
@@ -1807,7 +1650,6 @@ mod test {
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            max_fb_tables: 5_000_000,
             path_input_ped: Some(String::from(
                 "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.ped",
             )),

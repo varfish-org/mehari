@@ -139,7 +139,7 @@ This will be OK as there will be a more recent version available.
 
 ## Building Transcript Database
 
-You can build the transcript database flatbuffers binary using the following command:
+You can build the transcript database protocolbuffers binary using the following command:
 
 ```text
 $ mehari db create txs \
@@ -157,6 +157,8 @@ $ mehari db create txs \
 
 You will have to build the transcript database for each genome release that you want and manually specify the release to `--genome-release`.
 For GRCh38, simply use `--genome-release grch38`.
+
+You can enable compression by using the suffix `.gz` for gzip compression and `.zstd` for zstandard compression.
 
 # Building ClinVar Database
 

@@ -12,6 +12,6 @@ perf.*
 
 *.lock
 
-## Flatbuffers
+## Protocolbuffers library
 
 utils/var
