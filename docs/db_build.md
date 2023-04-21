@@ -139,7 +139,7 @@ This will be OK as there will be a more recent version available.
 
 ## Building Transcript Database
 
-You can build the transcript database flatbuffers binary using the following command:
+You can build the transcript database protocolbuffers binary using the following command:
 
 ```text
 $ mehari db create txs \

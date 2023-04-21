@@ -97,17 +97,6 @@ pub mod db;
 pub mod ped;
 pub mod verify;
 
-#[allow(
-    non_snake_case,
-    unused_imports,
-    clippy::extra_unused_lifetimes,
-    clippy::missing_safety_doc,
-    clippy::derivable_impls,
-    clippy::size_of_in_element_count
-)]
-#[path = "../target/flatbuffers/world_generated.rs"]
-pub mod world_flatbuffers;
-
 use clap::{command, Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]

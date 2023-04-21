@@ -9,7 +9,7 @@ use std::{
 use bgzip::BGZFReader;
 use clap::Parser;
 use hgvs::static_data::Assembly;
-use rocksdb::{DBWithThreadMode, SingleThreaded, UniversalCompactOptions};
+use rocksdb::{DBWithThreadMode, SingleThreaded};
 use serde::{Deserialize, Serialize};
 use thousands::Separable;
 

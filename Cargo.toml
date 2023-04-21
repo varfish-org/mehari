@@ -27,7 +27,6 @@ byte-unit = "4.0.18"
 clap = { version = "4.1.8", features = ["derive"] }
 clap-verbosity-flag = "2.0.0"
 csv = "1.2.0"
-flatbuffers = "23.1.21"
 flate2 = "1.0.25"
 hgvs = "0.6.2"
 lazy_static = "1.4.0"
@@ -60,9 +59,11 @@ jsonl = "4.0.1"
 chrono = "0.4.24"
 rand_core = "0.6.4"
 rand = "0.8.5"
+prost = "0.11.9"
+zstd = "0.12.3"
 
 [build-dependencies]
-flatc-rust = "0.2.0"
+prost-build = "0.11.9"
 
 [dev-dependencies]
 csv = "1.2.0"

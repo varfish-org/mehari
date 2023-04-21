@@ -19,6 +19,6 @@ See the data structures in [`crate::db::create::seqvar_freqs::serialized`] for t
 
 ## Transcript Databases
 
-* Transcript databases are stored as [Flatbuffers](https://github.com/google/flatbuffers).
+* Transcript databases are stored as [ProtocolBuffers](https://protobuf.dev/).
 * Array-backed interval trees from [rust-bio](https://github.com/rust-bio/rust-bio) are used for fast lookup from chromosomal coordinate to transcript.
 * Transcripts are taken from [cdot](https://github.com/SACGF/cdot).

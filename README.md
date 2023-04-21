@@ -173,9 +173,9 @@ cargo run --release -- \
 
 ## Development Setup
 
-You will need a recent version of flatbuffers, e.g.:
+You will need a recent version of protoc, e.g.:
 
 ```
-# bash utils/install-flatbuffers.sh
-# export PATH=$PATH:$HOME/.local/share/flatbuffers/bin
+# bash utils/install-protoc.sh
+# export PATH=$PATH:$HOME/.local/share/protoc/bin
 ```

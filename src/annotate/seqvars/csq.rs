@@ -138,7 +138,10 @@ impl ConsequencePredictor {
 
         // Skip transcripts that are protein coding but do not have a CDS.
         // TODO: do not include such transcripts when building the database.
-        if tx.biotype == TranscriptBiotype::Coding && tx.start_codon.is_none() {
+        if TranscriptBiotype::from_i32(tx.biotype).expect("invalid tx biotype")
+            == TranscriptBiotype::Coding
+            && tx.start_codon.is_none()
+        {
             return Ok(None);
         }
 
@@ -213,16 +216,26 @@ impl ConsequencePredictor {
             if var_start <= exon_start && var_end >= exon_end {
                 consequences.push(Consequence::ExonLossVariant);
                 if var_start < exon_start {
-                    if alignment.strand == Strand::Plus && rank.ord != 1 {
+                    if Strand::from_i32(alignment.strand).expect("invalid strand") == Strand::Plus
+                        && rank.ord != 1
+                    {
                         consequences.push(Consequence::SpliceAcceptorVariant);
-                    } else if alignment.strand == Strand::Minus && rank.ord != rank.total {
+                    } else if Strand::from_i32(alignment.strand).expect("invalid strand")
+                        == Strand::Minus
+                        && rank.ord != rank.total
+                    {
                         consequences.push(Consequence::SpliceDonorVariant);
                     }
                 }
                 if var_end > exon_end {
-                    if alignment.strand == Strand::Plus && rank.ord != rank.total {
+                    if Strand::from_i32(alignment.strand).expect("invalid strand") == Strand::Plus
+                        && rank.ord != rank.total
+                    {
                         consequences.push(Consequence::SpliceDonorVariant);
-                    } else if alignment.strand == Strand::Minus && rank.ord != rank.total {
+                    } else if Strand::from_i32(alignment.strand).expect("invalid strand")
+                        == Strand::Minus
+                        && rank.ord != rank.total
+                    {
                         consequences.push(Consequence::SpliceAcceptorVariant);
                     }
                 }
@@ -236,7 +249,7 @@ impl ConsequencePredictor {
                 // Check the cases where the variant overlaps with the splice acceptor/donor site.
                 if var_start < intron_start + 2 && var_end > intron_start - ins_shift {
                     // Left side, is acceptor/donor depending on transcript's strand.
-                    match alignment.strand {
+                    match Strand::from_i32(alignment.strand).expect("invalid strand") {
                         Strand::Plus => consequences.push(Consequence::SpliceDonorVariant),
                         Strand::Minus => consequences.push(Consequence::SpliceAcceptorVariant),
                     }
@@ -244,7 +257,7 @@ impl ConsequencePredictor {
                 // Check the case where the variant overlaps with the splice donor site.
                 if var_start < intron_end + ins_shift && var_end > intron_end - 2 {
                     // Left side, is acceptor/donor depending on transcript's strand.
-                    match alignment.strand {
+                    match Strand::from_i32(alignment.strand).expect("invalid strand") {
                         Strand::Plus => consequences.push(Consequence::SpliceAcceptorVariant),
                         Strand::Minus => consequences.push(Consequence::SpliceDonorVariant),
                     }
@@ -260,7 +273,7 @@ impl ConsequencePredictor {
                     consequences.push(Consequence::SpliceRegionVariant);
                 }
                 if var_start < exon_end && var_end > exon_end - 3 {
-                    if alignment.strand == Strand::Plus {
+                    if Strand::from_i32(alignment.strand).expect("invalid strand") == Strand::Plus {
                         if rank.ord != rank.total {
                             consequences.push(Consequence::SpliceRegionVariant);
                         }
@@ -272,7 +285,7 @@ impl ConsequencePredictor {
                     }
                 }
                 if var_start < exon_start + 3 && var_end > exon_start {
-                    if alignment.strand == Strand::Plus {
+                    if Strand::from_i32(alignment.strand).expect("invalid strand") == Strand::Plus {
                         if rank.ord != 1 {
                             consequences.push(Consequence::SpliceRegionVariant);
                         }
@@ -294,10 +307,11 @@ impl ConsequencePredictor {
         let min_start = min_start.expect("must have seen exon");
         let max_end = max_end.expect("must have seen exon");
 
-        let feature_biotype = match tx.biotype {
-            TranscriptBiotype::Coding => FeatureBiotype::Coding,
-            TranscriptBiotype::NonCoding => FeatureBiotype::Noncoding,
-        };
+        let feature_biotype =
+            match TranscriptBiotype::from_i32(tx.biotype).expect("invalid transcript biotype") {
+                TranscriptBiotype::Coding => FeatureBiotype::Coding,
+                TranscriptBiotype::NonCoding => FeatureBiotype::Noncoding,
+            };
 
         let is_upstream = var_end <= min_start;
         let is_downstream = var_start >= max_end;
@@ -314,7 +328,7 @@ impl ConsequencePredictor {
         } else if is_upstream {
             let val = -(min_start - var_end);
             if val.abs() <= 5_000 {
-                match alignment.strand {
+                match Strand::from_i32(alignment.strand).expect("invalid strand") {
                     Strand::Plus => consequences.push(Consequence::UpstreamGeneVariant),
                     Strand::Minus => consequences.push(Consequence::DownstreamGeneVariant),
                 }
@@ -323,7 +337,7 @@ impl ConsequencePredictor {
         } else if is_downstream {
             let val = var_start - max_end;
             if val.abs() <= 5_000 {
-                match alignment.strand {
+                match Strand::from_i32(alignment.strand).expect("invalid strand") {
                     Strand::Plus => consequences.push(Consequence::DownstreamGeneVariant),
                     Strand::Minus => consequences.push(Consequence::UpstreamGeneVariant),
                 }
@@ -689,7 +703,7 @@ mod test {
     #[test]
     fn annotate_snv_brca1_one_variant() -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
-        let tx_db = load_tx_db(tx_path, 5_000_000)?;
+        let tx_db = load_tx_db(tx_path)?;
         let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
 
         let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
@@ -816,7 +830,7 @@ mod test {
 
     fn annotate_vars(path_tsv: &str, txs: &[String]) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
-        let tx_db = load_tx_db(tx_path, 5_000_000)?;
+        let tx_db = load_tx_db(tx_path)?;
         let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
         let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
 
