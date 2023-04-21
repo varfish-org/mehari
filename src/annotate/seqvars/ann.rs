@@ -322,19 +322,38 @@ impl std::fmt::Display for Pos {
 }
 
 impl Pos {
+    fn parse_number_neg(input: &str) -> IResult<&str, i32> {
+        map(tuple((tag("-"), digit1::<&str, _>)), |(sign, num)| {
+            let num = num.parse::<i32>().unwrap();
+            if sign == "-" {
+                -num
+            } else {
+                num
+            }
+        })(input)
+    }
+
+    fn parse_number_nosign(input: &str) -> IResult<&str, i32> {
+        map(digit1::<&str, _>, |num| num.parse::<i32>().unwrap())(input)
+    }
+
+    fn parse_number(input: &str) -> IResult<&str, i32> {
+        alt((Self::parse_number_neg, Self::parse_number_nosign))(input)
+    }
+
     fn parse_with_total(input: &str) -> IResult<&str, Self> {
         map(
-            tuple((digit1::<&str, _>, tag("/"), digit1)),
-            |(ord, _, total)| Pos {
-                ord: ord.parse::<i32>().unwrap(),
+            tuple((Self::parse_number, tag("/"), digit1)),
+            |(num, _, total)| Pos {
+                ord: num,
                 total: Some(total.parse::<i32>().unwrap()),
             },
         )(input)
     }
 
     fn parse_no_total(input: &str) -> IResult<&str, Self> {
-        map(digit1, |ord: &str| Pos {
-            ord: ord.parse::<i32>().unwrap(),
+        map(Self::parse_number, |num| Pos {
+            ord: num,
             total: None,
         })(input)
     }
