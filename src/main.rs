@@ -153,6 +153,7 @@ struct Db {
 #[derive(Debug, Subcommand)]
 enum DbCommands {
     Create(DbCreate),
+    Copy(db::copy::Args),
 }
 
 /// Parsing of "db create *" sub commands.
@@ -237,6 +238,7 @@ fn main() -> Result<(), anyhow::Error> {
                         db::create::seqvar_clinvar::run(&cli.common, args)?
                     }
                 },
+                DbCommands::Copy(args) => db::copy::run(&cli.common, args)?,
             },
             Commands::Annotate(annotate) => match &annotate.command {
                 AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args)?,

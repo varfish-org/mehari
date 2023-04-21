@@ -9,7 +9,7 @@ use std::{
 use bgzip::BGZFReader;
 use clap::Parser;
 use hgvs::static_data::Assembly;
-use rocksdb::{DBWithThreadMode, SingleThreaded};
+use rocksdb::{DBWithThreadMode, SingleThreaded, UniversalCompactOptions};
 use serde::{Deserialize, Serialize};
 use thousands::Separable;
 
@@ -321,7 +321,7 @@ fn import_clinvar_seqvars(
     Ok(())
 }
 
-fn rocksdb_tuning(options: rocksdb::Options) -> rocksdb::Options {
+pub fn rocksdb_tuning(options: rocksdb::Options) -> rocksdb::Options {
     let mut options = options;
 
     // compress all files with Zstandard
@@ -331,6 +331,7 @@ fn rocksdb_tuning(options: rocksdb::Options) -> rocksdb::Options {
     // The (default) values for the other levels were taken from the output of a RocksDB
     // output folder created with default settings.
     options.set_compression_options(-14, 2, 0, 0);
+    // options.set_zstd_max_train_bytes(100 * 1024);
 
     options
 }
