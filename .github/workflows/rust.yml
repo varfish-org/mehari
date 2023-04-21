@@ -49,12 +49,7 @@ jobs:
       - name: Install flatbuffers
         uses: ./.github/actions/install-flatbuffers
 
-      # - uses: Swatinem/rust-cache@v1.3.0
-      # Enable caching of the 'librocksdb-sys' crate by additionally caching the
-      # 'librocksdb-sys' src directory which is managed by cargo
-      - uses: bmwill/rust-cache@v1 # Fork of 'Swatinem/rust-cache' which allows caching additional paths
-        with:
-          path: ~/.cargo/registry/src/**/librocksdb-sys-*
+      - uses: Swatinem/rust-cache@v2
 
       - name: Lint with clippy
         uses: actions-rs/clippy-check@v1
@@ -103,12 +98,7 @@ jobs:
       - name: Install flatbuffers
         uses: ./.github/actions/install-flatbuffers
 
-      # - uses: Swatinem/rust-cache@v1.3.0
-      # Enable caching of the 'librocksdb-sys' crate by additionally caching the
-      # 'librocksdb-sys' src directory which is managed by cargo
-      - uses: bmwill/rust-cache@v1 # Fork of 'Swatinem/rust-cache' which allows caching additional paths
-        with:
-          path: ~/.cargo/registry/src/**/librocksdb-sys-*
+      - uses: Swatinem/rust-cache@v2
 
       - name: Run cargo-tarpaulin with fast tests
         uses: actions-rs/tarpaulin@v0.1
