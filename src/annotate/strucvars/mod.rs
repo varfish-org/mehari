@@ -2830,9 +2830,11 @@ pub mod bnd {
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use std::fs::File;
 
     use chrono::NaiveDate;
+    use clap_verbosity_flag::Verbosity;
     use hgvs::static_data::Assembly;
     use linked_hash_map::LinkedHashMap;
     use noodles::vcf;
@@ -2859,8 +2861,8 @@ mod test {
             DellyVcfRecordConverter, DragenCnvVcfRecordConverter, DragenSvVcfRecordConverter,
             GcnvVcfRecordConverter, MantaVcfRecordConverter, PopdelVcfRecordConverter,
         },
-        guess_sv_caller, vcf_header, VarFishStrucvarTsvWriter, VcfHeader, VcfRecord,
-        VcfRecordConverter,
+        guess_sv_caller, run, vcf_header, Args, PathOutput, VarFishStrucvarTsvWriter, VcfHeader,
+        VcfRecord, VcfRecordConverter,
     };
 
     /// Test for the parsing of breakend alleles.
@@ -3459,8 +3461,58 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn test_with_maelstrom_reader() -> Result<(), anyhow::Error> {
-        todo!();
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    fn test_with_maelstrom_reader(#[case] is_tsv: bool) -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+
+        let suffix = if is_tsv { ".tsv" } else { ".vcf" };
+        let out_path = temp.join(format!("out{}", suffix));
+
+        let args = Args {
+            path_db: String::from("tests/data/db/create"),
+            genome_release: Some(GenomeRelease::Grch37),
+            path_input_ped: String::from("tests/data/annotate/strucvars/maelstrom/delly2-min.ped"),
+            path_input_vcf: vec![String::from(
+                "tests/data/annotate/strucvars/maelstrom/delly2-min.vcf",
+            )],
+            output: if is_tsv {
+                PathOutput {
+                    path_output_vcf: None,
+                    path_output_tsv: Some(format!("{}", out_path.display())),
+                }
+            } else {
+                PathOutput {
+                    path_output_vcf: Some(format!("{}", out_path.display())),
+                    path_output_tsv: None,
+                }
+            },
+            max_var_count: None,
+            max_fb_tables: 5_000_000,
+            path_cov_vcf: vec![String::from(
+                "tests/data/annotate/strucvars/maelstrom/example.SAMPLE.cov.vcf.gz",
+            )],
+            min_overlap: 0.8,
+            slack_bnd: 50,
+            slack_ins: 50,
+            rng_seed: Some(42),
+        };
+
+        run(&args_common, &args)?;
+
+        let expected = std::fs::read_to_string(format!(
+            "tests/data/annotate/strucvars/maelstrom/delly2-min-with-maelstrom{}",
+            suffix
+        ))?;
+        let actual = std::fs::read_to_string(out_path)?;
+
+        assert_eq!(actual, expected);
+
+        Ok(())
     }
 }
