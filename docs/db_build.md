@@ -158,6 +158,8 @@ $ mehari db create txs \
 You will have to build the transcript database for each genome release that you want and manually specify the release to `--genome-release`.
 For GRCh38, simply use `--genome-release grch38`.
 
+You can enable compression by using the suffix `.gz` for gzip compression and `.zstd` for zstandard compression.
+
 # Building ClinVar Database
 
 This assumes that you have converted a recent ClinVar XML file to TSV using [clinvar-tsv](https://github.com/bihealth/clinvar-tsv).

@@ -499,7 +499,7 @@ pub fn load_tx_db(tx_path: &str) -> Result<TxSeqDatabase, anyhow::Error> {
     };
 
     // Now read the whole file into a byte buffer.
-    let metadata = std::fs::metadata(&tx_path)
+    let metadata = std::fs::metadata(tx_path)
         .map_err(|e| anyhow!("failed to get metadata for {}: {}", tx_path, e))?;
     let mut buffer = vec![0; metadata.len() as usize];
     reader

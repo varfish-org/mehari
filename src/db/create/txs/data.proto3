@@ -45,7 +45,7 @@ enum TranscriptTag{
     ENSEMBL_CANONICAL = 1;
     MANE_SELECT = 2;
     MANE_PLUS_CLINICAL = 3;
-    REF_SEQ_SEQLECT = 4;
+    REF_SEQ_SELECT = 4;
 }
 
 // Store information about a transcript.

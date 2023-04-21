@@ -63,7 +63,14 @@ impl TxIntervalTrees {
             }
         });
 
-        for (tx_id, tx) in db.tx_db.expect("no tx_db?").transcripts.iter().enumerate() {
+        for (tx_id, tx) in db
+            .tx_db
+            .as_ref()
+            .expect("no tx_db?")
+            .transcripts
+            .iter()
+            .enumerate()
+        {
             for genome_alignment in &tx.genome_alignments {
                 let contig = &genome_alignment.contig;
                 if let Some(contig_idx) = contig_to_idx.get(contig) {
@@ -100,6 +107,7 @@ impl MehariProvider {
         let tx_map = HashMap::from_iter(
             tx_seq_db
                 .tx_db
+                .as_ref()
                 .expect("no tx_db?")
                 .transcripts
                 .iter()
@@ -109,10 +117,18 @@ impl MehariProvider {
         let seq_map = HashMap::from_iter(
             tx_seq_db
                 .seq_db
+                .as_ref()
                 .expect("no seq_db?")
                 .aliases
                 .iter()
-                .zip(tx_seq_db.seq_db.expect("no seq_db?").aliases_idx.iter())
+                .zip(
+                    tx_seq_db
+                        .seq_db
+                        .as_ref()
+                        .expect("no seq_db?")
+                        .aliases_idx
+                        .iter(),
+                )
                 .map(|(alias, idx)| (alias.clone(), *idx)),
         );
 
@@ -125,9 +141,14 @@ impl MehariProvider {
     }
 
     pub fn get_tx(&self, tx_id: &str) -> Option<Transcript> {
-        self.tx_map
-            .get(tx_id)
-            .map(|idx| self.tx_seq_db.tx_db.expect("no tx_db?").transcripts[*idx as usize].clone())
+        self.tx_map.get(tx_id).map(|idx| {
+            self.tx_seq_db
+                .tx_db
+                .as_ref()
+                .expect("no tx_db?")
+                .transcripts[*idx as usize]
+                .clone()
+        })
     }
 }
 
@@ -165,7 +186,12 @@ impl ProviderInterface for MehariProvider {
             .get(tx_ac)
             .ok_or(anyhow::anyhow!("Could not find transcript {}", tx_ac))?;
         let tx_idx = tx_idx as usize;
-        let tx = &self.tx_seq_db.tx_db.expect("no tx_db?").transcripts[tx_idx];
+        let tx = &self
+            .tx_seq_db
+            .tx_db
+            .as_ref()
+            .expect("no tx_db?")
+            .transcripts[tx_idx];
         Ok(tx.protein.clone())
     }
 
@@ -181,7 +207,7 @@ impl ProviderInterface for MehariProvider {
             .ok_or(anyhow::anyhow!("Sequence for {:?} not found", ac))?;
         let seq_idx = seq_idx as usize;
 
-        let seq = &self.tx_seq_db.seq_db.expect("no seq_db?").seqs[seq_idx];
+        let seq = &self.tx_seq_db.seq_db.as_ref().expect("no seq_db?").seqs[seq_idx];
         match (begin, end) {
             (Some(begin), Some(end)) => {
                 let begin = std::cmp::min(begin, seq.len());
@@ -220,7 +246,12 @@ impl ProviderInterface for MehariProvider {
             .ok_or(anyhow::anyhow!("Could not find transcript {}", tx_ac))?;
         let tx_idx = tx_idx as usize;
 
-        let tx = &self.tx_seq_db.tx_db.expect("no tx_db?").transcripts[tx_idx];
+        let tx = &self
+            .tx_seq_db
+            .tx_db
+            .as_ref()
+            .expect("no tx_db?")
+            .transcripts[tx_idx];
         for genome_alignment in &tx.genome_alignments {
             if genome_alignment.contig == alt_ac {
                 return Ok(genome_alignment
@@ -231,7 +262,9 @@ impl ProviderInterface for MehariProvider {
                         tx_ac: tx_ac.to_string(),
                         alt_ac: alt_ac.to_string(),
                         alt_aln_method: ALT_ALN_METHOD.to_string(),
-                        alt_strand: match Strand::from_i32(genome_alignment.strand).expect("invalid strand") {
+                        alt_strand: match Strand::from_i32(genome_alignment.strand)
+                            .expect("invalid strand")
+                        {
                             Strand::Plus => 1,
                             Strand::Minus => -1,
                         },
@@ -282,8 +315,12 @@ impl ProviderInterface for MehariProvider {
         Ok(tx_idxs
             .iter()
             .map(|entry| {
-                let tx = &self.tx_seq_db.tx_db                .expect("no tx_db?")
-                .transcripts[*entry.data() as usize];
+                let tx = &self
+                    .tx_seq_db
+                    .tx_db
+                    .as_ref()
+                    .expect("no tx_db?")
+                    .transcripts[*entry.data() as usize];
                 assert_eq!(
                     tx.genome_alignments.len(),
                     1,
@@ -311,7 +348,12 @@ impl ProviderInterface for MehariProvider {
             .get(tx_ac)
             .ok_or(anyhow::anyhow!("Could not find transcript {}", tx_ac))?;
         let tx_idx = tx_idx as usize;
-        let tx = &self.tx_seq_db.tx_db.expect("no tx_db?").transcripts[tx_idx];
+        let tx = &self
+            .tx_seq_db
+            .tx_db
+            .as_ref()
+            .expect("no tx_db?")
+            .transcripts[tx_idx];
 
         let hgnc = tx.gene_name.clone();
 
@@ -355,7 +397,12 @@ impl ProviderInterface for MehariProvider {
             .get(tx_ac)
             .ok_or(anyhow::anyhow!("Could not find transcript {}", tx_ac))?;
         let tx_idx = tx_idx as usize;
-        let tx = &self.tx_seq_db.tx_db.expect("no tx_db?").transcripts[tx_idx];
+        let tx = &self
+            .tx_seq_db
+            .tx_db
+            .as_ref()
+            .expect("no tx_db?")
+            .transcripts[tx_idx];
 
         for genome_alignment in &tx.genome_alignments {
             if genome_alignment.contig == alt_ac {
@@ -387,7 +434,12 @@ impl ProviderInterface for MehariProvider {
             .ok_or(anyhow::anyhow!("Could not find transcript {}", tx_ac))?;
         let tx_idx = tx_idx as usize;
 
-        let tx = &self.tx_seq_db.tx_db.expect("no tx_db?").transcripts[tx_idx];
+        let tx = &self
+            .tx_seq_db
+            .tx_db
+            .as_ref()
+            .expect("no tx_db?")
+            .transcripts[tx_idx];
 
         let genome_alignment = tx.genome_alignments.first().unwrap();
         Ok(vec![TxMappingOptionsRecord {
