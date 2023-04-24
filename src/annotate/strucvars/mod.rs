@@ -3363,7 +3363,7 @@ mod test {
         let header = vcf_header::build(
             Assembly::Grch38,
             &example_trio(),
-            &NaiveDate::from_ymd_opt(2015, 3, 14).unwrap(),
+            "20150314",
         )?;
 
         let mut writer = vcf::Writer::new(Vec::new());
