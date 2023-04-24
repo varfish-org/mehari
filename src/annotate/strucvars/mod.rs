@@ -3360,11 +3360,7 @@ mod test {
 
     #[test]
     fn write_vcf_from_varfish_records() -> Result<(), anyhow::Error> {
-        let header = vcf_header::build(
-            Assembly::Grch38,
-            &example_trio(),
-            "20150314",
-        )?;
+        let header = vcf_header::build(Assembly::Grch38, &example_trio(), "20150314")?;
 
         let mut writer = vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
