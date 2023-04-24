@@ -1,19 +1,3 @@
-# Extract transcripts for BRCA1 from the GRCh37 reference genome
-
-cargo \
-    run \
-    --release \
-    -- \
-    db \
-    create \
-    txs \
-    --path-out \
-    tests/data/annotate/db/seqvars/grch37/txs.bin \
-    --path-cdot-json \
-    ../cdot-0.2.12.refseq.grch37_grch38.json \
-    --path-seqrepo-instance \
-    ../hgvs-rs-data/seqrepo-data/master/master \
-    --genome-release \
-    grch37 \
-    --gene-symbols BRCA1 \
-    --gene-symbols OPA1
+version https://git-lfs.github.com/spec/v1
+oid sha256:af7181233167d37c12e9dc9017512569d7138bb70ade4bdd54b07f4807c7d558
+size 446
