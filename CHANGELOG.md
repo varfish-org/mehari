@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0](https://github.com/bihealth/mehari/compare/v0.1.1...v0.2.0) (2023-04-24)
+
+
+### Features
+
+* allow annotation from maelstorm cov/mq BED files ([#51](https://github.com/bihealth/mehari/issues/51)) ([#55](https://github.com/bihealth/mehari/issues/55)) ([f3966ac](https://github.com/bihealth/mehari/commit/f3966acb9a7e0d81be2f6ece51422766bafcca09))
+* annotation of structural variants ([#46](https://github.com/bihealth/mehari/issues/46)) ([#52](https://github.com/bihealth/mehari/issues/52)) ([8da1d38](https://github.com/bihealth/mehari/commit/8da1d388e21d6214e0cbe96ac54f703d9a736638))
+* change database path setup ([#48](https://github.com/bihealth/mehari/issues/48)) ([#60](https://github.com/bihealth/mehari/issues/60)) ([b26671f](https://github.com/bihealth/mehari/commit/b26671fb5c1b7ede8f0ede58c97d778586b761a0))
+* implement command to copy rocksdb database ([#45](https://github.com/bihealth/mehari/issues/45)) ([#47](https://github.com/bihealth/mehari/issues/47)) ([3c8543f](https://github.com/bihealth/mehari/commit/3c8543fbae281e8f9ea41bbad1718608fc9f00a6))
+* switch from flatbuffers to protobuf ([#15](https://github.com/bihealth/mehari/issues/15)) ([#57](https://github.com/bihealth/mehari/issues/57)) ([3fe3322](https://github.com/bihealth/mehari/commit/3fe332246fc5730a31d8a355bc92ba106e956db8))
+
+
+### Bug Fixes
+
+* issue on negative CDS position ([#49](https://github.com/bihealth/mehari/issues/49)) ([#58](https://github.com/bihealth/mehari/issues/58)) ([9a63e30](https://github.com/bihealth/mehari/commit/9a63e3004e044c65c6552e3698b3a3daeeab3a6f))
+
 ## [0.1.1](https://github.com/bihealth/mehari/compare/v0.1.0...v0.1.1) (2023-04-06)
 
 
