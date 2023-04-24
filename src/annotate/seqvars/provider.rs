@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use hgvs::{
+    data::error::Error,
     data::{
         cdot::json::NCBI_ALN_METHOD,
         interface::{
@@ -173,18 +174,15 @@ impl ProviderInterface for MehariProvider {
         )
     }
 
-    fn get_gene_info(
-        &self,
-        _hgnc: &str,
-    ) -> Result<hgvs::data::interface::GeneInfoRecord, anyhow::Error> {
+    fn get_gene_info(&self, _hgnc: &str) -> Result<hgvs::data::interface::GeneInfoRecord, Error> {
         panic!("not implemented");
     }
 
-    fn get_pro_ac_for_tx_ac(&self, tx_ac: &str) -> Result<Option<String>, anyhow::Error> {
+    fn get_pro_ac_for_tx_ac(&self, tx_ac: &str) -> Result<Option<String>, Error> {
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
-            .ok_or(anyhow::anyhow!("Could not find transcript {}", tx_ac))?;
+            .ok_or(Error::NoTranscriptFound(tx_ac.to_string()))?;
         let tx_idx = tx_idx as usize;
         let tx = &self
             .tx_seq_db
@@ -200,11 +198,11 @@ impl ProviderInterface for MehariProvider {
         ac: &str,
         begin: Option<usize>,
         end: Option<usize>,
-    ) -> Result<String, anyhow::Error> {
+    ) -> Result<String, Error> {
         let seq_idx = *self
             .seq_map
             .get(ac)
-            .ok_or(anyhow::anyhow!("Sequence for {:?} not found", ac))?;
+            .ok_or(Error::NoSequenceRecord(ac.to_string()))?;
         let seq_idx = seq_idx as usize;
 
         let seq = &self.tx_seq_db.seq_db.as_ref().expect("no seq_db?").seqs[seq_idx];
@@ -223,14 +221,14 @@ impl ProviderInterface for MehariProvider {
         }
     }
 
-    fn get_acs_for_protein_seq(&self, seq: &str) -> Result<Vec<String>, anyhow::Error> {
+    fn get_acs_for_protein_seq(&self, seq: &str) -> Result<Vec<String>, Error> {
         Ok(vec![format!("MD5_{}", seq_md5(seq, true)?)])
     }
 
     fn get_similar_transcripts(
         &self,
         _tx_ac: &str,
-    ) -> Result<Vec<hgvs::data::interface::TxSimilarityRecord>, anyhow::Error> {
+    ) -> Result<Vec<hgvs::data::interface::TxSimilarityRecord>, Error> {
         panic!("not implemented");
     }
 
@@ -239,11 +237,11 @@ impl ProviderInterface for MehariProvider {
         tx_ac: &str,
         alt_ac: &str,
         _alt_aln_method: &str,
-    ) -> Result<Vec<TxExonsRecord>, anyhow::Error> {
+    ) -> Result<Vec<TxExonsRecord>, Error> {
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
-            .ok_or(anyhow::anyhow!("Could not find transcript {}", tx_ac))?;
+            .ok_or(Error::NoTranscriptFound(tx_ac.to_string()))?;
         let tx_idx = tx_idx as usize;
 
         let tx = &self
@@ -286,14 +284,13 @@ impl ProviderInterface for MehariProvider {
             }
         }
 
-        Err(anyhow::anyhow!(
-            "Found no alignment of {} on {}",
-            tx_ac,
-            alt_ac
+        Err(Error::NoAlignmentFound(
+            tx_ac.to_string(),
+            alt_ac.to_string(),
         ))
     }
 
-    fn get_tx_for_gene(&self, _gene: &str) -> Result<Vec<TxInfoRecord>, anyhow::Error> {
+    fn get_tx_for_gene(&self, _gene: &str) -> Result<Vec<TxInfoRecord>, Error> {
         panic!("not implemented");
     }
 
@@ -303,12 +300,12 @@ impl ProviderInterface for MehariProvider {
         _alt_aln_method: &str,
         start_i: i32,
         end_i: i32,
-    ) -> Result<Vec<TxForRegionRecord>, anyhow::Error> {
+    ) -> Result<Vec<TxForRegionRecord>, Error> {
         let contig_idx = *self
             .tx_trees
             .contig_to_idx
             .get(alt_ac)
-            .ok_or(anyhow::anyhow!("Could not find alt_ac={}", alt_ac))?;
+            .ok_or(Error::NoTranscriptFound(alt_ac.to_string()))?;
         let query = start_i..end_i;
         let tx_idxs = self.tx_trees.trees[contig_idx].find(query);
 
@@ -342,11 +339,11 @@ impl ProviderInterface for MehariProvider {
             .collect())
     }
 
-    fn get_tx_identity_info(&self, tx_ac: &str) -> Result<TxIdentityInfo, anyhow::Error> {
+    fn get_tx_identity_info(&self, tx_ac: &str) -> Result<TxIdentityInfo, Error> {
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
-            .ok_or(anyhow::anyhow!("Could not find transcript {}", tx_ac))?;
+            .ok_or(Error::NoTranscriptFound(tx_ac.to_string()))?;
         let tx_idx = tx_idx as usize;
         let tx = &self
             .tx_seq_db
@@ -391,11 +388,11 @@ impl ProviderInterface for MehariProvider {
         tx_ac: &str,
         alt_ac: &str,
         _alt_aln_method: &str,
-    ) -> Result<TxInfoRecord, anyhow::Error> {
+    ) -> Result<TxInfoRecord, Error> {
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
-            .ok_or(anyhow::anyhow!("Could not find transcript {}", tx_ac))?;
+            .ok_or(Error::NoTranscriptFound(tx_ac.to_string()))?;
         let tx_idx = tx_idx as usize;
         let tx = &self
             .tx_seq_db
@@ -417,21 +414,17 @@ impl ProviderInterface for MehariProvider {
             }
         }
 
-        Err(anyhow::anyhow!(
-            "Found no alignment of {} on {}",
-            tx_ac,
-            alt_ac
+        Err(Error::NoAlignmentFound(
+            tx_ac.to_string(),
+            alt_ac.to_string(),
         ))
     }
 
-    fn get_tx_mapping_options(
-        &self,
-        tx_ac: &str,
-    ) -> Result<Vec<TxMappingOptionsRecord>, anyhow::Error> {
+    fn get_tx_mapping_options(&self, tx_ac: &str) -> Result<Vec<TxMappingOptionsRecord>, Error> {
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
-            .ok_or(anyhow::anyhow!("Could not find transcript {}", tx_ac))?;
+            .ok_or(Error::NoTranscriptFound(tx_ac.to_string()))?;
         let tx_idx = tx_idx as usize;
 
         let tx = &self

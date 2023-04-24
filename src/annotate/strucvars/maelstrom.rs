@@ -4,7 +4,6 @@ use noodles::{
     core::{Position, Region},
     vcf,
 };
-use std::ops::Deref;
 use std::{
     ops::Range,
     path::{Path, PathBuf},
@@ -40,7 +39,6 @@ impl Reader {
         let path = p.as_ref().to_path_buf();
         let mut reader = vcf::indexed_reader::Builder::default().build_from_path(&path)?;
         let header = reader.read_header()?;
-        let header: vcf::header::Header = header.parse()?;
         let sample = if header.sample_names().len() == 1 {
             header
                 .sample_names()
@@ -117,21 +115,20 @@ impl Reader {
             let factor = covered / window_size;
             count += factor;
 
-            let genotype = record
+            let sample = record
                 .genotypes()
-                .deref()
-                .iter()
+                .values()
                 .next()
                 .expect("just checked for ==1 sample");
 
             // The simplest way to obtain the genotype keys is to iterate and call `as_ref()` on the
             // key.
-            for (key, value) in genotype.deref().iter() {
+            for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
                 match (key.as_ref(), value) {
-                    ("CV", Some(vcf::record::genotypes::genotype::field::Value::Float(cov))) => {
+                    ("CV", Some(vcf::record::genotypes::sample::Value::Float(cov))) => {
                         cov_sum += factor * (*cov) as f64;
                     }
-                    ("MQ", Some(vcf::record::genotypes::genotype::field::Value::Float(mq))) => {
+                    ("MQ", Some(vcf::record::genotypes::sample::Value::Float(mq))) => {
                         mq_sum += factor * (*mq) as f64;
                     }
                     // Ignore all other keys.
