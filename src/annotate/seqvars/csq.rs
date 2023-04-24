@@ -702,7 +702,7 @@ mod test {
 
     #[test]
     fn annotate_snv_brca1_one_variant() -> Result<(), anyhow::Error> {
-        let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
+        let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
         let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
 
@@ -829,7 +829,7 @@ mod test {
     }
 
     fn annotate_vars(path_tsv: &str, txs: &[String]) -> Result<(), anyhow::Error> {
-        let tx_path = "tests/data/annotate/db/seqvars/grch37/txs.bin";
+        let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
         let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
         let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
