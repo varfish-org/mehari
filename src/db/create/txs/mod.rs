@@ -481,7 +481,7 @@ fn build_protobuf(
             file,
             flate2::Compression::default(),
         ))
-    } else if path_out.ends_with(".zstd") {
+    } else if path_out.ends_with(".zst") {
         Box::new(zstd::Encoder::new(file, 0).map_err(|e| {
             anyhow!(
                 "failed to open zstd enoder for {}: {}",
@@ -856,7 +856,7 @@ pub mod test {
             verbose: Verbosity::new(0, 1),
         };
         let args = Args {
-            path_out: tmp_dir.join("out.bin"),
+            path_out: tmp_dir.join("out.bin.zst"),
             path_cdot_json: vec![PathBuf::from(
                 "tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1_opa1.json",
             )],

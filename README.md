@@ -165,7 +165,7 @@ cd ../mehari
 cargo run --release -- \
     -v \
     db create txs \
-        --path-out /tmp/txs-out.bin \
+        --path-out /tmp/txs-out.bin.zst \
         --path-cdot-json ../cdot-0.2.12.ensembl.grch37_grch38.json.gz \
         --path-cdot-json ../cdot-0.2.12.refseq.grch37_grch38.json.gz \
         --path-seqrepo-instance ../hgvs-rs-data/seqrepo-data/master/master

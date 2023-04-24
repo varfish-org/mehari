@@ -105,7 +105,7 @@ pub struct PathOutput {
     pub path_output_vcf: Option<String>,
 
     /// Path to the output TSV file (for import into VarFish).
-    #[arg(long, requires = "path-input-ped")]
+    #[arg(long)]
     pub path_output_tsv: Option<String>,
 }
 
@@ -489,7 +489,7 @@ pub fn load_tx_db(tx_path: &str) -> Result<TxSeqDatabase, anyhow::Error> {
         .map_err(|e| anyhow!("failed to open file {}: {}", tx_path, e))?;
     let mut reader: Box<dyn Read> = if tx_path.ends_with(".gz") {
         Box::new(flate2::read::MultiGzDecoder::new(file))
-    } else if tx_path.ends_with(".zstd") {
+    } else if tx_path.ends_with(".zst") {
         Box::new(
             zstd::Decoder::new(file)
                 .map_err(|e| anyhow!("failed to open zstd decoder for {}: {}", tx_path, e))?,
@@ -499,11 +499,9 @@ pub fn load_tx_db(tx_path: &str) -> Result<TxSeqDatabase, anyhow::Error> {
     };
 
     // Now read the whole file into a byte buffer.
-    let metadata = std::fs::metadata(tx_path)
-        .map_err(|e| anyhow!("failed to get metadata for {}: {}", tx_path, e))?;
-    let mut buffer = vec![0; metadata.len() as usize];
+    let mut buffer = Vec::new();
     reader
-        .read(&mut buffer)
+        .read_to_end(&mut buffer)
         .map_err(|e| anyhow!("failed to read file {}: {}", tx_path, e))?;
 
     // Deserialize the buffer with prost.
@@ -1398,7 +1396,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     // Open the frequency RocksDB database in read only mode.
     tracing::info!("Opening frequency database");
     let rocksdb_path = format!(
-        "{}/seqvars/{}/freqs",
+        "{}/{}/seqvars/freqs",
         &args.path_db,
         path_component(assembly)
     );
@@ -1418,7 +1416,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     // Open the ClinVar RocksDB database in read only mode.
     tracing::info!("Opening ClinVar database");
     let rocksdb_path = format!(
-        "{}/seqvars/{}/clinvar",
+        "{}/{}/seqvars/clinvar",
         &args.path_db,
         path_component(assembly)
     );
@@ -1436,7 +1434,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     // Open the serialized transcripts.
     tracing::info!("Opening transcript database");
     let tx_db = load_tx_db(&format!(
-        "{}/seqvars/{}/txs.bin",
+        "{}/{}/txs.bin.zst",
         &args.path_db,
         path_component(assembly)
     ))?;

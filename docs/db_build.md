@@ -143,7 +143,7 @@ You can build the transcript database protocolbuffers binary using the following
 
 ```text
 $ mehari db create txs \
-    --path-out output/b37/txs.bin \
+    --path-out output/db/grch37/txs.bin.zst \
     \
     --path-seqrepo-instance path/to/seqrepo-data/master \
     \
@@ -158,7 +158,7 @@ $ mehari db create txs \
 You will have to build the transcript database for each genome release that you want and manually specify the release to `--genome-release`.
 For GRCh38, simply use `--genome-release grch38`.
 
-You can enable compression by using the suffix `.gz` for gzip compression and `.zstd` for zstandard compression.
+You can enable compression by using the suffix `.gz` for gzip compression and `.zst` for zstandard compression.
 
 # Building ClinVar Database
 
@@ -166,7 +166,7 @@ This assumes that you have converted a recent ClinVar XML file to TSV using [cli
 
 ```
 $ mehari db create seqvar-clinvar \
-    --path-output-db ~/Data/mehari/db/seqvars/grch37/clinvar \
+    --path-output-db ~/Data/mehari/db/grch37/seqsvars/clinvar \
     --path-clinvar-tsv path/to/clinvar_seqvars.b37.tsv.gz
 ```
 

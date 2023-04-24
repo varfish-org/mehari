@@ -2591,7 +2591,7 @@ fn run_with_writer(
     let file_date = args
         .file_date
         .as_ref()
-        .map(|v| v.clone())
+        .cloned()
         .unwrap_or(Utc::now().date_naive().format("%Y%m%d").to_string());
     let header_out = vcf_header::build(
         args.genome_release
@@ -2787,7 +2787,6 @@ mod test {
     use rstest::rstest;
     use std::fs::File;
 
-    use chrono::NaiveDate;
     use clap_verbosity_flag::Verbosity;
     use hgvs::static_data::Assembly;
     use linked_hash_map::LinkedHashMap;
