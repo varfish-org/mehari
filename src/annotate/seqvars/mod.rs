@@ -667,7 +667,8 @@ pub fn load_tx_db(tx_path: &str, max_fb_tables: usize) -> Result<TxSeqDatabase, 
 /// Mehari-local trait for writing out annotated VCF records as VCF or VarFish TSV.
 pub trait AnnotatedVcfWriter {
     fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
-    fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error>;
+    fn write_record(&mut self, header: &VcfHeader, record: &VcfRecord)
+        -> Result<(), anyhow::Error>;
     fn set_hgnc_map(&mut self, _hgnc_map: FxHashMap<String, HgncRecord>) {
         // nop
     }
@@ -686,8 +687,12 @@ impl<Inner: Write> AnnotatedVcfWriter for VcfWriter<Inner> {
             .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
     }
 
-    fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error> {
-        self.write_record(record)
+    fn write_record(
+        &mut self,
+        header: &VcfHeader,
+        record: &VcfRecord,
+    ) -> Result<(), anyhow::Error> {
+        self.write_record(header, record)
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 }
@@ -866,16 +871,16 @@ impl VarFishSeqvarTsvWriter {
             .as_ref()
             .expect("VCF header must be set/written");
         let mut gt_calls = GenotypeCalls::default();
-        for (sample, genotype) in hdr.sample_names().iter().zip(record.genotypes().iter()) {
+        for (name, sample) in hdr.sample_names().iter().zip(record.genotypes().values()) {
             let mut gt_info = GenotypeInfo {
-                name: sample.to_string(),
+                name: name.to_string(),
                 ..Default::default()
             };
 
-            if let Some(gt) = genotype
+            if let Some(gt) = sample
                 .get(&GENOTYPE)
                 .map(|value| match value {
-                    Some(noodles::vcf::record::genotypes::genotype::field::Value::String(s)) => {
+                    Some(noodles::vcf::record::genotypes::sample::Value::String(s)) => {
                         Ok(s.to_owned())
                     }
                     _ => anyhow::bail!("invalid GT value"),
@@ -887,8 +892,8 @@ impl VarFishSeqvarTsvWriter {
                     .as_ref()
                     .expect("pedigree must be set")
                     .individuals
-                    .get(sample)
-                    .unwrap_or_else(|| panic!("individual {} not found in pedigree", sample));
+                    .get(name)
+                    .unwrap_or_else(|| panic!("individual {} not found in pedigree", name));
                 // Update per-family counts.
                 if ["X", "chrX"]
                     .iter()
@@ -942,56 +947,58 @@ impl VarFishSeqvarTsvWriter {
                 gt_info.gt = Some(gt);
             }
 
-            if let Some(dp) = genotype
+            if let Some(dp) = sample
                 .get(&READ_DEPTH)
                 .map(|value| match value {
-                    Some(noodles::vcf::record::genotypes::genotype::field::Value::Integer(i)) => {
-                        Ok(*i)
-                    }
+                    Some(noodles::vcf::record::genotypes::sample::Value::Integer(i)) => Ok(*i),
                     None => Ok(-1),
-                    _ => anyhow::bail!(format!("invalid DP value {:?} in {:#?}", value, genotype)),
+                    // cf. https://github.com/zaeleus/noodles/issues/164
+                    // _ => anyhow::bail!(format!("invalid DP value {:?} in {:#?}", value, sample)),
+                    _ => anyhow::bail!(format!("invalid DP value {:?}", value)),
                 })
                 .transpose()?
             {
                 gt_info.dp = Some(dp);
             }
 
-            if let Some(ad) = genotype
+            if let Some(ad) = sample
                 .get(&READ_DEPTHS)
                 .map(|value| match value {
-                    Some(
-                        noodles::vcf::record::genotypes::genotype::field::Value::IntegerArray(arr),
-                    ) => Ok(arr[1].expect("missing AD value")),
+                    Some(noodles::vcf::record::genotypes::sample::Value::IntegerArray(arr)) => {
+                        Ok(arr[1].expect("missing AD value"))
+                    }
                     None => Ok(-1),
-                    _ => anyhow::bail!(format!("invalid AD value {:?} in {:#?}", value, genotype)),
+                    // cf. https://github.com/zaeleus/noodles/issues/164
+                    // _ => anyhow::bail!(format!("invalid AD value {:?} in {:#?}", value, sample)),
+                    _ => anyhow::bail!(format!("invalid AD value {:?}", value)),
                 })
                 .transpose()?
             {
                 gt_info.ad = Some(ad);
             }
 
-            if let Some(gq) = genotype
+            if let Some(gq) = sample
                 .get(&CONDITIONAL_GENOTYPE_QUALITY)
                 .map(|value| match value {
-                    Some(noodles::vcf::record::genotypes::genotype::field::Value::Integer(i)) => {
-                        Ok(*i)
-                    }
+                    Some(noodles::vcf::record::genotypes::sample::Value::Integer(i)) => Ok(*i),
                     None => Ok(-1),
-                    _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, genotype)),
+                    // cf. https://github.com/zaeleus/noodles/issues/164
+                    // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
+                    _ => anyhow::bail!(format!("invalid GQ value {:?}", value)),
                 })
                 .transpose()?
             {
                 gt_info.gq = Some(gq);
             }
 
-            if let Some(sq) = genotype
+            if let Some(sq) = sample
                 .get(&FormatKey::Other(FormatKeyOther::from_str("SQ").unwrap()))
                 .map(|value| match value {
-                    Some(noodles::vcf::record::genotypes::genotype::field::Value::Float(f)) => {
-                        Ok(*f)
-                    }
+                    Some(noodles::vcf::record::genotypes::sample::Value::Float(f)) => Ok(*f),
                     None => Ok(-1.0),
-                    _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, genotype)),
+                    // cf. https://github.com/zaeleus/noodles/issues/164
+                    // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
+                    _ => anyhow::bail!(format!("invalid GQ value {:?}", value)),
                 })
                 .transpose()?
             {
@@ -1491,7 +1498,11 @@ impl AnnotatedVcfWriter for VarFishSeqvarTsvWriter {
             .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
     }
 
-    fn write_record(&mut self, record: &VcfRecord) -> Result<(), anyhow::Error> {
+    fn write_record(
+        &mut self,
+        _header: &VcfHeader,
+        record: &VcfRecord,
+    ) -> Result<(), anyhow::Error> {
         let mut tsv_record = VarFishSeqvarTsvRecord::default();
 
         if !self.fill_coords(
@@ -1633,7 +1644,6 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
                 annotate_record_clinvar(&db_clinvar, cf_clinvar, &key, &mut vcf_record)?;
             }
 
-            tracing::trace!("var = {:?}", &vcf_var);
             let VcfVar {
                 chrom,
                 pos,
@@ -1648,7 +1658,6 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
                 reference,
                 alternative,
             })? {
-                tracing::trace!("xxx");
                 if !ann_fields.is_empty() {
                     vcf_record.info_mut().insert(
                         keys::ANN.clone(),
@@ -1658,10 +1667,9 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
                     );
                 }
             }
-            tracing::trace!("yyy");
 
             // Write out the record.
-            writer.write_record(&vcf_record)?;
+            writer.write_record(&header_out, &vcf_record)?;
         } else {
             break; // all done
         }
