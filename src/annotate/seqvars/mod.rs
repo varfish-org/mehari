@@ -1458,6 +1458,11 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
             // TODO: ignores all but the first alternative allele!
             let vcf_var = VcfVar::from_vcf(&vcf_record);
 
+            // Skip records with a deletion as alternative allele.
+            if vcf_var.alternative == "*" {
+                continue;
+            }
+
             if prev.elapsed().as_secs() >= 60 {
                 tracing::info!("at {:?}", &vcf_var);
                 prev = Instant::now();
