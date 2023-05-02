@@ -485,7 +485,7 @@ fn build_protobuf(
     } else if ext == Some(Some("zst")) {
         Box::new(zstd::Encoder::new(file, 0).map_err(|e| {
             anyhow!(
-                "failed to open zstd enoder for {}: {}",
+                "failed to open zstd encoder for {}: {}",
                 path_out.display(),
                 e
             )
