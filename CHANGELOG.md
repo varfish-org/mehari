@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.1](https://github.com/bihealth/mehari/compare/v0.2.0...v0.2.1) (2023-05-02)
+
+
+### Bug Fixes
+
+* adjust non-adjacent exon recognition ([#67](https://github.com/bihealth/mehari/issues/67)) ([96437e4](https://github.com/bihealth/mehari/commit/96437e4a69349cabc7a165a130fd974a133fe307))
+* allow multiple bases in BND ALT ([#63](https://github.com/bihealth/mehari/issues/63)) ([e5b93d5](https://github.com/bihealth/mehari/commit/e5b93d5727c16cd0881cfcc4e59777a6b9ab5923))
+* properly recognize .gz/.zst extension ([#66](https://github.com/bihealth/mehari/issues/66)) ([6960521](https://github.com/bihealth/mehari/commit/696052175c1dbd5d9cc48026a4abddc33f81fd23))
+* skipping "*" ALT alleles ([#65](https://github.com/bihealth/mehari/issues/65)) ([95b2b61](https://github.com/bihealth/mehari/commit/95b2b6170f1180545a7e3d327ee61d32ebf6ba59))
+
 ## [0.2.0](https://github.com/bihealth/mehari/compare/v0.1.1...v0.2.0) (2023-04-24)
 
 
