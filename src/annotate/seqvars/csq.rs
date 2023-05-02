@@ -4,7 +4,10 @@ use std::{collections::HashMap, rc::Rc};
 
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
-    mapper::assembly::{Config as AssemblyConfig, Mapper as AssemblyMapper},
+    mapper::{
+        assembly::{Config as AssemblyConfig, Mapper as AssemblyMapper},
+        Error,
+    },
     parser::{
         Accession, CdsFrom, GenomeInterval, GenomeLocEdit, HgvsVariant, Mu, NaEdit, ProtLocEdit,
     },
@@ -387,15 +390,11 @@ impl ConsequencePredictor {
 
         let (rank, hgvs_t, hgvs_p, tx_pos, cds_pos, protein_pos) = if !is_upstream && !is_downstream
         {
-            // Gracefully handle problems in the projection (in this case "Non-adjacent exons for ...").
             // TODO: do not include such transcripts when building the tx database.
             let var_n = self.mapper.g_to_n(&var_g, &tx.id).map_or_else(
-                |e| {
-                    if e.to_string().contains("Non-adjacent exons for") {
-                        Ok(None)
-                    } else {
-                        Err(e)
-                    }
+                |e| match e {
+                    Error::NonAdjacentExons(_, _, _, _) => Ok(None),
+                    _ => Err(e),
                 },
                 |v| Ok(Some(v)),
             )?;
