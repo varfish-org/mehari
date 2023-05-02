@@ -43,6 +43,8 @@ jobs:
 
       - name: Setup protoc
         uses: arduino/setup-protoc@v1.1.2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -92,6 +94,8 @@ jobs:
 
       - name: Setup protoc
         uses: arduino/setup-protoc@v1.1.2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: Swatinem/rust-cache@v2
 

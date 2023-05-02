@@ -21,6 +21,8 @@ jobs:
 
       - name: Setup protoc
         uses: arduino/setup-protoc@v1.1.2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
