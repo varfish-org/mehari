@@ -476,12 +476,13 @@ fn build_protobuf(
     // Open file and if necessary, wrap in a decompressor.
     let file = std::fs::File::create(path_out)
         .map_err(|e| anyhow!("failed to create file {}: {}", path_out.display(), e))?;
-    let mut writer: Box<dyn Write> = if path_out.ends_with(".gz") {
+    let ext = path_out.extension().map(|s| s.to_str());
+    let mut writer: Box<dyn Write> = if ext == Some(Some("gz")) {
         Box::new(flate2::write::GzEncoder::new(
             file,
             flate2::Compression::default(),
         ))
-    } else if path_out.ends_with(".zst") {
+    } else if ext == Some(Some("zst")) {
         Box::new(zstd::Encoder::new(file, 0).map_err(|e| {
             anyhow!(
                 "failed to open zstd enoder for {}: {}",
