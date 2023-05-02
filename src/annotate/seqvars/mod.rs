@@ -98,7 +98,7 @@ pub struct Args {
 
 /// Command line arguments to enforce either `--path-output-vcf` or `--path-output-tsv`.
 #[derive(Debug, ClapArgs)]
-#[group(required = true, multiple = false)]
+#[group(multiple = false)]
 pub struct PathOutput {
     /// Path to the output VCF file.
     #[arg(long)]
