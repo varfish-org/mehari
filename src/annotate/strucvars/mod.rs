@@ -2711,54 +2711,75 @@ pub mod bnd {
         pub pe_orientation: PeOrientation,
     }
 
+    #[derive(Debug, Clone, Copy)]
+    enum State {
+        Initial,
+        LeadingAlt,
+        Chrom,
+        Pos,
+        TrailingAlt,
+    }
+
     impl Breakend {
         /// Construct from reference and alternative bases
         pub fn from_ref_alt_str(reference: &str, alternative: &str) -> Result<Self, anyhow::Error> {
-            let mut alt_chars = alternative.chars();
-            let first = alt_chars.next().ok_or(anyhow::anyhow!(
-                "ALT string must not be empty: {}",
-                reference
-            ))?;
-            let last = alt_chars.next_back().ok_or(anyhow::anyhow!(
-                "ALT string must have at least two characters: {}",
-                reference
-            ))?;
+            let mut left_open = true; // brackets are "]"
+            let mut leading_bracket = false; // is "]xxx" or "[xxx"
+            let mut alt_base = String::new();
+            let mut chrom = String::new();
+            let mut pos = String::new();
 
-            let leading_bracket = "[]".contains(first);
-            let trailing_bracket = "[]".contains(last);
-            if leading_bracket == trailing_bracket {
-                anyhow::bail!(
-                    "Cannot have trailing AND leading bracket in ALT: {}",
-                    alternative
-                );
-            }
-            // Determine alternative base and ensure that `alt_chars` only contains the chrom/pos pair.
-            let left_open;
-            let alt_base;
-            if leading_bracket {
-                left_open = first == ']';
-                alt_base = last.to_string();
-                alt_chars.next_back();
-            } else {
-                left_open = last == ']';
-                alt_base = first.to_string();
-                alt_chars.next();
+            // The alternate allele has the form:
+            //
+            // <alt> ("[" | "]) <chrom> ":" <pos> ("[" | "]") <alt>
+
+            let mut state: State = State::Initial;
+            for c in alternative.chars() {
+                match state {
+                    State::Initial => {
+                        if c == ']' || c == '[' {
+                            left_open = c == ']';
+                            leading_bracket = true;
+                            state = State::Chrom;
+                        } else {
+                            leading_bracket = false;
+                            state = State::LeadingAlt;
+                            alt_base.push(c);
+                        }
+                    }
+                    State::LeadingAlt => {
+                        if c == ']' || c == '[' {
+                            state = State::Chrom;
+                        } else {
+                            alt_base.push(c);
+                        }
+                    }
+                    State::Chrom => {
+                        if c == ':' {
+                            state = State::Pos;
+                        } else {
+                            chrom.push(c);
+                        }
+                    }
+                    State::Pos => {
+                        if c == ']' || c == '[' {
+                            left_open = c == ']';
+                            state = State::TrailingAlt;
+                        } else {
+                            pos.push(c);
+                        }
+                    }
+                    State::TrailingAlt => {
+                        if !leading_bracket {
+                            panic!("can only have trailing bases if leading bracket");
+                        } else {
+                            alt_base.push(c);
+                        }
+                    }
+                }
             }
 
-            // Split chrom/pos and parse integer position.
-            let chrom_pos = alt_chars.as_str();
-            let mut chrom_pos = chrom_pos.split(':');
-            let chrom = chrom_pos
-                .next()
-                .ok_or(anyhow::anyhow!(
-                    "Chromosome must be present in ALT: {}",
-                    alternative
-                ))?
-                .to_string();
-            let pos = chrom_pos.next().ok_or(anyhow::anyhow!(
-                "Position must be present in ALT: {}",
-                alternative
-            ))?;
+            // Convert string position into integer.
             let pos: i32 = pos.parse()?;
 
             // Determine PE orientation.
@@ -2868,6 +2889,30 @@ mod test {
                 pe_orientation: PeOrientation::ThreeToThree,
             },
             Breakend::from_ref_alt_str("G", "[17:198982[A")?,
+        );
+        assert_eq!(
+            Breakend {
+                chrom: String::from("17"),
+                pos: 198982,
+                ref_base: String::from("GA"),
+                alt_base: String::from("TA"),
+                leading_base: false,
+                left_open: false,
+                pe_orientation: PeOrientation::ThreeToThree,
+            },
+            Breakend::from_ref_alt_str("GA", "[17:198982[TA")?,
+        );
+        assert_eq!(
+            Breakend {
+                chrom: String::from("17"),
+                pos: 198982,
+                ref_base: String::from("GA"),
+                alt_base: String::from("TA"),
+                leading_base: true,
+                left_open: true,
+                pe_orientation: PeOrientation::FiveToFive,
+            },
+            Breakend::from_ref_alt_str("GA", "TA]17:198982]")?,
         );
 
         Ok(())
