@@ -134,6 +134,17 @@ pub mod keys {
         /// Key for `INFO/SVSUBTYPE`.
         pub static ref SV_SUB_TYPE: InfoKey = InfoKey::Other(InfoKeyOther::from_str("SVSUBTYPE").unwrap());
 
+        /// Key for `INFO/CARRIERS_HET`.
+        pub static ref CARRIERS_HET: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CARRIERS_HET").unwrap());
+        /// Key for `INFO/CARRIERS_HOM_REF`.
+        pub static ref CARRIERS_HOM_REF: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CARRIERS_HOM_REF").unwrap());
+        /// Key for `INFO/CARRIERS_HOM_ALT`.
+        pub static ref CARRIERS_HOM_ALT: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CARRIERS_HOM_ALT").unwrap());
+        /// Key for `INFO/CARRIERS_HEMI_REF`.
+        pub static ref CARRIERS_HEMI_REF: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CARRIERS_HEMI_REF").unwrap());
+        /// Key for `INFO/CARRIERS_HEMI_ALT`.
+        pub static ref CARRIERS_HEMI_ALT: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CARRIERS_HEMI_ALT").unwrap());
+
         /// Key for `FORMAT/GT`.
         pub static ref GT: FormatKey = FormatKey::Other(FormatKeyOther::from_str("GT").unwrap());
         /// Key for `FORMAT/FT`.
@@ -173,6 +184,9 @@ pub mod vcf_header {
         Header,
     };
 
+    use crate::annotate::strucvars::keys::{
+        CARRIERS_HEMI_ALT, CARRIERS_HEMI_REF, CARRIERS_HET, CARRIERS_HOM_ALT, CARRIERS_HOM_REF,
+    };
     use crate::db::create::seqvar_freqs::reading::CANONICAL;
     use crate::ped::{Disease, PedigreeByName, Sex};
 
@@ -322,6 +336,46 @@ pub mod vcf_header {
             .add_info(
                 END_CONFIDENCE_INTERVALS,
                 Map::<Info>::from(&END_CONFIDENCE_INTERVALS),
+            )
+            .add_info(
+                CARRIERS_HET.clone(),
+                Map::<Info>::new(
+                    Number::Count(1),
+                    Type::Integer,
+                    "Number of heterozygous carriers",
+                ),
+            )
+            .add_info(
+                CARRIERS_HOM_REF.clone(),
+                Map::<Info>::new(
+                    Number::Count(1),
+                    Type::Integer,
+                    "Number of homozygous reference carriers",
+                ),
+            )
+            .add_info(
+                CARRIERS_HOM_ALT.clone(),
+                Map::<Info>::new(
+                    Number::Count(1),
+                    Type::Integer,
+                    "Number of homozygous alternative carriers",
+                ),
+            )
+            .add_info(
+                CARRIERS_HEMI_REF.clone(),
+                Map::<Info>::new(
+                    Number::Count(1),
+                    Type::Integer,
+                    "Number of hemizygous reference carriers",
+                ),
+            )
+            .add_info(
+                CARRIERS_HEMI_ALT.clone(),
+                Map::<Info>::new(
+                    Number::Count(1),
+                    Type::Integer,
+                    "Number of hemizygous alternative carriers",
+                ),
             )
             .add_info(
                 Key::from_str("callers")?,
@@ -732,6 +786,11 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             "sv_type",
             "sv_sub_type",
             "info",
+            "num_hom_alt",
+            "num_hom_ref",
+            "num_het",
+            "num_hemi_alt",
+            "num_hemi_ref",
             "genotype",
         ];
         writeln!(self.inner, "{}", header.join("\t"))
@@ -825,11 +884,48 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             tsv_record.sv_type.into()
         };
 
+        let num_hom_alt = record.info().get(&keys::CARRIERS_HOM_ALT.clone());
+        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hom_alt))) =
+            num_hom_alt
+        {
+            tsv_record.num_hom_alt = *num_hom_alt;
+        } else {
+            panic!("INFO/CARRIERS_HOM_ALT not found");
+        }
+        let num_hom_ref = record.info().get(&keys::CARRIERS_HOM_REF.clone());
+        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hom_ref))) =
+            num_hom_ref
+        {
+            tsv_record.num_hom_ref = *num_hom_ref;
+        } else {
+            panic!("INFO/CARRIERS_HOM_REF not found");
+        }
+        let num_het = record.info().get(&keys::CARRIERS_HET.clone());
+        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_het))) = num_het {
+            tsv_record.num_het = *num_het;
+        } else {
+            panic!("INFO/CARRIERS_HET not found");
+        }
+        let num_hemi_alt = record.info().get(&keys::CARRIERS_HEMI_ALT.clone());
+        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hemi_alt))) =
+            num_hemi_alt
+        {
+            tsv_record.num_hemi_alt = *num_hemi_alt;
+        } else {
+            panic!("INFO/CARRIERS_HEMI_ALT not found");
+        }
+        let num_hemi_ref = record.info().get(&keys::CARRIERS_HEMI_REF.clone());
+        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hemi_ref))) =
+            num_hemi_ref
+        {
+            tsv_record.num_hemi_ref = *num_hemi_ref;
+        } else {
+            panic!("INFO/CARRIERS_HEMI_REF not found");
+        }
+
         // First, create genotype info records.
         let mut gt_it = record.genotypes().values();
-        dbg!(&header.sample_names());
         for sample_name in header.sample_names() {
-            dbg!(&sample_name);
             tsv_record.genotype.entries.push(GenotypeInfo {
                 name: sample_name.clone(),
                 ..Default::default()
@@ -881,7 +977,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
 
         writeln!(
             self.inner,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{{}}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{{}}\t{}\t{}\t{}\t{}\t{}\t{}",
             &tsv_record.release,
             &tsv_record.chromosome,
             &tsv_record.chromosome_no,
@@ -902,6 +998,11 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             tsv_record.callers.join(";"),
             &tsv_record.sv_type,
             &tsv_record.sv_sub_type,
+            tsv_record.num_hom_alt,
+            tsv_record.num_hom_ref,
+            tsv_record.num_het,
+            tsv_record.num_hemi_alt,
+            tsv_record.num_hemi_ref,
             &tsv_record.genotype.for_tsv(),
         ).map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
     }
@@ -1200,8 +1301,20 @@ pub struct VarFishStrucvarTsvRecord {
     /// The SV sub type.
     pub sv_sub_type: SvSubType,
 
-    // /// Additional information (currently not used).
+    /// Additional information (currently not used).
     pub info: InfoRecord,
+
+    /// Number of hom. alt. carriers
+    pub num_hom_alt: i32,
+    /// Number of hom. ref. carriers
+    pub num_hom_ref: i32,
+    /// Number of het. carriers
+    pub num_het: i32,
+    /// Number of hemi. alt. carriers
+    pub num_hemi_alt: i32,
+    /// Number of hemi. ref. carriers
+    pub num_hemi_ref: i32,
+
     /// Genotype call information.
     pub genotype: GenotypeCalls,
 }
@@ -1248,6 +1361,16 @@ impl VarFishStrucvarTsvRecord {
         self.callers.extend_from_slice(&other.callers);
         self.callers.sort();
         self.callers.dedup();
+
+        if other.num_hom_alt + other.num_het + other.num_hemi_alt
+            > self.num_hom_alt + self.num_het + self.num_hemi_alt
+        {
+            self.num_hom_alt = other.num_hom_alt;
+            self.num_hom_ref = other.num_hom_ref;
+            self.num_het = other.num_het;
+            self.num_hemi_alt = other.num_hemi_alt;
+            self.num_hemi_ref = other.num_hemi_ref;
+        }
 
         for i in 0..self.genotype.entries.len() {
             let mut lhs = self
@@ -1344,14 +1467,35 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
             self.end,
             self.sv_uuid,
             self.callers.join(","),
-            self.sv_sub_type
+            self.sv_sub_type,
+        );
+        let mut info: vcf::record::Info = info.parse()?;
+        info.insert(
+            keys::CARRIERS_HET.clone(),
+            Some(vcf::record::info::field::Value::Integer(self.num_het)),
+        );
+        info.insert(
+            keys::CARRIERS_HOM_REF.clone(),
+            Some(vcf::record::info::field::Value::Integer(self.num_hom_ref)),
+        );
+        info.insert(
+            keys::CARRIERS_HOM_ALT.clone(),
+            Some(vcf::record::info::field::Value::Integer(self.num_hom_alt)),
+        );
+        info.insert(
+            keys::CARRIERS_HEMI_REF.clone(),
+            Some(vcf::record::info::field::Value::Integer(self.num_hemi_ref)),
+        );
+        info.insert(
+            keys::CARRIERS_HEMI_ALT.clone(),
+            Some(vcf::record::info::field::Value::Integer(self.num_hemi_alt)),
         );
 
         let builder = VcfRecord::builder()
             .set_chromosome(self.chromosome.parse()?)
             .set_position(Position::from(self.start as usize))
             .set_reference_bases("N".parse()?)
-            .set_info(info.parse()?)
+            .set_info(info)
             .set_genotypes(genotypes);
 
         let builder = if self.sv_sub_type == SvSubType::Bnd {
@@ -1568,6 +1712,7 @@ pub trait VcfRecordConverter {
     ///
     /// # Arguments
     ///
+    /// * `pedigree` - The pedigree to use for the sex in genotype counting.
     /// * `record` - The VCF record to convert.
     /// * `uuid` - The UUID to use for the `sv_uuid` field.
     /// * `genome_release` - The genome release to use for the `release` field.
@@ -1581,6 +1726,7 @@ pub trait VcfRecordConverter {
     /// * If the VCF record could not be converted.
     fn convert(
         &self,
+        pedigree: &PedigreeByName,
         vcf_record: &VcfRecord,
         uuid: Uuid,
         genome_release: GenomeRelease,
@@ -1590,7 +1736,7 @@ pub trait VcfRecordConverter {
         self.fill_sv_type(vcf_record, &mut tsv_record)?;
         self.fill_coords(vcf_record, genome_release, &mut tsv_record)?;
         self.fill_callers_uuid(uuid, &mut tsv_record)?;
-        self.fill_genotypes(vcf_record, &mut tsv_record)?;
+        self.fill_genotypes(pedigree, vcf_record, &mut tsv_record)?;
         self.fill_cis(vcf_record, &mut tsv_record)?;
         self.fill_info(vcf_record, &mut tsv_record)?;
 
@@ -1618,6 +1764,7 @@ pub trait VcfRecordConverter {
     ///
     /// # Arguments
     ///
+    /// * `pedigree` - The pedigree to use for the sample sex.
     /// * `vcf_record` - The VCF record to derive the genotypes from.
     /// * `tsv_record` - The TSV record to write the genotypes field to.
     ///
@@ -1630,6 +1777,7 @@ pub trait VcfRecordConverter {
     /// * If the genotypes could not be derived from the VCF record.
     fn fill_genotypes(
         &self,
+        pedigree: &PedigreeByName,
         vcf_record: &VcfRecord,
         tsv_record: &mut VarFishStrucvarTsvRecord,
     ) -> Result<(), anyhow::Error>;
@@ -1833,6 +1981,9 @@ pub trait VcfRecordConverter {
 
 /// Conversion from VCF records to `VarFishStrucvarTsvRecord`.
 mod conv {
+    use crate::ped::PedigreeByName;
+    use crate::ped::Sex;
+
     use super::GenotypeInfo;
     use super::VarFishStrucvarTsvRecord;
     use super::VcfRecordConverter;
@@ -1909,6 +2060,7 @@ mod conv {
 
         fn fill_genotypes(
             &self,
+            pedigree: &PedigreeByName,
             vcf_record: &VcfRecord,
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
@@ -1925,7 +2077,7 @@ mod conv {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
                         ("GT", Some(SampleValue::String(gt))) => {
-                            entries[sample_no].gt = Some(gt.to_string());
+                            process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
                         ("GQ", Some(SampleValue::Integer(gq))) => {
@@ -2002,6 +2154,7 @@ mod conv {
 
         fn fill_genotypes(
             &self,
+            pedigree: &PedigreeByName,
             vcf_record: &VcfRecord,
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
@@ -2015,7 +2168,7 @@ mod conv {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
                         ("GT", Some(SampleValue::String(gt))) => {
-                            entries[sample_no].gt = Some(gt.to_string());
+                            process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::pev` from `FORMAT/PE`; no pec is computed.
                         ("PE", Some(SampleValue::Integer(pe))) => {
@@ -2074,10 +2227,11 @@ mod conv {
 
         fn fill_genotypes(
             &self,
+            pedigree: &PedigreeByName,
             vcf_record: &VcfRecord,
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
-            fill_genotypes_illumina_sv(&self.samples, vcf_record, tsv_record)
+            fill_genotypes_illumina_sv(pedigree, &self.samples, vcf_record, tsv_record)
         }
     }
 
@@ -2112,6 +2266,7 @@ mod conv {
 
         fn fill_genotypes(
             &self,
+            pedigree: &PedigreeByName,
             vcf_record: &VcfRecord,
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
@@ -2125,7 +2280,7 @@ mod conv {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
                         ("GT", Some(SampleValue::String(gt))) => {
-                            entries[sample_no].gt = Some(gt.to_string());
+                            process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
                         ("CN", Some(SampleValue::Integer(cn))) => {
@@ -2168,6 +2323,7 @@ mod conv {
     /// Implementation for filling genotypes of VarFishStrucvarTsvRecord from
     /// Illumina tooling VCF records (Manta/DragenSV).
     fn fill_genotypes_illumina_sv(
+        pedigree: &PedigreeByName,
         samples: &Vec<String>,
         vcf_record: &VcfRecord,
         tsv_record: &mut VarFishStrucvarTsvRecord,
@@ -2182,7 +2338,7 @@ mod conv {
                 match (key.as_ref(), value) {
                     // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
                     ("GT", Some(SampleValue::String(gt))) => {
-                        entries[sample_no].gt = Some(gt.to_string());
+                        process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                     }
                     // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
                     ("GQ", Some(SampleValue::Integer(gq))) => {
@@ -2235,10 +2391,11 @@ mod conv {
 
         fn fill_genotypes(
             &self,
+            pedigree: &PedigreeByName,
             vcf_record: &VcfRecord,
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
-            fill_genotypes_illumina_sv(&self.samples, vcf_record, tsv_record)
+            fill_genotypes_illumina_sv(pedigree, &self.samples, vcf_record, tsv_record)
         }
     }
 
@@ -2273,6 +2430,7 @@ mod conv {
 
         fn fill_genotypes(
             &self,
+            pedigree: &PedigreeByName,
             vcf_record: &VcfRecord,
             tsv_record: &mut VarFishStrucvarTsvRecord,
         ) -> Result<(), anyhow::Error> {
@@ -2286,7 +2444,7 @@ mod conv {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
                         ("GT", Some(SampleValue::String(gt))) => {
-                            entries[sample_no].gt = Some(gt.to_string());
+                            process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
                         ("GQ", Some(SampleValue::Integer(gq))) => {
@@ -2310,6 +2468,71 @@ mod conv {
             tsv_record.genotype.entries = entries;
 
             Ok(())
+        }
+    }
+
+    /// Helper function to handle processing of "GT" field.
+    fn process_gt(
+        entries: &mut Vec<GenotypeInfo>,
+        sample_no: usize,
+        gt: &String,
+        pedigree: &PedigreeByName,
+        tsv_record: &mut VarFishStrucvarTsvRecord,
+    ) {
+        entries[sample_no].gt = Some(gt.to_string());
+
+        let sex = pedigree
+            .individuals
+            .get(&entries[sample_no].name)
+            .expect(&format!(
+                "sample must be in pedigree: {:?}",
+                &entries[sample_no].name
+            ))
+            .sex;
+        let is_chr_x = tsv_record.chromosome.contains('X');
+        let is_chr_y = tsv_record.chromosome.contains('Y');
+        let has_ref = entries[sample_no]
+            .gt
+            .as_ref()
+            .expect("just set")
+            .contains("0");
+        let has_alt = entries[sample_no]
+            .gt
+            .as_ref()
+            .expect("just set")
+            .contains("1");
+
+        match (is_chr_x, is_chr_y, sex, has_ref, has_alt) {
+            // autosomal chromosomes; treat "./." as missing, "./1" (and similar) as hom,
+            // and "./0" (and similar) as het.
+            (false, false, _, false, false) => (/* do not count */),
+            (false, false, _, false, true) => tsv_record.num_hom_alt += 1,
+            (false, false, _, true, false) => tsv_record.num_hom_ref += 1,
+            (false, false, _, true, true) => tsv_record.num_het += 1,
+            // chrX, do not count when sex missing
+            (true, false, _, false, false) => (/* do not count; no-call */),
+            (true, false, Sex::Male, false, true) => tsv_record.num_hemi_alt += 1,
+            (true, false, Sex::Male, true, false) => tsv_record.num_hemi_ref += 1,
+            (true, false, Sex::Male, true, true) => {
+                (/* do not count; het. on male chrX */)
+            }
+            (true, false, Sex::Female, false, true) => tsv_record.num_hom_alt += 1,
+            (true, false, Sex::Female, true, false) => tsv_record.num_hom_ref += 1,
+            (true, false, Sex::Female, true, true) => tsv_record.num_het += 1,
+            (true, false, _, _, _) => (/* do not count; sex missing */),
+            // chrY, do not count when sex missing or female
+            (false, true, _, false, false) => (/* do not count; no-call */),
+            (false, true, Sex::Male, false, true) => tsv_record.num_hemi_alt += 1,
+            (false, true, Sex::Male, true, false) => tsv_record.num_hemi_ref += 1,
+            (false, true, Sex::Male, true, true) => {
+                (/* do not count; het on male chrY */)
+            }
+            (false, true, Sex::Female, _, _) => {
+                (/* do not count; variant in female */)
+            }
+            (false, true, _, _, _) => (/* do not count; sex missing */),
+            // conflicting chromosome
+            (true, true, _, _, _) => panic!("cannot be both chrX and chrY"),
         }
     }
 }
@@ -2343,6 +2566,7 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
 ///
 /// Note that we will consider the "25 canonical" contigs only (chr1..chr22, chrX, chrY, chrM).
 fn run_vcf_to_jsonl(
+    pedigree: &PedigreeByName,
     path_input: &str,
     tmp_dir: &TempDir,
     cov_readers: &mut HashMap<String, maelstrom::Reader>,
@@ -2387,7 +2611,7 @@ fn run_vcf_to_jsonl(
         rng.fill_bytes(&mut uuid_buf);
         let uuid = Uuid::from_bytes(uuid_buf);
 
-        let mut record = converter.convert(&record?, uuid, GenomeRelease::Grch37)?;
+        let mut record = converter.convert(pedigree, &record?, uuid, GenomeRelease::Grch37)?;
         annotate_cov_mq(&mut record, cov_readers)?;
         if let Some(chromosome_no) = mapping.get(&record.chromosome) {
             let out_jsonl = &mut tmp_files[*chromosome_no as usize - 1];
@@ -2586,7 +2810,7 @@ fn run_with_writer(
     // Read through input VCF files and write out to temporary files.
     tracing::info!("Input VCF files to temporary files...");
     for path_input in args.path_input_vcf.iter() {
-        run_vcf_to_jsonl(path_input, &tmp_dir, &mut cov_readers, &mut rng)?;
+        run_vcf_to_jsonl(pedigree, path_input, &tmp_dir, &mut cov_readers, &mut rng)?;
     }
     tracing::info!("... done converting input files.");
 
@@ -2926,6 +3150,7 @@ mod test {
 
     /// Helper function that tests the VCF to JSONL conversion.
     fn run_test_vcf_to_jsonl(
+        pedigree: &PedigreeByName,
         path_input_vcf: &str,
         path_expected_jsonl: &str,
         converter: &dyn VcfRecordConverter,
@@ -2950,7 +3175,7 @@ mod test {
         loop {
             if let Some(record) = records.next() {
                 let uuid = Uuid::from_bytes(bytes);
-                let record = converter.convert(&record?, uuid, GenomeRelease::Grch37)?;
+                let record = converter.convert(pedigree, &record?, uuid, GenomeRelease::Grch37)?;
                 jsonl::write(&out_jsonl, &record)?;
             } else {
                 break; // all done
@@ -2979,12 +3204,58 @@ mod test {
             .collect::<Vec<_>>())
     }
 
+    /// Helper that returns a fake pedigree with the given sample names.
+    fn sample_ped(samples: &Vec<String>) -> PedigreeByName {
+        let mut result = PedigreeByName::default();
+
+        for sample in samples {
+            let indiv = Individual {
+                family: String::from("FAM"),
+                name: sample.clone(),
+                father: if samples.contains(&String::from("father"))
+                    && sample != "father"
+                    && sample != "mother"
+                {
+                    Some(String::from("father"))
+                } else {
+                    None
+                },
+                mother: if samples.contains(&String::from("mother"))
+                    && sample != "father"
+                    && sample != "mother"
+                {
+                    Some(String::from("mother"))
+                } else {
+                    None
+                },
+                sex: if sample == "mother" {
+                    Sex::Female
+                } else if sample == "father" {
+                    Sex::Male
+                } else {
+                    Sex::Male
+                },
+                disease: if sample == "mother" || sample == "father" {
+                    Disease::Unaffected
+                } else {
+                    Disease::Affected
+                },
+            };
+
+            result.individuals.insert(sample.clone(), indiv);
+        }
+
+        result
+    }
+
     #[test]
     fn vcf_to_jsonl_delly_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/delly2-min.vcf";
         let samples = vcf_samples(path_input_vcf)?;
+        let pedigree = sample_ped(&samples);
 
         run_test_vcf_to_jsonl(
+            &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/delly2-min.out.jsonl",
             &DellyVcfRecordConverter::new("1.1.3", &samples),
@@ -2995,8 +3266,10 @@ mod test {
     fn vcf_to_jsonl_dragen_sv_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/dragen-sv-min.vcf";
         let samples = vcf_samples(path_input_vcf)?;
+        let pedigree = sample_ped(&samples);
 
         run_test_vcf_to_jsonl(
+            &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/dragen-sv-min.out.jsonl",
             &DragenSvVcfRecordConverter::new("07.021.624.3.10.4", &samples),
@@ -3007,8 +3280,10 @@ mod test {
     fn vcf_to_jsonl_dragen_cnv_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/dragen-cnv-min.vcf";
         let samples = vcf_samples(path_input_vcf)?;
+        let pedigree = sample_ped(&samples);
 
         run_test_vcf_to_jsonl(
+            &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/dragen-cnv-min.out.jsonl",
             &DragenCnvVcfRecordConverter::new("07.021.624.3.10.4", &samples),
@@ -3019,8 +3294,10 @@ mod test {
     fn vcf_to_jsonl_gcnv_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/gcnv-min.vcf";
         let samples = vcf_samples(path_input_vcf)?;
+        let pedigree = sample_ped(&samples);
 
         run_test_vcf_to_jsonl(
+            &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/gcnv-min.out.jsonl",
             &GcnvVcfRecordConverter::new("4.3.0.0", &samples),
@@ -3031,8 +3308,10 @@ mod test {
     fn vcf_to_jsonl_manta_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/manta-min.vcf";
         let samples = vcf_samples(path_input_vcf)?;
+        let pedigree = sample_ped(&samples);
 
         run_test_vcf_to_jsonl(
+            &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/manta-min.out.jsonl",
             &MantaVcfRecordConverter::new("1.6.0", &samples),
@@ -3043,8 +3322,10 @@ mod test {
     fn vcf_to_jsonl_popdel_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/popdel-min.vcf";
         let samples = vcf_samples(path_input_vcf)?;
+        let pedigree: PedigreeByName = sample_ped(&samples);
 
         run_test_vcf_to_jsonl(
+            &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/popdel-min.out.jsonl",
             &PopdelVcfRecordConverter::new("1.1.2", &samples),
@@ -3066,10 +3347,16 @@ mod test {
             let path_input_vcf = format!("tests/data/annotate/strucvars/{}-min.vcf", key);
             let path_expected_txt = format!("tests/data/annotate/strucvars/{}-min.out.jsonl", key);
             let samples = vcf_samples(&path_input_vcf)?;
+            let pedigree: PedigreeByName = sample_ped(&samples);
             let sv_caller = guess_sv_caller(&path_input_vcf)?;
             let converter = build_vcf_record_converter(&sv_caller, &samples);
 
-            run_test_vcf_to_jsonl(&path_input_vcf, &path_expected_txt, converter.as_ref())?;
+            run_test_vcf_to_jsonl(
+                &pedigree,
+                &path_input_vcf,
+                &path_expected_txt,
+                converter.as_ref(),
+            )?;
         }
 
         Ok(())
@@ -3309,6 +3596,11 @@ mod test {
                 sv_type: SvType::Inv,
                 sv_sub_type: SvSubType::Inv,
                 info: Default::default(),
+                num_hom_alt: 0,
+                num_hom_ref: 2,
+                num_het: 1,
+                num_hemi_alt: 0,
+                num_hemi_ref: 0,
                 genotype: GenotypeCalls {
                     entries: vec![
                         GenotypeInfo {
@@ -3380,6 +3672,11 @@ mod test {
                 info: InfoRecord {
                     alt: Some(String::from("]17:198982]A")),
                 },
+                num_hom_alt: 0,
+                num_hom_ref: 0,
+                num_het: 3,
+                num_hemi_alt: 0,
+                num_hemi_ref: 0,
                 genotype: GenotypeCalls {
                     entries: vec![
                         GenotypeInfo {
