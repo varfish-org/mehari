@@ -888,29 +888,39 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hom_alt))) =
             num_hom_alt
         {
-            tsv_record.num_hom_alt = *num_hom_alt as usize;
+            tsv_record.num_hom_alt = *num_hom_alt;
+        } else {
+            panic!("INFO/CARRIERS_HOM_ALT not found");
         }
         let num_hom_ref = record.info().get(&keys::CARRIERS_HOM_REF.clone());
         if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hom_ref))) =
             num_hom_ref
         {
-            tsv_record.num_hom_ref = *num_hom_ref as usize;
+            tsv_record.num_hom_ref = *num_hom_ref;
+        } else {
+            panic!("INFO/CARRIERS_HOM_REF not found");
         }
         let num_het = record.info().get(&keys::CARRIERS_HET.clone());
         if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_het))) = num_het {
-            tsv_record.num_het = *num_het as usize;
+            tsv_record.num_het = *num_het;
+        } else {
+            panic!("INFO/CARRIERS_HET not found");
         }
         let num_hemi_alt = record.info().get(&keys::CARRIERS_HEMI_ALT.clone());
         if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hemi_alt))) =
             num_hemi_alt
         {
-            tsv_record.num_hemi_alt = *num_hemi_alt as usize;
+            tsv_record.num_hemi_alt = *num_hemi_alt;
+        } else {
+            panic!("INFO/CARRIERS_HEMI_ALT not found");
         }
         let num_hemi_ref = record.info().get(&keys::CARRIERS_HEMI_REF.clone());
         if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hemi_ref))) =
             num_hemi_ref
         {
-            tsv_record.num_hemi_ref = *num_hemi_ref as usize;
+            tsv_record.num_hemi_ref = *num_hemi_ref;
+        } else {
+            panic!("INFO/CARRIERS_HEMI_REF not found");
         }
 
         // First, create genotype info records.
@@ -1295,15 +1305,15 @@ pub struct VarFishStrucvarTsvRecord {
     pub info: InfoRecord,
 
     /// Number of hom. alt. carriers
-    pub num_hom_alt: usize,
+    pub num_hom_alt: i32,
     /// Number of hom. ref. carriers
-    pub num_hom_ref: usize,
+    pub num_hom_ref: i32,
     /// Number of het. carriers
-    pub num_het: usize,
+    pub num_het: i32,
     /// Number of hemi. alt. carriers
-    pub num_hemi_alt: usize,
+    pub num_hemi_alt: i32,
     /// Number of hemi. ref. carriers
-    pub num_hemi_ref: usize,
+    pub num_hemi_ref: i32,
 
     /// Genotype call information.
     pub genotype: GenotypeCalls,
@@ -1453,25 +1463,39 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
         );
 
         let info = format!(
-            "END={};sv_uuid={};callers={};SVTYPE={};CARRIERS_HET={};\
-            CARRIERS_HOM_REF={};CARRIERS_HOM_ALT={};CARRIERS_HEMI_REF={};\
-            CARRIERS_HEMI_ALT={}",
+            "END={};sv_uuid={};callers={};SVTYPE={}",
             self.end,
             self.sv_uuid,
             self.callers.join(","),
             self.sv_sub_type,
-            self.num_het,
-            self.num_hom_ref,
-            self.num_hom_alt,
-            self.num_hemi_ref,
-            self.num_hemi_alt,
+        );
+        let mut info: vcf::record::Info = info.parse()?;
+        info.insert(
+            keys::CARRIERS_HET.clone(),
+            Some(vcf::record::info::field::Value::Integer(self.num_het)),
+        );
+        info.insert(
+            keys::CARRIERS_HOM_REF.clone(),
+            Some(vcf::record::info::field::Value::Integer(self.num_hom_ref)),
+        );
+        info.insert(
+            keys::CARRIERS_HOM_ALT.clone(),
+            Some(vcf::record::info::field::Value::Integer(self.num_hom_alt)),
+        );
+        info.insert(
+            keys::CARRIERS_HEMI_REF.clone(),
+            Some(vcf::record::info::field::Value::Integer(self.num_hemi_ref)),
+        );
+        info.insert(
+            keys::CARRIERS_HEMI_ALT.clone(),
+            Some(vcf::record::info::field::Value::Integer(self.num_hemi_alt)),
         );
 
         let builder = VcfRecord::builder()
             .set_chromosome(self.chromosome.parse()?)
             .set_position(Position::from(self.start as usize))
             .set_reference_bases("N".parse()?)
-            .set_info(info.parse()?)
+            .set_info(info)
             .set_genotypes(genotypes);
 
         let builder = if self.sv_sub_type == SvSubType::Bnd {
