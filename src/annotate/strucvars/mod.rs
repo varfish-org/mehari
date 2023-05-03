@@ -827,7 +827,9 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
 
         // First, create genotype info records.
         let mut gt_it = record.genotypes().values();
+        dbg!(&header.sample_names());
         for sample_name in header.sample_names() {
+            dbg!(&sample_name);
             tsv_record.genotype.entries.push(GenotypeInfo {
                 name: sample_name.clone(),
                 ..Default::default()
@@ -3159,7 +3161,12 @@ mod test {
 
     #[test]
     fn build_vcf_header_37_no_pedigree() -> Result<(), anyhow::Error> {
-        let header = vcf_header::build(Assembly::Grch37p10, &Default::default(), "20150314")?;
+        let header = vcf_header::build(
+            Assembly::Grch37p10,
+            &Default::default(),
+            "20150314",
+            &vcf::Header::builder().build(),
+        )?;
 
         let mut writer = vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
@@ -3175,7 +3182,12 @@ mod test {
 
     #[test]
     fn build_vcf_header_37_trio() -> Result<(), anyhow::Error> {
-        let header = vcf_header::build(Assembly::Grch37p10, &example_trio(), "20150314")?;
+        let header = vcf_header::build(
+            Assembly::Grch37p10,
+            &example_trio(),
+            "20150314",
+            &example_trio_header(),
+        )?;
 
         let mut writer = vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
@@ -3187,6 +3199,17 @@ mod test {
         assert_eq!(actual, expected);
 
         Ok(())
+    }
+
+    /// Generate VCF header for example trio.
+    fn example_trio_header() -> vcf::Header {
+        let mut builder = vcf::Header::builder();
+
+        for indiv in example_trio().individuals.values() {
+            builder = builder.add_sample_name(indiv.name.clone());
+        }
+
+        builder.build()
     }
 
     /// Generate example trio data.
@@ -3234,7 +3257,12 @@ mod test {
 
     #[test]
     fn build_vcf_header_38_no_pedigree() -> Result<(), anyhow::Error> {
-        let header = vcf_header::build(Assembly::Grch38, &Default::default(), "20150314")?;
+        let header = vcf_header::build(
+            Assembly::Grch38,
+            &Default::default(),
+            "20150314",
+            &vcf::Header::builder().build(),
+        )?;
 
         let mut writer = vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
@@ -3404,7 +3432,12 @@ mod test {
 
     #[test]
     fn write_vcf_from_varfish_records() -> Result<(), anyhow::Error> {
-        let header = vcf_header::build(Assembly::Grch38, &example_trio(), "20150314")?;
+        let header = vcf_header::build(
+            Assembly::Grch38,
+            &example_trio(),
+            "20150314",
+            &example_trio_header(),
+        )?;
 
         let mut writer = vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
@@ -3425,17 +3458,25 @@ mod test {
 
     #[test]
     fn write_tsv_from_varfish_records() -> Result<(), anyhow::Error> {
+        let header = vcf_header::build(
+            Assembly::Grch38,
+            &example_trio(),
+            "20150314",
+            &example_trio_header(),
+        )?;
+
         let temp = TempDir::default();
 
         // scope for writer
         {
             let mut writer = VarFishStrucvarTsvWriter::with_path(temp.join("out.tsv"));
+            writer.write_header(&header)?;
             writer.set_assembly(Assembly::Grch37p10);
             writer.set_pedigree(&example_trio());
 
             for varfish_record in example_records() {
                 let vcf_record: VcfRecord = varfish_record.try_into()?;
-                writer.write_record(&Default::default(), &vcf_record)?;
+                writer.write_record(&header, &vcf_record)?;
             }
         }
 
