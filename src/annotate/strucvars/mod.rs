@@ -732,6 +732,11 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             "sv_type",
             "sv_sub_type",
             "info",
+            "num_hom_alt",
+            "num_hom_ref",
+            "num_het",
+            "num_hemi_alt",
+            "num_hemi_ref",
             "genotype",
         ];
         writeln!(self.inner, "{}", header.join("\t"))
@@ -1200,8 +1205,20 @@ pub struct VarFishStrucvarTsvRecord {
     /// The SV sub type.
     pub sv_sub_type: SvSubType,
 
-    // /// Additional information (currently not used).
+    /// Additional information (currently not used).
     pub info: InfoRecord,
+
+    /// Number of hom. alt. carriers
+    pub num_hom_alt: usize,
+    /// Number of hom. ref. carriers
+    pub num_hom_ref: usize,
+    /// Number of het. carriers
+    pub num_het: usize,
+    /// Number of hemi. alt. carriers
+    pub num_hemi_alt: usize,
+    /// Number of hemi. ref. carriers
+    pub num_hemi_ref: usize,
+
     /// Genotype call information.
     pub genotype: GenotypeCalls,
 }
@@ -1248,6 +1265,14 @@ impl VarFishStrucvarTsvRecord {
         self.callers.extend_from_slice(&other.callers);
         self.callers.sort();
         self.callers.dedup();
+
+        if other.num_hom_alt + other.num_het + other.num_hemi_alt > self.num_hom_alt + self.num_het + self.num_hemi_alt {
+            self.num_hom_alt = other.num_hom_alt;
+            self.num_hom_ref = other.num_hom_ref;
+            self.num_het = other.num_het;
+            self.num_hemi_alt = other.num_hemi_alt;
+            self.num_hemi_ref = other.num_hemi_ref;
+        }
 
         for i in 0..self.genotype.entries.len() {
             let mut lhs = self
@@ -1593,6 +1618,7 @@ pub trait VcfRecordConverter {
         self.fill_genotypes(vcf_record, &mut tsv_record)?;
         self.fill_cis(vcf_record, &mut tsv_record)?;
         self.fill_info(vcf_record, &mut tsv_record)?;
+        self.fill_carriers(vcf_record, &mut tsv_record)?;
 
         Ok(tsv_record)
     }
