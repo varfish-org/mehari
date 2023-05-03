@@ -191,6 +191,7 @@ pub mod vcf_header {
     /// * `pedigree` - Pedigree to use.  Will write out appropriate `META`, `SAMPLE`, and
     ///    `PEDIGREE` header lines.
     /// * `date` - Date to use for the `fileDate` header line.
+    /// * `header` - VCF header from input.
     ///
     /// # Returns
     ///
@@ -199,6 +200,7 @@ pub mod vcf_header {
         assembly: Assembly,
         pedigree: &PedigreeByName,
         date: &str,
+        header: &Header,
     ) -> Result<Header, anyhow::Error> {
         let builder = add_meta_leading(Header::builder(), date)?;
         let builder = add_meta_contigs(builder, assembly)?;
@@ -206,7 +208,7 @@ pub mod vcf_header {
         let builder = add_meta_info(builder)?;
         let builder = add_meta_filter(builder)?;
         let builder = add_meta_format(builder)?;
-        let builder = add_meta_pedigree(builder, pedigree)?;
+        let builder = add_meta_pedigree(builder, pedigree, header)?;
 
         Ok(builder.build())
     }
@@ -428,6 +430,7 @@ pub mod vcf_header {
     fn add_meta_pedigree(
         builder: Builder,
         pedigree: &PedigreeByName,
+        header: &Header,
     ) -> Result<Builder, anyhow::Error> {
         let pedigree_key =
             header::record::key::Key::other("PEDIGREE").expect("invalid other meta key");
@@ -439,7 +442,9 @@ pub mod vcf_header {
         // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles::vcf::header::record::value::map::Other>::builder();
 
         for i in pedigree.individuals.values() {
-            builder = builder.add_sample_name(i.name.clone());
+            if header.sample_names().contains(&i.name) {
+                builder = builder.add_sample_name(i.name.clone());
+            }
 
             // Add SAMPLE entry.
             {
@@ -735,7 +740,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
 
     fn write_record(
         &mut self,
-        _header: &VcfHeader,
+        header: &VcfHeader,
         record: &VcfRecord,
     ) -> Result<(), anyhow::Error> {
         let mut tsv_record = VarFishStrucvarTsvRecord::default();
@@ -820,17 +825,13 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             tsv_record.sv_type.into()
         };
 
-        // Fill `tsv_record.genotypes`.
-        let individuals = &self
-            .pedigree
-            .as_ref()
-            .expect("pedigree must have been set")
-            .individuals;
         // First, create genotype info records.
         let mut gt_it = record.genotypes().values();
-        for (_, indiv) in individuals {
+        dbg!(&header.sample_names());
+        for sample_name in header.sample_names() {
+            dbg!(&sample_name);
             tsv_record.genotype.entries.push(GenotypeInfo {
-                name: indiv.name.clone(),
+                name: sample_name.clone(),
                 ..Default::default()
             });
 
@@ -2552,10 +2553,13 @@ fn read_and_cluster_for_contig(
 ///
 /// * `writer`: The VCF writer.
 /// * `args`: The command line arguments.
+/// * `pedigree`: The pedigree of case.
+/// * `header`: The input VCF header.
 fn run_with_writer(
     writer: &mut dyn AnnotatedVcfWriter,
     args: &Args,
     pedigree: &PedigreeByName,
+    header: &VcfHeader,
 ) -> Result<(), anyhow::Error> {
     // Initialize the random number generator from command line seed if given or local entropy
     // source.
@@ -2599,6 +2603,7 @@ fn run_with_writer(
             .into(),
         pedigree,
         &file_date,
+        header,
     )?;
     writer.write_header(&header_out)?;
 
@@ -2629,14 +2634,15 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
         GenomeRelease::Grch38 => Assembly::Grch38,
     });
-    let assembly = {
+    let (header, assembly) = {
         let mut reader = VariantReaderBuilder::default().build_from_path(
             args.path_input_vcf
                 .first()
                 .expect("must have at least input VCF"),
         )?;
         let header = reader.read_header()?;
-        guess_assembly(&header, false, assembly)?
+        let assembly = guess_assembly(&header, false, assembly)?;
+        (header, assembly)
     };
     tracing::info!("Determined input assembly to be {:?}", &assembly);
     let args = Args {
@@ -2653,12 +2659,12 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             );
             writer.set_assembly(assembly);
             writer.set_pedigree(&pedigree);
-            run_with_writer(&mut writer, &args, &pedigree)?;
+            run_with_writer(&mut writer, &args, &pedigree, &header)?;
         } else {
             let mut writer = VcfWriter::new(File::create(path_output_vcf).map(BufWriter::new)?);
             writer.set_assembly(assembly);
             writer.set_pedigree(&pedigree);
-            run_with_writer(&mut writer, &args, &pedigree)?;
+            run_with_writer(&mut writer, &args, &pedigree, &header)?;
         }
     } else {
         let path_output_tsv = args
@@ -2670,7 +2676,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         writer.set_assembly(assembly);
         writer.set_pedigree(&pedigree);
 
-        run_with_writer(&mut writer, &args, &pedigree)?;
+        run_with_writer(&mut writer, &args, &pedigree, &header)?;
     }
 
     Ok(())
@@ -3155,7 +3161,12 @@ mod test {
 
     #[test]
     fn build_vcf_header_37_no_pedigree() -> Result<(), anyhow::Error> {
-        let header = vcf_header::build(Assembly::Grch37p10, &Default::default(), "20150314")?;
+        let header = vcf_header::build(
+            Assembly::Grch37p10,
+            &Default::default(),
+            "20150314",
+            &vcf::Header::builder().build(),
+        )?;
 
         let mut writer = vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
@@ -3171,7 +3182,12 @@ mod test {
 
     #[test]
     fn build_vcf_header_37_trio() -> Result<(), anyhow::Error> {
-        let header = vcf_header::build(Assembly::Grch37p10, &example_trio(), "20150314")?;
+        let header = vcf_header::build(
+            Assembly::Grch37p10,
+            &example_trio(),
+            "20150314",
+            &example_trio_header(),
+        )?;
 
         let mut writer = vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
@@ -3183,6 +3199,17 @@ mod test {
         assert_eq!(actual, expected);
 
         Ok(())
+    }
+
+    /// Generate VCF header for example trio.
+    fn example_trio_header() -> vcf::Header {
+        let mut builder = vcf::Header::builder();
+
+        for indiv in example_trio().individuals.values() {
+            builder = builder.add_sample_name(indiv.name.clone());
+        }
+
+        builder.build()
     }
 
     /// Generate example trio data.
@@ -3230,7 +3257,12 @@ mod test {
 
     #[test]
     fn build_vcf_header_38_no_pedigree() -> Result<(), anyhow::Error> {
-        let header = vcf_header::build(Assembly::Grch38, &Default::default(), "20150314")?;
+        let header = vcf_header::build(
+            Assembly::Grch38,
+            &Default::default(),
+            "20150314",
+            &vcf::Header::builder().build(),
+        )?;
 
         let mut writer = vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
@@ -3400,7 +3432,12 @@ mod test {
 
     #[test]
     fn write_vcf_from_varfish_records() -> Result<(), anyhow::Error> {
-        let header = vcf_header::build(Assembly::Grch38, &example_trio(), "20150314")?;
+        let header = vcf_header::build(
+            Assembly::Grch38,
+            &example_trio(),
+            "20150314",
+            &example_trio_header(),
+        )?;
 
         let mut writer = vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
@@ -3421,17 +3458,25 @@ mod test {
 
     #[test]
     fn write_tsv_from_varfish_records() -> Result<(), anyhow::Error> {
+        let header = vcf_header::build(
+            Assembly::Grch38,
+            &example_trio(),
+            "20150314",
+            &example_trio_header(),
+        )?;
+
         let temp = TempDir::default();
 
         // scope for writer
         {
             let mut writer = VarFishStrucvarTsvWriter::with_path(temp.join("out.tsv"));
+            writer.write_header(&header)?;
             writer.set_assembly(Assembly::Grch37p10);
             writer.set_pedigree(&example_trio());
 
             for varfish_record in example_records() {
                 let vcf_record: VcfRecord = varfish_record.try_into()?;
-                writer.write_record(&Default::default(), &vcf_record)?;
+                writer.write_record(&header, &vcf_record)?;
             }
         }
 
