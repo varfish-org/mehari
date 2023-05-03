@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/bihealth/mehari/compare/v0.2.1...v0.3.0) (2023-05-03)
+
+
+### Features
+
+* add genotype counting ([#70](https://github.com/bihealth/mehari/issues/70)) ([c40f83c](https://github.com/bihealth/mehari/commit/c40f83ccfa5bd669e3acec2280084b072738695b))
+
+
+### Bug Fixes
+
+* only copy samples from input VCF header ([#69](https://github.com/bihealth/mehari/issues/69)) ([316b123](https://github.com/bihealth/mehari/commit/316b1237648435121e3d2c877426dc36ca31bcdd))
+
 ## [0.2.1](https://github.com/bihealth/mehari/compare/v0.2.0...v0.2.1) (2023-05-02)
 
 
