@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/bihealth/mehari/compare/v0.3.0...v0.3.1) (2023-05-04)
+
+
+### Bug Fixes
+
+* use copy number to fill in genotypes for CNVs ([#72](https://github.com/bihealth/mehari/issues/72)) ([5585a08](https://github.com/bihealth/mehari/commit/5585a084ea10de0612334530ff9a4a55b60518d3))
+
 ## [0.3.0](https://github.com/bihealth/mehari/compare/v0.2.1...v0.3.0) (2023-05-03)
 
 
