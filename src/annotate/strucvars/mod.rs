@@ -2118,6 +2118,8 @@ mod conv {
             // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
 
             tsv_record.genotype.entries = entries;
+            // Post-process genotype and copy number fields and update carrier count as needed.
+            postproc_gt_cn(tsv_record, pedigree);
 
             Ok(())
         }
@@ -2191,6 +2193,8 @@ mod conv {
             // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
 
             tsv_record.genotype.entries = entries;
+            // Post-process genotype and copy number fields and update carrier count as needed.
+            postproc_gt_cn(tsv_record, pedigree);
 
             Ok(())
         }
@@ -2299,6 +2303,8 @@ mod conv {
             // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
 
             tsv_record.genotype.entries = entries;
+            // Post-process genotype and copy number fields and update carrier count as needed.
+            postproc_gt_cn(tsv_record, pedigree);
 
             Ok(())
         }
@@ -2372,6 +2378,8 @@ mod conv {
         // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
 
         tsv_record.genotype.entries = entries;
+        // Post-process genotype and copy number fields and update carrier count as needed.
+        postproc_gt_cn(tsv_record, pedigree);
 
         Ok(())
     }
@@ -2466,6 +2474,8 @@ mod conv {
             // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
 
             tsv_record.genotype.entries = entries;
+            // Post-process genotype and copy number fields and update carrier count as needed.
+            postproc_gt_cn(tsv_record, pedigree);
 
             Ok(())
         }
@@ -2533,6 +2543,46 @@ mod conv {
             (false, true, _, _, _) => (/* do not count; sex missing */),
             // conflicting chromosome
             (true, true, _, _, _) => panic!("cannot be both chrX and chrY"),
+        }
+    }
+
+    /// Postprocess the genotype and copy number fields and update carrier count as needed.
+    ///
+    /// This is needed as callers such as GATK gCNV do not write out genotypes for duplications.
+    /// This is understandable as the genotype is not well-defined for duplications.
+    fn postproc_gt_cn(tsv_record: &mut VarFishStrucvarTsvRecord, pedigree: &PedigreeByName) {
+        let is_chr_x = tsv_record.chromosome.contains('X');
+        let is_chr_y = tsv_record.chromosome.contains('Y');
+        for entry in &tsv_record.genotype.entries {
+            let has_ref = entry.gt.as_ref().map(|s| s.contains("0")).unwrap_or(false);
+            let has_alt = entry.gt.as_ref().map(|s| s.contains("1")).unwrap_or(false);
+            if !has_ref && !has_alt {
+                // This entry was previously removed, we can correct it now (if FORMAT/CN was set).
+                let sex = pedigree
+                    .individuals
+                    .get(&entry.name)
+                    .expect(&format!("sample must be in pedigree: {:?}", &entry.name))
+                    .sex;
+                let expected_cn = match (sex, is_chr_x, is_chr_y) {
+                    (_, false, false) => Some(2),
+                    (Sex::Male, false, true) | (Sex::Male, true, false) => Some(1),
+                    (Sex::Female, true, false) => Some(2),
+                    // do not count, sex missing or conflicting chromosome
+                    _ => None,
+                };
+                if let (Some(cn), Some(expected_cn)) = (entry.cn, expected_cn) {
+                    let delta = (cn - expected_cn).abs();
+                    if expected_cn == 1 {
+                        tsv_record.num_hemi_alt += delta;
+                    } else if delta == 0 {
+                        tsv_record.num_hom_ref += 1;
+                    } else if delta == 1 {
+                        tsv_record.num_het += 1;
+                    } else {
+                        tsv_record.num_hom_alt += 1;
+                    }
+                }
+            }
         }
     }
 }
