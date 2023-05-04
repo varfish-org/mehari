@@ -2524,7 +2524,8 @@ mod conv {
             (true, false, Sex::Male, false, true) => tsv_record.num_hemi_alt += 1,
             (true, false, Sex::Male, true, false) => tsv_record.num_hemi_ref += 1,
             (true, false, Sex::Male, true, true) => {
-                (/* do not count; het. on male chrX */)
+                // count as hemi alt. on male chrX
+                tsv_record.num_hemi_alt += 1;
             }
             (true, false, Sex::Female, false, true) => tsv_record.num_hom_alt += 1,
             (true, false, Sex::Female, true, false) => tsv_record.num_hom_ref += 1,
@@ -2535,7 +2536,8 @@ mod conv {
             (false, true, Sex::Male, false, true) => tsv_record.num_hemi_alt += 1,
             (false, true, Sex::Male, true, false) => tsv_record.num_hemi_ref += 1,
             (false, true, Sex::Male, true, true) => {
-                (/* do not count; het on male chrY */)
+                // count as hemi alt. on male chrY
+                tsv_record.num_hemi_alt += 1;
             }
             (false, true, Sex::Female, _, _) => {
                 (/* do not count; variant in female */)
