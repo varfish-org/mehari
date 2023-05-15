@@ -42,7 +42,7 @@ tracing = { version = "0.1.37", features = ["log"] }
 tracing-subscriber = "0.3.16"
 indicatif = "0.17.3"
 thousands = "0.2.0"
-memmap2 = "0.5.10"
+memmap2 = "0.6.1"
 bio = "1.1.0"
 parse-display = "0.8.0"
 nom = "7.1.3"
