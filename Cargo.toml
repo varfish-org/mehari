@@ -28,7 +28,7 @@ clap = { version = "4.1.8", features = ["derive"] }
 clap-verbosity-flag = "2.0.0"
 csv = "1.2.0"
 flate2 = "1.0.25"
-hgvs = "0.7.0"
+hgvs = "0.8.1"
 lazy_static = "1.4.0"
 log = "0.4.17"
 noodles = { version = "0.35.0", features = ["core", "vcf", "bcf", "csi", "fasta", "bgzf", "tabix"] }
