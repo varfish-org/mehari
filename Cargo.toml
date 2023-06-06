@@ -21,46 +21,52 @@ all-features = true
 name = "mehari"
 
 [dependencies]
-anyhow = "1.0.69"
-byteorder = "1.4.3"
-byte-unit = "4.0.18"
-clap = { version = "4.1.8", features = ["derive"] }
-clap-verbosity-flag = "2.0.0"
-csv = "1.2.0"
-flate2 = "1.0.25"
-hgvs = "0.8.1"
-lazy_static = "1.4.0"
-log = "0.4.17"
-noodles = { version = "0.35.0", features = ["core", "vcf", "bcf", "csi", "fasta", "bgzf", "tabix"] }
-noodles-util = { version = "0.7.0", features = ["variant"] }
-procfs = "0.15.1"
-rocksdb = "0.21.0"
-seqrepo = "0.5.0"
-serde = { version = "1.0.152", features = ["derive"] }
-serde_json = "1.0.94"
-tracing = { version = "0.1.37", features = ["log"] }
-tracing-subscriber = "0.3.16"
-indicatif = "0.17.3"
-thousands = "0.2.0"
-memmap2 = "0.6.1"
-bio = "1.1.0"
-parse-display = "0.8.0"
-nom = "7.1.3"
-linked-hash-map = "0.5.6"
-enumset = { version = "1.0.12", features = ["serde"] }
-bincode = "1.3.3"
-bgzip = "0.3.1"
-rustc-hash = "1.1.0"
-quick_cache = "0.3.0"
-uuid = { version = "1.3.1", features = ["fast-rng", "serde"] }
-strum = { version = "0.24.1", features = ["derive"] }
-tempdir = "0.3.7"
-jsonl = "4.0.1"
-chrono = "0.4.24"
-rand_core = "0.6.4"
-rand = "0.8.5"
-prost = "0.11.9"
-zstd = "0.12.3"
+anyhow = "1.0"
+byteorder = "1.4"
+byte-unit = "4.0"
+clap = { version = "4.1", features = ["derive"] }
+clap-verbosity-flag = "2.0"
+csv = "1.2"
+flate2 = "1.0"
+hgvs = "0.8"
+lazy_static = "1.4"
+log = "0.4"
+procfs = "0.15"
+rocksdb = "0.21"
+seqrepo = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = { version = "0.1", features = ["log"] }
+tracing-subscriber = "0.3"
+indicatif = "0.17"
+thousands = "0.2"
+memmap2 = "0.6"
+bio = "1.1"
+parse-display = "0.8"
+nom = "7.1"
+linked-hash-map = "0.5"
+enumset = { version = "1.0", features = ["serde"] }
+bincode = "1.3"
+bgzip = "0.3"
+rustc-hash = "1.1"
+quick_cache = "0.3"
+uuid = { version = "1.3", features = ["fast-rng", "serde"] }
+strum = { version = "0.24", features = ["derive"] }
+tempdir = "0.3"
+jsonl = "4.0"
+chrono = "0.4"
+rand_core = "0.6"
+rand = "0.8"
+prost = "0.11"
+zstd = "0.12"
+noodles-core = "0.11"
+noodles-vcf = "0.31"
+noodles-bcf = "0.28"
+noodles-csi = "0.19"
+noodles-fasta = "0.23"
+noodles-bgzf = "0.22"
+noodles-tabix = "0.22"
+annonars = "0.7"
 
 [build-dependencies]
 prost-build = "0.11.9"

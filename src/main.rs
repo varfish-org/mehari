@@ -158,7 +158,6 @@ struct DbCreate {
 #[derive(Debug, Subcommand)]
 enum DbCreateCommands {
     Txs(db::create::txs::Args),
-    SeqvarFreqs(db::create::seqvar_freqs::Args),
     SeqvarClinvar(db::create::seqvar_clinvar::Args),
 }
 
@@ -220,9 +219,6 @@ fn main() -> Result<(), anyhow::Error> {
             Commands::Db(db) => match &db.command {
                 DbCommands::Create(db_create) => match &db_create.command {
                     DbCreateCommands::Txs(args) => db::create::txs::run(&cli.common, args)?,
-                    DbCreateCommands::SeqvarFreqs(args) => {
-                        db::create::seqvar_freqs::run(&cli.common, args)?
-                    }
                     DbCreateCommands::SeqvarClinvar(args) => {
                         db::create::seqvar_clinvar::run(&cli.common, args)?
                     }

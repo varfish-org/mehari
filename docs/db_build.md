@@ -24,7 +24,14 @@ $ cat HelixMTdb_20200327.tsv \
 $ tabix -f HelixMTdb_20200327.tsv.gz
 ```
 
-## Post-Processing Database Files
+## Building the Frequency Database
+
+This is done with [annona-rs](https://github.com/bihealth/annona-rs).
+The `annonars` crate is a Rust create that ships with a binary for building genome annotation databases as RocksDB databases.
+You can install it using `cargo install annonars` or Bioconda (`conda install -c bioconda annonars`).
+The `mehari` crate links to the `annonars` library for later accessing the data.
+The main advantage is centralized maintanence of the RocksDB related code and the ability for fast import.
+### Optional: Strip gnomAD VCF Files Before Import
 
 You can strip greatly reduce the nuclear variant files using the following [bcftools](https://samtools.github.io/bcftools/bcftools.html) command line:
 

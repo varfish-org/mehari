@@ -18,20 +18,20 @@ use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use hgvs::static_data::Assembly;
-use noodles::bgzf::Writer as BgzfWriter;
-use noodles::vcf::record::alternate_bases::Allele;
-use noodles::vcf::record::genotypes::Keys;
-use noodles::vcf::record::{Genotypes, Position};
-use noodles::vcf::Record as VcfRecord;
-use noodles::vcf::{self, Header as VcfHeader};
-use noodles::vcf::{
+use noodles_bgzf::Writer as BgzfWriter;
+use noodles_vcf::reader::Builder as VariantReaderBuilder;
+use noodles_vcf::record::alternate_bases::Allele;
+use noodles_vcf::record::genotypes::Keys;
+use noodles_vcf::record::{Genotypes, Position};
+use noodles_vcf::Record as VcfRecord;
+use noodles_vcf::{self, Header as VcfHeader};
+use noodles_vcf::{
     header::info::key::Key as InfoKey, header::info::key::Other as InfoKeyOther,
     header::info::key::Standard as InfoKeyStandard,
     header::record::value::Other as HeaderValueOther,
     record::genotypes::sample::Value as SampleValue,
     record::info::field::value::Value as InfoValue, Writer as VcfWriter,
 };
-use noodles_util::variant::reader::Builder as VariantReaderBuilder;
 use rand::rngs::StdRng;
 use rand::RngCore;
 use rand_core::SeedableRng;
@@ -109,7 +109,7 @@ pub struct PathOutput {
 pub mod keys {
     use std::str::FromStr;
 
-    use noodles::vcf::{
+    use noodles_vcf::{
         header::format::key::Key as FormatKey, header::format::key::Other as FormatKeyOther,
         header::info::key::Key as InfoKey, header::info::key::Other as InfoKeyOther,
     };
@@ -175,11 +175,11 @@ pub mod vcf_header {
     use std::str::FromStr;
 
     use hgvs::static_data::{Assembly, ASSEMBLY_INFOS};
-    use noodles::vcf::header::record::key::Key as HeaderKey;
-    use noodles::vcf::header::record::value::map::{Contig, Filter, Format, Info, Meta, Other};
-    use noodles::vcf::header::record::value::Map;
-    use noodles::vcf::header::{self, record, Number};
-    use noodles::vcf::{
+    use noodles_vcf::header::record::key::Key as HeaderKey;
+    use noodles_vcf::header::record::value::map::{Contig, Filter, Format, Info, Meta, Other};
+    use noodles_vcf::header::record::value::Map;
+    use noodles_vcf::header::{self, record, Number};
+    use noodles_vcf::{
         header::{Builder, FileFormat},
         Header,
     };
@@ -271,7 +271,7 @@ pub mod vcf_header {
 
     /// Add the `ALT` header lines.
     fn add_meta_alt(builder: Builder) -> Result<Builder, anyhow::Error> {
-        use noodles::vcf::{
+        use noodles_vcf::{
             header::record::value::map::AlternativeAllele,
             record::alternate_bases::allele::{
                 symbol::{structural_variant::Type, StructuralVariant},
@@ -493,7 +493,7 @@ pub mod vcf_header {
         let mut builder = add_meta_fields(builder);
 
         // Wait for https://github.com/zaeleus/noodles/issues/162#issuecomment-1514444101
-        // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles::vcf::header::record::value::map::Other>::builder();
+        // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles_vcf::header::record::value::map::Other>::builder();
 
         for i in pedigree.individuals.values() {
             if header.sample_names().contains(&i.name) {
@@ -831,9 +831,8 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         tsv_record.end = {
             let pos_end = record
                 .info()
-                .get(&noodles::vcf::header::info::key::END_POSITION);
-            if let Some(Some(noodles::vcf::record::info::field::Value::Integer(pos_end))) = pos_end
-            {
+                .get(&noodles_vcf::header::info::key::END_POSITION);
+            if let Some(Some(noodles_vcf::record::info::field::Value::Integer(pos_end))) = pos_end {
                 *pos_end
             } else {
                 // E.g., if INS
@@ -843,18 +842,18 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
 
         let sv_uuid = record
             .info()
-            .get(&noodles::vcf::header::info::key::Key::from_str("sv_uuid")?);
-        if let Some(Some(noodles::vcf::record::info::field::Value::String(sv_uuid))) = sv_uuid {
+            .get(&noodles_vcf::header::info::key::Key::from_str("sv_uuid")?);
+        if let Some(Some(noodles_vcf::record::info::field::Value::String(sv_uuid))) = sv_uuid {
             tsv_record.sv_uuid = Uuid::from_str(sv_uuid)?;
         }
         let callers = record
             .info()
-            .get(&noodles::vcf::header::info::key::Key::from_str("callers")?);
-        if let Some(Some(noodles::vcf::record::info::field::Value::String(callers))) = callers {
+            .get(&noodles_vcf::header::info::key::Key::from_str("callers")?);
+        if let Some(Some(noodles_vcf::record::info::field::Value::String(callers))) = callers {
             tsv_record.callers = callers.split(',').map(|x| x.to_string()).collect();
         }
-        let sv_sub_type = record.info().get(&noodles::vcf::header::info::key::SV_TYPE);
-        if let Some(Some(noodles::vcf::record::info::field::Value::String(sv_sub_type))) =
+        let sv_sub_type = record.info().get(&noodles_vcf::header::info::key::SV_TYPE);
+        if let Some(Some(noodles_vcf::record::info::field::Value::String(sv_sub_type))) =
             sv_sub_type
         {
             tsv_record.sv_type =
@@ -885,7 +884,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         };
 
         let num_hom_alt = record.info().get(&keys::CARRIERS_HOM_ALT.clone());
-        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hom_alt))) =
+        if let Some(Some(noodles_vcf::record::info::field::Value::Integer(num_hom_alt))) =
             num_hom_alt
         {
             tsv_record.num_hom_alt = *num_hom_alt;
@@ -893,7 +892,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             panic!("INFO/CARRIERS_HOM_ALT not found");
         }
         let num_hom_ref = record.info().get(&keys::CARRIERS_HOM_REF.clone());
-        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hom_ref))) =
+        if let Some(Some(noodles_vcf::record::info::field::Value::Integer(num_hom_ref))) =
             num_hom_ref
         {
             tsv_record.num_hom_ref = *num_hom_ref;
@@ -901,13 +900,13 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             panic!("INFO/CARRIERS_HOM_REF not found");
         }
         let num_het = record.info().get(&keys::CARRIERS_HET.clone());
-        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_het))) = num_het {
+        if let Some(Some(noodles_vcf::record::info::field::Value::Integer(num_het))) = num_het {
             tsv_record.num_het = *num_het;
         } else {
             panic!("INFO/CARRIERS_HET not found");
         }
         let num_hemi_alt = record.info().get(&keys::CARRIERS_HEMI_ALT.clone());
-        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hemi_alt))) =
+        if let Some(Some(noodles_vcf::record::info::field::Value::Integer(num_hemi_alt))) =
             num_hemi_alt
         {
             tsv_record.num_hemi_alt = *num_hemi_alt;
@@ -915,7 +914,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             panic!("INFO/CARRIERS_HEMI_ALT not found");
         }
         let num_hemi_ref = record.info().get(&keys::CARRIERS_HEMI_REF.clone());
-        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hemi_ref))) =
+        if let Some(Some(noodles_vcf::record::info::field::Value::Integer(num_hemi_ref))) =
             num_hemi_ref
         {
             tsv_record.num_hemi_ref = *num_hemi_ref;
@@ -1988,7 +1987,7 @@ mod conv {
     use super::VarFishStrucvarTsvRecord;
     use super::VcfRecordConverter;
 
-    use noodles::vcf::{
+    use noodles_vcf::{
         header::info::key::Key as InfoKey, header::info::key::Standard as InfoKeyStandard,
         record::genotypes::sample::Value as SampleValue,
         record::info::field::value::Value as InfoValue, Record as VcfRecord,
@@ -3093,7 +3092,7 @@ mod test {
     use clap_verbosity_flag::Verbosity;
     use hgvs::static_data::Assembly;
     use linked_hash_map::LinkedHashMap;
-    use noodles::vcf;
+    use noodles_vcf;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
     use uuid::Uuid;

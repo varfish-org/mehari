@@ -20,23 +20,23 @@ use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use hgvs::static_data::Assembly;
-use noodles::bgzf::Writer as BgzfWriter;
-use noodles::vcf::header::format::key::{
+use noodles_bgzf::Writer as BgzfWriter;
+use noodles_vcf::header::format::key::{
     CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH, READ_DEPTHS,
 };
-use noodles::vcf::header::{
+use noodles_vcf::header::{
     record::value::map::{info::Type, Info},
     Number,
 };
-use noodles::vcf::record::info::field::Value;
-use noodles::vcf::record::Chromosome;
-use noodles::vcf::{
+use noodles_vcf::reader::Builder as VariantReaderBuilder;
+use noodles_vcf::record::info::field::Value;
+use noodles_vcf::record::Chromosome;
+use noodles_vcf::{
     header::format::key::Key as FormatKey, header::format::key::Other as FormatKeyOther,
 };
-use noodles::vcf::{
+use noodles_vcf::{
     header::record::value::map::Map, Header as VcfHeader, Record as VcfRecord, Writer as VcfWriter,
 };
-use noodles_util::variant::reader::Builder as VariantReaderBuilder;
 use rocksdb::ThreadMode;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -112,7 +112,7 @@ pub struct PathOutput {
 pub mod keys {
     use std::str::FromStr;
 
-    use noodles::vcf::{
+    use noodles_vcf::{
         header::info::key::Key as InfoKey, header::info::key::Other as InfoKeyOther,
     };
 
@@ -265,7 +265,7 @@ fn annotate_record_auto<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &rocksdb::ColumnFamily,
     key: &Vec<u8>,
-    vcf_record: &mut noodles::vcf::Record,
+    vcf_record: &mut noodles_vcf::Record,
 ) -> Result<(), anyhow::Error>
 where
     T: ThreadMode,
@@ -307,7 +307,7 @@ fn annotate_record_xy<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &rocksdb::ColumnFamily,
     key: &Vec<u8>,
-    vcf_record: &mut noodles::vcf::Record,
+    vcf_record: &mut noodles_vcf::Record,
 ) -> Result<(), anyhow::Error>
 where
     T: ThreadMode,
@@ -357,7 +357,7 @@ fn annotate_record_mt<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &rocksdb::ColumnFamily,
     key: &Vec<u8>,
-    vcf_record: &mut noodles::vcf::Record,
+    vcf_record: &mut noodles_vcf::Record,
 ) -> Result<(), anyhow::Error>
 where
     T: ThreadMode,
@@ -399,7 +399,7 @@ fn annotate_record_clinvar<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &rocksdb::ColumnFamily,
     key: &Vec<u8>,
-    vcf_record: &mut noodles::vcf::Record,
+    vcf_record: &mut noodles_vcf::Record,
 ) -> Result<(), anyhow::Error>
 where
     T: ThreadMode,
@@ -725,7 +725,7 @@ impl VarFishSeqvarTsvWriter {
             if let Some(gt) = sample
                 .get(&GENOTYPE)
                 .map(|value| match value {
-                    Some(noodles::vcf::record::genotypes::sample::Value::String(s)) => {
+                    Some(noodles_vcf::record::genotypes::sample::Value::String(s)) => {
                         Ok(s.to_owned())
                     }
                     _ => anyhow::bail!("invalid GT value"),
@@ -795,7 +795,7 @@ impl VarFishSeqvarTsvWriter {
             if let Some(dp) = sample
                 .get(&READ_DEPTH)
                 .map(|value| match value {
-                    Some(noodles::vcf::record::genotypes::sample::Value::Integer(i)) => Ok(*i),
+                    Some(noodles_vcf::record::genotypes::sample::Value::Integer(i)) => Ok(*i),
                     None => Ok(-1),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid DP value {:?} in {:#?}", value, sample)),
@@ -809,7 +809,7 @@ impl VarFishSeqvarTsvWriter {
             if let Some(ad) = sample
                 .get(&READ_DEPTHS)
                 .map(|value| match value {
-                    Some(noodles::vcf::record::genotypes::sample::Value::IntegerArray(arr)) => {
+                    Some(noodles_vcf::record::genotypes::sample::Value::IntegerArray(arr)) => {
                         Ok(arr[1].expect("missing AD value"))
                     }
                     None => Ok(-1),
@@ -825,7 +825,7 @@ impl VarFishSeqvarTsvWriter {
             if let Some(gq) = sample
                 .get(&CONDITIONAL_GENOTYPE_QUALITY)
                 .map(|value| match value {
-                    Some(noodles::vcf::record::genotypes::sample::Value::Integer(i)) => Ok(*i),
+                    Some(noodles_vcf::record::genotypes::sample::Value::Integer(i)) => Ok(*i),
                     None => Ok(-1),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
@@ -839,7 +839,7 @@ impl VarFishSeqvarTsvWriter {
             if let Some(sq) = sample
                 .get(&FormatKey::Other(FormatKeyOther::from_str("SQ").unwrap()))
                 .map(|value| match value {
-                    Some(noodles::vcf::record::genotypes::sample::Value::Float(f)) => Ok(*f),
+                    Some(noodles_vcf::record::genotypes::sample::Value::Float(f)) => Ok(*f),
                     None => Ok(-1.0),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),

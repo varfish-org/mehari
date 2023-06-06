@@ -1,9 +1,7 @@
 //! Code for reading maelstrom coverage and mapping quality VCF files.
 
-use noodles::{
-    core::{Position, Region},
-    vcf,
-};
+use noodles_core::{Position, Region};
+use noodles_vcf as vcf;
 use std::{
     ops::Range,
     path::{Path, PathBuf},
