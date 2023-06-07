@@ -11,8 +11,9 @@ use annonars::freqs::cli::import::reading::guess_assembly;
 use annonars::freqs::serialized::{auto, mt, xy};
 use anyhow::anyhow;
 use noodles_vcf::record::genotypes::keys::key::{
-    CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH, READ_DEPTHS,
+    self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH, READ_DEPTHS,
 };
+use noodles_vcf::record::genotypes::sample;
 use prost::Message;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -34,7 +35,7 @@ use noodles_vcf::header::{
     Number,
 };
 use noodles_vcf::reader::Builder as VariantReaderBuilder;
-use noodles_vcf::record::info::field::{self, Value};
+use noodles_vcf::record::info::field;
 use noodles_vcf::record::Chromosome;
 use noodles_vcf::{
     header::record::value::map::Map, Header as VcfHeader, Record as VcfRecord, Writer as VcfWriter,
@@ -239,28 +240,36 @@ where
 
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_exomes_an").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_exomes.an as i32)),
+            Some(field::Value::Integer(auto_record.gnomad_exomes.an as i32)),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_exomes_hom").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_exomes.ac_hom as i32)),
+            Some(field::Value::Integer(
+                auto_record.gnomad_exomes.ac_hom as i32,
+            )),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_exomes_het").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_exomes.ac_het as i32)),
+            Some(field::Value::Integer(
+                auto_record.gnomad_exomes.ac_het as i32,
+            )),
         );
 
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_genomes_an").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_genomes.an as i32)),
+            Some(field::Value::Integer(auto_record.gnomad_genomes.an as i32)),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_genomes_hom").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_genomes.ac_hom as i32)),
+            Some(field::Value::Integer(
+                auto_record.gnomad_genomes.ac_hom as i32,
+            )),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_genomes_het").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_genomes.ac_het as i32)),
+            Some(field::Value::Integer(
+                auto_record.gnomad_genomes.ac_het as i32,
+            )),
         );
     };
     Ok(())
@@ -281,36 +290,48 @@ where
 
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_exomes_an").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_exomes.an as i32)),
+            Some(field::Value::Integer(auto_record.gnomad_exomes.an as i32)),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_exomes_hom").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_exomes.ac_hom as i32)),
+            Some(field::Value::Integer(
+                auto_record.gnomad_exomes.ac_hom as i32,
+            )),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_exomes_het").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_exomes.ac_het as i32)),
+            Some(field::Value::Integer(
+                auto_record.gnomad_exomes.ac_het as i32,
+            )),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_exomes_hemi").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_exomes.ac_hemi as i32)),
+            Some(field::Value::Integer(
+                auto_record.gnomad_exomes.ac_hemi as i32,
+            )),
         );
 
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_genomes_an").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_genomes.an as i32)),
+            Some(field::Value::Integer(auto_record.gnomad_genomes.an as i32)),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_genomes_hom").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_genomes.ac_hom as i32)),
+            Some(field::Value::Integer(
+                auto_record.gnomad_genomes.ac_hom as i32,
+            )),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_genomes_het").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_genomes.ac_het as i32)),
+            Some(field::Value::Integer(
+                auto_record.gnomad_genomes.ac_het as i32,
+            )),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_genomes_hemi").unwrap(),
-            Some(Value::Integer(auto_record.gnomad_genomes.ac_hemi as i32)),
+            Some(field::Value::Integer(
+                auto_record.gnomad_genomes.ac_hemi as i32,
+            )),
         );
     };
     Ok(())
@@ -331,28 +352,28 @@ where
 
         vcf_record.info_mut().insert(
             field::Key::from_str("helix_an").unwrap(),
-            Some(Value::Integer(mt_record.helixmtdb.an as i32)),
+            Some(field::Value::Integer(mt_record.helixmtdb.an as i32)),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("helix_hom").unwrap(),
-            Some(Value::Integer(mt_record.helixmtdb.ac_hom as i32)),
+            Some(field::Value::Integer(mt_record.helixmtdb.ac_hom as i32)),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("helix_het").unwrap(),
-            Some(Value::Integer(mt_record.helixmtdb.ac_het as i32)),
+            Some(field::Value::Integer(mt_record.helixmtdb.ac_het as i32)),
         );
 
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_genomes_an").unwrap(),
-            Some(Value::Integer(mt_record.gnomad_mtdna.an as i32)),
+            Some(field::Value::Integer(mt_record.gnomad_mtdna.an as i32)),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_genomes_hom").unwrap(),
-            Some(Value::Integer(mt_record.gnomad_mtdna.ac_hom as i32)),
+            Some(field::Value::Integer(mt_record.gnomad_mtdna.ac_hom as i32)),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("gnomad_genomes_het").unwrap(),
-            Some(Value::Integer(mt_record.gnomad_mtdna.ac_het as i32)),
+            Some(field::Value::Integer(mt_record.gnomad_mtdna.ac_het as i32)),
         );
     };
     Ok(())
@@ -379,13 +400,13 @@ where
 
         vcf_record.info_mut().insert(
             field::Key::from_str("clinvar_patho").unwrap(),
-            Some(Value::String(
+            Some(field::Value::String(
                 summary_clinvar_pathogenicity.first().unwrap().to_string(),
             )),
         );
         vcf_record.info_mut().insert(
             field::Key::from_str("clinvar_vcv").unwrap(),
-            Some(Value::String(vcv)),
+            Some(field::Value::String(vcv)),
         );
     }
 
@@ -690,9 +711,7 @@ impl VarFishSeqvarTsvWriter {
             if let Some(gt) = sample
                 .get(&GENOTYPE)
                 .map(|value| match value {
-                    Some(noodles_vcf::record::genotypes::sample::Value::String(s)) => {
-                        Ok(s.to_owned())
-                    }
+                    Some(sample::Value::String(s)) => Ok(s.to_owned()),
                     _ => anyhow::bail!("invalid GT value"),
                 })
                 .transpose()?
@@ -760,7 +779,7 @@ impl VarFishSeqvarTsvWriter {
             if let Some(dp) = sample
                 .get(&READ_DEPTH)
                 .map(|value| match value {
-                    Some(noodles_vcf::record::genotypes::sample::Value::Integer(i)) => Ok(*i),
+                    Some(sample::Value::Integer(i)) => Ok(*i),
                     None => Ok(-1),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid DP value {:?} in {:#?}", value, sample)),
@@ -774,7 +793,7 @@ impl VarFishSeqvarTsvWriter {
             if let Some(ad) = sample
                 .get(&READ_DEPTHS)
                 .map(|value| match value {
-                    Some(noodles_vcf::record::genotypes::sample::Value::IntegerArray(arr)) => {
+                    Some(sample::Value::Array(sample::value::Array::Integer(arr))) => {
                         Ok(arr[1].expect("missing AD value"))
                     }
                     None => Ok(-1),
@@ -790,7 +809,7 @@ impl VarFishSeqvarTsvWriter {
             if let Some(gq) = sample
                 .get(&CONDITIONAL_GENOTYPE_QUALITY)
                 .map(|value| match value {
-                    Some(noodles_vcf::record::genotypes::sample::Value::Integer(i)) => Ok(*i),
+                    Some(sample::Value::Integer(i)) => Ok(*i),
                     None => Ok(-1),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
@@ -802,9 +821,9 @@ impl VarFishSeqvarTsvWriter {
             }
 
             if let Some(sq) = sample
-                .get(&FormatKey::Other(FormatKeyOther::from_str("SQ").unwrap()))
+                .get(&key::Key::from_str("SQ")?)
                 .map(|value| match value {
-                    Some(noodles_vcf::record::genotypes::sample::Value::Float(f)) => Ok(*f),
+                    Some(sample::Value::Float(f)) => Ok(*f),
                     None => Ok(-1.0),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
@@ -835,7 +854,7 @@ impl VarFishSeqvarTsvWriter {
             .get(&field::Key::from_str("gnomad_exomes_an").unwrap())
             .unwrap_or_default()
             .map(|v| match v {
-                Value::Integer(value) => *value,
+                field::Value::Integer(value) => *value,
                 _ => panic!("Unexpected value type for GNOMAD_EXOMES_AN"),
             })
             .unwrap_or_default();
@@ -843,27 +862,27 @@ impl VarFishSeqvarTsvWriter {
             tsv_record.gnomad_exomes_homozygous = record
                 .info()
                 .get(&field::Key::from_str("gnomad_exomes_hom").unwrap())
-                .unwrap_or(Some(&Value::Integer(0)))
+                .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
-                    Value::Integer(value) => *value,
+                    field::Value::Integer(value) => *value,
                     _ => panic!("Unexpected value type for GNOMAD_EXOMES_HOM"),
                 })
                 .unwrap_or_default();
             tsv_record.gnomad_exomes_heterozygous = record
                 .info()
                 .get(&field::Key::from_str("gnomad_exomes_het").unwrap())
-                .unwrap_or(Some(&Value::Integer(0)))
+                .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
-                    Value::Integer(value) => *value,
+                    field::Value::Integer(value) => *value,
                     _ => panic!("Unexpected value type for GNOMAD_EXOMES_HET"),
                 })
                 .unwrap_or_default();
             tsv_record.gnomad_exomes_hemizygous = record
                 .info()
                 .get(&field::Key::from_str("gnomad_exomes_hemi").unwrap())
-                .unwrap_or(Some(&Value::Integer(0)))
+                .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
-                    Value::Integer(value) => *value,
+                    field::Value::Integer(value) => *value,
                     _ => panic!("Unexpected value type for GNOMAD_EXOMES_HEMI"),
                 })
                 .unwrap_or_default();
@@ -879,7 +898,7 @@ impl VarFishSeqvarTsvWriter {
             .get(&field::Key::from_str("gnomad_genomes_an").unwrap())
             .unwrap_or_default()
             .map(|v| match v {
-                Value::Integer(value) => *value,
+                field::Value::Integer(value) => *value,
                 _ => panic!("Unexpected value type for GNOMAD_GENOMES_AN"),
             })
             .unwrap_or_default();
@@ -887,27 +906,27 @@ impl VarFishSeqvarTsvWriter {
             tsv_record.gnomad_genomes_homozygous = record
                 .info()
                 .get(&field::Key::from_str("gnomad_genomes_hom").unwrap())
-                .unwrap_or(Some(&Value::Integer(0)))
+                .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
-                    Value::Integer(value) => *value,
+                    field::Value::Integer(value) => *value,
                     _ => panic!("Unexpected value type for GNOMAD_GENOMES_HOM"),
                 })
                 .unwrap_or_default();
             tsv_record.gnomad_genomes_heterozygous = record
                 .info()
                 .get(&field::Key::from_str("gnomad_genomes_het").unwrap())
-                .unwrap_or(Some(&Value::Integer(0)))
+                .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
-                    Value::Integer(value) => *value,
+                    field::Value::Integer(value) => *value,
                     _ => panic!("Unexpected value type for GNOMAD_GENOMES_HET"),
                 })
                 .unwrap_or_default();
             tsv_record.gnomad_genomes_hemizygous = record
                 .info()
                 .get(&field::Key::from_str("gnomad_genomes_hemi").unwrap())
-                .unwrap_or(Some(&Value::Integer(0)))
+                .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
-                    Value::Integer(value) => *value,
+                    field::Value::Integer(value) => *value,
                     _ => panic!("Unexpected value type for GNOMAD_GENOMES_HEMI"),
                 })
                 .unwrap_or_default();
@@ -936,7 +955,7 @@ impl VarFishSeqvarTsvWriter {
             .get(&field::Key::from_str("ANN").unwrap())
             .unwrap_or_default()
             .map(|v| match v {
-                Value::StringArray(values) => values
+                field::Value::Array(field::value::Array::String(values)) => values
                     .iter()
                     .filter(|v| v.is_some())
                     .map(|v| AnnField::from_str(v.as_ref().unwrap())),
@@ -1059,7 +1078,7 @@ impl VarFishSeqvarTsvWriter {
             .get(&field::Key::from_str("clinvar_patho").unwrap())
             .unwrap_or_default()
             .map(|v| match v {
-                Value::String(value) => {
+                field::Value::String(value) => {
                     Pathogenicity::from_str(value).unwrap_or(Pathogenicity::UncertainSignificance)
                         >= Pathogenicity::LikelyPathogenic
                 }
@@ -1473,9 +1492,9 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
                 if !ann_fields.is_empty() {
                     vcf_record.info_mut().insert(
                         field::Key::from_str("ANN").unwrap(),
-                        Some(Value::StringArray(
+                        Some(field::Value::Array(field::value::Array::String(
                             ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
-                        )),
+                        ))),
                     );
                 }
             }

@@ -110,11 +110,11 @@ pub struct PathOutput {
 pub mod vcf_header {
     use std::str::FromStr;
 
+    use annonars::common::cli::is_canonical;
     use hgvs::static_data::{Assembly, ASSEMBLY_INFOS};
-    use noodles_vcf::header::record::key::{Key as HeaderKey, FILTER};
     use noodles_vcf::header::record::value::map::{Contig, Filter, Format, Info, Meta, Other};
     use noodles_vcf::header::record::value::Map;
-    use noodles_vcf::header::{self, record, Number};
+    use noodles_vcf::header::{self, Number};
     use noodles_vcf::record::genotypes::keys::key::{
         self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
     };
@@ -170,14 +170,8 @@ pub mod vcf_header {
     fn add_meta_leading(builder: Builder, date: &str) -> Result<Builder, anyhow::Error> {
         Ok(builder
             .set_file_format(FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR))
-            .insert(
-                HeaderKey::other("fileDate").unwrap(),
-                record::value::Other::from(date),
-            )
-            .insert(
-                HeaderKey::other("source").unwrap(),
-                record::value::Other::from(SOURCE),
-            ))
+            .insert("fileDate".parse()?, header::record::Value::from(date))?
+            .insert("source".parse()?, header::record::Value::from(SOURCE))?)
     }
 
     /// Add the `contig` header lines.
@@ -192,7 +186,7 @@ pub mod vcf_header {
         };
 
         for sequence in &assembly_info.sequences {
-            if CANONICAL.contains(&sequence.name.as_ref()) {
+            if is_canonical(&sequence.name.as_ref()) {
                 let mut contig = Map::<Contig>::try_from(vec![
                     (String::from("length"), format!("{}", sequence.length)),
                     (String::from("assembly"), assembly_name.clone()),
@@ -423,10 +417,6 @@ pub mod vcf_header {
         pedigree: &PedigreeByName,
         header: &Header,
     ) -> Result<Builder, anyhow::Error> {
-        let pedigree_key =
-            header::record::key::Key::other("PEDIGREE").expect("invalid other meta key");
-        let sample_key = header::record::key::Key::other("SAMPLE").expect("invalid other meta key");
-
         let mut builder = add_meta_fields(builder);
 
         // Wait for https://github.com/zaeleus/noodles/issues/162#issuecomment-1514444101
@@ -438,38 +428,30 @@ pub mod vcf_header {
             }
 
             // Add SAMPLE entry.
-            {
-                let mut entries = vec![(String::from("ID"), i.name.clone())];
-                entries.push((String::from("Sex"), sex_str(i.sex)));
-                entries.push((String::from("Disease"), disease_str(i.disease)));
-
-                builder = builder.insert(
-                    sample_key.clone(),
-                    header::record::value::Other::Map(
-                        i.name.clone(),
-                        Map::<Other>::try_from(entries)?,
-                    ),
-                );
-            }
+            builder = builder.insert(
+                "SAMPLE".parse()?,
+                noodles_vcf::header::record::Value::Map(
+                    i.name.clone(),
+                    Map::<Other>::builder()
+                        .insert("Sex".parse()?, sex_str(i.sex))
+                        .insert("Disease".parse()?, disease_str(i.disease))
+                        .insert("Disease".parse()?, "None")
+                        .build()?,
+                ),
+            )?;
 
             // Add PEDIGREE entry.
-            {
-                let mut entries = vec![(String::from("ID"), i.name.clone())];
-                if let Some(father) = i.father.as_ref() {
-                    entries.push((String::from("Father"), father.clone()));
-                }
-                if let Some(mother) = i.mother.as_ref() {
-                    entries.push((String::from("Mother"), mother.clone()));
-                }
-
-                builder = builder.insert(
-                    pedigree_key.clone(),
-                    header::record::value::Other::Map(
-                        i.name.clone(),
-                        Map::<Other>::try_from(entries)?,
-                    ),
-                );
+            let mut map_builder = Map::<Other>::builder();
+            if let Some(father) = i.father.as_ref() {
+                map_builder = map_builder.insert("Father".parse()?, father.clone());
             }
+            if let Some(mother) = i.mother.as_ref() {
+                map_builder = map_builder.insert("Mother".parse()?, mother.clone());
+            }
+            builder = builder.insert(
+                "PEDIGREE".parse()?,
+                noodles_vcf::header::record::Value::Map(i.name.clone(), map_builder.build()?),
+            )?;
         }
 
         Ok(builder)
@@ -767,7 +749,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         };
         tsv_record.end = {
             let pos_end = record.info().get(&END_POSITION);
-            if let Some(Some(noodles_vcf::record::info::field::Value::Integer(pos_end))) = pos_end {
+            if let Some(Some(field::Value::Integer(pos_end))) = pos_end {
                 *pos_end
             } else {
                 // E.g., if INS
@@ -776,17 +758,15 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         };
 
         let sv_uuid = record.info().get(&field::Key::from_str("sv_uuid")?);
-        if let Some(Some(noodles_vcf::record::info::field::Value::String(sv_uuid))) = sv_uuid {
+        if let Some(Some(field::Value::String(sv_uuid))) = sv_uuid {
             tsv_record.sv_uuid = Uuid::from_str(sv_uuid)?;
         }
         let callers = record.info().get(&field::Key::from_str("callers")?);
-        if let Some(Some(noodles_vcf::record::info::field::Value::String(callers))) = callers {
+        if let Some(Some(field::Value::String(callers))) = callers {
             tsv_record.callers = callers.split(',').map(|x| x.to_string()).collect();
         }
         let sv_sub_type = record.info().get(&SV_TYPE);
-        if let Some(Some(noodles_vcf::record::info::field::Value::String(sv_sub_type))) =
-            sv_sub_type
-        {
+        if let Some(Some(field::Value::String(sv_sub_type))) = sv_sub_type {
             tsv_record.sv_type =
                 SvType::from_str(sv_sub_type.split(':').next().expect("invalid INFO/SVTYPE"))?;
             tsv_record.sv_sub_type = SvSubType::from_str(sv_sub_type)?;
@@ -817,9 +797,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         let num_hom_alt = record
             .info()
             .get(&field::Key::from_str("CARRIERS_HOM_ALT")?);
-        if let Some(Some(noodles_vcf::record::info::field::Value::Integer(num_hom_alt))) =
-            num_hom_alt
-        {
+        if let Some(Some(field::Value::Integer(num_hom_alt))) = num_hom_alt {
             tsv_record.num_hom_alt = *num_hom_alt;
         } else {
             panic!("INFO/CARRIERS_HOM_ALT not found");
@@ -827,15 +805,13 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         let num_hom_ref = record
             .info()
             .get(&field::Key::from_str("CARRIERS_HOM_REF")?);
-        if let Some(Some(noodles_vcf::record::info::field::Value::Integer(num_hom_ref))) =
-            num_hom_ref
-        {
+        if let Some(Some(field::Value::Integer(num_hom_ref))) = num_hom_ref {
             tsv_record.num_hom_ref = *num_hom_ref;
         } else {
             panic!("INFO/CARRIERS_HOM_REF not found");
         }
         let num_het = record.info().get(&field::Key::from_str("CARRIERS_HET")?);
-        if let Some(Some(noodles_vcf::record::info::field::Value::Integer(num_het))) = num_het {
+        if let Some(Some(field::Value::Integer(num_het))) = num_het {
             tsv_record.num_het = *num_het;
         } else {
             panic!("INFO/CARRIERS_HET not found");
@@ -843,9 +819,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         let num_hemi_alt = record
             .info()
             .get(&field::Key::from_str("CARRIERS_HEMI_ALT")?);
-        if let Some(Some(noodles_vcf::record::info::field::Value::Integer(num_hemi_alt))) =
-            num_hemi_alt
-        {
+        if let Some(Some(field::Value::Integer(num_hemi_alt))) = num_hemi_alt {
             tsv_record.num_hemi_alt = *num_hemi_alt;
         } else {
             panic!("INFO/CARRIERS_HEMI_ALT not found");
@@ -853,9 +827,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         let num_hemi_ref = record
             .info()
             .get(&field::Key::from_str("CARRIERS_HEMI_REF")?);
-        if let Some(Some(noodles_vcf::record::info::field::Value::Integer(num_hemi_ref))) =
-            num_hemi_ref
-        {
+        if let Some(Some(field::Value::Integer(num_hemi_ref))) = num_hemi_ref {
             tsv_record.num_hemi_ref = *num_hemi_ref;
         } else {
             panic!("INFO/CARRIERS_HEMI_REF not found");
@@ -1425,33 +1397,23 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
         let mut info: noodles_vcf::record::Info = info.parse()?;
         info.insert(
             field::Key::from_str("CARRIERS_HET")?,
-            Some(noodles_vcf::record::info::field::Value::Integer(
-                self.num_het,
-            )),
+            Some(field::Value::Integer(self.num_het)),
         );
         info.insert(
             field::Key::from_str("CARRIERS_HOM_REF")?,
-            Some(noodles_vcf::record::info::field::Value::Integer(
-                self.num_hom_ref,
-            )),
+            Some(field::Value::Integer(self.num_hom_ref)),
         );
         info.insert(
             field::Key::from_str("CARRIERS_HOM_ALT")?,
-            Some(noodles_vcf::record::info::field::Value::Integer(
-                self.num_hom_alt,
-            )),
+            Some(field::Value::Integer(self.num_hom_alt)),
         );
         info.insert(
             field::Key::from_str("CARRIERS_HEMI_REF")?,
-            Some(noodles_vcf::record::info::field::Value::Integer(
-                self.num_hemi_ref,
-            )),
+            Some(field::Value::Integer(self.num_hemi_ref)),
         );
         info.insert(
             field::Key::from_str("CARRIERS_HEMI_ALT")?,
-            Some(noodles_vcf::record::info::field::Value::Integer(
-                self.num_hemi_alt,
-            )),
+            Some(field::Value::Integer(self.num_hemi_alt)),
         );
 
         let builder = noodles_vcf::record::Record::builder()
@@ -1890,7 +1852,7 @@ pub trait VcfRecordConverter {
                 .get(&END_POSITION)
                 .map(|end| {
                     end.map(|end| match end {
-                        noodles_vcf::record::info::field::Value::Integer(value) => Ok(Some(*value)),
+                        field::Value::Integer(value) => Ok(Some(*value)),
                         _ => anyhow::bail!("END is not an integer"),
                     })
                 })
