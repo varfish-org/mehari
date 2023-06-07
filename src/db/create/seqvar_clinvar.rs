@@ -6,16 +6,14 @@ use std::{
     time::Instant,
 };
 
+use annonars::common::keys;
 use bgzip::BGZFReader;
 use clap::Parser;
 use hgvs::static_data::Assembly;
-use rocksdb::{DBWithThreadMode, SingleThreaded};
 use serde::{Deserialize, Serialize};
 use thousands::Separable;
 
 use crate::common::GenomeRelease;
-
-use super::seqvar_freqs::serialized::vcf::Var;
 
 /// Enumeration for ClinVar pathogenicity.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -232,10 +230,10 @@ fn open_tsv(args: &Args) -> Result<Box<dyn BufRead>, anyhow::Error> {
 fn import_clinvar_seqvars(
     args: &Args,
     genome_release: Option<Assembly>,
-    db: &DBWithThreadMode<SingleThreaded>,
-    cf_clinvar: &rocksdb::ColumnFamily,
+    db: &rocksdb::DBWithThreadMode<rocksdb::MultiThreaded>,
 ) -> Result<(), anyhow::Error> {
     let start = Instant::now();
+    let cf_clinvar = db.cf_handle("clinvar_seqvars").unwrap();
 
     // Read first record from TSV file to guess genome release.
     let reader = open_tsv(args)?;
@@ -268,9 +266,9 @@ fn import_clinvar_seqvars(
         record.summary_clinvar_pathogenicity.sort();
         record.summary_paranoid_pathogenicity.sort();
 
-        let var = Var {
+        let var = keys::Var {
             chrom: record.chromosome.clone(),
-            pos: record.start,
+            pos: record.start as i32,
             reference: record.reference.clone(),
             alternative: record.alternative.clone(),
         };
@@ -300,7 +298,7 @@ fn import_clinvar_seqvars(
         // Derive key from record.
         let key: Vec<u8> = var.into();
 
-        db.put_cf(cf_clinvar, key, value)?;
+        db.put_cf(&cf_clinvar, key, value)?;
 
         records_written += 1;
 
@@ -360,40 +358,26 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     let db = rocksdb::DB::open_cf(&options, &args.path_output_db, ["meta", "clinvar_seqvars"])?;
 
     let cf_meta = db.cf_handle("meta").unwrap();
-    let cf_clinvar = db.cf_handle("clinvar_seqvars").unwrap();
 
     tracing::info!("Writing meta data to database");
-    db.put_cf(cf_meta, "genome-release", format!("{genome_release:?}"))?;
+    db.put_cf(&cf_meta, "genome-release", format!("{genome_release:?}"))?;
 
     // Import the ClinVar data TSV file.
     tracing::info!("Processing ClinVar TSV ...");
-    import_clinvar_seqvars(args, genome_release, &db, cf_clinvar)?;
+    import_clinvar_seqvars(args, genome_release, &db)?;
 
-    // Finally, compact manually.
-    tracing::info!("Enforcing manual compaction");
-    db.compact_range_cf(cf_meta, None::<&[u8]>, None::<&[u8]>);
-    db.compact_range_cf(cf_clinvar, None::<&[u8]>, None::<&[u8]>);
-
-    let compaction_start = Instant::now();
-    let mut last_printed = compaction_start;
-    while db
-        .property_int_value(rocksdb::properties::COMPACTION_PENDING)?
-        .unwrap()
-        > 0
-        || db
-            .property_int_value(rocksdb::properties::NUM_RUNNING_COMPACTIONS)?
-            .unwrap()
-            > 0
-    {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        if last_printed.elapsed() > std::time::Duration::from_millis(1000) {
-            log::info!(
-                "... waiting for compaction for {:?}",
-                compaction_start.elapsed()
-            );
-            last_printed = Instant::now();
-        }
-    }
+    tracing::info!("Running RocksDB compaction ...");
+    let before_compaction = std::time::Instant::now();
+    annonars::common::rocks_utils::force_compaction_cf(
+        &db,
+        &["meta", "clinvar"],
+        Some("msg"),
+        true,
+    )?;
+    tracing::info!(
+        "... done compacting RocksDB in {:?}",
+        before_compaction.elapsed()
+    );
 
     tracing::info!("Done building sequence variant ClinVar database");
     Ok(())
