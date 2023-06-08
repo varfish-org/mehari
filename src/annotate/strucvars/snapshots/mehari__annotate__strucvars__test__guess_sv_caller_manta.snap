@@ -1,0 +1,7 @@
+---
+source: src/annotate/strucvars/mod.rs
+expression: sv_caller
+---
+Manta {
+    version: "1.6.0",
+}

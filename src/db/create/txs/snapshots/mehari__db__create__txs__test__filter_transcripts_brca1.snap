@@ -1,0 +1,16 @@
+---
+source: src/db/create/txs/mod.rs
+expression: "tx_data.transcript_ids_for_gene.get(\"BRCA1\").unwrap().iter().map(|s|\n            s.as_str()).collect::<Vec<_>>()"
+---
+- NM_007294.3
+- NM_007294.4
+- NM_007297.3
+- NM_007297.4
+- NM_007298.3
+- NM_007299.3
+- NM_007299.4
+- NM_007300.3
+- NM_007300.4
+- NR_027676.1
+- NR_027676.2
+

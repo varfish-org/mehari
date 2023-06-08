@@ -1,0 +1,7 @@
+---
+source: src/annotate/strucvars/mod.rs
+expression: sv_caller
+---
+DragenCnv {
+    version: "07.021.624.3.10.4",
+}

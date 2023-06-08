@@ -1,12 +1,12 @@
 //! Code for reading maelstrom coverage and mapping quality VCF files.
 
-use noodles::{
-    core::{Position, Region},
-    vcf,
-};
+use noodles_core::{Position, Region};
+use noodles_vcf as vcf;
+use noodles_vcf::record::info::field;
 use std::{
     ops::Range,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 /// Read access for maelstrom coverage/mapping quality VCF files.
@@ -90,7 +90,7 @@ impl Reader {
         for result in query {
             let record = result?;
 
-            let window_end = record.info().get(&vcf::header::info::key::END_POSITION);
+            let window_end = record.info().get(&field::Key::from_str("END")?);
             use vcf::record::info::field::Value::Integer;
             let window_end = if let Some(Some(Integer(window_end))) = window_end {
                 *window_end as usize

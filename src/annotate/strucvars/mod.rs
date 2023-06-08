@@ -10,28 +10,28 @@ use std::str::FromStr;
 use std::{fs::File, io::BufWriter};
 
 use crate::common::GenomeRelease;
-use crate::db::create::seqvar_freqs::reading::{guess_assembly, CANONICAL};
 use crate::ped::PedigreeByName;
+use annonars::common::cli::CANONICAL;
+use annonars::freqs::cli::import::reading::guess_assembly;
 use bio::data_structures::interval_tree::IntervalTree;
 use chrono::Utc;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use hgvs::static_data::Assembly;
-use noodles::bgzf::Writer as BgzfWriter;
-use noodles::vcf::record::alternate_bases::Allele;
-use noodles::vcf::record::genotypes::Keys;
-use noodles::vcf::record::{Genotypes, Position};
-use noodles::vcf::Record as VcfRecord;
-use noodles::vcf::{self, Header as VcfHeader};
-use noodles::vcf::{
-    header::info::key::Key as InfoKey, header::info::key::Other as InfoKeyOther,
-    header::info::key::Standard as InfoKeyStandard,
-    header::record::value::Other as HeaderValueOther,
-    record::genotypes::sample::Value as SampleValue,
-    record::info::field::value::Value as InfoValue, Writer as VcfWriter,
+use noodles_bgzf::Writer as BgzfWriter;
+use noodles_vcf::reader::Builder as VariantReaderBuilder;
+use noodles_vcf::record::alternate_bases::Allele;
+use noodles_vcf::record::genotypes::keys::key::{
+    self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
 };
-use noodles_util::variant::reader::Builder as VariantReaderBuilder;
+use noodles_vcf::record::genotypes::sample::value;
+use noodles_vcf::record::genotypes::{sample, Keys};
+use noodles_vcf::record::info::field;
+use noodles_vcf::record::info::field::key::{END_POSITION, SV_TYPE};
+use noodles_vcf::record::{Genotypes, Position};
+use noodles_vcf::Record as VcfRecord;
+use noodles_vcf::{self, Header as VcfHeader};
 use rand::rngs::StdRng;
 use rand::RngCore;
 use rand_core::SeedableRng;
@@ -106,88 +106,27 @@ pub struct PathOutput {
     pub path_output_tsv: Option<String>,
 }
 
-pub mod keys {
-    use std::str::FromStr;
-
-    use noodles::vcf::{
-        header::format::key::Key as FormatKey, header::format::key::Other as FormatKeyOther,
-        header::info::key::Key as InfoKey, header::info::key::Other as InfoKeyOther,
-    };
-
-    lazy_static::lazy_static! {
-        /// File format.
-        pub static ref FILE_FORMAT: String = String::from("VCFv4.3");
-
-        /// Key for `PASS`.
-        pub static ref PASS: String = String::from("PASS");
-
-        /// Key for `INFO/PE_ORIENTATION`.
-        pub static ref PE_ORIENTATION: InfoKey = InfoKey::Other(InfoKeyOther::from_str("PE_ORIENTATION").unwrap());
-        /// Key for `INFO/CIPOS`.
-        pub static ref CIPOS: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CIPOS").unwrap());
-        /// Key for `INFO/CIEND`.
-        pub static ref CIEND: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CIEND").unwrap());
-        /// Key for `INFO/CALLERS`.
-        pub static ref CALLERS: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CALLERS").unwrap());
-        /// Key for `INFO/SVTYPE`.
-        pub static ref SV_TYPE: InfoKey = InfoKey::Other(InfoKeyOther::from_str("SVTYPE").unwrap());
-        /// Key for `INFO/SVSUBTYPE`.
-        pub static ref SV_SUB_TYPE: InfoKey = InfoKey::Other(InfoKeyOther::from_str("SVSUBTYPE").unwrap());
-
-        /// Key for `INFO/CARRIERS_HET`.
-        pub static ref CARRIERS_HET: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CARRIERS_HET").unwrap());
-        /// Key for `INFO/CARRIERS_HOM_REF`.
-        pub static ref CARRIERS_HOM_REF: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CARRIERS_HOM_REF").unwrap());
-        /// Key for `INFO/CARRIERS_HOM_ALT`.
-        pub static ref CARRIERS_HOM_ALT: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CARRIERS_HOM_ALT").unwrap());
-        /// Key for `INFO/CARRIERS_HEMI_REF`.
-        pub static ref CARRIERS_HEMI_REF: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CARRIERS_HEMI_REF").unwrap());
-        /// Key for `INFO/CARRIERS_HEMI_ALT`.
-        pub static ref CARRIERS_HEMI_ALT: InfoKey = InfoKey::Other(InfoKeyOther::from_str("CARRIERS_HEMI_ALT").unwrap());
-
-        /// Key for `FORMAT/GT`.
-        pub static ref GT: FormatKey = FormatKey::Other(FormatKeyOther::from_str("GT").unwrap());
-        /// Key for `FORMAT/FT`.
-        pub static ref FT: FormatKey = FormatKey::Other(FormatKeyOther::from_str("FT").unwrap());
-        /// Key for `FORMAT/GQ`.
-        pub static ref GQ: FormatKey = FormatKey::Other(FormatKeyOther::from_str("GQ").unwrap());
-        /// Key for `FORMAT/PEC`.
-        pub static ref PEC: FormatKey = FormatKey::Other(FormatKeyOther::from_str("PEC").unwrap());
-        /// Key for `FORMAT/PEV`.
-        pub static ref PEV: FormatKey = FormatKey::Other(FormatKeyOther::from_str("PEV").unwrap());
-        /// Key for `FORMAT/SRC`.
-        pub static ref SRC: FormatKey = FormatKey::Other(FormatKeyOther::from_str("SRC").unwrap());
-        /// Key for `FORMAT/SRV`.
-        pub static ref SRV: FormatKey = FormatKey::Other(FormatKeyOther::from_str("SRV").unwrap());
-        /// Key for `FORMAT/AMQ`.
-        pub static ref AMQ: FormatKey = FormatKey::Other(FormatKeyOther::from_str("AMQ").unwrap());
-        /// Key for `FORMAT/CN`.
-        pub static ref CN: FormatKey = FormatKey::Other(FormatKeyOther::from_str("CN").unwrap());
-        /// Key for `FORMAT/ANC`.
-        pub static ref ANC: FormatKey = FormatKey::Other(FormatKeyOther::from_str("ANC").unwrap());
-        /// Key for `FORMAT/PC`.
-        pub static ref PC: FormatKey = FormatKey::Other(FormatKeyOther::from_str("PC").unwrap());
-    }
-}
-
 /// Code for building the VCF header to be written out.
 pub mod vcf_header {
     use std::str::FromStr;
 
+    use annonars::common::cli::is_canonical;
     use hgvs::static_data::{Assembly, ASSEMBLY_INFOS};
-    use noodles::vcf::header::record::key::Key as HeaderKey;
-    use noodles::vcf::header::record::value::map::{Contig, Filter, Format, Info, Meta, Other};
-    use noodles::vcf::header::record::value::Map;
-    use noodles::vcf::header::{self, record, Number};
-    use noodles::vcf::{
+    use noodles_vcf::header::record::value::map::{Contig, Filter, Format, Info, Meta, Other};
+    use noodles_vcf::header::record::value::Map;
+    use noodles_vcf::header::{self, Number};
+    use noodles_vcf::record::genotypes::keys::key::{
+        self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
+    };
+    use noodles_vcf::record::info::field;
+    use noodles_vcf::record::info::field::key::{
+        END_CONFIDENCE_INTERVALS, END_POSITION, POSITION_CONFIDENCE_INTERVALS, SV_TYPE,
+    };
+    use noodles_vcf::{
         header::{Builder, FileFormat},
         Header,
     };
 
-    use crate::annotate::strucvars::keys::{
-        CARRIERS_HEMI_ALT, CARRIERS_HEMI_REF, CARRIERS_HET, CARRIERS_HOM_ALT, CARRIERS_HOM_REF,
-    };
-    use crate::db::create::seqvar_freqs::reading::CANONICAL;
     use crate::ped::{Disease, PedigreeByName, Sex};
 
     /// Major VCF version to use.
@@ -231,14 +170,8 @@ pub mod vcf_header {
     fn add_meta_leading(builder: Builder, date: &str) -> Result<Builder, anyhow::Error> {
         Ok(builder
             .set_file_format(FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR))
-            .insert(
-                HeaderKey::other("fileDate").unwrap(),
-                record::value::Other::from(date),
-            )
-            .insert(
-                HeaderKey::other("source").unwrap(),
-                record::value::Other::from(SOURCE),
-            ))
+            .insert("fileDate".parse()?, header::record::Value::from(date))?
+            .insert("source".parse()?, header::record::Value::from(SOURCE))?)
     }
 
     /// Add the `contig` header lines.
@@ -253,7 +186,7 @@ pub mod vcf_header {
         };
 
         for sequence in &assembly_info.sequences {
-            if CANONICAL.contains(&sequence.name.as_ref()) {
+            if is_canonical(&sequence.name.as_ref()) {
                 let mut contig = Map::<Contig>::try_from(vec![
                     (String::from("length"), format!("{}", sequence.length)),
                     (String::from("assembly"), assembly_name.clone()),
@@ -271,7 +204,7 @@ pub mod vcf_header {
 
     /// Add the `ALT` header lines.
     fn add_meta_alt(builder: Builder) -> Result<Builder, anyhow::Error> {
-        use noodles::vcf::{
+        use noodles_vcf::{
             header::record::value::map::AlternativeAllele,
             record::alternate_bases::allele::{
                 symbol::{structural_variant::Type, StructuralVariant},
@@ -324,7 +257,6 @@ pub mod vcf_header {
 
     /// Add the `INFO` header lines.
     fn add_meta_info(builder: Builder) -> Result<Builder, anyhow::Error> {
-        use header::info::key::*;
         use header::record::value::map::info::Type;
 
         Ok(builder
@@ -338,7 +270,7 @@ pub mod vcf_header {
                 Map::<Info>::from(&END_CONFIDENCE_INTERVALS),
             )
             .add_info(
-                CARRIERS_HET.clone(),
+                field::Key::from_str("CARRIERS_HET")?,
                 Map::<Info>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -346,7 +278,7 @@ pub mod vcf_header {
                 ),
             )
             .add_info(
-                CARRIERS_HOM_REF.clone(),
+                field::Key::from_str("CARRIERS_HOM_REF")?,
                 Map::<Info>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -354,7 +286,7 @@ pub mod vcf_header {
                 ),
             )
             .add_info(
-                CARRIERS_HOM_ALT.clone(),
+                field::Key::from_str("CARRIERS_HOM_ALT")?,
                 Map::<Info>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -362,7 +294,7 @@ pub mod vcf_header {
                 ),
             )
             .add_info(
-                CARRIERS_HEMI_REF.clone(),
+                field::Key::from_str("CARRIERS_HEMI_REF")?,
                 Map::<Info>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -370,7 +302,7 @@ pub mod vcf_header {
                 ),
             )
             .add_info(
-                CARRIERS_HEMI_ALT.clone(),
+                field::Key::from_str("CARRIERS_HEMI_ALT")?,
                 Map::<Info>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -378,7 +310,7 @@ pub mod vcf_header {
                 ),
             )
             .add_info(
-                Key::from_str("callers")?,
+                field::Key::from_str("callers")?,
                 Map::<Info>::new(
                     Number::Unknown,
                     Type::String,
@@ -388,7 +320,7 @@ pub mod vcf_header {
             // The SV UUID will only be written out temporarily until we don't need TSV anymore.
             // TODO: remove this once we don't need TSV anymore.
             .add_info(
-                Key::from_str("sv_uuid")?,
+                field::Key::from_str("sv_uuid")?,
                 Map::<Info>::new(
                     Number::Unknown,
                     Type::String,
@@ -406,22 +338,21 @@ pub mod vcf_header {
 
     /// Add the `FORMAT` header lines.
     fn add_meta_format(builder: Builder) -> Result<Builder, anyhow::Error> {
-        use header::format::key::*;
         use header::record::value::map::format::Type;
 
         Ok(builder
             .add_format(GENOTYPE, Map::<Format>::from(&GENOTYPE))
-            .add_format(FILTER, Map::<Format>::from(&FILTER))
+            .add_format(key::FILTER, Map::<Format>::from(&key::FILTER))
             .add_format(
                 CONDITIONAL_GENOTYPE_QUALITY,
                 Map::<Format>::from(&CONDITIONAL_GENOTYPE_QUALITY),
             )
             .add_format(
-                Key::from_str("pec")?,
+                key::Key::from_str("pec")?,
                 Map::<Format>::new(Number::Count(1), Type::Integer, "Paired-end coverage"),
             )
             .add_format(
-                Key::from_str("pev")?,
+                key::Key::from_str("pev")?,
                 Map::<Format>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -429,15 +360,15 @@ pub mod vcf_header {
                 ),
             )
             .add_format(
-                Key::from_str("src")?,
+                key::Key::from_str("src")?,
                 Map::<Format>::new(Number::Count(1), Type::Integer, "Split-end coverage"),
             )
             .add_format(
-                Key::from_str("src")?,
+                key::Key::from_str("src")?,
                 Map::<Format>::new(Number::Count(1), Type::Integer, "Split-end variant support"),
             )
             .add_format(
-                Key::from_str("amq")?,
+                key::Key::from_str("amq")?,
                 Map::<Format>::new(Number::Count(1), Type::Integer, "Average mapping quality"),
             )
             .add_format(
@@ -445,7 +376,7 @@ pub mod vcf_header {
                 Map::<Format>::from(&GENOTYPE_COPY_NUMBER),
             )
             .add_format(
-                Key::from_str("anc")?,
+                key::Key::from_str("anc")?,
                 Map::<Format>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -453,7 +384,7 @@ pub mod vcf_header {
                 ),
             )
             .add_format(
-                Key::from_str("pc")?,
+                key::Key::from_str("pc")?,
                 Map::<Format>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -486,14 +417,10 @@ pub mod vcf_header {
         pedigree: &PedigreeByName,
         header: &Header,
     ) -> Result<Builder, anyhow::Error> {
-        let pedigree_key =
-            header::record::key::Key::other("PEDIGREE").expect("invalid other meta key");
-        let sample_key = header::record::key::Key::other("SAMPLE").expect("invalid other meta key");
-
         let mut builder = add_meta_fields(builder);
 
         // Wait for https://github.com/zaeleus/noodles/issues/162#issuecomment-1514444101
-        // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles::vcf::header::record::value::map::Other>::builder();
+        // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles_vcf::header::record::value::map::Other>::builder();
 
         for i in pedigree.individuals.values() {
             if header.sample_names().contains(&i.name) {
@@ -501,38 +428,29 @@ pub mod vcf_header {
             }
 
             // Add SAMPLE entry.
-            {
-                let mut entries = vec![(String::from("ID"), i.name.clone())];
-                entries.push((String::from("Sex"), sex_str(i.sex)));
-                entries.push((String::from("Disease"), disease_str(i.disease)));
-
-                builder = builder.insert(
-                    sample_key.clone(),
-                    header::record::value::Other::Map(
-                        i.name.clone(),
-                        Map::<Other>::try_from(entries)?,
-                    ),
-                );
-            }
+            builder = builder.insert(
+                "SAMPLE".parse()?,
+                noodles_vcf::header::record::Value::Map(
+                    i.name.clone(),
+                    Map::<Other>::builder()
+                        .insert("Sex".parse()?, sex_str(i.sex))
+                        .insert("Disease".parse()?, disease_str(i.disease))
+                        .build()?,
+                ),
+            )?;
 
             // Add PEDIGREE entry.
-            {
-                let mut entries = vec![(String::from("ID"), i.name.clone())];
-                if let Some(father) = i.father.as_ref() {
-                    entries.push((String::from("Father"), father.clone()));
-                }
-                if let Some(mother) = i.mother.as_ref() {
-                    entries.push((String::from("Mother"), mother.clone()));
-                }
-
-                builder = builder.insert(
-                    pedigree_key.clone(),
-                    header::record::value::Other::Map(
-                        i.name.clone(),
-                        Map::<Other>::try_from(entries)?,
-                    ),
-                );
+            let mut map_builder = Map::<Other>::builder();
+            if let Some(father) = i.father.as_ref() {
+                map_builder = map_builder.insert("Father".parse()?, father.clone());
             }
+            if let Some(mother) = i.mother.as_ref() {
+                map_builder = map_builder.insert("Mother".parse()?, mother.clone());
+            }
+            builder = builder.insert(
+                "PEDIGREE".parse()?,
+                noodles_vcf::header::record::Value::Map(i.name.clone(), map_builder.build()?),
+            )?;
         }
 
         Ok(builder)
@@ -829,11 +747,8 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             start as i32
         };
         tsv_record.end = {
-            let pos_end = record
-                .info()
-                .get(&noodles::vcf::header::info::key::END_POSITION);
-            if let Some(Some(noodles::vcf::record::info::field::Value::Integer(pos_end))) = pos_end
-            {
+            let pos_end = record.info().get(&END_POSITION);
+            if let Some(Some(field::Value::Integer(pos_end))) = pos_end {
                 *pos_end
             } else {
                 // E.g., if INS
@@ -841,22 +756,16 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             }
         };
 
-        let sv_uuid = record
-            .info()
-            .get(&noodles::vcf::header::info::key::Key::from_str("sv_uuid")?);
-        if let Some(Some(noodles::vcf::record::info::field::Value::String(sv_uuid))) = sv_uuid {
+        let sv_uuid = record.info().get(&field::Key::from_str("sv_uuid")?);
+        if let Some(Some(field::Value::String(sv_uuid))) = sv_uuid {
             tsv_record.sv_uuid = Uuid::from_str(sv_uuid)?;
         }
-        let callers = record
-            .info()
-            .get(&noodles::vcf::header::info::key::Key::from_str("callers")?);
-        if let Some(Some(noodles::vcf::record::info::field::Value::String(callers))) = callers {
+        let callers = record.info().get(&field::Key::from_str("callers")?);
+        if let Some(Some(field::Value::String(callers))) = callers {
             tsv_record.callers = callers.split(',').map(|x| x.to_string()).collect();
         }
-        let sv_sub_type = record.info().get(&noodles::vcf::header::info::key::SV_TYPE);
-        if let Some(Some(noodles::vcf::record::info::field::Value::String(sv_sub_type))) =
-            sv_sub_type
-        {
+        let sv_sub_type = record.info().get(&SV_TYPE);
+        if let Some(Some(field::Value::String(sv_sub_type))) = sv_sub_type {
             tsv_record.sv_type =
                 SvType::from_str(sv_sub_type.split(':').next().expect("invalid INFO/SVTYPE"))?;
             tsv_record.sv_sub_type = SvSubType::from_str(sv_sub_type)?;
@@ -884,40 +793,40 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             tsv_record.sv_type.into()
         };
 
-        let num_hom_alt = record.info().get(&keys::CARRIERS_HOM_ALT.clone());
-        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hom_alt))) =
-            num_hom_alt
-        {
+        let num_hom_alt = record
+            .info()
+            .get(&field::Key::from_str("CARRIERS_HOM_ALT")?);
+        if let Some(Some(field::Value::Integer(num_hom_alt))) = num_hom_alt {
             tsv_record.num_hom_alt = *num_hom_alt;
         } else {
             panic!("INFO/CARRIERS_HOM_ALT not found");
         }
-        let num_hom_ref = record.info().get(&keys::CARRIERS_HOM_REF.clone());
-        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hom_ref))) =
-            num_hom_ref
-        {
+        let num_hom_ref = record
+            .info()
+            .get(&field::Key::from_str("CARRIERS_HOM_REF")?);
+        if let Some(Some(field::Value::Integer(num_hom_ref))) = num_hom_ref {
             tsv_record.num_hom_ref = *num_hom_ref;
         } else {
             panic!("INFO/CARRIERS_HOM_REF not found");
         }
-        let num_het = record.info().get(&keys::CARRIERS_HET.clone());
-        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_het))) = num_het {
+        let num_het = record.info().get(&field::Key::from_str("CARRIERS_HET")?);
+        if let Some(Some(field::Value::Integer(num_het))) = num_het {
             tsv_record.num_het = *num_het;
         } else {
             panic!("INFO/CARRIERS_HET not found");
         }
-        let num_hemi_alt = record.info().get(&keys::CARRIERS_HEMI_ALT.clone());
-        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hemi_alt))) =
-            num_hemi_alt
-        {
+        let num_hemi_alt = record
+            .info()
+            .get(&field::Key::from_str("CARRIERS_HEMI_ALT")?);
+        if let Some(Some(field::Value::Integer(num_hemi_alt))) = num_hemi_alt {
             tsv_record.num_hemi_alt = *num_hemi_alt;
         } else {
             panic!("INFO/CARRIERS_HEMI_ALT not found");
         }
-        let num_hemi_ref = record.info().get(&keys::CARRIERS_HEMI_REF.clone());
-        if let Some(Some(noodles::vcf::record::info::field::Value::Integer(num_hemi_ref))) =
-            num_hemi_ref
-        {
+        let num_hemi_ref = record
+            .info()
+            .get(&field::Key::from_str("CARRIERS_HEMI_REF")?);
+        if let Some(Some(field::Value::Integer(num_hemi_ref))) = num_hemi_ref {
             tsv_record.num_hemi_ref = *num_hemi_ref;
         } else {
             panic!("INFO/CARRIERS_HEMI_REF not found");
@@ -936,37 +845,37 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
 
             for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
                 match (key.as_ref(), value) {
-                    ("GT", Some(SampleValue::String(gt))) => {
+                    ("GT", Some(sample::Value::String(gt))) => {
                         entry.gt = Some(gt.clone());
                     }
-                    ("FT", Some(SampleValue::String(ft))) => {
+                    ("FT", Some(sample::Value::String(ft))) => {
                         entry.ft = Some(ft.split(';').map(|s| s.to_string()).collect());
                     }
-                    ("GQ", Some(SampleValue::Integer(gq))) => {
+                    ("GQ", Some(sample::Value::Integer(gq))) => {
                         entry.gq = Some(*gq);
                     }
                     // pec
-                    ("pec", Some(SampleValue::Integer(pec))) => {
+                    ("pec", Some(sample::Value::Integer(pec))) => {
                         entry.pec = Some(*pec);
                     }
                     // pev
-                    ("pev", Some(SampleValue::Integer(pev))) => {
+                    ("pev", Some(sample::Value::Integer(pev))) => {
                         entry.pev = Some(*pev);
                     }
                     // src
-                    ("src", Some(SampleValue::Integer(src))) => {
+                    ("src", Some(sample::Value::Integer(src))) => {
                         entry.src = Some(*src);
                     }
                     // amq
-                    ("CN", Some(SampleValue::Integer(cn))) => {
+                    ("CN", Some(sample::Value::Integer(cn))) => {
                         entry.cn = Some(*cn);
                     }
                     // anc
-                    ("anc", Some(SampleValue::Float(anc))) => {
+                    ("anc", Some(sample::Value::Float(anc))) => {
                         entry.anc = Some(*anc);
                     }
                     // pc
-                    ("pc", Some(SampleValue::Integer(pc))) => {
+                    ("pc", Some(sample::Value::Integer(pc))) => {
                         entry.pc = Some(*pc);
                     }
                     // Ignore all other keys.
@@ -1422,42 +1331,57 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<VcfRecord, Self::Error> {
-        use vcf::header::format::key::*;
-
         let mut genotypes = Vec::new();
         for genotype in &self.genotype.entries {
             genotypes.push(vec![
                 genotype
                     .gt
                     .as_ref()
-                    .map(|gt| SampleValue::String(gt.clone())),
+                    .map(|gt| sample::Value::String(gt.clone())),
                 genotype.ft.as_ref().map(|ft| {
-                    SampleValue::StringArray(ft.iter().map(|s| Some(s.clone())).collect())
+                    sample::Value::Array(value::Array::String(
+                        ft.iter().map(|s| Some(s.clone())).collect(),
+                    ))
                 }),
-                genotype.gq.as_ref().map(|gq| SampleValue::Integer(*gq)),
-                genotype.pec.as_ref().map(|pec| SampleValue::Integer(*pec)),
-                genotype.pev.as_ref().map(|pev| SampleValue::Integer(*pev)),
-                genotype.src.as_ref().map(|src| SampleValue::Integer(*src)),
-                genotype.srv.as_ref().map(|srv| SampleValue::Integer(*srv)),
-                genotype.amq.as_ref().map(|amq| SampleValue::Integer(*amq)),
-                genotype.cn.as_ref().map(|cn| SampleValue::Integer(*cn)),
-                genotype.anc.as_ref().map(|anc| SampleValue::Float(*anc)),
-                genotype.pc.as_ref().map(|pc| SampleValue::Integer(*pc)),
+                genotype.gq.as_ref().map(|gq| sample::Value::Integer(*gq)),
+                genotype
+                    .pec
+                    .as_ref()
+                    .map(|pec| sample::Value::Integer(*pec)),
+                genotype
+                    .pev
+                    .as_ref()
+                    .map(|pev| sample::Value::Integer(*pev)),
+                genotype
+                    .src
+                    .as_ref()
+                    .map(|src| sample::Value::Integer(*src)),
+                genotype
+                    .srv
+                    .as_ref()
+                    .map(|srv| sample::Value::Integer(*srv)),
+                genotype
+                    .amq
+                    .as_ref()
+                    .map(|amq| sample::Value::Integer(*amq)),
+                genotype.cn.as_ref().map(|cn| sample::Value::Integer(*cn)),
+                genotype.anc.as_ref().map(|anc| sample::Value::Float(*anc)),
+                genotype.pc.as_ref().map(|pc| sample::Value::Integer(*pc)),
             ]);
         }
         let genotypes = Genotypes::new(
             Keys::try_from(vec![
                 GENOTYPE,
-                FILTER,
+                key::FILTER,
                 CONDITIONAL_GENOTYPE_QUALITY,
-                Key::from_str("pec")?,
-                Key::from_str("pev")?,
-                Key::from_str("src")?,
-                Key::from_str("srv")?,
-                Key::from_str("amq")?,
+                key::Key::from_str("pec")?,
+                key::Key::from_str("pev")?,
+                key::Key::from_str("src")?,
+                key::Key::from_str("srv")?,
+                key::Key::from_str("amq")?,
                 GENOTYPE_COPY_NUMBER,
-                Key::from_str("anc")?,
-                Key::from_str("pc")?,
+                key::Key::from_str("anc")?,
+                key::Key::from_str("pc")?,
             ])?,
             genotypes,
         );
@@ -1469,29 +1393,29 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
             self.callers.join(","),
             self.sv_sub_type,
         );
-        let mut info: vcf::record::Info = info.parse()?;
+        let mut info: noodles_vcf::record::Info = info.parse()?;
         info.insert(
-            keys::CARRIERS_HET.clone(),
-            Some(vcf::record::info::field::Value::Integer(self.num_het)),
+            field::Key::from_str("CARRIERS_HET")?,
+            Some(field::Value::Integer(self.num_het)),
         );
         info.insert(
-            keys::CARRIERS_HOM_REF.clone(),
-            Some(vcf::record::info::field::Value::Integer(self.num_hom_ref)),
+            field::Key::from_str("CARRIERS_HOM_REF")?,
+            Some(field::Value::Integer(self.num_hom_ref)),
         );
         info.insert(
-            keys::CARRIERS_HOM_ALT.clone(),
-            Some(vcf::record::info::field::Value::Integer(self.num_hom_alt)),
+            field::Key::from_str("CARRIERS_HOM_ALT")?,
+            Some(field::Value::Integer(self.num_hom_alt)),
         );
         info.insert(
-            keys::CARRIERS_HEMI_REF.clone(),
-            Some(vcf::record::info::field::Value::Integer(self.num_hemi_ref)),
+            field::Key::from_str("CARRIERS_HEMI_REF")?,
+            Some(field::Value::Integer(self.num_hemi_ref)),
         );
         info.insert(
-            keys::CARRIERS_HEMI_ALT.clone(),
-            Some(vcf::record::info::field::Value::Integer(self.num_hemi_alt)),
+            field::Key::from_str("CARRIERS_HEMI_ALT")?,
+            Some(field::Value::Integer(self.num_hemi_alt)),
         );
 
-        let builder = VcfRecord::builder()
+        let builder = noodles_vcf::record::Record::builder()
             .set_chromosome(self.chromosome.parse()?)
             .set_position(Position::from(self.start as usize))
             .set_reference_bases("N".parse()?)
@@ -1592,10 +1516,10 @@ impl SvCaller {
     fn version_from_info_svmethod(&self, record: &VcfRecord) -> Result<String, anyhow::Error> {
         let value = record
             .info()
-            .get(&InfoKey::Other(InfoKeyOther::from_str("SVMETHOD")?))
+            .get(&field::Key::from_str("SVMETHOD")?)
             .ok_or(anyhow::anyhow!("Problem with INFO/SVMETHOD field"))?
             .ok_or(anyhow::anyhow!("Problem with INFO/SVMETHOD INFO field"))?;
-        if let InfoValue::String(value) = value {
+        if let field::Value::String(value) = value {
             Ok(value.split('v').last().unwrap().to_string())
         } else {
             anyhow::bail!("Problem with INFO/SVMETHOD INFO field")
@@ -1606,11 +1530,10 @@ impl SvCaller {
     fn version_from_source_trailing(&self, header: &VcfHeader) -> Result<String, anyhow::Error> {
         for (key, values) in header.other_records() {
             if key.as_ref() == "source" {
-                for value in values {
-                    if let HeaderValueOther::String(value) = value {
-                        if let Some(version) = value.split(' ').last() {
-                            return Ok(version.to_string());
-                        }
+                if let noodles_vcf::header::record::value::Collection::Unstructured(inner) = values
+                {
+                    if let Some(version) = inner[0].split(' ').last() {
+                        return Ok(version.to_string());
                     }
                 }
             }
@@ -1619,8 +1542,7 @@ impl SvCaller {
         anyhow::bail!("Could not extract ##source header")
     }
 
-    /// Parse out version from `$row_key=<ID=...,CommandLine="...",\
-    /// Version="<VERSION>",Date="...">`
+    /// Parse out version from `$row_key=<ID=...,CommandLine="...",Version="<VERSION>",Date="...">`
     fn version_from_mapping_key(
         &self,
         header: &VcfHeader,
@@ -1628,12 +1550,10 @@ impl SvCaller {
     ) -> Result<String, anyhow::Error> {
         for (key, values) in header.other_records() {
             if key.as_ref() == row_key {
-                for value in values {
-                    if let HeaderValueOther::Map(_, m) = value {
-                        for (k, v) in m.other_fields() {
-                            if k.as_ref() == "Version" {
-                                return Ok(v.clone());
-                            }
+                if let noodles_vcf::header::record::value::Collection::Structured(inner) = values {
+                    for (_, inner2) in inner.iter() {
+                        if let Some(version) = inner2.other_fields().get("Version") {
+                            return Ok(version.to_string());
                         }
                     }
                 }
@@ -1669,11 +1589,10 @@ impl SvCaller {
     fn source_starts_with(&self, header: &VcfHeader, prefix: &str) -> bool {
         for (key, values) in header.other_records() {
             if key.as_ref() == "source" {
-                for value in values {
-                    if let HeaderValueOther::String(value) = value {
-                        if value.starts_with(prefix) {
-                            return true;
-                        }
+                if let noodles_vcf::header::record::value::Collection::Unstructured(inner) = values
+                {
+                    if inner[0].starts_with(prefix) {
+                        return true;
                     }
                 }
             }
@@ -1688,7 +1607,7 @@ pub fn guess_sv_caller<P>(p: P) -> Result<SvCaller, anyhow::Error>
 where
     P: AsRef<Path>,
 {
-    let mut reader = vcf::reader::Builder::default().build_from_path(p)?;
+    let mut reader = noodles_vcf::reader::Builder::default().build_from_path(p)?;
     let header = reader.read_header()?;
     let mut records = reader.records(&header);
     let record = records
@@ -1806,10 +1725,10 @@ pub trait VcfRecordConverter {
     ) -> Result<(), anyhow::Error> {
         let sv_type = vcf_record
             .info()
-            .get(&InfoKey::Standard(InfoKeyStandard::SvType))
+            .get(&SV_TYPE)
             .ok_or_else(|| anyhow::anyhow!("SVTYPE not found"))?
             .ok_or_else(|| anyhow::anyhow!("SVTYPE empty"))?;
-        if let InfoValue::String(value) = sv_type {
+        if let field::Value::String(value) = sv_type {
             tsv_record.sv_sub_type = SvSubType::from_str(value)?;
         } else {
             anyhow::bail!("SVTYPE is not a string");
@@ -1860,8 +1779,10 @@ pub trait VcfRecordConverter {
 
         // Chromosome (of start position if BND).
         let chrom = match vcf_record.chromosome() {
-            vcf::record::Chromosome::Name(name) => name.clone(),
-            vcf::record::Chromosome::Symbol(_) => panic!("Chromosome symbols are not supported"),
+            noodles_vcf::record::Chromosome::Name(name) => name.clone(),
+            noodles_vcf::record::Chromosome::Symbol(_) => {
+                panic!("Chromosome symbols are not supported")
+            }
         };
         tsv_record.chromosome = if let Some(chrom) = chrom.strip_prefix("chr") {
             chrom.to_string()
@@ -1916,10 +1837,10 @@ pub trait VcfRecordConverter {
         } else {
             let tmp_end = vcf_record
                 .info()
-                .get(&InfoKey::Standard(InfoKeyStandard::EndPosition))
+                .get(&END_POSITION)
                 .map(|end| {
                     end.map(|end| match end {
-                        vcf::record::info::field::Value::Integer(value) => Ok(Some(*value)),
+                        field::Value::Integer(value) => Ok(Some(*value)),
                         _ => anyhow::bail!("END is not an integer"),
                     })
                 })
@@ -1988,10 +1909,12 @@ mod conv {
     use super::VarFishStrucvarTsvRecord;
     use super::VcfRecordConverter;
 
-    use noodles::vcf::{
-        header::info::key::Key as InfoKey, header::info::key::Standard as InfoKeyStandard,
-        record::genotypes::sample::Value as SampleValue,
-        record::info::field::value::Value as InfoValue, Record as VcfRecord,
+    use noodles_vcf::record::genotypes::sample;
+    use noodles_vcf::record::genotypes::sample::value;
+    use noodles_vcf::record::info::field::key::END_CONFIDENCE_INTERVALS;
+    use noodles_vcf::record::info::field::key::POSITION_CONFIDENCE_INTERVALS;
+    use noodles_vcf::{
+        record::genotypes::sample::Value as SampleValue, record::info::field, Record as VcfRecord,
     };
 
     /// Helper function that extract the CIPOS and CIEND fields from `vcf_record` into `tsv_record`.
@@ -1999,11 +1922,9 @@ mod conv {
         vcf_record: &VcfRecord,
         tsv_record: &mut VarFishStrucvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
-        let cipos = vcf_record.info().get(&InfoKey::Standard(
-            InfoKeyStandard::PositionConfidenceIntervals,
-        ));
+        let cipos = vcf_record.info().get(&POSITION_CONFIDENCE_INTERVALS);
         // Extract CIPOS; missing field is OK, but if present, must be integer array of length 2.
-        if let Some(Some(InfoValue::IntegerArray(cipos))) = cipos {
+        if let Some(Some(field::value::Value::Array(field::value::Array::Integer(cipos)))) = cipos {
             if cipos.len() == 2 {
                 tsv_record.start_ci_left =
                     cipos[0].ok_or(anyhow::anyhow!("CIPOS[0] is missing"))?;
@@ -2014,10 +1935,8 @@ mod conv {
             }
         }
         // Extract CIEND; missing field is OK, but if present, must be integer array of length 2.
-        let ciend = vcf_record
-            .info()
-            .get(&InfoKey::Standard(InfoKeyStandard::EndConfidenceIntervals));
-        if let Some(Some(InfoValue::IntegerArray(ciend))) = ciend {
+        let ciend = vcf_record.info().get(&END_CONFIDENCE_INTERVALS);
+        if let Some(Some(field::value::Value::Array(field::value::Array::Integer(ciend)))) = ciend {
             if ciend.len() == 2 {
                 tsv_record.end_ci_left = ciend[0].ok_or(anyhow::anyhow!("CIEND[0] is missing"))?;
                 tsv_record.end_ci_right = ciend[1].ok_or(anyhow::anyhow!("CIEND[1] is missing"))?;
@@ -2356,14 +2275,14 @@ mod conv {
                             Some(ft.split(';').map(|s| s.to_string()).collect());
                     }
                     // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/PR`.
-                    ("PR", Some(SampleValue::IntegerArray(dv))) => {
+                    ("PR", Some(sample::Value::Array(value::Array::Integer(dv)))) => {
                         let ref_ = dv[0].expect("PR[0] is missing");
                         let var = dv[1].expect("PR[1] is missing");
                         entries[sample_no].pec = Some(ref_ + var);
                         entries[sample_no].pev = Some(var);
                     }
                     // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/PR`.
-                    ("SR", Some(SampleValue::IntegerArray(sr))) => {
+                    ("SR", Some(sample::Value::Array(value::Array::Integer(sr)))) => {
                         let ref_ = sr[0].expect("SR[0] is missing");
                         let var = sr[1].expect("SR[1] is missing");
                         entries[sample_no].src = Some(ref_ + var);
@@ -2459,7 +2378,7 @@ mod conv {
                             entries[sample_no].gq = Some(*gq);
                         }
                         // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/DAD[{0,3}]`.
-                        ("PR", Some(SampleValue::IntegerArray(dad))) => {
+                        ("PR", Some(sample::Value::Array(value::Array::Integer(dad)))) => {
                             let ref_ = dad[0].expect("DAD[0] is missing");
                             let var = dad[3].expect("DAD[3] is missing");
                             entries[sample_no].pec = Some(ref_ + var);
@@ -2646,7 +2565,7 @@ fn run_vcf_to_jsonl(
     let sv_caller = guess_sv_caller(path_input)?;
     tracing::debug!("guessed caller/version to be {:?}", &sv_caller);
 
-    let mut reader = vcf::reader::Builder::default().build_from_path(path_input)?;
+    let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path_input)?;
     let header: VcfHeader = reader.read_header()?;
 
     let samples = header
@@ -2928,7 +2847,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
         if path_output_vcf.ends_with(".vcf.gz") || path_output_vcf.ends_with(".vcf.bgzf") {
-            let mut writer = VcfWriter::new(
+            let mut writer = noodles_vcf::Writer::new(
                 File::create(path_output_vcf)
                     .map(BufWriter::new)
                     .map(BgzfWriter::new)?,
@@ -2937,7 +2856,8 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             writer.set_pedigree(&pedigree);
             run_with_writer(&mut writer, &args, &pedigree, &header)?;
         } else {
-            let mut writer = VcfWriter::new(File::create(path_output_vcf).map(BufWriter::new)?);
+            let mut writer =
+                noodles_vcf::Writer::new(File::create(path_output_vcf).map(BufWriter::new)?);
             writer.set_assembly(assembly);
             writer.set_pedigree(&pedigree);
             run_with_writer(&mut writer, &args, &pedigree, &header)?;
@@ -2975,7 +2895,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 pub mod bnd {
     use super::PeOrientation;
 
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, serde::Deserialize, serde::Serialize)]
     pub struct Breakend {
         /// Name of the chromosome.
         pub chrom: String,
@@ -3093,7 +3013,7 @@ mod test {
     use clap_verbosity_flag::Verbosity;
     use hgvs::static_data::Assembly;
     use linked_hash_map::LinkedHashMap;
-    use noodles::vcf;
+    use noodles_vcf;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
     use uuid::Uuid;
@@ -3102,8 +3022,8 @@ mod test {
         annotate::{
             seqvars::AnnotatedVcfWriter,
             strucvars::{
-                GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvCaller, SvSubType,
-                SvType, VarFishStrucvarTsvRecord,
+                GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvSubType, SvType,
+                VarFishStrucvarTsvRecord,
             },
         },
         common::GenomeRelease,
@@ -3124,78 +3044,12 @@ mod test {
     /// Test for the parsing of breakend alleles.
     #[test]
     fn parse_bnd() -> Result<(), anyhow::Error> {
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("G"),
-                alt_base: String::from("A"),
-                leading_base: true,
-                left_open: true,
-                pe_orientation: PeOrientation::FiveToFive,
-            },
-            Breakend::from_ref_alt_str("G", "A]17:198982]")?,
-        );
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("G"),
-                alt_base: String::from("A"),
-                leading_base: true,
-                left_open: false,
-                pe_orientation: PeOrientation::FiveToThree,
-            },
-            Breakend::from_ref_alt_str("G", "A[17:198982[")?,
-        );
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("G"),
-                alt_base: String::from("A"),
-                leading_base: false,
-                left_open: true,
-                pe_orientation: PeOrientation::ThreeToFive,
-            },
-            Breakend::from_ref_alt_str("G", "]17:198982]A")?,
-        );
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("G"),
-                alt_base: String::from("A"),
-                leading_base: false,
-                left_open: false,
-                pe_orientation: PeOrientation::ThreeToThree,
-            },
-            Breakend::from_ref_alt_str("G", "[17:198982[A")?,
-        );
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("GA"),
-                alt_base: String::from("TA"),
-                leading_base: false,
-                left_open: false,
-                pe_orientation: PeOrientation::ThreeToThree,
-            },
-            Breakend::from_ref_alt_str("GA", "[17:198982[TA")?,
-        );
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("GA"),
-                alt_base: String::from("TA"),
-                leading_base: true,
-                left_open: true,
-                pe_orientation: PeOrientation::FiveToFive,
-            },
-            Breakend::from_ref_alt_str("GA", "TA]17:198982]")?,
-        );
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("G", "A]17:198982]")?);
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("G", "A[17:198982[")?);
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("G", "]17:198982]A")?);
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("G", "[17:198982[A")?);
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("GA", "[17:198982[TA")?);
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("GA", "TA]17:198982]")?);
 
         Ok(())
     }
@@ -3212,7 +3066,7 @@ mod test {
         let temp = TempDir::default();
         let out_jsonl = File::create(temp.join(out_file_name))?;
 
-        let mut reader = vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
+        let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
         let header_in = reader.read_header()?;
 
         // Setup deterministic bytes for UUID generation.
@@ -3247,7 +3101,7 @@ mod test {
 
     /// Helper that returns sample names from VCF.
     fn vcf_samples(path: &str) -> Result<Vec<String>, anyhow::Error> {
-        let mut reader = vcf::reader::Builder::default().build_from_path(path)?;
+        let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path)?;
         let header: VcfHeader = reader.read_header()?;
         Ok(header
             .sample_names()
@@ -3417,13 +3271,7 @@ mod test {
     #[test]
     fn guess_sv_caller_delly() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/delly2-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::Delly {
-                version: String::from("1.1.3")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3431,13 +3279,7 @@ mod test {
     #[test]
     fn guess_sv_caller_dragen_sv() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/dragen-sv-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::DragenSv {
-                version: String::from("07.021.624.3.10.4")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3445,13 +3287,7 @@ mod test {
     #[test]
     fn guess_sv_caller_dragen_cnv() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/dragen-cnv-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::DragenCnv {
-                version: String::from("07.021.624.3.10.4")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3459,13 +3295,7 @@ mod test {
     #[test]
     fn guess_sv_caller_gcnv() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/gcnv-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::Gcnv {
-                version: String::from("4.3.0.0")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3473,13 +3303,7 @@ mod test {
     #[test]
     fn guess_sv_caller_manta() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/manta-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::Manta {
-                version: String::from("1.6.0")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3487,13 +3311,7 @@ mod test {
     #[test]
     fn guess_sv_caller_popdel() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/popdel-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::Popdel {
-                version: String::from("1.1.2")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3504,10 +3322,10 @@ mod test {
             Assembly::Grch37p10,
             &Default::default(),
             "20150314",
-            &vcf::Header::builder().build(),
+            &noodles_vcf::Header::builder().build(),
         )?;
 
-        let mut writer = vcf::Writer::new(Vec::new());
+        let mut writer = noodles_vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;
 
@@ -3528,7 +3346,7 @@ mod test {
             &example_trio_header(),
         )?;
 
-        let mut writer = vcf::Writer::new(Vec::new());
+        let mut writer = noodles_vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;
 
@@ -3541,8 +3359,8 @@ mod test {
     }
 
     /// Generate VCF header for example trio.
-    fn example_trio_header() -> vcf::Header {
-        let mut builder = vcf::Header::builder();
+    fn example_trio_header() -> noodles_vcf::Header {
+        let mut builder = noodles_vcf::Header::builder();
 
         for indiv in example_trio().individuals.values() {
             builder = builder.add_sample_name(indiv.name.clone());
@@ -3600,10 +3418,10 @@ mod test {
             Assembly::Grch38,
             &Default::default(),
             "20150314",
-            &vcf::Header::builder().build(),
+            &noodles_vcf::Header::builder().build(),
         )?;
 
-        let mut writer = vcf::Writer::new(Vec::new());
+        let mut writer = noodles_vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;
 
@@ -3788,7 +3606,7 @@ mod test {
             &example_trio_header(),
         )?;
 
-        let mut writer = vcf::Writer::new(Vec::new());
+        let mut writer = noodles_vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
 
         for varfish_record in example_records() {

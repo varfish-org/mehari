@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use annonars::common::cli::CANONICAL;
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use hgvs::{
     data::error::Error,
@@ -19,10 +20,7 @@ use linked_hash_map::LinkedHashMap;
 
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
-    db::create::{
-        seqvar_freqs::reading::CANONICAL,
-        txs::data::{Strand, Transcript, TxSeqDatabase},
-    },
+    db::create::txs::data::{Strand, Transcript, TxSeqDatabase},
 };
 
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
