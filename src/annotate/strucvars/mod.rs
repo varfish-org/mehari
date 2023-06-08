@@ -435,7 +435,6 @@ pub mod vcf_header {
                     Map::<Other>::builder()
                         .insert("Sex".parse()?, sex_str(i.sex))
                         .insert("Disease".parse()?, disease_str(i.disease))
-                        .insert("Disease".parse()?, "None")
                         .build()?,
                 ),
             )?;
@@ -1531,23 +1530,19 @@ impl SvCaller {
     fn version_from_source_trailing(&self, header: &VcfHeader) -> Result<String, anyhow::Error> {
         for (key, values) in header.other_records() {
             if key.as_ref() == "source" {
-                panic!("{:?}", values);
-                // TODO XXX
-                // for value in values {
-                //     if let HeaderValueOther::String(value) = value {
-                //         if let Some(version) = value.split(' ').last() {
-                //             return Ok(version.to_string());
-                //         }
-                //     }
-                // }
+                if let noodles_vcf::header::record::value::Collection::Unstructured(inner) = values
+                {
+                    if let Some(version) = inner[0].split(' ').last() {
+                        return Ok(version.to_string());
+                    }
+                }
             }
         }
 
         anyhow::bail!("Could not extract ##source header")
     }
 
-    /// Parse out version from `$row_key=<ID=...,CommandLine="...",\
-    /// Version="<VERSION>",Date="...">`
+    /// Parse out version from `$row_key=<ID=...,CommandLine="...",Version="<VERSION>",Date="...">`
     fn version_from_mapping_key(
         &self,
         header: &VcfHeader,
@@ -1555,17 +1550,13 @@ impl SvCaller {
     ) -> Result<String, anyhow::Error> {
         for (key, values) in header.other_records() {
             if key.as_ref() == row_key {
-                panic!("{:?}", values);
-                // TODO XXX
-                // for value in values.iter() {
-                //     if let HeaderValueOther::Map(_, m) = value {
-                //         for (k, v) in m.other_fields() {
-                //             if k.as_ref() == "Version" {
-                //                 return Ok(v.clone());
-                //             }
-                //         }
-                //     }
-                // }
+                if let noodles_vcf::header::record::value::Collection::Structured(inner) = values {
+                    for (_, inner2) in inner.iter() {
+                        if let Some(version) = inner2.other_fields().get("Version") {
+                            return Ok(version.to_string());
+                        }
+                    }
+                }
             }
         }
 
@@ -1598,15 +1589,12 @@ impl SvCaller {
     fn source_starts_with(&self, header: &VcfHeader, prefix: &str) -> bool {
         for (key, values) in header.other_records() {
             if key.as_ref() == "source" {
-                panic!("{:?}", values);
-                // TODO XXX
-                // for value in values {
-                //     if let HeaderValueOther::String(value) = value {
-                //         if value.starts_with(prefix) {
-                //             return true;
-                //         }
-                //     }
-                // }
+                if let noodles_vcf::header::record::value::Collection::Unstructured(inner) = values
+                {
+                    if inner[0].starts_with(prefix) {
+                        return true;
+                    }
+                }
             }
         }
 
