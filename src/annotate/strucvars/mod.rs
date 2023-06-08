@@ -186,7 +186,7 @@ pub mod vcf_header {
         };
 
         for sequence in &assembly_info.sequences {
-            if is_canonical(&sequence.name.as_ref()) {
+            if is_canonical(sequence.name.as_ref()) {
                 let mut contig = Map::<Contig>::try_from(vec![
                     (String::from("length"), format!("{}", sequence.length)),
                     (String::from("assembly"), assembly_name.clone()),
@@ -2402,7 +2402,7 @@ mod conv {
 
     /// Helper function to handle processing of "GT" field.
     fn process_gt(
-        entries: &mut Vec<GenotypeInfo>,
+        entries: &mut [GenotypeInfo],
         sample_no: usize,
         gt: &String,
         pedigree: &PedigreeByName,
@@ -2413,10 +2413,7 @@ mod conv {
         let sex = pedigree
             .individuals
             .get(&entries[sample_no].name)
-            .expect(&format!(
-                "sample must be in pedigree: {:?}",
-                &entries[sample_no].name
-            ))
+            .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", &entries[sample_no].name))
             .sex;
         let is_chr_x = tsv_record.chromosome.contains('X');
         let is_chr_y = tsv_record.chromosome.contains('Y');
@@ -2424,12 +2421,12 @@ mod conv {
             .gt
             .as_ref()
             .expect("just set")
-            .contains("0");
+            .contains('0');
         let has_alt = entries[sample_no]
             .gt
             .as_ref()
             .expect("just set")
-            .contains("1");
+            .contains('1');
 
         match (is_chr_x, is_chr_y, sex, has_ref, has_alt) {
             // autosomal chromosomes; treat "./." as missing, "./1" (and similar) as hom,
@@ -2458,9 +2455,7 @@ mod conv {
                 // count as hemi alt. on male chrY
                 tsv_record.num_hemi_alt += 1;
             }
-            (false, true, Sex::Female, _, _) => {
-                (/* do not count; variant in female */)
-            }
+            (false, true, Sex::Female, _, _) => {}
             (false, true, _, _, _) => (/* do not count; sex missing */),
             // conflicting chromosome
             (true, true, _, _, _) => panic!("cannot be both chrX and chrY"),
@@ -2475,14 +2470,14 @@ mod conv {
         let is_chr_x = tsv_record.chromosome.contains('X');
         let is_chr_y = tsv_record.chromosome.contains('Y');
         for entry in &tsv_record.genotype.entries {
-            let has_ref = entry.gt.as_ref().map(|s| s.contains("0")).unwrap_or(false);
-            let has_alt = entry.gt.as_ref().map(|s| s.contains("1")).unwrap_or(false);
+            let has_ref = entry.gt.as_ref().map(|s| s.contains('0')).unwrap_or(false);
+            let has_alt = entry.gt.as_ref().map(|s| s.contains('1')).unwrap_or(false);
             if !has_ref && !has_alt {
                 // This entry was previously removed, we can correct it now (if FORMAT/CN was set).
                 let sex = pedigree
                     .individuals
                     .get(&entry.name)
-                    .expect(&format!("sample must be in pedigree: {:?}", &entry.name))
+                    .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", &entry.name))
                     .sex;
                 let expected_cn = match (sex, is_chr_x, is_chr_y) {
                     (_, false, false) => Some(2),
@@ -3136,8 +3131,6 @@ mod test {
                 },
                 sex: if sample == "mother" {
                     Sex::Female
-                } else if sample == "father" {
-                    Sex::Male
                 } else {
                     Sex::Male
                 },

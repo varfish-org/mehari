@@ -157,7 +157,6 @@ struct DbCreate {
 #[derive(Debug, Subcommand)]
 enum DbCreateCommands {
     Txs(db::create::txs::Args),
-    SeqvarClinvar(db::create::seqvar_clinvar::Args),
 }
 
 /// Parsing of "annotate *" sub commands.
@@ -218,9 +217,6 @@ fn main() -> Result<(), anyhow::Error> {
             Commands::Db(db) => match &db.command {
                 DbCommands::Create(db_create) => match &db_create.command {
                     DbCreateCommands::Txs(args) => db::create::txs::run(&cli.common, args)?,
-                    DbCreateCommands::SeqvarClinvar(args) => {
-                        db::create::seqvar_clinvar::run(&cli.common, args)?
-                    }
                 },
             },
             Commands::Annotate(annotate) => match &annotate.command {
