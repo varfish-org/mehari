@@ -2895,7 +2895,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 pub mod bnd {
     use super::PeOrientation;
 
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, serde::Deserialize, serde::Serialize)]
     pub struct Breakend {
         /// Name of the chromosome.
         pub chrom: String,
@@ -3022,8 +3022,8 @@ mod test {
         annotate::{
             seqvars::AnnotatedVcfWriter,
             strucvars::{
-                GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvCaller, SvSubType,
-                SvType, VarFishStrucvarTsvRecord,
+                GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvSubType, SvType,
+                VarFishStrucvarTsvRecord,
             },
         },
         common::GenomeRelease,
@@ -3044,78 +3044,12 @@ mod test {
     /// Test for the parsing of breakend alleles.
     #[test]
     fn parse_bnd() -> Result<(), anyhow::Error> {
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("G"),
-                alt_base: String::from("A"),
-                leading_base: true,
-                left_open: true,
-                pe_orientation: PeOrientation::FiveToFive,
-            },
-            Breakend::from_ref_alt_str("G", "A]17:198982]")?,
-        );
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("G"),
-                alt_base: String::from("A"),
-                leading_base: true,
-                left_open: false,
-                pe_orientation: PeOrientation::FiveToThree,
-            },
-            Breakend::from_ref_alt_str("G", "A[17:198982[")?,
-        );
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("G"),
-                alt_base: String::from("A"),
-                leading_base: false,
-                left_open: true,
-                pe_orientation: PeOrientation::ThreeToFive,
-            },
-            Breakend::from_ref_alt_str("G", "]17:198982]A")?,
-        );
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("G"),
-                alt_base: String::from("A"),
-                leading_base: false,
-                left_open: false,
-                pe_orientation: PeOrientation::ThreeToThree,
-            },
-            Breakend::from_ref_alt_str("G", "[17:198982[A")?,
-        );
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("GA"),
-                alt_base: String::from("TA"),
-                leading_base: false,
-                left_open: false,
-                pe_orientation: PeOrientation::ThreeToThree,
-            },
-            Breakend::from_ref_alt_str("GA", "[17:198982[TA")?,
-        );
-        assert_eq!(
-            Breakend {
-                chrom: String::from("17"),
-                pos: 198982,
-                ref_base: String::from("GA"),
-                alt_base: String::from("TA"),
-                leading_base: true,
-                left_open: true,
-                pe_orientation: PeOrientation::FiveToFive,
-            },
-            Breakend::from_ref_alt_str("GA", "TA]17:198982]")?,
-        );
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("G", "A]17:198982]")?);
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("G", "A[17:198982[")?);
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("G", "]17:198982]A")?);
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("G", "[17:198982[A")?);
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("GA", "[17:198982[TA")?);
+        insta::assert_yaml_snapshot!(Breakend::from_ref_alt_str("GA", "TA]17:198982]")?);
 
         Ok(())
     }
@@ -3337,13 +3271,7 @@ mod test {
     #[test]
     fn guess_sv_caller_delly() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/delly2-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::Delly {
-                version: String::from("1.1.3")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3351,13 +3279,7 @@ mod test {
     #[test]
     fn guess_sv_caller_dragen_sv() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/dragen-sv-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::DragenSv {
-                version: String::from("07.021.624.3.10.4")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3365,13 +3287,7 @@ mod test {
     #[test]
     fn guess_sv_caller_dragen_cnv() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/dragen-cnv-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::DragenCnv {
-                version: String::from("07.021.624.3.10.4")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3379,13 +3295,7 @@ mod test {
     #[test]
     fn guess_sv_caller_gcnv() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/gcnv-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::Gcnv {
-                version: String::from("4.3.0.0")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3393,13 +3303,7 @@ mod test {
     #[test]
     fn guess_sv_caller_manta() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/manta-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::Manta {
-                version: String::from("1.6.0")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3407,13 +3311,7 @@ mod test {
     #[test]
     fn guess_sv_caller_popdel() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/popdel-min.vcf")?;
-
-        assert_eq!(
-            sv_caller,
-            SvCaller::Popdel {
-                version: String::from("1.1.2")
-            }
-        );
+        insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }

@@ -12,7 +12,19 @@ use nom::{
 use parse_display::{Display, FromStr};
 
 /// Putative impact level.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Display, FromStr)]
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    Copy,
+    Display,
+    FromStr,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 #[display(style = "UPPERCASE")]
 pub enum PutativeImpact {
     High,
@@ -22,7 +34,19 @@ pub enum PutativeImpact {
 }
 
 /// Putative impact.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Display, FromStr)]
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Clone,
+    Copy,
+    Display,
+    FromStr,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 #[display(style = "snake_case")]
 pub enum Consequence {
     // high impact
@@ -153,7 +177,7 @@ impl Consequence {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, serde::Deserialize, serde::Serialize)]
 /// Enumeration for `AnnField::allele`.
 pub enum Allele {
     /// A simple value for the allele.
@@ -251,14 +275,16 @@ impl FromStr for Allele {
 }
 
 /// Sequence ontology feature.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr)]
+#[derive(
+    Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr, serde::Deserialize, serde::Serialize,
+)]
 #[display(style = "snake_case")]
 pub enum SoFeature {
     Transcript,
 }
 
 /// Enum for `AnnField::feature_type`.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, serde::Deserialize, serde::Serialize)]
 pub enum FeatureType {
     #[display("{term}")]
     SoTerm { term: SoFeature },
@@ -281,7 +307,9 @@ impl FromStr for FeatureType {
 }
 
 /// Encode feature biotype.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr)]
+#[derive(
+    Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr, serde::Deserialize, serde::Serialize,
+)]
 pub enum FeatureBiotype {
     Coding,
     Noncoding,
@@ -297,7 +325,18 @@ impl FeatureBiotype {
 }
 
 /// Encode exon/intron rank.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr, Default)]
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromStr,
+    Default,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 #[display("{ord}/{total}")]
 pub struct Rank {
     pub ord: i32,
@@ -305,7 +344,7 @@ pub struct Rank {
 }
 
 /// Position, optionally with total length.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Default, serde::Deserialize, serde::Serialize)]
 pub struct Pos {
     pub ord: i32,
     pub total: Option<i32>,
@@ -370,7 +409,9 @@ impl FromStr for Pos {
 }
 
 /// A message to be used in `AnnField::messages`.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr)]
+#[derive(
+    Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr, serde::Deserialize, serde::Serialize,
+)]
 #[display(style = "SNAKE_CASE")]
 pub enum Message {
     ErrorChromosomeNotFound,
@@ -386,7 +427,7 @@ pub enum Message {
 }
 
 /// Representation of an `ANN` field.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct AnnField {
     /// The alternative allele that this annotation refers to.
     pub allele: Allele,

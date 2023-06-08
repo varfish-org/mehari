@@ -695,7 +695,7 @@ mod test {
     use pretty_assertions::assert_eq;
     use serde::Deserialize;
 
-    use crate::annotate::seqvars::{ann::PutativeImpact, load_tx_db};
+    use crate::annotate::seqvars::load_tx_db;
 
     use super::*;
 
@@ -717,40 +717,7 @@ mod test {
             .unwrap();
 
         assert_eq!(res.len(), 4);
-        assert_eq!(
-            res[0],
-            AnnField {
-                allele: Allele::Alt {
-                    alternative: String::from("C")
-                },
-                consequences: vec![Consequence::MissenseVariant,],
-                putative_impact: PutativeImpact::Moderate,
-                gene_symbol: String::from("BRCA1"),
-                gene_id: String::from("HGNC:1100"),
-                feature_type: FeatureType::SoTerm {
-                    term: SoFeature::Transcript
-                },
-                feature_id: String::from("NM_007294.4"),
-                feature_biotype: FeatureBiotype::Coding,
-                rank: Some(Rank { ord: 23, total: 23 }),
-                hgvs_t: Some(String::from("c.5586C>G")),
-                hgvs_p: Some(String::from("p.H1862Q")),
-                tx_pos: Some(Pos {
-                    ord: 5699,
-                    total: Some(7088)
-                }),
-                cds_pos: Some(Pos {
-                    ord: 5586,
-                    total: Some(5592)
-                }),
-                protein_pos: Some(Pos {
-                    ord: 1862,
-                    total: Some(1864)
-                }),
-                distance: Some(-1390),
-                messages: None,
-            }
-        );
+        insta::assert_yaml_snapshot!(res[0]);
 
         Ok(())
     }

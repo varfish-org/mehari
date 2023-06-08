@@ -1,0 +1,12 @@
+---
+source: src/annotate/strucvars/mod.rs
+expression: "Breakend::from_ref_alt_str(\"G\", \"A[17:198982[\")?"
+---
+chrom: "17"
+pos: 198982
+ref_base: G
+alt_base: A
+leading_base: true
+left_open: false
+pe_orientation: FiveToThree
+

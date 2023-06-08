@@ -776,7 +776,6 @@ pub mod test {
     use std::path::{Path, PathBuf};
 
     use clap_verbosity_flag::Verbosity;
-    use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
 
     use crate::common::{Args as CommonArgs, GenomeRelease};
@@ -807,45 +806,23 @@ pub mod test {
             transcript_ids_for_gene,
         };
 
-        assert_eq!(
-            &tx_data
-                .transcript_ids_for_gene
-                .get("BRCA1")
-                .unwrap()
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>(),
-            &vec![
-                "NM_007294.3",
-                "NM_007294.4",
-                "NM_007297.3",
-                "NM_007297.4",
-                "NM_007298.3",
-                "NM_007299.3",
-                "NM_007299.4",
-                "NM_007300.3",
-                "NM_007300.4",
-                "NR_027676.1",
-                "NR_027676.2",
-            ]
-        );
+        insta::assert_yaml_snapshot!(tx_data
+            .transcript_ids_for_gene
+            .get("BRCA1")
+            .unwrap()
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>());
+
         let filtered = filter_transcripts(tx_data, None, &None, &mut report_file)?;
-        assert_eq!(
-            &filtered
-                .transcript_ids_for_gene
-                .get("BRCA1")
-                .unwrap()
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>(),
-            &vec![
-                "NM_007294.4",
-                "NM_007297.4",
-                "NM_007298.3",
-                "NM_007299.4",
-                "NM_007300.4"
-            ]
-        );
+        insta::assert_yaml_snapshot!(filtered
+            .transcript_ids_for_gene
+            .get("BRCA1")
+            .unwrap()
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>());
+
         Ok(())
     }
 
