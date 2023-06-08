@@ -3007,7 +3007,6 @@ mod test {
 
     use clap_verbosity_flag::Verbosity;
     use hgvs::static_data::Assembly;
-    use linked_hash_map::LinkedHashMap;
     use noodles_vcf;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
@@ -3364,7 +3363,7 @@ mod test {
 
     /// Generate example trio data.
     fn example_trio() -> PedigreeByName {
-        let individuals = LinkedHashMap::from_iter(
+        let individuals = indexmap::IndexMap::from_iter(
             vec![
                 (
                     String::from("index"),

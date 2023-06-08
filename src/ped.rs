@@ -11,7 +11,6 @@
 
 use std::{fmt::Display, path::Path, str::FromStr};
 
-use linked_hash_map::LinkedHashMap;
 use serde::{Deserialize, Serialize};
 
 /// Encode the sex of an individual in a PED file.
@@ -126,7 +125,7 @@ impl Pedigree {
 /// Individuals in a PED file, by name.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PedigreeByName {
-    pub individuals: LinkedHashMap<String, Individual>,
+    pub individuals: indexmap::IndexMap<String, Individual>,
 }
 
 impl PedigreeByName {
@@ -140,7 +139,7 @@ impl PedigreeByName {
             .comment(Some(b'#'))
             .has_headers(false)
             .from_path(path)?;
-        let mut individuals = LinkedHashMap::new();
+        let mut individuals = indexmap::IndexMap::new();
         for result in rdr.deserialize() {
             let individual: Individual = result?;
             individuals.insert(individual.name.clone(), individual);

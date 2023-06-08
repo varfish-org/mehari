@@ -16,7 +16,6 @@ use hgvs::{
     sequences::seq_md5,
     static_data::{Assembly, ASSEMBLY_INFOS},
 };
-use linked_hash_map::LinkedHashMap;
 
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
@@ -163,8 +162,8 @@ impl ProviderInterface for MehariProvider {
     fn get_assembly_map(
         &self,
         assembly: hgvs::static_data::Assembly,
-    ) -> LinkedHashMap<String, String> {
-        LinkedHashMap::from_iter(
+    ) -> indexmap::IndexMap<String, String> {
+        indexmap::IndexMap::from_iter(
             ASSEMBLY_INFOS[assembly]
                 .sequences
                 .iter()
