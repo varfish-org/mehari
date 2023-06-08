@@ -3131,8 +3131,6 @@ mod test {
                 },
                 sex: if sample == "mother" {
                     Sex::Female
-                } else if sample == "father" {
-                    Sex::Male
                 } else {
                     Sex::Male
                 },
