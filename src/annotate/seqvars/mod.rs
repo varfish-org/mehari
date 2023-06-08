@@ -5,6 +5,7 @@ pub mod binning;
 pub mod csq;
 pub mod provider;
 
+use annonars::clinvar_minimal;
 use annonars::common::cli::is_canonical;
 use annonars::common::keys;
 use annonars::freqs::cli::import::reading::guess_assembly;
@@ -48,8 +49,6 @@ use thousands::Separable;
 use crate::annotate::seqvars::csq::{ConsequencePredictor, VcfVariant};
 use crate::annotate::seqvars::provider::MehariProvider;
 use crate::common::GenomeRelease;
-use crate::db::create::seqvar_clinvar::serialize::Record as ClinvarRecord;
-use crate::db::create::seqvar_clinvar::Pathogenicity;
 
 use crate::db::create::txs::data::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
@@ -389,14 +388,19 @@ fn annotate_record_clinvar<T>(
 where
     T: ThreadMode,
 {
-    if let Some(clinvar_anno) = db.get_cf(cf, key)? {
-        let clinvar_record: ClinvarRecord = bincode::deserialize(&clinvar_anno)?;
+    if let Some(raw_value) = db.get_cf(cf, key)? {
+        let clinvar_record =
+            clinvar_minimal::pbs::Record::decode(&mut std::io::Cursor::new(&raw_value))?;
 
-        let ClinvarRecord {
+        let clinvar_minimal::pbs::Record {
             summary_clinvar_pathogenicity,
             vcv,
             ..
         } = clinvar_record;
+        let summary_clinvar_pathogenicity: Vec<_> = summary_clinvar_pathogenicity
+            .into_iter()
+            .map(|i: i32| -> clinvar_minimal::cli::reading::Pathogenicity { i.into() })
+            .collect();
 
         vcf_record.info_mut().insert(
             field::Key::from_str("clinvar_patho").unwrap(),
@@ -1079,8 +1083,9 @@ impl VarFishSeqvarTsvWriter {
             .unwrap_or_default()
             .map(|v| match v {
                 field::Value::String(value) => {
-                    Pathogenicity::from_str(value).unwrap_or(Pathogenicity::UncertainSignificance)
-                        >= Pathogenicity::LikelyPathogenic
+                    clinvar_minimal::cli::reading::Pathogenicity::from_str(value).unwrap_or(
+                        clinvar_minimal::cli::reading::Pathogenicity::UncertainSignificance,
+                    ) >= clinvar_minimal::cli::reading::Pathogenicity::LikelyPathogenic
                 }
                 _ => panic!("Unexpected value type for INFO/clinvar_patho"),
             })
@@ -1485,7 +1490,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
             // Annotate with variant effect.
             if let Some(ann_fields) = predictor.predict(&VcfVariant {
                 chromosome: chrom,
-                position: pos as i32,
+                position: pos,
                 reference,
                 alternative,
             })? {
