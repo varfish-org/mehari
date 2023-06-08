@@ -66,8 +66,7 @@ noodles-csi = "0.19"
 noodles-fasta = "0.23"
 noodles-bgzf = "0.22"
 noodles-tabix = "0.22"
-#annonars = "0.7"
-annonars = { git = "https://github.com/bihealth/annona-rs.git", branch = "73-port-over-clinvar-import-from-mehari" }
+annonars = "0.8"
 
 [build-dependencies]
 prost-build = "0.11.9"
