@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0](https://github.com/bihealth/mehari/compare/v0.3.1...v0.4.0) (2023-06-08)
+
+
+### Features
+
+* move clinvar database code (import etc.) to annonars ([#86](https://github.com/bihealth/mehari/issues/86)) ([457be46](https://github.com/bihealth/mehari/commit/457be468591ee56d7b0c6afabde4e6ef18611d31))
+* switch to annonars for frequency db creation ([#81](https://github.com/bihealth/mehari/issues/81),[#77](https://github.com/bihealth/mehari/issues/77),[#20](https://github.com/bihealth/mehari/issues/20)) ([#83](https://github.com/bihealth/mehari/issues/83)) ([bb27686](https://github.com/bihealth/mehari/commit/bb2768686cbd96d20d064c58eaadbc18e09ce35c))
+
+
+### Code Refactoring
+
+* move from linked-hash-map to indexmap ([#82](https://github.com/bihealth/mehari/issues/82)) ([#87](https://github.com/bihealth/mehari/issues/87)) ([f9e354d](https://github.com/bihealth/mehari/commit/f9e354dbcbe32e25c2a41d90ad1d0b2874332a06))
+
 ## [0.3.1](https://github.com/bihealth/mehari/compare/v0.3.0...v0.3.1) (2023-05-04)
 
 
