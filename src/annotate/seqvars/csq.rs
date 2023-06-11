@@ -1,13 +1,10 @@
 //! Compute molecular consequence of variants.
 
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, sync::Arc};
 
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
-    mapper::{
-        assembly::{Config as AssemblyConfig, Mapper as AssemblyMapper},
-        Error,
-    },
+    mapper::{assembly, Error},
     parser::{
         Accession, CdsFrom, GenomeInterval, GenomeLocEdit, HgvsVariant, Mu, NaEdit, ProtLocEdit,
     },
@@ -34,12 +31,18 @@ pub struct VcfVariant {
     pub alternative: String,
 }
 
+/// Wrap mapper, provider, and map for consequence prediction.
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub struct ConsequencePredictor {
     /// The internal transcript provider for locating transcripts.
-    provider: Rc<MehariProvider>,
+    #[derivative(Debug = "ignore")]
+    provider: Arc<MehariProvider>,
     /// Assembly mapper for variant consequence prediction.
-    mapper: AssemblyMapper,
+    #[derivative(Debug = "ignore")]
+    mapper: assembly::Mapper,
     /// Mapping from chromosome name to accession.
+    #[derivative(Debug = "ignore")]
     chrom_to_acc: HashMap<String, String>,
 }
 
@@ -49,7 +52,7 @@ pub const PADDING: i32 = 5_000;
 pub const ALT_ALN_METHOD: &str = "splign";
 
 impl ConsequencePredictor {
-    pub fn new(provider: Rc<MehariProvider>, assembly: Assembly) -> Self {
+    pub fn new(provider: Arc<MehariProvider>, assembly: Assembly) -> Self {
         let acc_to_chrom = provider.get_assembly_map(assembly);
         let mut chrom_to_acc = HashMap::new();
         for (acc, chrom) in &acc_to_chrom {
@@ -62,14 +65,14 @@ impl ConsequencePredictor {
             chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
         }
 
-        let config = AssemblyConfig {
+        let config = assembly::Config {
             replace_reference: false,
             strict_bounds: false,
             renormalize_g: false,
             genome_seq_available: false,
             ..Default::default()
         };
-        let mapper = AssemblyMapper::new(config, provider.clone());
+        let mapper = assembly::Mapper::new(config, provider.clone());
 
         ConsequencePredictor {
             provider,
@@ -703,7 +706,7 @@ mod test {
     fn annotate_snv_brca1_one_variant() -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
+        let provider = Arc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
 
         let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
 
@@ -797,7 +800,7 @@ mod test {
     fn annotate_vars(path_tsv: &str, txs: &[String]) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Rc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
+        let provider = Arc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
         let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
 
         let mut reader = ReaderBuilder::new()

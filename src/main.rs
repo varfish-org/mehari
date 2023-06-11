@@ -95,6 +95,7 @@ pub mod annotate;
 pub mod common;
 pub mod db;
 pub mod ped;
+pub mod server;
 pub mod verify;
 
 use clap::{command, Args, Parser, Subcommand};
@@ -125,8 +126,8 @@ enum Commands {
     Annotate(Annotate),
     /// Verification related commands.
     Verify(Verify),
-    // /// Server related commands.
-    // Server(Server),
+    /// Server related commands.
+    RunServer(server::Args),
 }
 
 /// Parsing of "db *" sub commands.
@@ -226,6 +227,7 @@ fn main() -> Result<(), anyhow::Error> {
             Commands::Verify(verify) => match &verify.command {
                 VerifyCommands::Seqvars(args) => verify::seqvars::run(&cli.common, args)?,
             },
+            Commands::RunServer(args) => server::run(&cli.common, args)?,
         }
 
         tracing::info!("... the dromedary is back in the stable.");

@@ -192,7 +192,7 @@ fn build_protobuf(
     let mut tx_skipped_noseq = HashSet::new(); // skipped because of missing sequence
     let mut tx_skipped_nostop = HashSet::new(); // skipped because of missing stop codon
     let seq_db = {
-        // Insert into flatbuffer and keep track of pointers in `Vec`s.
+        // Insert into protobuf and keep track of pointers in `Vec`s.
         let mut aliases = Vec::new();
         let mut aliases_idx = Vec::new();
         let mut seqs = Vec::new();
@@ -259,7 +259,7 @@ fn build_protobuf(
                 }
             }
 
-            // Register sequence into flatbuffer.
+            // Register sequence into protobuf.
             aliases.push(tx_id.clone());
             aliases_idx.push(seqs.len() as u32);
             seqs.push(seq.clone());
@@ -308,7 +308,7 @@ fn build_protobuf(
                 );
                 writeln!(
                     report_file,
-                    "skip gene from flatbuffers because all transcripts have been removed\t{}",
+                    "skip gene from protobuf because all transcripts have been removed\t{}",
                     gene_symbol
                 )?;
                 continue;
