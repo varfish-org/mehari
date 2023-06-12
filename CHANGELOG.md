@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/bihealth/mehari/compare/v0.4.1...v0.5.0) (2023-06-12)
+
+
+### Features
+
+* REST server for variant consequence prediction ([#18](https://github.com/bihealth/mehari/issues/18)) ([#90](https://github.com/bihealth/mehari/issues/90)) ([b8c5a7b](https://github.com/bihealth/mehari/commit/b8c5a7b6ec60e03fe7d973f96cab6ac2e628e7ea))
+
 ## [0.4.1](https://github.com/bihealth/mehari/compare/v0.4.0...v0.4.1) (2023-06-12)
 
 
