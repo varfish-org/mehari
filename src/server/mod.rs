@@ -1,44 +1,14 @@
-//! Run the server.
-
 use std::sync::Arc;
 
-use hgvs::static_data::Assembly;
-
-use crate::annotate::seqvars::{
-    csq::ConsequencePredictor, load_tx_db, path_component, provider::MehariProvider,
+use crate::{
+    annotate::seqvars::{
+        csq::ConsequencePredictor, load_tx_db, path_component, provider::MehariProvider,
+    },
+    common::GenomeRelease,
 };
 
 /// Implementation of Actix server.
-pub mod actix_server {
-    use hgvs::static_data::Assembly;
-
-    use crate::annotate::seqvars::csq::ConsequencePredictor;
-
-    /// Data structure for the web server data.
-    #[derive(Debug, Default)]
-    pub struct WebServerData {
-        /// The consequence predictors for each assembly.
-        pub predictors: std::collections::HashMap<Assembly, ConsequencePredictor>,
-    }
-
-    /// Main entry point for running the REST server.
-    #[allow(clippy::unused_async)]
-    #[actix_web::main]
-    pub async fn main(
-        args: &super::Args,
-        data: actix_web::web::Data<WebServerData>,
-    ) -> std::io::Result<()> {
-        actix_web::HttpServer::new(move || {
-            actix_web::App::new()
-                .app_data(data.clone())
-                // .service(hpo_genes::handle)
-                .wrap(actix_web::middleware::Logger::default())
-        })
-        .bind((args.listen_host.as_str(), args.listen_port))?
-        .run()
-        .await
-    }
-}
+pub mod actix_server;
 
 /// Command line arguments for "run-server` command.
 #[derive(clap::Parser, Debug)]
@@ -72,13 +42,21 @@ pub fn print_hints(args: &Args) {
     if args.suppress_hints {
         return;
     }
-    // // The endpoint `/hpo/sim/term-gene` allows to compute the same for a list of `terms` and
-    // // `gene_symbols`.
-    // tracing::info!(
-    //     "  try: http://{}:{}/hpo/sim/term-gene?terms=HP:0001166,HP:0000098&gene_symbols=FBN1,TGDS,TTN",
-    //     args.listen_host.as_str(),
-    //     args.listen_port
-    // );
+
+    // The endpoint `/tx/csq` to comput ethe consequence of a variant; without and with filtering
+    // for HGNC gene ID.
+    tracing::info!(
+        "  try: http://{}:{}/tx/csq?genome-release=?genome-release=grch37\
+        &chromosome=17&position=48275363&reference=C&alternative=A",
+        args.listen_host.as_str(),
+        args.listen_port
+    );
+    tracing::info!(
+        "  try: http://{}:{}/tx/csq?genome-release=?genome-release=grch37\
+        &chromosome=17&position=48275363&reference=C&alternative=A&hgnc-id=HGNC:2197",
+        args.listen_host.as_str(),
+        args.listen_port
+    );
 }
 
 /// Main entry point for `run-server` sub command.
@@ -104,14 +82,15 @@ pub fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), anyhow:
     tracing::info!("Loading database...");
     let before_loading = std::time::Instant::now();
     let mut data = actix_server::WebServerData::default();
-    for assembly in [Assembly::Grch37, Assembly::Grch38] {
+    for genome_release in [GenomeRelease::Grch37, GenomeRelease::Grch38] {
+        let assembly = genome_release.into();
         let path = format!("{}/{}/txs.bin.zst", &args.path_db, path_component(assembly));
         tracing::info!("  - loading {}", &path);
         let tx_db = load_tx_db(&path)?;
         tracing::info!("  - building interval trees");
         let provider = Arc::new(MehariProvider::new(tx_db, assembly));
         let predictor = ConsequencePredictor::new(provider, assembly);
-        data.predictors.insert(assembly, predictor);
+        data.predictors.insert(genome_release, predictor);
     }
     let data = actix_web::web::Data::new(data);
     tracing::info!("...done loading data {:?}", before_loading.elapsed());

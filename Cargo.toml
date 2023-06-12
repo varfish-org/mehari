@@ -62,6 +62,7 @@ rustc-hash = "1.1"
 seqrepo = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_with = "3.0"
 strum = { version = "0.24", features = ["derive"] }
 tempdir = "0.3"
 thousands = "0.2"

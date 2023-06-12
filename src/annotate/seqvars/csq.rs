@@ -690,6 +690,13 @@ impl ConsequencePredictor {
     }
 }
 
+impl ConsequencePredictor {
+    /// Return data version string (if set).
+    pub fn data_version(&self) -> Option<String> {
+        self.provider.as_ref().tx_seq_db.version.clone()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::{fs::File, io::BufReader};
