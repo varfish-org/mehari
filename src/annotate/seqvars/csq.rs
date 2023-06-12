@@ -703,6 +703,12 @@ mod test {
     use super::*;
 
     #[test]
+    fn test_sync() {
+        fn is_sync<T: Sync>() {}
+        is_sync::<super::ConsequencePredictor>();
+    }
+
+    #[test]
     fn annotate_snv_brca1_one_variant() -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;

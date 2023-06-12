@@ -439,3 +439,12 @@ impl ProviderInterface for MehariProvider {
         }])
     }
 }
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_sync() {
+        fn is_sync<T: Sync>() {}
+        is_sync::<super::MehariProvider>();
+    }
+}
