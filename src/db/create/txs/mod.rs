@@ -483,13 +483,17 @@ fn build_protobuf(
             flate2::Compression::default(),
         ))
     } else if ext == Some(Some("zst")) {
-        Box::new(zstd::Encoder::new(file, 0).map_err(|e| {
-            anyhow!(
-                "failed to open zstd encoder for {}: {}",
-                path_out.display(),
-                e
-            )
-        })?)
+        Box::new(
+            zstd::Encoder::new(file, 0)
+                .map_err(|e| {
+                    anyhow!(
+                        "failed to open zstd encoder for {}: {}",
+                        path_out.display(),
+                        e
+                    )
+                })?
+                .auto_finish(),
+        )
     } else {
         Box::new(file)
     };
