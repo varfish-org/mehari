@@ -804,12 +804,14 @@ pub mod test {
         let mut genes = HashMap::new();
         let mut transcripts = HashMap::new();
         let mut transcript_ids_for_gene = HashMap::new();
+        let mut cdot_version = String::new();
         load_and_extract(
             Path::new("tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1_opa1.json"),
             &mut transcript_ids_for_gene,
             &mut genes,
             &mut transcripts,
             GenomeRelease::Grch37,
+            &mut cdot_version,
             &mut report_file,
         )?;
 
@@ -835,6 +837,8 @@ pub mod test {
             .iter()
             .map(|s| s.as_str())
             .collect::<Vec<_>>());
+
+        insta::assert_snapshot!(&cdot_version);
 
         Ok(())
     }
