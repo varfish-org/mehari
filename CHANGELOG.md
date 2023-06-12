@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/bihealth/mehari/compare/v0.4.0...v0.4.1) (2023-06-12)
+
+
+### Bug Fixes
+
+* properly flush stream in "db create txs" ([#88](https://github.com/bihealth/mehari/issues/88)) ([95458f3](https://github.com/bihealth/mehari/commit/95458f3e0e8d598bfdb1ad24e8ae6bb930a725a9))
+
 ## [0.4.0](https://github.com/bihealth/mehari/compare/v0.3.1...v0.4.0) (2023-06-08)
 
 
