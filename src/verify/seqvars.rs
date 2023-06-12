@@ -3,7 +3,7 @@
 use std::{
     fs::File,
     io::{BufRead, BufReader, Write},
-    rc::Rc,
+    sync::Arc,
     time::Instant,
 };
 
@@ -125,7 +125,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         path_component(assembly)
     ))?;
     tracing::info!("Building transcript interval trees ...");
-    let provider = Rc::new(MehariProvider::new(tx_db, assembly));
+    let provider = Arc::new(MehariProvider::new(tx_db, assembly));
     let predictor = ConsequencePredictor::new(provider, assembly);
     tracing::info!("... done building transcript interval trees");
 

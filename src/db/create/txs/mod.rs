@@ -61,6 +61,7 @@ fn load_and_extract(
     genes: &mut HashMap<String, models::Gene>,
     transcripts: &mut HashMap<String, models::Transcript>,
     genome_release: GenomeRelease,
+    cdot_version: &mut String,
     report_file: &mut File,
 ) -> Result<(), anyhow::Error> {
     writeln!(report_file, "genome_release\t{:?}", genome_release)?;
@@ -71,6 +72,7 @@ fn load_and_extract(
     let models::Container {
         genes: c_genes,
         transcripts: c_txs,
+        cdot_version: c_version,
         ..
     } = if json_path.extension().unwrap_or_default() == "gz" {
         tracing::info!("(from gzip compressed file)");
@@ -81,6 +83,7 @@ fn load_and_extract(
         tracing::info!("(from uncompressed file)");
         serde_json::from_reader(std::io::BufReader::new(File::open(json_path)?))?
     };
+    *cdot_version = c_version;
     tracing::info!(
         "loading / deserializing {} genes and {} transcripts from cdot took {:?}",
         c_genes.len().separate_with_commas(),
@@ -176,6 +179,7 @@ fn build_protobuf(
     seqrepo: SeqRepo,
     tx_data: TranscriptData,
     is_silent: bool,
+    genome_release: GenomeRelease,
     report_file: &mut File,
 ) -> Result<(), anyhow::Error> {
     let TranscriptData {
@@ -192,7 +196,7 @@ fn build_protobuf(
     let mut tx_skipped_noseq = HashSet::new(); // skipped because of missing sequence
     let mut tx_skipped_nostop = HashSet::new(); // skipped because of missing stop codon
     let seq_db = {
-        // Insert into flatbuffer and keep track of pointers in `Vec`s.
+        // Insert into protobuf and keep track of pointers in `Vec`s.
         let mut aliases = Vec::new();
         let mut aliases_idx = Vec::new();
         let mut seqs = Vec::new();
@@ -259,7 +263,7 @@ fn build_protobuf(
                 }
             }
 
-            // Register sequence into flatbuffer.
+            // Register sequence into protobuf.
             aliases.push(tx_id.clone());
             aliases_idx.push(seqs.len() as u32);
             seqs.push(seq.clone());
@@ -308,7 +312,7 @@ fn build_protobuf(
                 );
                 writeln!(
                     report_file,
-                    "skip gene from flatbuffers because all transcripts have been removed\t{}",
+                    "skip gene from protobuf because all transcripts have been removed\t{}",
                     gene_symbol
                 )?;
                 continue;
@@ -461,6 +465,8 @@ fn build_protobuf(
     let tx_seq_db = data::TxSeqDatabase {
         tx_db: Some(tx_db),
         seq_db: Some(seq_db),
+        version: Some(crate::common::version().to_string()),
+        genome_release: Some(genome_release.name()),
     };
     let mut buf = Vec::new();
     buf.reserve(tx_seq_db.encoded_len());
@@ -714,6 +720,7 @@ fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData
     let mut genes = HashMap::new();
     let mut transcripts = HashMap::new();
     let mut transcript_ids_for_gene = HashMap::new();
+    let mut cdot_version = String::new();
     for json_path in &args.path_cdot_json {
         load_and_extract(
             json_path,
@@ -721,6 +728,7 @@ fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData
             &mut genes,
             &mut transcripts,
             args.genome_release,
+            &mut cdot_version,
             report_file,
         )?;
     }
@@ -766,6 +774,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         seqrepo,
         tx_data,
         common.verbose.is_silent(),
+        args.genome_release,
         &mut report_file,
     )?;
 
@@ -795,12 +804,14 @@ pub mod test {
         let mut genes = HashMap::new();
         let mut transcripts = HashMap::new();
         let mut transcript_ids_for_gene = HashMap::new();
+        let mut cdot_version = String::new();
         load_and_extract(
             Path::new("tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1_opa1.json"),
             &mut transcript_ids_for_gene,
             &mut genes,
             &mut transcripts,
             GenomeRelease::Grch37,
+            &mut cdot_version,
             &mut report_file,
         )?;
 
@@ -826,6 +837,8 @@ pub mod test {
             .iter()
             .map(|s| s.as_str())
             .collect::<Vec<_>>());
+
+        insta::assert_snapshot!(&cdot_version);
 
         Ok(())
     }

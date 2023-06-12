@@ -120,4 +120,8 @@ message TxSeqDatabase {
     TranscriptDb tx_db = 1;
     // Store sequence with their aliases.
     SequenceDb seq_db = 2;
+    // The version of the database.
+    optional string version = 3;
+    // The reference assembly that this database refers to.
+    optional string genome_release = 4;
 }

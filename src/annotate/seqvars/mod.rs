@@ -21,7 +21,6 @@ use std::fs::File;
 use std::io::{BufWriter, Cursor, Read, Write};
 use std::ops::Deref;
 use std::path::Path;
-use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -1428,7 +1427,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
         path_component(assembly)
     ))?;
     tracing::info!("Building transcript interval trees ...");
-    let provider = Rc::new(MehariProvider::new(tx_db, assembly));
+    let provider = Arc::new(MehariProvider::new(tx_db, assembly));
     let predictor = ConsequencePredictor::new(provider, assembly);
     tracing::info!("... done building transcript interval trees");
 

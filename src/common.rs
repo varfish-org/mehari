@@ -26,7 +26,10 @@ pub fn trace_rss_now() {
 }
 
 /// Select the genome release to use.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(
+    clap::ValueEnum, serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash,
+)]
+#[serde(rename_all = "kebab-case")]
 pub enum GenomeRelease {
     Grch37,
     Grch38,
@@ -74,5 +77,40 @@ pub fn reciprocal_overlap(lhs: Range<i32>, rhs: Range<i32>) -> f32 {
         let x1 = ovl_len / (lhs_e - lhs_b) as f32;
         let x2 = ovl_len / (rhs_e - rhs_b) as f32;
         x1.min(x2)
+    }
+}
+
+/// The version of `viguno` package.
+#[cfg(not(test))]
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// This allows us to override the version to `0.0.0` in tests.
+pub fn version() -> &'static str {
+    #[cfg(test)]
+    return "0.0.0";
+    #[cfg(not(test))]
+    return VERSION;
+}
+
+/// Version information that is returned by the HTTP server.
+#[derive(serde::Serialize, serde::Deserialize, Default, Debug, Clone)]
+#[serde_with::skip_serializing_none]
+#[serde(rename_all = "kebab-case")]
+pub struct Version {
+    /// Version of the transcript database data.
+    pub tx_db: Option<String>,
+    /// Version of the `mehari` package.
+    pub mehari: String,
+}
+
+impl Version {
+    /// Construct a new version.
+    ///
+    /// The viguno version is filed automatically.
+    pub fn new(tx_db: Option<String>) -> Self {
+        Self {
+            tx_db,
+            mehari: version().to_string(),
+        }
     }
 }
