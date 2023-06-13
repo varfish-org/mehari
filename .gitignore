@@ -10,8 +10,6 @@ perf.*
 .*.sw?
 /.vscode
 
-*.lock
-
 ## Protocolbuffers library
 
 utils/var
