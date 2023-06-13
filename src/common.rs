@@ -80,7 +80,7 @@ pub fn reciprocal_overlap(lhs: Range<i32>, rhs: Range<i32>) -> f32 {
     }
 }
 
-/// The version of `viguno` package.
+/// The version of `mehari` package.
 #[cfg(not(test))]
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -106,7 +106,7 @@ pub struct Version {
 impl Version {
     /// Construct a new version.
     ///
-    /// The viguno version is filed automatically.
+    /// The mehari version is filled automatically.
     pub fn new(tx_db: Option<String>) -> Self {
         Self {
             tx_db,
