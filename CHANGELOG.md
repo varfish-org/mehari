@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/bihealth/mehari/compare/v0.5.1...v0.5.2) (2023-06-14)
+
+
+### Bug Fixes
+
+* docker build in CI ([#96](https://github.com/bihealth/mehari/issues/96)) ([ba34c03](https://github.com/bihealth/mehari/commit/ba34c034c17849b729dbc5faa9fd57bbaba913fa))
+
 ## [0.5.1](https://github.com/bihealth/mehari/compare/v0.5.0...v0.5.1) (2023-06-13)
 
 
