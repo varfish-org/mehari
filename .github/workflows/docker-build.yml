@@ -4,7 +4,6 @@ on:
       - 'v**'
     branches:
       - main
-      - fix-ci-docker-build
 
 name: Docker Build
 
