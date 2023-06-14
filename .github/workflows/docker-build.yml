@@ -5,6 +5,7 @@ on:
   pull_request:
     branches:
       - main
+      - fix-ci-docker-build
 
 # This workflow is run as part of CI to test that they run through.
 #
