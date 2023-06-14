@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.1](https://github.com/bihealth/mehari/compare/v0.5.0...v0.5.1) (2023-06-13)
+
+
+### Features
+
+* build Docker image in CI ([#92](https://github.com/bihealth/mehari/issues/92)) ([c72d804](https://github.com/bihealth/mehari/commit/c72d80494043e46cf80113ccd984984d730e9368))
+
+
+### Bug Fixes
+
+* add Cargo.lock to git ([#94](https://github.com/bihealth/mehari/issues/94)) ([f7c4f03](https://github.com/bihealth/mehari/commit/f7c4f03628e8657a510f471245dfbc6d3c0382c8))
+* remove unused dependencies ([#95](https://github.com/bihealth/mehari/issues/95)) ([a1e1054](https://github.com/bihealth/mehari/commit/a1e10542403339c4e7e421e74eef95e74ecf5468))
+
 ## [0.5.0](https://github.com/bihealth/mehari/compare/v0.4.1...v0.5.0) (2023-06-12)
 
 
