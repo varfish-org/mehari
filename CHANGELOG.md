@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/bihealth/mehari/compare/v0.5.2...v0.5.3) (2023-06-16)
+
+
+### Miscellaneous Chores
+
+* re-release as v0.5.3 ([12aed0a](https://github.com/bihealth/mehari/commit/12aed0aa98e8714c02425cf977faf33eb7d6c312))
+
 ## [0.5.2](https://github.com/bihealth/mehari/compare/v0.5.1...v0.5.2) (2023-06-14)
 
 
