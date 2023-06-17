@@ -1,13 +1,15 @@
 on:
   push:
-    tags:
-      - 'v**'
     branches:
       - main
   pull_request:
     branches:
       - main
 
+# This workflow is run as part of CI to test that they run through.
+#
+# The images are pushed to `ghcr.io` for each PR and branch.  The ones for
+# the releases are pushed in `release-please.yml`.
 name: Docker Build
 
 env:
@@ -40,8 +42,6 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
@@ -50,5 +50,4 @@ jobs:
           file: utils/docker/Dockerfile
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Do not push on pull requests (but for versions and branches).
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
