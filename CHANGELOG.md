@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/bihealth/mehari/compare/v0.5.3...v0.5.4) (2023-06-17)
+
+
+### Build System
+
+* adjust Docker builds for PRs and branches ([#100](https://github.com/bihealth/mehari/issues/100)) ([e38388b](https://github.com/bihealth/mehari/commit/e38388b3fcd509b99b4128944d4a289f07b6b4fb))
+
 ## [0.5.3](https://github.com/bihealth/mehari/compare/v0.5.2...v0.5.3) (2023-06-16)
 
 
