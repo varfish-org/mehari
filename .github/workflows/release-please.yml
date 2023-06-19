@@ -2,7 +2,7 @@
 #
 # This builds the containers with version tags.  The `main` and `latest` tags are
 # pushed in `docker-build.yml`.
-name: Release Package/Image
+name: Release
 
 on:
   push:
