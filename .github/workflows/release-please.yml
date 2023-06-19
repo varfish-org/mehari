@@ -1,32 +1,34 @@
+# Run `release-please` and build and release Docker image.
+#
+# This builds the containers with version tags.  The `main` and `latest` tags are
+# pushed in `docker-build.yml`.
+name: Release Package/Image
+
 on:
   push:
     branches:
       - main
 
-# Run `release-please` and build and release Docker image.
-#
-# This builds the containers with version tags.  The `main` and `latest` tags are
-# pushed in `docker-build.yml`.
-name: release-please
+env:
+  REGISTRY: ghcr.io
+  PACKAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   release-please:
     if: github.repository_owner == 'bihealth'
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
     steps:
       - uses: GoogleCloudPlatform/release-please-action@v3
         id: release
         with:
           release-type: rust
-          package-name: mehari
+          package-name: ${{ env.PACKAGE_NAME}}
 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         if: ${{ steps.release.outputs.release_created }}
-
-      - name: Setup protoc
-        uses: arduino/setup-protoc@v1.1.2
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
@@ -34,6 +36,11 @@ jobs:
         with:
           toolchain: stable
           override: true
+
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v1.1.2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: Swatinem/rust-cache@v2
         if: ${{ steps.release.outputs.release_created }}
