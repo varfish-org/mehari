@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.5](https://github.com/bihealth/mehari/compare/v0.5.4...v0.5.5) (2023-06-19)
+
+
+### Build System
+
+* fix Docker builds ([#102](https://github.com/bihealth/mehari/issues/102)) ([6366e65](https://github.com/bihealth/mehari/commit/6366e654ca8afb879ec2fe2668da9d27593b562d))
+
 ## [0.5.4](https://github.com/bihealth/mehari/compare/v0.5.3...v0.5.4) (2023-06-17)
 
 
