@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
-      release_name: ${{ steps.release.outputs.release_name }}
+      release_name: ${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}
     steps:
       - uses: GoogleCloudPlatform/release-please-action@v3
         id: release
