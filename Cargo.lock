@@ -259,9 +259,9 @@ dependencies = [
 
 [[package]]
 name = "annonars"
-version = "0.12.2"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8b5f444320c673098c0473fd1a9f9797774543bcb85880bde4b95de81643ace"
+checksum = "a209c476fe1ecfdd5717cfd939134c40e4d9b3ed617ea24e7772af73e3fb38a7"
 dependencies = [
  "actix-web",
  "anyhow",
