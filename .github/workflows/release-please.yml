@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
+      release_name: ${{ steps.release.outputs.release_name }}
     steps:
       - uses: GoogleCloudPlatform/release-please-action@v3
         id: release
@@ -27,12 +28,17 @@ jobs:
           release-type: rust
           package-name: ${{ env.PACKAGE_NAME}}
 
+  cargo-release:
+    needs: release-please
+    runs-on: ubuntu-latest
+    if: ${{ needs.release-please.outputs.release_created }}
+    steps:
       - uses: actions/checkout@v3
-        if: ${{ steps.release.outputs.release_created }}
+        if: ${{ needs.release-please.outputs.release_created }}
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
-        if: ${{ steps.release.outputs.release_created }}
+        if: ${{ needs.release-please.outputs.release_created }}
         with:
           toolchain: stable
           override: true
@@ -43,10 +49,13 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: Swatinem/rust-cache@v2
-        if: ${{ steps.release.outputs.release_created }}
+        if: ${{ needs.release-please.outputs.release_created }}
+        with:
+          cache-directories: |
+            ~/.cargo/registry/src/**/librocksdb-sys-*
 
       - name: Publish crate
-        if: ${{ steps.release.outputs.release_created }}
+        if: ${{ needs.release-please.outputs.release_created }}
         uses: actions-rs/cargo@v1
         with:
           command: publish
@@ -74,9 +83,9 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=semver,pattern={{version}},value=${{ needs.release-please.outputs.release_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-please.outputs.release_name }}
+            type=semver,pattern={{major}},value=${{ needs.release-please.outputs.release_name }}
             type=sha
 
       - name: Build and push Docker image
