@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.6](https://github.com/bihealth/mehari/compare/v0.5.5...v0.5.6) (2023-06-19)
+
+
+### Bug Fixes
+
+* dependency bump to make code compile again ([#104](https://github.com/bihealth/mehari/issues/104)) ([8199d3e](https://github.com/bihealth/mehari/commit/8199d3e9e46dc4eaa2d9e1ef2099d8c1f2f2de9b))
+* docker build version in CI ([#107](https://github.com/bihealth/mehari/issues/107)) ([9a0799f](https://github.com/bihealth/mehari/commit/9a0799fb68915bef4080f0132da3d22963057e4d))
+
+
+### Build System
+
+* some small fixes to CI ([#106](https://github.com/bihealth/mehari/issues/106)) ([fb54df0](https://github.com/bihealth/mehari/commit/fb54df0f67223256b63ec6d3463ca47be1a5aaaf))
+
 ## [0.5.5](https://github.com/bihealth/mehari/compare/v0.5.4...v0.5.5) (2023-06-19)
 
 
