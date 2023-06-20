@@ -55,6 +55,13 @@ RUN cargo build --release
 
 FROM debian:buster-slim AS runtime
 
+# Install dependencies (and cleanup afterwards)
+RUN apt-get update && \
+    apt-get install -y libsqlite3-0 && \
+    apt-get clean autoclean && \
+    apt-get autoremove --yes && \
+    rm -rf /var/lib/{apt,dpkg,cache,log}
+
 # Copy application binary from builder image
 COPY --from=builder \
     /usr/src/mehari/target/release/mehari \
