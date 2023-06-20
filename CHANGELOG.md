@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.7](https://github.com/bihealth/mehari/compare/v0.5.6...v0.5.7) (2023-06-20)
+
+
+### Bug Fixes
+
+* adding libsqlite3-0 to the Docker image ([#109](https://github.com/bihealth/mehari/issues/109)) ([be832fb](https://github.com/bihealth/mehari/commit/be832fb91fe62e4941cc456a6b2d72d4a4dbf9cb))
+
 ## [0.5.6](https://github.com/bihealth/mehari/compare/v0.5.5...v0.5.6) (2023-06-19)
 
 
