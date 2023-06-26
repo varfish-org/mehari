@@ -293,7 +293,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "strum 0.25.0",
+ "strum",
  "thiserror",
  "tracing",
  "tracing-subscriber",
@@ -427,9 +427,9 @@ dependencies = [
 
 [[package]]
 name = "bio"
-version = "1.3.0"
+version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b55f42d2f1632ae6453f58124d75f3f7e32ba2a265188a920ae57a3f3cf08cbe"
+checksum = "549b4c9b9f56970dd6c169a59d04cf4b940aba860c4023cb8427ec4967b4d84e"
 dependencies = [
  "anyhow",
  "approx",
@@ -439,6 +439,7 @@ dependencies = [
  "bytecount",
  "csv",
  "custom_derive",
+ "editdistancek",
  "enum-map 1.1.1",
  "fxhash",
  "getset",
@@ -457,8 +458,8 @@ dependencies = [
  "serde",
  "serde_derive",
  "statrs",
- "strum 0.24.1",
- "strum_macros 0.24.3",
+ "strum",
+ "strum_macros 0.25.0",
  "thiserror",
  "triple_accel",
  "vec_map",
@@ -949,6 +950,12 @@ dependencies = [
  "crypto-common",
  "subtle",
 ]
+
+[[package]]
+name = "editdistancek"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f29d6b9c01703ebe02ed4bbe894777cdd7d4818b8e5b3819c36ab42ffc1bc5d3"
 
 [[package]]
 name = "either"
@@ -1762,7 +1769,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "strum 0.25.0",
+ "strum",
  "temp_testdir",
  "tempdir",
  "thousands",
@@ -2950,12 +2957,6 @@ dependencies = [
  "quote",
  "syn 2.0.18",
 ]
-
-[[package]]
-name = "strum"
-version = "0.24.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "063e6045c0e62079840579a7e47a355ae92f60eb74daaf156fb1e84ba164e63f"
 
 [[package]]
 name = "strum"
