@@ -13,7 +13,7 @@ set -euo pipefail
 #   HTTP_PORT       -- port
 #                      default: 8080
 
-PATH_DB=${PATH_HPO_DIR-/data/mehari}
+PATH_DB=${PATH_DB-/data/mehari}
 HTTP_HOST=${HTTP_HOST-0.0.0.0}
 HTTP_PORT=${HTTP_PORT-8080}
 
