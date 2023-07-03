@@ -282,9 +282,9 @@ dependencies = [
  "noodles-bed",
  "noodles-bgzf",
  "noodles-core 0.12.0",
- "noodles-csi",
- "noodles-tabix",
- "noodles-vcf",
+ "noodles-csi 0.20.0",
+ "noodles-tabix 0.23.0",
+ "noodles-vcf 0.32.0",
  "prost",
  "prost-build",
  "rayon",
@@ -1765,10 +1765,10 @@ dependencies = [
  "nom",
  "noodles-bgzf",
  "noodles-core 0.12.0",
- "noodles-csi",
+ "noodles-csi 0.20.0",
  "noodles-fasta 0.25.0",
- "noodles-tabix",
- "noodles-vcf",
+ "noodles-tabix 0.23.0",
+ "noodles-vcf 0.33.0",
  "parse-display",
  "pretty_assertions",
  "procfs",
@@ -1959,6 +1959,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "noodles-csi"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f967502cfb925c863664248a844b64f0aa62c9250680e0cd613149932129e67d"
+dependencies = [
+ "bit-vec",
+ "byteorder",
+ "indexmap 1.9.3",
+ "noodles-bgzf",
+ "noodles-core 0.12.0",
+]
+
+[[package]]
 name = "noodles-fasta"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1992,7 +2005,20 @@ dependencies = [
  "byteorder",
  "noodles-bgzf",
  "noodles-core 0.12.0",
- "noodles-csi",
+ "noodles-csi 0.20.0",
+]
+
+[[package]]
+name = "noodles-tabix"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2a6c228f3f55a16d58491116b70421cf74c3230609dd0e5433367998dbe2ac1"
+dependencies = [
+ "bit-vec",
+ "byteorder",
+ "noodles-bgzf",
+ "noodles-core 0.12.0",
+ "noodles-csi 0.21.0",
 ]
 
 [[package]]
@@ -2006,8 +2032,24 @@ dependencies = [
  "nom",
  "noodles-bgzf",
  "noodles-core 0.12.0",
- "noodles-csi",
- "noodles-tabix",
+ "noodles-csi 0.20.0",
+ "noodles-tabix 0.23.0",
+ "percent-encoding",
+]
+
+[[package]]
+name = "noodles-vcf"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfbf9c613446f62aabc359b779b9b5008463c72a77c289bade19852480be7acc"
+dependencies = [
+ "indexmap 1.9.3",
+ "memchr",
+ "nom",
+ "noodles-bgzf",
+ "noodles-core 0.12.0",
+ "noodles-csi 0.21.0",
+ "noodles-tabix 0.24.0",
  "percent-encoding",
 ]
 
