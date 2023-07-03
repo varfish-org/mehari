@@ -17,8 +17,13 @@ documentation = []
 [package.metadata.docs.rs]
 all-features = true
 
+[lib]
+name = "mehari"
+path = "src/lib.rs"
+
 [[bin]]
 name = "mehari"
+path = "src/main.rs"
 
 [dependencies]
 actix-web = "4.3"
