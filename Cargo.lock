@@ -268,9 +268,9 @@ dependencies = [
 
 [[package]]
 name = "annonars"
-version = "0.12.7"
+version = "0.12.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e41be76ecb62e9a5aa891bfc09fb7fc5dd7c5e5c4ee37e1b6928343bf50c4ef8"
+checksum = "5152478a8752725187a5873da6c6f1115f5d4f0bf1c120c9c2f715db15b0db64"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -284,16 +284,16 @@ dependencies = [
  "enum-map 2.6.0",
  "env_logger",
  "flate2",
- "hgvs 0.9.0",
- "indexmap 1.9.3",
+ "hgvs",
+ "indexmap 2.0.0",
  "indicatif",
  "log",
  "noodles-bed",
  "noodles-bgzf",
  "noodles-core",
- "noodles-csi 0.20.0",
- "noodles-tabix 0.23.0",
- "noodles-vcf 0.32.0",
+ "noodles-csi",
+ "noodles-tabix",
+ "noodles-vcf",
  "prost",
  "prost-build",
  "rayon",
@@ -1353,41 +1353,15 @@ checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
 name = "hermit-abi"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fed44880c466736ef9a5c5b5facefb5ed0785676d0c02d612db14e54f0d84286"
+checksum = "443144c8cdadd93ebf52ddb4056d257f5b52c04d3c804e657d19eb73fc33668b"
 
 [[package]]
 name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-
-[[package]]
-name = "hgvs"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04fe836c62a7eb3db717abf9bf9742afca84bdc26f31677ac3a494879089ca7f"
-dependencies = [
- "base16ct",
- "bio",
- "chrono",
- "enum-map 2.6.0",
- "flate2",
- "indexmap 1.9.3",
- "lazy_static",
- "log",
- "md-5",
- "nom",
- "postgres",
- "quick_cache",
- "regex",
- "rustc-hash",
- "seqrepo",
- "serde",
- "serde_json",
- "thiserror",
-]
 
 [[package]]
 name = "hgvs"
@@ -1817,7 +1791,7 @@ dependencies = [
  "derivative",
  "env_logger",
  "flate2",
- "hgvs 0.10.1",
+ "hgvs",
  "indexmap 2.0.0",
  "indicatif",
  "insta",
@@ -1827,10 +1801,10 @@ dependencies = [
  "nom",
  "noodles-bgzf",
  "noodles-core",
- "noodles-csi 0.21.0",
+ "noodles-csi",
  "noodles-fasta",
- "noodles-tabix 0.24.0",
- "noodles-vcf 0.33.0",
+ "noodles-tabix",
+ "noodles-vcf",
  "parse-display",
  "pretty_assertions",
  "procfs",
@@ -2003,19 +1977,6 @@ checksum = "94fbe3192fe33acacabaedd387657f39b0fc606f1996d546db0dfe14703b843a"
 
 [[package]]
 name = "noodles-csi"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37ae443ab9055f9fd5021ab75ec6085940888c2379d5c6f55d5898f9d5cf42b3"
-dependencies = [
- "bit-vec",
- "byteorder",
- "indexmap 1.9.3",
- "noodles-bgzf",
- "noodles-core",
-]
-
-[[package]]
-name = "noodles-csi"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f967502cfb925c863664248a844b64f0aa62c9250680e0cd613149932129e67d"
@@ -2041,19 +2002,6 @@ dependencies = [
 
 [[package]]
 name = "noodles-tabix"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8a8a5a5367adbf867516ee662b810cbd51f4431158cd1c32f3e12f8c19fb24a"
-dependencies = [
- "bit-vec",
- "byteorder",
- "noodles-bgzf",
- "noodles-core",
- "noodles-csi 0.20.0",
-]
-
-[[package]]
-name = "noodles-tabix"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a6c228f3f55a16d58491116b70421cf74c3230609dd0e5433367998dbe2ac1"
@@ -2062,23 +2010,7 @@ dependencies = [
  "byteorder",
  "noodles-bgzf",
  "noodles-core",
- "noodles-csi 0.21.0",
-]
-
-[[package]]
-name = "noodles-vcf"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97cc8b6ce1805b0b1637f8fa49e53bba946bbd0d96f37a641fa762284c794107"
-dependencies = [
- "indexmap 1.9.3",
- "memchr",
- "nom",
- "noodles-bgzf",
- "noodles-core",
- "noodles-csi 0.20.0",
- "noodles-tabix 0.23.0",
- "percent-encoding",
+ "noodles-csi",
 ]
 
 [[package]]
@@ -2092,8 +2024,8 @@ dependencies = [
  "nom",
  "noodles-bgzf",
  "noodles-core",
- "noodles-csi 0.21.0",
- "noodles-tabix 0.24.0",
+ "noodles-csi",
+ "noodles-tabix",
  "percent-encoding",
 ]
 
