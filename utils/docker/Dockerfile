@@ -1,5 +1,9 @@
 # syntax=docker/dockerfile:1.3
 
+# Note: two-stage building is disabled for now because of the dual nature of
+# mehari right now as both CLI and lib; we would have to use features to
+# untable the two.
+
 # Based on https://levelup.gitconnected.com/1940db638a6c
 #
 # We don't do cross compilation at the moment but build the dependencies first
@@ -25,21 +29,21 @@ RUN rustup component add rustfmt
 COPY utils/install-protoc.sh /tmp
 RUN CMAKE_INSTALL_PREFIX=/usr/local bash /tmp/install-protoc.sh
 
-# Now for the two-step building.
-#
-# Set initial workdir.
-WORKDIR /usr/src
-# Create blank project.
-RUN USER=root cargo new mehari
-# We want dependencies cached, so copy those first.
-COPY Cargo.toml Cargo.lock /usr/src/mehari/
+#### Now for the two-step building.
+####
+#### Set initial workdir.
+###WORKDIR /usr/src
+#### Create blank project.
+###RUN USER=root cargo new mehari
+#### We want dependencies cached, so copy those first.
+###COPY Cargo.toml Cargo.lock /usr/src/mehari/
 # Set the working directory.
 WORKDIR /usr/src/mehari
-# This is a dummy build to get the dependencies cached.
-RUN cargo build --release
+#### This is a dummy build to get the dependencies cached.
+###RUN cargo build --release
 #
 # Now copy in the rest of the sources.
-COPY build.rs /usr/src/mehari/
+COPY build.rs Cargo.toml Cargo.lock /usr/src/mehari/
 COPY src /usr/src/mehari/src/
 COPY utils/alpine-linker-script.sh /usr/src/mehari/utils/
 RUN chmod a+rx /usr/src/mehari/utils/alpine-linker-script.sh
