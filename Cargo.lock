@@ -1391,9 +1391,9 @@ dependencies = [
 
 [[package]]
 name = "hgvs"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2012dd34e678c48782a814cde75751c47b58414f8aed910d691bc7e4e8a1f5a8"
+checksum = "5dd5d595b05540a8288c2b44fba457fa0a408fb0dc4f856b55b2f720d74c95a9"
 dependencies = [
  "base16ct",
  "bio",
@@ -1817,7 +1817,7 @@ dependencies = [
  "derivative",
  "env_logger",
  "flate2",
- "hgvs 0.10.0",
+ "hgvs 0.10.1",
  "indexmap 2.0.0",
  "indicatif",
  "insta",
