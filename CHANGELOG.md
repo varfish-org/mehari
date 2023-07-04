@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0](https://github.com/bihealth/mehari/compare/v0.5.7...v0.6.0) (2023-07-04)
+
+
+### Features
+
+* mehari becomes available as a library ([#118](https://github.com/bihealth/mehari/issues/118)) ([59bb41a](https://github.com/bihealth/mehari/commit/59bb41a7c4576e616a788b8788bab941fc6424ab))
+
+
+### Bug Fixes
+
+* fix Dockerfile by removing two-stage process ([#128](https://github.com/bihealth/mehari/issues/128)) ([0346977](https://github.com/bihealth/mehari/commit/03469774d466010a72cf15291effb4a1bb89f27c))
+* wrong default of PATH_DB in Dockerfile ([#111](https://github.com/bihealth/mehari/issues/111)) ([51e10cc](https://github.com/bihealth/mehari/commit/51e10cc764d7a16384ef573d830697381c21472c))
+
 ## [0.5.7](https://github.com/bihealth/mehari/compare/v0.5.6...v0.5.7) (2023-06-20)
 
 
