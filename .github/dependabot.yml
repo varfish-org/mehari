@@ -7,3 +7,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      # Group together updates to noodles as there are peer dependencies.
+      noodles:
+        patterns:
+          - "noodles-*"
