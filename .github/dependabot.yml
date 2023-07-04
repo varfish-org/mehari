@@ -9,6 +9,11 @@ updates:
       interval: "weekly"
     groups:
       # Group together updates to noodles as there are peer dependencies.
+      # 
+      # Also add "reverse" transitive dependencies.
       noodles:
         patterns:
+          - "annonars"
+          - "hgvs"
+          - "seqrepo"
           - "noodles-*"
