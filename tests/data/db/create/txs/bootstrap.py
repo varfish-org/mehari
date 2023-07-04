@@ -1,24 +1,3 @@
-#!/usr/bin/env python
-
-import gzip
-import json
-
-select_symbols = ("BRCA1", "OPA1")
-
-with gzip.open("../../../../../../cdot-0.2.12.refseq.grch37_grch38.json.gz", "rt") as inputf:
-    data = json.load(inputf)
-
-data["transcripts"] = {
-    k: v
-    for k, v in data["transcripts"].items()
-    if v["gene_name"] in select_symbols
-}
-
-data["genes"] = {
-    k: v
-    for k, v in data["genes"].items()
-    if v["gene_symbol"] in select_symbols
-}
-
-with open("cdot-0.2.12.refseq.grch37_grch38.brca1_opa1.json", "wt") as outputf:
-    json.dump(data, outputf, indent=2)
+version https://git-lfs.github.com/spec/v1
+oid sha256:8fb27ae7880f932a1d6a273ee9d979166bf6be543e45f63b5a186067324a9671
+size 557

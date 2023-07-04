@@ -1,22 +1,3 @@
-3-193305996-C-T	NM_015560.3	intergenic_variant
-3-193305997-C-T	NM_015560.3	upstream_gene_variant
-3-193310996-C-T	NM_015560.3	upstream_gene_variant
-3-193310997-A-T	NM_015560.3	5_prime_UTR_variant
-3-193311166-G-T	NM_015560.3	5_prime_UTR_variant
-3-193311167-A-T	NM_015560.3	start_lost
-3-193311168-T-A	NM_015560.3	start_lost
-3-193311169-G-A	NM_015560.3	start_lost
-3-193311170-T-A	NM_015560.3	missense_variant
-3-193311198-G-A	NM_015560.3	missense_variant&splice_region_variant
-3-193311199-G-A	NM_015560.3	splice_donor_variant
-3-193409913-A-T	NM_015560.3	missense_variant
-3-193409914-T-G	NM_015560.3	stop_lost
-3-193409915-A-T	NM_015560.3	stop_lost
-3-193409915-A-C	NM_015560.3	stop_lost
-3-193409916-A-G	NM_015560.3	stop_retained_variant
-3-193409916-A-C	NM_015560.3	stop_lost
-3-193409917-A-T	NM_015560.3	3_prime_UTR_variant
-3-193415600-A-T	NM_015560.3	3_prime_UTR_variant
-3-193415601-C-T	NM_015560.3	downstream_gene_variant
-3-193421600-C-T	NM_015560.3	downstream_gene_variant
-3-193421601-C-T	NM_015560.3	intergenic_variant
+version https://git-lfs.github.com/spec/v1
+oid sha256:4ef3525496b9a8e570f5b310dad3dc679e19f9e5feab2833acb49cf903c4b848
+size 1015
