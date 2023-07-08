@@ -700,7 +700,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             "case_id",
             "set_id",
             "sv_uuid",
-            "callers",
+            "caller",
             "sv_type",
             "sv_sub_type",
             "info",
