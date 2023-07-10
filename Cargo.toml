@@ -80,5 +80,5 @@ prost-build = "0.11"
 csv = "1.2"
 insta = { version = "1.30", features = ["yaml"] }
 pretty_assertions = "1.3"
-rstest = "0.17"
+rstest = "0.18"
 temp_testdir = "0.2"
