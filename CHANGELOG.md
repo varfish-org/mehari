@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/bihealth/mehari/compare/v0.6.0...v0.6.1) (2023-07-11)
+
+
+### Bug Fixes
+
+* strucvars annotate TSV output header ([#80](https://github.com/bihealth/mehari/issues/80)) ([#130](https://github.com/bihealth/mehari/issues/130)) ([f4d3315](https://github.com/bihealth/mehari/commit/f4d3315a477496792216af77b0aa982f125111df))
+
 ## [0.6.0](https://github.com/bihealth/mehari/compare/v0.5.7...v0.6.0) (2023-07-04)
 
 
