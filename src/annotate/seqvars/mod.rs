@@ -1410,14 +1410,10 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     );
     tracing::debug!("RocksDB path = {}", &rocksdb_path);
     let options = rocksdb::Options::default();
-    let db_clinvar = rocksdb::DB::open_cf_for_read_only(
-        &options,
-        &rocksdb_path,
-        ["meta", "clinvar_seqvars"],
-        false,
-    )?;
+    let db_clinvar =
+        rocksdb::DB::open_cf_for_read_only(&options, &rocksdb_path, ["meta", "clinvar"], false)?;
 
-    let cf_clinvar = db_clinvar.cf_handle("clinvar_seqvars").unwrap();
+    let cf_clinvar = db_clinvar.cf_handle("clinvar").unwrap();
 
     // Open the serialized transcripts.
     tracing::info!("Opening transcript database");
