@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/bihealth/mehari/compare/v0.6.1...v0.6.2) (2023-07-17)
+
+
+### Bug Fixes
+
+* adjust clinvar column family name ([#138](https://github.com/bihealth/mehari/issues/138)) ([95b7ffb](https://github.com/bihealth/mehari/commit/95b7ffb6b42ef74679b8bb1433cdf0e43029db02))
+
 ## [0.6.1](https://github.com/bihealth/mehari/compare/v0.6.0...v0.6.1) (2023-07-11)
 
 
