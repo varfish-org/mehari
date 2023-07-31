@@ -268,9 +268,9 @@ dependencies = [
 
 [[package]]
 name = "annonars"
-version = "0.12.8"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5152478a8752725187a5873da6c6f1115f5d4f0bf1c120c9c2f715db15b0db64"
+checksum = "a535a1cd6a637e969e5871a6e94951d179a54121a34be9e65eea98a8b495720b"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -1373,7 +1373,7 @@ dependencies = [
  "quick_cache",
  "regex",
  "rustc-hash",
- "seqrepo",
+ "seqrepo 0.6.1",
  "serde",
  "serde_json",
  "thiserror",
@@ -1792,7 +1792,7 @@ dependencies = [
  "noodles-bgzf",
  "noodles-core",
  "noodles-csi",
- "noodles-fasta",
+ "noodles-fasta 0.27.0",
  "noodles-tabix",
  "noodles-vcf",
  "parse-display",
@@ -1806,7 +1806,7 @@ dependencies = [
  "rocksdb",
  "rstest",
  "rustc-hash",
- "seqrepo",
+ "seqrepo 0.7.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -1967,13 +1967,13 @@ checksum = "94fbe3192fe33acacabaedd387657f39b0fc606f1996d546db0dfe14703b843a"
 
 [[package]]
 name = "noodles-csi"
-version = "0.21.0"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f967502cfb925c863664248a844b64f0aa62c9250680e0cd613149932129e67d"
+checksum = "55329e145d9b5ba58299e3f9e36512d143e19379f13c3480db7346bcfaadc679"
 dependencies = [
  "bit-vec",
  "byteorder",
- "indexmap 1.9.3",
+ "indexmap 2.0.0",
  "noodles-bgzf",
  "noodles-core",
 ]
@@ -1991,10 +1991,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "noodles-tabix"
-version = "0.24.0"
+name = "noodles-fasta"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2a6c228f3f55a16d58491116b70421cf74c3230609dd0e5433367998dbe2ac1"
+checksum = "a8af3e2fd41a831ab9fbbbd33ce00ab2c1299d6548c13ffc30152ede4d10f6ea"
+dependencies = [
+ "bytes",
+ "memchr",
+ "noodles-bgzf",
+ "noodles-core",
+]
+
+[[package]]
+name = "noodles-tabix"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9056c1880629bbd50c7737c4d2cffcfb3610045a024776dad5cd606dd88feefc"
 dependencies = [
  "bit-vec",
  "byteorder",
@@ -2005,11 +2017,11 @@ dependencies = [
 
 [[package]]
 name = "noodles-vcf"
-version = "0.33.0"
+version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfbf9c613446f62aabc359b779b9b5008463c72a77c289bade19852480be7acc"
+checksum = "90ef8021080bdca5eb1328716ed418b0813deb950a244d2faf15e977a565048f"
 dependencies = [
- "indexmap 1.9.3",
+ "indexmap 2.0.0",
  "memchr",
  "nom",
  "noodles-bgzf",
@@ -2777,7 +2789,22 @@ dependencies = [
  "chrono",
  "noodles-bgzf",
  "noodles-core",
- "noodles-fasta",
+ "noodles-fasta 0.25.0",
+ "rusqlite",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "seqrepo"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6eaad4e5d741cc89ab31eb3c1de020427331b2a58ff7d587befb18055a7484c9"
+dependencies = [
+ "chrono",
+ "noodles-bgzf",
+ "noodles-core",
+ "noodles-fasta 0.25.0",
  "rusqlite",
  "thiserror",
  "tracing",
