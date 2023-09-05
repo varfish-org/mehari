@@ -1784,7 +1784,7 @@ dependencies = [
  "parse-display",
  "pretty_assertions",
  "procfs",
- "prost 0.11.9",
+ "prost 0.12.0",
  "prost-build 0.12.0",
  "quick_cache",
  "rand 0.8.5",
