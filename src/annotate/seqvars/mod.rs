@@ -1672,4 +1672,39 @@ mod test {
 
         Ok(())
     }
+
+    #[test]
+    fn test_badly_formed_vcf_entry() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_out = temp.join("output.tsv.gz");
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let args = Args {
+            genome_release: None,
+            path_db: String::from("tests/data/annotate/db"),
+            path_input_vcf: String::from(
+                "tests/data/db/create/badly_formed_vcf_entry.vcf",
+            ),
+            output: PathOutput {
+                path_output_vcf: None,
+                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
+            },
+            max_var_count: None,
+            path_input_ped: Some(String::from(
+                "tests/data/db/create/badly_formed_vcf_entry.ped",
+            )),
+        };
+
+        run(&args_common, &args)?;
+
+        // let actual = std::fs::read_to_string(args.output.path_output_vcf.unwrap())?;
+        // let expected = std::fs::read_to_string(
+        //     "tests/data/db/create/seqvar_freqs/db-rs1263393206/output.vcf",
+        // )?;
+        // assert_eq!(&expected, &actual);
+
+        Ok(())
+    }
 }
