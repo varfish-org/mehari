@@ -1672,7 +1672,7 @@ mod test {
     #[test]
     fn test_badly_formed_vcf_entry() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
-        let path_out = temp.join("output.tsv.gz");
+        let path_out = temp.join("output.tsv");
 
         let args_common = crate::common::Args {
             verbose: Verbosity::new(0, 1),
@@ -1693,11 +1693,9 @@ mod test {
 
         run(&args_common, &args)?;
 
-        // let actual = std::fs::read_to_string(args.output.path_output_vcf.unwrap())?;
-        // let expected = std::fs::read_to_string(
-        //     "tests/data/db/create/seqvar_freqs/db-rs1263393206/output.vcf",
-        // )?;
-        // assert_eq!(&expected, &actual);
+        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
+        let expected = std::fs::read_to_string("tests/data/db/create/badly_formed_vcf_entry.tsv")?;
+        assert_eq!(&expected, &actual);
 
         Ok(())
     }
