@@ -714,10 +714,9 @@ impl VarFishSeqvarTsvWriter {
             if let Some(gt) = sample
                 .get(&GENOTYPE)
                 .map(|value| match value {
-                    Some(sample::Value::String(s)) => Ok(s.to_owned()),
-                    _ => anyhow::bail!("invalid GT value"),
+                    Some(sample::Value::String(s)) => s.to_owned(),
+                    _ => ".".into()
                 })
-                .transpose()?
             {
                 let individual = self
                     .pedigree
