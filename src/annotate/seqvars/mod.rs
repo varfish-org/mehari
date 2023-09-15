@@ -711,13 +711,10 @@ impl VarFishSeqvarTsvWriter {
                 ..Default::default()
             };
 
-            if let Some(gt) = sample
-                .get(&GENOTYPE)
-                .map(|value| match value {
-                    Some(sample::Value::String(s)) => s.to_owned(),
-                    _ => ".".into()
-                })
-            {
+            if let Some(gt) = sample.get(&GENOTYPE).map(|value| match value {
+                Some(sample::Value::String(s)) => s.to_owned(),
+                _ => ".".into(),
+            }) {
                 let individual = self
                     .pedigree
                     .as_ref()
@@ -1683,9 +1680,7 @@ mod test {
         let args = Args {
             genome_release: None,
             path_db: String::from("tests/data/annotate/db"),
-            path_input_vcf: String::from(
-                "tests/data/db/create/badly_formed_vcf_entry.vcf",
-            ),
+            path_input_vcf: String::from("tests/data/db/create/badly_formed_vcf_entry.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
