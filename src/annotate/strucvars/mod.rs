@@ -112,7 +112,7 @@ pub mod vcf_header {
 
     use annonars::common::cli::is_canonical;
     use hgvs::static_data::{Assembly, ASSEMBLY_INFOS};
-    use noodles_vcf::header::record::value::map::{Contig, Filter, Format, Info, Meta, Other};
+    use noodles_vcf::header::record::value::map::{Contig, Filter, Format, Info, Other};
     use noodles_vcf::header::record::value::Map;
     use noodles_vcf::header::{self, Number};
     use noodles_vcf::record::genotypes::keys::key::{
@@ -187,14 +187,11 @@ pub mod vcf_header {
 
         for sequence in &assembly_info.sequences {
             if is_canonical(sequence.name.as_ref()) {
-                let mut contig = Map::<Contig>::try_from(vec![
-                    (String::from("length"), format!("{}", sequence.length)),
-                    (String::from("assembly"), assembly_name.clone()),
-                    (String::from("accession"), sequence.refseq_ac.clone()),
-                ])?;
-
-                Map::<Contig>::new();
-                *contig.length_mut() = Some(sequence.length);
+                let contig = Map::<Contig>::builder()
+                    .insert("assembly".parse()?, assembly_name.clone())
+                    .insert("accession".parse()?, sequence.refseq_ac.clone())
+                    .set_length(sequence.length)
+                    .build()?;
                 builder = builder.add_contig(sequence.name.parse()?, contig);
             }
         }
@@ -417,7 +414,7 @@ pub mod vcf_header {
         pedigree: &PedigreeByName,
         header: &Header,
     ) -> Result<Builder, anyhow::Error> {
-        let mut builder = add_meta_fields(builder);
+        let mut builder = add_meta_fields(builder)?;
 
         // Wait for https://github.com/zaeleus/noodles/issues/162#issuecomment-1514444101
         // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles_vcf::header::record::value::map::Other>::builder();
@@ -457,46 +454,44 @@ pub mod vcf_header {
     }
 
     // Define fields for the gonosomal karyotype, (sex for canonical), affected status
-    fn add_meta_fields(builder: Builder) -> Builder {
-        builder
-            .add_meta(
-                "Sex",
-                Map::<Meta>::new(vec![
-                    String::from("Male"),
-                    String::from("Female"),
-                    String::from("Other"),
-                    String::from("Unknown"),
-                ]),
-            )
-            .add_meta(
-                "GonosomalKaryotype",
-                Map::<Meta>::new(vec![
-                    // "canonical" female
-                    String::from("XX"),
-                    // "canonical" male
-                    String::from("XY"),
-                    // Turner syndrome
-                    String::from("XO"),
-                    // Klinefelter syndrome
-                    String::from("XXY"),
-                    // Triple X syndrome
-                    String::from("XXX"),
-                    // Jacobs syndrome
-                    String::from("XYY"),
-                    // Other
-                    String::from("Other"),
-                    // Unknown
-                    String::from("Unknown"),
-                ]),
-            )
-            .add_meta(
-                "Affected",
-                Map::<Meta>::new(vec![
-                    String::from("Yes"),
-                    String::from("No"),
-                    String::from("Unknown"),
-                ]),
-            )
+    fn add_meta_fields(builder: Builder) -> Result<Builder, anyhow::Error> {
+        Ok(builder
+            .insert(
+                "META".parse()?,
+                noodles_vcf::header::record::Value::Map(
+                    String::from("Sex"),
+                    Map::<Other>::builder()
+                        .insert("Type".parse()?, "String")
+                        .insert("Number".parse()?, ".")
+                        .insert("Values".parse()?, "[Male, Female, Other, Unknown]")
+                        .build()?,
+                ),
+            )?
+            .insert(
+                "META".parse()?,
+                noodles_vcf::header::record::Value::Map(
+                    String::from("GonosomalKaryotype"),
+                    Map::<Other>::builder()
+                        .insert("Type".parse()?, "String")
+                        .insert("Number".parse()?, ".")
+                        .insert(
+                            "Values".parse()?,
+                            "[XX, XY, XO, XXY, XXX, XYY, Other, Unknown]",
+                        )
+                        .build()?,
+                ),
+            )?
+            .insert(
+                "META".parse()?,
+                noodles_vcf::header::record::Value::Map(
+                    String::from("Affected"),
+                    Map::<Other>::builder()
+                        .insert("Type".parse()?, "String")
+                        .insert("Number".parse()?, ".")
+                        .insert("Values".parse()?, "[Yes, No, Unknown]")
+                        .build()?,
+                ),
+            )?)
     }
 }
 
@@ -840,7 +835,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
                 ..Default::default()
             });
 
-            let mut entry = tsv_record.genotype.entries.last_mut().expect("just pushed");
+            let entry = tsv_record.genotype.entries.last_mut().expect("just pushed");
             let sample = gt_it.next().expect("genotype iterator exhausted");
 
             for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
@@ -1282,7 +1277,7 @@ impl VarFishStrucvarTsvRecord {
         }
 
         for i in 0..self.genotype.entries.len() {
-            let mut lhs = self
+            let lhs = self
                 .genotype
                 .entries
                 .get_mut(i)
@@ -1607,7 +1602,7 @@ pub fn guess_sv_caller<P>(p: P) -> Result<SvCaller, anyhow::Error>
 where
     P: AsRef<Path>,
 {
-    let mut reader = noodles_vcf::reader::Builder::default().build_from_path(p)?;
+    let mut reader = noodles_vcf::reader::Builder.build_from_path(p)?;
     let header = reader.read_header()?;
     let mut records = reader.records(&header);
     let record = records
@@ -2560,7 +2555,7 @@ fn run_vcf_to_jsonl(
     let sv_caller = guess_sv_caller(path_input)?;
     tracing::debug!("guessed caller/version to be {:?}", &sv_caller);
 
-    let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path_input)?;
+    let mut reader = noodles_vcf::reader::Builder.build_from_path(path_input)?;
     let header: VcfHeader = reader.read_header()?;
 
     let samples = header
@@ -2825,7 +2820,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         GenomeRelease::Grch38 => Assembly::Grch38,
     });
     let (header, assembly) = {
-        let mut reader = VariantReaderBuilder::default().build_from_path(
+        let mut reader = VariantReaderBuilder.build_from_path(
             args.path_input_vcf
                 .first()
                 .expect("must have at least input VCF"),
@@ -3060,7 +3055,7 @@ mod test {
         let temp = TempDir::default();
         let out_jsonl = File::create(temp.join(out_file_name))?;
 
-        let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
+        let mut reader = noodles_vcf::reader::Builder.build_from_path(path_input_vcf)?;
         let header_in = reader.read_header()?;
 
         // Setup deterministic bytes for UUID generation.
@@ -3095,7 +3090,7 @@ mod test {
 
     /// Helper that returns sample names from VCF.
     fn vcf_samples(path: &str) -> Result<Vec<String>, anyhow::Error> {
-        let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path)?;
+        let mut reader = noodles_vcf::reader::Builder.build_from_path(path)?;
         let header: VcfHeader = reader.read_header()?;
         Ok(header
             .sample_names()
@@ -3363,44 +3358,41 @@ mod test {
 
     /// Generate example trio data.
     fn example_trio() -> PedigreeByName {
-        let individuals = indexmap::IndexMap::from_iter(
-            vec![
-                (
-                    String::from("index"),
-                    Individual {
-                        family: String::from("FAM"),
-                        name: String::from("index"),
-                        father: Some(String::from("father")),
-                        mother: Some(String::from("mother")),
-                        sex: Sex::Female,
-                        disease: Disease::Affected,
-                    },
-                ),
-                (
-                    String::from("father"),
-                    Individual {
-                        family: String::from("FAM"),
-                        name: String::from("father"),
-                        father: None,
-                        mother: None,
-                        sex: Sex::Male,
-                        disease: Disease::Unaffected,
-                    },
-                ),
-                (
-                    String::from("mother"),
-                    Individual {
-                        family: String::from("FAM"),
-                        name: String::from("mother"),
-                        father: None,
-                        mother: None,
-                        sex: Sex::Female,
-                        disease: Disease::Unaffected,
-                    },
-                ),
-            ]
-            .into_iter(),
-        );
+        let individuals = indexmap::IndexMap::from_iter(vec![
+            (
+                String::from("index"),
+                Individual {
+                    family: String::from("FAM"),
+                    name: String::from("index"),
+                    father: Some(String::from("father")),
+                    mother: Some(String::from("mother")),
+                    sex: Sex::Female,
+                    disease: Disease::Affected,
+                },
+            ),
+            (
+                String::from("father"),
+                Individual {
+                    family: String::from("FAM"),
+                    name: String::from("father"),
+                    father: None,
+                    mother: None,
+                    sex: Sex::Male,
+                    disease: Disease::Unaffected,
+                },
+            ),
+            (
+                String::from("mother"),
+                Individual {
+                    family: String::from("FAM"),
+                    name: String::from("mother"),
+                    father: None,
+                    mother: None,
+                    sex: Sex::Female,
+                    disease: Disease::Unaffected,
+                },
+            ),
+        ]);
         PedigreeByName { individuals }
     }
 

@@ -257,7 +257,7 @@ impl ProviderInterface for MehariProvider {
                         tx_ac: tx_ac.to_string(),
                         alt_ac: alt_ac.to_string(),
                         alt_aln_method: ALT_ALN_METHOD.to_string(),
-                        alt_strand: match Strand::from_i32(genome_alignment.strand)
+                        alt_strand: match Strand::try_from(genome_alignment.strand)
                             .expect("invalid strand")
                         {
                             Strand::Plus => 1,
@@ -324,7 +324,7 @@ impl ProviderInterface for MehariProvider {
                 TxForRegionRecord {
                     tx_ac: tx.id.clone(),
                     alt_ac: alt_ac.to_string(),
-                    alt_strand: match Strand::from_i32(alt_strand).expect("invalid strand") {
+                    alt_strand: match Strand::try_from(alt_strand).expect("invalid strand") {
                         Strand::Plus => 1,
                         Strand::Minus => -1,
                     },
