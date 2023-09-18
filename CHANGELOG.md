@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.0](https://github.com/bihealth/mehari/compare/v0.6.2...v0.7.0) (2023-09-18)
+
+
+### Features
+
+* bump dependencies (especially noodles) ([#179](https://github.com/bihealth/mehari/issues/179)) ([34b540c](https://github.com/bihealth/mehari/commit/34b540c0a83a585e67550f9309fe25a28527fa5a))
+* support for MELT VCF files ([#181](https://github.com/bihealth/mehari/issues/181)) ([831e9af](https://github.com/bihealth/mehari/commit/831e9af076a4b6334508ff9a6f11940f1ba42a6d))
+
+
+### Bug Fixes
+
+* Allow '.' genotypes ([#178](https://github.com/bihealth/mehari/issues/178)) ([6d0c5b8](https://github.com/bihealth/mehari/commit/6d0c5b8c16762efa78cdcc9577924c098fb3e9ec))
+
 ## [0.6.2](https://github.com/bihealth/mehari/compare/v0.6.1...v0.6.2) (2023-07-17)
 
 
