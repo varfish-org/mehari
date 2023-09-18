@@ -1132,6 +1132,7 @@ impl FromStr for SvSubType {
             "DEL:ME" => Ok(SvSubType::DelMe),
             "DEL:ME:SVA" => Ok(SvSubType::DelMeSva),
             "DEL:ME:L1" => Ok(SvSubType::DelMeL1),
+            "DEL:ME:LINE1" => Ok(SvSubType::DelMeL1),
             "DEL:ME:ALU" => Ok(SvSubType::DelMeAlu),
             "DUP" => Ok(SvSubType::Dup),
             "DUP:TANDEM" => Ok(SvSubType::DupTandem),
@@ -1140,9 +1141,13 @@ impl FromStr for SvSubType {
             "INS:ME" => Ok(SvSubType::InsMe),
             "INS:ME:SVA" => Ok(SvSubType::InsMeSva),
             "INS:ME:L1" => Ok(SvSubType::InsMeL1),
+            "INS:ME:LINE1" => Ok(SvSubType::InsMeL1),
             "INS:ME:ALU" => Ok(SvSubType::InsMeAlu),
             "BND" => Ok(SvSubType::Bnd),
             "CNV" => Ok(SvSubType::Cnv),
+            "ALU" => Ok(SvSubType::InsMeAlu),
+            "SVA" => Ok(SvSubType::InsMeSva),
+            "LINE1" => Ok(SvSubType::InsMeL1),
             _ => Err(anyhow::anyhow!("Invalid SV sub type: {}", s)),
         }
     }
@@ -1435,6 +1440,7 @@ pub enum SvCaller {
     DragenCnv { version: String },
     Gcnv { version: String },
     Manta { version: String },
+    Melt { version: String },
     Popdel { version: String },
 }
 
@@ -1455,6 +1461,11 @@ impl SvCaller {
                 self.all_format_defined(header, &["PL", "PR", "SR"])
                     && self.all_info_defined(header, &["BND_DEPTH", "MATE_BND_DEPTH"])
                     && self.source_starts_with(header, "GenerateSVCandidates")
+            }
+            SvCaller::Melt { .. } => {
+                self.all_format_defined(header, &["GL", "DP", "AD"])
+                    && self.all_info_defined(header, &["ASSESS", "TSD"])
+                    && self.source_starts_with(header, "MELTv")
             }
             SvCaller::DragenCnv { .. } => {
                 self.all_format_defined(header, &["SM", "CN", "BC", "PE"])
@@ -1501,6 +1512,23 @@ impl SvCaller {
             SvCaller::Manta { .. } => SvCaller::Manta {
                 version: self.version_from_source_trailing(header)?,
             },
+            SvCaller::Melt { .. } => {
+                for (key, values) in header.other_records() {
+                    if key.as_ref() == "source" {
+                        if let noodles_vcf::header::record::value::Collection::Unstructured(inner) =
+                            values
+                        {
+                            if let Some(version) = inner[0].split('v').last() {
+                                return Ok(SvCaller::Melt {
+                                    version: version.to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+
+                anyhow::bail!("Could not extract version for MELT")
+            }
             SvCaller::Popdel { .. } => SvCaller::Popdel {
                 version: self.version_from_info_svmethod(record)?,
             },
@@ -2321,6 +2349,95 @@ mod conv {
         }
     }
 
+    pub struct MeltVcfRecordConverter {
+        /// The samples from the VCF file.
+        pub samples: Vec<String>,
+        /// The Manta caller version.
+        pub version: String,
+    }
+
+    impl MeltVcfRecordConverter {
+        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+            Self {
+                samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
+                version: version.to_string(),
+            }
+        }
+    }
+
+    impl VcfRecordConverter for MeltVcfRecordConverter {
+        fn fill_genotypes(
+            &self,
+            pedigree: &PedigreeByName,
+            vcf_record: &VcfRecord,
+            tsv_record: &mut VarFishStrucvarTsvRecord,
+        ) -> Result<(), anyhow::Error> {
+            let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
+
+            // Extract `FORMAT/*` values.
+            for (sample_no, sample) in vcf_record.genotypes().values().enumerate() {
+                entries[sample_no].name = self.samples[sample_no].clone();
+
+                for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+                    match (key.as_ref(), value) {
+                        // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+                        ("GT", Some(SampleValue::String(gt))) => {
+                            process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
+                        }
+                        // Obtain `GenotypeInfo::gq` from `FORMAT/GL`.
+                        ("GL", Some(SampleValue::Array(value::Array::Float(gl)))) => {
+                            let mut gls = gl.iter().filter_map(|x| *x).collect::<Vec<_>>();
+                            gls.sort_by(|a, b| b.partial_cmp(a).unwrap());
+                            if gls.len() >= 2 {
+                                entries[sample_no].gq = Some((gls[0] - gls[1]).round() as i32);
+                            }
+                        }
+                        // Extract total number of reads from AD.
+                        //
+                        // MELT does not allow us to separate SR and PR, so we assign them 50% each.
+                        ("DP", Some(sample::Value::Integer(dp))) => {
+                            entries[sample_no].pec = Some(*dp / 2);
+                            entries[sample_no].src = Some(*dp / 2 + *dp % 2);
+                        }
+                        // Extract variant number of reads from AD.
+                        //
+                        // MELT does not allow us to separate SR and PR, so we assign them 50% each.
+                        ("AD", Some(sample::Value::Integer(ad))) => {
+                            entries[sample_no].pev = Some(*ad / 2);
+                            entries[sample_no].srv = Some(*ad / 2 + *ad % 2);
+                        }
+                        // Ignore all other keys.
+                        _ => (),
+                    }
+                }
+            }
+
+            tsv_record.genotype.entries = entries;
+            // Post-process genotype and copy number fields and update carrier count as needed.
+            postproc_gt_cn(tsv_record, pedigree);
+
+            Ok(())
+        }
+
+        fn caller_version(&self) -> String {
+            format!("MELTv{}", self.version)
+        }
+
+        fn fill_cis(
+            &self,
+            _vcf_record: &VcfRecord,
+            tsv_record: &mut VarFishStrucvarTsvRecord,
+        ) -> Result<(), anyhow::Error> {
+            // MELT does not write out CIs
+            tsv_record.start_ci_left = 0;
+            tsv_record.start_ci_right = 0;
+            tsv_record.end_ci_left = 0;
+            tsv_record.end_ci_right = 0;
+
+            Ok(())
+        }
+    }
+
     pub struct PopdelVcfRecordConverter {
         /// The samples from the VCF file.
         pub samples: Vec<String>,
@@ -2510,6 +2627,7 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
         SvCaller::Manta { version } => {
             Box::new(conv::MantaVcfRecordConverter::new(version, samples))
         }
+        SvCaller::Melt { version } => Box::new(conv::MeltVcfRecordConverter::new(version, samples)),
         SvCaller::DragenSv { version } => {
             Box::new(conv::DragenSvVcfRecordConverter::new(version, samples))
         }
@@ -3024,7 +3142,8 @@ mod test {
         build_vcf_record_converter,
         conv::{
             DellyVcfRecordConverter, DragenCnvVcfRecordConverter, DragenSvVcfRecordConverter,
-            GcnvVcfRecordConverter, MantaVcfRecordConverter, PopdelVcfRecordConverter,
+            GcnvVcfRecordConverter, MantaVcfRecordConverter, MeltVcfRecordConverter,
+            PopdelVcfRecordConverter,
         },
         guess_sv_caller, run, vcf_header, Args, PathOutput, VarFishStrucvarTsvWriter, VcfHeader,
         VcfRecord, VcfRecordConverter,
@@ -3212,6 +3331,20 @@ mod test {
     }
 
     #[test]
+    fn vcf_to_jsonl_melt_min() -> Result<(), anyhow::Error> {
+        let path_input_vcf = "tests/data/annotate/strucvars/melt-min.vcf";
+        let samples = vcf_samples(path_input_vcf)?;
+        let pedigree = sample_ped(&samples);
+
+        run_test_vcf_to_jsonl(
+            &pedigree,
+            path_input_vcf,
+            "tests/data/annotate/strucvars/melt-min.out.jsonl",
+            &MeltVcfRecordConverter::new("2.2.2", &samples),
+        )
+    }
+
+    #[test]
     fn vcf_to_jsonl_popdel_min() -> Result<(), anyhow::Error> {
         let path_input_vcf = "tests/data/annotate/strucvars/popdel-min.vcf";
         let samples = vcf_samples(path_input_vcf)?;
@@ -3290,6 +3423,14 @@ mod test {
     #[test]
     fn guess_sv_caller_manta() -> Result<(), anyhow::Error> {
         let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/manta-min.vcf")?;
+        insta::assert_debug_snapshot!(sv_caller);
+
+        Ok(())
+    }
+
+    #[test]
+    fn guess_sv_caller_melt() -> Result<(), anyhow::Error> {
+        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/melt-min.vcf")?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
