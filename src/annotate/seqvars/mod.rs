@@ -212,12 +212,16 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
     );
 
     header_out.infos_mut().insert(
-        field::Key::from_str("clinvar_patho").unwrap(),
-        Map::<Info>::new(Number::Count(1), Type::String, "ClinVar pathogenicity"),
+        field::Key::from_str("clinvar_clinsig").unwrap(),
+        Map::<Info>::new(
+            Number::Count(1),
+            Type::String,
+            "ClinVar clinical significance",
+        ),
     );
     header_out.infos_mut().insert(
-        field::Key::from_str("clinvar_vcv").unwrap(),
-        Map::<Info>::new(Number::Count(1), Type::String, "ClinVar VCV accession"),
+        field::Key::from_str("clinvar_rcv").unwrap(),
+        Map::<Info>::new(Number::Count(1), Type::String, "ClinVar RCV accession"),
     );
 
     header_out
@@ -392,24 +396,20 @@ where
             clinvar_minimal::pbs::Record::decode(&mut std::io::Cursor::new(&raw_value))?;
 
         let clinvar_minimal::pbs::Record {
-            summary_clinvar_pathogenicity,
-            vcv,
+            clinical_significance,
+            rcv,
             ..
         } = clinvar_record;
-        let summary_clinvar_pathogenicity: Vec<_> = summary_clinvar_pathogenicity
-            .into_iter()
-            .map(|i: i32| -> clinvar_minimal::cli::reading::Pathogenicity { i.into() })
-            .collect();
+        let clinical_significance: clinvar_minimal::cli::reading::ClinicalSignificance =
+            clinical_significance.into();
 
         vcf_record.info_mut().insert(
-            field::Key::from_str("clinvar_patho").unwrap(),
-            Some(field::Value::String(
-                summary_clinvar_pathogenicity.first().unwrap().to_string(),
-            )),
+            field::Key::from_str("clinvar_clinsig").unwrap(),
+            Some(field::Value::String(clinical_significance.to_string())),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("clinvar_vcv").unwrap(),
-            Some(field::Value::String(vcv)),
+            field::Key::from_str("clinvar_rcv").unwrap(),
+            Some(field::Value::String(rcv)),
         );
     }
 
@@ -1078,15 +1078,15 @@ impl VarFishSeqvarTsvWriter {
     ) -> Result<(), anyhow::Error> {
         tsv_record.in_clinvar = record
             .info()
-            .get(&field::Key::from_str("clinvar_patho").unwrap())
+            .get(&field::Key::from_str("clinvar_clinsig").unwrap())
             .unwrap_or_default()
             .map(|v| match v {
                 field::Value::String(value) => {
-                    clinvar_minimal::cli::reading::Pathogenicity::from_str(value).unwrap_or(
-                        clinvar_minimal::cli::reading::Pathogenicity::UncertainSignificance,
-                    ) >= clinvar_minimal::cli::reading::Pathogenicity::LikelyPathogenic
+                    clinvar_minimal::cli::reading::ClinicalSignificance::from_str(value).unwrap_or(
+                        clinvar_minimal::cli::reading::ClinicalSignificance::UncertainSignificance,
+                    ) >= clinvar_minimal::cli::reading::ClinicalSignificance::LikelyPathogenic
                 }
-                _ => panic!("Unexpected value type for INFO/clinvar_patho"),
+                _ => panic!("Unexpected value type for INFO/clinvar_clinsig"),
             })
             .unwrap_or_default();
 
@@ -1368,7 +1368,7 @@ impl AnnotatedVcfWriter for VarFishSeqvarTsvWriter {
 /// Run the annotation with the given `Write` within the `VcfWriter`.
 fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("Open VCF and read header");
-    let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
+    let mut reader = VariantReaderBuilder.build_from_path(&args.path_input_vcf)?;
     let header_in = reader.read_header()?;
     let header_out = build_header(&header_in);
 
