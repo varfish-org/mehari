@@ -407,9 +407,6 @@ pub struct ConsequencePredictor {
     /// The internal transcript provider for locating transcripts.
     #[derivative(Debug = "ignore")]
     provider: Arc<MehariProvider>,
-    /// Assembly mapper for variant consequence prediction.
-    #[derivative(Debug = "ignore")]
-    mapper: assembly::Mapper,
     /// Mapping from chromosome name to accession.
     #[derivative(Debug = "ignore")]
     chrom_to_acc: HashMap<String, String>,
@@ -429,18 +426,8 @@ impl ConsequencePredictor {
             chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
         }
 
-        let config = assembly::Config {
-            replace_reference: false,
-            strict_bounds: false,
-            renormalize_g: false,
-            genome_seq_available: false,
-            ..Default::default()
-        };
-        let mapper = assembly::Mapper::new(config, provider.clone());
-
         ConsequencePredictor {
             provider,
-            mapper,
             chrom_to_acc,
         }
     }

@@ -1,5 +1,4 @@
-///! Implementation of `/strucvars/csq` endpoint.
-use std::collections::HashMap;
+
 
 use actix_web::{
     get,
@@ -9,11 +8,9 @@ use actix_web::{
 
 use crate::{
     annotate::{
-        seqvars::provider::TxIntervalTrees,
         strucvars::csq::{interface, GeneTranscriptEffects},
     },
     common::GenomeRelease,
-    db::create::txs::data::{Strand, Transcript, TxSeqDatabase},
 };
 
 /// Parameters for `/strucvars/csq`.
@@ -36,15 +33,15 @@ struct Query {
 
 impl interface::StrucVar for Query {
     fn chrom(&self) -> String {
-        return self.chromosome.clone();
+        self.chromosome.clone()
     }
 
     fn chrom2(&self) -> String {
-        return self.chromosome.clone();
+        self.chromosome.clone()
     }
 
     fn start(&self) -> i32 {
-        return self.start;
+        self.start
     }
 
     fn stop(&self) -> i32 {
