@@ -317,7 +317,7 @@ fn compute_tx_effects_for_breakpoint(
         let tree = &mehari_tx_idx.trees[*idx];
         for it in tree.find(query) {
             let tx = &tx_db.transcripts[*it.data() as usize];
-            let hgnc_id = tx.gene_id.clone();
+            let hgnc_id = format!("HGNC:{}", &tx.gene_id);
             effects_by_gene
                 .entry(hgnc_id)
                 .or_default()
@@ -373,7 +373,7 @@ fn compute_tx_effects_for_linear(
         let tree = &mehari_tx_idx.trees[*idx];
         for it in tree.find(query) {
             let tx = &tx_db.transcripts[*it.data() as usize];
-            let hgnc_id = tx.gene_id.clone();
+            let hgnc_id = format!("HGNC:{}", &tx.gene_id);
             effects_by_gene
                 .entry(hgnc_id)
                 .or_default()

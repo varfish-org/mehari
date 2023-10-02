@@ -31,9 +31,10 @@ impl ResponseError for CustomError {}
 #[derive(Debug, Default)]
 pub struct WebServerData {
     /// The sequence variant consequence predictors for each assembly.
-    pub predictors: std::collections::HashMap<GenomeRelease, ConsequencePredictor>,
+    pub seqvars_predictors: std::collections::HashMap<GenomeRelease, ConsequencePredictor>,
     /// The structural variant consequence predictors for eacha ssembly.
-    pub strucvar_predictors: std::collections::HashMap<GenomeRelease, StrucvarConsequencePredictor>,
+    pub strucvars_predictors:
+        std::collections::HashMap<GenomeRelease, StrucvarConsequencePredictor>,
 }
 
 /// Main entry point for running the REST server.
@@ -47,6 +48,7 @@ pub async fn main(
         actix_web::App::new()
             .app_data(data.clone())
             .service(tx_csq::handle)
+            .service(strucvars_csq::handle)
             .wrap(actix_web::middleware::Logger::default())
     })
     .bind((args.listen_host.as_str(), args.listen_port))?

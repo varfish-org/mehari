@@ -100,12 +100,15 @@ async fn handle(
         hgnc_id,
     } = query.clone().into_inner();
 
-    let predictor = data.predictors.get(&genome_release).ok_or_else(|| {
-        super::CustomError::new(anyhow::anyhow!(
-            "genome release not supported: {:?}",
-            &query.genome_release
-        ))
-    })?;
+    let predictor = data
+        .seqvars_predictors
+        .get(&genome_release)
+        .ok_or_else(|| {
+            super::CustomError::new(anyhow::anyhow!(
+                "genome release not supported: {:?}",
+                &query.genome_release
+            ))
+        })?;
 
     let mut result = Vec::new();
     let g_var = VcfVariant {

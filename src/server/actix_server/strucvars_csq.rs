@@ -24,7 +24,7 @@ struct Query {
     /// 1-based stop position, ignored for INS.
     pub stop: Option<i32>,
     /// The variant type to use for annotation.
-    pub variant_type: String,
+    pub sv_type: String,
 }
 
 impl interface::StrucVar for Query {
@@ -49,7 +49,7 @@ impl interface::StrucVar for Query {
     }
 
     fn sv_type(&self) -> interface::StrucVarType {
-        match self.variant_type.to_uppercase().as_ref() {
+        match self.sv_type.to_uppercase().as_ref() {
             "DEL" => interface::StrucVarType::Del,
             "DUP" => interface::StrucVarType::Dup,
             "INS" => interface::StrucVarType::Ins,
@@ -84,7 +84,7 @@ async fn handle(
     query: web::Query<Query>,
 ) -> actix_web::Result<impl Responder, super::CustomError> {
     let predictor = data
-        .strucvar_predictors
+        .strucvars_predictors
         .get(&query.genome_release)
         .ok_or_else(|| {
             super::CustomError::new(anyhow::anyhow!(

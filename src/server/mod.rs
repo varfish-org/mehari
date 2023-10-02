@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
 use crate::{
-    annotate::seqvars::{
-        csq::ConsequencePredictor, load_tx_db, path_component, provider::MehariProvider,
+    annotate::{
+        seqvars::{
+            csq::ConsequencePredictor as SeqvarConsequencePredictor, load_tx_db, path_component,
+            provider::MehariProvider,
+        },
+        strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor,
     },
     common::GenomeRelease,
 };
@@ -46,14 +50,21 @@ pub fn print_hints(args: &Args) {
     // The endpoint `/tx/csq` to comput ethe consequence of a variant; without and with filtering
     // for HGNC gene ID.
     tracing::info!(
-        "  try: http://{}:{}/tx/csq?genome-release=?genome-release=grch37\
+        "  try: http://{}:{}/tx/csq?genome-release=grch37\
         &chromosome=17&position=48275363&reference=C&alternative=A",
         args.listen_host.as_str(),
         args.listen_port
     );
     tracing::info!(
-        "  try: http://{}:{}/tx/csq?genome-release=?genome-release=grch37\
+        "  try: http://{}:{}/tx/csq?genome-release=grch37\
         &chromosome=17&position=48275363&reference=C&alternative=A&hgnc-id=HGNC:2197",
+        args.listen_host.as_str(),
+        args.listen_port
+    );
+    // The endpoint `/structvars/csq` computes the consequence of an SV.
+    tracing::info!(
+        "  try: http://{}:{}/strucvars/csq?genome_release=grch37\
+        &chromosome=17&start=48275360&&stop=48275370&sv_type=DEL",
         args.listen_host.as_str(),
         args.listen_port
     );
@@ -89,8 +100,16 @@ pub fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), anyhow:
         let tx_db = load_tx_db(&path)?;
         tracing::info!("  - building interval trees");
         let provider = Arc::new(MehariProvider::new(tx_db, assembly));
-        let predictor = ConsequencePredictor::new(provider, assembly);
-        data.predictors.insert(genome_release, predictor);
+        tracing::info!("  - building seqvars predictors");
+        data.seqvars_predictors.insert(
+            genome_release,
+            SeqvarConsequencePredictor::new(provider.clone(), assembly),
+        );
+        tracing::info!("  - building strucvars predictors");
+        data.strucvars_predictors.insert(
+            genome_release,
+            StrucvarConsequencePredictor::new(provider.clone(), assembly),
+        );
     }
     let data = actix_web::web::Data::new(data);
     tracing::info!("...done loading data {:?}", before_loading.elapsed());
