@@ -29,7 +29,7 @@ pub fn trace_rss_now() {
 #[derive(
     clap::ValueEnum, serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash,
 )]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
 pub enum GenomeRelease {
     Grch37,
     Grch38,
@@ -95,7 +95,7 @@ pub fn version() -> &'static str {
 /// Version information that is returned by the HTTP server.
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug, Clone)]
 #[serde_with::skip_serializing_none]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
 pub struct Version {
     /// Version of the transcript database data.
     pub tx_db: Option<String>,

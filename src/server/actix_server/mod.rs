@@ -4,7 +4,7 @@ use actix_web::ResponseError;
 
 use crate::{annotate::seqvars::csq::ConsequencePredictor, common::GenomeRelease};
 
-pub mod tx_csq;
+pub mod seqvars_csq;
 
 #[derive(Debug)]
 struct CustomError {
@@ -42,7 +42,7 @@ pub async fn main(
     actix_web::HttpServer::new(move || {
         actix_web::App::new()
             .app_data(data.clone())
-            .service(tx_csq::handle)
+            .service(seqvars_csq::handle)
             .wrap(actix_web::middleware::Logger::default())
     })
     .bind((args.listen_host.as_str(), args.listen_port))?

@@ -1,4 +1,4 @@
-//! Implementation of `/tx/csq` endpoint.
+//! Implementation of `/seqvars/csq` endpoint.
 
 use actix_web::{
     get,
@@ -16,10 +16,10 @@ use crate::{
     common::GenomeRelease,
 };
 
-/// Parameters for `/tx/csq`.
+/// Parameters for `/seqvars/csq`.
 ///
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
 #[serde_with::skip_serializing_none]
 struct Query {
     /// The assembly.
@@ -38,7 +38,7 @@ struct Query {
 
 /// Result entry for the API.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
 struct ResultEntry {
     /// The consequences of the allele.
     pub consequences: Vec<Consequence>,
@@ -85,7 +85,7 @@ struct Container {
 
 /// Query for consequence of a variant.
 #[allow(clippy::unused_async)]
-#[get("/tx/csq")]
+#[get("/seqvars/csq")]
 async fn handle(
     data: Data<super::WebServerData>,
     _path: Path<()>,
