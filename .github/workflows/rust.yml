@@ -102,6 +102,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          key: "${{ matrix.label }}"
           cache-directories: |
             ~/.cargo/registry/src/**/librocksdb-sys-*
 
@@ -116,7 +117,7 @@ jobs:
         uses: actions-rs/tarpaulin@v0.1
         with:
           version: 0.21.0
-          args: "--skip-clean--release --timeout=180 -- --include-ignored"
+          args: "--skip-clean --release --timeout=180 -- --include-ignored"
         if: ${{ matrix.label == 'full' }}
 
       - name: Codecov submission of fast test results
