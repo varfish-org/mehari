@@ -109,14 +109,14 @@ jobs:
         uses: actions-rs/tarpaulin@v0.1
         with:
           version: 0.21.0
-          args: "-- --test-threads 1"
+          args: "--skip-clean -- --test-threads 1"
         if: ${{ matrix.label == 'fast' }}
 
       - name: Run cargo-tarpaulin with full tests
         uses: actions-rs/tarpaulin@v0.1
         with:
           version: 0.21.0
-          args: "--release --timeout=180 -- --include-ignored"
+          args: "--skip-clean--release --timeout=180 -- --include-ignored"
         if: ${{ matrix.label == 'full' }}
 
       - name: Codecov submission of fast test results
