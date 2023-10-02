@@ -50,14 +50,21 @@ pub fn print_hints(args: &Args) {
     // The endpoint `/tx/csq` to comput ethe consequence of a variant; without and with filtering
     // for HGNC gene ID.
     tracing::info!(
-        "  try: http://{}:{}/tx/csq?genome-release=grch37\
+        "  try: http://{}:{}/seqvars/csq?genome_release=grch37\
         &chromosome=17&position=48275363&reference=C&alternative=A",
         args.listen_host.as_str(),
         args.listen_port
     );
     tracing::info!(
-        "  try: http://{}:{}/tx/csq?genome-release=grch37\
-        &chromosome=17&position=48275363&reference=C&alternative=A&hgnc-id=HGNC:2197",
+        "  try: http://{}:{}/seqvars/csq?genome_release=grch37\
+        &chromosome=17&position=48275363&reference=C&alternative=A&hgnc_id=HGNC:2197",
+        args.listen_host.as_str(),
+        args.listen_port
+    );
+    // The endpoint `/strucvars/csq` computes the consequence of an SV.
+    tracing::info!(
+        "  try: http://{}:{}/strucvars/csq?genome_release=grch37\
+        &chromosome=17&start=48275360&&stop=48275370&sv_type=DEL",
         args.listen_host.as_str(),
         args.listen_port
     );
