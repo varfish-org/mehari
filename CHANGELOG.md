@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/bihealth/mehari/compare/v0.7.0...v0.8.0) (2023-10-02)
+
+
+### Features
+
+* adding REST endpoint for SV annotation ([#188](https://github.com/bihealth/mehari/issues/188)) ([9e14c09](https://github.com/bihealth/mehari/commit/9e14c092c07017a83201a1bfc566ef3b203e15a8))
+* snake_case in REST APIs and rename /tx/csq to /seqvars/csq ([#150](https://github.com/bihealth/mehari/issues/150)) ([#189](https://github.com/bihealth/mehari/issues/189)) ([e1021ed](https://github.com/bihealth/mehari/commit/e1021eddef0c322fd1b29d6950cfff92e5932603))
+
 ## [0.7.0](https://github.com/bihealth/mehari/compare/v0.6.2...v0.7.0) (2023-09-18)
 
 
