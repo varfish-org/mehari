@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use hgvs::{data::interface::Provider, mapper::assembly, static_data::Assembly};
+use hgvs::{data::interface::Provider, static_data::Assembly};
 
 use crate::{
     annotate::seqvars::provider::{MehariProvider, TxIntervalTrees},

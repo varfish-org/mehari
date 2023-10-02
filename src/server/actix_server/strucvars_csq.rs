@@ -1,5 +1,3 @@
-
-
 use actix_web::{
     get,
     web::{self, Data, Json, Path},
@@ -7,9 +5,7 @@ use actix_web::{
 };
 
 use crate::{
-    annotate::{
-        strucvars::csq::{interface, GeneTranscriptEffects},
-    },
+    annotate::strucvars::csq::{interface, GeneTranscriptEffects},
     common::GenomeRelease,
 };
 
