@@ -1,5 +1,6 @@
 //! Annotation of structural variant VCF files.
 
+pub mod csq;
 pub mod maelstrom;
 
 use std::collections::{HashMap, HashSet};
