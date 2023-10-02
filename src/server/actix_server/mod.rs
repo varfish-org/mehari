@@ -2,8 +2,10 @@
 
 use actix_web::ResponseError;
 
+use crate::annotate::strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor;
 use crate::{annotate::seqvars::csq::ConsequencePredictor, common::GenomeRelease};
 
+pub mod strucvars_csq;
 pub mod tx_csq;
 
 #[derive(Debug)]
@@ -28,8 +30,10 @@ impl ResponseError for CustomError {}
 /// Data structure for the web server data.
 #[derive(Debug, Default)]
 pub struct WebServerData {
-    /// The consequence predictors for each assembly.
+    /// The sequence variant consequence predictors for each assembly.
     pub predictors: std::collections::HashMap<GenomeRelease, ConsequencePredictor>,
+    /// The structural variant consequence predictors for eacha ssembly.
+    pub strucvar_predictors: std::collections::HashMap<GenomeRelease, StrucvarConsequencePredictor>,
 }
 
 /// Main entry point for running the REST server.
