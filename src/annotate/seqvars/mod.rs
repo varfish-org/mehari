@@ -823,6 +823,7 @@ impl VarFishSeqvarTsvWriter {
                 .get(&key::Key::from_str("SQ")?)
                 .map(|value| match value {
                     Some(sample::Value::Float(f)) => Ok(*f),
+                    Some(sample::Value::Array(sample::value::Array::Float(f))) => Ok(f[0].expect("SQ should be a single float value")),
                     None => Ok(-1.0),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
