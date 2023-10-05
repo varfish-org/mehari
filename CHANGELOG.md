@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0](https://github.com/bihealth/mehari/compare/v0.9.0...v0.10.0) (2023-10-05)
+
+
+### Features
+
+* expose clinvar annotation ([#199](https://github.com/bihealth/mehari/issues/199)) ([3bcbf32](https://github.com/bihealth/mehari/commit/3bcbf32c4cdeace14b03e7373b7950a478c39115))
+
+
+### Bug Fixes
+
+* Make mitochondrial DRAGEN calls not fail mehari ([#195](https://github.com/bihealth/mehari/issues/195)) ([e170120](https://github.com/bihealth/mehari/commit/e170120bcb14f3c79661f207dc4b734ad5f890e9))
+
 ## [0.9.0](https://github.com/bihealth/mehari/compare/v0.8.0...v0.9.0) (2023-10-05)
 
 
