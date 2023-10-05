@@ -382,7 +382,7 @@ where
 }
 
 /// Annotate record with ClinVar information.
-fn annotate_record_clinvar<T>(
+pub fn annotate_record_clinvar<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
     key: &Vec<u8>,
