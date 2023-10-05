@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/bihealth/mehari/compare/v0.8.0...v0.9.0) (2023-10-05)
+
+
+### Features
+
+* exposing more functions for sequence variant annotation ([#198](https://github.com/bihealth/mehari/issues/198)) ([06a8dee](https://github.com/bihealth/mehari/commit/06a8dee0ea8115395648434085fd9caf886a61ab))
+* exposing utility functions for pedigree /  vcf building ([#196](https://github.com/bihealth/mehari/issues/196)) ([7d77f35](https://github.com/bihealth/mehari/commit/7d77f3575d72324de6591744411b777fcfc6e3a8))
+
 ## [0.8.0](https://github.com/bihealth/mehari/compare/v0.7.0...v0.8.0) (2023-10-02)
 
 
