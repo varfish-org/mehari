@@ -812,7 +812,7 @@ impl VarFishSeqvarTsvWriter {
                     None => Ok(-1),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
-                    _ => anyhow::bail!(format!("invalid GQ value {:?}", value)),
+                    _ => anyhow::bail!(format!("invalid GQ value {:?} at {:?}:{:?}", value, record.chromosome(), record.position())),
                 })
                 .transpose()?
             {
@@ -827,7 +827,10 @@ impl VarFishSeqvarTsvWriter {
                     None => Ok(-1.0),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
-                    _ => anyhow::bail!(format!("invalid GQ value {:?}", value)),
+                    // _ => anyhow::bail!(format!("invalid GQ value {:?}", value)),
+                    _ => {
+                        anyhow::bail!(format!("invalid SQ value {:?} at {:?}:{:?}", value, record.chromosome(), record.position()))
+                    }
                 })
                 .transpose()?
             {
@@ -1730,7 +1733,7 @@ mod test {
         run(&args_common, &args)?;
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
-        let expected = std::fs::read_to_string("tests/data/db/create/badly_formed_vcf_entry.tsv")?;
+        let expected = std::fs::read_to_string("tests/data/db/create/mitochondrial_variants.tsv")?;
         assert_eq!(&expected, &actual);
 
         Ok(())
