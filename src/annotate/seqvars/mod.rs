@@ -228,7 +228,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
 }
 
 /// Annotate record on autosomal chromosome with gnomAD exomes/genomes.
-fn annotate_record_auto<T>(
+pub fn annotate_record_auto<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
     key: &Vec<u8>,
@@ -278,7 +278,7 @@ where
 }
 
 /// Annotate record on gonomosomal chromosome with gnomAD exomes/genomes.
-fn annotate_record_xy<T>(
+pub fn annotate_record_xy<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
     key: &Vec<u8>,
@@ -340,7 +340,7 @@ where
 }
 
 /// Annotate record on mitochondrial genome with gnomAD mtDNA and HelixMtDb.
-fn annotate_record_mt<T>(
+pub fn annotate_record_mt<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
     key: &Vec<u8>,
