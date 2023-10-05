@@ -392,7 +392,7 @@ pub mod vcf_header {
     }
 
     /// Helper that returns header string value for `sex`.
-    fn sex_str(sex: Sex) -> String {
+    pub fn sex_str(sex: Sex) -> String {
         match sex {
             Sex::Male => String::from("Male"),
             Sex::Female => String::from("Female"),
@@ -401,7 +401,7 @@ pub mod vcf_header {
     }
 
     // Helper that returns header string value for `disease`.
-    fn disease_str(disease: Disease) -> String {
+    pub fn disease_str(disease: Disease) -> String {
         match disease {
             Disease::Affected => String::from("Affected"),
             Disease::Unaffected => String::from("Unaffected"),
