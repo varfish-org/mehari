@@ -812,7 +812,12 @@ impl VarFishSeqvarTsvWriter {
                     None => Ok(-1),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
-                    _ => anyhow::bail!(format!("invalid GQ value {:?}", value)),
+                    _ => anyhow::bail!(format!(
+                        "invalid GQ value {:?} at {:?}:{:?}",
+                        value,
+                        record.chromosome(),
+                        record.position()
+                    )),
                 })
                 .transpose()?
             {
@@ -823,10 +828,21 @@ impl VarFishSeqvarTsvWriter {
                 .get(&key::Key::from_str("SQ")?)
                 .map(|value| match value {
                     Some(sample::Value::Float(f)) => Ok(*f),
+                    Some(sample::Value::Array(sample::value::Array::Float(f))) => {
+                        Ok(f[0].expect("SQ should be a single float value"))
+                    }
                     None => Ok(-1.0),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
-                    _ => anyhow::bail!(format!("invalid GQ value {:?}", value)),
+                    // _ => anyhow::bail!(format!("invalid GQ value {:?}", value)),
+                    _ => {
+                        anyhow::bail!(format!(
+                            "invalid SQ value {:?} at {:?}:{:?}",
+                            value,
+                            record.chromosome(),
+                            record.position()
+                        ))
+                    }
                 })
                 .transpose()?
             {
@@ -1695,6 +1711,41 @@ mod test {
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
         let expected = std::fs::read_to_string("tests/data/db/create/badly_formed_vcf_entry.tsv")?;
+        assert_eq!(&expected, &actual);
+
+        Ok(())
+    }
+
+    /// Mitochondnrial variants called by the DRAGEN v310 germline caller have special format
+    /// considerations.
+    ///
+    /// See: https://support-docs.illumina.com/SW/DRAGEN_v310/Content/SW/DRAGEN/MitochondrialCalling.htm
+    #[test]
+    fn test_dragen_mitochondrial_variant() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_out = temp.join("output.tsv");
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let args = Args {
+            genome_release: None,
+            path_db: String::from("tests/data/annotate/db"),
+            path_input_vcf: String::from("tests/data/db/create/mitochondrial_variants.vcf"),
+            output: PathOutput {
+                path_output_vcf: None,
+                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
+            },
+            max_var_count: None,
+            path_input_ped: Some(String::from(
+                "tests/data/db/create/mitochondrial_variants.ped",
+            )),
+        };
+
+        run(&args_common, &args)?;
+
+        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
+        let expected = std::fs::read_to_string("tests/data/db/create/mitochondrial_variants.tsv")?;
         assert_eq!(&expected, &actual);
 
         Ok(())
