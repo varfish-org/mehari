@@ -812,7 +812,12 @@ impl VarFishSeqvarTsvWriter {
                     None => Ok(-1),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
-                    _ => anyhow::bail!(format!("invalid GQ value {:?} at {:?}:{:?}", value, record.chromosome(), record.position())),
+                    _ => anyhow::bail!(format!(
+                        "invalid GQ value {:?} at {:?}:{:?}",
+                        value,
+                        record.chromosome(),
+                        record.position()
+                    )),
                 })
                 .transpose()?
             {
@@ -823,13 +828,20 @@ impl VarFishSeqvarTsvWriter {
                 .get(&key::Key::from_str("SQ")?)
                 .map(|value| match value {
                     Some(sample::Value::Float(f)) => Ok(*f),
-                    Some(sample::Value::Array(sample::value::Array::Float(f))) => Ok(f[0].expect("SQ should be a single float value")),
+                    Some(sample::Value::Array(sample::value::Array::Float(f))) => {
+                        Ok(f[0].expect("SQ should be a single float value"))
+                    }
                     None => Ok(-1.0),
                     // cf. https://github.com/zaeleus/noodles/issues/164
                     // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
                     // _ => anyhow::bail!(format!("invalid GQ value {:?}", value)),
                     _ => {
-                        anyhow::bail!(format!("invalid SQ value {:?} at {:?}:{:?}", value, record.chromosome(), record.position()))
+                        anyhow::bail!(format!(
+                            "invalid SQ value {:?} at {:?}:{:?}",
+                            value,
+                            record.chromosome(),
+                            record.position()
+                        ))
                     }
                 })
                 .transpose()?
