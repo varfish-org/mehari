@@ -780,9 +780,7 @@ impl VarFishSeqvarTsvWriter {
                 .map(|value| match value {
                     Some(sample::Value::Integer(i)) => Ok(*i),
                     None => Ok(-1),
-                    // cf. https://github.com/zaeleus/noodles/issues/164
-                    // _ => anyhow::bail!(format!("invalid DP value {:?} in {:#?}", value, sample)),
-                    _ => anyhow::bail!(format!("invalid DP value {:?}", value)),
+                    _ => anyhow::bail!(format!("invalid DP value {:?} in {:#?}", value, sample)),
                 })
                 .transpose()?
             {
@@ -796,9 +794,7 @@ impl VarFishSeqvarTsvWriter {
                         Ok(arr[1].expect("missing AD value"))
                     }
                     None => Ok(-1),
-                    // cf. https://github.com/zaeleus/noodles/issues/164
-                    // _ => anyhow::bail!(format!("invalid AD value {:?} in {:#?}", value, sample)),
-                    _ => anyhow::bail!(format!("invalid AD value {:?}", value)),
+                    _ => anyhow::bail!(format!("invalid AD value {:?} in {:#?}", value, sample)),
                 })
                 .transpose()?
             {
@@ -810,11 +806,10 @@ impl VarFishSeqvarTsvWriter {
                 .map(|value| match value {
                     Some(sample::Value::Integer(i)) => Ok(*i),
                     None => Ok(-1),
-                    // cf. https://github.com/zaeleus/noodles/issues/164
-                    // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
                     _ => anyhow::bail!(format!(
-                        "invalid GQ value {:?} at {:?}:{:?}",
+                        "invalid GQ value {:?} in {:#?} at {:?}:{:?}",
                         value,
+                        sample,
                         record.chromosome(),
                         record.position()
                     )),
@@ -832,13 +827,11 @@ impl VarFishSeqvarTsvWriter {
                         Ok(f[0].expect("SQ should be a single float value"))
                     }
                     None => Ok(-1.0),
-                    // cf. https://github.com/zaeleus/noodles/issues/164
-                    // _ => anyhow::bail!(format!("invalid GQ value {:?} in {:#?}", value, sample)),
-                    // _ => anyhow::bail!(format!("invalid GQ value {:?}", value)),
                     _ => {
                         anyhow::bail!(format!(
-                            "invalid SQ value {:?} at {:?}:{:?}",
+                            "invalid SQ value {:?} in {:#?} at {:?}:{:?}",
                             value,
+                            sample,
                             record.chromosome(),
                             record.position()
                         ))
