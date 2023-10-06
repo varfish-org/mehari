@@ -10,7 +10,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::{fs::File, io::BufWriter};
 
-use crate::common::GenomeRelease;
+use crate::common::{open_read_maybe_gz, GenomeRelease};
 use crate::ped::PedigreeByName;
 use annonars::common::cli::CANONICAL;
 use annonars::freqs::cli::import::reading::guess_assembly;
@@ -1631,7 +1631,8 @@ pub fn guess_sv_caller<P>(p: P) -> Result<SvCaller, anyhow::Error>
 where
     P: AsRef<Path>,
 {
-    let mut reader = noodles_vcf::reader::Builder.build_from_path(p)?;
+    let reader = open_read_maybe_gz(p)?;
+    let mut reader = noodles_vcf::reader::Builder.build_from_reader(reader)?;
     let header = reader.read_header()?;
     let mut records = reader.records(&header);
     let record = records
