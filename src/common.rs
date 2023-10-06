@@ -139,7 +139,6 @@ impl Version {
     }
 }
 
-#[cfg(test)]
 #[macro_export]
 macro_rules! set_snapshot_suffix {
     ($($expr:expr),*) => {
@@ -149,7 +148,6 @@ macro_rules! set_snapshot_suffix {
     }
 }
 
-#[cfg(test)]
 pub use set_snapshot_suffix;
 
 #[cfg(test)]
