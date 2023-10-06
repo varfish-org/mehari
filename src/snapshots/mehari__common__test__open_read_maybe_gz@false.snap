@@ -1,0 +1,6 @@
+---
+source: src/common.rs
+expression: "&buf"
+---
+payload
+
