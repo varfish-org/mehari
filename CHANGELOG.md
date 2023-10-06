@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/bihealth/mehari/compare/v0.10.0...v0.11.0) (2023-10-06)
+
+
+### Features
+
+* allow BGZ files for guess_sv_caller ([#203](https://github.com/bihealth/mehari/issues/203)) ([31dc430](https://github.com/bihealth/mehari/commit/31dc43037bf81e36f5581f09e743d29c86882869))
+
+
+### Bug Fixes
+
+* use new Debug trait implementation in Sample ([#201](https://github.com/bihealth/mehari/issues/201)) ([7fafcbf](https://github.com/bihealth/mehari/commit/7fafcbf224859c9aeba6bcd19968a9ce0f0e4d0c))
+
 ## [0.10.0](https://github.com/bihealth/mehari/compare/v0.9.0...v0.10.0) (2023-10-05)
 
 
