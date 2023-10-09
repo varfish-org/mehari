@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/bihealth/mehari/compare/v0.11.0...v0.12.0) (2023-10-09)
+
+
+### Features
+
+* expose strucvars annotation for worker aggregation command ([#204](https://github.com/bihealth/mehari/issues/204)) ([0f730ce](https://github.com/bihealth/mehari/commit/0f730ceefb356de37debe4348f5dcf29f30facc0))
+
 ## [0.11.0](https://github.com/bihealth/mehari/compare/v0.10.0...v0.11.0) (2023-10-06)
 
 
