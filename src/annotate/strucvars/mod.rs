@@ -1627,11 +1627,7 @@ impl SvCaller {
 }
 
 /// Guess the `SvCaller` from the VCF file at the given path.
-pub fn guess_sv_caller<P>(p: P) -> Result<SvCaller, anyhow::Error>
-where
-    P: AsRef<Path>,
-{
-    let reader = open_read_maybe_gz(p)?;
+pub fn guess_sv_caller(reader: Box<dyn std::io::BufRead>) -> Result<SvCaller, anyhow::Error> {
     let mut reader = noodles_vcf::reader::Builder.build_from_reader(reader)?;
     let header = reader.read_header()?;
     let mut records = reader.records(&header);
@@ -2643,12 +2639,14 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
     }
 }
 
-/// Convert the records in the VCF path `path_input` to the JSONL file per contig in `tmp_dir`.
+/// Convert the records in the VCF reader to the JSONL file per contig in `tmp_dir`.
 ///
 /// Note that we will consider the "25 canonical" contigs only (chr1..chr22, chrX, chrY, chrM).
-fn run_vcf_to_jsonl(
+pub fn run_vcf_to_jsonl(
     pedigree: &PedigreeByName,
-    path_input: &str,
+    reader: &mut noodles_vcf::Reader<Box<dyn std::io::BufRead>>,
+    header: &VcfHeader,
+    sv_caller: &SvCaller,
     tmp_dir: &TempDir,
     cov_readers: &mut HashMap<String, maelstrom::Reader>,
     rng: &mut StdRng,
@@ -2671,24 +2669,17 @@ fn run_vcf_to_jsonl(
         files
     };
 
-    tracing::debug!("processing VCF file {}", path_input);
-    let sv_caller = guess_sv_caller(path_input)?;
-    tracing::debug!("guessed caller/version to be {:?}", &sv_caller);
-
-    let mut reader = noodles_vcf::reader::Builder.build_from_path(path_input)?;
-    let header: VcfHeader = reader.read_header()?;
-
     let samples = header
         .sample_names()
         .iter()
         .map(|s| s.to_string())
         .collect::<Vec<_>>();
-    let converter = build_vcf_record_converter(&sv_caller, &samples);
+    let converter = build_vcf_record_converter(sv_caller, &samples);
 
     let mapping = CHROM_TO_CHROM_NO.deref();
     let mut uuid_buf = [0u8; 16];
 
-    for record in reader.records(&header) {
+    for record in reader.records(header) {
         rng.fill_bytes(&mut uuid_buf);
         let uuid = Uuid::from_bytes(uuid_buf);
 
@@ -2746,15 +2737,19 @@ fn annotate_cov_mq(
 ///
 /// * `tmp_dir`: The temporary directory containing the JSONL files.
 /// * `contig_no`: The contig number (1..25).
-/// * `args`: The command line arguments.
+/// * `slack_ins`: Slack around INS
+/// * `slack_bnd`: Slack around BND
+/// * `min_overlap`: Minimal reciprocal overlap
 ///
 /// # Returns
 ///
 /// The clustered records for the contig.
-fn read_and_cluster_for_contig(
+pub fn read_and_cluster_for_contig(
     tmp_dir: &TempDir,
     contig_no: usize,
-    args: &Args,
+    slack_ins: i32,
+    slack_bnd: i32,
+    min_overlap: f32,
 ) -> Result<Vec<VarFishStrucvarTsvRecord>, anyhow::Error> {
     let jsonl_path = tmp_dir.path().join(format!("chrom-{}.jsonl", contig_no));
     tracing::debug!("clustering files from {}", jsonl_path.display());
@@ -2773,8 +2768,8 @@ fn read_and_cluster_for_contig(
         match jsonl::read::<_, VarFishStrucvarTsvRecord>(&mut reader) {
             Ok(record) => {
                 let slack = match record.sv_type {
-                    SvType::Ins => args.slack_ins,
-                    SvType::Bnd => args.slack_bnd,
+                    SvType::Ins => slack_ins,
+                    SvType::Bnd => slack_bnd,
                     _ => 0,
                 };
                 let query = match record.sv_type {
@@ -2800,7 +2795,7 @@ fn read_and_cluster_for_contig(
                             _ => {
                                 let ovl = record.overlap(&records[*record_id]);
                                 assert!(ovl >= 0f32);
-                                ovl >= args.min_overlap
+                                ovl >= min_overlap
                             }
                         };
                         let match_this_sv_type = record.sv_type == records[*record_id].sv_type;
@@ -2891,7 +2886,22 @@ fn run_with_writer(
     // Read through input VCF files and write out to temporary files.
     tracing::info!("Input VCF files to temporary files...");
     for path_input in args.path_input_vcf.iter() {
-        run_vcf_to_jsonl(pedigree, path_input, &tmp_dir, &mut cov_readers, &mut rng)?;
+        tracing::debug!("processing VCF file {}", path_input);
+        let reader = open_read_maybe_gz(path_input)?;
+        let sv_caller = guess_sv_caller(reader)?;
+        tracing::debug!("guessed caller/version to be {:?}", &sv_caller);
+
+        let mut reader = noodles_vcf::reader::Builder.build_from_path(path_input)?;
+        let header: VcfHeader = reader.read_header()?;
+        run_vcf_to_jsonl(
+            pedigree,
+            &mut reader,
+            &header,
+            &sv_caller,
+            &tmp_dir,
+            &mut cov_readers,
+            &mut rng,
+        )?;
     }
     tracing::info!("... done converting input files.");
 
@@ -2916,7 +2926,13 @@ fn run_with_writer(
     // Read through temporary files by contig, cluster by overlap as configured, and write to `writer`.
     for contig_no in 1..=25 {
         tracing::info!("  contig: {}", CANONICAL[contig_no - 1]);
-        let clusters = read_and_cluster_for_contig(&tmp_dir, contig_no, args)?;
+        let clusters = read_and_cluster_for_contig(
+            &tmp_dir,
+            contig_no,
+            args.slack_ins,
+            args.slack_bnd,
+            args.min_overlap,
+        )?;
         for record in clusters {
             writer.write_record(&header_out, &record.try_into()?)?;
         }
@@ -3135,7 +3151,7 @@ mod test {
                 VarFishStrucvarTsvRecord,
             },
         },
-        common::GenomeRelease,
+        common::{open_read_maybe_gz, GenomeRelease},
         ped::{Disease, Individual, PedigreeByName, Sex},
     };
 
@@ -3376,7 +3392,7 @@ mod test {
             let path_expected_txt = format!("tests/data/annotate/strucvars/{}-min.out.jsonl", key);
             let samples = vcf_samples(&path_input_vcf)?;
             let pedigree: PedigreeByName = sample_ped(&samples);
-            let sv_caller = guess_sv_caller(&path_input_vcf)?;
+            let sv_caller = guess_sv_caller(open_read_maybe_gz(&path_input_vcf)?)?;
             let converter = build_vcf_record_converter(&sv_caller, &samples);
 
             run_test_vcf_to_jsonl(
@@ -3392,7 +3408,9 @@ mod test {
 
     #[test]
     fn guess_sv_caller_delly() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/delly2-min.vcf")?;
+        let sv_caller = guess_sv_caller(open_read_maybe_gz(
+            "tests/data/annotate/strucvars/delly2-min.vcf",
+        )?)?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
@@ -3400,7 +3418,9 @@ mod test {
 
     #[test]
     fn guess_sv_caller_dragen_sv() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/dragen-sv-min.vcf")?;
+        let sv_caller = guess_sv_caller(open_read_maybe_gz(
+            "tests/data/annotate/strucvars/dragen-sv-min.vcf",
+        )?)?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
@@ -3408,7 +3428,9 @@ mod test {
 
     #[test]
     fn guess_sv_caller_dragen_cnv() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/dragen-cnv-min.vcf")?;
+        let sv_caller = guess_sv_caller(open_read_maybe_gz(
+            "tests/data/annotate/strucvars/dragen-cnv-min.vcf",
+        )?)?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
@@ -3416,7 +3438,9 @@ mod test {
 
     #[test]
     fn guess_sv_caller_gcnv() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/gcnv-min.vcf")?;
+        let sv_caller = guess_sv_caller(open_read_maybe_gz(
+            "tests/data/annotate/strucvars/gcnv-min.vcf",
+        )?)?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
@@ -3424,7 +3448,9 @@ mod test {
 
     #[test]
     fn guess_sv_caller_manta() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/manta-min.vcf")?;
+        let sv_caller = guess_sv_caller(open_read_maybe_gz(
+            "tests/data/annotate/strucvars/manta-min.vcf",
+        )?)?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
@@ -3432,7 +3458,9 @@ mod test {
 
     #[test]
     fn guess_sv_caller_melt() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/melt-min.vcf")?;
+        let sv_caller = guess_sv_caller(open_read_maybe_gz(
+            "tests/data/annotate/strucvars/melt-min.vcf",
+        )?)?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
@@ -3440,7 +3468,9 @@ mod test {
 
     #[test]
     fn guess_sv_caller_popdel() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller("tests/data/annotate/strucvars/popdel-min.vcf")?;
+        let sv_caller = guess_sv_caller(open_read_maybe_gz(
+            "tests/data/annotate/strucvars/popdel-min.vcf",
+        )?)?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
