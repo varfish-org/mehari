@@ -2746,7 +2746,9 @@ fn annotate_cov_mq(
 ///
 /// * `tmp_dir`: The temporary directory containing the JSONL files.
 /// * `contig_no`: The contig number (1..25).
-/// * `args`: The command line arguments.
+/// * `slack_ins`: Slack around INS.
+/// * `slack_bnd`: Slack around BND.
+/// * `min_overlap`: Minimal reciprocal overlap.
 ///
 /// # Returns
 ///
@@ -2754,7 +2756,9 @@ fn annotate_cov_mq(
 fn read_and_cluster_for_contig(
     tmp_dir: &TempDir,
     contig_no: usize,
-    args: &Args,
+    slack_ins: i32,
+    slack_bnd: i32,
+    min_overlap: f32,
 ) -> Result<Vec<VarFishStrucvarTsvRecord>, anyhow::Error> {
     let jsonl_path = tmp_dir.path().join(format!("chrom-{}.jsonl", contig_no));
     tracing::debug!("clustering files from {}", jsonl_path.display());
@@ -2773,8 +2777,8 @@ fn read_and_cluster_for_contig(
         match jsonl::read::<_, VarFishStrucvarTsvRecord>(&mut reader) {
             Ok(record) => {
                 let slack = match record.sv_type {
-                    SvType::Ins => args.slack_ins,
-                    SvType::Bnd => args.slack_bnd,
+                    SvType::Ins => slack_ins,
+                    SvType::Bnd => slack_bnd,
                     _ => 0,
                 };
                 let query = match record.sv_type {
@@ -2800,7 +2804,7 @@ fn read_and_cluster_for_contig(
                             _ => {
                                 let ovl = record.overlap(&records[*record_id]);
                                 assert!(ovl >= 0f32);
-                                ovl >= args.min_overlap
+                                ovl >= min_overlap
                             }
                         };
                         let match_this_sv_type = record.sv_type == records[*record_id].sv_type;
@@ -2857,18 +2861,32 @@ fn read_and_cluster_for_contig(
 /// # Arguments
 ///
 /// * `writer`: The VCF writer.
-/// * `args`: The command line arguments.
+/// * `rng_seed`: An optional seed for the RNG.
+/// * `path_input_vcf`: Input VCF paths.
+/// * `file_date`: Optionally, a fileDate to use.
+/// * `genome_release`: Optionally, the genome release.
+/// * `path_cov_vcf`: Optionally, path ths to the coverage VCF file.
+/// * `slack_ins`: Slack around INS.
+/// * `slack_bnd`: Slack around BND.
+/// * `min_overlap`: Minimal reciprocal overlap.
 /// * `pedigree`: The pedigree of case.
 /// * `header`: The input VCF header.
-fn run_with_writer(
+pub fn run_with_writer(
     writer: &mut dyn AnnotatedVcfWriter,
-    args: &Args,
+    rng_seed: Option<u64>,
+    path_input_vcf: &[String],
+    file_date: &Option<String>,
+    genome_release: &Option<GenomeRelease>,
+    path_cov_vcf: &[String],
+    slack_ins: i32,
+    slack_bnd: i32,
+    min_overlap: f32,
     pedigree: &PedigreeByName,
     header: &VcfHeader,
 ) -> Result<(), anyhow::Error> {
     // Initialize the random number generator from command line seed if given or local entropy
     // source.
-    let mut rng = if let Some(rng_seed) = args.rng_seed {
+    let mut rng = if let Some(rng_seed) = rng_seed {
         StdRng::seed_from_u64(rng_seed)
     } else {
         StdRng::from_entropy()
@@ -2877,7 +2895,7 @@ fn run_with_writer(
     // Load maelstrom coverage tracks if given.
     tracing::info!("Opening coverage tracks...");
     let mut cov_readers: HashMap<String, maelstrom::Reader> = HashMap::new();
-    for path_cov in &args.path_cov_vcf {
+    for path_cov in path_cov_vcf.iter() {
         tracing::debug!("  path: {}", path_cov);
         let reader = maelstrom::Reader::from_path(path_cov)?;
         cov_readers.insert(reader.sample_name.clone(), reader);
@@ -2890,20 +2908,19 @@ fn run_with_writer(
 
     // Read through input VCF files and write out to temporary files.
     tracing::info!("Input VCF files to temporary files...");
-    for path_input in args.path_input_vcf.iter() {
+    for path_input in path_input_vcf.iter() {
         run_vcf_to_jsonl(pedigree, path_input, &tmp_dir, &mut cov_readers, &mut rng)?;
     }
     tracing::info!("... done converting input files.");
 
     // Generate output header and write to `writer`.
     tracing::info!("Write output header...");
-    let file_date = args
-        .file_date
+    let file_date = file_date
         .as_ref()
         .cloned()
         .unwrap_or(Utc::now().date_naive().format("%Y%m%d").to_string());
     let header_out = vcf_header::build(
-        args.genome_release
+        genome_release
             .expect("genome release must be known here")
             .into(),
         pedigree,
@@ -2916,7 +2933,8 @@ fn run_with_writer(
     // Read through temporary files by contig, cluster by overlap as configured, and write to `writer`.
     for contig_no in 1..=25 {
         tracing::info!("  contig: {}", CANONICAL[contig_no - 1]);
-        let clusters = read_and_cluster_for_contig(&tmp_dir, contig_no, args)?;
+        let clusters =
+            read_and_cluster_for_contig(&tmp_dir, contig_no, slack_ins, slack_bnd, min_overlap)?;
         for record in clusters {
             writer.write_record(&header_out, &record.try_into()?)?;
         }
@@ -2964,13 +2982,37 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             );
             writer.set_assembly(assembly);
             writer.set_pedigree(&pedigree);
-            run_with_writer(&mut writer, &args, &pedigree, &header)?;
+            run_with_writer(
+                &mut writer,
+                args.rng_seed,
+                &args.path_input_vcf,
+                &args.file_date,
+                &args.genome_release,
+                &args.path_cov_vcf,
+                args.slack_ins,
+                args.slack_bnd,
+                args.min_overlap,
+                &pedigree,
+                &header,
+            )?;
         } else {
             let mut writer =
                 noodles_vcf::Writer::new(File::create(path_output_vcf).map(BufWriter::new)?);
             writer.set_assembly(assembly);
             writer.set_pedigree(&pedigree);
-            run_with_writer(&mut writer, &args, &pedigree, &header)?;
+            run_with_writer(
+                &mut writer,
+                args.rng_seed,
+                &args.path_input_vcf,
+                &args.file_date,
+                &args.genome_release,
+                &args.path_cov_vcf,
+                args.slack_ins,
+                args.slack_bnd,
+                args.min_overlap,
+                &pedigree,
+                &header,
+            )?;
         }
     } else {
         let path_output_tsv = args
@@ -2982,7 +3024,19 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         writer.set_assembly(assembly);
         writer.set_pedigree(&pedigree);
 
-        run_with_writer(&mut writer, &args, &pedigree, &header)?;
+        run_with_writer(
+            &mut writer,
+            args.rng_seed,
+            &args.path_input_vcf,
+            &args.file_date,
+            &args.genome_release,
+            &args.path_cov_vcf,
+            args.slack_ins,
+            args.slack_bnd,
+            args.min_overlap,
+            &pedigree,
+            &header,
+        )?;
     }
 
     Ok(())
