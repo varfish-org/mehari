@@ -6,7 +6,7 @@ The resulting file will look like this::
     ##fileformat=VCFv4.2
     ##contig=<ID=chrM,length=16569>
     ##FILTER=<ID=PASS,Description="Variant passes all filters">
-    ##INFO=<ID=AN,Number=1,Type=Integer,Description="Overall allele number (number of samples with non-missing genotype)">
+    ##INFO=<ID=AN,Number=1,Type=Integer,Description="Overall allele number (Number of alleles with non-missing genotype)">
     ##INFO=<ID=AC_hom,Number=1,Type=Integer,Description="Allele counts called as homoplasmic">
     ##INFO=<ID=AC_het,Number=1,Type=Integer,Description="Alelle counts called as heteroplasmic">
     #CHROM  POS     ID      REF     ALT     QUAL    FILTER  INFO
@@ -36,7 +36,7 @@ def build_writer():
             "ID": "AN",
             "Number": 1,
             "Type": "Integer",
-            "Description": "Overall allele number (number of samples with non-missing genotype)",
+            "Description": "Overall allele number (Number of alleles with non-missing genotype)",
         }
     )
     header.add_info_line(
