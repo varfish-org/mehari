@@ -113,7 +113,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         Map::<Info>::new(
             Number::Count(1),
             Type::Integer,
-            "Number of samples in gnomAD exomes",
+            "Number of alleles in gnomAD exomes",
         ),
     );
     header_out.infos_mut().insert(
@@ -146,7 +146,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         Map::<Info>::new(
             Number::Count(1),
             Type::Integer,
-            "Number of samples in gnomAD genomes",
+            "Number of alleles in gnomAD genomes",
         ),
     );
     header_out.infos_mut().insert(
@@ -179,7 +179,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         Map::<Info>::new(
             Number::Count(1),
             Type::Integer,
-            "Number of samples in HelixMtDb",
+            "Number of alleles in HelixMtDb",
         ),
     );
     header_out.infos_mut().insert(
