@@ -29,6 +29,7 @@ use strum::IntoEnumIterator;
     strum::EnumIter,
 )]
 #[display(style = "UPPERCASE")]
+#[serde(rename_all = "UPPERCASE")]
 pub enum PutativeImpact {
     High,
     Moderate,
@@ -53,6 +54,7 @@ pub enum PutativeImpact {
     strum::EnumIter,
 )]
 #[display(style = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Consequence {
     // high impact
     ChromosomeNumberVariation,
@@ -67,8 +69,10 @@ pub enum Consequence {
     TranscriptAblation,
     // moderate impact
     #[display("3_prime_UTR_truncation")]
+    #[serde(rename = "3_prime_UTR_truncation")]
     ThreePrimeUtrTruncation,
     #[display("5_prime_UTR_truncation")]
+    #[serde(rename = "5_prime_UTR_truncation")]
     FivePrimeUtrTruncaction,
     ConservativeInframeDeletion,
     ConservativeInframeInsertion,
@@ -78,9 +82,11 @@ pub enum Consequence {
     RegulatoryRegionAblation,
     SpliceRegionVariant,
     #[display("TFBS_ablation")]
+    #[serde(rename = "TFBS_ablation")]
     TbfsAblation,
     // low impact
     #[display("5_prime_UTR_premature_start_codon_gain_variant")]
+    #[serde(rename = "5_prime_UTR_premature_start_codon_gain_variant")]
     FivePrimeUtrPrematureStartCodonGainVariant,
     InitiatorCodonVariant,
     StartRetained,
@@ -88,8 +94,10 @@ pub enum Consequence {
     SynonymousVariant,
     // modifier
     #[display("3_prime_UTR_variant")]
+    #[serde(rename = "3_prime_UTR_variant")]
     ThreePrimeUtrVariant,
     #[display("5_prime_UTR_variant")]
+    #[serde(rename = "5_prime_UTR_variant")]
     FivePrimeUtrVariant,
     CodingSequenceVariant,
     ConservedIntergenicVariant,
@@ -102,18 +110,23 @@ pub enum Consequence {
     IntergenicVariant,
     IntronVariant,
     #[display("mature_miRNA_variant")]
+    #[serde(rename = "mature_miRNA_variant")]
     MatureMirnaVariant,
     #[display("miRNA")]
+    #[serde(rename = "miRNA")]
     Mirna,
     #[display("NMD_transcript_variant")]
+    #[serde(rename = "NMD_transcript_variant")]
     NmdTranscriptVariant,
     NonCodingTranscriptExonVariant,
     NonCodingTranscriptIntronVariant,
     RegulatoryRegionAmplification,
     RegulatoryRegionVariant,
     #[display("TF_binding_site_variant")]
+    #[serde(rename = "TF_binding_site_variant")]
     TfBindingSiteVariant,
     #[display("TFBS_amplification")]
+    #[serde(rename = "TFBS_amplification")]
     TfbsAmplification,
     TranscriptAmplification,
     TranscriptVariant,

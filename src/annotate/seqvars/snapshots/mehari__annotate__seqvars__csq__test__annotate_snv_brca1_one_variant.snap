@@ -6,8 +6,8 @@ allele:
   Alt:
     alternative: C
 consequences:
-  - MissenseVariant
-putative_impact: Moderate
+  - missense_variant
+putative_impact: MODERATE
 gene_symbol: BRCA1
 gene_id: "HGNC:1100"
 feature_type:
