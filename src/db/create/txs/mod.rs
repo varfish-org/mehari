@@ -107,7 +107,7 @@ fn load_and_extract(
             let gene_symbol = gene.gene_symbol.as_ref().unwrap().clone();
             transcript_ids_for_gene
                 .entry(gene_symbol.clone())
-                .or_insert(Vec::new());
+                .or_default();
             genes.insert(gene_symbol, gene.clone());
         });
     writeln!(

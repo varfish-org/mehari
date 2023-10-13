@@ -50,7 +50,7 @@ impl TranscriptEffect {
 pub mod interface {
     /// Structural Variant type.
     #[derive(
-        serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord,
+        serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
     )]
     pub enum StrucVarType {
         #[serde(rename = "DEL")]
@@ -67,7 +67,16 @@ pub mod interface {
 
     /// Strand orientation of a structural variant.
     #[derive(
-        serde::Serialize, serde::Deserialize, Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord,
+        serde::Serialize,
+        serde::Deserialize,
+        Debug,
+        Clone,
+        Default,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
     )]
     pub enum StrandOrientation {
         #[serde(rename = "3to3")]

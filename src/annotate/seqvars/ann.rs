@@ -10,6 +10,7 @@ use nom::{
     IResult,
 };
 use parse_display::{Display, FromStr};
+use strum::IntoEnumIterator;
 
 /// Putative impact level.
 #[derive(
@@ -18,12 +19,14 @@ use parse_display::{Display, FromStr};
     Eq,
     PartialOrd,
     Ord,
+    Hash,
     Clone,
     Copy,
     Display,
     FromStr,
     serde::Deserialize,
     serde::Serialize,
+    strum::EnumIter,
 )]
 #[display(style = "UPPERCASE")]
 pub enum PutativeImpact {
@@ -40,12 +43,14 @@ pub enum PutativeImpact {
     Eq,
     PartialOrd,
     Ord,
+    Hash,
     Clone,
     Copy,
     Display,
     FromStr,
     serde::Deserialize,
     serde::Serialize,
+    strum::EnumIter,
 )]
 #[display(style = "snake_case")]
 pub enum Consequence {
@@ -172,12 +177,19 @@ impl From<Consequence> for PutativeImpact {
 }
 
 impl Consequence {
+    /// Return vector of all values of `Consequence`.
+    pub fn all() -> Vec<Self> {
+        Self::iter().collect()
+    }
+
     pub fn impact(&self) -> PutativeImpact {
         PutativeImpact::from(*self)
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Display, serde::Deserialize, serde::Serialize,
+)]
 /// Enumeration for `AnnField::allele`.
 pub enum Allele {
     /// A simple value for the allele.
@@ -276,7 +288,18 @@ impl FromStr for Allele {
 
 /// Sequence ontology feature.
 #[derive(
-    Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr, serde::Deserialize, serde::Serialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Display,
+    FromStr,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 #[display(style = "snake_case")]
 pub enum SoFeature {
@@ -284,7 +307,9 @@ pub enum SoFeature {
 }
 
 /// Enum for `AnnField::feature_type`.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Display, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Display, serde::Deserialize, serde::Serialize,
+)]
 pub enum FeatureType {
     #[display("{term}")]
     SoTerm { term: SoFeature },
@@ -308,7 +333,19 @@ impl FromStr for FeatureType {
 
 /// Encode feature biotype.
 #[derive(
-    Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr, serde::Deserialize, serde::Serialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Display,
+    FromStr,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::EnumIter,
 )]
 pub enum FeatureBiotype {
     Coding,
@@ -326,11 +363,13 @@ impl FeatureBiotype {
 
 /// Encode exon/intron rank.
 #[derive(
+    Clone,
     Debug,
     PartialEq,
     Eq,
     PartialOrd,
     Ord,
+    Hash,
     Display,
     FromStr,
     Default,
@@ -344,7 +383,9 @@ pub struct Rank {
 }
 
 /// Position, optionally with total length.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default, serde::Deserialize, serde::Serialize,
+)]
 pub struct Pos {
     pub ord: i32,
     pub total: Option<i32>,
@@ -410,7 +451,18 @@ impl FromStr for Pos {
 
 /// A message to be used in `AnnField::messages`.
 #[derive(
-    Debug, PartialEq, Eq, PartialOrd, Ord, Display, FromStr, serde::Deserialize, serde::Serialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Display,
+    FromStr,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 #[display(style = "SNAKE_CASE")]
 pub enum Message {
@@ -427,7 +479,7 @@ pub enum Message {
 }
 
 /// Representation of an `ANN` field.
-#[derive(Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct AnnField {
     /// The alternative allele that this annotation refers to.
     pub allele: Allele,
