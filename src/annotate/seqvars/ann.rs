@@ -528,6 +528,33 @@ pub struct AnnField {
     pub messages: Option<Vec<Message>>,
 }
 
+impl Default for AnnField {
+    fn default() -> Self {
+        Self {
+            allele: Allele::Alt {
+                alternative: Default::default(),
+            },
+            consequences: vec![],
+            putative_impact: PutativeImpact::Modifier,
+            gene_symbol: Default::default(),
+            gene_id: Default::default(),
+            feature_type: FeatureType::SoTerm {
+                term: SoFeature::Transcript,
+            },
+            feature_id: Default::default(),
+            feature_biotype: FeatureBiotype::Coding,
+            rank: Default::default(),
+            hgvs_t: Default::default(),
+            hgvs_p: Default::default(),
+            tx_pos: Default::default(),
+            cds_pos: Default::default(),
+            protein_pos: Default::default(),
+            distance: Default::default(),
+            messages: Default::default(),
+        }
+    }
+}
+
 impl FromStr for AnnField {
     type Err = anyhow::Error;
 
