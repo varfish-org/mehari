@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.0](https://github.com/bihealth/mehari/compare/v0.12.0...v0.13.0) (2023-10-16)
+
+
+### Features
+
+* derive Clone and strum::EnumIter on more enums ([#213](https://github.com/bihealth/mehari/issues/213)) ([cc61a66](https://github.com/bihealth/mehari/commit/cc61a66c175a4447c0422b01bbb6c572e1687725))
+* implementing Default for AnnField ([#215](https://github.com/bihealth/mehari/issues/215)) ([73b1be4](https://github.com/bihealth/mehari/commit/73b1be40dd6f3c7c54aaeb2d0142444a702af1e3))
+* proper serde renames for Consequence and PutativeImpact ([#214](https://github.com/bihealth/mehari/issues/214)) ([02286fa](https://github.com/bihealth/mehari/commit/02286fa15be47053d2e80a8f707dbb2361772033))
+
+
+### Bug Fixes
+
+* documenting "AN" as alleles rather than samples ([#206](https://github.com/bihealth/mehari/issues/206)) ([62ee63b](https://github.com/bihealth/mehari/commit/62ee63b84f9509cfaffad33ec9aa0ee2181681e0))
+
 ## [0.12.0](https://github.com/bihealth/mehari/compare/v0.11.0...v0.12.0) (2023-10-09)
 
 
