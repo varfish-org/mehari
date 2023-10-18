@@ -27,7 +27,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = "4.4"
-annonars = "0.23"
+annonars = "0.24"
 anyhow = "1.0"
 bgzip = "0.3"
 bio = "1.3"
