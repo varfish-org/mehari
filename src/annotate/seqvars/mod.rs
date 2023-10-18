@@ -216,12 +216,20 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         Map::<Info>::new(
             Number::Count(1),
             Type::String,
-            "ClinVar clinical significance",
+            "ClinVar clinical significance (one highest significance per VCV)",
         ),
     );
     header_out.infos_mut().insert(
         field::Key::from_str("clinvar_rcv").unwrap(),
-        Map::<Info>::new(Number::Count(1), Type::String, "ClinVar RCV accession"),
+        Map::<Info>::new(
+            Number::Count(1),
+            Type::String,
+            "ClinVar RCV accession (corresponds to clinvar_clinsig)",
+        ),
+    );
+    header_out.infos_mut().insert(
+        field::Key::from_str("clinvar_vcv").unwrap(),
+        Map::<Info>::new(Number::Count(1), Type::String, "ClinVar VCV accession"),
     );
 
     header_out
@@ -396,21 +404,33 @@ where
             clinvar_minimal::pbs::Record::decode(&mut std::io::Cursor::new(&raw_value))?;
 
         let clinvar_minimal::pbs::Record {
-            clinical_significance,
-            rcv,
+            vcv,
+            reference_assertions,
             ..
         } = clinvar_record;
-        let clinical_significance: clinvar_minimal::cli::reading::ClinicalSignificance =
-            clinical_significance.into();
+        if let Some(reference_assertion) = reference_assertions.first() {
+            let clinvar_minimal::pbs::ReferenceAssertion {
+                rcv,
+                clinical_significance,
+                ..
+            } = reference_assertion.clone();
 
-        vcf_record.info_mut().insert(
-            field::Key::from_str("clinvar_clinsig").unwrap(),
-            Some(field::Value::String(clinical_significance.to_string())),
-        );
-        vcf_record.info_mut().insert(
-            field::Key::from_str("clinvar_rcv").unwrap(),
-            Some(field::Value::String(rcv)),
-        );
+            let clinical_significance: clinvar_minimal::cli::reading::ClinicalSignificance =
+                clinical_significance.into();
+
+            vcf_record.info_mut().insert(
+                field::Key::from_str("clinvar_clinsig").unwrap(),
+                Some(field::Value::String(clinical_significance.to_string())),
+            );
+            vcf_record.info_mut().insert(
+                field::Key::from_str("clinvar_rcv").unwrap(),
+                Some(field::Value::String(rcv)),
+            );
+            vcf_record.info_mut().insert(
+                field::Key::from_str("clinvar_vcv").unwrap(),
+                Some(field::Value::String(vcv)),
+            );
+        }
     }
 
     Ok(())
