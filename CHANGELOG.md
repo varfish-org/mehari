@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/bihealth/mehari/compare/v0.13.0...v0.14.0) (2023-10-18)
+
+
+### Features
+
+* bump annonars, write out VCV+RCV+clinsig ([#217](https://github.com/bihealth/mehari/issues/217)) ([0d7b6d8](https://github.com/bihealth/mehari/commit/0d7b6d8f7ca62b7152dad0d2da6557bb62580e58))
+
 ## [0.13.0](https://github.com/bihealth/mehari/compare/v0.12.0...v0.13.0) (2023-10-16)
 
 
