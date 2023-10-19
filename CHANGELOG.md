@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/bihealth/mehari/compare/v0.14.0...v0.14.1) (2023-10-19)
+
+
+### Bug Fixes
+
+* dependency bumps, including annonars ([#220](https://github.com/bihealth/mehari/issues/220)) ([ac57c66](https://github.com/bihealth/mehari/commit/ac57c6646dfdac25cce891edeee5f4920fbff5ee))
+
 ## [0.14.0](https://github.com/bihealth/mehari/compare/v0.13.0...v0.14.0) (2023-10-18)
 
 
