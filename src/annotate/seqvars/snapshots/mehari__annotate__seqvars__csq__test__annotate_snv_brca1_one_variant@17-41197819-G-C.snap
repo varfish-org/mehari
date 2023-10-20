@@ -1,0 +1,121 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - missense_variant
+  putative_impact: MODERATE
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007294.4
+  feature_biotype: Coding
+  rank:
+    ord: 23
+    total: 23
+  hgvs_t: c.5468C>G
+  hgvs_p: p.A1823G
+  tx_pos:
+    ord: 5581
+    total: 7088
+  cds_pos:
+    ord: 5468
+    total: 5592
+  protein_pos:
+    ord: 1823
+    total: 1864
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - missense_variant
+  putative_impact: MODERATE
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007297.4
+  feature_biotype: Coding
+  rank:
+    ord: 22
+    total: 22
+  hgvs_t: c.5327C>G
+  hgvs_p: p.A1776G
+  tx_pos:
+    ord: 5521
+    total: 7028
+  cds_pos:
+    ord: 5327
+    total: 5451
+  protein_pos:
+    ord: 1776
+    total: 1817
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - missense_variant
+  putative_impact: MODERATE
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007299.4
+  feature_biotype: Coding
+  rank:
+    ord: 22
+    total: 22
+  hgvs_t: c.2082C>G
+  hgvs_p: p.C694W
+  tx_pos:
+    ord: 2189
+    total: 3696
+  cds_pos:
+    ord: 2082
+    total: 2100
+  protein_pos:
+    ord: 694
+    total: 700
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - missense_variant
+  putative_impact: MODERATE
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007300.4
+  feature_biotype: Coding
+  rank:
+    ord: 24
+    total: 24
+  hgvs_t: c.5531C>G
+  hgvs_p: p.A1844G
+  tx_pos:
+    ord: 5644
+    total: 7151
+  cds_pos:
+    ord: 5531
+    total: 5655
+  protein_pos:
+    ord: 1844
+    total: 1885
+  distance: 0
+  messages: ~
+

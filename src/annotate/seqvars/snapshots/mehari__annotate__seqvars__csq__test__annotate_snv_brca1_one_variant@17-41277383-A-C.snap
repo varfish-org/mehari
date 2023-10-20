@@ -1,0 +1,89 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - upstream_gene_variant
+  putative_impact: MODIFIER
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007294.4
+  feature_biotype: Coding
+  rank: ~
+  hgvs_t: ~
+  hgvs_p: ~
+  tx_pos: ~
+  cds_pos: ~
+  protein_pos: ~
+  distance: 2
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - upstream_gene_variant
+  putative_impact: MODIFIER
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007297.4
+  feature_biotype: Coding
+  rank: ~
+  hgvs_t: ~
+  hgvs_p: ~
+  tx_pos: ~
+  cds_pos: ~
+  protein_pos: ~
+  distance: 2
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - upstream_gene_variant
+  putative_impact: MODIFIER
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007299.4
+  feature_biotype: Coding
+  rank: ~
+  hgvs_t: ~
+  hgvs_p: ~
+  tx_pos: ~
+  cds_pos: ~
+  protein_pos: ~
+  distance: 2
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - upstream_gene_variant
+  putative_impact: MODIFIER
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007300.4
+  feature_biotype: Coding
+  rank: ~
+  hgvs_t: ~
+  hgvs_p: ~
+  tx_pos: ~
+  cds_pos: ~
+  protein_pos: ~
+  distance: 2
+  messages: ~
+

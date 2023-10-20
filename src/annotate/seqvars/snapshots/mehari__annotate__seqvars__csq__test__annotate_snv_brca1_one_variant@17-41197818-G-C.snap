@@ -1,0 +1,121 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - synonymous_variant
+  putative_impact: LOW
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007294.4
+  feature_biotype: Coding
+  rank:
+    ord: 23
+    total: 23
+  hgvs_t: c.5469A>G
+  hgvs_p: p.A1823=
+  tx_pos:
+    ord: 5582
+    total: 7088
+  cds_pos:
+    ord: 5469
+    total: 5592
+  protein_pos:
+    ord: 1823
+    total: 1864
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - synonymous_variant
+  putative_impact: LOW
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007297.4
+  feature_biotype: Coding
+  rank:
+    ord: 22
+    total: 22
+  hgvs_t: c.5328A>G
+  hgvs_p: p.A1776=
+  tx_pos:
+    ord: 5522
+    total: 7028
+  cds_pos:
+    ord: 5328
+    total: 5451
+  protein_pos:
+    ord: 1776
+    total: 1817
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - missense_variant
+  putative_impact: MODERATE
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007299.4
+  feature_biotype: Coding
+  rank:
+    ord: 22
+    total: 22
+  hgvs_t: c.2083A>G
+  hgvs_p: p.N695D
+  tx_pos:
+    ord: 2190
+    total: 3696
+  cds_pos:
+    ord: 2083
+    total: 2100
+  protein_pos:
+    ord: 695
+    total: 700
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - synonymous_variant
+  putative_impact: LOW
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007300.4
+  feature_biotype: Coding
+  rank:
+    ord: 24
+    total: 24
+  hgvs_t: c.5532A>G
+  hgvs_p: p.A1844=
+  tx_pos:
+    ord: 5645
+    total: 7151
+  cds_pos:
+    ord: 5532
+    total: 5655
+  protein_pos:
+    ord: 1844
+    total: 1885
+  distance: 0
+  messages: ~
+

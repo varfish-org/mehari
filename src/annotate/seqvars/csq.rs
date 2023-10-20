@@ -167,7 +167,7 @@ impl ConsequencePredictor {
         let mut is_intronic = false;
         let mut distance: Option<i32> = None;
         let mut tx_len = 0;
-        for exon_alignment in &alignment.exons[0..1] { // xxxXXXXxxx
+        for exon_alignment in &alignment.exons {
             tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i;
 
             let exon_start = exon_alignment.alt_start_i;
@@ -186,6 +186,8 @@ impl ConsequencePredictor {
                 is_exonic = true;
                 distance = Some(0);
             } else if let Some(intron_start) = intron_start {
+                // We have are in an intron (the first exon does not have an intron left of it
+                // which is expressed by `intron_start` being an `Option<i32>` rather than `i32`.
                 if var_start >= intron_start && var_end <= intron_end {
                     // Contained within intron: cannot be in next exon.
                     if !is_exonic {
@@ -197,8 +199,8 @@ impl ConsequencePredictor {
 
                         // We compute the "distance" with "+1", the first base of the
                         // intron is "+1", the last one is "-1".
-                        let dist_start = -(var_start + 1 - intron_start);
-                        let dist_end = intron_end + 1 - var_end;
+                        let dist_start = var_start + 1 - intron_start;
+                        let dist_end = -(intron_end + 1 - var_end);
                         let dist_start_end = if dist_start.abs() <= dist_end.abs() {
                             dist_start
                         } else {
@@ -327,7 +329,7 @@ impl ConsequencePredictor {
                 consequences.push(Consequence::IntronVariant);
             }
         } else if is_upstream {
-            let val = -(min_start - var_end);
+            let val = -(min_start + 1 - var_end);
             if val.abs() <= 5_000 {
                 match Strand::try_from(alignment.strand).expect("invalid strand") {
                     Strand::Plus => consequences.push(Consequence::UpstreamGeneVariant),
@@ -338,7 +340,7 @@ impl ConsequencePredictor {
                 distance = Some(val);
             }
         } else if is_downstream {
-            let val = var_start - max_end;
+            let val = var_start + 1 - max_end;
             if val.abs() <= 5_000 {
                 match Strand::try_from(alignment.strand).expect("invalid strand") {
                     Strand::Plus => consequences.push(Consequence::DownstreamGeneVariant),
@@ -715,19 +717,28 @@ mod test {
     }
 
     #[rstest::rstest]
-    #[case("17:41197701:G:C")] // exonic
-    #[case("17:41196309:G:C")] // 3bp 3' upstream
-    #[case("17:41196310:G:C")] // 2bp 3' upstream
-    #[case("17:41196311:G:C")] // 1bp 3' upstream
-    #[case("17:41196312:G:C")] // ex. 3' UTR
-    #[case("17:41196313:G:C")] // ex. 3' UTR
-    #[case("17:41197818:G:C")] // exonic
-    #[case("17:41197819:G:C")] // exonic
-    #[case("17:41197820:G:C")] // 1bp intronic
-    #[case("17:41197821:G:C")] // 2bp intronic
-    #[case("17:41197822:G:C")] // 3bp intronic
-    #[case("17:41197823:G:C")] // 4bp intronic
-    fn annotate_snv_brca1_one_variant(#[case] spdi: &str) -> Result<(), anyhow::Error> {
+    #[case("17:41197701:G:C", 0)] // exonic
+    #[case("17:41196309:G:C", -3)] // 3bp 3' upstream
+    #[case("17:41196310:G:C", -2)] // 2bp 3' upstream
+    #[case("17:41196311:G:C", -1)] // 1bp 3' upstream
+    #[case("17:41196312:G:C", 0)] // ex. 3' UTR
+    #[case("17:41196313:G:C", 0)] // ex. 3' UTR
+    #[case("17:41197818:G:C", 0)] // exonic
+    #[case("17:41197819:G:C", 0)] // exonic
+    #[case("17:41197820:G:C", 1)] // 1bp intronic
+    #[case("17:41197821:G:C", 2)] // 2bp intronic
+    #[case("17:41197822:G:C", 3)] // 3bp intronic
+    #[case("17:41197823:G:C", 4)] // 4bp intronic
+    #[case("17:41277379:A:C", 0)] // exonic
+    #[case("17:41277380:G:C", 0)] // exonic
+    #[case("17:41277381:G:T", 0)] // exonic
+    #[case("17:41277382:G:C", 1)] // 1bp upstream
+    #[case("17:41277383:A:C", 2)] // 2bp upstream
+    #[case("17:41277384:G:C", 3)] // 3bp upstream
+    fn annotate_snv_brca1_one_variant(
+        #[case] spdi: &str,
+        #[case] expected_dist: i32,
+    ) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!("{}", spdi.replace(":", "-"));
 
         let spdi = spdi
@@ -753,6 +764,12 @@ mod test {
 
         assert_eq!(res.len(), 4);
         insta::assert_yaml_snapshot!(res);
+        assert_eq!(
+            res[0].distance,
+            Some(expected_dist),
+            "spdi = {}",
+            spdi.join(":")
+        );
 
         Ok(())
     }
