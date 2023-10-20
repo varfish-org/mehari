@@ -165,7 +165,7 @@ impl ConsequencePredictor {
         let mut rank = Rank::default();
         let mut is_exonic = false;
         let mut is_intronic = false;
-        let mut distance = None;
+        let mut distance: Option<i32> = None;
         let mut tx_len = 0;
         for exon_alignment in &alignment.exons {
             tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i;
@@ -185,16 +185,19 @@ impl ConsequencePredictor {
                 };
                 is_exonic = true;
 
-                if var_start <= exon_start || var_end >= exon_end {
+                if var_start <= exon_end && var_end >= exon_start {
                     // Overlaps with exon/intron boundary.
                     distance = Some(0);
                 } else {
                     let dist_start = -(var_start - exon_start + 1);
                     let dist_end = exon_end - var_end + 1;
-                    if dist_end >= dist_start.abs() {
-                        distance = Some(dist_end);
+                    let dist_start_end = if dist_start.abs() <= dist_end.abs() {
+                        dist_start
                     } else {
-                        distance = Some(dist_start);
+                        dist_end
+                    };
+                    if distance.is_none() || dist_start_end.abs() <= distance.unwrap().abs() {
+                        distance = Some(dist_start_end);
                     }
                 }
             } else if let Some(intron_start) = intron_start {
@@ -209,10 +212,13 @@ impl ConsequencePredictor {
 
                         let dist_start = -(var_start - intron_start);
                         let dist_end = intron_end - var_end;
-                        if dist_end <= dist_start.abs() {
-                            distance = Some(dist_end);
+                        let dist_start_end = if dist_start.abs() <= dist_end.abs() {
+                            dist_start
                         } else {
-                            distance = Some(dist_start);
+                            dist_end
+                        };
+                        if distance.is_none() || dist_start_end.abs() <= distance.unwrap().abs() {
+                            distance = Some(dist_start_end);
                         }
                     }
                 }
@@ -339,7 +345,9 @@ impl ConsequencePredictor {
                     Strand::Minus => consequences.push(Consequence::DownstreamGeneVariant),
                 }
             }
-            distance = Some(val);
+            if distance.is_none() {
+                distance = Some(val);
+            }
         } else if is_downstream {
             let val = var_start - max_end;
             if val.abs() <= 5_000 {
@@ -348,7 +356,9 @@ impl ConsequencePredictor {
                     Strand::Minus => consequences.push(Consequence::UpstreamGeneVariant),
                 }
             }
-            distance = Some(val);
+            if distance.is_none() {
+                distance = Some(val);
+            }
         }
 
         let var_g = HgvsVariant::GenomeVariant {
@@ -717,11 +727,13 @@ mod test {
 
     #[rstest::rstest]
     #[case("17:41197701:G:C")]
+    #[case("17:41197697:G:C")]
+    #[case("17:41197696:G:C")]
     #[case("17:41197695:G:C")]
-    #[case("17:41197694:G:C")]
     #[case("17:41197694:G:C")]
     #[case("17:41197693:G:C")]
     #[case("17:41197692:G:C")]
+    #[case("17:41197691:G:C")]
     fn annotate_snv_brca1_one_variant(#[case] spdi: &str) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!("{}", spdi.replace(":", "-"));
 
