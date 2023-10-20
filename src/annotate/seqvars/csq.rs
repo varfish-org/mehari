@@ -167,7 +167,7 @@ impl ConsequencePredictor {
         let mut is_intronic = false;
         let mut distance: Option<i32> = None;
         let mut tx_len = 0;
-        for exon_alignment in &alignment.exons {
+        for exon_alignment in &alignment.exons[0..1] { // xxxXXXXxxx
             tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i;
 
             let exon_start = exon_alignment.alt_start_i;
@@ -184,22 +184,7 @@ impl ConsequencePredictor {
                     total: alignment.exons.len() as i32,
                 };
                 is_exonic = true;
-
-                if var_start <= exon_end && var_end >= exon_start {
-                    // Overlaps with exon/intron boundary.
-                    distance = Some(0);
-                } else {
-                    let dist_start = -(var_start - exon_start + 1);
-                    let dist_end = exon_end - var_end + 1;
-                    let dist_start_end = if dist_start.abs() <= dist_end.abs() {
-                        dist_start
-                    } else {
-                        dist_end
-                    };
-                    if distance.is_none() || dist_start_end.abs() <= distance.unwrap().abs() {
-                        distance = Some(dist_start_end);
-                    }
-                }
+                distance = Some(0);
             } else if let Some(intron_start) = intron_start {
                 if var_start >= intron_start && var_end <= intron_end {
                     // Contained within intron: cannot be in next exon.
@@ -210,14 +195,18 @@ impl ConsequencePredictor {
                         };
                         is_intronic = true;
 
-                        let dist_start = -(var_start - intron_start);
-                        let dist_end = intron_end - var_end;
+                        // We compute the "distance" with "+1", the first base of the
+                        // intron is "+1", the last one is "-1".
+                        let dist_start = -(var_start + 1 - intron_start);
+                        let dist_end = intron_end + 1 - var_end;
                         let dist_start_end = if dist_start.abs() <= dist_end.abs() {
                             dist_start
                         } else {
                             dist_end
                         };
-                        if distance.is_none() || dist_start_end.abs() <= distance.unwrap().abs() {
+                        if distance.is_none()
+                            || dist_start_end.abs() <= distance.expect("cannot be None").abs()
+                        {
                             distance = Some(dist_start_end);
                         }
                     }
@@ -726,14 +715,18 @@ mod test {
     }
 
     #[rstest::rstest]
-    #[case("17:41197701:G:C")]
-    #[case("17:41197697:G:C")]
-    #[case("17:41197696:G:C")]
-    #[case("17:41197695:G:C")]
-    #[case("17:41197694:G:C")]
-    #[case("17:41197693:G:C")]
-    #[case("17:41197692:G:C")]
-    #[case("17:41197691:G:C")]
+    #[case("17:41197701:G:C")] // exonic
+    #[case("17:41196309:G:C")] // 3bp 3' upstream
+    #[case("17:41196310:G:C")] // 2bp 3' upstream
+    #[case("17:41196311:G:C")] // 1bp 3' upstream
+    #[case("17:41196312:G:C")] // ex. 3' UTR
+    #[case("17:41196313:G:C")] // ex. 3' UTR
+    #[case("17:41197818:G:C")] // exonic
+    #[case("17:41197819:G:C")] // exonic
+    #[case("17:41197820:G:C")] // 1bp intronic
+    #[case("17:41197821:G:C")] // 2bp intronic
+    #[case("17:41197822:G:C")] // 3bp intronic
+    #[case("17:41197823:G:C")] // 4bp intronic
     fn annotate_snv_brca1_one_variant(#[case] spdi: &str) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!("{}", spdi.replace(":", "-"));
 
@@ -759,7 +752,7 @@ mod test {
             .unwrap();
 
         assert_eq!(res.len(), 4);
-        insta::assert_yaml_snapshot!(res[0]);
+        insta::assert_yaml_snapshot!(res);
 
         Ok(())
     }
