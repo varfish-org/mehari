@@ -725,7 +725,11 @@ mod test {
     fn annotate_snv_brca1_one_variant(#[case] spdi: &str) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!("{}", spdi.replace(":", "-"));
 
-        let spdi = spdi.split(":").into_iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let spdi = spdi
+            .split(":")
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
