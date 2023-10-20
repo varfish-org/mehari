@@ -715,8 +715,18 @@ mod test {
         is_sync::<super::ConsequencePredictor>();
     }
 
-    #[test]
-    fn annotate_snv_brca1_one_variant() -> Result<(), anyhow::Error> {
+    #[rstest::rstest]
+    #[case("17:41197701:G:C")]
+    #[case("17:41197695:G:C")]
+    #[case("17:41197694:G:C")]
+    #[case("17:41197694:G:C")]
+    #[case("17:41197693:G:C")]
+    #[case("17:41197692:G:C")]
+    fn annotate_snv_brca1_one_variant(#[case] spdi: &str) -> Result<(), anyhow::Error> {
+        crate::common::set_snapshot_suffix!("{}", spdi.replace(":", "-"));
+
+        let spdi = spdi.split(":").into_iter().map(|s| s.to_string()).collect::<Vec<_>>();
+
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
@@ -725,10 +735,10 @@ mod test {
 
         let res = predictor
             .predict(&VcfVariant {
-                chromosome: String::from("17"),
-                position: 41_197_701,
-                reference: String::from("G"),
-                alternative: String::from("C"),
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
             })?
             .unwrap();
 
