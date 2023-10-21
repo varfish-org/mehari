@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use annonars::common::cli::CANONICAL;
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
+use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
 use hgvs::{
     data::error::Error,
     data::{
@@ -14,7 +15,6 @@ use hgvs::{
         },
     },
     sequences::seq_md5,
-    static_data::{Assembly, ASSEMBLY_INFOS},
 };
 
 use crate::{
@@ -161,7 +161,7 @@ impl ProviderInterface for MehariProvider {
 
     fn get_assembly_map(
         &self,
-        assembly: hgvs::static_data::Assembly,
+        assembly: biocommons_bioutils::assemblies::Assembly,
     ) -> indexmap::IndexMap<String, String> {
         indexmap::IndexMap::from_iter(
             ASSEMBLY_INFOS[assembly]

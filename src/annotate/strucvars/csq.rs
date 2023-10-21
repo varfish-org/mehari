@@ -2,7 +2,8 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use hgvs::{data::interface::Provider, static_data::Assembly};
+use biocommons_bioutils::assemblies::Assembly;
+use hgvs::data::interface::Provider;
 
 use crate::{
     annotate::seqvars::provider::{MehariProvider, TxIntervalTrees},

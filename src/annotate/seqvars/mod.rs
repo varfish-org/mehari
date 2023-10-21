@@ -25,10 +25,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use biocommons_bioutils::assemblies::Assembly;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use hgvs::static_data::Assembly;
 use noodles_bgzf::Writer as BgzfWriter;
 use noodles_vcf::header::{
     record::value::map::{info::Type, Info},

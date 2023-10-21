@@ -7,11 +7,11 @@ use std::{
     path::Path,
 };
 
+use biocommons_bioutils::assemblies::Assembly;
 use byte_unit::Byte;
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use flate2::bufread::MultiGzDecoder;
-use hgvs::static_data::Assembly;
 
 /// Commonly used command line arguments.
 #[derive(Parser, Debug)]

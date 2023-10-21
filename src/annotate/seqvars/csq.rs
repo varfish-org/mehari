@@ -2,13 +2,13 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use biocommons_bioutils::assemblies::Assembly;
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
     mapper::{assembly, Error},
     parser::{
         Accession, CdsFrom, GenomeInterval, GenomeLocEdit, HgvsVariant, Mu, NaEdit, ProtLocEdit,
     },
-    static_data::Assembly,
 };
 
 use crate::db::create::txs::data::{Strand, TranscriptBiotype};

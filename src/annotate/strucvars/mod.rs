@@ -15,11 +15,11 @@ use crate::ped::PedigreeByName;
 use annonars::common::cli::CANONICAL;
 use annonars::freqs::cli::import::reading::guess_assembly;
 use bio::data_structures::interval_tree::IntervalTree;
+use biocommons_bioutils::assemblies::Assembly;
 use chrono::Utc;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use hgvs::static_data::Assembly;
 use noodles_bgzf::Writer as BgzfWriter;
 use noodles_vcf::reader::Builder as VariantReaderBuilder;
 use noodles_vcf::record::alternate_bases::Allele;
@@ -112,7 +112,7 @@ pub mod vcf_header {
     use std::str::FromStr;
 
     use annonars::common::cli::is_canonical;
-    use hgvs::static_data::{Assembly, ASSEMBLY_INFOS};
+    use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
     use noodles_vcf::header::record::value::map::{Contig, Filter, Format, Info, Other};
     use noodles_vcf::header::record::value::Map;
     use noodles_vcf::header::{self, Number};
@@ -3136,8 +3136,8 @@ mod test {
     use rstest::rstest;
     use std::fs::File;
 
+    use biocommons_bioutils::assemblies::Assembly;
     use clap_verbosity_flag::Verbosity;
-    use hgvs::static_data::Assembly;
     use noodles_vcf;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
