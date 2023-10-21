@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.2](https://github.com/bihealth/mehari/compare/v0.14.1...v0.14.2) (2023-10-21)
+
+
+### Bug Fixes
+
+* make distance to next exon correct ([#222](https://github.com/bihealth/mehari/issues/222)) ([#223](https://github.com/bihealth/mehari/issues/223)) ([cad307f](https://github.com/bihealth/mehari/commit/cad307fe9c2c150d254d471f508601dda01df363))
+* switching from unmaintained tempdir to tempfile ([#227](https://github.com/bihealth/mehari/issues/227)) ([a7b0e08](https://github.com/bihealth/mehari/commit/a7b0e08f69b5a3527f78119bc0cf220ddca64597))
+
 ## [0.14.1](https://github.com/bihealth/mehari/compare/v0.14.0...v0.14.1) (2023-10-19)
 
 
