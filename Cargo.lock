@@ -255,7 +255,9 @@ dependencies = [
 
 [[package]]
 name = "annonars"
-version = "0.24.1"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "264ef5bcefef042e0c4e39fa5b6a30aebaceca9876917915974823a54668d426"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -1348,7 +1350,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hgvs"
-version = "0.11.0"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd1c9bcd21975b12b0d6f4db48882cb3668dffc3dbe2820b9ae9d642f1a9e273"
 dependencies = [
  "base16ct",
  "bio",
