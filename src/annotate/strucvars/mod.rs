@@ -39,7 +39,6 @@ use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 use strum::{Display, EnumIter, IntoEnumIterator};
-use tempdir::TempDir;
 use uuid::Uuid;
 
 use self::bnd::Breakend;
@@ -2647,7 +2646,7 @@ pub fn run_vcf_to_jsonl(
     reader: &mut noodles_vcf::Reader<Box<dyn std::io::BufRead>>,
     header: &VcfHeader,
     sv_caller: &SvCaller,
-    tmp_dir: &TempDir,
+    tmp_dir: &tempfile::TempDir,
     cov_readers: &mut HashMap<String, maelstrom::Reader>,
     rng: &mut StdRng,
 ) -> Result<(), anyhow::Error> {
@@ -2745,7 +2744,7 @@ fn annotate_cov_mq(
 ///
 /// The clustered records for the contig.
 pub fn read_and_cluster_for_contig(
-    tmp_dir: &TempDir,
+    tmp_dir: &tempfile::TempDir,
     contig_no: usize,
     slack_ins: i32,
     slack_bnd: i32,
@@ -2881,7 +2880,7 @@ fn run_with_writer(
 
     // Create temporary directory.  We will create one temporary file (containing `jsonl`
     // seriealized `VarFishStrucvarTsvRecord`s) for each SV type and contig.
-    let tmp_dir = TempDir::new("mehari")?;
+    let tmp_dir = tempfile::Builder::new().prefix("mehari").tempdir()?;
 
     // Read through input VCF files and write out to temporary files.
     tracing::info!("Input VCF files to temporary files...");
