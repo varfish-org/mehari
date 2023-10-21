@@ -165,7 +165,7 @@ impl ConsequencePredictor {
         let mut rank = Rank::default();
         let mut is_exonic = false;
         let mut is_intronic = false;
-        let mut distance = None;
+        let mut distance: Option<i32> = None;
         let mut tx_len = 0;
         for exon_alignment in &alignment.exons {
             tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i;
@@ -184,20 +184,10 @@ impl ConsequencePredictor {
                     total: alignment.exons.len() as i32,
                 };
                 is_exonic = true;
-
-                if var_start <= exon_start || var_end >= exon_end {
-                    // Overlaps with exon/intron boundary.
-                    distance = Some(0);
-                } else {
-                    let dist_start = -(var_start - exon_start + 1);
-                    let dist_end = exon_end - var_end + 1;
-                    if dist_end >= dist_start.abs() {
-                        distance = Some(dist_end);
-                    } else {
-                        distance = Some(dist_start);
-                    }
-                }
+                distance = Some(0);
             } else if let Some(intron_start) = intron_start {
+                // We have are in an intron (the first exon does not have an intron left of it
+                // which is expressed by `intron_start` being an `Option<i32>` rather than `i32`.
                 if var_start >= intron_start && var_end <= intron_end {
                     // Contained within intron: cannot be in next exon.
                     if !is_exonic {
@@ -207,12 +197,19 @@ impl ConsequencePredictor {
                         };
                         is_intronic = true;
 
-                        let dist_start = -(var_start - intron_start);
-                        let dist_end = intron_end - var_end;
-                        if dist_end <= dist_start.abs() {
-                            distance = Some(dist_end);
+                        // We compute the "distance" with "+1", the first base of the
+                        // intron is "+1", the last one is "-1".
+                        let dist_start = var_start + 1 - intron_start;
+                        let dist_end = -(intron_end + 1 - var_end);
+                        let dist_start_end = if dist_start.abs() <= dist_end.abs() {
+                            dist_start
                         } else {
-                            distance = Some(dist_start);
+                            dist_end
+                        };
+                        if distance.is_none()
+                            || dist_start_end.abs() <= distance.expect("cannot be None").abs()
+                        {
+                            distance = Some(dist_start_end);
                         }
                     }
                 }
@@ -332,23 +329,27 @@ impl ConsequencePredictor {
                 consequences.push(Consequence::IntronVariant);
             }
         } else if is_upstream {
-            let val = -(min_start - var_end);
+            let val = -(min_start + 1 - var_end);
             if val.abs() <= 5_000 {
                 match Strand::try_from(alignment.strand).expect("invalid strand") {
                     Strand::Plus => consequences.push(Consequence::UpstreamGeneVariant),
                     Strand::Minus => consequences.push(Consequence::DownstreamGeneVariant),
                 }
             }
-            distance = Some(val);
+            if distance.is_none() {
+                distance = Some(val);
+            }
         } else if is_downstream {
-            let val = var_start - max_end;
+            let val = var_start + 1 - max_end;
             if val.abs() <= 5_000 {
                 match Strand::try_from(alignment.strand).expect("invalid strand") {
                     Strand::Plus => consequences.push(Consequence::DownstreamGeneVariant),
                     Strand::Minus => consequences.push(Consequence::UpstreamGeneVariant),
                 }
             }
-            distance = Some(val);
+            if distance.is_none() {
+                distance = Some(val);
+            }
         }
 
         let var_g = HgvsVariant::GenomeVariant {
@@ -715,8 +716,37 @@ mod test {
         is_sync::<super::ConsequencePredictor>();
     }
 
-    #[test]
-    fn annotate_snv_brca1_one_variant() -> Result<(), anyhow::Error> {
+    #[rstest::rstest]
+    #[case("17:41197701:G:C", 0)] // exonic
+    #[case("17:41196309:G:C", -3)] // 3bp 3' upstream
+    #[case("17:41196310:G:C", -2)] // 2bp 3' upstream
+    #[case("17:41196311:G:C", -1)] // 1bp 3' upstream
+    #[case("17:41196312:G:C", 0)] // ex. 3' UTR
+    #[case("17:41196313:G:C", 0)] // ex. 3' UTR
+    #[case("17:41197818:G:C", 0)] // exonic
+    #[case("17:41197819:G:C", 0)] // exonic
+    #[case("17:41197820:G:C", 1)] // 1bp intronic
+    #[case("17:41197821:G:C", 2)] // 2bp intronic
+    #[case("17:41197822:G:C", 3)] // 3bp intronic
+    #[case("17:41197823:G:C", 4)] // 4bp intronic
+    #[case("17:41277379:A:C", 0)] // exonic
+    #[case("17:41277380:G:C", 0)] // exonic
+    #[case("17:41277381:G:T", 0)] // exonic
+    #[case("17:41277382:G:C", 1)] // 1bp upstream
+    #[case("17:41277383:A:C", 2)] // 2bp upstream
+    #[case("17:41277384:G:C", 3)] // 3bp upstream
+    fn annotate_snv_brca1_one_variant(
+        #[case] spdi: &str,
+        #[case] expected_dist: i32,
+    ) -> Result<(), anyhow::Error> {
+        crate::common::set_snapshot_suffix!("{}", spdi.replace(":", "-"));
+
+        let spdi = spdi
+            .split(":")
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
@@ -725,15 +755,21 @@ mod test {
 
         let res = predictor
             .predict(&VcfVariant {
-                chromosome: String::from("17"),
-                position: 41_197_701,
-                reference: String::from("G"),
-                alternative: String::from("C"),
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
             })?
             .unwrap();
 
         assert_eq!(res.len(), 4);
-        insta::assert_yaml_snapshot!(res[0]);
+        insta::assert_yaml_snapshot!(res);
+        assert_eq!(
+            res[0].distance,
+            Some(expected_dist),
+            "spdi = {}",
+            spdi.join(":")
+        );
 
         Ok(())
     }
