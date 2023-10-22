@@ -67,6 +67,33 @@ expression: res
   feature_type:
     SoTerm:
       term: Transcript
+  feature_id: NM_007298.3
+  feature_biotype: Coding
+  rank:
+    ord: 22
+    total: 22
+  hgvs_t: c.*1383A>G
+  hgvs_p: p.?
+  tx_pos:
+    ord: 3682
+    total: 3682
+  cds_pos:
+    ord: 1383
+    total: 2280
+  protein_pos: ~
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - 3_prime_UTR_variant
+  putative_impact: MODIFIER
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
   feature_id: NM_007299.4
   feature_biotype: Coding
   rank:

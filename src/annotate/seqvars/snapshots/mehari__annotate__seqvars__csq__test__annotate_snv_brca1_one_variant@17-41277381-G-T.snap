@@ -60,6 +60,27 @@ expression: res
     Alt:
       alternative: T
   consequences:
+    - upstream_gene_variant
+  putative_impact: MODIFIER
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007298.3
+  feature_biotype: Coding
+  rank: ~
+  hgvs_t: ~
+  hgvs_p: ~
+  tx_pos: ~
+  cds_pos: ~
+  protein_pos: ~
+  distance: 1249
+  messages: ~
+- allele:
+    Alt:
+      alternative: T
+  consequences:
     - 5_prime_UTR_variant
   putative_impact: MODIFIER
   gene_symbol: BRCA1
