@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.3](https://github.com/bihealth/mehari/compare/v0.14.2...v0.14.3) (2023-10-22)
+
+
+### Bug Fixes
+
+* index out of bounds error in stop_retained variant ([#226](https://github.com/bihealth/mehari/issues/226)) ([#228](https://github.com/bihealth/mehari/issues/228)) ([cc8d440](https://github.com/bihealth/mehari/commit/cc8d4405f1c96c095fc7fa7d2e6ca08c3386563a))
+
 ## [0.14.2](https://github.com/bihealth/mehari/compare/v0.14.1...v0.14.2) (2023-10-21)
 
 
