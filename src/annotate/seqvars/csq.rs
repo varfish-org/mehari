@@ -1,5 +1,4 @@
 //! Compute molecular consequence of variants.
-
 use std::{collections::HashMap, sync::Arc};
 
 use biocommons_bioutils::assemblies::Assembly;
@@ -762,7 +761,7 @@ mod test {
             })?
             .unwrap();
 
-        assert_eq!(res.len(), 4);
+        assert_eq!(res.len(), 5);
         insta::assert_yaml_snapshot!(res);
         assert_eq!(
             res[0].distance,
