@@ -7,8 +7,8 @@ use std::{
     time::Instant,
 };
 
+use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
-use hgvs::static_data::Assembly;
 use noodles_core::{Position, Region};
 use quick_cache::unsync::Cache;
 

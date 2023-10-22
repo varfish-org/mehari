@@ -64,6 +64,35 @@ expression: res
     Alt:
       alternative: C
   consequences:
+    - synonymous_variant
+  putative_impact: LOW
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007298.3
+  feature_biotype: Coding
+  rank:
+    ord: 22
+    total: 22
+  hgvs_t: c.2157A>G
+  hgvs_p: p.A719=
+  tx_pos:
+    ord: 2176
+    total: 3682
+  cds_pos:
+    ord: 2157
+    total: 2280
+  protein_pos:
+    ord: 719
+    total: 760
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
     - missense_variant
   putative_impact: MODERATE
   gene_symbol: BRCA1

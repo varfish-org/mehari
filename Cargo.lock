@@ -255,13 +255,14 @@ dependencies = [
 
 [[package]]
 name = "annonars"
-version = "0.24.1"
+version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0058c9550498950a103798c6976abfae6016762c1ac355dd46c9792c533ac50c"
+checksum = "264ef5bcefef042e0c4e39fa5b6a30aebaceca9876917915974823a54668d426"
 dependencies = [
  "actix-web",
  "anyhow",
  "bgzip",
+ "biocommons-bioutils",
  "boolvec",
  "byteorder",
  "chrono",
@@ -271,7 +272,6 @@ dependencies = [
  "enum-map 2.7.0",
  "env_logger",
  "flate2",
- "hgvs",
  "indexmap 2.0.2",
  "indicatif",
  "log",
@@ -486,6 +486,20 @@ dependencies = [
  "regex",
  "strum_macros",
  "thiserror",
+]
+
+[[package]]
+name = "biocommons-bioutils"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82c91bd0b62cec4b6317445506ed4947a53c320942a681c5a086f4d576aa4c99"
+dependencies = [
+ "enum-map 2.7.0",
+ "flate2",
+ "indexmap 2.0.2",
+ "lazy_static",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1330,12 +1344,13 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hgvs"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2c8237412c585364c6d56a985ea67f550a2e8fd55c6b8f949e732a89d2274a7"
+checksum = "bd1c9bcd21975b12b0d6f4db48882cb3668dffc3dbe2820b9ae9d642f1a9e273"
 dependencies = [
  "base16ct",
  "bio",
+ "biocommons-bioutils",
  "chrono",
  "enum-map 2.7.0",
  "flate2",
@@ -1741,6 +1756,7 @@ dependencies = [
  "anyhow",
  "bgzip",
  "bio",
+ "biocommons-bioutils",
  "byte-unit",
  "byteorder",
  "chrono",
