@@ -134,6 +134,7 @@ mod test {
 
             writer.flush()?;
         }
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
         let mut buffer: Vec<u8> = Vec::new();
         hxdmp::hexdump(&super::read_to_bytes(&tmp_file_path)?, &mut buffer)?;

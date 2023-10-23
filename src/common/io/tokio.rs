@@ -125,10 +125,9 @@ mod test {
                 writer.write_all(format!("{}\n", i).as_bytes()).await?;
             }
 
-            // writer.flush().await?;
+            writer.flush().await?;
             writer.shutdown().await?;
         }
-
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         let mut buffer: Vec<u8> = Vec::new();
