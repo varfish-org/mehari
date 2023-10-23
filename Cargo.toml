@@ -55,7 +55,7 @@ noodles-core = "0.12"
 noodles-csi = "0.25"
 noodles-fasta = "0.30"
 noodles-tabix = "0.31"
-noodles-vcf = { version = "0.42", features = ["async"] }
+noodles-vcf = { version = "0.43", features = ["async"] }
 parse-display = "0.8"
 procfs = "0.15"
 prost = "0.12"

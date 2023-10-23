@@ -280,7 +280,7 @@ dependencies = [
  "noodles-core",
  "noodles-csi",
  "noodles-tabix",
- "noodles-vcf",
+ "noodles-vcf 0.42.0",
  "prost",
  "prost-build",
  "rayon",
@@ -2005,7 +2005,7 @@ dependencies = [
  "noodles-csi",
  "noodles-fasta 0.30.0",
  "noodles-tabix",
- "noodles-vcf",
+ "noodles-vcf 0.43.0",
  "parse-display",
  "pretty_assertions",
  "procfs",
@@ -2249,6 +2249,21 @@ name = "noodles-vcf"
 version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3400ba59844268d1f3e842ca4dd999c08cd04180db1b413d689bb7ea92ece08"
+dependencies = [
+ "indexmap 2.0.2",
+ "memchr",
+ "noodles-bgzf 0.25.0",
+ "noodles-core",
+ "noodles-csi",
+ "noodles-tabix",
+ "percent-encoding",
+]
+
+[[package]]
+name = "noodles-vcf"
+version = "0.43.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f13f0225114584f7ab147f146532dccc584e810006a4dfb275544957e7722884"
 dependencies = [
  "futures",
  "indexmap 2.0.2",
