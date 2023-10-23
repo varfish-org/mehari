@@ -2,11 +2,11 @@
 
 use futures::future::join_all;
 use noodles_vcf as vcf;
-use tokio::io::AsyncBufRead;
+use tokio::io::{AsyncBufRead, AsyncWrite};
 
-use super::io::tokio::open_read_maybe_gz;
+use super::io::{tokio::open_read_maybe_gz, tokio::open_write_maybe_bgzf};
 
-/// Alias for the async vcf reader that we will use.
+/// Alias for the async vcf reader type that we will use.
 pub type AsyncVcfReader = vcf::AsyncReader<std::pin::Pin<Box<dyn AsyncBufRead>>>;
 
 /// Helper function that opens one VCF reader at the given path.
@@ -28,4 +28,16 @@ pub async fn open_vcf_readers(paths: &[String]) -> Result<Vec<AsyncVcfReader>, a
         .into_iter()
         .map(vcf::AsyncReader::new)
         .collect::<Vec<_>>())
+}
+
+/// Alias for the async vcf writer that we use.
+pub type AsyncVcfWriter = vcf::AsyncWriter<std::pin::Pin<Box<dyn AsyncWrite>>>;
+
+/// Helper function that opens one VCF write at the given path.
+pub async fn open_vcf_writer(path_out: &str) -> Result<AsyncVcfWriter, anyhow::Error> {
+    Ok(vcf::AsyncWriter::new(
+        open_write_maybe_bgzf(path_out)
+            .await
+            .map_err(|e| anyhow::anyhow!("could not build VCF writer: {}", e))?,
+    ))
 }

@@ -16,7 +16,14 @@ where
     [Some(Some("gz")), Some(Some("bgz"))].contains(&path.as_ref().extension().map(|s| s.to_str()))
 }
 
-/// Transparently open a file with gzip decoder.
+/// Transparently open a file with bgzip encoder for writing.
+///
+/// Note that decoding of multi-member gzip files is automatically supported, as is needed for
+/// `bgzip`` files.
+///
+/// # Arguments
+///
+/// * `path` - A path to the file to open.
 pub fn open_read_maybe_gz<P>(path: P) -> Result<Box<dyn BufRead>, anyhow::Error>
 where
     P: AsRef<Path>,
@@ -34,8 +41,15 @@ where
     }
 }
 
-/// Transparently open afile with gzip encoder.
-pub fn open_write_maybe_gz<P>(path: P) -> Result<Box<dyn Write>, anyhow::Error>
+/// Transparently open a file with bgzip encoder for writing.
+///
+/// Note that decoding of multi-member gzip files is automatically supported, as is needed for
+/// `bgzip`` files.
+///
+/// # Arguments
+///
+/// * `path` - A path to the file to open.
+pub fn open_write_maybe_bgzf<P>(path: P) -> Result<Box<dyn Write>, anyhow::Error>
 where
     P: AsRef<Path>,
 {
@@ -52,8 +66,10 @@ where
     }
 }
 
-// The output is wrapped in a Result to allow matching on errors
-// Returns an Iterator to the Reader of the lines of the file.
+/// Return `std::io::Lines<>` for buffered reading from a file.
+///
+/// The output is wrapped in a Result to allow matching on errors
+/// Returns an Iterator to the Reader of the lines of the file.
 pub fn read_lines<P: AsRef<Path>>(
     filename: P,
 ) -> std::io::Result<std::io::Lines<std::io::BufReader<File>>>
@@ -64,42 +80,23 @@ where
     Ok(std::io::BufReader::new(file).lines())
 }
 
+/// Helper function to read a file to a byte vector.
+pub fn read_to_bytes<P>(path: P) -> Result<Vec<u8>, anyhow::Error>
+where
+    P: AsRef<std::path::Path>,
+{
+    use std::io::Read;
+
+    let mut f = std::fs::File::open(&path).expect("no file found");
+    let metadata = std::fs::metadata(&path).expect("unable to read metadata");
+    let mut buffer = vec![0; metadata.len() as usize];
+    f.read_exact(&mut buffer).expect("buffer overflow");
+    Ok(buffer)
+}
+
 #[cfg(test)]
 mod test {
     use std::io::Read;
-
-    #[rstest::rstest]
-    #[case(true)]
-    #[case(false)]
-    fn open_write_maybe_gz(#[case] is_gzip: bool) -> Result<(), anyhow::Error> {
-        crate::common::set_snapshot_suffix!("{:?}", is_gzip);
-
-        let filename = if is_gzip { "test.txt" } else { "test.txt.gz" };
-        let tmp_dir = temp_testdir::TempDir::default();
-
-        {
-            let mut f = super::open_write_maybe_gz(tmp_dir.join(filename))?;
-            f.flush()?;
-        }
-
-        let mut f = std::fs::File::open(tmp_dir.join(filename)).map(std::io::BufReader::new)?;
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf)?;
-
-        insta::assert_snapshot!(format!("{:x?}", &buf));
-
-        Ok(())
-    }
-
-    #[test]
-    fn read_lines() -> Result<(), anyhow::Error> {
-        let lines =
-            super::read_lines("tests/common/io/lines.txt")?.collect::<Result<Vec<_>, _>>()?;
-
-        insta::assert_yaml_snapshot!(lines);
-
-        Ok(())
-    }
 
     #[rstest::rstest]
     #[case("14kb.txt")]
@@ -115,6 +112,42 @@ mod test {
         reader.read_to_end(&mut buf)?;
 
         insta::assert_snapshot!(String::from_utf8(buf)?);
+
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case("14kb.txt")]
+    #[case("14kb.txt.gz")]
+    #[case("14kb.txt.bgz")]
+    fn open_write_maybe_bgzf(#[case] filename: &str) -> Result<(), anyhow::Error> {
+        crate::common::set_snapshot_suffix!("{}", filename);
+
+        let tmp_dir = temp_testdir::TempDir::default();
+        let tmp_file_path = tmp_dir.join(filename);
+
+        {
+            let mut writer = super::open_write_maybe_bgzf(&tmp_file_path)?;
+            for i in 1..3000 {
+                writer.write_all(format!("{}\n", i).as_bytes())?;
+            }
+
+            writer.flush()?;
+        }
+
+        let mut buffer: Vec<u8> = Vec::new();
+        hxdmp::hexdump(&super::read_to_bytes(&tmp_file_path)?, &mut buffer)?;
+        insta::assert_snapshot!(String::from_utf8_lossy(&buffer));
+
+        Ok(())
+    }
+
+    #[test]
+    fn read_lines() -> Result<(), anyhow::Error> {
+        let lines =
+            super::read_lines("tests/common/io/lines.txt")?.collect::<Result<Vec<_>, _>>()?;
+
+        insta::assert_yaml_snapshot!(lines);
 
         Ok(())
     }
