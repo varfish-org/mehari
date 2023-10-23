@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/bihealth/mehari/compare/v0.14.3...v0.15.0) (2023-10-23)
+
+
+### Features
+
+* adding async I/O, espec. for SV caller guessing ([#230](https://github.com/bihealth/mehari/issues/230)) ([33c0e8e](https://github.com/bihealth/mehari/commit/33c0e8efec783d3f3d504cd0619ab4ac234ce4d6))
+
 ## [0.14.3](https://github.com/bihealth/mehari/compare/v0.14.2...v0.14.3) (2023-10-22)
 
 
