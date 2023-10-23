@@ -738,13 +738,9 @@ mod test {
         #[case] spdi: &str,
         #[case] expected_dist: i32,
     ) -> Result<(), anyhow::Error> {
-        crate::common::set_snapshot_suffix!("{}", spdi.replace(":", "-"));
+        crate::common::set_snapshot_suffix!("{}", spdi.replace(':', "-"));
 
-        let spdi = spdi
-            .split(":")
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;

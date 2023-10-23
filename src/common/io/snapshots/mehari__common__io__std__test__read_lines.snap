@@ -1,0 +1,8 @@
+---
+source: src/common/io/std.rs
+expression: lines
+---
+- one
+- two
+- three
+

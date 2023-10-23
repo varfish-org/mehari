@@ -167,7 +167,8 @@ enum VerifyCommands {
     Seqvars(verify::seqvars::Args),
 }
 
-fn main() -> Result<(), anyhow::Error> {
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
 
     // Build a tracing subscriber according to the configuration in `cli.common`.
@@ -185,32 +186,31 @@ fn main() -> Result<(), anyhow::Error> {
         })
         .compact()
         .finish();
+    tracing::subscriber::set_global_default(collector)?;
 
     // Install collector and go into sub commands.
-    tracing::subscriber::with_default(collector, || {
-        tracing::info!("Mehari startup -- letting the dromedary off the leash...");
+    tracing::info!("Mehari startup -- letting the dromedary off the leash...");
 
-        match &cli.command {
-            Commands::Db(db) => match &db.command {
-                DbCommands::Create(db_create) => match &db_create.command {
-                    DbCreateCommands::Txs(args) => db::create::txs::run(&cli.common, args)?,
-                },
+    match &cli.command {
+        Commands::Db(db) => match &db.command {
+            DbCommands::Create(db_create) => match &db_create.command {
+                DbCreateCommands::Txs(args) => db::create::txs::run(&cli.common, args)?,
             },
-            Commands::Annotate(annotate) => match &annotate.command {
-                AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args)?,
-                AnnotateCommands::Strucvars(args) => annotate::strucvars::run(&cli.common, args)?,
-            },
-            Commands::Verify(verify) => match &verify.command {
-                VerifyCommands::Seqvars(args) => verify::seqvars::run(&cli.common, args)?,
-            },
-            Commands::RunServer(args) => server::run(&cli.common, args)?,
-        }
+        },
+        Commands::Annotate(annotate) => match &annotate.command {
+            AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args)?,
+            AnnotateCommands::Strucvars(args) => {
+                annotate::strucvars::run(&cli.common, args).await?
+            }
+        },
+        Commands::Verify(verify) => match &verify.command {
+            VerifyCommands::Seqvars(args) => verify::seqvars::run(&cli.common, args)?,
+        },
+        Commands::RunServer(args) => server::run(&cli.common, args)?,
+    }
 
-        tracing::info!("... the dromedary is back in the stable.");
-        tracing::info!("All done. Have a nice day!");
-
-        Ok::<(), anyhow::Error>(())
-    })?;
+    tracing::info!("... the dromedary is back in the stable.");
+    tracing::info!("All done. Have a nice day!");
 
     Ok(())
 }

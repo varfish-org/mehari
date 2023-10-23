@@ -10,7 +10,8 @@ use std::path::Path;
 use std::str::FromStr;
 use std::{fs::File, io::BufWriter};
 
-use crate::common::{open_read_maybe_gz, GenomeRelease};
+use crate::common::noodles::{open_vcf_reader, AsyncVcfReader};
+use crate::common::GenomeRelease;
 use crate::ped::PedigreeByName;
 use annonars::common::cli::CANONICAL;
 use annonars::freqs::cli::import::reading::guess_assembly;
@@ -20,6 +21,7 @@ use chrono::Utc;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use futures::TryStreamExt;
 use noodles_bgzf::Writer as BgzfWriter;
 use noodles_vcf::reader::Builder as VariantReaderBuilder;
 use noodles_vcf::record::alternate_bases::Allele;
@@ -1626,13 +1628,14 @@ impl SvCaller {
 }
 
 /// Guess the `SvCaller` from the VCF file at the given path.
-pub fn guess_sv_caller(reader: Box<dyn std::io::BufRead>) -> Result<SvCaller, anyhow::Error> {
-    let mut reader = noodles_vcf::reader::Builder.build_from_reader(reader)?;
-    let header = reader.read_header()?;
+pub async fn guess_sv_caller(reader: &mut AsyncVcfReader) -> Result<SvCaller, anyhow::Error> {
+    let header = reader.read_header().await?;
     let mut records = reader.records(&header);
     let record = records
-        .next()
-        .ok_or(anyhow::anyhow!("No records found"))??;
+        .try_next()
+        .await
+        .map_err(|e| anyhow::anyhow!("Problem reading VCF records: {}", e))?
+        .ok_or(anyhow::anyhow!("No records found"))?;
 
     for caller in SvCaller::iter() {
         if caller.caller_compatible(&header) {
@@ -2641,9 +2644,9 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
 /// Convert the records in the VCF reader to the JSONL file per contig in `tmp_dir`.
 ///
 /// Note that we will consider the "25 canonical" contigs only (chr1..chr22, chrX, chrY, chrM).
-pub fn run_vcf_to_jsonl(
+pub async fn run_vcf_to_jsonl(
     pedigree: &PedigreeByName,
-    reader: &mut noodles_vcf::Reader<Box<dyn std::io::BufRead>>,
+    reader: &mut AsyncVcfReader,
     header: &VcfHeader,
     sv_caller: &SvCaller,
     tmp_dir: &tempfile::TempDir,
@@ -2678,11 +2681,16 @@ pub fn run_vcf_to_jsonl(
     let mapping = CHROM_TO_CHROM_NO.deref();
     let mut uuid_buf = [0u8; 16];
 
-    for record in reader.records(header) {
+    let mut records = reader.records(header);
+    while let Some(record) = records
+        .try_next()
+        .await
+        .map_err(|e| anyhow::anyhow!("problem reading VCF record: {}", e))?
+    {
         rng.fill_bytes(&mut uuid_buf);
         let uuid = Uuid::from_bytes(uuid_buf);
 
-        let mut record = converter.convert(pedigree, &record?, uuid, GenomeRelease::Grch37)?;
+        let mut record = converter.convert(pedigree, &record, uuid, GenomeRelease::Grch37)?;
         annotate_cov_mq(&mut record, cov_readers)?;
         if let Some(chromosome_no) = mapping.get(&record.chromosome) {
             let out_jsonl = &mut tmp_files[*chromosome_no as usize - 1];
@@ -2854,7 +2862,7 @@ pub fn read_and_cluster_for_contig(
 /// * `args`: The command line arguments.
 /// * `pedigree`: The pedigree of case.
 /// * `header`: The input VCF header.
-fn run_with_writer(
+async fn run_with_writer(
     writer: &mut dyn AnnotatedVcfWriter,
     args: &Args,
     pedigree: &PedigreeByName,
@@ -2886,12 +2894,14 @@ fn run_with_writer(
     tracing::info!("Input VCF files to temporary files...");
     for path_input in args.path_input_vcf.iter() {
         tracing::debug!("processing VCF file {}", path_input);
-        let reader = open_read_maybe_gz(path_input)?;
-        let sv_caller = guess_sv_caller(reader)?;
+        let sv_caller = {
+            let mut reader = open_vcf_reader(path_input).await?;
+            guess_sv_caller(&mut reader).await?
+        };
         tracing::debug!("guessed caller/version to be {:?}", &sv_caller);
 
-        let mut reader = noodles_vcf::reader::Builder.build_from_path(path_input)?;
-        let header: VcfHeader = reader.read_header()?;
+        let mut reader = open_vcf_reader(path_input).await?;
+        let header: VcfHeader = reader.read_header().await?;
         run_vcf_to_jsonl(
             pedigree,
             &mut reader,
@@ -2900,7 +2910,8 @@ fn run_with_writer(
             &tmp_dir,
             &mut cov_readers,
             &mut rng,
-        )?;
+        )
+        .await?;
     }
     tracing::info!("... done converting input files.");
 
@@ -2942,7 +2953,7 @@ fn run_with_writer(
 }
 
 /// Main entry point for `annotate strucvars` sub command.
-pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
+pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("config = {:#?}", &args);
     // Load the pedigree.
     tracing::info!("Loading pedigree...");
@@ -2979,13 +2990,13 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             );
             writer.set_assembly(assembly);
             writer.set_pedigree(&pedigree);
-            run_with_writer(&mut writer, &args, &pedigree, &header)?;
+            run_with_writer(&mut writer, &args, &pedigree, &header).await?;
         } else {
             let mut writer =
                 noodles_vcf::Writer::new(File::create(path_output_vcf).map(BufWriter::new)?);
             writer.set_assembly(assembly);
             writer.set_pedigree(&pedigree);
-            run_with_writer(&mut writer, &args, &pedigree, &header)?;
+            run_with_writer(&mut writer, &args, &pedigree, &header).await?;
         }
     } else {
         let path_output_tsv = args
@@ -2997,7 +3008,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         writer.set_assembly(assembly);
         writer.set_pedigree(&pedigree);
 
-        run_with_writer(&mut writer, &args, &pedigree, &header)?;
+        run_with_writer(&mut writer, &args, &pedigree, &header).await?;
     }
 
     Ok(())
@@ -3150,7 +3161,7 @@ mod test {
                 VarFishStrucvarTsvRecord,
             },
         },
-        common::{open_read_maybe_gz, GenomeRelease},
+        common::{noodles::open_vcf_reader, GenomeRelease},
         ped::{Disease, Individual, PedigreeByName, Sex},
     };
 
@@ -3375,8 +3386,8 @@ mod test {
         )
     }
 
-    #[test]
-    fn vcf_to_jsonl_with_detection() -> Result<(), anyhow::Error> {
+    #[tokio::test]
+    async fn vcf_to_jsonl_with_detection() -> Result<(), anyhow::Error> {
         let keys = &[
             "delly2",
             "dragen-cnv",
@@ -3391,7 +3402,8 @@ mod test {
             let path_expected_txt = format!("tests/data/annotate/strucvars/{}-min.out.jsonl", key);
             let samples = vcf_samples(&path_input_vcf)?;
             let pedigree: PedigreeByName = sample_ped(&samples);
-            let sv_caller = guess_sv_caller(open_read_maybe_gz(&path_input_vcf)?)?;
+            let mut reader = open_vcf_reader(&path_input_vcf).await?;
+            let sv_caller = guess_sv_caller(&mut reader).await?;
             let converter = build_vcf_record_converter(&sv_caller, &samples);
 
             run_test_vcf_to_jsonl(
@@ -3405,71 +3417,65 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn guess_sv_caller_delly() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller(open_read_maybe_gz(
-            "tests/data/annotate/strucvars/delly2-min.vcf",
-        )?)?;
+    #[tokio::test]
+    async fn guess_sv_caller_delly() -> Result<(), anyhow::Error> {
+        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/delly2-min.vcf").await?;
+        let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
 
-    #[test]
-    fn guess_sv_caller_dragen_sv() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller(open_read_maybe_gz(
-            "tests/data/annotate/strucvars/dragen-sv-min.vcf",
-        )?)?;
+    #[tokio::test]
+    async fn guess_sv_caller_dragen_sv() -> Result<(), anyhow::Error> {
+        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/dragen-sv-min.vcf").await?;
+        let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
 
-    #[test]
-    fn guess_sv_caller_dragen_cnv() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller(open_read_maybe_gz(
-            "tests/data/annotate/strucvars/dragen-cnv-min.vcf",
-        )?)?;
+    #[tokio::test]
+    async fn guess_sv_caller_dragen_cnv() -> Result<(), anyhow::Error> {
+        let mut reader =
+            open_vcf_reader("tests/data/annotate/strucvars/dragen-cnv-min.vcf").await?;
+        let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
 
-    #[test]
-    fn guess_sv_caller_gcnv() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller(open_read_maybe_gz(
-            "tests/data/annotate/strucvars/gcnv-min.vcf",
-        )?)?;
+    #[tokio::test]
+    async fn guess_sv_caller_gcnv() -> Result<(), anyhow::Error> {
+        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/gcnv-min.vcf").await?;
+        let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
 
-    #[test]
-    fn guess_sv_caller_manta() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller(open_read_maybe_gz(
-            "tests/data/annotate/strucvars/manta-min.vcf",
-        )?)?;
+    #[tokio::test]
+    async fn guess_sv_caller_manta() -> Result<(), anyhow::Error> {
+        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/manta-min.vcf").await?;
+        let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
 
-    #[test]
-    fn guess_sv_caller_melt() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller(open_read_maybe_gz(
-            "tests/data/annotate/strucvars/melt-min.vcf",
-        )?)?;
+    #[tokio::test]
+    async fn guess_sv_caller_melt() -> Result<(), anyhow::Error> {
+        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/melt-min.vcf").await?;
+        let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
     }
 
-    #[test]
-    fn guess_sv_caller_popdel() -> Result<(), anyhow::Error> {
-        let sv_caller = guess_sv_caller(open_read_maybe_gz(
-            "tests/data/annotate/strucvars/popdel-min.vcf",
-        )?)?;
+    #[tokio::test]
+    async fn guess_sv_caller_popdel() -> Result<(), anyhow::Error> {
+        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/popdel-min.vcf").await?;
+        let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_debug_snapshot!(sv_caller);
 
         Ok(())
@@ -3814,7 +3820,8 @@ mod test {
     #[rstest]
     #[case(true)]
     #[case(false)]
-    fn test_with_maelstrom_reader(#[case] is_tsv: bool) -> Result<(), anyhow::Error> {
+    #[tokio::test]
+    async fn test_with_maelstrom_reader(#[case] is_tsv: bool) -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
 
         let args_common = crate::common::Args {
@@ -3853,7 +3860,7 @@ mod test {
             rng_seed: Some(42),
         };
 
-        run(&args_common, &args)?;
+        run(&args_common, &args).await?;
 
         let expected = std::fs::read_to_string(format!(
             "tests/data/annotate/strucvars/maelstrom/delly2-min-with-maelstrom{}",
