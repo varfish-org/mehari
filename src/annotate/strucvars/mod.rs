@@ -2644,9 +2644,9 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
 /// Convert the records in the VCF reader to the JSONL file per contig in `tmp_dir`.
 ///
 /// Note that we will consider the "25 canonical" contigs only (chr1..chr22, chrX, chrY, chrM).
-pub fn run_vcf_to_jsonl(
+pub async fn run_vcf_to_jsonl(
     pedigree: &PedigreeByName,
-    reader: &mut noodles_vcf::Reader<Box<dyn std::io::BufRead>>,
+    reader: &mut AsyncVcfReader,
     header: &VcfHeader,
     sv_caller: &SvCaller,
     tmp_dir: &tempfile::TempDir,
@@ -2681,11 +2681,16 @@ pub fn run_vcf_to_jsonl(
     let mapping = CHROM_TO_CHROM_NO.deref();
     let mut uuid_buf = [0u8; 16];
 
-    for record in reader.records(header) {
+    let mut records = reader.records(header);
+    while let Some(record) = records
+        .try_next()
+        .await
+        .map_err(|e| anyhow::anyhow!("problem reading VCF record: {}", e))?
+    {
         rng.fill_bytes(&mut uuid_buf);
         let uuid = Uuid::from_bytes(uuid_buf);
 
-        let mut record = converter.convert(pedigree, &record?, uuid, GenomeRelease::Grch37)?;
+        let mut record = converter.convert(pedigree, &record, uuid, GenomeRelease::Grch37)?;
         annotate_cov_mq(&mut record, cov_readers)?;
         if let Some(chromosome_no) = mapping.get(&record.chromosome) {
             let out_jsonl = &mut tmp_files[*chromosome_no as usize - 1];
@@ -2889,12 +2894,14 @@ async fn run_with_writer(
     tracing::info!("Input VCF files to temporary files...");
     for path_input in args.path_input_vcf.iter() {
         tracing::debug!("processing VCF file {}", path_input);
-        let mut reader = open_vcf_reader(path_input).await?;
-        let sv_caller = guess_sv_caller(&mut reader).await?;
+        let sv_caller = {
+            let mut reader = open_vcf_reader(path_input).await?;
+            guess_sv_caller(&mut reader).await?
+        };
         tracing::debug!("guessed caller/version to be {:?}", &sv_caller);
 
-        let mut reader = noodles_vcf::reader::Builder.build_from_path(path_input)?;
-        let header: VcfHeader = reader.read_header()?;
+        let mut reader = open_vcf_reader(path_input).await?;
+        let header: VcfHeader = reader.read_header().await?;
         run_vcf_to_jsonl(
             pedigree,
             &mut reader,
@@ -2903,7 +2910,8 @@ async fn run_with_writer(
             &tmp_dir,
             &mut cov_readers,
             &mut rng,
-        )?;
+        )
+        .await?;
     }
     tracing::info!("... done converting input files.");
 
