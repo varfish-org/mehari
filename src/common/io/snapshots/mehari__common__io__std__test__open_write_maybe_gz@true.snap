@@ -1,0 +1,5 @@
+---
+source: src/common/io/std.rs
+expression: "format!(\"{:x?}\", & buf)"
+---
+[]

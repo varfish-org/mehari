@@ -1,17 +1,14 @@
 //! Commonly used code.
 
-use std::{
-    fs::File,
-    io::{BufRead, BufReader},
-    ops::Range,
-    path::Path,
-};
+use std::ops::Range;
 
 use biocommons_bioutils::assemblies::Assembly;
 use byte_unit::Byte;
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use flate2::bufread::MultiGzDecoder;
+
+pub mod io;
+pub mod noodles;
 
 /// Commonly used command line arguments.
 #[derive(Parser, Debug)]
@@ -98,24 +95,6 @@ pub fn version() -> &'static str {
     return VERSION;
 }
 
-/// Transparently open a file with gzip decoder.
-pub fn open_read_maybe_gz<P>(path: P) -> Result<Box<dyn BufRead>, anyhow::Error>
-where
-    P: AsRef<Path>,
-{
-    if path.as_ref().extension().map(|s| s.to_str()) == Some(Some("gz")) {
-        tracing::trace!("Opening {:?} as gzip for reading", path.as_ref());
-        let file = File::open(path)?;
-        let bufreader = BufReader::new(file);
-        let decoder = MultiGzDecoder::new(bufreader);
-        Ok(Box::new(BufReader::new(decoder)))
-    } else {
-        tracing::trace!("Opening {:?} as plain text for reading", path.as_ref());
-        let file = File::open(path).map(BufReader::new)?;
-        Ok(Box::new(BufReader::new(file)))
-    }
-}
-
 /// Version information that is returned by the HTTP server.
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug, Clone)]
 #[serde_with::skip_serializing_none]
@@ -149,26 +128,3 @@ macro_rules! set_snapshot_suffix {
 }
 
 pub use set_snapshot_suffix;
-
-#[cfg(test)]
-mod test {
-    #[rstest::rstest]
-    #[case(true)]
-    #[case(false)]
-    fn open_read_maybe_gz(#[case] is_gzip: bool) -> Result<(), anyhow::Error> {
-        crate::common::set_snapshot_suffix!("{:?}", is_gzip);
-
-        let mut f = super::open_read_maybe_gz(if is_gzip {
-            "tests/common/test.txt.gz"
-        } else {
-            "tests/common/test.txt"
-        })?;
-
-        let mut buf = String::new();
-        f.read_to_string(&mut buf)?;
-
-        insta::assert_snapshot!(&buf);
-
-        Ok(())
-    }
-}
