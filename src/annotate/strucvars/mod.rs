@@ -12,6 +12,7 @@ use std::{fs::File, io::BufWriter};
 
 use crate::common::noodles::{open_vcf_reader, AsyncVcfReader};
 use crate::common::GenomeRelease;
+use crate::finalize_buf_writer;
 use crate::ped::PedigreeByName;
 use annonars::common::cli::CANONICAL;
 use annonars::freqs::cli::import::reading::guess_assembly;
@@ -923,7 +924,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
 }
 
 impl VarFishStrucvarTsvWriter {
-    // Create new TSV writer from path.
+    /// Create new TSV writer from path.
     pub fn with_path<P>(p: P) -> Self
     where
         P: AsRef<Path>,
@@ -941,6 +942,12 @@ impl VarFishStrucvarTsvWriter {
             pedigree: None,
             header: None,
         }
+    }
+
+    /// Flush buffers.
+    pub fn flush(&mut self) -> Result<(), anyhow::Error> {
+        self.inner.flush()?;
+        Ok(())
     }
 }
 
@@ -2990,13 +2997,24 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             );
             writer.set_assembly(assembly);
             writer.set_pedigree(&pedigree);
+
             run_with_writer(&mut writer, &args, &pedigree, &header).await?;
+
+            let bgzf_writer = writer.into_inner();
+            let mut buf_writer = bgzf_writer
+                .finish()
+                .map_err(|e| anyhow::anyhow!("problem finishing BGZF: {}", e))?;
+            finalize_buf_writer!(buf_writer);
         } else {
             let mut writer =
                 noodles_vcf::Writer::new(File::create(path_output_vcf).map(BufWriter::new)?);
             writer.set_assembly(assembly);
             writer.set_pedigree(&pedigree);
+
             run_with_writer(&mut writer, &args, &pedigree, &header).await?;
+
+            let mut buf_writer = writer.into_inner();
+            finalize_buf_writer!(buf_writer);
         }
     } else {
         let path_output_tsv = args
@@ -3009,6 +3027,10 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
         writer.set_pedigree(&pedigree);
 
         run_with_writer(&mut writer, &args, &pedigree, &header).await?;
+
+        writer
+            .flush()
+            .map_err(|e| anyhow::anyhow!("problem flushing file: {}", e))?;
     }
 
     Ok(())
