@@ -94,6 +94,20 @@ where
     Ok(buffer)
 }
 
+/// Given a `BufWriter<File>`, flush buffers and sync the file.
+#[macro_export]
+macro_rules! finalize_buf_writer {
+    ($a:expr) => {
+        $a.flush()
+            .map_err(|e| anyhow::anyhow!("problem flushing buffers: {}", e))?;
+        let file = $a
+            .into_inner()
+            .map_err(|e| anyhow::anyhow!("problem getting inner file: {}", e))?;
+        file.sync_all()
+            .map_err(|e| anyhow::anyhow!("problem syncing file: {}", e))?;
+    };
+}
+
 #[cfg(test)]
 mod test {
     use std::io::Read;

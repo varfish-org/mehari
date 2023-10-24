@@ -50,6 +50,7 @@ use crate::annotate::seqvars::provider::MehariProvider;
 use crate::common::GenomeRelease;
 
 use crate::db::create::txs::data::TxSeqDatabase;
+use crate::finalize_buf_writer;
 use crate::ped::{PedigreeByName, Sex};
 
 use self::ann::{AnnField, Consequence, FeatureBiotype};
@@ -651,6 +652,12 @@ impl VarFishSeqvarTsvWriter {
             pedigree: None,
             header: None,
         }
+    }
+
+    /// Flush buffers.
+    pub fn flush(&mut self) -> Result<(), anyhow::Error> {
+        self.inner.flush()?;
+        Ok(())
     }
 
     /// Fill `record` coordinate fields.
@@ -1560,11 +1567,21 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
                     .map(BufWriter::new)
                     .map(BgzfWriter::new)?,
             );
+
             run_with_writer(&mut writer, args)?;
+
+            let bgzf_writer = writer.into_inner();
+            let mut buf_writer = bgzf_writer
+                .finish()
+                .map_err(|e| anyhow::anyhow!("problem finishing BGZF: {}", e))?;
+            finalize_buf_writer!(buf_writer);
         } else {
             let mut writer = VcfWriter::new(File::create(path_output_vcf).map(BufWriter::new)?);
 
             run_with_writer(&mut writer, args)?;
+
+            let mut buf_writer = writer.into_inner();
+            finalize_buf_writer!(buf_writer);
         }
     } else {
         // Load the HGNC xlink map.
@@ -1601,6 +1618,10 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
         writer.set_hgnc_map(hgnc_map);
         run_with_writer(&mut writer, args)?;
+
+        writer
+            .flush()
+            .map_err(|e| anyhow::anyhow!("problem flushing file: {}", e))?;
     }
 
     Ok(())
