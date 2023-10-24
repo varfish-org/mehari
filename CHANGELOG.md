@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/bihealth/mehari/compare/v0.15.0...v0.15.1) (2023-10-24)
+
+
+### Bug Fixes
+
+* properly flush and sync all writers ([#232](https://github.com/bihealth/mehari/issues/232)) ([2772565](https://github.com/bihealth/mehari/commit/2772565b68a528809baf04ebe9e749cddbd2f723))
+
 ## [0.15.0](https://github.com/bihealth/mehari/compare/v0.14.3...v0.15.0) (2023-10-23)
 
 
