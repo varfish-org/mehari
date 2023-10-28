@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.2](https://github.com/bihealth/mehari/compare/v0.15.1...v0.15.2) (2023-10-28)
+
+
+### Bug Fixes
+
+* remove second async runtime creation ([#234](https://github.com/bihealth/mehari/issues/234)) ([a6c3e06](https://github.com/bihealth/mehari/commit/a6c3e063242d9fc6abbd4887d3902c03ad821776))
+
 ## [0.15.1](https://github.com/bihealth/mehari/compare/v0.15.0...v0.15.1) (2023-10-24)
 
 
