@@ -39,7 +39,6 @@ pub struct WebServerData {
 
 /// Main entry point for running the REST server.
 #[allow(clippy::unused_async)]
-#[actix_web::main]
 pub async fn main(
     args: &super::Args,
     data: actix_web::web::Data<WebServerData>,

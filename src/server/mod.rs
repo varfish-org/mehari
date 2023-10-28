@@ -82,7 +82,7 @@ pub fn print_hints(args: &Args) {
 /// # Errors
 ///
 /// In the case that there is an error running the server.
-pub fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
+pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("args_common = {:?}", &args_common);
     tracing::info!("args = {:?}", &args);
 
@@ -124,7 +124,7 @@ pub fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), anyhow:
     // Print the server URL and some hints (the latter: unless suppressed).
     print_hints(args);
     // Launch the Actix web server.
-    actix_server::main(args, data)?;
+    actix_server::main(args, data).await?;
 
     tracing::info!("All done. Have a nice day!");
     Ok(())
