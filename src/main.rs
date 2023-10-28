@@ -206,7 +206,7 @@ async fn main() -> Result<(), anyhow::Error> {
         Commands::Verify(verify) => match &verify.command {
             VerifyCommands::Seqvars(args) => verify::seqvars::run(&cli.common, args)?,
         },
-        Commands::RunServer(args) => server::run(&cli.common, args)?,
+        Commands::RunServer(args) => server::run(&cli.common, args).await?,
     }
 
     tracing::info!("... the dromedary is back in the stable.");
