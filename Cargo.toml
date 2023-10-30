@@ -52,10 +52,10 @@ log = "0.4"
 nom = "7.1"
 noodles-bgzf = { version = "0.25", features = ["async"] }
 noodles-core = "0.12"
-noodles-csi = "0.25"
+noodles-csi = "0.26"
 noodles-fasta = "0.30"
-noodles-tabix = "0.31"
-noodles-vcf = { version = "0.43", features = ["async"] }
+noodles-tabix = "0.32"
+noodles-vcf = { version = "0.44", features = ["async"] }
 parse-display = "0.8"
 procfs = "0.16"
 prost = "0.12"
