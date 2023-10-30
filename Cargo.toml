@@ -57,7 +57,7 @@ noodles-fasta = "0.30"
 noodles-tabix = "0.31"
 noodles-vcf = { version = "0.43", features = ["async"] }
 parse-display = "0.8"
-procfs = "0.15"
+procfs = "0.16"
 prost = "0.12"
 quick_cache = "0.4"
 rand = "0.8"
