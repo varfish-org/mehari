@@ -273,7 +273,7 @@ dependencies = [
  "enum-map 2.7.0",
  "env_logger",
  "flate2",
- "indexmap 2.0.2",
+ "indexmap 2.1.0",
  "indicatif",
  "log",
  "noodles-bed",
@@ -628,7 +628,7 @@ checksum = "82c91bd0b62cec4b6317445506ed4947a53c320942a681c5a086f4d576aa4c99"
 dependencies = [
  "enum-map 2.7.0",
  "flate2",
- "indexmap 2.0.2",
+ "indexmap 2.1.0",
  "lazy_static",
  "serde",
  "serde_json",
@@ -1553,7 +1553,7 @@ dependencies = [
  "chrono",
  "enum-map 2.7.0",
  "flate2",
- "indexmap 2.0.2",
+ "indexmap 2.1.0",
  "lazy_static",
  "log",
  "md-5",
@@ -1673,9 +1673,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.0.2"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8adf3ddd720272c6ea8bf59463c04e0f93d0bbf7c5439b691bca2987e0270897"
+checksum = "d530e1a18b1cb4c484e6e34556a0d948706958449fca0cab753d649f2bce3d1f"
 dependencies = [
  "equivalent",
  "hashbrown 0.14.2",
@@ -1988,7 +1988,7 @@ dependencies = [
  "futures",
  "hgvs",
  "hxdmp",
- "indexmap 2.0.2",
+ "indexmap 2.1.0",
  "indicatif",
  "insta",
  "jsonl",
@@ -2196,7 +2196,7 @@ checksum = "39d86e55b4784ba7c38b4ffbfc24e122bc05ce971b0a664e8e1a15ffd9de68a7"
 dependencies = [
  "bit-vec",
  "byteorder",
- "indexmap 2.0.2",
+ "indexmap 2.1.0",
  "noodles-bgzf 0.25.0",
  "noodles-core",
 ]
@@ -2246,7 +2246,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f13f0225114584f7ab147f146532dccc584e810006a4dfb275544957e7722884"
 dependencies = [
  "futures",
- "indexmap 2.0.2",
+ "indexmap 2.1.0",
  "memchr",
  "noodles-bgzf 0.25.0",
  "noodles-core",
@@ -2432,7 +2432,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1d3afd2628e69da2be385eb6f2fd57c8ac7977ceeff6dc166ff1657b0e386a9"
 dependencies = [
  "fixedbitset",
- "indexmap 2.0.2",
+ "indexmap 2.1.0",
 ]
 
 [[package]]
@@ -2625,7 +2625,7 @@ dependencies = [
  "hex",
  "lazy_static",
  "procfs-core",
- "rustix 0.38.20",
+ "rustix 0.38.21",
 ]
 
 [[package]]
@@ -3031,7 +3031,7 @@ version = "1.0.108"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d1c7e3eac408d115102c4c24ad393e0821bb3a5df4d506a80f85f7a742a526b"
 dependencies = [
- "indexmap 2.0.2",
+ "indexmap 2.1.0",
  "itoa",
  "ryu",
  "serde",
@@ -3059,7 +3059,7 @@ dependencies = [
  "chrono",
  "hex",
  "indexmap 1.9.3",
- "indexmap 2.0.2",
+ "indexmap 2.1.0",
  "serde",
  "serde_json",
  "serde_with_macros",
