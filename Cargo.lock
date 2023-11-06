@@ -279,9 +279,9 @@ dependencies = [
  "noodles-bed",
  "noodles-bgzf 0.25.0",
  "noodles-core",
- "noodles-csi",
- "noodles-tabix",
- "noodles-vcf",
+ "noodles-csi 0.25.1",
+ "noodles-tabix 0.31.0",
+ "noodles-vcf 0.43.0",
  "prost",
  "prost-build",
  "rayon",
@@ -1997,10 +1997,10 @@ dependencies = [
  "nom",
  "noodles-bgzf 0.25.0",
  "noodles-core",
- "noodles-csi",
+ "noodles-csi 0.26.0",
  "noodles-fasta 0.30.0",
- "noodles-tabix",
- "noodles-vcf",
+ "noodles-tabix 0.32.0",
+ "noodles-vcf 0.45.0",
  "parse-display",
  "pretty_assertions",
  "procfs",
@@ -2202,6 +2202,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "noodles-csi"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0531175d5473e6057c1724c1242b19bfc42dba644fe275b4df89c5b8d31a782"
+dependencies = [
+ "bit-vec",
+ "byteorder",
+ "indexmap 2.0.2",
+ "noodles-bgzf 0.25.0",
+ "noodles-core",
+]
+
+[[package]]
 name = "noodles-fasta"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2235,7 +2248,21 @@ dependencies = [
  "byteorder",
  "noodles-bgzf 0.25.0",
  "noodles-core",
- "noodles-csi",
+ "noodles-csi 0.25.1",
+]
+
+[[package]]
+name = "noodles-tabix"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "415e319f97784c110a85756a8747bf26e9a18bf321b113d00984ca1af7a6fef9"
+dependencies = [
+ "bit-vec",
+ "byteorder",
+ "indexmap 2.0.2",
+ "noodles-bgzf 0.25.0",
+ "noodles-core",
+ "noodles-csi 0.26.0",
  "tokio",
 ]
 
@@ -2245,13 +2272,28 @@ version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f13f0225114584f7ab147f146532dccc584e810006a4dfb275544957e7722884"
 dependencies = [
+ "indexmap 2.0.2",
+ "memchr",
+ "noodles-bgzf 0.25.0",
+ "noodles-core",
+ "noodles-csi 0.25.1",
+ "noodles-tabix 0.31.0",
+ "percent-encoding",
+]
+
+[[package]]
+name = "noodles-vcf"
+version = "0.45.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6000206d1ec762d3c983fb189edde86a22c969de3bb90e4048c4916c492babfa"
+dependencies = [
  "futures",
  "indexmap 2.0.2",
  "memchr",
  "noodles-bgzf 0.25.0",
  "noodles-core",
- "noodles-csi",
- "noodles-tabix",
+ "noodles-csi 0.26.0",
+ "noodles-tabix 0.32.0",
  "percent-encoding",
  "tokio",
 ]
@@ -2625,7 +2667,7 @@ dependencies = [
  "hex",
  "lazy_static",
  "procfs-core",
- "rustix 0.38.20",
+ "rustix 0.38.21",
 ]
 
 [[package]]
