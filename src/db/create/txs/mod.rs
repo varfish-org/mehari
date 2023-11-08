@@ -70,6 +70,7 @@ struct LabelEntry {
 }
 
 /// Load and extract from cdot JSON.
+#[allow(clippy::too_many_arguments)]
 fn load_and_extract(
     json_path: &Path,
     label_tsv_path: &Option<&Path>,
@@ -98,8 +99,8 @@ fn load_and_extract(
                 entry.transcript_id,
                 entry
                     .label
-                    .split(",")
-                    .map(|s| models::str_to_tag(s))
+                    .split(',')
+                    .map(models::str_to_tag)
                     .collect::<Vec<_>>(),
             );
         }
@@ -863,7 +864,7 @@ pub mod test {
         let path_tsv = Path::new("tests/data/db/create/txs/txs_main.tsv");
         load_and_extract(
             Path::new("tests/data/db/create/txs/cdot-0.2.21.refseq.grch37_grch38.brca1_opa1.json"),
-            &Some(&path_tsv),
+            &Some(path_tsv),
             &mut transcript_ids_for_gene,
             &mut genes,
             &mut transcripts,
