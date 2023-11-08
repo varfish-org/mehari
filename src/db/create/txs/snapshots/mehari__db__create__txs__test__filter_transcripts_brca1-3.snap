@@ -2,4 +2,4 @@
 source: src/db/create/txs/mod.rs
 expression: "&cdot_version"
 ---
-0.2.12
+0.2.21

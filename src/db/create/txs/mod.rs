@@ -45,6 +45,10 @@ pub struct Args {
     /// Path to the seqrepo instance directory to use.
     #[arg(long)]
     pub path_seqrepo_instance: PathBuf,
+    /// Path to TSV file for label transfer of transcripts.  Columns are
+    /// transcript id (without version), (unused) gene symbol, and label.
+    #[arg(long)]
+    pub path_label_tsv: Option<PathBuf>,
     /// Maximal number of transcripts to process.
     #[arg(long)]
     pub max_txs: Option<u32>,
@@ -54,9 +58,21 @@ pub struct Args {
     pub gene_symbols: Option<Vec<String>>,
 }
 
+/// Helper struct for parsing the label TSV file.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+struct LabelEntry {
+    /// Transcript identifier without version.
+    transcript_id: String,
+    /// Gene symbol (unused).
+    _gene_symbol: String,
+    /// Label to transfer.
+    label: String,
+}
+
 /// Load and extract from cdot JSON.
 fn load_and_extract(
     json_path: &Path,
+    label_tsv_path: &Option<&Path>,
     transcript_ids_for_gene: &mut HashMap<String, Vec<String>>,
     genes: &mut HashMap<String, models::Gene>,
     transcripts: &mut HashMap<String, models::Transcript>,
@@ -65,6 +81,37 @@ fn load_and_extract(
     report_file: &mut File,
 ) -> Result<(), anyhow::Error> {
     writeln!(report_file, "genome_release\t{:?}", genome_release)?;
+    let txid_to_label = if let Some(label_tsv_path) = label_tsv_path {
+        tracing::info!("Loading label TSV file...");
+        writeln!(report_file, "label_tsv_path\t{:?}", label_tsv_path)?;
+
+        let mut rdr = csv::ReaderBuilder::new()
+            .delimiter(b'\t')
+            .comment(Some(b'#'))
+            .has_headers(false)
+            .from_path(label_tsv_path)?;
+
+        let mut txid_to_label = HashMap::new();
+        for result in rdr.deserialize() {
+            let entry: LabelEntry = result?;
+            txid_to_label.insert(
+                entry.transcript_id,
+                entry
+                    .label
+                    .split(",")
+                    .map(|s| models::str_to_tag(s))
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        tracing::info!(
+            "...done loading label TSV file ({} entries)",
+            txid_to_label.len()
+        );
+        Some(txid_to_label)
+    } else {
+        None
+    };
 
     tracing::info!("Loading cdot transcripts from {:?}", json_path);
     writeln!(report_file, "cdot_json_path\t{:?}", json_path)?;
@@ -155,7 +202,14 @@ fn load_and_extract(
                 .get_mut(gene_name)
                 .unwrap_or_else(|| panic!("tx {:?} for unknown gene {:?}", tx.id, gene_name))
                 .push(tx.id.clone());
-            transcripts.insert(tx.id.clone(), tx.clone());
+            let mut tx_out = tx.clone();
+            if let Some(txid_to_tags) = txid_to_label.as_ref() {
+                let tx_id_no_version = tx.id.split('.').next().unwrap();
+                if let Some(tags) = txid_to_tags.get(tx_id_no_version) {
+                    tx_out.tag = Some(tags.clone());
+                }
+            }
+            transcripts.insert(tx.id.clone(), tx_out);
         });
     writeln!(
         report_file,
@@ -724,6 +778,7 @@ fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData
     for json_path in &args.path_cdot_json {
         load_and_extract(
             json_path,
+            &args.path_label_tsv.as_ref().map(|p| p.as_ref()),
             &mut transcript_ids_for_gene,
             &mut genes,
             &mut transcripts,
@@ -805,8 +860,10 @@ pub mod test {
         let mut transcripts = HashMap::new();
         let mut transcript_ids_for_gene = HashMap::new();
         let mut cdot_version = String::new();
+        let path_tsv = Path::new("tests/data/db/create/txs/txs_main.tsv");
         load_and_extract(
-            Path::new("tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1_opa1.json"),
+            Path::new("tests/data/db/create/txs/cdot-0.2.21.refseq.grch37_grch38.brca1_opa1.json"),
+            &Some(&path_tsv),
             &mut transcript_ids_for_gene,
             &mut genes,
             &mut transcripts,
@@ -853,8 +910,9 @@ pub mod test {
         let args = Args {
             path_out: tmp_dir.join("out.bin.zst"),
             path_cdot_json: vec![PathBuf::from(
-                "tests/data/db/create/txs/cdot-0.2.12.refseq.grch37_grch38.brca1_opa1.json",
+                "tests/data/db/create/txs/cdot-0.2.21.refseq.grch37_grch38.brca1_opa1.json",
             )],
+            path_label_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
             genome_release: GenomeRelease::Grch38,
             max_txs: None,

@@ -1400,7 +1400,7 @@ impl AnnotatedVcfWriter for VarFishSeqvarTsvWriter {
 /// Run the annotation with the given `Write` within the `VcfWriter`.
 fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("Open VCF and read header");
-    let mut reader = VariantReaderBuilder.build_from_path(&args.path_input_vcf)?;
+    let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
     let header_in = reader.read_header()?;
     let header_out = build_header(&header_in);
 

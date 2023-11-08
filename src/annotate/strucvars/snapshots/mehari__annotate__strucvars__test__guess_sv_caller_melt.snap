@@ -2,6 +2,6 @@
 source: src/annotate/strucvars/mod.rs
 expression: sv_caller
 ---
-Melt {
-    version: "2.2.2",
-}
+Melt:
+  version: 2.2.2
+
