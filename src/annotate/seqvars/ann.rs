@@ -373,10 +373,7 @@ pub enum FeatureBiotype {
 
 impl FeatureBiotype {
     pub fn is_coding(&self) -> bool {
-        match self {
-            FeatureBiotype::Coding => true,
-            _ => false,
-        }
+        matches!(self, FeatureBiotype::Coding)
     }
 }
 
@@ -581,7 +578,7 @@ impl FromStr for AnnField {
         let feature_biotype = fields
             .next()
             .unwrap()
-            .split("&")
+            .split('&')
             .map(|s| s.parse())
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| anyhow::anyhow!("could not parse feature biotype: {}", e))?;

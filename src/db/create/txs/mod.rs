@@ -263,9 +263,14 @@ fn build_protobuf(
         pb.set_style(PROGRESS_STYLE.clone());
         for (tx_id, tx) in &transcripts {
             pb.inc(1);
+            let namespace = if tx_id.starts_with("ENST") {
+                Some(String::from("ENSEMBL"))
+            } else {
+                Some(String::from("NCBI"))
+            };
             let res_seq = seqrepo.fetch_sequence(&AliasOrSeqId::Alias {
                 value: tx_id.clone(),
-                namespace: None,
+                namespace,
             });
             let seq = if let Ok(seq) = res_seq {
                 seq
