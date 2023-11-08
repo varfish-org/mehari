@@ -10,7 +10,7 @@ use hgvs::{
     },
 };
 
-use crate::db::create::txs::data::{Strand, TranscriptBiotype};
+use crate::db::create::txs::data::{self, Strand, TranscriptBiotype};
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
@@ -309,20 +309,34 @@ impl ConsequencePredictor {
         let min_start = min_start.expect("must have seen exon");
         let max_end = max_end.expect("must have seen exon");
 
-        let feature_biotype =
-            match TranscriptBiotype::try_from(tx.biotype).expect("invalid transcript biotype") {
+        let transcript_biotype =
+            TranscriptBiotype::try_from(tx.biotype).expect("invalid transcript biotype");
+        let feature_biotype = {
+            let mut feature_biotypes = vec![match transcript_biotype {
                 TranscriptBiotype::Coding => FeatureBiotype::Coding,
                 TranscriptBiotype::NonCoding => FeatureBiotype::Noncoding,
-            };
+            }];
+
+            if tx.tags.contains(&(data::TranscriptTag::ManeSelect as i32)) {
+                feature_biotypes.push(FeatureBiotype::ManeSelect);
+            } else if tx
+                .tags
+                .contains(&(data::TranscriptTag::ManePlusClinical as i32))
+            {
+                feature_biotypes.push(FeatureBiotype::ManePlusClinical);
+            }
+
+            feature_biotypes
+        };
 
         let is_upstream = var_end <= min_start;
         let is_downstream = var_start >= max_end;
         if is_exonic {
-            if !feature_biotype.is_coding() {
+            if transcript_biotype == TranscriptBiotype::NonCoding {
                 consequences.push(Consequence::NonCodingTranscriptExonVariant);
             }
         } else if is_intronic {
-            if !feature_biotype.is_coding() {
+            if transcript_biotype == TranscriptBiotype::NonCoding {
                 consequences.push(Consequence::NonCodingTranscriptIntronVariant);
             } else {
                 consequences.push(Consequence::IntronVariant);
@@ -414,8 +428,8 @@ impl ConsequencePredictor {
                 _ => panic!("Invalid tx position: {:?}", &var_n),
             };
 
-            let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match feature_biotype {
-                FeatureBiotype::Coding => {
+            let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match transcript_biotype {
+                TranscriptBiotype::Coding => {
                     let cds_len = tx.stop_codon.unwrap() - tx.start_codon.unwrap();
                     let prot_len = cds_len / 3;
 
@@ -596,7 +610,7 @@ impl ConsequencePredictor {
 
                     (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
                 }
-                FeatureBiotype::Noncoding => (var_n, None, None, None, None),
+                TranscriptBiotype::NonCoding => (var_n, None, None, None, None),
             };
             let hgvs_t = format!("{}", &var_t);
             let hgvs_t = hgvs_t.split(':').nth(1).unwrap().to_owned();

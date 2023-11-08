@@ -1040,7 +1040,7 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.ensembl_gene_id = Some(hgnc_record.ensembl_gene_id.clone());
                         tsv_record.ensembl_transcript_id = Some(ann.feature_id.clone());
                         tsv_record.ensembl_transcript_coding =
-                            Some(ann.feature_biotype == FeatureBiotype::Coding);
+                            Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
                         tsv_record.ensembl_hgvs_c = ann.hgvs_t.clone();
                         tsv_record.ensembl_hgvs_p = ann.hgvs_p.clone();
                         if !ann.consequences.is_empty() {
@@ -1069,7 +1069,7 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.refseq_gene_id = Some(hgnc_record.entrez_id.clone());
                         tsv_record.refseq_transcript_id = Some(ann.feature_id.clone());
                         tsv_record.refseq_transcript_coding =
-                            Some(ann.feature_biotype == FeatureBiotype::Coding);
+                            Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
                         tsv_record.refseq_hgvs_c = ann.hgvs_t.clone();
                         tsv_record.refseq_hgvs_p = ann.hgvs_p.clone();
                         if !ann.consequences.is_empty() {

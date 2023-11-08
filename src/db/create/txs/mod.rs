@@ -48,7 +48,7 @@ pub struct Args {
     /// Path to TSV file for label transfer of transcripts.  Columns are
     /// transcript id (without version), (unused) gene symbol, and label.
     #[arg(long)]
-    pub path_label_tsv: Option<PathBuf>,
+    pub path_mane_txs_tsv: Option<PathBuf>,
     /// Maximal number of transcripts to process.
     #[arg(long)]
     pub max_txs: Option<u32>,
@@ -779,7 +779,7 @@ fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData
     for json_path in &args.path_cdot_json {
         load_and_extract(
             json_path,
-            &args.path_label_tsv.as_ref().map(|p| p.as_ref()),
+            &args.path_mane_txs_tsv.as_ref().map(|p| p.as_ref()),
             &mut transcript_ids_for_gene,
             &mut genes,
             &mut transcripts,
@@ -913,7 +913,7 @@ pub mod test {
             path_cdot_json: vec![PathBuf::from(
                 "tests/data/db/create/txs/cdot-0.2.21.refseq.grch37_grch38.brca1_opa1.json",
             )],
-            path_label_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
+            path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
             genome_release: GenomeRelease::Grch38,
             max_txs: None,

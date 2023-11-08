@@ -54,6 +54,8 @@ struct ResultEntry {
     pub feature_id: String,
     /// The feature biotype.
     pub feature_biotype: FeatureBiotype,
+    /// The feature tags.
+    pub feature_tag: Vec<FeatureBiotype>,
     /// The exon / intron rank.
     pub rank: Option<Rank>,
     /// HGVS c. notation.
@@ -153,7 +155,16 @@ async fn handle(
                 gene_id,
                 feature_type,
                 feature_id,
-                feature_biotype,
+                feature_biotype: if feature_biotype.contains(&FeatureBiotype::Coding) {
+                    FeatureBiotype::Coding
+                } else {
+                    FeatureBiotype::Noncoding
+                },
+                feature_tag: feature_biotype
+                    .iter()
+                    .cloned()
+                    .filter(|b| *b != FeatureBiotype::Coding && *b != FeatureBiotype::Noncoding)
+                    .collect(),
                 rank,
                 hgvs_t,
                 hgvs_p,
