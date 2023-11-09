@@ -270,7 +270,7 @@ dependencies = [
  "clap",
  "clap-verbosity-flag",
  "csv",
- "enum-map 2.7.0",
+ "enum-map 2.7.1",
  "env_logger",
  "flate2",
  "indexmap 2.1.0",
@@ -626,7 +626,7 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "82c91bd0b62cec4b6317445506ed4947a53c320942a681c5a086f4d576aa4c99"
 dependencies = [
- "enum-map 2.7.0",
+ "enum-map 2.7.1",
  "flate2",
  "indexmap 2.1.0",
  "lazy_static",
@@ -1234,11 +1234,11 @@ dependencies = [
 
 [[package]]
 name = "enum-map"
-version = "2.7.0"
+version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53337c2dbf26a3c31eccc73a37b10c1614e8d4ae99b6a50d553e8936423c1f16"
+checksum = "ed40247825a1a0393b91b51d475ea1063a6cbbf0847592e7f13fb427aca6a716"
 dependencies = [
- "enum-map-derive 0.14.0",
+ "enum-map-derive 0.15.0",
  "serde",
 ]
 
@@ -1255,9 +1255,9 @@ dependencies = [
 
 [[package]]
 name = "enum-map-derive"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04d0b288e3bb1d861c4403c1774a6f7a798781dfc519b3647df2a3dd4ae95f25"
+checksum = "7933cd46e720348d29ed1493f89df9792563f272f96d8f13d18afe03b32f8cb8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1615,7 +1615,7 @@ dependencies = [
  "bio",
  "biocommons-bioutils",
  "chrono",
- "enum-map 2.7.0",
+ "enum-map 2.7.1",
  "flate2",
  "indexmap 2.1.0",
  "lazy_static",
@@ -1626,7 +1626,7 @@ dependencies = [
  "quick_cache",
  "regex",
  "rustc-hash",
- "seqrepo",
+ "seqrepo 0.8.0",
  "serde",
  "serde_json",
  "thiserror",
@@ -2077,7 +2077,7 @@ dependencies = [
  "rocksdb",
  "rstest",
  "rustc-hash",
- "seqrepo",
+ "seqrepo 0.9.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -3066,6 +3066,21 @@ dependencies = [
  "noodles-bgzf 0.24.0",
  "noodles-core",
  "noodles-fasta 0.29.0",
+ "rusqlite",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "seqrepo"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2952aee50ad05e57127f0857aa9553bbce29aea59817da2127c34ce09f6dd65"
+dependencies = [
+ "chrono",
+ "noodles-bgzf 0.25.0",
+ "noodles-core",
+ "noodles-fasta 0.30.0",
  "rusqlite",
  "thiserror",
  "tracing",
