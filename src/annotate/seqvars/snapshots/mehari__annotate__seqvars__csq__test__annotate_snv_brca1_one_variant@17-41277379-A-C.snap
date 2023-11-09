@@ -14,7 +14,9 @@ expression: res
     SoTerm:
       term: Transcript
   feature_id: NM_007294.4
-  feature_biotype: Coding
+  feature_biotype:
+    - Coding
+    - ManeSelect
   rank:
     ord: 1
     total: 23
@@ -41,7 +43,8 @@ expression: res
     SoTerm:
       term: Transcript
   feature_id: NM_007297.4
-  feature_biotype: Coding
+  feature_biotype:
+    - Coding
   rank:
     ord: 1
     total: 22
@@ -68,7 +71,8 @@ expression: res
     SoTerm:
       term: Transcript
   feature_id: NM_007298.3
-  feature_biotype: Coding
+  feature_biotype:
+    - Coding
   rank: ~
   hgvs_t: ~
   hgvs_p: ~
@@ -89,7 +93,8 @@ expression: res
     SoTerm:
       term: Transcript
   feature_id: NM_007299.4
-  feature_biotype: Coding
+  feature_biotype:
+    - Coding
   rank:
     ord: 1
     total: 22
@@ -116,7 +121,8 @@ expression: res
     SoTerm:
       term: Transcript
   feature_id: NM_007300.4
-  feature_biotype: Coding
+  feature_biotype:
+    - Coding
   rank:
     ord: 1
     total: 24

@@ -6,8 +6,8 @@ use biocommons_bioutils::assemblies::Assembly;
 use hgvs::data::interface::Provider;
 
 use crate::{
-    annotate::seqvars::provider::{MehariProvider, TxIntervalTrees},
-    db::create::txs::data::{Strand, Transcript, TxSeqDatabase},
+    annotate::seqvars::provider::{Provider as MehariProvider, TxIntervalTrees},
+    db::create::data::{Strand, Transcript, TxSeqDatabase},
 };
 
 /// Enumeration for effect on transcript.
@@ -383,9 +383,8 @@ fn compute_tx_effects_for_linear(
         let tree = &mehari_tx_idx.trees[*idx];
         for it in tree.find(query) {
             let tx = &tx_db.transcripts[*it.data() as usize];
-            let hgnc_id = format!("HGNC:{}", &tx.gene_id);
             effects_by_gene
-                .entry(hgnc_id)
+                .entry(tx.gene_id.clone())
                 .or_default()
                 .extend(gene_tx_effect_for_range(tx, sv.start(), sv.stop()));
         }

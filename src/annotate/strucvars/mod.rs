@@ -1442,7 +1442,7 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
 }
 
 /// Enumeration for the supported variant callers.
-#[derive(Debug, Clone, PartialEq, EnumIter)]
+#[derive(Debug, Clone, PartialEq, EnumIter, Serialize, Deserialize)]
 pub enum SvCaller {
     Delly { version: String },
     DragenSv { version: String },
@@ -2973,7 +2973,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
         GenomeRelease::Grch38 => Assembly::Grch38,
     });
     let (header, assembly) = {
-        let mut reader = VariantReaderBuilder.build_from_path(
+        let mut reader = VariantReaderBuilder::default().build_from_path(
             args.path_input_vcf
                 .first()
                 .expect("must have at least input VCF"),
@@ -3224,7 +3224,7 @@ mod test {
         let temp = TempDir::default();
         let out_jsonl = File::create(temp.join(out_file_name))?;
 
-        let mut reader = noodles_vcf::reader::Builder.build_from_path(path_input_vcf)?;
+        let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
         let header_in = reader.read_header()?;
 
         // Setup deterministic bytes for UUID generation.
@@ -3259,7 +3259,7 @@ mod test {
 
     /// Helper that returns sample names from VCF.
     fn vcf_samples(path: &str) -> Result<Vec<String>, anyhow::Error> {
-        let mut reader = noodles_vcf::reader::Builder.build_from_path(path)?;
+        let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path)?;
         let header: VcfHeader = reader.read_header()?;
         Ok(header
             .sample_names()
@@ -3443,7 +3443,7 @@ mod test {
     async fn guess_sv_caller_delly() -> Result<(), anyhow::Error> {
         let mut reader = open_vcf_reader("tests/data/annotate/strucvars/delly2-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
-        insta::assert_debug_snapshot!(sv_caller);
+        insta::assert_yaml_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3452,7 +3452,7 @@ mod test {
     async fn guess_sv_caller_dragen_sv() -> Result<(), anyhow::Error> {
         let mut reader = open_vcf_reader("tests/data/annotate/strucvars/dragen-sv-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
-        insta::assert_debug_snapshot!(sv_caller);
+        insta::assert_yaml_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3462,7 +3462,7 @@ mod test {
         let mut reader =
             open_vcf_reader("tests/data/annotate/strucvars/dragen-cnv-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
-        insta::assert_debug_snapshot!(sv_caller);
+        insta::assert_yaml_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3471,7 +3471,7 @@ mod test {
     async fn guess_sv_caller_gcnv() -> Result<(), anyhow::Error> {
         let mut reader = open_vcf_reader("tests/data/annotate/strucvars/gcnv-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
-        insta::assert_debug_snapshot!(sv_caller);
+        insta::assert_yaml_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3480,7 +3480,7 @@ mod test {
     async fn guess_sv_caller_manta() -> Result<(), anyhow::Error> {
         let mut reader = open_vcf_reader("tests/data/annotate/strucvars/manta-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
-        insta::assert_debug_snapshot!(sv_caller);
+        insta::assert_yaml_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3489,7 +3489,7 @@ mod test {
     async fn guess_sv_caller_melt() -> Result<(), anyhow::Error> {
         let mut reader = open_vcf_reader("tests/data/annotate/strucvars/melt-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
-        insta::assert_debug_snapshot!(sv_caller);
+        insta::assert_yaml_snapshot!(sv_caller);
 
         Ok(())
     }
@@ -3498,7 +3498,7 @@ mod test {
     async fn guess_sv_caller_popdel() -> Result<(), anyhow::Error> {
         let mut reader = open_vcf_reader("tests/data/annotate/strucvars/popdel-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
-        insta::assert_debug_snapshot!(sv_caller);
+        insta::assert_yaml_snapshot!(sv_caller);
 
         Ok(())
     }

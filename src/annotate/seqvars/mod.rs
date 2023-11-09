@@ -45,11 +45,15 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thousands::Separable;
 
-use crate::annotate::seqvars::csq::{ConsequencePredictor, VcfVariant};
-use crate::annotate::seqvars::provider::MehariProvider;
+use crate::annotate::seqvars::csq::{
+    ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
+};
+use crate::annotate::seqvars::provider::{
+    ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
+};
 use crate::common::GenomeRelease;
 
-use crate::db::create::txs::data::TxSeqDatabase;
+use crate::db::create::data::TxSeqDatabase;
 use crate::finalize_buf_writer;
 use crate::ped::{PedigreeByName, Sex};
 
@@ -87,6 +91,14 @@ pub struct Args {
     pub path_input_vcf: String,
     #[command(flatten)]
     pub output: PathOutput,
+
+    /// Whether to report for all picked transcripts.
+    #[arg(long, default_value_t = true)]
+    pub report_all_transcripts: bool,
+    /// Limit transcripts to (a) ManeSelect+ManePlusClinical, (b) ManeSelect,
+    /// (c) longest transcript for the gene - the first available.
+    #[arg(long, default_value_t = false)]
+    pub transcript_picking: bool,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
@@ -1040,7 +1052,7 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.ensembl_gene_id = Some(hgnc_record.ensembl_gene_id.clone());
                         tsv_record.ensembl_transcript_id = Some(ann.feature_id.clone());
                         tsv_record.ensembl_transcript_coding =
-                            Some(ann.feature_biotype == FeatureBiotype::Coding);
+                            Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
                         tsv_record.ensembl_hgvs_c = ann.hgvs_t.clone();
                         tsv_record.ensembl_hgvs_p = ann.hgvs_p.clone();
                         if !ann.consequences.is_empty() {
@@ -1069,7 +1081,7 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.refseq_gene_id = Some(hgnc_record.entrez_id.clone());
                         tsv_record.refseq_transcript_id = Some(ann.feature_id.clone());
                         tsv_record.refseq_transcript_coding =
-                            Some(ann.feature_biotype == FeatureBiotype::Coding);
+                            Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
                         tsv_record.refseq_hgvs_c = ann.hgvs_t.clone();
                         tsv_record.refseq_hgvs_p = ann.hgvs_p.clone();
                         if !ann.consequences.is_empty() {
@@ -1400,7 +1412,7 @@ impl AnnotatedVcfWriter for VarFishSeqvarTsvWriter {
 /// Run the annotation with the given `Write` within the `VcfWriter`.
 fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("Open VCF and read header");
-    let mut reader = VariantReaderBuilder.build_from_path(&args.path_input_vcf)?;
+    let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
     let header_in = reader.read_header()?;
     let header_out = build_header(&header_in);
 
@@ -1455,8 +1467,22 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
         path_component(assembly)
     ))?;
     tracing::info!("Building transcript interval trees ...");
-    let provider = Arc::new(MehariProvider::new(tx_db, assembly));
-    let predictor = ConsequencePredictor::new(provider, assembly);
+    let provider = Arc::new(MehariProvider::new(
+        tx_db,
+        assembly,
+        MehariProviderConfigBuilder::default()
+            .transcript_picking(args.transcript_picking)
+            .build()
+            .unwrap(),
+    ));
+    let predictor = ConsequencePredictor::new(
+        provider,
+        assembly,
+        ConsequencePredictorConfigBuilder::default()
+            .report_all_transcripts(args.report_all_transcripts)
+            .build()
+            .unwrap(),
+    );
     tracing::info!("... done building transcript interval trees");
 
     // Perform the VCF annotation.
@@ -1647,6 +1673,8 @@ mod test {
         };
         let args = Args {
             genome_release: None,
+            report_all_transcripts: false,
+            transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from(
                 "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf",
@@ -1682,6 +1710,8 @@ mod test {
         };
         let args = Args {
             genome_release: None,
+            report_all_transcripts: true,
+            transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from(
                 "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf",
@@ -1729,6 +1759,8 @@ mod test {
         };
         let args = Args {
             genome_release: None,
+            report_all_transcripts: true,
+            transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/db/create/badly_formed_vcf_entry.vcf"),
             output: PathOutput {
@@ -1764,6 +1796,8 @@ mod test {
         };
         let args = Args {
             genome_release: None,
+            report_all_transcripts: true,
+            transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/db/create/mitochondrial_variants.vcf"),
             output: PathOutput {

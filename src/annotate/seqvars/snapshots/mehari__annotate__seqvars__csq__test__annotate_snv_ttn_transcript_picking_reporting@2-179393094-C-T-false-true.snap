@@ -1,0 +1,186 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: T
+  consequences:
+    - synonymous_variant
+  putative_impact: LOW
+  gene_symbol: TTN
+  gene_id: "HGNC:12403"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_001256850.1
+  feature_biotype:
+    - Coding
+  rank:
+    ord: 311
+    total: 313
+  hgvs_t: c.102361C>A
+  hgvs_p: p.R34121=
+  tx_pos:
+    ord: 102586
+    total: 104301
+  cds_pos:
+    ord: 102361
+    total: 103053
+  protein_pos:
+    ord: 34121
+    total: 34351
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: T
+  consequences:
+    - synonymous_variant
+  putative_impact: LOW
+  gene_symbol: TTN
+  gene_id: "HGNC:12403"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_001267550.2
+  feature_biotype:
+    - Coding
+    - ManeSelect
+  rank:
+    ord: 361
+    total: 363
+  hgvs_t: c.107284C>A
+  hgvs_p: p.R35762=
+  tx_pos:
+    ord: 107509
+    total: 109224
+  cds_pos:
+    ord: 107284
+    total: 107976
+  protein_pos:
+    ord: 35762
+    total: 35992
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: T
+  consequences:
+    - synonymous_variant
+  putative_impact: LOW
+  gene_symbol: TTN
+  gene_id: "HGNC:12403"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_003319.4
+  feature_biotype:
+    - Coding
+  rank:
+    ord: 189
+    total: 191
+  hgvs_t: c.80089C>A
+  hgvs_p: p.R26697=
+  tx_pos:
+    ord: 80314
+    total: 82029
+  cds_pos:
+    ord: 80089
+    total: 80781
+  protein_pos:
+    ord: 26697
+    total: 26927
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: T
+  consequences:
+    - synonymous_variant
+  putative_impact: LOW
+  gene_symbol: TTN
+  gene_id: "HGNC:12403"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_133378.4
+  feature_biotype:
+    - Coding
+  rank:
+    ord: 310
+    total: 312
+  hgvs_t: c.99580C>A
+  hgvs_p: p.R33194=
+  tx_pos:
+    ord: 99805
+    total: 101520
+  cds_pos:
+    ord: 99580
+    total: 100272
+  protein_pos:
+    ord: 33194
+    total: 33424
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: T
+  consequences:
+    - synonymous_variant
+  putative_impact: LOW
+  gene_symbol: TTN
+  gene_id: "HGNC:12403"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_133432.3
+  feature_biotype:
+    - Coding
+  rank:
+    ord: 190
+    total: 192
+  hgvs_t: c.80464C>A
+  hgvs_p: p.R26822=
+  tx_pos:
+    ord: 80689
+    total: 82404
+  cds_pos:
+    ord: 80464
+    total: 81156
+  protein_pos:
+    ord: 26822
+    total: 27052
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: T
+  consequences:
+    - synonymous_variant
+  putative_impact: LOW
+  gene_symbol: TTN
+  gene_id: "HGNC:12403"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_133437.4
+  feature_biotype:
+    - Coding
+  rank:
+    ord: 190
+    total: 192
+  hgvs_t: c.80665C>A
+  hgvs_p: p.R26889=
+  tx_pos:
+    ord: 80890
+    total: 82605
+  cds_pos:
+    ord: 80665
+    total: 81357
+  protein_pos:
+    ord: 26889
+    total: 27119
+  distance: 0
+  messages: ~
+

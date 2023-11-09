@@ -164,8 +164,8 @@ $ mehari db create txs \
     \
     --path-seqrepo-instance path/to/seqrepo-data/master \
     \
-    --path-cdot-json cdot-0.2.12.refseq.grch37_grch38.json \
-    --path-cdot-json cdot-0.2.12.ensembl.grch37_grch38.json \
+    --path-cdot-json cdot-0.2.21.refseq.grch37_grch38.json \
+    --path-cdot-json cdot-0.2.21.ensembl.grch37_grch38.json \
     \
     --path-seqrepo-instance path/to/seqrepo-data/master \
     \

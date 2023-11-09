@@ -9,12 +9,13 @@ use hgvs::{
         Accession, CdsFrom, GenomeInterval, GenomeLocEdit, HgvsVariant, Mu, NaEdit, ProtLocEdit,
     },
 };
+use rustc_hash::FxHashMap;
 
-use crate::db::create::txs::data::{Strand, TranscriptBiotype};
+use crate::db::create::data::{self, Strand, TranscriptBiotype};
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
-    provider::MehariProvider,
+    provider::Provider as MehariProvider,
 };
 
 /// A variant description how VCF would do it.
@@ -30,6 +31,21 @@ pub struct VcfVariant {
     pub alternative: String,
 }
 
+/// Configuration for consequence prediction.
+#[derive(Debug, Clone, derive_builder::Builder)]
+#[builder(pattern = "immutable")]
+pub struct Config {
+    /// Whether to report consequences for all picked transcripts.
+    #[builder(default = "true")]
+    pub report_all_transcripts: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        ConfigBuilder::default().build().unwrap()
+    }
+}
+
 /// Wrap mapper, provider, and map for consequence prediction.
 #[derive(derivative::Derivative)]
 #[derivative(Debug)]
@@ -43,6 +59,9 @@ pub struct ConsequencePredictor {
     /// Mapping from chromosome name to accession.
     #[derivative(Debug = "ignore")]
     chrom_to_acc: HashMap<String, String>,
+    /// Configuration for the predictor.
+    #[derivative(Debug = "ignore")]
+    config: Config,
 }
 
 /// Padding to look for genes upstream/downstream.
@@ -51,8 +70,8 @@ pub const PADDING: i32 = 5_000;
 pub const ALT_ALN_METHOD: &str = "splign";
 
 impl ConsequencePredictor {
-    pub fn new(provider: Arc<MehariProvider>, assembly: Assembly) -> Self {
-        let acc_to_chrom = provider.get_assembly_map(assembly);
+    pub fn new(provider: Arc<MehariProvider>, assembly: Assembly, config: Config) -> Self {
+        let acc_to_chrom: indexmap::IndexMap<String, String> = provider.get_assembly_map(assembly);
         let mut chrom_to_acc = HashMap::new();
         for (acc, chrom) in &acc_to_chrom {
             let chrom = if chrom.starts_with("chr") {
@@ -64,22 +83,43 @@ impl ConsequencePredictor {
             chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
         }
 
-        let config = assembly::Config {
+        let mapper_config = assembly::Config {
             replace_reference: false,
             strict_bounds: false,
             renormalize_g: false,
             genome_seq_available: false,
             ..Default::default()
         };
-        let mapper = assembly::Mapper::new(config, provider.clone());
+        let mapper = assembly::Mapper::new(mapper_config, provider.clone());
 
         ConsequencePredictor {
             provider,
             mapper,
             chrom_to_acc,
+            config,
         }
     }
 
+    /// Predict the consequences of a variant.
+    ///
+    /// Note that the predictions will be affected by whether transcript picking has been
+    /// enabled in the data provider and the configuration of the predictor, in particular
+    /// `Config::report_all_transcripts`.
+    ///
+    /// # Args
+    ///
+    /// * `var`: The variant to predict consequences for.
+    ///
+    /// # Returns
+    ///
+    /// A list of `AnnField` records, one for each transcript affected by the variant
+    /// sorted lexicographically by transcript accession.
+    ///
+    /// If the accessio is not valid, then `None` will be returned.
+    ///
+    /// # Errors
+    ///
+    /// If there was any error during the prediction.
     pub fn predict(&self, var: &VcfVariant) -> Result<Option<Vec<AnnField>>, anyhow::Error> {
         // Normalize variant by stripping common prefix and suffix.
         let norm_var = self.normalize_variant(var);
@@ -107,24 +147,91 @@ impl ConsequencePredictor {
         };
         let qry_start = var_start - PADDING;
         let qry_end = var_end + PADDING;
-        let mut txs =
-            self.provider
-                .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)?;
-        txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
+        let txs = {
+            let mut txs =
+                self.provider
+                    .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)?;
+            txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
+            // Filter transcripts to the picked ones.
+            tracing::info!(" txs = {:#?}", &txs);
+            self.filter_picked_txs(txs)
+        };
+        tracing::info!(" txs = {:#?}", &txs);
 
-        // Generate `AnnField` records for each transcript.
+        // Compute annotations for all (picked) transcripts first, skipping `None`` results.
+        let anns_all_txs = txs
+            .into_iter()
+            .map(|tx| {
+                self.build_ann_field(var, &norm_var, tx, chrom_acc.clone(), var_start, var_end)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        // Return all or worst annotation only.
+        Ok(Some(self.filter_ann_fields(anns_all_txs)))
+    }
+
+    // Filter transcripts to the picked ones.
+    fn filter_picked_txs(&self, txs: Vec<TxForRegionRecord>) -> Vec<TxForRegionRecord> {
+        // Short-circuit if transcript picking has been disabled.
+        if !self.provider.transcript_picking() {
+            return txs;
+        }
+
+        // Get gene ids for all transcripts in `txs`, then obtain the picked transcript
+        // identifiers for these genes and limit `txs` to those transcripts.
+        let picked_txs = txs
+            .iter()
+            .flat_map(|tx| self.provider.get_tx(&tx.tx_ac))
+            .flat_map(|tx| self.provider.get_picked_transcripts(&tx.gene_id))
+            .flatten()
+            .collect::<Vec<_>>();
+        // tracing::trace!("Picked transcripts: {:?}", &picked_txs);
+        txs.into_iter()
+            .filter(|tx| picked_txs.contains(&tx.tx_ac))
+            .collect::<Vec<_>>()
+    }
+
+    /// Filter the ANN fields depending on the configuration.
+    ///
+    /// If all transcripts are to be reported then return `ann_fields` as is, otherwise
+    /// select one worst consequence per gene.
+    fn filter_ann_fields(&self, ann_fields: Vec<AnnField>) -> Vec<AnnField> {
+        // Short-circuit if to report all transcript results.
+        if self.config.report_all_transcripts {
+            return ann_fields;
+        }
+
+        // First, split annotations by gene.
+        let mut anns_by_gene: FxHashMap<String, Vec<AnnField>> = FxHashMap::default();
+        for ann in ann_fields {
+            let gene_id = ann.gene_id.clone();
+            anns_by_gene.entry(gene_id).or_default().push(ann);
+        }
+
+        /// Return sort order for ANN biotype, gives priority to ManeSelect and ManePlusClinical.
+        fn biotype_order(biotypes: &[FeatureBiotype]) -> i32 {
+            if biotypes.contains(&FeatureBiotype::ManeSelect) {
+                0
+            } else if biotypes.contains(&FeatureBiotype::ManePlusClinical) {
+                1
+            } else {
+                2
+            }
+        }
+
+        // Now, sort by consequence, giving priority to ManeSelect and ManePlusClinical.
         //
-        // Skip `None` results.
-        Ok(Some(
-            txs.into_iter()
-                .map(|tx| {
-                    self.build_ann_field(var, &norm_var, tx, chrom_acc.clone(), var_start, var_end)
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>(),
-        ))
+        // This uses the invariant that the consequences in the ANN fields are sorted already
+        // and there is at least one consequence.
+        let mut result = Vec::new();
+        for anns in anns_by_gene.values_mut() {
+            anns.sort_by_key(|ann| (ann.consequences[0], biotype_order(&ann.feature_biotype)));
+            result.push(anns.remove(0));
+        }
+        result
     }
 
     fn build_ann_field(
@@ -309,20 +416,34 @@ impl ConsequencePredictor {
         let min_start = min_start.expect("must have seen exon");
         let max_end = max_end.expect("must have seen exon");
 
-        let feature_biotype =
-            match TranscriptBiotype::try_from(tx.biotype).expect("invalid transcript biotype") {
+        let transcript_biotype =
+            TranscriptBiotype::try_from(tx.biotype).expect("invalid transcript biotype");
+        let feature_biotype = {
+            let mut feature_biotypes = vec![match transcript_biotype {
                 TranscriptBiotype::Coding => FeatureBiotype::Coding,
                 TranscriptBiotype::NonCoding => FeatureBiotype::Noncoding,
-            };
+            }];
+
+            if tx.tags.contains(&(data::TranscriptTag::ManeSelect as i32)) {
+                feature_biotypes.push(FeatureBiotype::ManeSelect);
+            } else if tx
+                .tags
+                .contains(&(data::TranscriptTag::ManePlusClinical as i32))
+            {
+                feature_biotypes.push(FeatureBiotype::ManePlusClinical);
+            }
+
+            feature_biotypes
+        };
 
         let is_upstream = var_end <= min_start;
         let is_downstream = var_start >= max_end;
         if is_exonic {
-            if !feature_biotype.is_coding() {
+            if transcript_biotype == TranscriptBiotype::NonCoding {
                 consequences.push(Consequence::NonCodingTranscriptExonVariant);
             }
         } else if is_intronic {
-            if !feature_biotype.is_coding() {
+            if transcript_biotype == TranscriptBiotype::NonCoding {
                 consequences.push(Consequence::NonCodingTranscriptIntronVariant);
             } else {
                 consequences.push(Consequence::IntronVariant);
@@ -414,8 +535,8 @@ impl ConsequencePredictor {
                 _ => panic!("Invalid tx position: {:?}", &var_n),
             };
 
-            let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match feature_biotype {
-                FeatureBiotype::Coding => {
+            let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match transcript_biotype {
+                TranscriptBiotype::Coding => {
                     let cds_len = tx.stop_codon.unwrap() - tx.start_codon.unwrap();
                     let prot_len = cds_len / 3;
 
@@ -596,7 +717,7 @@ impl ConsequencePredictor {
 
                     (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
                 }
-                FeatureBiotype::Noncoding => (var_n, None, None, None, None),
+                TranscriptBiotype::NonCoding => (var_n, None, None, None, None),
             };
             let hgvs_t = format!("{}", &var_t);
             let hgvs_t = hgvs_t.split(':').nth(1).unwrap().to_owned();
@@ -639,12 +760,12 @@ impl ConsequencePredictor {
             },
             consequences,
             putative_impact,
-            gene_symbol: tx.gene_name.clone(),
-            gene_id: format!("HGNC:{}", &tx.gene_id),
+            gene_symbol: tx.gene_symbol,
+            gene_id: tx.gene_id,
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
-            feature_id: tx.id.clone(),
+            feature_id: tx.id,
             feature_biotype,
             rank,
             hgvs_t,
@@ -706,6 +827,7 @@ mod test {
     use serde::Deserialize;
 
     use crate::annotate::seqvars::load_tx_db;
+    use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
 
     use super::*;
 
@@ -744,9 +866,14 @@ mod test {
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Assembly::Grch37p10,
+            Default::default(),
+        ));
 
-        let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
+        let predictor =
+            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
 
         let res = predictor
             .predict(&VcfVariant {
@@ -769,6 +896,116 @@ mod test {
         Ok(())
     }
 
+    #[tracing_test::traced_test]
+    #[rstest::rstest]
+    #[case("17:41197701:G:C", false, false)] // don't pick transcripts, report worst
+    #[case("17:41197701:G:C", false, true)] // don't pick transcripts, report all
+    #[case("17:41197701:G:C", true, false)] // pick transcripts, report worst
+    #[case("17:41197701:G:C", true, true)] // pick transcripts, report all
+    fn annotate_snv_brca1_transcript_picking_reporting(
+        #[case] spdi: &str,
+        #[case] pick_transcripts: bool,
+        #[case] report_all_transcripts: bool,
+    ) -> Result<(), anyhow::Error> {
+        crate::common::set_snapshot_suffix!(
+            "{}-{}-{}",
+            spdi.replace(':', "-"),
+            pick_transcripts,
+            report_all_transcripts
+        );
+
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
+        let tx_db = load_tx_db(tx_path)?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Assembly::Grch37p10,
+            MehariProviderConfigBuilder::default()
+                .transcript_picking(pick_transcripts)
+                .build()
+                .unwrap(),
+        ));
+
+        let predictor = ConsequencePredictor::new(
+            provider,
+            Assembly::Grch37p10,
+            ConfigBuilder::default()
+                .report_all_transcripts(report_all_transcripts)
+                .build()
+                .unwrap(),
+        );
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+
+        insta::assert_yaml_snapshot!(res);
+
+        Ok(())
+    }
+
+    // Test predictions on TTN where we have a ManeSelect and a ManePlusClinical
+    // transcript.
+    #[tracing_test::traced_test]
+    #[rstest::rstest]
+    #[case("2:179631246:G:A", false, false)] // don't pick transcripts, report worst
+    #[case("2:179631246:G:A", false, true)] // don't pick transcripts, report all
+    #[case("2:179631246:G:A", true, false)] // pick transcripts, report worst
+    #[case("2:179631246:G:A", true, true)] // pick transcripts, report all
+    fn annotate_snv_ttn_transcript_picking_reporting(
+        #[case] spdi: &str,
+        #[case] pick_transcripts: bool,
+        #[case] report_all_transcripts: bool,
+    ) -> Result<(), anyhow::Error> {
+        crate::common::set_snapshot_suffix!(
+            "{}-{}-{}",
+            spdi.replace(':', "-"),
+            pick_transcripts,
+            report_all_transcripts
+        );
+
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
+        let tx_db = load_tx_db(tx_path)?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Assembly::Grch37p10,
+            MehariProviderConfigBuilder::default()
+                .transcript_picking(pick_transcripts)
+                .build()
+                .unwrap(),
+        ));
+
+        let predictor = ConsequencePredictor::new(
+            provider,
+            Assembly::Grch37p10,
+            ConfigBuilder::default()
+                .report_all_transcripts(report_all_transcripts)
+                .build()
+                .unwrap(),
+        );
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+
+        insta::assert_yaml_snapshot!(res);
+
+        Ok(())
+    }
+
     #[derive(Debug, Deserialize)]
     struct Record {
         pub var: String,
@@ -779,24 +1016,30 @@ mod test {
     // Compare to SnpEff annotated variants for OPA1, touching special cases.
     #[test]
     fn annotate_opa1_hand_picked_vars() -> Result<(), anyhow::Error> {
-        annotate_opa1_vars("tests/data/annotate/vars/opa1.hand_picked.tsv")
+        annotate_opa1_vars("tests/data/annotate/vars/opa1.hand_picked.tsv", true)
     }
 
     // Compare to SnpEff annotated ClinVar variants for OPA1 (slow).
     #[ignore]
     #[test]
     fn annotate_opa1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
-        annotate_opa1_vars("tests/data/annotate/vars/clinvar.excerpt.snpeff.opa1.tsv")
+        annotate_opa1_vars(
+            "tests/data/annotate/vars/clinvar.excerpt.snpeff.opa1.tsv",
+            true,
+        )
     }
 
     // Compare to SnpEff annotated ClinVar variants for OPA1 (slow).
     #[ignore]
     #[test]
     fn annotate_opa1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
-        annotate_opa1_vars("tests/data/annotate/vars/clinvar.excerpt.vep.opa1.tsv")
+        annotate_opa1_vars(
+            "tests/data/annotate/vars/clinvar.excerpt.vep.opa1.tsv",
+            true,
+        )
     }
 
-    fn annotate_opa1_vars(path_tsv: &str) -> Result<(), anyhow::Error> {
+    fn annotate_opa1_vars(path_tsv: &str, all_transcripts: bool) -> Result<(), anyhow::Error> {
         let txs = vec![
             String::from("NM_001354663.2"),
             String::from("NM_001354664.2"),
@@ -806,30 +1049,36 @@ mod test {
             String::from("NM_130837.3"),
         ];
 
-        annotate_vars(path_tsv, &txs)
+        annotate_vars(path_tsv, &txs, all_transcripts)
     }
 
     // Compare to SnpEff annotated variants for BRCA1, touching special cases.
     #[test]
     fn annotate_brca1_hand_picked_vars() -> Result<(), anyhow::Error> {
-        annotate_brca1_vars("tests/data/annotate/vars/brca1.hand_picked.tsv")
+        annotate_brca1_vars("tests/data/annotate/vars/brca1.hand_picked.tsv", true)
     }
 
     // Compare to SnpEff annotated ClinVar variants for BRCA1 (slow).
     #[ignore]
     #[test]
     fn annotate_brca1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
-        annotate_brca1_vars("tests/data/annotate/vars/clinvar.excerpt.snpeff.brca1.tsv")
+        annotate_brca1_vars(
+            "tests/data/annotate/vars/clinvar.excerpt.snpeff.brca1.tsv",
+            true,
+        )
     }
 
     // Compare to SnpEff annotated ClinVar variants for BRCA1 (slow).
     #[ignore]
     #[test]
     fn annotate_brca1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
-        annotate_brca1_vars("tests/data/annotate/vars/clinvar.excerpt.vep.brca1.tsv")
+        annotate_brca1_vars(
+            "tests/data/annotate/vars/clinvar.excerpt.vep.brca1.tsv",
+            true,
+        )
     }
 
-    fn annotate_brca1_vars(path_tsv: &str) -> Result<(), anyhow::Error> {
+    fn annotate_brca1_vars(path_tsv: &str, all_transcripts: bool) -> Result<(), anyhow::Error> {
         let txs = vec![
             String::from("NM_007294.4"),
             String::from("NM_007297.4"),
@@ -838,14 +1087,29 @@ mod test {
             String::from("NM_007300.4"),
         ];
 
-        annotate_vars(path_tsv, &txs)
+        annotate_vars(path_tsv, &txs, all_transcripts)
     }
 
-    fn annotate_vars(path_tsv: &str, txs: &[String]) -> Result<(), anyhow::Error> {
+    fn annotate_vars(
+        path_tsv: &str,
+        txs: &[String],
+        all_transcripts: bool,
+    ) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
-        let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Assembly::Grch37p10,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            Assembly::Grch37p10,
+            ConfigBuilder::default()
+                .report_all_transcripts(all_transcripts)
+                .build()
+                .unwrap(),
+        );
 
         let mut reader = ReaderBuilder::new()
             .delimiter(b'\t')

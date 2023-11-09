@@ -2,6 +2,6 @@
 source: src/annotate/strucvars/mod.rs
 expression: sv_caller
 ---
-Gcnv {
-    version: "4.3.0.0",
-}
+Gcnv:
+  version: 4.3.0.0
+

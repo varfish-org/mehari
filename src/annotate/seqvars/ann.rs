@@ -361,16 +361,19 @@ impl FromStr for FeatureType {
     strum::EnumIter,
 )]
 pub enum FeatureBiotype {
+    /// Is coding transcript.
     Coding,
+    /// Is non-coding transcript.
     Noncoding,
+    /// Is in MANE Select set.
+    ManeSelect,
+    /// Is in MANE Plus Clinical set.
+    ManePlusClinical,
 }
 
 impl FeatureBiotype {
     pub fn is_coding(&self) -> bool {
-        match self {
-            FeatureBiotype::Coding => true,
-            FeatureBiotype::Noncoding => false,
-        }
+        matches!(self, FeatureBiotype::Coding)
     }
 }
 
@@ -509,7 +512,7 @@ pub struct AnnField {
     /// The feature identifier.
     pub feature_id: String,
     /// The feature biotype.
-    pub feature_biotype: FeatureBiotype,
+    pub feature_biotype: Vec<FeatureBiotype>,
     /// The exon / intron rank.
     pub rank: Option<Rank>,
     /// HGVS c. notation.
@@ -542,7 +545,7 @@ impl Default for AnnField {
                 term: SoFeature::Transcript,
             },
             feature_id: Default::default(),
-            feature_biotype: FeatureBiotype::Coding,
+            feature_biotype: vec![FeatureBiotype::Coding],
             rank: Default::default(),
             hgvs_t: Default::default(),
             hgvs_p: Default::default(),
@@ -572,7 +575,13 @@ impl FromStr for AnnField {
         let gene_id = fields.next().unwrap().to_string();
         let feature_type = fields.next().unwrap().parse()?;
         let feature_id = fields.next().unwrap().to_string();
-        let feature_biotype = fields.next().unwrap().parse()?;
+        let feature_biotype = fields
+            .next()
+            .unwrap()
+            .split('&')
+            .map(|s| s.parse())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("could not parse feature biotype: {}", e))?;
         let rank = fields.next().unwrap();
         let rank = if rank.is_empty() {
             None
@@ -669,7 +678,15 @@ impl std::fmt::Display for AnnField {
         write!(f, "|")?;
         write!(f, "{}", self.feature_id)?;
         write!(f, "|")?;
-        write!(f, "{}", self.feature_biotype)?;
+        write!(
+            f,
+            "{}",
+            self.feature_biotype
+                .iter()
+                .map(|t| format!("{}", t))
+                .collect::<Vec<_>>()
+                .join("&")
+        )?;
         write!(f, "|")?;
         if let Some(rank) = &self.rank {
             write!(f, "{}", rank)?;
@@ -1082,7 +1099,7 @@ mod test {
                 term: SoFeature::Transcript,
             },
             feature_id: String::from("feature_id"),
-            feature_biotype: FeatureBiotype::Coding,
+            feature_biotype: vec![FeatureBiotype::Coding],
             rank: Some(Rank { ord: 1, total: 2 }),
             hgvs_t: Some(String::from("HGVS.c")),
             hgvs_p: Some(String::from("HGVS.p")),

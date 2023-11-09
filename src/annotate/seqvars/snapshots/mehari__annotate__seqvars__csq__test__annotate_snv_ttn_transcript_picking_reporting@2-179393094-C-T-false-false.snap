@@ -1,0 +1,36 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: T
+  consequences:
+    - synonymous_variant
+  putative_impact: LOW
+  gene_symbol: TTN
+  gene_id: "HGNC:12403"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_001267550.2
+  feature_biotype:
+    - Coding
+    - ManeSelect
+  rank:
+    ord: 361
+    total: 363
+  hgvs_t: c.107284C>A
+  hgvs_p: p.R35762=
+  tx_pos:
+    ord: 107509
+    total: 109224
+  cds_pos:
+    ord: 107284
+    total: 107976
+  protein_pos:
+    ord: 35762
+    total: 35992
+  distance: 0
+  messages: ~
+

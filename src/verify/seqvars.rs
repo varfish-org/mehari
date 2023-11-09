@@ -13,9 +13,9 @@ use noodles_core::{Position, Region};
 use quick_cache::unsync::Cache;
 
 use crate::annotate::seqvars::{
-    csq::{ConsequencePredictor, VcfVariant},
+    csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
     load_tx_db, path_component,
-    provider::MehariProvider,
+    provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
 };
 
 /// Command line arguments for `verify seqvars` sub command.
@@ -35,6 +35,14 @@ pub struct Args {
     /// Path to output TSV file.
     #[arg(long)]
     pub path_output_tsv: String,
+
+    /// Whether to report for all picked transcripts.
+    #[arg(long, default_value_t = true)]
+    pub report_all_transcripts: bool,
+    /// Limit transcripts to (a) ManeSelect+ManePlusClinical, (b) ManeSelect,
+    /// (c) longest transcript for the gene - the first available.
+    #[arg(long, default_value_t = false)]
+    pub transcript_picking: bool,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
@@ -125,8 +133,22 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         path_component(assembly)
     ))?;
     tracing::info!("Building transcript interval trees ...");
-    let provider = Arc::new(MehariProvider::new(tx_db, assembly));
-    let predictor = ConsequencePredictor::new(provider, assembly);
+    let provider = Arc::new(MehariProvider::new(
+        tx_db,
+        assembly,
+        MehariProviderConfigBuilder::default()
+            .transcript_picking(args.transcript_picking)
+            .build()
+            .unwrap(),
+    ));
+    let predictor = ConsequencePredictor::new(
+        provider,
+        assembly,
+        ConsequencePredictorConfigBuilder::default()
+            .report_all_transcripts(args.report_all_transcripts)
+            .build()
+            .unwrap(),
+    );
     tracing::info!("... done building transcript interval trees");
 
     // LRU caches used below to avoid re-reading from FAI and prediction.

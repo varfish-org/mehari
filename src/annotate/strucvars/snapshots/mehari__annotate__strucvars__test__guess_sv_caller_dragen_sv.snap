@@ -2,6 +2,6 @@
 source: src/annotate/strucvars/mod.rs
 expression: sv_caller
 ---
-DragenSv {
-    version: "07.021.624.3.10.4",
-}
+DragenSv:
+  version: 07.021.624.3.10.4
+

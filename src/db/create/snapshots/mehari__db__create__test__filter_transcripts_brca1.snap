@@ -1,6 +1,6 @@
 ---
-source: src/db/create/txs/mod.rs
-expression: "tx_data.transcript_ids_for_gene.get(\"BRCA1\").unwrap().iter().map(|s|\n            s.as_str()).collect::<Vec<_>>()"
+source: src/db/create/mod.rs
+expression: "tx_data.transcript_ids_for_gene.get(\"HGNC:1100\").unwrap().iter().map(|s|\n            s.as_str()).collect::<Vec<_>>()"
 ---
 - NM_007294.3
 - NM_007294.4
