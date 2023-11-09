@@ -96,9 +96,10 @@ impl TxIntervalTrees {
 #[derive(Debug, Clone, Default, derive_builder::Builder)]
 #[builder(pattern = "immutable")]
 pub struct Config {
-    /// * `transcript_picking` - Whether to use transcript picking.  When
-    ///   enabled, only use (a) ManeSelect+ManePlusClinical, (b) ManeSelect,
-    ///   (c) longest transcript (the first available).
+    /// Whether to use transcript picking.  When enabled, only use (a)
+    /// ManeSelect+ManePlusClinical, (b) ManeSelect, (c) longest transcript
+    /// (the first available).
+    #[builder(default = "false")]
     pub transcript_picking: bool,
 }
 

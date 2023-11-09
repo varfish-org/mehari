@@ -92,6 +92,9 @@ pub struct Args {
     #[command(flatten)]
     pub output: PathOutput,
 
+    /// The transcript source.
+    #[arg(long, value_enum, default_value_t = csq::TranscriptSource::Both)]
+    pub transcript_source: csq::TranscriptSource,
     /// Whether to report for all picked transcripts.
     #[arg(long, default_value_t = true)]
     pub report_all_transcripts: bool,
@@ -1480,6 +1483,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
         assembly,
         ConsequencePredictorConfigBuilder::default()
             .report_all_transcripts(args.report_all_transcripts)
+            .transcript_source(args.transcript_source)
             .build()
             .unwrap(),
     );
@@ -1661,7 +1665,7 @@ mod test {
 
     use super::binning::bin_from_range;
 
-    use super::{run, Args, PathOutput};
+    use super::{csq::TranscriptSource, run, Args, PathOutput};
 
     #[test]
     fn smoke_test_output_vcf() -> Result<(), anyhow::Error> {
@@ -1674,6 +1678,7 @@ mod test {
         let args = Args {
             genome_release: None,
             report_all_transcripts: false,
+            transcript_source: TranscriptSource::Both,
             transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from(
@@ -1711,6 +1716,7 @@ mod test {
         let args = Args {
             genome_release: None,
             report_all_transcripts: true,
+            transcript_source: TranscriptSource::Both,
             transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from(
@@ -1760,6 +1766,7 @@ mod test {
         let args = Args {
             genome_release: None,
             report_all_transcripts: true,
+            transcript_source: TranscriptSource::Both,
             transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/db/create/badly_formed_vcf_entry.vcf"),
@@ -1797,6 +1804,7 @@ mod test {
         let args = Args {
             genome_release: None,
             report_all_transcripts: true,
+            transcript_source: TranscriptSource::Both,
             transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/db/create/mitochondrial_variants.vcf"),
