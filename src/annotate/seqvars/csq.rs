@@ -32,12 +32,18 @@ pub struct VcfVariant {
 }
 
 /// Configuration for consequence prediction.
-#[derive(Debug, Clone, Default, derive_builder::Builder)]
+#[derive(Debug, Clone, derive_builder::Builder)]
 #[builder(pattern = "immutable")]
 pub struct Config {
     /// Whether to report consequences for all picked transcripts.
-    #[builder(default = "false")]
+    #[builder(default = "true")]
     pub all_transcripts: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        ConfigBuilder::default().build().unwrap()
+    }
 }
 
 /// Wrap mapper, provider, and map for consequence prediction.
