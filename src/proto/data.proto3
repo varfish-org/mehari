@@ -19,8 +19,8 @@ message SequenceDb {
 
 // Mapping from gene to transcript ID.
 message GeneToTxId {
-    // Gene HGNC symbol; serves as gene identifier.
-    string gene_name = 1;
+    // Gene HGNC ID; serves as gene identifier.
+    string gene_id = 1;
     // Vector of all transcript IDs.
     repeated string tx_ids = 2;
 }
@@ -53,7 +53,7 @@ message Transcript {
     // Transcript accession with version, e.g., `"NM_007294.3"` or `"ENST00000461574.1"` for BRCA1.
     string id = 1;
     // HGNC symbol, e.g., `"BRCA1"`
-    string gene_name = 2;
+    string gene_symbol = 2;
     // HGNC gene identifier, e.g., `"1100"` for BRCA1.
     string gene_id = 3;
     // Transcript biotype.

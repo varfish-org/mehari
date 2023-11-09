@@ -118,22 +118,8 @@ struct Db {
 /// Enum supporting the parsing of "db *" sub commands.
 #[derive(Debug, Subcommand)]
 enum DbCommands {
-    Create(DbCreate),
-}
-
-/// Parsing of "db create *" sub commands.
-#[derive(Debug, Args)]
-#[command(args_conflicts_with_subcommands = true)]
-struct DbCreate {
-    /// The sub command to run
-    #[command(subcommand)]
-    command: DbCreateCommands,
-}
-
-/// Enum supporting the parsing of "db create *" sub commands.
-#[derive(Debug, Subcommand)]
-enum DbCreateCommands {
-    Txs(db::create::txs::Args),
+    Create(db::create::Args),
+    Dump(db::dump::Args),
 }
 
 /// Parsing of "annotate *" sub commands.
@@ -173,6 +159,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // Build a tracing subscriber according to the configuration in `cli.common`.
     let collector = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_target(false)
         .with_max_level(match cli.common.verbose.log_level() {
             Some(level) => match level {
@@ -193,9 +180,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
     match &cli.command {
         Commands::Db(db) => match &db.command {
-            DbCommands::Create(db_create) => match &db_create.command {
-                DbCreateCommands::Txs(args) => db::create::txs::run(&cli.common, args)?,
-            },
+            DbCommands::Create(args) => db::create::run(&cli.common, args)?,
+            DbCommands::Dump(args) => db::dump::run(&cli.common, args)?,
         },
         Commands::Annotate(annotate) => match &annotate.command {
             AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args)?,

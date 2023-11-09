@@ -145,7 +145,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         provider,
         assembly,
         ConsequencePredictorConfigBuilder::default()
-            .all_transcripts(args.report_all_transcripts)
+            .report_all_transcripts(args.report_all_transcripts)
             .build()
             .unwrap(),
     );

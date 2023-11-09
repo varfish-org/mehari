@@ -1,5 +1,5 @@
 ---
-source: src/db/create/txs/mod.rs
+source: src/db/create/mod.rs
 expression: "&cdot_version"
 ---
 0.2.21

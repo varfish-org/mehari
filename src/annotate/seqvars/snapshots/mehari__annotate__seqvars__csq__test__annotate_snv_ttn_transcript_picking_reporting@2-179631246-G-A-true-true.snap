@@ -1,0 +1,67 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: A
+  consequences:
+    - stop_gained
+  putative_impact: HIGH
+  gene_symbol: TTN
+  gene_id: "HGNC:12403"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_001267550.2
+  feature_biotype:
+    - Coding
+    - ManeSelect
+  rank:
+    ord: 41
+    total: 363
+  hgvs_t: c.9565C>T
+  hgvs_p: p.Q3189*
+  tx_pos:
+    ord: 9790
+    total: 109224
+  cds_pos:
+    ord: 9565
+    total: 107976
+  protein_pos:
+    ord: 3189
+    total: 35992
+  distance: 0
+  messages: ~
+- allele:
+    Alt:
+      alternative: A
+  consequences:
+    - stop_gained
+  putative_impact: HIGH
+  gene_symbol: TTN
+  gene_id: "HGNC:12403"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_133379.5
+  feature_biotype:
+    - Coding
+    - ManePlusClinical
+  rank:
+    ord: 41
+    total: 46
+  hgvs_t: c.9565C>T
+  hgvs_p: p.Q3189*
+  tx_pos:
+    ord: 9790
+    total: 18220
+  cds_pos:
+    ord: 9565
+    total: 16815
+  protein_pos:
+    ord: 3189
+    total: 5605
+  distance: 0
+  messages: ~
+

@@ -19,7 +19,7 @@ use hgvs::{
 
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
-    db::create::txs::data::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
+    db::create::data::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
 
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
@@ -136,7 +136,7 @@ impl Provider {
                 .gene_to_tx
                 .iter()
                 .enumerate()
-                .map(|(idx, entry)| (entry.gene_name.clone(), idx as u32)),
+                .map(|(idx, entry)| (entry.gene_id.clone(), idx as u32)),
         );
         let tx_map = HashMap::from_iter(
             tx_seq_db
@@ -196,7 +196,7 @@ impl Provider {
                     let new_entry = if !mane_tx_ids.is_empty() {
                         // For the case that we have MANE transcripts.
                         GeneToTxId {
-                            gene_name: entry.gene_name.clone(),
+                            gene_id: entry.gene_id.clone(),
                             tx_ids: mane_tx_ids,
                         }
                     } else {
@@ -228,18 +228,18 @@ impl Provider {
                                     .unwrap_or_default()
                             })
                             .max()
-                            .unwrap_or_else(|| panic!("no length for gene {}", &entry.gene_name));
+                            .unwrap_or_else(|| panic!("no length for gene {}", &entry.gene_id));
 
                         GeneToTxId {
-                            gene_name: entry.gene_name.clone(),
+                            gene_id: entry.gene_id.clone(),
                             tx_ids: vec![tx_id],
                         }
                     };
 
-                    tracing::debug!(
-                        "selected {:?} for gene {}",
+                    tracing::trace!(
+                        "picked transcripts {:?} for gene {}",
                         new_entry.tx_ids,
-                        new_entry.gene_name
+                        new_entry.gene_id
                     );
                     new_gene_to_tx.push(new_entry);
                 }
@@ -285,6 +285,11 @@ impl Provider {
                 &self.tx_seq_db.tx_db.as_ref().expect("no tx_db?").gene_to_tx
             };
 
+            // tracing::trace!(
+            //     "get_picked_transcripts({}) = {:?}",
+            //     hgnc_id,
+            //     &gene_to_tx[*gene_idx as usize].tx_ids
+            // );
             gene_to_tx[*gene_idx as usize].tx_ids.clone()
         })
     }
@@ -300,12 +305,16 @@ impl Provider {
     /// The `Transcript` for the given accession, or None if the accession was not found.
     pub fn get_tx(&self, tx_id: &str) -> Option<Transcript> {
         self.tx_map.get(tx_id).map(|idx| {
-            self.tx_seq_db
+            let result = self
+                .tx_seq_db
                 .tx_db
                 .as_ref()
                 .expect("no tx_db?")
                 .transcripts[*idx as usize]
-                .clone()
+                .clone();
+
+            // tracing::trace!("get_tx({}) = {:?}", tx_id, &result);
+            result
         })
     }
 }
@@ -413,7 +422,7 @@ impl ProviderInterface for Provider {
                     .exons
                     .iter()
                     .map(|exon| TxExonsRecord {
-                        hgnc: tx.gene_name.clone(),
+                        hgnc: tx.gene_id.clone(),
                         tx_ac: tx_ac.to_string(),
                         alt_ac: alt_ac.to_string(),
                         alt_aln_method: ALT_ALN_METHOD.to_string(),
@@ -509,7 +518,7 @@ impl ProviderInterface for Provider {
             .expect("no tx_db?")
             .transcripts[tx_idx];
 
-        let hgnc = tx.gene_name.clone();
+        let hgnc = tx.gene_id.clone();
 
         let mut tmp = tx
             .genome_alignments
@@ -561,7 +570,7 @@ impl ProviderInterface for Provider {
         for genome_alignment in &tx.genome_alignments {
             if genome_alignment.contig == alt_ac {
                 return Ok(TxInfoRecord {
-                    hgnc: tx.gene_name.clone(),
+                    hgnc: tx.gene_id.clone(),
                     cds_start_i: genome_alignment.cds_start,
                     cds_end_i: genome_alignment.cds_end,
                     tx_ac: tx.id.clone(),

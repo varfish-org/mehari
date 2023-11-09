@@ -53,7 +53,7 @@ use crate::annotate::seqvars::provider::{
 };
 use crate::common::GenomeRelease;
 
-use crate::db::create::txs::data::TxSeqDatabase;
+use crate::db::create::data::TxSeqDatabase;
 use crate::finalize_buf_writer;
 use crate::ped::{PedigreeByName, Sex};
 
@@ -1479,7 +1479,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
         provider,
         assembly,
         ConsequencePredictorConfigBuilder::default()
-            .all_transcripts(args.report_all_transcripts)
+            .report_all_transcripts(args.report_all_transcripts)
             .build()
             .unwrap(),
     );
