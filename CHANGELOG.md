@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0](https://github.com/bihealth/mehari/compare/v0.15.2...v0.16.0) (2023-11-09)
+
+
+### Features
+
+* allow user to select transcript source on CLI ([#247](https://github.com/bihealth/mehari/issues/247)) ([#249](https://github.com/bihealth/mehari/issues/249)) ([caab82e](https://github.com/bihealth/mehari/commit/caab82ec2666ee5c38478cc2455adcb1d0a75250))
+* update tx support to latest cdot with MANE label transfer ([#245](https://github.com/bihealth/mehari/issues/245)) ([#248](https://github.com/bihealth/mehari/issues/248)) ([b69e80d](https://github.com/bihealth/mehari/commit/b69e80d35501beda2f29cbf635f9e4768751975f))
+
 ## [0.15.2](https://github.com/bihealth/mehari/compare/v0.15.1...v0.15.2) (2023-10-28)
 
 
