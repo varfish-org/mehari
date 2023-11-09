@@ -31,10 +31,35 @@ pub struct VcfVariant {
     pub alternative: String,
 }
 
+/// Enum that allows to select the transcript source.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    serde::Deserialize,
+    serde::Serialize,
+    clap::ValueEnum,
+)]
+pub enum TranscriptSource {
+    /// ENSEMBL
+    Ensembl,
+    /// RefSeq
+    RefSeq,
+    /// Both
+    #[default]
+    Both,
+}
+
 /// Configuration for consequence prediction.
 #[derive(Debug, Clone, derive_builder::Builder)]
 #[builder(pattern = "immutable")]
 pub struct Config {
+    /// The transcript source to use.
+    #[builder(default = "TranscriptSource::Both")]
+    pub transcript_source: TranscriptSource,
     /// Whether to report consequences for all picked transcripts.
     #[builder(default = "true")]
     pub report_all_transcripts: bool,
@@ -152,11 +177,10 @@ impl ConsequencePredictor {
                 self.provider
                     .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)?;
             txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
-            // Filter transcripts to the picked ones.
-            tracing::info!(" txs = {:#?}", &txs);
-            self.filter_picked_txs(txs)
+            // Filter transcripts to the picked ones from the selected
+            // transcript source.
+            self.filter_picked_sourced_txs(txs)
         };
-        tracing::info!(" txs = {:#?}", &txs);
 
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
         let anns_all_txs = txs
@@ -173,8 +197,21 @@ impl ConsequencePredictor {
         Ok(Some(self.filter_ann_fields(anns_all_txs)))
     }
 
-    // Filter transcripts to the picked ones.
-    fn filter_picked_txs(&self, txs: Vec<TxForRegionRecord>) -> Vec<TxForRegionRecord> {
+    // Filter transcripts to the picked ones from the selected transcript source.
+    fn filter_picked_sourced_txs(&self, txs: Vec<TxForRegionRecord>) -> Vec<TxForRegionRecord> {
+        fn is_ensembl(tx: &TxForRegionRecord) -> bool {
+            tx.tx_ac.starts_with("ENST")
+        }
+
+        let txs = match self.config.transcript_source {
+            TranscriptSource::Ensembl => txs.into_iter().filter(is_ensembl).collect::<Vec<_>>(),
+            TranscriptSource::RefSeq => txs
+                .into_iter()
+                .filter(|tx| !is_ensembl(tx))
+                .collect::<Vec<_>>(),
+            TranscriptSource::Both => txs,
+        };
+
         // Short-circuit if transcript picking has been disabled.
         if !self.provider.transcript_picking() {
             return txs;
