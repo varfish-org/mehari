@@ -6,7 +6,7 @@ use biocommons_bioutils::assemblies::Assembly;
 use hgvs::data::interface::Provider;
 
 use crate::{
-    annotate::seqvars::provider::{MehariProvider, TxIntervalTrees},
+    annotate::seqvars::provider::{Provider as MehariProvider, TxIntervalTrees},
     db::create::txs::data::{Strand, Transcript, TxSeqDatabase},
 };
 

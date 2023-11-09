@@ -45,8 +45,12 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thousands::Separable;
 
-use crate::annotate::seqvars::csq::{ConsequencePredictor, VcfVariant};
-use crate::annotate::seqvars::provider::MehariProvider;
+use crate::annotate::seqvars::csq::{
+    ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
+};
+use crate::annotate::seqvars::provider::{
+    ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
+};
 use crate::common::GenomeRelease;
 
 use crate::db::create::txs::data::TxSeqDatabase;
@@ -87,6 +91,14 @@ pub struct Args {
     pub path_input_vcf: String,
     #[command(flatten)]
     pub output: PathOutput,
+
+    /// Whether to report for all picked transcripts.
+    #[arg(long, default_value_t = true)]
+    pub report_all_transcripts: bool,
+    /// Limit transcripts to (a) ManeSelect+ManePlusClinical, (b) ManeSelect,
+    /// (c) longest transcript for the gene - the first available.
+    #[arg(long, default_value_t = false)]
+    pub transcript_picking: bool,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
@@ -1455,8 +1467,22 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
         path_component(assembly)
     ))?;
     tracing::info!("Building transcript interval trees ...");
-    let provider = Arc::new(MehariProvider::new(tx_db, assembly));
-    let predictor = ConsequencePredictor::new(provider, assembly);
+    let provider = Arc::new(MehariProvider::new(
+        tx_db,
+        assembly,
+        MehariProviderConfigBuilder::default()
+            .transcript_picking(args.transcript_picking)
+            .build()
+            .unwrap(),
+    ));
+    let predictor = ConsequencePredictor::new(
+        provider,
+        assembly,
+        ConsequencePredictorConfigBuilder::default()
+            .all_transcripts(args.report_all_transcripts)
+            .build()
+            .unwrap(),
+    );
     tracing::info!("... done building transcript interval trees");
 
     // Perform the VCF annotation.
@@ -1647,6 +1673,8 @@ mod test {
         };
         let args = Args {
             genome_release: None,
+            report_all_transcripts: false,
+            transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from(
                 "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf",
@@ -1682,6 +1710,8 @@ mod test {
         };
         let args = Args {
             genome_release: None,
+            report_all_transcripts: true,
+            transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from(
                 "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf",
@@ -1729,6 +1759,8 @@ mod test {
         };
         let args = Args {
             genome_release: None,
+            report_all_transcripts: true,
+            transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/db/create/badly_formed_vcf_entry.vcf"),
             output: PathOutput {
@@ -1764,6 +1796,8 @@ mod test {
         };
         let args = Args {
             genome_release: None,
+            report_all_transcripts: true,
+            transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/db/create/mitochondrial_variants.vcf"),
             output: PathOutput {

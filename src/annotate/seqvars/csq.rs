@@ -9,12 +9,13 @@ use hgvs::{
         Accession, CdsFrom, GenomeInterval, GenomeLocEdit, HgvsVariant, Mu, NaEdit, ProtLocEdit,
     },
 };
+use rustc_hash::FxHashMap;
 
 use crate::db::create::txs::data::{self, Strand, TranscriptBiotype};
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
-    provider::MehariProvider,
+    provider::Provider as MehariProvider,
 };
 
 /// A variant description how VCF would do it.
@@ -30,6 +31,15 @@ pub struct VcfVariant {
     pub alternative: String,
 }
 
+/// Configuration for consequence prediction.
+#[derive(Debug, Clone, Default, derive_builder::Builder)]
+#[builder(pattern = "immutable")]
+pub struct Config {
+    /// Whether to report consequences for all picked transcripts.
+    #[builder(default = "false")]
+    pub all_transcripts: bool,
+}
+
 /// Wrap mapper, provider, and map for consequence prediction.
 #[derive(derivative::Derivative)]
 #[derivative(Debug)]
@@ -43,6 +53,9 @@ pub struct ConsequencePredictor {
     /// Mapping from chromosome name to accession.
     #[derivative(Debug = "ignore")]
     chrom_to_acc: HashMap<String, String>,
+    /// Configuration for the predictor.
+    #[derivative(Debug = "ignore")]
+    config: Config,
 }
 
 /// Padding to look for genes upstream/downstream.
@@ -51,8 +64,8 @@ pub const PADDING: i32 = 5_000;
 pub const ALT_ALN_METHOD: &str = "splign";
 
 impl ConsequencePredictor {
-    pub fn new(provider: Arc<MehariProvider>, assembly: Assembly) -> Self {
-        let acc_to_chrom = provider.get_assembly_map(assembly);
+    pub fn new(provider: Arc<MehariProvider>, assembly: Assembly, config: Config) -> Self {
+        let acc_to_chrom: indexmap::IndexMap<String, String> = provider.get_assembly_map(assembly);
         let mut chrom_to_acc = HashMap::new();
         for (acc, chrom) in &acc_to_chrom {
             let chrom = if chrom.starts_with("chr") {
@@ -64,22 +77,43 @@ impl ConsequencePredictor {
             chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
         }
 
-        let config = assembly::Config {
+        let mapper_config = assembly::Config {
             replace_reference: false,
             strict_bounds: false,
             renormalize_g: false,
             genome_seq_available: false,
             ..Default::default()
         };
-        let mapper = assembly::Mapper::new(config, provider.clone());
+        let mapper = assembly::Mapper::new(mapper_config, provider.clone());
 
         ConsequencePredictor {
             provider,
             mapper,
             chrom_to_acc,
+            config,
         }
     }
 
+    /// Predict the consequences of a variant.
+    ///
+    /// Note that the predictions will be affected by whether transcript picking has been
+    /// enabled in the data provider and the configuration of the predictor, in particular
+    /// `Config::all_transcripts`.
+    ///
+    /// # Args
+    ///
+    /// * `var`: The variant to predict consequences for.
+    ///
+    /// # Returns
+    ///
+    /// A list of `AnnField` records, one for each transcript affected by the variant
+    /// sorted lexicographically by transcript accession.
+    ///
+    /// If the accessio is not valid, then `None` will be returned.
+    ///
+    /// # Errors
+    ///
+    /// If there was any error during the prediction.
     pub fn predict(&self, var: &VcfVariant) -> Result<Option<Vec<AnnField>>, anyhow::Error> {
         // Normalize variant by stripping common prefix and suffix.
         let norm_var = self.normalize_variant(var);
@@ -107,24 +141,88 @@ impl ConsequencePredictor {
         };
         let qry_start = var_start - PADDING;
         let qry_end = var_end + PADDING;
-        let mut txs =
-            self.provider
-                .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)?;
-        txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
+        let txs = {
+            let mut txs =
+                self.provider
+                    .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)?;
+            txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
+            // Filter transcripts to the picked ones.
+            self.filter_picked_txs(txs)
+        };
 
-        // Generate `AnnField` records for each transcript.
+        // Compute annotations for all (picked) transcripts first, skipping `None`` results.
+        let anns_all_txs = txs
+            .into_iter()
+            .map(|tx| {
+                self.build_ann_field(var, &norm_var, tx, chrom_acc.clone(), var_start, var_end)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        // Return all or worst annotation only.
+        Ok(Some(self.filter_ann_fields(anns_all_txs)))
+    }
+
+    // Filter transcripts to the picked ones.
+    fn filter_picked_txs(&self, txs: Vec<TxForRegionRecord>) -> Vec<TxForRegionRecord> {
+        // Short-circuit if transcript picking has been disabled.
+        if !self.provider.transcript_picking() {
+            return txs;
+        }
+
+        // Get gene ids for all transcripts in `txs`, then obtain the picked transcript
+        // identifiers for these genes and limit `txs` to those transcripts.
+        let picked_txs = txs
+            .iter()
+            .flat_map(|tx| self.provider.get_tx(&tx.tx_ac))
+            .flat_map(|tx| self.provider.get_picked_transcripts(&tx.gene_id))
+            .flatten()
+            .collect::<Vec<_>>();
+        txs.into_iter()
+            .filter(|tx| picked_txs.contains(&tx.tx_ac))
+            .collect::<Vec<_>>()
+    }
+
+    /// Filter the ANN fields depending on the configuration.
+    ///
+    /// If all transcripts are to be reported then return `ann_fields` as is, otherwise
+    /// select one worst consequence per gene.
+    fn filter_ann_fields(&self, ann_fields: Vec<AnnField>) -> Vec<AnnField> {
+        // Short-circuit if to report all transcript results.
+        if self.config.all_transcripts {
+            return ann_fields;
+        }
+
+        // First, split annotations by gene.
+        let mut anns_by_gene: FxHashMap<String, Vec<AnnField>> = FxHashMap::default();
+        for ann in ann_fields {
+            let gene_id = ann.gene_id.clone();
+            anns_by_gene.entry(gene_id).or_default().push(ann);
+        }
+
+        /// Return sort order for ANN biotype, gives priority to ManeSelect and ManePlusClinical.
+        fn biotype_order(biotypes: &[FeatureBiotype]) -> i32 {
+            if biotypes.contains(&FeatureBiotype::ManeSelect) {
+                0
+            } else if biotypes.contains(&FeatureBiotype::ManePlusClinical) {
+                1
+            } else {
+                2
+            }
+        }
+
+        // Now, sort by consequence, giving priority to ManeSelect and ManePlusClinical.
         //
-        // Skip `None` results.
-        Ok(Some(
-            txs.into_iter()
-                .map(|tx| {
-                    self.build_ann_field(var, &norm_var, tx, chrom_acc.clone(), var_start, var_end)
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>(),
-        ))
+        // This uses the invariant that the consequences in the ANN fields are sorted already
+        // and there is at least one consequence.
+        let mut result = Vec::new();
+        for anns in anns_by_gene.values_mut() {
+            anns.sort_by_key(|ann| (ann.consequences[0], biotype_order(&ann.feature_biotype)));
+            result.push(anns.remove(0));
+        }
+        result
     }
 
     fn build_ann_field(
@@ -758,9 +856,14 @@ mod test {
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Assembly::Grch37p10,
+            Default::default(),
+        ));
 
-        let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
+        let predictor =
+            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
 
         let res = predictor
             .predict(&VcfVariant {
@@ -858,8 +961,13 @@ mod test {
     fn annotate_vars(path_tsv: &str, txs: &[String]) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(tx_db, Assembly::Grch37p10));
-        let predictor = ConsequencePredictor::new(provider, Assembly::Grch37p10);
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Assembly::Grch37p10,
+            Default::default(),
+        ));
+        let predictor =
+            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
 
         let mut reader = ReaderBuilder::new()
             .delimiter(b'\t')

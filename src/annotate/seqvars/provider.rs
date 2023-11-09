@@ -19,7 +19,7 @@ use hgvs::{
 
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
-    db::create::txs::data::{Strand, Transcript, TxSeqDatabase},
+    db::create::txs::data::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
 
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
@@ -92,16 +92,52 @@ impl TxIntervalTrees {
     }
 }
 
-pub struct MehariProvider {
-    pub tx_seq_db: TxSeqDatabase,
-    pub tx_trees: TxIntervalTrees,
-    tx_map: HashMap<String, u32>,
-    seq_map: HashMap<String, u32>,
+/// Configuration for constructing the `Provider`.
+#[derive(Debug, Clone, Default, derive_builder::Builder)]
+#[builder(pattern = "immutable")]
+pub struct Config {
+    /// * `transcript_picking` - Whether to use transcript picking.  When
+    ///   enabled, only use (a) ManeSelect+ManePlusClinical, (b) ManeSelect,
+    ///   (c) longest transcript (the first available).
+    pub transcript_picking: bool,
 }
 
-impl MehariProvider {
-    pub fn new(tx_seq_db: TxSeqDatabase, assembly: Assembly) -> Self {
+/// Provider based on the protobuf `TxSeqDatabase`.
+pub struct Provider {
+    /// Database of transcripts and sequences as deserialized from protobuf.
+    pub tx_seq_db: TxSeqDatabase,
+    /// Interval trees for the tanscripts.
+    pub tx_trees: TxIntervalTrees,
+    /// Mapping from gene identifier to index in `TxSeqDatabase::tx_db::gene_to_tx`.
+    gene_map: HashMap<String, u32>,
+    /// Mapping from transcript accession to index in `TxSeqDatabase::tx_db::transcripts`.
+    tx_map: HashMap<String, u32>,
+    /// Mapping from sequence accession to index in `TxSeqDatabase::seq_db::seqs`.
+    seq_map: HashMap<String, u32>,
+    /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
+    /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
+    picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
+}
+
+impl Provider {
+    /// Create a new `MehariProvider` from a `TxSeqDatabase`.
+    ///
+    /// # Arguments
+    ///
+    /// * `tx_seq_db` - The `TxSeqDatabase` to use.
+    /// * `assembly` - The assembly to use.
+    pub fn new(mut tx_seq_db: TxSeqDatabase, assembly: Assembly, config: Config) -> Self {
         let tx_trees = TxIntervalTrees::new(&tx_seq_db, assembly);
+        let gene_map = HashMap::from_iter(
+            tx_seq_db
+                .tx_db
+                .as_ref()
+                .expect("no tx_db?")
+                .gene_to_tx
+                .iter()
+                .enumerate()
+                .map(|(idx, entry)| (entry.gene_name.clone(), idx as u32)),
+        );
         let tx_map = HashMap::from_iter(
             tx_seq_db
                 .tx_db
@@ -130,14 +166,138 @@ impl MehariProvider {
                 .map(|(alias, idx)| (alias.clone(), *idx)),
         );
 
+        // When transcript picking is enabled, restrict to ManeSelect and ManePlusClinical if
+        // we have any such transcript.  Otherwise, fall back to the longest transcript.
+        let picked_gene_to_tx_id = if config.transcript_picking {
+            if let Some(tx_db) = tx_seq_db.tx_db.as_mut() {
+                // The new gene-to-txid mapping we will build.
+                let mut new_gene_to_tx = Vec::new();
+
+                // Process each gene.
+                for entry in tx_db.gene_to_tx.iter() {
+                    // First, determine whether we have any MANE transcripts.
+                    let mane_tx_ids = entry
+                        .tx_ids
+                        .iter()
+                        .filter(|tx_id| {
+                            tx_map
+                                .get(*tx_id)
+                                .map(|tx_idx| {
+                                    let tx = &tx_db.transcripts[*tx_idx as usize];
+                                    tx.tags.contains(&TranscriptTag::ManePlusClinical.into())
+                                        || tx.tags.contains(&TranscriptTag::ManeSelect.into())
+                                })
+                                .unwrap_or_default()
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+
+                    // Now, construct gene-to-txid mapping entry.
+                    let new_entry = if !mane_tx_ids.is_empty() {
+                        // For the case that we have MANE transcripts.
+                        GeneToTxId {
+                            gene_name: entry.gene_name.clone(),
+                            tx_ids: mane_tx_ids,
+                        }
+                    } else {
+                        // Otherwise, determine the longest transcript's length.
+                        let (_, tx_id) = entry
+                            .tx_ids
+                            .iter()
+                            .map(|tx_id| {
+                                tx_map
+                                    .get(tx_id)
+                                    .map(|tx_idx| {
+                                        // A slight complication, we need to look at all genome alignments...
+                                        let tx = &tx_db.transcripts[*tx_idx as usize];
+                                        let mut max_tx_length = 0;
+                                        for genome_alignment in tx.genome_alignments.iter() {
+                                            // We just count length in reference so we don't have to look
+                                            // into the CIGAR string.
+                                            let mut tx_length = 0;
+                                            for exon_alignment in genome_alignment.exons.iter() {
+                                                tx_length += exon_alignment.alt_cds_end_i()
+                                                    - exon_alignment.alt_cds_start_i();
+                                            }
+                                            if tx_length > max_tx_length {
+                                                max_tx_length = tx_length;
+                                            }
+                                        }
+                                        (max_tx_length, tx_id.clone())
+                                    })
+                                    .unwrap_or_default()
+                            })
+                            .max()
+                            .unwrap_or_else(|| panic!("no length for gene {}", &entry.gene_name));
+
+                        GeneToTxId {
+                            gene_name: entry.gene_name.clone(),
+                            tx_ids: vec![tx_id],
+                        }
+                    };
+
+                    tracing::debug!(
+                        "selected {:?} for gene {}",
+                        new_entry.tx_ids,
+                        new_entry.gene_name
+                    );
+                    new_gene_to_tx.push(new_entry);
+                }
+
+                Some(new_gene_to_tx)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         Self {
             tx_seq_db,
             tx_trees,
+            gene_map,
             tx_map,
             seq_map,
+            picked_gene_to_tx_id,
         }
     }
 
+    /// Return whether transcript picking is enabled.
+    pub fn transcript_picking(&self) -> bool {
+        self.picked_gene_to_tx_id.is_some()
+    }
+
+    /// Return the picked transcript IDs for a gene.
+    ///
+    /// # Args
+    ///
+    /// * `gene_name` - The gene HGNC ID.
+    ///
+    /// # Returns
+    ///
+    /// The picked transcript IDs, or None if the gene is not found.
+    pub fn get_picked_transcripts(&self, hgnc_id: &str) -> Option<Vec<String>> {
+        self.gene_map.get(hgnc_id).map(|gene_idx| {
+            let gene_to_tx = if let Some(picked_gene_to_tx_id) = self.picked_gene_to_tx_id.as_ref()
+            {
+                picked_gene_to_tx_id
+            } else {
+                &self.tx_seq_db.tx_db.as_ref().expect("no tx_db?").gene_to_tx
+            };
+
+            gene_to_tx[*gene_idx as usize].tx_ids.clone()
+        })
+    }
+
+    /// Return `Transcript` for the given transcript accession.
+    ///
+    /// # Args
+    ///
+    /// * `tx_id` - The transcript accession.
+    ///
+    /// # Returns
+    ///
+    /// The `Transcript` for the given accession, or None if the accession was not found.
     pub fn get_tx(&self, tx_id: &str) -> Option<Transcript> {
         self.tx_map.get(tx_id).map(|idx| {
             self.tx_seq_db
@@ -150,7 +310,7 @@ impl MehariProvider {
     }
 }
 
-impl ProviderInterface for MehariProvider {
+impl ProviderInterface for Provider {
     fn data_version(&self) -> &str {
         panic!("not implemented");
     }
@@ -445,6 +605,6 @@ mod test {
     #[test]
     fn test_sync() {
         fn is_sync<T: Sync>() {}
-        is_sync::<super::MehariProvider>();
+        is_sync::<super::Provider>();
     }
 }
