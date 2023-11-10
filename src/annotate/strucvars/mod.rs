@@ -3277,9 +3277,9 @@ mod test {
         bnd::Breakend,
         build_vcf_record_converter,
         conv::{
-            DellyVcfRecordConverter, DragenCnvVcfRecordConverter, DragenSvVcfRecordConverter,
-            GcnvVcfRecordConverter, MantaVcfRecordConverter, MeltVcfRecordConverter,
-            PopdelVcfRecordConverter, ClinCnvVcfRecordConverter,
+            ClinCnvVcfRecordConverter, DellyVcfRecordConverter, DragenCnvVcfRecordConverter,
+            DragenSvVcfRecordConverter, GcnvVcfRecordConverter, MantaVcfRecordConverter,
+            MeltVcfRecordConverter, PopdelVcfRecordConverter,
         },
         guess_sv_caller, run, vcf_header, Args, PathOutput, VarFishStrucvarTsvWriter, VcfHeader,
         VcfRecord, VcfRecordConverter,

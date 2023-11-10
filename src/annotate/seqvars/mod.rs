@@ -615,27 +615,27 @@ impl GenotypeCalls {
                 result.push_str(&format!("\"\"\"gt\"\"\":\"\"\"{}\"\"\"", gt));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(ad) = &entry.ad {
+                if prev {
+                    result.push(',');
+                }
                 prev = true;
                 result.push_str(&format!("\"\"\"ad\"\"\":{}", ad));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(dp) = &entry.dp {
+                if prev {
+                    result.push(',');
+                }
                 prev = true;
                 result.push_str(&format!("\"\"\"dp\"\"\":{}", dp));
             }
 
-            if prev {
-                result.push(',');
-            }
             if let Some(gq) = &entry.gq {
-                // prev = true;
+                if prev {
+                    result.push(',');
+                }
+                prev = true;
                 result.push_str(&format!("\"\"\"gq\"\"\":{}", gq));
             }
 
