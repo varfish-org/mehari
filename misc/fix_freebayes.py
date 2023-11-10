@@ -18,6 +18,7 @@ def main(
     Fix FreeBayes VCF files to be compatible with the VCF4.2 standard.
 
     - Ensure the FORMAT=GQ field is an Integer.
+    - If AD is missing, derive AD from DP and AO.
     """
     if not quiet:
         print(f"Opening input file {path_in}", file=sys.stderr)
@@ -35,12 +36,17 @@ def main(
     with reader, writer:
         for idx, record in enumerate(reader):
             if idx % 10_000 == 0:
-                print(f"  at {idx} records {record.CHROM}:{record.POS}", file=sys.stderr)
-                if idx > 100_000:
-                    break
+                print(
+                    f"  at {idx} records {record.CHROM}:{record.POS}", file=sys.stderr
+                )
+            if "AD" not in record.FORMAT and "AO" in record.FORMAT and "DP" in record.FORMAT:
+                record.FORMAT.append("AD")
             for call in record.calls:
                 if "GQ" in call.data:
                     call.data["GQ"] = int(call.data["GQ"])
+                if "AD" not in call.data and "AO" in call.data and "DP" in call.data:
+                    assert len(call.data["AO"]) == 1
+                    call.data["AD"] = [call.data["DP"] - call.data["AO"][0], call.data["AO"][0]]
             writer.write_record(record)
     if not quiet:
         print("... done", file=sys.stderr)
