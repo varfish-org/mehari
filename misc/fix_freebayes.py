@@ -35,7 +35,9 @@ def main(
     with reader, writer:
         for idx, record in enumerate(reader):
             if idx % 10_000 == 0:
-                print(f"  at {idx} records {record.CHROM}:{record.POS}", file=sys.stderr)
+                print(
+                    f"  at {idx} records {record.CHROM}:{record.POS}", file=sys.stderr
+                )
                 if idx > 100_000:
                     break
             for call in record.calls:

@@ -1444,6 +1444,7 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
 /// Enumeration for the supported variant callers.
 #[derive(Debug, Clone, PartialEq, EnumIter, Serialize, Deserialize)]
 pub enum SvCaller {
+    ClinCnv { version: String },
     Delly { version: String },
     DragenSv { version: String },
     DragenCnv { version: String },
@@ -1457,6 +1458,10 @@ impl SvCaller {
     /// Consider the VCF header and return whether the caller is compatible with `self`.
     fn caller_compatible(&self, header: &VcfHeader) -> bool {
         match self {
+            SvCaller::ClinCnv { .. } => {
+                self.all_format_defined(header, &["GT", "CN", "GQ", "NP"])
+                    && self.all_info_defined(header, &["END", "SVTYPE", "SVLEN"])
+            }
             SvCaller::Delly { .. } => {
                 self.all_format_defined(header, &["RC", "RCL", "RCR"])
                     && self.all_info_defined(header, &["CHR2", "INSLEN", "HOMLEN"])
@@ -1498,6 +1503,9 @@ impl SvCaller {
         record: &VcfRecord,
     ) -> Result<Self, anyhow::Error> {
         Ok(match self {
+            SvCaller::ClinCnv { .. } => SvCaller::ClinCnv {
+                version: self.version_from_source_trailing(header)?.replace('v', ""),
+            },
             SvCaller::Delly { .. } => SvCaller::Delly {
                 version: self.version_from_info_svmethod(record)?,
             },
@@ -1976,6 +1984,81 @@ mod conv {
         }
 
         Ok(())
+    }
+
+    pub struct ClinCnvVcfRecordConverter {
+        /// The samples from the VCF file.
+        pub samples: Vec<String>,
+        /// The Delly caller version.
+        pub version: String,
+    }
+
+    impl ClinCnvVcfRecordConverter {
+        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+            Self {
+                samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
+                version: version.to_string(),
+            }
+        }
+    }
+
+    impl VcfRecordConverter for ClinCnvVcfRecordConverter {
+        fn caller_version(&self) -> String {
+            format!("ClinCNVv{}", self.version)
+        }
+
+        fn fill_cis(
+            &self,
+            vcf_record: &VcfRecord,
+            tsv_record: &mut VarFishStrucvarTsvRecord,
+        ) -> Result<(), anyhow::Error> {
+            extract_standard_cis(vcf_record, tsv_record)
+        }
+
+        fn fill_genotypes(
+            &self,
+            pedigree: &PedigreeByName,
+            vcf_record: &VcfRecord,
+            tsv_record: &mut VarFishStrucvarTsvRecord,
+        ) -> Result<(), anyhow::Error> {
+            let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
+
+            // Extract `FORMAT/*` values.
+            for (sample_no, sample) in vcf_record.genotypes().values().enumerate() {
+                entries[sample_no].name = self.samples[sample_no].clone();
+
+                for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+                    match (key.as_ref(), value) {
+                        // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+                        ("GT", Some(SampleValue::String(gt))) => {
+                            process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
+                        }
+                        // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
+                        ("CN", Some(SampleValue::Integer(cn))) => {
+                            entries[sample_no].cn = Some(*cn);
+                        }
+                        // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
+                        ("GQ", Some(SampleValue::Integer(gq))) => {
+                            entries[sample_no].gq = Some(*gq);
+                        }
+                        // Obtain `GenotypeInfo::pc` from `FORMAT/NP`.
+                        ("NP", Some(SampleValue::Integer(np))) => {
+                            entries[sample_no].pc = Some(*np);
+                        }
+                        // Ignore all other keys.
+                        _ => (),
+                    }
+                }
+            }
+
+            // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
+
+            tsv_record.genotype.entries = entries;
+            // Post-process genotype and copy number fields and update carrier count as needed.
+            postproc_gt_cn(tsv_record, pedigree);
+
+            Ok(())
+        }
     }
 
     pub struct DellyVcfRecordConverter {
@@ -2628,6 +2711,9 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
     samples: &[T],
 ) -> Box<dyn VcfRecordConverter> {
     match caller {
+        SvCaller::ClinCnv { version } => {
+            Box::new(conv::ClinCnvVcfRecordConverter::new(version, samples))
+        }
         SvCaller::Delly { version } => {
             Box::new(conv::DellyVcfRecordConverter::new(version, samples))
         }
@@ -3193,7 +3279,7 @@ mod test {
         conv::{
             DellyVcfRecordConverter, DragenCnvVcfRecordConverter, DragenSvVcfRecordConverter,
             GcnvVcfRecordConverter, MantaVcfRecordConverter, MeltVcfRecordConverter,
-            PopdelVcfRecordConverter,
+            PopdelVcfRecordConverter, ClinCnvVcfRecordConverter,
         },
         guess_sv_caller, run, vcf_header, Args, PathOutput, VarFishStrucvarTsvWriter, VcfHeader,
         VcfRecord, VcfRecordConverter,
@@ -3308,6 +3394,20 @@ mod test {
         }
 
         result
+    }
+
+    #[test]
+    fn vcf_to_jsonl_clincnv_min() -> Result<(), anyhow::Error> {
+        let path_input_vcf = "tests/data/annotate/strucvars/clincnv-min.vcf";
+        let samples = vcf_samples(path_input_vcf)?;
+        let pedigree = sample_ped(&samples);
+
+        run_test_vcf_to_jsonl(
+            &pedigree,
+            path_input_vcf,
+            "tests/data/annotate/strucvars/clincnv-min.out.jsonl",
+            &ClinCnvVcfRecordConverter::new("1.17.0", &samples),
+        )
     }
 
     #[test]
@@ -3435,6 +3535,15 @@ mod test {
                 converter.as_ref(),
             )?;
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn guess_sv_caller_clincnv() -> Result<(), anyhow::Error> {
+        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/clincnv-min.vcf").await?;
+        let sv_caller = guess_sv_caller(&mut reader).await?;
+        insta::assert_yaml_snapshot!(sv_caller);
 
         Ok(())
     }
