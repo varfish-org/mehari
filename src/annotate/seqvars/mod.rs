@@ -635,7 +635,7 @@ impl GenotypeCalls {
                 if prev {
                     result.push(',');
                 }
-                prev = true;
+                // prev = true;
                 result.push_str(&format!("\"\"\"gq\"\"\":{}", gq));
             }
 
