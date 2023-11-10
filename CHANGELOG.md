@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.17.0](https://github.com/bihealth/mehari/compare/v0.16.0...v0.17.0) (2023-11-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* make --path-input-ped for seqvars annotation required ([#194](https://github.com/bihealth/mehari/issues/194)) (#255)
+
+### Features
+
+* adding helper script to fix FreeBayes VCF ([#252](https://github.com/bihealth/mehari/issues/252)) ([#254](https://github.com/bihealth/mehari/issues/254)) ([4bd5461](https://github.com/bihealth/mehari/commit/4bd5461bdbabb1124e17c735bad0c1b282fa2712))
+* adding support for ClinCNV ([#253](https://github.com/bihealth/mehari/issues/253)) ([#257](https://github.com/bihealth/mehari/issues/257)) ([aba47c9](https://github.com/bihealth/mehari/commit/aba47c93f21aa8752d762e72a4635df19215f643))
+
+
+### Bug Fixes
+
+* make --path-input-ped for seqvars annotation required ([#194](https://github.com/bihealth/mehari/issues/194)) ([#255](https://github.com/bihealth/mehari/issues/255)) ([de832b2](https://github.com/bihealth/mehari/commit/de832b22ec6a55429e63c365c3bb787ea2e94209))
+
 ## [0.16.0](https://github.com/bihealth/mehari/compare/v0.15.2...v0.16.0) (2023-11-09)
 
 
