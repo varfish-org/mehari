@@ -279,9 +279,9 @@ dependencies = [
  "noodles-bed",
  "noodles-bgzf 0.25.0",
  "noodles-core",
- "noodles-csi",
- "noodles-tabix",
- "noodles-vcf",
+ "noodles-csi 0.26.0",
+ "noodles-tabix 0.32.0",
+ "noodles-vcf 0.45.0",
  "prost",
  "prost-build",
  "rayon",
@@ -2073,10 +2073,10 @@ dependencies = [
  "nom",
  "noodles-bgzf 0.25.0",
  "noodles-core",
- "noodles-csi",
+ "noodles-csi 0.27.0",
  "noodles-fasta 0.30.0",
- "noodles-tabix",
- "noodles-vcf",
+ "noodles-tabix 0.33.0",
+ "noodles-vcf 0.46.0",
  "parse-display",
  "pretty_assertions",
  "procfs",
@@ -2280,6 +2280,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "noodles-csi"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7083bacb69c8111dff9cae5f8798dda52b2146a56d02b01c1318d677fd266706"
+dependencies = [
+ "bit-vec",
+ "byteorder",
+ "indexmap 2.1.0",
+ "noodles-bgzf 0.25.0",
+ "noodles-core",
+]
+
+[[package]]
 name = "noodles-fasta"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2314,7 +2327,21 @@ dependencies = [
  "indexmap 2.1.0",
  "noodles-bgzf 0.25.0",
  "noodles-core",
- "noodles-csi",
+ "noodles-csi 0.26.0",
+]
+
+[[package]]
+name = "noodles-tabix"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c9a91d6c50540745dd0530949e0ce869dc3038243b4b8d183c55021a20f8d5f"
+dependencies = [
+ "bit-vec",
+ "byteorder",
+ "indexmap 2.1.0",
+ "noodles-bgzf 0.25.0",
+ "noodles-core",
+ "noodles-csi 0.27.0",
  "tokio",
 ]
 
@@ -2324,13 +2351,28 @@ version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6000206d1ec762d3c983fb189edde86a22c969de3bb90e4048c4916c492babfa"
 dependencies = [
+ "indexmap 2.1.0",
+ "memchr",
+ "noodles-bgzf 0.25.0",
+ "noodles-core",
+ "noodles-csi 0.26.0",
+ "noodles-tabix 0.32.0",
+ "percent-encoding",
+]
+
+[[package]]
+name = "noodles-vcf"
+version = "0.46.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9c3dd6754f7f78c3478d210eccdd6df566ce83e9a60b4cdd951e53cd2892e4e"
+dependencies = [
  "futures",
  "indexmap 2.1.0",
  "memchr",
  "noodles-bgzf 0.25.0",
  "noodles-core",
- "noodles-csi",
- "noodles-tabix",
+ "noodles-csi 0.27.0",
+ "noodles-tabix 0.33.0",
  "percent-encoding",
  "tokio",
 ]
