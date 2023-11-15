@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/bihealth/mehari/compare/v0.17.0...v0.17.1) (2023-11-15)
+
+
+### Bug Fixes
+
+* fixing implementation of Provider::get_tx_for_gene ([#262](https://github.com/bihealth/mehari/issues/262)) ([42945dd](https://github.com/bihealth/mehari/commit/42945dd3d08d4921e7ea5ab00525b07a192ad3c8))
+
 ## [0.17.0](https://github.com/bihealth/mehari/compare/v0.16.0...v0.17.0) (2023-11-10)
 
 
