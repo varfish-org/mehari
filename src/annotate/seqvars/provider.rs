@@ -457,8 +457,41 @@ impl ProviderInterface for Provider {
         ))
     }
 
-    fn get_tx_for_gene(&self, _gene: &str) -> Result<Vec<TxInfoRecord>, Error> {
-        panic!("not implemented");
+    fn get_tx_for_gene(&self, gene: &str) -> Result<Vec<TxInfoRecord>, Error> {
+        let tx_acs = self.get_picked_transcripts(gene).ok_or_else(|| {
+            tracing::warn!("gene ID not found {}", gene);
+            Error::NoGeneFound(gene.to_string())
+        })?;
+
+        tx_acs
+            .iter()
+            .map(|tx_ac| -> Result<TxInfoRecord, Error> {
+                let tx_idx = *self
+                    .tx_map
+                    .get(tx_ac)
+                    .ok_or(Error::NoTranscriptFound(tx_ac.to_string()))?;
+                let tx_idx = tx_idx as usize;
+                let tx = &self
+                    .tx_seq_db
+                    .tx_db
+                    .as_ref()
+                    .expect("no tx_db?")
+                    .transcripts[tx_idx];
+
+                if let Some(genome_alignment) = tx.genome_alignments.first() {
+                    Ok(TxInfoRecord {
+                        hgnc: tx.gene_id.clone(),
+                        cds_start_i: genome_alignment.cds_start,
+                        cds_end_i: genome_alignment.cds_end,
+                        tx_ac: tx.id.clone(),
+                        alt_ac: genome_alignment.contig.to_string(),
+                        alt_aln_method: "splign".into(),
+                    })
+                } else {
+                    Err(Error::NoTranscriptFound(gene.to_string()))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()
     }
 
     fn get_tx_for_region(
