@@ -478,17 +478,18 @@ impl ProviderInterface for Provider {
                     .expect("no tx_db?")
                     .transcripts[tx_idx];
 
-                for genome_alignment in &tx.genome_alignments {
-                    return Ok(TxInfoRecord {
+                if let Some(genome_alignment) = tx.genome_alignments.first() {
+                    Ok(TxInfoRecord {
                         hgnc: tx.gene_id.clone(),
                         cds_start_i: genome_alignment.cds_start,
                         cds_end_i: genome_alignment.cds_end,
                         tx_ac: tx.id.clone(),
                         alt_ac: genome_alignment.contig.to_string(),
                         alt_aln_method: "splign".into(),
-                    });
+                    })
+                } else {
+                    Err(Error::NoTranscriptFound(gene.to_string()))
                 }
-                Err(Error::NoTranscriptFound(gene.to_string()))
             })
             .collect::<Result<Vec<_>, _>>()
     }
