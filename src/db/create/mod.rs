@@ -212,16 +212,13 @@ fn load_and_extract(
             if let Some(txid_to_tags) = txid_to_label.as_ref() {
                 let tx_id_no_version = tx.id.split('.').next().unwrap();
                 if let Some(tags) = txid_to_tags.get(tx_id_no_version) {
-                    tx_out
-                        .genome_builds
-                        .iter_mut()
-                        .for_each(|(_, alignment)| {
-                            if let Some(alignment_tag) = &mut alignment.tag {
-                                alignment_tag.extend(tags.iter().cloned());
-                                alignment_tag.sort();
-                                alignment_tag.dedup();
-                            }
-                        });
+                    tx_out.genome_builds.iter_mut().for_each(|(_, alignment)| {
+                        if let Some(alignment_tag) = &mut alignment.tag {
+                            alignment_tag.extend(tags.iter().cloned());
+                            alignment_tag.sort();
+                            alignment_tag.dedup();
+                        }
+                    });
                 }
             }
             transcripts.insert(tx.id.clone(), tx_out);
