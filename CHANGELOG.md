@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/bihealth/mehari/compare/v0.17.1...v0.18.0) (2023-11-19)
+
+
+### Features
+
+* properly handle selenoprotein import from cdot ([#224](https://github.com/bihealth/mehari/issues/224)) ([#265](https://github.com/bihealth/mehari/issues/265)) ([20137ad](https://github.com/bihealth/mehari/commit/20137adff0d9f575885c3ee1f6691353a3d6d5b2))
+
 ## [0.17.1](https://github.com/bihealth/mehari/compare/v0.17.0...v0.17.1) (2023-11-15)
 
 
