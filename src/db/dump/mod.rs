@@ -1,6 +1,6 @@
 //! Dump transcript database.
 
-use std::path::PathBuf;
+use std::{io::Write, path::PathBuf};
 
 use clap::Parser;
 
@@ -15,13 +15,22 @@ pub struct Args {
     pub path_db: PathBuf,
 }
 
-/// Main entry point for `db create txs` sub command.
-pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
+/// Run with a Write.
+pub fn run_with_write<W: Write>(
+    _common: &crate::common::Args,
+    args: &Args,
+    writer: &mut W,
+) -> Result<(), anyhow::Error> {
     tracing::info!("Opening transcript database");
     let tx_db = load_tx_db(&format!("{}", args.path_db.display()))?;
     tracing::info!("Dumping ...");
-    serde_yaml::to_writer(std::io::stdout(), &tx_db)?;
+    serde_yaml::to_writer(writer, &tx_db)?;
     tracing::info!("... done");
 
     Ok(())
+}
+
+/// Main entry point for `db create txs` sub command.
+pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
+    run_with_write(common, args, &mut std::io::stdout())
 }

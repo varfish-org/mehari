@@ -1,9 +1,8 @@
 //! Transcript database.
 
-use std::collections::HashSet;
 use std::fs::File;
 use std::path::Path;
-use std::{collections::HashMap, io::Write, path::PathBuf, time::Instant};
+use std::{io::Write, path::PathBuf, time::Instant};
 
 use anyhow::anyhow;
 use clap::Parser;
@@ -74,9 +73,9 @@ struct LabelEntry {
 fn load_and_extract(
     json_path: &Path,
     label_tsv_path: &Option<&Path>,
-    transcript_ids_for_gene: &mut HashMap<String, Vec<String>>,
-    genes: &mut HashMap<String, models::Gene>,
-    transcripts: &mut HashMap<String, models::Transcript>,
+    transcript_ids_for_gene: &mut indexmap::IndexMap<String, Vec<String>>,
+    genes: &mut indexmap::IndexMap<String, models::Gene>,
+    transcripts: &mut indexmap::IndexMap<String, models::Transcript>,
     genome_release: GenomeRelease,
     cdot_version: &mut String,
     report_file: &mut File,
@@ -92,7 +91,7 @@ fn load_and_extract(
             .has_headers(false)
             .from_path(label_tsv_path)?;
 
-        let mut txid_to_label = HashMap::new();
+        let mut txid_to_label = indexmap::IndexMap::new();
         for result in rdr.deserialize() {
             let entry: LabelEntry = result?;
             txid_to_label.insert(
@@ -213,7 +212,16 @@ fn load_and_extract(
             if let Some(txid_to_tags) = txid_to_label.as_ref() {
                 let tx_id_no_version = tx.id.split('.').next().unwrap();
                 if let Some(tags) = txid_to_tags.get(tx_id_no_version) {
-                    tx_out.tag = Some(tags.clone());
+                    tx_out
+                        .genome_builds
+                        .iter_mut()
+                        .for_each(|(_, alignment)| {
+                            if let Some(alignment_tag) = &mut alignment.tag {
+                                alignment_tag.extend(tags.iter().cloned());
+                                alignment_tag.sort();
+                                alignment_tag.dedup();
+                            }
+                        });
                 }
             }
             transcripts.insert(tx.id.clone(), tx_out);
@@ -254,8 +262,8 @@ fn build_protobuf(
 
     // Construct sequence database.
     tracing::info!("  Constructing sequence database ...");
-    let mut tx_skipped_noseq = HashSet::new(); // skipped because of missing sequence
-    let mut tx_skipped_nostop = HashSet::new(); // skipped because of missing stop codon
+    let mut tx_skipped_noseq = indexmap::IndexSet::new(); // skipped because of missing sequence
+    let mut tx_skipped_nostop = indexmap::IndexSet::new(); // skipped because of missing stop codon
     let seq_db = {
         // Insert into protobuf and keep track of pointers in `Vec`s.
         let mut aliases = Vec::new();
@@ -386,6 +394,7 @@ fn build_protobuf(
 
             // ... for each transcript of the gene ...
             for tx_id in tx_ids {
+                let mut tags: Vec<i32> = Vec::new();
                 let tx_model = transcripts
                     .get(tx_id)
                     .unwrap_or_else(|| panic!("No transcript model for id {:?}", tx_id));
@@ -408,6 +417,34 @@ fn build_protobuf(
                         models::Strand::Plus => data::Strand::Plus,
                         models::Strand::Minus => data::Strand::Minus,
                     };
+                    if let Some(tag) = alignment.tag.as_ref() {
+                        for t in tag {
+                            let elem = match t {
+                                models::Tag::Basic => data::TranscriptTag::Basic.into(),
+                                models::Tag::EnsemblCanonical => {
+                                    data::TranscriptTag::EnsemblCanonical.into()
+                                }
+                                models::Tag::ManeSelect => data::TranscriptTag::ManeSelect.into(),
+                                models::Tag::ManePlusClinical => {
+                                    data::TranscriptTag::ManePlusClinical.into()
+                                }
+                                models::Tag::RefSeqSelect => {
+                                    data::TranscriptTag::RefSeqSelect.into()
+                                }
+                            };
+                            if !tags.contains(&elem) {
+                                tags.push(elem);
+                            }
+                        }
+                    }
+                    // Look into any "note" string for a selenoprotein marker and
+                    // add this as a tag.
+                    if let Some(note) = alignment.note.as_ref() {
+                        let needle = "UGA stop codon recoded as selenocysteine";
+                        if note.contains(needle) {
+                            tags.push(data::TranscriptTag::Selenoprotein.into());
+                        }
+                    }
                     // and construct vector of all exons
                     let exons: Vec<_> = alignment
                         .exons
@@ -462,29 +499,15 @@ fn build_protobuf(
                 } else {
                     data::TranscriptBiotype::NonCoding.into()
                 };
-                let mut tags = Vec::new();
-                if let Some(tag) = tx_model.tag.as_ref() {
-                    for t in tag {
-                        let elem = match t {
-                            models::Tag::Basic => data::TranscriptTag::Basic.into(),
-                            models::Tag::EnsemblCanonical => {
-                                data::TranscriptTag::EnsemblCanonical.into()
-                            }
-                            models::Tag::ManeSelect => data::TranscriptTag::ManeSelect.into(),
-                            models::Tag::ManePlusClinical => {
-                                data::TranscriptTag::ManePlusClinical.into()
-                            }
-                            models::Tag::RefSeqSelect => data::TranscriptTag::RefSeqSelect.into(),
-                        };
-                        tags.push(elem);
-                    }
-                }
                 let models::Transcript {
                     protein,
                     start_codon,
                     stop_codon,
                     ..
                 } = tx_model.clone();
+
+                tags.sort();
+                tags.dedup();
 
                 data_transcripts.push(data::Transcript {
                     id: tx_id.clone(),
@@ -583,9 +606,9 @@ fn build_protobuf(
 /// Data as loaded from cdot after processing.
 #[derive(Debug)]
 struct TranscriptData {
-    pub genes: HashMap<String, models::Gene>,
-    pub transcripts: HashMap<String, models::Transcript>,
-    pub transcript_ids_for_gene: HashMap<String, Vec<String>>,
+    pub genes: indexmap::IndexMap<String, models::Gene>,
+    pub transcripts: indexmap::IndexMap<String, models::Transcript>,
+    pub transcript_ids_for_gene: indexmap::IndexMap<String, Vec<String>>,
 }
 
 /// Filter transcripts for gene.
@@ -605,8 +628,8 @@ fn filter_transcripts(
     tracing::info!("Filtering transcripts ...");
     let start = Instant::now();
     let selected_hgnc_ids = gene_symbols.as_ref().map(|gene_symbols| {
-        let symbol_to_hgnc: HashMap<_, _> =
-            HashMap::from_iter(tx_data.genes.iter().flat_map(|(hgnc_id, g)| {
+        let symbol_to_hgnc: indexmap::IndexMap<_, _> =
+            indexmap::IndexMap::from_iter(tx_data.genes.iter().flat_map(|(hgnc_id, g)| {
                 g.gene_symbol
                     .as_ref()
                     .map(|gene_symbol| (gene_symbol.clone(), hgnc_id.clone()))
@@ -637,10 +660,10 @@ fn filter_transcripts(
     };
 
     // We keep track of the chosen transcript identifiers.
-    let mut chosen = HashSet::new();
+    let mut chosen = indexmap::IndexSet::new();
     // Filter map from gene symbol to Vec of chosen transcript identifiers.
     let transcript_ids_for_gene = {
-        let mut tmp = HashMap::new();
+        let mut tmp = indexmap::IndexMap::new();
 
         for (hgnc_id, tx_ids) in &transcript_ids_for_gene {
             // Skip transcripts where the gene symbol is not contained in `selected_hgnc_ids`.
@@ -671,7 +694,7 @@ fn filter_transcripts(
             versioned.sort_by(|a, b| b.1.cmp(&a.1));
 
             // Build `next_tx_ids`.
-            let mut seen_ac = HashSet::new();
+            let mut seen_ac = indexmap::IndexSet::new();
             let mut next_tx_ids = Vec::new();
             for (ac, version) in versioned {
                 let full_ac = format!("{}.{}", &ac, version);
@@ -746,7 +769,7 @@ fn filter_transcripts(
         tmp
     };
 
-    let transcripts: HashMap<_, _> = transcripts
+    let transcripts: indexmap::IndexMap<_, _> = transcripts
         .into_iter()
         .filter(|(tx_id, _)| chosen.contains(tx_id))
         .collect();
@@ -756,7 +779,7 @@ fn filter_transcripts(
     );
     writeln!(report_file, "total transcripts\t{}", transcripts.len())?;
 
-    let genes: HashMap<_, _> = genes
+    let genes: indexmap::IndexMap<_, _> = genes
         .into_iter()
         .filter(|(gene_id, _)| transcript_ids_for_gene.contains_key(gene_id))
         .collect();
@@ -802,9 +825,9 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
 fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData, anyhow::Error> {
     tracing::info!("Loading cdot JSON files ...");
     let start = Instant::now();
-    let mut genes = HashMap::new();
-    let mut transcripts = HashMap::new();
-    let mut transcript_ids_for_gene = HashMap::new();
+    let mut genes = indexmap::IndexMap::new();
+    let mut transcripts = indexmap::IndexMap::new();
+    let mut transcript_ids_for_gene = indexmap::IndexMap::new();
     let mut cdot_version = String::new();
     for json_path in &args.path_cdot_json {
         load_and_extract(
@@ -870,7 +893,6 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
 #[cfg(test)]
 pub mod test {
-    use std::collections::HashMap;
     use std::fs::File;
     use std::path::{Path, PathBuf};
 
@@ -879,6 +901,7 @@ pub mod test {
 
     use crate::common::{Args as CommonArgs, GenomeRelease};
     use crate::db::create::TranscriptData;
+    use crate::db::dump;
 
     use super::{filter_transcripts, load_and_extract, run, Args};
 
@@ -887,13 +910,13 @@ pub mod test {
         let tmp_dir = TempDir::default();
         let mut report_file = File::create(tmp_dir.join("report"))?;
 
-        let mut genes = HashMap::new();
-        let mut transcripts = HashMap::new();
-        let mut transcript_ids_for_gene = HashMap::new();
+        let mut genes = indexmap::IndexMap::new();
+        let mut transcripts = indexmap::IndexMap::new();
+        let mut transcript_ids_for_gene = indexmap::IndexMap::new();
         let mut cdot_version = String::new();
         let path_tsv = Path::new("tests/data/db/create/txs/txs_main.tsv");
         load_and_extract(
-            Path::new("tests/data/db/create/txs/cdot-0.2.21.refseq.grch37_grch38.brca1_opa1.json"),
+            Path::new("tests/data/db/create/txs/cdot-0.2.22.refseq.grch37_grch38.brca1_opa1.json"),
             &Some(path_tsv),
             &mut transcript_ids_for_gene,
             &mut genes,
@@ -933,7 +956,7 @@ pub mod test {
     }
 
     #[test]
-    fn run_smoke() -> Result<(), anyhow::Error> {
+    fn run_smoke_brca1_opa1() -> Result<(), anyhow::Error> {
         let tmp_dir = TempDir::default();
 
         let common_args = CommonArgs {
@@ -942,7 +965,7 @@ pub mod test {
         let args = Args {
             path_out: tmp_dir.join("out.bin.zst"),
             path_cdot_json: vec![PathBuf::from(
-                "tests/data/db/create/txs/cdot-0.2.21.refseq.grch37_grch38.brca1_opa1.json",
+                "tests/data/db/create/txs/cdot-0.2.22.refseq.grch37_grch38.brca1_opa1.json",
             )],
             path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
@@ -952,6 +975,50 @@ pub mod test {
         };
 
         run(&common_args, &args)?;
+
+        let mut buf: Vec<u8> = Vec::new();
+        dump::run_with_write(
+            &Default::default(),
+            &dump::Args {
+                path_db: PathBuf::from(tmp_dir.join("out.bin.zst")),
+            },
+            &mut buf,
+        )?;
+        insta::assert_snapshot!(String::from_utf8(buf)?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn run_smoke_selenoproteins() -> Result<(), anyhow::Error> {
+        let tmp_dir = TempDir::default();
+
+        let common_args = CommonArgs {
+            verbose: Verbosity::new(0, 1),
+        };
+        let args = Args {
+            path_out: tmp_dir.join("out.bin.zst"),
+            path_cdot_json: vec![PathBuf::from(
+                "tests/data/db/create/seleonoproteins/cdot-0.2.22.refseq.grch38.selenon.json",
+            )],
+            path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
+            path_seqrepo_instance: PathBuf::from("tests/data/db/create/seleonoproteins/latest"),
+            genome_release: GenomeRelease::Grch38,
+            max_txs: None,
+            gene_symbols: None,
+        };
+
+        run(&common_args, &args)?;
+
+        let mut buf: Vec<u8> = Vec::new();
+        dump::run_with_write(
+            &Default::default(),
+            &dump::Args {
+                path_db: PathBuf::from(tmp_dir.join("out.bin.zst")),
+            },
+            &mut buf,
+        )?;
+        insta::assert_snapshot!(String::from_utf8(buf)?);
 
         Ok(())
     }

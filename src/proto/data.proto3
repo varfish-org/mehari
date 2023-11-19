@@ -41,11 +41,18 @@ enum TranscriptBiotype {
 
 // Bit values for the transcript tags.
 enum TranscriptTag{
+    // Member of Ensembl basic.
     BASIC = 0;
+    // Member of Ensembl canonical.
     ENSEMBL_CANONICAL = 1;
+    // Member of MANE Select.
     MANE_SELECT = 2;
+    // Member of MANE Plus Clinical.
     MANE_PLUS_CLINICAL = 3;
+    // Member of RefSeq Select.
     REF_SEQ_SELECT = 4;
+    // Flagged as being a selenoprotein (UGA => selenon).
+    SELENOPROTEIN = 5;
 }
 
 // Store information about a transcript.
