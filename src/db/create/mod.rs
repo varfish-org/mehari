@@ -554,8 +554,7 @@ fn build_protobuf(
         version: Some(crate::common::version().to_string()),
         genome_release: Some(genome_release.name()),
     };
-    let mut buf = Vec::new();
-    buf.reserve(tx_seq_db.encoded_len());
+    let mut buf = Vec::with_capacity(tx_seq_db.encoded_len());
     tx_seq_db
         .encode(&mut buf)
         .map_err(|e| anyhow!("failed to encode: {}", e))?;
@@ -977,7 +976,7 @@ pub mod test {
         dump::run_with_write(
             &Default::default(),
             &dump::Args {
-                path_db: PathBuf::from(tmp_dir.join("out.bin.zst")),
+                path_db: tmp_dir.join("out.bin.zst"),
             },
             &mut buf,
         )?;
@@ -1011,7 +1010,7 @@ pub mod test {
         dump::run_with_write(
             &Default::default(),
             &dump::Args {
-                path_db: PathBuf::from(tmp_dir.join("out.bin.zst")),
+                path_db: tmp_dir.join("out.bin.zst"),
             },
             &mut buf,
         )?;

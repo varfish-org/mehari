@@ -14,7 +14,7 @@ use hgvs::{
             TxInfoRecord, TxMappingOptionsRecord,
         },
     },
-    sequences::seq_md5,
+    sequences::{seq_md5, TranslationTable},
 };
 
 use crate::{
@@ -551,6 +551,7 @@ impl ProviderInterface for Provider {
             .as_ref()
             .expect("no tx_db?")
             .transcripts[tx_idx];
+        let is_selenoprotein = tx.tags.contains(&(TranscriptTag::Selenoprotein as i32));
 
         let hgnc = tx.gene_id.clone();
 
@@ -580,6 +581,11 @@ impl ProviderInterface for Provider {
             cds_end_i: tx.stop_codon.unwrap_or_default(),
             lengths,
             hgnc,
+            translation_table: if is_selenoprotein {
+                TranslationTable::Selenocysteine
+            } else {
+                TranslationTable::Standard
+            },
         })
     }
 
