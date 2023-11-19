@@ -44,7 +44,7 @@ derive_builder = { version = "0.12", features = ["clippy"] }
 env_logger = "0.10"
 flate2 = "1.0"
 futures = "0.3"
-hgvs = "0.13"
+hgvs = "0.14.0"
 indexmap = { version = "2.1", features = ["serde"] }
 indicatif = "0.17"
 jsonl = "4.0"

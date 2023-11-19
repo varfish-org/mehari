@@ -3,3 +3,4 @@ tests/data/vars/*.vcf* filter=lfs diff=lfs merge=lfs -text
 tests/data/vars/*.tsv* filter=lfs diff=lfs merge=lfs -text
 tests/data/** filter=lfs diff=lfs merge=lfs -text
 *.bin filter=lfs diff=lfs merge=lfs -text
+src/db/create/snapshots/mehari__db__create__test__run_smoke_brca1_opa1.snap filter=lfs diff=lfs merge=lfs -text

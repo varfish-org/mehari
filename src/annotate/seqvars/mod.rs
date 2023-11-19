@@ -1619,7 +1619,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             tracing::info!("Loading HGNC map ...");
             let mut result = FxHashMap::default();
 
-            let tsv_file = File::open(&format!("{}/hgnc.tsv", &args.path_db,))?;
+            let tsv_file = File::open(format!("{}/hgnc.tsv", &args.path_db,))?;
             let mut tsv_reader = csv::ReaderBuilder::new()
                 .comment(Some(b'#'))
                 .delimiter(b'\t')

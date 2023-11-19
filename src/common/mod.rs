@@ -11,7 +11,7 @@ pub mod io;
 pub mod noodles;
 
 /// Commonly used command line arguments.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Default)]
 pub struct Args {
     /// Verbosity of the program
     #[clap(flatten)]
