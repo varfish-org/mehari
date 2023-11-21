@@ -16,7 +16,7 @@
 # Pinning Rust version for now because of this issue:
 #
 # - https://github.com/rust-lang/rust/issues/95926
-FROM rust:1-buster AS builder
+FROM rust:1-bookworm AS builder
 
 # Build dependencies first.
 #
@@ -45,6 +45,7 @@ WORKDIR /usr/src/mehari
 # Now copy in the rest of the sources.
 COPY build.rs Cargo.toml Cargo.lock /usr/src/mehari/
 COPY src /usr/src/mehari/src/
+COPY protos /usr/src/mehari/protos/
 COPY utils/alpine-linker-script.sh /usr/src/mehari/utils/
 RUN chmod a+rx /usr/src/mehari/utils/alpine-linker-script.sh
 COPY .cargo /usr/src/mehari/.cargo/
@@ -57,7 +58,7 @@ RUN cargo build --release
 # Runtime
 # ---------------------------------------------------------------------------
 
-FROM debian:buster-slim AS runtime
+FROM debian:bookworm-slim AS runtime
 
 # Install dependencies (and cleanup afterwards)
 RUN apt-get update && \

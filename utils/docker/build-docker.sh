@@ -14,12 +14,7 @@ DOCKER_VERSION=$(echo $GIT_TAG | sed -e 's/^v//')
 ORG=bihealth
 REPO=mehari
 
-GIT_DEPTH=$(($(git rev-list HEAD ^$(git describe --abbrev=0 --tags) --count) + 1))
-GIT_URL=https://github.com/$ORG/$REPO.git
-
 docker build . \
     --file utils/docker/Dockerfile \
-    --build-arg git_treeish=$GIT_TAG \
-    --build-arg git_url=$GIT_URL \
     --pull \
     -t ghcr.io/$ORG/$REPO:$DOCKER_VERSION
