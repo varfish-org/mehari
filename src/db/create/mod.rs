@@ -336,7 +336,7 @@ fn build_protobuf(
         }
         pb.finish_and_clear();
         // Finalize by creating `SequenceDb`.
-        crate::pbs::mehari::txs::SequenceDb {
+        crate::pbs::txs::SequenceDb {
             aliases,
             aliases_idx,
             seqs,
@@ -395,8 +395,8 @@ fn build_protobuf(
                 for (genome_build, alignment) in &tx_model.genome_builds {
                     // obtain basic properties
                     let genome_build = match genome_build.as_ref() {
-                        "GRCh37" => crate::pbs::mehari::txs::GenomeBuild::Grch37,
-                        "GRCh38" => crate::pbs::mehari::txs::GenomeBuild::Grch38,
+                        "GRCh37" => crate::pbs::txs::GenomeBuild::Grch37,
+                        "GRCh38" => crate::pbs::txs::GenomeBuild::Grch38,
                         _ => panic!("Unknown genome build {:?}", genome_build),
                     };
                     let models::GenomeAlignment {
@@ -406,26 +406,24 @@ fn build_protobuf(
                         ..
                     } = alignment.clone();
                     let strand = match alignment.strand {
-                        models::Strand::Plus => crate::pbs::mehari::txs::Strand::Plus,
-                        models::Strand::Minus => crate::pbs::mehari::txs::Strand::Minus,
+                        models::Strand::Plus => crate::pbs::txs::Strand::Plus,
+                        models::Strand::Minus => crate::pbs::txs::Strand::Minus,
                     };
                     if let Some(tag) = alignment.tag.as_ref() {
                         for t in tag {
                             let elem = match t {
-                                models::Tag::Basic => {
-                                    crate::pbs::mehari::txs::TranscriptTag::Basic.into()
-                                }
+                                models::Tag::Basic => crate::pbs::txs::TranscriptTag::Basic.into(),
                                 models::Tag::EnsemblCanonical => {
-                                    crate::pbs::mehari::txs::TranscriptTag::EnsemblCanonical.into()
+                                    crate::pbs::txs::TranscriptTag::EnsemblCanonical.into()
                                 }
                                 models::Tag::ManeSelect => {
-                                    crate::pbs::mehari::txs::TranscriptTag::ManeSelect.into()
+                                    crate::pbs::txs::TranscriptTag::ManeSelect.into()
                                 }
                                 models::Tag::ManePlusClinical => {
-                                    crate::pbs::mehari::txs::TranscriptTag::ManePlusClinical.into()
+                                    crate::pbs::txs::TranscriptTag::ManePlusClinical.into()
                                 }
                                 models::Tag::RefSeqSelect => {
-                                    crate::pbs::mehari::txs::TranscriptTag::RefSeqSelect.into()
+                                    crate::pbs::txs::TranscriptTag::RefSeqSelect.into()
                                 }
                             };
                             if !tags.contains(&elem) {
@@ -438,7 +436,7 @@ fn build_protobuf(
                     if let Some(note) = alignment.note.as_ref() {
                         let needle = "UGA stop codon recoded as selenocysteine";
                         if note.contains(needle) {
-                            tags.push(crate::pbs::mehari::txs::TranscriptTag::Selenoprotein.into());
+                            tags.push(crate::pbs::txs::TranscriptTag::Selenoprotein.into());
                         }
                     }
                     // and construct vector of all exons
@@ -454,7 +452,7 @@ fn build_protobuf(
                                 alt_cds_end_i,
                                 cigar,
                             } = exon.clone();
-                            crate::pbs::mehari::txs::ExonAlignment {
+                            crate::pbs::txs::ExonAlignment {
                                 alt_start_i,
                                 alt_end_i,
                                 ord,
@@ -473,7 +471,7 @@ fn build_protobuf(
                         })
                         .collect();
                     // and finally push the genome alignment
-                    genome_alignments.push(crate::pbs::mehari::txs::GenomeAlignment {
+                    genome_alignments.push(crate::pbs::txs::GenomeAlignment {
                         genome_build: genome_build.into(),
                         contig,
                         cds_start,
@@ -491,9 +489,9 @@ fn build_protobuf(
                     ..
                 } = gene.clone();
                 let biotype = if biotype.unwrap().contains(&models::BioType::ProteinCoding) {
-                    crate::pbs::mehari::txs::TranscriptBiotype::Coding.into()
+                    crate::pbs::txs::TranscriptBiotype::Coding.into()
                 } else {
-                    crate::pbs::mehari::txs::TranscriptBiotype::NonCoding.into()
+                    crate::pbs::txs::TranscriptBiotype::NonCoding.into()
                 };
                 let models::Transcript {
                     protein,
@@ -505,7 +503,7 @@ fn build_protobuf(
                 tags.sort();
                 tags.dedup();
 
-                data_transcripts.push(crate::pbs::mehari::txs::Transcript {
+                data_transcripts.push(crate::pbs::txs::Transcript {
                     id: tx_id.clone(),
                     gene_symbol: gene_symbol.expect("missing gene symbol"),
                     gene_id: format!("HGNC:{}", hgnc.expect("missing HGNC ID")),
@@ -529,7 +527,7 @@ fn build_protobuf(
     tracing::info!("  Build gene symbol to transcript ID mapping ...");
     let gene_to_tx = transcript_ids_for_gene
         .into_iter()
-        .map(|(gene_id, tx_ids)| crate::pbs::mehari::txs::GeneToTxId { gene_id, tx_ids })
+        .map(|(gene_id, tx_ids)| crate::pbs::txs::GeneToTxId { gene_id, tx_ids })
         .collect::<Vec<_>>();
     tracing::info!(" ... done building gene symbol to transcript ID mapping");
 
@@ -537,7 +535,7 @@ fn build_protobuf(
 
     // Compose transcript database from transcripts and gene to transcript mapping.
     tracing::info!("  Composing transcript database ...");
-    let tx_db = crate::pbs::mehari::txs::TranscriptDb {
+    let tx_db = crate::pbs::txs::TranscriptDb {
         transcripts: data_transcripts,
         gene_to_tx,
     };
@@ -547,7 +545,7 @@ fn build_protobuf(
 
     // Compose the final transcript and sequence database.
     tracing::info!("  Constructing final tx and seq database ...");
-    let tx_seq_db = crate::pbs::mehari::txs::TxSeqDatabase {
+    let tx_seq_db = crate::pbs::txs::TxSeqDatabase {
         tx_db: Some(tx_db),
         seq_db: Some(seq_db),
         version: Some(crate::common::version().to_string()),

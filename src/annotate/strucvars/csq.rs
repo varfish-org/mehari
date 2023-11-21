@@ -7,7 +7,7 @@ use hgvs::data::interface::Provider;
 
 use crate::{
     annotate::seqvars::provider::{Provider as MehariProvider, TxIntervalTrees},
-    pbs::mehari::txs::{Strand, Transcript, TxSeqDatabase},
+    pbs::txs::{Strand, Transcript, TxSeqDatabase},
 };
 
 /// Enumeration for effect on transcript.

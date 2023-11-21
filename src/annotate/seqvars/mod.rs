@@ -54,7 +54,7 @@ use crate::annotate::seqvars::provider::{
 use crate::common::GenomeRelease;
 
 use crate::finalize_buf_writer;
-use crate::pbs::mehari::txs::TxSeqDatabase;
+use crate::pbs::txs::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
 
 use self::ann::{AnnField, Consequence, FeatureBiotype};
