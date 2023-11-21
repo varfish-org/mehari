@@ -11,7 +11,7 @@ use hgvs::{
 };
 use rustc_hash::FxHashMap;
 
-use crate::db::create::data::{self, Strand, TranscriptBiotype};
+use crate::pbs::mehari::txs::{Strand, TranscriptBiotype, TranscriptTag};
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
@@ -461,12 +461,9 @@ impl ConsequencePredictor {
                 TranscriptBiotype::NonCoding => FeatureBiotype::Noncoding,
             }];
 
-            if tx.tags.contains(&(data::TranscriptTag::ManeSelect as i32)) {
+            if tx.tags.contains(&(TranscriptTag::ManeSelect as i32)) {
                 feature_biotypes.push(FeatureBiotype::ManeSelect);
-            } else if tx
-                .tags
-                .contains(&(data::TranscriptTag::ManePlusClinical as i32))
-            {
+            } else if tx.tags.contains(&(TranscriptTag::ManePlusClinical as i32)) {
                 feature_biotypes.push(FeatureBiotype::ManePlusClinical);
             }
 
