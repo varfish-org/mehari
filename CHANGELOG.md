@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.1](https://github.com/bihealth/mehari/compare/v0.19.0...v0.19.1) (2023-11-21)
+
+
+### Bug Fixes
+
+* copy in protobufs into docker builds ([#275](https://github.com/bihealth/mehari/issues/275)) ([f4d4c20](https://github.com/bihealth/mehari/commit/f4d4c203c8e29487e1b20d7dab1330a9d61f68e2))
+
 ## [0.19.0](https://github.com/bihealth/mehari/compare/v0.18.1...v0.19.0) (2023-11-21)
 
 
