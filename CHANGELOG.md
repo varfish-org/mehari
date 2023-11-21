@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.0](https://github.com/bihealth/mehari/compare/v0.18.1...v0.19.0) (2023-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* serializing protobufs pbjson-build ([#272](https://github.com/bihealth/mehari/issues/272)) (#273)
+
+### Features
+
+* serializing protobufs pbjson-build ([#272](https://github.com/bihealth/mehari/issues/272)) ([#273](https://github.com/bihealth/mehari/issues/273)) ([0f948f7](https://github.com/bihealth/mehari/commit/0f948f7e1b1fd45ca92f1dd7010ca36d951f88cd))
+
 ## [0.18.1](https://github.com/bihealth/mehari/compare/v0.18.0...v0.18.1) (2023-11-19)
 
 
