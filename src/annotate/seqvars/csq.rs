@@ -11,7 +11,7 @@ use hgvs::{
 };
 use rustc_hash::FxHashMap;
 
-use crate::pbs::mehari::txs::{Strand, TranscriptBiotype, TranscriptTag};
+use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},

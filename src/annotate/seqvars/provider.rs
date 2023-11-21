@@ -19,7 +19,7 @@ use hgvs::{
 
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
-    pbs::mehari::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
+    pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
 
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
