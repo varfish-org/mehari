@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.20.0](https://github.com/bihealth/mehari/compare/v0.19.1...v0.20.0) (2023-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* moving crate::pbs::mehari => crate::pbs ([#277](https://github.com/bihealth/mehari/issues/277))
+
+### Code Refactoring
+
+* moving crate::pbs::mehari =&gt; crate::pbs ([#277](https://github.com/bihealth/mehari/issues/277)) ([e44211e](https://github.com/bihealth/mehari/commit/e44211ed51ab2172afe3901f61be1d7e8f06feb4))
+
 ## [0.19.1](https://github.com/bihealth/mehari/compare/v0.19.0...v0.19.1) (2023-11-21)
 
 
