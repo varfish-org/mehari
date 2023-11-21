@@ -22,6 +22,7 @@ pub mod user_doc {
 pub mod annotate;
 pub mod common;
 pub mod db;
+pub mod pbs;
 pub mod ped;
 pub mod server;
 pub mod verify;

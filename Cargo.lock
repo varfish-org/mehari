@@ -2137,6 +2137,9 @@ dependencies = [
  "noodles-tabix",
  "noodles-vcf",
  "parse-display",
+ "pbjson",
+ "pbjson-build",
+ "pbjson-types",
  "pretty_assertions",
  "procfs",
  "prost",
@@ -2526,6 +2529,43 @@ name = "paste"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
+
+[[package]]
+name = "pbjson"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1030c719b0ec2a2d25a5df729d6cff1acf3cc230bf766f4f97833591f7577b90"
+dependencies = [
+ "base64",
+ "serde",
+]
+
+[[package]]
+name = "pbjson-build"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2580e33f2292d34be285c5bc3dba5259542b083cfad6037b6d70345f24dcb735"
+dependencies = [
+ "heck",
+ "itertools",
+ "prost",
+ "prost-types",
+]
+
+[[package]]
+name = "pbjson-types"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18f596653ba4ac51bdecbb4ef6773bc7f56042dc13927910de1684ad3d32aa12"
+dependencies = [
+ "bytes",
+ "chrono",
+ "pbjson",
+ "pbjson-build",
+ "prost",
+ "prost-build",
+ "serde",
+]
 
 [[package]]
 name = "peeking_take_while"

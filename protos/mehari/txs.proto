@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package mehari.db.create.txs.data;
+package mehari.txs;
 
 // Stores long array of sequences with an "index" of sequence names to their
 // index.
@@ -35,7 +35,9 @@ message TranscriptDb {
 
 // Enumeration for `Transcript::biotype`.
 enum TranscriptBiotype {
+    // Coding transcript.
     CODING = 0;
+    // Non-coding transcript.
     NON_CODING = 1;
 }
 
@@ -79,13 +81,17 @@ message Transcript {
 
 // Enumeration for the known genome builds.
 enum GenomeBuild{
+    // GRCH37.
     GRCH37 = 0;
+    // GRCh38.
     GRCH38 = 1;
 }
 
 // Enumeration for the two strands of the genome.
 enum Strand{
+    // Forward / plus
     PLUS = 0;
+    // Reverse / minus
     MINUS = 1;
 }
 
