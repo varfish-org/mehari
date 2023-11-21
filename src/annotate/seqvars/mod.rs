@@ -416,16 +416,17 @@ where
     T: ThreadMode,
 {
     if let Some(raw_value) = db.get_cf(cf, key)? {
-        let clinvar_record =
-            clinvar_minimal::pbs::Record::decode(&mut std::io::Cursor::new(&raw_value))?;
+        let clinvar_record = annonars::pbs::annonars::clinvar::v1::minimal::Record::decode(
+            &mut std::io::Cursor::new(&raw_value),
+        )?;
 
-        let clinvar_minimal::pbs::Record {
+        let annonars::pbs::annonars::clinvar::v1::minimal::Record {
             vcv,
             reference_assertions,
             ..
         } = clinvar_record;
         if let Some(reference_assertion) = reference_assertions.first() {
-            let clinvar_minimal::pbs::ReferenceAssertion {
+            let annonars::pbs::annonars::clinvar::v1::minimal::ReferenceAssertion {
                 rcv,
                 clinical_significance,
                 ..
