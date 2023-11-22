@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.21.0](https://github.com/bihealth/mehari/compare/v0.20.0...v0.21.0) (2023-11-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* adjusting enum values ([#279](https://github.com/bihealth/mehari/issues/279))
+
+### Bug Fixes
+
+* adjusting enum values ([#279](https://github.com/bihealth/mehari/issues/279)) ([6921b39](https://github.com/bihealth/mehari/commit/6921b3922d228ac3a5fcbfc3f6126af2032bf424))
+
 ## [0.20.0](https://github.com/bihealth/mehari/compare/v0.19.1...v0.20.0) (2023-11-21)
 
 
