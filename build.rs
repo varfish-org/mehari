@@ -1,7 +1,6 @@
 // The custo build script, used to (1) generate the Rust classes for the
 // protobuf implementation and (2) use pbjson for proto3 JSON serialization.
 
-use pbjson_build;
 use std::{env, path::PathBuf};
 
 fn main() -> Result<(), anyhow::Error> {

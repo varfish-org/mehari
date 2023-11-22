@@ -35,26 +35,30 @@ message TranscriptDb {
 
 // Enumeration for `Transcript::biotype`.
 enum TranscriptBiotype {
+    // unknown
+    TRANSCRIPT_BIOTYPE_UNKNOWN = 0;
     // Coding transcript.
-    CODING = 0;
+    TRANSCRIPT_BIOTYPE_CODING = 1;
     // Non-coding transcript.
-    NON_CODING = 1;
+    TRANSCRIPT_BIOTYPE_NON_CODING = 2;
 }
 
 // Bit values for the transcript tags.
-enum TranscriptTag{
+enum TranscriptTag {
+    // unknown
+    TRANSCRIPT_TAG_UNKNOWN = 0;
     // Member of Ensembl basic.
-    BASIC = 0;
+    TRANSCRIPT_TAG_BASIC = 1;
     // Member of Ensembl canonical.
-    ENSEMBL_CANONICAL = 1;
+    TRANSCRIPT_TAG_ENSEMBL_CANONICAL = 2;
     // Member of MANE Select.
-    MANE_SELECT = 2;
+    TRANSCRIPT_TAG_MANE_SELECT = 3;
     // Member of MANE Plus Clinical.
-    MANE_PLUS_CLINICAL = 3;
+    TRANSCRIPT_TAG_MANE_PLUS_CLINICAL = 4;
     // Member of RefSeq Select.
-    REF_SEQ_SELECT = 4;
+    TRANSCRIPT_TAG_REF_SEQ_SELECT = 5;
     // Flagged as being a selenoprotein (UGA => selenon).
-    SELENOPROTEIN = 5;
+    TRANSCRIPT_TAG_SELENOPROTEIN = 6;
 }
 
 // Store information about a transcript.
@@ -80,19 +84,23 @@ message Transcript {
 }
 
 // Enumeration for the known genome builds.
-enum GenomeBuild{
+enum GenomeBuild {
+    // unknown
+    GENOME_BUILD_UNKNOWN = 0;
     // GRCH37.
-    GRCH37 = 0;
+    GENOME_BUILD_GRCH37 = 1;
     // GRCh38.
-    GRCH38 = 1;
+    GENOME_BUILD_GRCH38 = 2;
 }
 
 // Enumeration for the two strands of the genome.
-enum Strand{
+enum Strand {
+    // unknown
+    STRAND_UNKNOWN = 0;
     // Forward / plus
-    PLUS = 0;
+    STRAND_PLUS = 1;
     // Reverse / minus
-    MINUS = 1;
+    STRAND_MINUS = 2;
 }
 
 // Store information about a transcript aligning to a genome.

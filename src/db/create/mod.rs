@@ -98,6 +98,7 @@ fn load_and_extract(
                     .collect::<Vec<_>>(),
             );
         }
+        tracing::info!("{:?}", txid_to_label);
 
         tracing::info!(
             "...done loading label TSV file ({} entries)",

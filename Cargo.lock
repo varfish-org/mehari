@@ -256,13 +256,14 @@ dependencies = [
 
 [[package]]
 name = "annonars"
-version = "0.24.5"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52c5a439b949bb0571edac27895435b3f23371c80faa4b1cb3e51f20764035f3"
+checksum = "dc26f7edbc57a52cf1821666b9fc67b0fa10a61bc3c00bee03280cac6f568109"
 dependencies = [
  "actix-web",
  "anyhow",
  "bgzip",
+ "bio",
  "biocommons-bioutils",
  "boolvec",
  "byteorder",
@@ -280,13 +281,18 @@ dependencies = [
  "noodles-bgzf",
  "noodles-core",
  "noodles-csi",
+ "noodles-gff",
  "noodles-tabix",
  "noodles-vcf",
+ "pbjson",
+ "pbjson-build",
+ "pbjson-types",
  "prost",
  "prost-build",
  "rayon",
  "rocksdb",
  "rocksdb-utils-lookup",
+ "rustc-hash",
  "serde",
  "serde_json",
  "serde_with",
@@ -2318,9 +2324,9 @@ checksum = "94fbe3192fe33acacabaedd387657f39b0fc606f1996d546db0dfe14703b843a"
 
 [[package]]
 name = "noodles-csi"
-version = "0.26.0"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0531175d5473e6057c1724c1242b19bfc42dba644fe275b4df89c5b8d31a782"
+checksum = "912aaef460c3ccf466f79f681ed866c7e70b78da7af88c4bbb082a6a64971ebd"
 dependencies = [
  "bit-vec",
  "byteorder",
@@ -2342,10 +2348,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "noodles-tabix"
-version = "0.32.0"
+name = "noodles-gff"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "415e319f97784c110a85756a8747bf26e9a18bf321b113d00984ca1af7a6fef9"
+checksum = "fec62bd9306cce6d551c9c7075beca940aec283efd18648b6d04860b693fd092"
+dependencies = [
+ "indexmap 2.1.0",
+ "noodles-bgzf",
+ "noodles-core",
+ "noodles-csi",
+ "percent-encoding",
+]
+
+[[package]]
+name = "noodles-tabix"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63995f930f245b44f1a14d7e7571ce77111d2b88731d774ebeda951b726c8dfb"
 dependencies = [
  "bit-vec",
  "byteorder",
@@ -2358,9 +2377,9 @@ dependencies = [
 
 [[package]]
 name = "noodles-vcf"
-version = "0.45.0"
+version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6000206d1ec762d3c983fb189edde86a22c969de3bb90e4048c4916c492babfa"
+checksum = "610f14797affe3ecc3687732e310ff508c909dd18d3b12d0cd135bc4cc5593e9"
 dependencies = [
  "futures",
  "indexmap 2.1.0",
