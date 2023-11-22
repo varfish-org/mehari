@@ -398,6 +398,7 @@ impl ConsequencePredictor {
                     match Strand::try_from(alignment.strand).expect("invalid strand") {
                         Strand::Plus => consequences.push(Consequence::SpliceDonorVariant),
                         Strand::Minus => consequences.push(Consequence::SpliceAcceptorVariant),
+                        _ => unreachable!("invalid strand: {}", alignment.strand),
                     }
                 }
                 // Check the case where the variant overlaps with the splice donor site.
@@ -406,6 +407,7 @@ impl ConsequencePredictor {
                     match Strand::try_from(alignment.strand).expect("invalid strand") {
                         Strand::Plus => consequences.push(Consequence::SpliceAcceptorVariant),
                         Strand::Minus => consequences.push(Consequence::SpliceDonorVariant),
+                        _ => unreachable!("invalid strand: {}", alignment.strand),
                     }
                 }
             }
@@ -459,6 +461,7 @@ impl ConsequencePredictor {
             let mut feature_biotypes = vec![match transcript_biotype {
                 TranscriptBiotype::Coding => FeatureBiotype::Coding,
                 TranscriptBiotype::NonCoding => FeatureBiotype::Noncoding,
+                _ => unreachable!("invalid biotype: {:?}", transcript_biotype),
             }];
 
             if tx.tags.contains(&(TranscriptTag::ManeSelect as i32)) {
@@ -488,6 +491,7 @@ impl ConsequencePredictor {
                 match Strand::try_from(alignment.strand).expect("invalid strand") {
                     Strand::Plus => consequences.push(Consequence::UpstreamGeneVariant),
                     Strand::Minus => consequences.push(Consequence::DownstreamGeneVariant),
+                    _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
             }
             if distance.is_none() {
@@ -499,6 +503,7 @@ impl ConsequencePredictor {
                 match Strand::try_from(alignment.strand).expect("invalid strand") {
                     Strand::Plus => consequences.push(Consequence::DownstreamGeneVariant),
                     Strand::Minus => consequences.push(Consequence::UpstreamGeneVariant),
+                    _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
             }
             if distance.is_none() {
@@ -752,6 +757,7 @@ impl ConsequencePredictor {
                     (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
                 }
                 TranscriptBiotype::NonCoding => (var_n, None, None, None, None),
+                _ => unreachable!("invalid transcript biotype: {:?}", transcript_biotype),
             };
             let hgvs_t = format!("{}", &var_t);
             let hgvs_t = hgvs_t.split(':').nth(1).unwrap().to_owned();

@@ -432,6 +432,7 @@ impl ProviderInterface for Provider {
                         {
                             Strand::Plus => 1,
                             Strand::Minus => -1,
+                            _ => unreachable!("invalid strand {}", &genome_alignment.strand),
                         },
                         ord: exon.ord,
                         tx_start_i: exon.alt_cds_start_i.map(|val| val - 1).unwrap_or(-1),
@@ -530,6 +531,7 @@ impl ProviderInterface for Provider {
                     alt_strand: match Strand::try_from(alt_strand).expect("invalid strand") {
                         Strand::Plus => 1,
                         Strand::Minus => -1,
+                        _ => unreachable!("invalid strand {}", alt_strand),
                     },
                     alt_aln_method: ALT_ALN_METHOD.to_string(),
                     start_i,

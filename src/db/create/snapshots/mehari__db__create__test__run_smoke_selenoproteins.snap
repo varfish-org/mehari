@@ -7,18 +7,19 @@ txDb:
   - id: NM_004261.5
     geneSymbol: SELENOF
     geneId: HGNC:17705
+    biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
-    - MANE_SELECT
-    - SELENOPROTEIN
+    - TRANSCRIPT_TAG_MANE_SELECT
+    - TRANSCRIPT_TAG_SELENOPROTEIN
     protein: NP_004252.2
     startCodon: 15
     stopCodon: 513
     genomeAlignments:
-    - genomeBuild: GRCH38
+    - genomeBuild: GENOME_BUILD_GRCH38
       contig: NC_000001.11
       cdsStart: 86863473
       cdsEnd: 86914111
-      strand: MINUS
+      strand: STRAND_MINUS
       exons:
       - altStartI: 86862444
         altEndI: 86863605
@@ -52,17 +53,18 @@ txDb:
   - id: NM_203341.3
     geneSymbol: SELENOF
     geneId: HGNC:17705
+    biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
-    - SELENOPROTEIN
+    - TRANSCRIPT_TAG_SELENOPROTEIN
     protein: NP_976086.1
     startCodon: 15
     stopCodon: 390
     genomeAlignments:
-    - genomeBuild: GRCH38
+    - genomeBuild: GENOME_BUILD_GRCH38
       contig: NC_000001.11
       cdsStart: 86863546
       cdsEnd: 86914111
-      strand: MINUS
+      strand: STRAND_MINUS
       exons:
       - altStartI: 86862444
         altEndI: 86863605

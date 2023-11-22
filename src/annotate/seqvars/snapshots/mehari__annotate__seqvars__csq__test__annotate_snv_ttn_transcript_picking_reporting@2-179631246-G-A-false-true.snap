@@ -137,7 +137,6 @@ expression: res
   feature_id: NM_133379.5
   feature_biotype:
     - Coding
-    - ManePlusClinical
   rank:
     ord: 41
     total: 46
