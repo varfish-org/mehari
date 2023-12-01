@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.1](https://github.com/bihealth/mehari/compare/v0.21.0...v0.21.1) (2023-12-01)
+
+
+### Bug Fixes
+
+* bumping annonars dependency to fix protobuf issues ([#287](https://github.com/bihealth/mehari/issues/287)) ([007dd12](https://github.com/bihealth/mehari/commit/007dd1244300f1d886b4b76a2e2d529c011d7b41))
+
 ## [0.21.0](https://github.com/bihealth/mehari/compare/v0.20.0...v0.21.0) (2023-11-22)
 
 
