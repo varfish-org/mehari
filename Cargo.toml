@@ -34,7 +34,7 @@ bgzip = "0.3"
 bio = "1.5"
 biocommons-bioutils = "0.1.4"
 byteorder = "1.4"
-byte-unit = "4.0"
+byte-unit = "5.0"
 chrono = "0.4"
 clap-verbosity-flag = "2.0"
 clap = { version = "4.4", features = ["derive"] }
