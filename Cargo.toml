@@ -76,7 +76,7 @@ thousands = "0.2"
 tokio = { version = "1.35", features = ["full"] }
 tracing-subscriber = "0.3"
 tracing = { version = "0.1", features = ["log"] }
-uuid = { version = "1.6", features = ["fast-rng", "serde"] }
+uuid = { version = "1.7", features = ["fast-rng", "serde"] }
 zstd = "0.13"
 pbjson = "0.6.0"
 pbjson-types = "0.6.0"
