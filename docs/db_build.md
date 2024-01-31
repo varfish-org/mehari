@@ -26,7 +26,7 @@ $ tabix -f HelixMTdb_20200327.tsv.gz
 
 ## Building the Frequency Database
 
-This is done with [annona-rs](https://github.com/bihealth/annona-rs).
+This is done with [annona-rs](https://github.com/varfish-org/annona-rs).
 The `annonars` crate is a Rust create that ships with a binary for building genome annotation databases as RocksDB databases.
 You can install it using `cargo install annonars` or Bioconda (`conda install -c bioconda annonars`).
 The `mehari` crate links to the `annonars` library for later accessing the data.
@@ -179,7 +179,7 @@ You can enable compression by using the suffix `.gz` for gzip compression and `.
 
 # Building ClinVar Database
 
-This assumes that you have converted a recent ClinVar XML file to TSV using [clinvar-tsv](https://github.com/bihealth/clinvar-tsv).
+This assumes that you have converted a recent ClinVar XML file to TSV using [clinvar-tsv](https://github.com/varfish-org/clinvar-tsv).
 
 ```
 $ mehari db create seqvar-clinvar \
