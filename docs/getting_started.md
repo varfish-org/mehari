@@ -27,7 +27,7 @@ TODO: not yet available
 You can obtain an example file like this:
 
 ```text
-$ wget https://raw.githubusercontent.com/bihealth/mehari/main/tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf \
+$ wget https://raw.githubusercontent.com/varfish-org/mehari/main/tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf \
     -O example.vcf
 ```
 

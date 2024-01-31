@@ -10,7 +10,7 @@ Why another software package?
   library.
   The latter serves as the basis for [VariantValidator.org](https://variantvalidator.org/) which is the gold standard for HGVS variant description generation and validation.
 - Mehari is written in the Rust programming language which allows it to work fast, with low memory consumption (as a C++ program would) and being memory safe at the same time (as a Java/Python/Perl program would).
-- As a Rust program, it can be embedded into the backend of the [VarFish](https://github.com/bihealth/varfish-server) variant analysis platform.
+- As a Rust program, it can be embedded into the backend of the [VarFish](https://github.com/varfish-org/varfish-server) variant analysis platform.
 
 ## What's Next?
 
