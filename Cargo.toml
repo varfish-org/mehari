@@ -27,7 +27,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = "4.4"
-annonars = "0.30"
+annonars = "0.34"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bgzip = "0.3"
@@ -51,12 +51,12 @@ jsonl = "4.0"
 lazy_static = "1.4"
 log = "0.4"
 nom = "7.1"
-noodles-bgzf = { version = "0.25", features = ["async"] }
-noodles-core = "0.12"
-noodles-csi = "0.28"
-noodles-fasta = "0.30"
-noodles-tabix = "0.34"
-noodles-vcf = { version = "0.47", features = ["async"] }
+noodles-bgzf = { version = "0.26", features = ["async"] }
+noodles-core = "0.14"
+noodles-csi = "0.30"
+noodles-fasta = "0.32"
+noodles-tabix = "0.36"
+noodles-vcf = { version = "0.49", features = ["async"] }
 parse-display = "0.8"
 procfs = "0.16"
 prost = "0.12"
