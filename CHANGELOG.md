@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.2](https://github.com/varfish-org/mehari/compare/v0.21.1...v0.21.2) (2024-02-01)
+
+
+### Miscellaneous Chores
+
+* applying org change (bihealth =&gt; varfish-org) ([#325](https://github.com/varfish-org/mehari/issues/325)) ([8db8db0](https://github.com/varfish-org/mehari/commit/8db8db030b2076a491b901b444ac608972e259f9))
+
 ## [0.21.1](https://github.com/varfish-org/mehari/compare/v0.21.0...v0.21.1) (2023-12-01)
 
 
