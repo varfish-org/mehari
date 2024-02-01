@@ -16,7 +16,7 @@ env:
 
 jobs:
   release-please:
-    if: github.repository_owner == 'bihealth'
+    if: github.repository_owner == 'varfish-org'
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
