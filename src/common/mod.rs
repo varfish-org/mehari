@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 use biocommons_bioutils::assemblies::Assembly;
-use byte_unit::Byte;
+use byte_unit::{Byte, UnitType};
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 
@@ -24,7 +24,9 @@ pub fn trace_rss_now() {
     let page_size = procfs::page_size();
     tracing::debug!(
         "RSS now: {}",
-        Byte::from_bytes((me.stat().unwrap().rss * page_size) as u128).get_appropriate_unit(true)
+        Byte::from_u128((me.stat().unwrap().rss * page_size) as u128)
+            .expect("RSS memory computation failed")
+            .get_appropriate_unit(UnitType::Binary)
     );
 }
 
