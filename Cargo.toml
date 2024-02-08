@@ -57,7 +57,7 @@ noodles-csi = "0.28"
 noodles-fasta = "0.30"
 noodles-tabix = "0.34"
 noodles-vcf = { version = "0.47", features = ["async"] }
-parse-display = "0.8"
+parse-display = "0.9"
 procfs = "0.16"
 prost = "0.12"
 quick_cache = "0.4"
