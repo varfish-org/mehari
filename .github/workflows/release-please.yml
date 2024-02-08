@@ -45,7 +45,7 @@ jobs:
           override: true
 
       - name: Setup protoc
-        uses: arduino/setup-protoc@v1.1.2
+        uses: arduino/setup-protoc@v3.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
