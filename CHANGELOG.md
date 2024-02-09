@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/varfish-org/mehari/compare/v0.21.2...v0.22.0) (2024-02-09)
+
+
+### Features
+
+* adding /genes/txs endpoint for server ([#339](https://github.com/varfish-org/mehari/issues/339)) ([#340](https://github.com/varfish-org/mehari/issues/340)) ([59dbaaf](https://github.com/varfish-org/mehari/commit/59dbaaf37f85e22c33515cb26d7ade1188c788fc))
+
 ## [0.21.2](https://github.com/varfish-org/mehari/compare/v0.21.1...v0.21.2) (2024-02-01)
 
 
