@@ -47,6 +47,13 @@ pub fn print_hints(args: &Args) {
         return;
     }
 
+    // The endpoint `/genes/txs` provides transcript information.
+    tracing::info!(
+        "  try: http://{}:{}//genes/txs?hgncId=HGNC:1100&\
+        genomeBuild=GENOME_BUILD_GRCH37",
+        args.listen_host.as_str(),
+        args.listen_port
+    );
     // The endpoint `/tx/csq` to comput ethe consequence of a variant; without and with filtering
     // for HGNC gene ID.
     tracing::info!(
@@ -103,11 +110,15 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     for genome_release in [GenomeRelease::Grch37, GenomeRelease::Grch38] {
         let assembly = genome_release.into();
         let path = format!("{}/{}/txs.bin.zst", &args.path_db, path_component(assembly));
+        if !std::path::Path::new(&path).exists() {
+            tracing::warn!("No transcript database found at {}", &path);
+            continue;
+        }
         tracing::info!("  - loading {}", &path);
         let tx_db = load_tx_db(&path)?;
         tracing::info!("  - building interval trees");
         let provider = Arc::new(MehariProvider::new(tx_db, assembly, Default::default()));
-        data.provider = Some(provider.clone());
+        data.provider.insert(genome_release, provider.clone());
         tracing::info!("  - building seqvars predictors");
         data.seqvars_predictors.insert(
             genome_release,
