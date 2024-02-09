@@ -1,10 +1,14 @@
 //! Run the server.
 
+use std::sync::Arc;
+
 use actix_web::ResponseError;
 
+use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::annotate::strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor;
 use crate::{annotate::seqvars::csq::ConsequencePredictor, common::GenomeRelease};
 
+pub mod gene_txs;
 pub mod seqvars_csq;
 pub mod strucvars_csq;
 
@@ -28,8 +32,12 @@ impl CustomError {
 impl ResponseError for CustomError {}
 
 /// Data structure for the web server data.
-#[derive(Debug, Default)]
+#[derive(Default, derivative::Derivative)]
+#[derivative(Debug)]
 pub struct WebServerData {
+    /// `MehariProvider` to provide the transcript info.
+    #[derivative(Debug = "ignore")]
+    pub provider: Option<Arc<MehariProvider>>,
     /// The sequence variant consequence predictors for each assembly.
     pub seqvars_predictors: std::collections::HashMap<GenomeRelease, ConsequencePredictor>,
     /// The structural variant consequence predictors for eacha ssembly.

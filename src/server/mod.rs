@@ -4,7 +4,7 @@ use crate::{
     annotate::{
         seqvars::{
             csq::ConsequencePredictor as SeqvarConsequencePredictor, load_tx_db, path_component,
-            provider::Provider,
+            provider::Provider as MehariProvider,
         },
         strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor,
     },
@@ -106,7 +106,8 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         tracing::info!("  - loading {}", &path);
         let tx_db = load_tx_db(&path)?;
         tracing::info!("  - building interval trees");
-        let provider = Arc::new(Provider::new(tx_db, assembly, Default::default()));
+        let provider = Arc::new(MehariProvider::new(tx_db, assembly, Default::default()));
+        data.provider = Some(provider.clone());
         tracing::info!("  - building seqvars predictors");
         data.seqvars_predictors.insert(
             genome_release,
