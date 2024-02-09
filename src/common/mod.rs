@@ -2,6 +2,7 @@
 
 use std::ops::Range;
 
+use crate::pbs::txs::GenomeBuild;
 use biocommons_bioutils::assemblies::Assembly;
 use byte_unit::{Byte, UnitType};
 use clap::Parser;
@@ -63,6 +64,27 @@ impl From<Assembly> for GenomeRelease {
         match assembly {
             Assembly::Grch37 | Assembly::Grch37p10 => GenomeRelease::Grch37,
             Assembly::Grch38 => GenomeRelease::Grch38,
+        }
+    }
+}
+
+impl Into<GenomeBuild> for GenomeRelease {
+    fn into(self) -> GenomeBuild {
+        match self {
+            GenomeRelease::Grch37 => GenomeBuild::Grch37,
+            GenomeRelease::Grch38 => GenomeBuild::Grch38,
+        }
+    }
+}
+
+impl TryFrom<GenomeBuild> for GenomeRelease {
+    type Error = anyhow::Error;
+
+    fn try_from(value: GenomeBuild) -> Result<Self, Self::Error> {
+        match value {
+            GenomeBuild::Grch37 => Ok(GenomeRelease::Grch37),
+            GenomeBuild::Grch38 => Ok(GenomeRelease::Grch38),
+            _ => anyhow::bail!("Unknown genome build"),
         }
     }
 }

@@ -1,0 +1,29 @@
+// Protobuf messages for the server.
+
+syntax = "proto3";
+
+package mehari.server;
+
+import "mehari/txs.proto";
+
+// Query for transcripts of a certain gene.
+message GeneTranscriptsQuery {
+    // Gene identifier to query for.
+    optional string hgnc_id = 1;
+    // Genome build to use.
+    optional mehari.txs.GenomeBuild genome_build = 2;
+
+    // The number of entries to return per page.
+    optional int32 page_size = 3;
+    // The token to continue from a previous query.
+    optional string next_page_token = 4;
+}
+
+// Container for a response to `GeneTranscriptsQuery`.
+message GeneTranscriptsResponse {
+    // The transcripts for the gene.
+    repeated mehari.txs.Transcript transcripts = 1;
+
+    // The token to continue from a previous query.
+    optional string next_page_token = 2;
+}
