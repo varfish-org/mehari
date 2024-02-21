@@ -654,7 +654,7 @@ impl VarFishSeqvarTsvWriter {
         P: AsRef<Path>,
     {
         Self {
-            inner: if p.as_ref().extension().unwrap() == "gz" {
+            inner: if p.as_ref().extension().unwrap_or_default() == "gz" {
                 Box::new(GzEncoder::new(
                     File::create(p).unwrap(),
                     Compression::default(),
@@ -1791,7 +1791,8 @@ mod test {
         run(&args_common, &args)?;
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
-        let expected = std::fs::read_to_string("tests/data/annotate/seqvars/badly_formed_vcf_entry.tsv")?;
+        let expected =
+            std::fs::read_to_string("tests/data/annotate/seqvars/badly_formed_vcf_entry.tsv")?;
         assert_eq!(&expected, &actual);
 
         Ok(())
@@ -1827,7 +1828,8 @@ mod test {
         run(&args_common, &args)?;
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
-        let expected = std::fs::read_to_string("tests/data/annotate/seqvars/mitochondrial_variants.tsv")?;
+        let expected =
+            std::fs::read_to_string("tests/data/annotate/seqvars/mitochondrial_variants.tsv")?;
         assert_eq!(&expected, &actual);
 
         Ok(())
@@ -1865,11 +1867,10 @@ mod test {
         run(&args_common, &args)?;
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
-        let expected = std::fs::read_to_string("tests/data/annotate/seqvars/clair3-glnexus-min.tsv")?;
+        let expected =
+            std::fs::read_to_string("tests/data/annotate/seqvars/clair3-glnexus-min.tsv")?;
         assert_eq!(&expected, &actual);
 
         Ok(())
     }
-
-
 }
