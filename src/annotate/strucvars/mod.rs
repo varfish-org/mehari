@@ -1452,6 +1452,7 @@ pub enum SvCaller {
     Manta { version: String },
     Melt { version: String },
     Popdel { version: String },
+    Sniffles2 { version: String },
 }
 
 impl SvCaller {
@@ -1493,6 +1494,11 @@ impl SvCaller {
                 self.all_format_defined(header, &["LAD", "DAD", "FL"])
                     && self.all_info_defined(header, &["AF", "IMPRECISE", "SVLEN"])
             }
+            SvCaller::Sniffles2 { .. } => {
+                self.all_format_defined(header, &["GT", "DR", "DV"])
+                    && self.all_info_defined(header, &["MOSAIC", "CONSENSUS_SUPPORT", "SUPP_VEC"])
+                    && self.source_starts_with(header, "Sniffles2")
+            }
         }
     }
 
@@ -1504,13 +1510,15 @@ impl SvCaller {
     ) -> Result<Self, anyhow::Error> {
         Ok(match self {
             SvCaller::ClinCnv { .. } => SvCaller::ClinCnv {
-                version: self.version_from_source_trailing(header)?.replace('v', ""),
+                version: self
+                    .version_from_source_trailing(header, ' ')?
+                    .replace('v', ""),
             },
             SvCaller::Delly { .. } => SvCaller::Delly {
                 version: self.version_from_info_svmethod(record)?,
             },
             SvCaller::DragenSv { .. } => SvCaller::DragenSv {
-                version: self.version_from_source_trailing(header)?,
+                version: self.version_from_source_trailing(header, ' ')?,
             },
             SvCaller::Gcnv { .. } => SvCaller::Gcnv {
                 version: self.version_from_mapping_key(header, "GATKCommandLine")?,
@@ -1527,7 +1535,7 @@ impl SvCaller {
                 SvCaller::DragenCnv { version }
             }
             SvCaller::Manta { .. } => SvCaller::Manta {
-                version: self.version_from_source_trailing(header)?,
+                version: self.version_from_source_trailing(header, ' ')?,
             },
             SvCaller::Melt { .. } => {
                 for (key, values) in header.other_records() {
@@ -1549,6 +1557,9 @@ impl SvCaller {
             SvCaller::Popdel { .. } => SvCaller::Popdel {
                 version: self.version_from_info_svmethod(record)?,
             },
+            SvCaller::Sniffles2 { .. } => SvCaller::Sniffles2 {
+                version: self.version_from_source_trailing(header, '_')?,
+            },
         })
     }
 
@@ -1566,13 +1577,17 @@ impl SvCaller {
         }
     }
 
-    /// Parse out version from `##source=<x> <version>` header.
-    fn version_from_source_trailing(&self, header: &VcfHeader) -> Result<String, anyhow::Error> {
+    /// Parse out version from `##source=<x><splitter><version>` header.
+    fn version_from_source_trailing(
+        &self,
+        header: &VcfHeader,
+        splitter: char,
+    ) -> Result<String, anyhow::Error> {
         for (key, values) in header.other_records() {
             if key.as_ref() == "source" {
                 if let noodles_vcf::header::record::value::Collection::Unstructured(inner) = values
                 {
-                    if let Some(version) = inner[0].split(' ').last() {
+                    if let Some(version) = inner[0].split(splitter).last() {
                         return Ok(version.to_string());
                     }
                 }
@@ -2362,7 +2377,7 @@ mod conv {
     /// Illumina tooling VCF records (Manta/DragenSV).
     fn fill_genotypes_illumina_sv(
         pedigree: &PedigreeByName,
-        samples: &Vec<String>,
+        samples: &[String],
         vcf_record: &VcfRecord,
         tsv_record: &mut VarFishStrucvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
@@ -2703,6 +2718,92 @@ mod conv {
             }
         }
     }
+
+    pub struct Sniffles2VcfRecordConverter {
+        /// The samples from the VCF file.
+        pub samples: Vec<String>,
+        /// The Sniffles2 caller version.
+        pub version: String,
+    }
+
+    impl Sniffles2VcfRecordConverter {
+        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+            Self {
+                samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
+                version: version.to_string(),
+            }
+        }
+    }
+
+    impl VcfRecordConverter for Sniffles2VcfRecordConverter {
+        fn caller_version(&self) -> String {
+            format!("SNIFFLESv{}", self.version)
+        }
+
+        fn fill_cis(
+            &self,
+            _vcf_record: &VcfRecord,
+            tsv_record: &mut VarFishStrucvarTsvRecord,
+        ) -> Result<(), anyhow::Error> {
+            // Sniffles2 does not write out CIs
+            tsv_record.start_ci_left = 0;
+            tsv_record.start_ci_right = 0;
+            tsv_record.end_ci_left = 0;
+            tsv_record.end_ci_right = 0;
+
+            Ok(())
+        }
+
+        fn fill_genotypes(
+            &self,
+            pedigree: &PedigreeByName,
+            vcf_record: &VcfRecord,
+            tsv_record: &mut VarFishStrucvarTsvRecord,
+        ) -> Result<(), anyhow::Error> {
+            let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
+
+            // Extract `FORMAT/*` values.
+            for (sample_no, sample) in vcf_record.genotypes().values().enumerate() {
+                entries[sample_no].name = self.samples[sample_no].clone();
+
+                let mut src = 0;
+
+                for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+                    match (key.as_ref(), value) {
+                        // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
+                        ("GT", Some(SampleValue::String(gt))) => {
+                            process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
+                        }
+                        // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
+                        ("GQ", Some(SampleValue::Integer(gq))) => {
+                            entries[sample_no].gq = Some(*gq);
+                        }
+                        // Obtain `GenotypeInfo::srv` from `FORMAT/DV`, and accumulate src.
+                        ("DV", Some(SampleValue::Integer(dv))) => {
+                            entries[sample_no].srv = Some(*dv);
+                            src += *dv;
+                        }
+                        // Add `FORMAT/DR` to src.
+                        ("DR", Some(SampleValue::Integer(dr))) => {
+                            src += *dr;
+                        }
+                        // Ignore all other keys.
+                        _ => (),
+                    }
+                }
+
+                entries[sample_no].src = Some(src);
+            }
+
+            // TODO: get average mapping quality/amq from `maelstrom-core bam-collect-doc` output.
+
+            tsv_record.genotype.entries = entries;
+            // Post-process genotype and copy number fields and update carrier count as needed.
+            postproc_gt_cn(tsv_record, pedigree);
+
+            Ok(())
+        }
+    }
 }
 
 /// Construct a `VcfRecordConverter` for the given caller.
@@ -2730,6 +2831,9 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
         SvCaller::Gcnv { version } => Box::new(conv::GcnvVcfRecordConverter::new(version, samples)),
         SvCaller::Popdel { version } => {
             Box::new(conv::PopdelVcfRecordConverter::new(version, samples))
+        }
+        SvCaller::Sniffles2 { version } => {
+            Box::new(conv::Sniffles2VcfRecordConverter::new(version, samples))
         }
     }
 }
@@ -3517,6 +3621,7 @@ mod test {
             "gcnv",
             "manta",
             "popdel",
+            "sniffles2",
         ];
 
         for key in keys {
