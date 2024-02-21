@@ -121,7 +121,7 @@ jobs:
         if: ${{ matrix.label == 'full' }}
 
       - name: Codecov submission of fast test results
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           verbose: true
           fail_ci_if_error: true
