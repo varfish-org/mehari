@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.0](https://github.com/varfish-org/mehari/compare/v0.22.0...v0.23.0) (2024-02-21)
+
+
+### Features
+
+* adding support for Sniffles2 ([#357](https://github.com/varfish-org/mehari/issues/357)) ([#358](https://github.com/varfish-org/mehari/issues/358)) ([01641d7](https://github.com/varfish-org/mehari/commit/01641d7c5bfa7b8b2f65417bff062ec7d95c9f6e))
+* script fix_glnexus.py prepare GLNexus output for noodles ([#356](https://github.com/varfish-org/mehari/issues/356)) ([#361](https://github.com/varfish-org/mehari/issues/361)) ([98d8233](https://github.com/varfish-org/mehari/commit/98d8233bfa2b744e3ad5d1a46a3191b0111df144))
+
 ## [0.22.0](https://github.com/varfish-org/mehari/compare/v0.21.2...v0.22.0) (2024-02-09)
 
 
