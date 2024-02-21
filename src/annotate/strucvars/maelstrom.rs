@@ -109,9 +109,9 @@ impl Reader {
                 window_size
             };
             let covered: i32 = covered.try_into()?;
-            let covered: f64 = covered.try_into()?;
+            let covered: f64 = covered.into();
             let window_size: i32 = window_size.try_into()?;
-            let window_size: f64 = window_size.try_into()?;
+            let window_size: f64 = window_size.into();
             let factor = covered / window_size;
             count += factor;
 

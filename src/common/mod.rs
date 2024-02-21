@@ -68,9 +68,9 @@ impl From<Assembly> for GenomeRelease {
     }
 }
 
-impl Into<GenomeBuild> for GenomeRelease {
-    fn into(self) -> GenomeBuild {
-        match self {
+impl From<GenomeRelease> for GenomeBuild {
+    fn from(val: GenomeRelease) -> Self {
+        match val {
             GenomeRelease::Grch37 => GenomeBuild::Grch37,
             GenomeRelease::Grch38 => GenomeBuild::Grch38,
         }
