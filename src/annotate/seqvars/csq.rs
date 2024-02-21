@@ -1056,7 +1056,7 @@ mod test {
     // Compare to SnpEff annotated variants for OPA1, touching special cases.
     #[test]
     fn annotate_opa1_hand_picked_vars() -> Result<(), anyhow::Error> {
-        annotate_opa1_vars("tests/data/annotate/vars/opa1.hand_picked.tsv", true)
+        annotate_opa1_vars("tests/data/annotate/seqvars/opa1.hand_picked.tsv", true)
     }
 
     // Compare to SnpEff annotated ClinVar variants for OPA1 (slow).
@@ -1064,7 +1064,7 @@ mod test {
     #[test]
     fn annotate_opa1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
         annotate_opa1_vars(
-            "tests/data/annotate/vars/clinvar.excerpt.snpeff.opa1.tsv",
+            "tests/data/annotate/seqvars/clinvar.excerpt.snpeff.opa1.tsv",
             true,
         )
     }
@@ -1074,7 +1074,7 @@ mod test {
     #[test]
     fn annotate_opa1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
         annotate_opa1_vars(
-            "tests/data/annotate/vars/clinvar.excerpt.vep.opa1.tsv",
+            "tests/data/annotate/seqvars/clinvar.excerpt.vep.opa1.tsv",
             true,
         )
     }
@@ -1095,7 +1095,7 @@ mod test {
     // Compare to SnpEff annotated variants for BRCA1, touching special cases.
     #[test]
     fn annotate_brca1_hand_picked_vars() -> Result<(), anyhow::Error> {
-        annotate_brca1_vars("tests/data/annotate/vars/brca1.hand_picked.tsv", true)
+        annotate_brca1_vars("tests/data/annotate/seqvars/brca1.hand_picked.tsv", true)
     }
 
     // Compare to SnpEff annotated ClinVar variants for BRCA1 (slow).
@@ -1103,7 +1103,7 @@ mod test {
     #[test]
     fn annotate_brca1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
         annotate_brca1_vars(
-            "tests/data/annotate/vars/clinvar.excerpt.snpeff.brca1.tsv",
+            "tests/data/annotate/seqvars/clinvar.excerpt.snpeff.brca1.tsv",
             true,
         )
     }
@@ -1113,7 +1113,7 @@ mod test {
     #[test]
     fn annotate_brca1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
         annotate_brca1_vars(
-            "tests/data/annotate/vars/clinvar.excerpt.vep.brca1.tsv",
+            "tests/data/annotate/seqvars/clinvar.excerpt.vep.brca1.tsv",
             true,
         )
     }
