@@ -11,6 +11,7 @@ use annonars::common::keys;
 use annonars::freqs::cli::import::reading::guess_assembly;
 use annonars::freqs::serialized::{auto, mt, xy};
 use anyhow::anyhow;
+use noodles_vcf::header::record::value::map::format::Type as FormatType;
 use noodles_vcf::record::genotypes::keys::key::{
     self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH, READ_DEPTHS,
 };
@@ -31,7 +32,7 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use noodles_bgzf::Writer as BgzfWriter;
 use noodles_vcf::header::{
-    record::value::map::{info::Type, Info},
+    record::value::map::{info::Type as InfoType, Info},
     Number,
 };
 use noodles_vcf::reader::Builder as VariantReaderBuilder;
@@ -128,7 +129,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("gnomad_exomes_an").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::Integer,
+            InfoType::Integer,
             "Number of alleles in gnomAD exomes",
         ),
     );
@@ -136,7 +137,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("gnomad_exomes_hom").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::Integer,
+            InfoType::Integer,
             "Number of hom. alt. carriers in gnomAD exomes",
         ),
     );
@@ -144,7 +145,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("gnomad_exomes_het").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::Integer,
+            InfoType::Integer,
             "Number of het. alt. carriers in gnomAD exomes",
         ),
     );
@@ -152,7 +153,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("gnomad_exomes_hemi").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::Integer,
+            InfoType::Integer,
             "Number of hemi. alt. carriers in gnomAD exomes",
         ),
     );
@@ -161,7 +162,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("gnomad_genomes_an").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::Integer,
+            InfoType::Integer,
             "Number of alleles in gnomAD genomes",
         ),
     );
@@ -169,7 +170,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("gnomad_genomes_hom").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::Integer,
+            InfoType::Integer,
             "Number of hom. alt. carriers in gnomAD genomes",
         ),
     );
@@ -177,7 +178,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("gnomad_genomes_het").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::Integer,
+            InfoType::Integer,
             "Number of het. alt. carriers in gnomAD genomes",
         ),
     );
@@ -185,7 +186,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("gnomad_genomes_hemi").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::Integer,
+            InfoType::Integer,
             "Number of hemi. alt. carriers in gnomAD genomes",
         ),
     );
@@ -194,7 +195,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("helix_an").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::Integer,
+            InfoType::Integer,
             "Number of alleles in HelixMtDb",
         ),
     );
@@ -202,7 +203,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("helix_hom").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::Integer,
+            InfoType::Integer,
             "Number of hom. alt. carriers in HelixMtDb",
         ),
     );
@@ -210,7 +211,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("helix_het").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::Integer,
+            InfoType::Integer,
             "Number of het. alt. carriers in HelixMtDb",
         ),
     );
@@ -219,7 +220,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("ANN").unwrap(),
         Map::<Info>::new(
             Number::Unknown,
-            Type::String,
+            InfoType::String,
             "Functional annotations: 'Allele | Annotation | Annotation_Impact | Gene_Name | \
             Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | \
             cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | Distance | \
@@ -231,7 +232,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("clinvar_clinsig").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::String,
+            InfoType::String,
             "ClinVar clinical significance (one highest significance per VCV)",
         ),
     );
@@ -239,13 +240,13 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         field::Key::from_str("clinvar_rcv").unwrap(),
         Map::<Info>::new(
             Number::Count(1),
-            Type::String,
+            InfoType::String,
             "ClinVar RCV accession (corresponds to clinvar_clinsig)",
         ),
     );
     header_out.infos_mut().insert(
         field::Key::from_str("clinvar_vcv").unwrap(),
-        Map::<Info>::new(Number::Count(1), Type::String, "ClinVar VCV accession"),
+        Map::<Info>::new(Number::Count(1), InfoType::String, "ClinVar VCV accession"),
     );
 
     header_out
@@ -1416,8 +1417,14 @@ impl AnnotatedVcfWriter for VarFishSeqvarTsvWriter {
 fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("Open VCF and read header");
     let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
-    let header_in = reader.read_header()?;
+    let mut header_in = reader.read_header()?;
     let header_out = build_header(&header_in);
+
+    // Work around glnexus issue with RNC.
+    if let Some(format) = header_in.formats_mut().get_mut("RNC") {
+        *format.number_mut() = Number::Count(1);
+        *format.type_mut() = FormatType::String;
+    }
 
     // Guess genome release from contigs in VCF header.
     let genome_release = args.genome_release.map(|gr| match gr {
