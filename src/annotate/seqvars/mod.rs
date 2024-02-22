@@ -834,7 +834,7 @@ impl VarFishSeqvarTsvWriter {
                 .get(&READ_DEPTHS)
                 .map(|value| match value {
                     Some(sample::Value::Array(sample::value::Array::Integer(arr))) => {
-                        Ok(arr[1].expect("missing AD value"))
+                        Ok(arr[1].unwrap_or(0))
                     }
                     None => Ok(-1),
                     _ => anyhow::bail!(format!("invalid AD value {:?} in {:#?}", value, sample)),
