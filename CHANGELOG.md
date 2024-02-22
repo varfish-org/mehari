@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.2](https://github.com/varfish-org/mehari/compare/v0.23.1...v0.23.2) (2024-02-22)
+
+
+### Bug Fixes
+
+* handling missing FORMAT/AD values (".") ([#365](https://github.com/varfish-org/mehari/issues/365)) ([170ee00](https://github.com/varfish-org/mehari/commit/170ee003a8c8795fb6bc96c415ce57a703d45368))
+
 ## [0.23.1](https://github.com/varfish-org/mehari/compare/v0.23.0...v0.23.1) (2024-02-22)
 
 
