@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.1](https://github.com/varfish-org/mehari/compare/v0.23.0...v0.23.1) (2024-02-22)
+
+
+### Bug Fixes
+
+* work around issue with glnexus [#362](https://github.com/varfish-org/mehari/issues/362) ([#363](https://github.com/varfish-org/mehari/issues/363)) ([77afb96](https://github.com/varfish-org/mehari/commit/77afb96812944cda51cd2843ed836f83e71d2a86))
+
 ## [0.23.0](https://github.com/varfish-org/mehari/compare/v0.22.0...v0.23.0) (2024-02-21)
 
 
