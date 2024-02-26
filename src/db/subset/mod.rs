@@ -46,8 +46,8 @@ fn subset_tx_db(
             }
         }
         (
-            IndexSet::<usize>::from_iter(tx_idxs.into_iter()),
-            IndexSet::<String>::from_iter(tx_ids.into_iter()),
+            IndexSet::<usize>::from_iter(tx_idxs),
+            IndexSet::<String>::from_iter(tx_ids),
             gene_ids,
         )
     };
