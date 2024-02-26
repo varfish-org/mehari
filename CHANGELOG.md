@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.1](https://github.com/varfish-org/mehari/compare/v0.24.0...v0.24.1) (2024-02-26)
+
+
+### Miscellaneous Chores
+
+* cleanup test db bootstrapping ([#370](https://github.com/varfish-org/mehari/issues/370)) ([#371](https://github.com/varfish-org/mehari/issues/371)) ([9479cd0](https://github.com/varfish-org/mehari/commit/9479cd03ef55327395f4f47c2ba9f14252bc0765))
+
 ## [0.24.0](https://github.com/varfish-org/mehari/compare/v0.23.2...v0.24.0) (2024-02-26)
 
 
