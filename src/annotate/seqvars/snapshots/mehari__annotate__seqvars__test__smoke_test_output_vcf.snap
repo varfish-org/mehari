@@ -1,0 +1,142 @@
+---
+source: src/annotate/seqvars/mod.rs
+expression: actual
+---
+##fileformat=VCFv4.2
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count in genotypes, for each ALT allele, in the same order as listed">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele Frequency, for each ALT allele, in the same order as listed">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="Total number of alleles in called genotypes">
+##INFO=<ID=BaseQRankSum,Number=1,Type=Float,Description="Z-score from Wilcoxon rank sum test of Alt Vs. Ref base qualities">
+##INFO=<ID=ClippingRankSum,Number=1,Type=Float,Description="Z-score From Wilcoxon rank sum test of Alt vs. Ref number of hard clipped bases">
+##INFO=<ID=DB,Number=0,Type=Flag,Description="dbSNP Membership">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Approximate read depth; some reads may have been filtered">
+##INFO=<ID=DS,Number=0,Type=Flag,Description="Were any of the samples downsampled?">
+##INFO=<ID=ExcessHet,Number=1,Type=Float,Description="Phred-scaled p-value for exact test of excess heterozygosity">
+##INFO=<ID=FS,Number=1,Type=Float,Description="Phred-scaled p-value using Fisher's exact test to detect strand bias">
+##INFO=<ID=HaplotypeScore,Number=1,Type=Float,Description="Consistency of the site with at most two segregating haplotypes">
+##INFO=<ID=InbreedingCoeff,Number=1,Type=Float,Description="Inbreeding coefficient as estimated from the genotype likelihoods per-sample when compared against the Hardy-Weinberg expectation">
+##INFO=<ID=MLEAC,Number=A,Type=Integer,Description="Maximum likelihood expectation (MLE) for the allele counts (not necessarily the same as the AC), for each ALT allele, in the same order as listed">
+##INFO=<ID=MLEAF,Number=A,Type=Float,Description="Maximum likelihood expectation (MLE) for the allele frequency (not necessarily the same as the AF), for each ALT allele, in the same order as listed">
+##INFO=<ID=MQ,Number=1,Type=Float,Description="RMS Mapping Quality">
+##INFO=<ID=MQRankSum,Number=1,Type=Float,Description="Z-score From Wilcoxon rank sum test of Alt vs. Ref read mapping qualities">
+##INFO=<ID=QD,Number=1,Type=Float,Description="Variant Confidence/Quality by Depth">
+##INFO=<ID=ReadPosRankSum,Number=1,Type=Float,Description="Z-score from Wilcoxon rank sum test of Alt vs. Ref read position bias">
+##INFO=<ID=SOR,Number=1,Type=Float,Description="Symmetric Odds Ratio of 2x2 contingency table to detect strand bias">
+##INFO=<ID=gnomad_exomes_an,Number=1,Type=Integer,Description="Number of alleles in gnomAD exomes">
+##INFO=<ID=gnomad_exomes_hom,Number=1,Type=Integer,Description="Number of hom. alt. carriers in gnomAD exomes">
+##INFO=<ID=gnomad_exomes_het,Number=1,Type=Integer,Description="Number of het. alt. carriers in gnomAD exomes">
+##INFO=<ID=gnomad_exomes_hemi,Number=1,Type=Integer,Description="Number of hemi. alt. carriers in gnomAD exomes">
+##INFO=<ID=gnomad_genomes_an,Number=1,Type=Integer,Description="Number of alleles in gnomAD genomes">
+##INFO=<ID=gnomad_genomes_hom,Number=1,Type=Integer,Description="Number of hom. alt. carriers in gnomAD genomes">
+##INFO=<ID=gnomad_genomes_het,Number=1,Type=Integer,Description="Number of het. alt. carriers in gnomAD genomes">
+##INFO=<ID=gnomad_genomes_hemi,Number=1,Type=Integer,Description="Number of hemi. alt. carriers in gnomAD genomes">
+##INFO=<ID=helix_an,Number=1,Type=Integer,Description="Number of alleles in HelixMtDb">
+##INFO=<ID=helix_hom,Number=1,Type=Integer,Description="Number of hom. alt. carriers in HelixMtDb">
+##INFO=<ID=helix_het,Number=1,Type=Integer,Description="Number of het. alt. carriers in HelixMtDb">
+##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations: 'Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | Distance | ERRORS / WARNINGS / INFO'">
+##INFO=<ID=clinvar_clinsig,Number=1,Type=String,Description="ClinVar clinical significance (one highest significance per VCV)">
+##INFO=<ID=clinvar_rcv,Number=1,Type=String,Description="ClinVar RCV accession (corresponds to clinvar_clinsig)">
+##INFO=<ID=clinvar_vcv,Number=1,Type=String,Description="ClinVar VCV accession">
+##FILTER=<ID=PASS,Description="All filters passed">
+##FILTER=<ID=LowQual,Description="Low quality">
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allelic depths for the ref and alt alleles in the order listed">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Approximate read depth (reads with MQ=255 or with bad mates are filtered)">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Normalized, Phred-scaled likelihoods for genotypes as defined in the VCF specification">
+##contig=<ID=1,length=249250621>
+##contig=<ID=2,length=243199373>
+##contig=<ID=3,length=198022430>
+##contig=<ID=4,length=191154276>
+##contig=<ID=5,length=180915260>
+##contig=<ID=6,length=171115067>
+##contig=<ID=7,length=159138663>
+##contig=<ID=8,length=146364022>
+##contig=<ID=9,length=141213431>
+##contig=<ID=10,length=135534747>
+##contig=<ID=11,length=135006516>
+##contig=<ID=12,length=133851895>
+##contig=<ID=13,length=115169878>
+##contig=<ID=14,length=107349540>
+##contig=<ID=15,length=102531392>
+##contig=<ID=16,length=90354753>
+##contig=<ID=17,length=81195210>
+##contig=<ID=18,length=78077248>
+##contig=<ID=19,length=59128983>
+##contig=<ID=20,length=63025520>
+##contig=<ID=21,length=48129895>
+##contig=<ID=22,length=51304566>
+##contig=<ID=X,length=155270560>
+##contig=<ID=Y,length=59373566>
+##contig=<ID=MT,length=16569>
+##contig=<ID=GL000207.1,length=4262>
+##contig=<ID=GL000226.1,length=15008>
+##contig=<ID=GL000229.1,length=19913>
+##contig=<ID=GL000231.1,length=27386>
+##contig=<ID=GL000210.1,length=27682>
+##contig=<ID=GL000239.1,length=33824>
+##contig=<ID=GL000235.1,length=34474>
+##contig=<ID=GL000201.1,length=36148>
+##contig=<ID=GL000247.1,length=36422>
+##contig=<ID=GL000245.1,length=36651>
+##contig=<ID=GL000197.1,length=37175>
+##contig=<ID=GL000203.1,length=37498>
+##contig=<ID=GL000246.1,length=38154>
+##contig=<ID=GL000249.1,length=38502>
+##contig=<ID=GL000196.1,length=38914>
+##contig=<ID=GL000248.1,length=39786>
+##contig=<ID=GL000244.1,length=39929>
+##contig=<ID=GL000238.1,length=39939>
+##contig=<ID=GL000202.1,length=40103>
+##contig=<ID=GL000234.1,length=40531>
+##contig=<ID=GL000232.1,length=40652>
+##contig=<ID=GL000206.1,length=41001>
+##contig=<ID=GL000240.1,length=41933>
+##contig=<ID=GL000236.1,length=41934>
+##contig=<ID=GL000241.1,length=42152>
+##contig=<ID=GL000243.1,length=43341>
+##contig=<ID=GL000242.1,length=43523>
+##contig=<ID=GL000230.1,length=43691>
+##contig=<ID=GL000237.1,length=45867>
+##contig=<ID=GL000233.1,length=45941>
+##contig=<ID=GL000204.1,length=81310>
+##contig=<ID=GL000198.1,length=90085>
+##contig=<ID=GL000208.1,length=92689>
+##contig=<ID=GL000191.1,length=106433>
+##contig=<ID=GL000227.1,length=128374>
+##contig=<ID=GL000228.1,length=129120>
+##contig=<ID=GL000214.1,length=137718>
+##contig=<ID=GL000221.1,length=155397>
+##contig=<ID=GL000209.1,length=159169>
+##contig=<ID=GL000218.1,length=161147>
+##contig=<ID=GL000220.1,length=161802>
+##contig=<ID=GL000213.1,length=164239>
+##contig=<ID=GL000211.1,length=166566>
+##contig=<ID=GL000199.1,length=169874>
+##contig=<ID=GL000217.1,length=172149>
+##contig=<ID=GL000216.1,length=172294>
+##contig=<ID=GL000215.1,length=172545>
+##contig=<ID=GL000205.1,length=174588>
+##contig=<ID=GL000219.1,length=179198>
+##contig=<ID=GL000224.1,length=179693>
+##contig=<ID=GL000223.1,length=180455>
+##contig=<ID=GL000195.1,length=182896>
+##contig=<ID=GL000212.1,length=186858>
+##contig=<ID=GL000222.1,length=186861>
+##contig=<ID=GL000200.1,length=187035>
+##contig=<ID=GL000193.1,length=189789>
+##contig=<ID=GL000194.1,length=191469>
+##contig=<ID=GL000225.1,length=211173>
+##contig=<ID=GL000192.1,length=547496>
+##contig=<ID=NC_007605,length=171823>
+##contig=<ID=hs37d5,length=35477943>
+##GATKCommandLine.HaplotypeCaller=<ID=HaplotypeCaller,Version="3.7-0-gcfedb67",Date="Wed Sep 18 14:06:27 CEST 2019",Epoch="1568808387440",CommandLineOptions="analysis_type=HaplotypeCaller input_file=[/fast/work/groups/cubi/projects/2019-09-17_varfish_demo_data/GRCh37/ngs_mapping/work/bwa.HG00102-N1-DNA1-WES1/out/bwa.HG00102-N1-DNA1-WES1.bam] showFullBamList=false read_buffer_size=null read_filter=[] disable_read_filter=[] intervals=[1:1-50,010,000] excludeIntervals=null interval_set_rule=UNION interval_merging=ALL interval_padding=0 reference_sequence=/fast/projects/cubit/current/static_data/reference/GRCh37/hs37d5/hs37d5.fa nonDeterministicRandomSeed=false disableDithering=false maxRuntime=-1 maxRuntimeUnits=MINUTES downsampling_type=BY_SAMPLE downsample_to_fraction=null downsample_to_coverage=500 baq=OFF baqGapOpenPenalty=40.0 refactor_NDN_cigar_string=false fix_misencoded_quality_scores=false allow_potentially_misencoded_quality_scores=false useOriginalQualities=false defaultBaseQualities=-1 performanceLog=null BQSR=null quantize_quals=0 static_quantized_quals=null round_down_quantized=false disable_indel_quals=false emit_original_quals=false preserve_qscores_less_than=6 globalQScorePrior=-1.0 secondsBetweenProgressUpdates=10 validation_strictness=SILENT remove_program_records=false keep_program_records=false sample_rename_mapping_file=null unsafe=null disable_auto_index_creation_and_locking_when_reading_rods=false no_cmdline_in_header=false sites_only=false never_trim_vcf_format_field=false bcf=false bam_compression=null simplifyBAM=false disable_bam_indexing=false generate_md5=false num_threads=1 num_cpu_threads_per_data_thread=1 num_io_threads=0 monitorThreadEfficiency=false num_bam_file_handles=null read_group_black_list=null pedigree=[] pedigreeString=[] pedigreeValidationType=STRICT allow_intervals_with_unindexed_bam=false generateShadowBCF=false variant_index_type=DYNAMIC_SEEK variant_index_parameter=-1 reference_window_stop=0 phone_home= gatk_key=null tag=NA logging_level=INFO log_to_file=null help=false version=false out=/fast/users/holtgrem_c/scratch/tmp/tmp.San1J5p2CT/tmp.vcf.gz likelihoodCalculationEngine=PairHMM heterogeneousKmerSizeResolution=COMBO_MIN dbsnp=(RodBinding name=dbsnp source=/fast/projects/cubit/current/static_data/db/dbSNP/b147/GRCh37/All_20160408.vcf.gz) dontTrimActiveRegions=false maxDiscARExtension=25 maxGGAARExtension=300 paddingAroundIndels=150 paddingAroundSNPs=20 comp=[] annotation=[] excludeAnnotation=[] group=[StandardAnnotation, StandardHCAnnotation] debug=false useFilteredReadsForAnnotations=false emitRefConfidence=NONE bamOutput=null bamWriterType=CALLED_HAPLOTYPES emitDroppedReads=false disableOptimizations=false annotateNDA=false useNewAFCalculator=false heterozygosity=0.001 indel_heterozygosity=1.25E-4 heterozygosity_stdev=0.01 standard_min_confidence_threshold_for_calling=10.0 standard_min_confidence_threshold_for_emitting=30.0 max_alternate_alleles=6 max_genotype_count=1024 max_num_PL_values=100 input_prior=[] sample_ploidy=2 genotyping_mode=DISCOVERY alleles=(RodBinding name= source=UNBOUND) contamination_fraction_to_filter=0.0 contamination_fraction_per_sample_file=null p_nonref_model=null exactcallslog=null output_mode=EMIT_VARIANTS_ONLY allSitePLs=false gcpHMM=10 pair_hmm_implementation=VECTOR_LOGLESS_CACHING pair_hmm_sub_implementation=ENABLE_ALL always_load_vector_logless_PairHMM_lib=false phredScaledGlobalReadMismappingRate=45 noFpga=false sample_name=null kmerSize=[10, 25] dontIncreaseKmerSizesForCycles=false allowNonUniqueKmersInRef=false numPruningSamples=1 recoverDanglingHeads=false doNotRecoverDanglingBranches=false minDanglingBranchLength=4 consensus=false maxNumHaplotypesInPopulation=128 errorCorrectKmers=false minPruning=3 debugGraphTransformations=false allowCyclesInKmerGraphToGeneratePaths=false graphOutput=null kmerLengthForReadErrorCorrection=25 minObservationsForKmerToBeSolid=20 GVCFGQBands=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 70, 80, 90, 99] indelSizeToEliminateInRefModel=10 min_base_quality_score=10 includeUmappedReads=false useAllelesTrigger=false doNotRunPhysicalPhasing=true keepRG=null justDetermineActiveRegions=false dontGenotype=false dontUseSoftClippedBases=false captureAssemblyFailureBAM=false errorCorrectReads=false pcr_indel_model=CONSERVATIVE maxReadsInRegionPerSample=10000 minReadsPerAlignmentStart=10 mergeVariantsViaLD=false activityProfileOut=null activeRegionOut=null activeRegionIn=null activeRegionExtension=null forceActive=false activeRegionMaxSize=null bandPassSigma=null maxReadsInMemoryPerSample=30000 maxTotalReadsInMemory=10000000 maxProbPropagationDistance=50 activeProbabilityThreshold=0.002 min_mapping_quality_score=20 filter_reads_with_N_cigar=false filter_mismatching_base_and_quals=false filter_bases_not_stored=false">
+##reference=file:///fast/projects/cubit/current/static_data/reference/GRCh37/hs37d5/hs37d5.fa
+##bcftools_viewVersion=1.9+htslib-1.9
+##bcftools_viewCommand=view --header-only /fast/users/holtgrem_c/scratch/tmp/tmp.San1J5p2CT/tmp.vcf.gz; Date=Wed Sep 18 14:09:14 2019
+##SAMPLE=<ID=HG00102-N1-DNA1-WES1,Sex="Female",Disease="Affected">
+##PEDIGREE=<ID=HG00102-N1-DNA1-WES1,Family="FAM_HG00102",Father="0",Mother="0">
+##bcftools_concatVersion=1.9+htslib-1.9
+##bcftools_concatCommand=concat --allow-overlaps -d none -o output/out.vcf.gz -O z job_out.0.d/out/tmp_0.vcf.gz job_out.1.d/out/tmp_1.vcf.gz job_out.2.d/out/tmp_2.vcf.gz job_out.3.d/out/tmp_3.vcf.gz job_out.4.d/out/tmp_4.vcf.gz job_out.5.d/out/tmp_5.vcf.gz job_out.6.d/out/tmp_6.vcf.gz job_out.7.d/out/tmp_7.vcf.gz job_out.8.d/out/tmp_8.vcf.gz job_out.9.d/out/tmp_9.vcf.gz job_out.10.d/out/tmp_10.vcf.gz job_out.11.d/out/tmp_11.vcf.gz job_out.12.d/out/tmp_12.vcf.gz job_out.13.d/out/tmp_13.vcf.gz job_out.14.d/out/tmp_14.vcf.gz job_out.15.d/out/tmp_15.vcf.gz job_out.16.d/out/tmp_16.vcf.gz job_out.17.d/out/tmp_17.vcf.gz job_out.18.d/out/tmp_18.vcf.gz job_out.19.d/out/tmp_19.vcf.gz job_out.20.d/out/tmp_20.vcf.gz job_out.21.d/out/tmp_21.vcf.gz job_out.22.d/out/tmp_22.vcf.gz job_out.23.d/out/tmp_23.vcf.gz job_out.24.d/out/tmp_24.vcf.gz job_out.25.d/out/tmp_25.vcf.gz job_out.26.d/out/tmp_26.vcf.gz job_out.27.d/out/tmp_27.vcf.gz job_out.28.d/out/tmp_28.vcf.gz job_out.29.d/out/tmp_29.vcf.gz job_out.30.d/out/tmp_30.vcf.gz job_out.31.d/out/tmp_31.vcf.gz job_out.32.d/out/tmp_32.vcf.gz job_out.33.d/out/tmp_33.vcf.gz job_out.34.d/out/tmp_34.vcf.gz job_out.35.d/out/tmp_35.vcf.gz job_out.36.d/out/tmp_36.vcf.gz job_out.37.d/out/tmp_37.vcf.gz job_out.38.d/out/tmp_38.vcf.gz job_out.39.d/out/tmp_39.vcf.gz job_out.40.d/out/tmp_40.vcf.gz job_out.41.d/out/tmp_41.vcf.gz job_out.42.d/out/tmp_42.vcf.gz job_out.43.d/out/tmp_43.vcf.gz job_out.44.d/out/tmp_44.vcf.gz job_out.45.d/out/tmp_45.vcf.gz job_out.46.d/out/tmp_46.vcf.gz job_out.47.d/out/tmp_47.vcf.gz job_out.48.d/out/tmp_48.vcf.gz job_out.49.d/out/tmp_49.vcf.gz job_out.50.d/out/tmp_50.vcf.gz job_out.51.d/out/tmp_51.vcf.gz job_out.52.d/out/tmp_52.vcf.gz job_out.53.d/out/tmp_53.vcf.gz job_out.54.d/out/tmp_54.vcf.gz job_out.55.d/out/tmp_55.vcf.gz job_out.56.d/out/tmp_56.vcf.gz job_out.57.d/out/tmp_57.vcf.gz job_out.58.d/out/tmp_58.vcf.gz job_out.59.d/out/tmp_59.vcf.gz job_out.60.d/out/tmp_60.vcf.gz job_out.61.d/out/tmp_61.vcf.gz job_out.62.d/out/tmp_62.vcf.gz job_out.63.d/out/tmp_63.vcf.gz job_out.64.d/out/tmp_64.vcf.gz job_out.65.d/out/tmp_65.vcf.gz job_out.66.d/out/tmp_66.vcf.gz job_out.67.d/out/tmp_67.vcf.gz job_out.68.d/out/tmp_68.vcf.gz job_out.69.d/out/tmp_69.vcf.gz job_out.70.d/out/tmp_70.vcf.gz job_out.71.d/out/tmp_71.vcf.gz job_out.72.d/out/tmp_72.vcf.gz job_out.73.d/out/tmp_73.vcf.gz job_out.74.d/out/tmp_74.vcf.gz job_out.75.d/out/tmp_75.vcf.gz job_out.76.d/out/tmp_76.vcf.gz job_out.77.d/out/tmp_77.vcf.gz job_out.78.d/out/tmp_78.vcf.gz job_out.79.d/out/tmp_79.vcf.gz job_out.80.d/out/tmp_80.vcf.gz job_out.81.d/out/tmp_81.vcf.gz job_out.82.d/out/tmp_82.vcf.gz job_out.83.d/out/tmp_83.vcf.gz job_out.84.d/out/tmp_84.vcf.gz job_out.85.d/out/tmp_85.vcf.gz job_out.86.d/out/tmp_86.vcf.gz job_out.87.d/out/tmp_87.vcf.gz job_out.88.d/out/tmp_88.vcf.gz job_out.89.d/out/tmp_89.vcf.gz job_out.90.d/out/tmp_90.vcf.gz job_out.91.d/out/tmp_91.vcf.gz job_out.92.d/out/tmp_92.vcf.gz job_out.93.d/out/tmp_93.vcf.gz job_out.94.d/out/tmp_94.vcf.gz job_out.95.d/out/tmp_95.vcf.gz job_out.96.d/out/tmp_96.vcf.gz job_out.97.d/out/tmp_97.vcf.gz job_out.98.d/out/tmp_98.vcf.gz job_out.99.d/out/tmp_99.vcf.gz job_out.100.d/out/tmp_100.vcf.gz job_out.101.d/out/tmp_101.vcf.gz job_out.102.d/out/tmp_102.vcf.gz job_out.103.d/out/tmp_103.vcf.gz job_out.104.d/out/tmp_104.vcf.gz job_out.105.d/out/tmp_105.vcf.gz job_out.106.d/out/tmp_106.vcf.gz job_out.107.d/out/tmp_107.vcf.gz job_out.108.d/out/tmp_108.vcf.gz job_out.109.d/out/tmp_109.vcf.gz job_out.110.d/out/tmp_110.vcf.gz job_out.111.d/out/tmp_111.vcf.gz job_out.112.d/out/tmp_112.vcf.gz job_out.113.d/out/tmp_113.vcf.gz job_out.114.d/out/tmp_114.vcf.gz job_out.115.d/out/tmp_115.vcf.gz job_out.116.d/out/tmp_116.vcf.gz job_out.117.d/out/tmp_117.vcf.gz job_out.118.d/out/tmp_118.vcf.gz job_out.119.d/out/tmp_119.vcf.gz job_out.120.d/out/tmp_120.vcf.gz job_out.121.d/out/tmp_121.vcf.gz job_out.122.d/out/tmp_122.vcf.gz job_out.123.d/out/tmp_123.vcf.gz job_out.124.d/out/tmp_124.vcf.gz job_out.125.d/out/tmp_125.vcf.gz job_out.126.d/out/tmp_126.vcf.gz job_out.127.d/out/tmp_127.vcf.gz job_out.128.d/out/tmp_128.vcf.gz job_out.129.d/out/tmp_129.vcf.gz job_out.130.d/out/tmp_130.vcf.gz job_out.131.d/out/tmp_131.vcf.gz job_out.132.d/out/tmp_132.vcf.gz; Date=Wed Sep 18 14:03:41 2019
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	HG00102-N1-DNA1-WES1
+17	41215920	rs28897696	G	T	125	.	AC=2;AF=1;AN=2;DP=5;ExcessHet=3.0103;FS=0;MLEAC=2;MLEAF=1;MQ=22.81;QD=31.25;SOR=3.258;gnomad_exomes_an=0;gnomad_exomes_hom=0;gnomad_exomes_het=0;gnomad_genomes_an=251312;gnomad_genomes_hom=0;gnomad_genomes_het=5;clinvar_clinsig=pathogenic;clinvar_rcv=RCV000077599;clinvar_vcv=VCV000055407;ANN=T|missense_variant|MODERATE|BRCA1|HGNC:1100|transcript|NM_007294.4|Coding&ManeSelect|17/23|c.5123C>A|p.A1708E|5236/7088|5123/5592|1708/1864|0|	GT:AD:DP:GQ:PL	1/1:0,4:4:12:162,12,0

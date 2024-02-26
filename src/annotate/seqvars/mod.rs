@@ -1698,26 +1698,19 @@ mod test {
             transcript_source: TranscriptSource::Both,
             transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
-            path_input_vcf: String::from(
-                "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf",
-            ),
+            path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: Some(path_out.into_os_string().into_string().unwrap()),
                 path_output_tsv: None,
             },
             max_var_count: None,
-            path_input_ped: String::from(
-                "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.ped",
-            ),
+            path_input_ped: String::from("tests/data/annotate/seqvars/brca1.examples.ped"),
         };
 
         run(&args_common, &args)?;
 
         let actual = std::fs::read_to_string(args.output.path_output_vcf.unwrap())?;
-        let expected = std::fs::read_to_string(
-            "tests/data/db/create/seqvar_freqs/db-rs1263393206/output.vcf",
-        )?;
-        assert_eq!(&expected, &actual);
+        insta::assert_snapshot!(actual);
 
         Ok(())
     }
@@ -1736,26 +1729,19 @@ mod test {
             transcript_source: TranscriptSource::Both,
             transcript_picking: false,
             path_db: String::from("tests/data/annotate/db"),
-            path_input_vcf: String::from(
-                "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf",
-            ),
+            path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            path_input_ped: String::from(
-                "tests/data/db/create/seqvar_freqs/db-rs1263393206/input.ped",
-            ),
+            path_input_ped: String::from("tests/data/annotate/seqvars/brca1.examples.ped"),
         };
 
         run(&args_common, &args)?;
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
-        let expected = std::fs::read_to_string(
-            "tests/data/db/create/seqvar_freqs/db-rs1263393206/output.tsv",
-        )?;
-        assert_eq!(&expected, &actual);
+        insta::assert_snapshot!(actual);
 
         Ok(())
     }
