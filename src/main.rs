@@ -120,6 +120,7 @@ struct Db {
 enum DbCommands {
     Create(db::create::Args),
     Dump(db::dump::Args),
+    Subset(db::subset::Args),
 }
 
 /// Parsing of "annotate *" sub commands.
@@ -182,6 +183,7 @@ async fn main() -> Result<(), anyhow::Error> {
         Commands::Db(db) => match &db.command {
             DbCommands::Create(args) => db::create::run(&cli.common, args)?,
             DbCommands::Dump(args) => db::dump::run(&cli.common, args)?,
+            DbCommands::Subset(args) => db::subset::run(&cli.common, args)?,
         },
         Commands::Annotate(annotate) => match &annotate.command {
             AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args)?,
