@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/varfish-org/mehari/compare/v0.23.2...v0.24.0) (2024-02-26)
+
+
+### Features
+
+* adding "mehari db subset" command ([#367](https://github.com/varfish-org/mehari/issues/367)) ([#368](https://github.com/varfish-org/mehari/issues/368)) ([14044e3](https://github.com/varfish-org/mehari/commit/14044e33a45779f5bbdff0935e574e1deb926fa3))
+
 ## [0.23.2](https://github.com/varfish-org/mehari/compare/v0.23.1...v0.23.2) (2024-02-22)
 
 
