@@ -267,9 +267,9 @@ dependencies = [
 
 [[package]]
 name = "annonars"
-version = "0.35.0"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "416b073dbcbd14a2b552288cc1a1cf10fdac357886c9bc671e47cb634b218649"
+checksum = "38d0a414ec459bfd978f79717b4402bf486bcde0ce7198048d46d43ae4ab1a68"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -2222,7 +2222,7 @@ dependencies = [
  "noodles-bgzf",
  "noodles-core",
  "noodles-csi",
- "noodles-fasta",
+ "noodles-fasta 0.33.0",
  "noodles-tabix",
  "noodles-vcf",
  "parse-display",
@@ -2420,6 +2420,18 @@ name = "noodles-fasta"
 version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebb3e83e0f112d3482f5234a1eb219081f12cc3aab38a9eba00ef1846b43b63b"
+dependencies = [
+ "bytes",
+ "memchr",
+ "noodles-bgzf",
+ "noodles-core",
+]
+
+[[package]]
+name = "noodles-fasta"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e9e953e4e90e6c96e6a384598ebf2ab6d2f5add259ff05a194cf635e892c980"
 dependencies = [
  "bytes",
  "memchr",
@@ -3374,7 +3386,7 @@ dependencies = [
  "chrono",
  "noodles-bgzf",
  "noodles-core",
- "noodles-fasta",
+ "noodles-fasta 0.32.0",
  "rusqlite",
  "thiserror",
  "tracing",
