@@ -134,6 +134,40 @@ fn load_and_extract(
         start.elapsed()
     );
 
+    // Count number of MANE Select and MANE Plus Clinical transcripts.
+    let mut n_mane_select = 0;
+    let mut n_mane_plus_clinical = 0;
+    for tx in c_txs.values() {
+        let mut is_mane_select = false;
+        let mut is_mane_plus_clinical = false;
+        for gb in tx.genome_builds.values() {
+            if let Some(tag) = &gb.tag {
+                if tag.contains(&models::Tag::ManeSelect) {
+                    is_mane_select = true;
+                }
+                if tag.contains(&models::Tag::ManePlusClinical) {
+                    is_mane_plus_clinical = true;
+                }
+            }
+        }
+        if is_mane_select {
+            n_mane_select += 1;
+        }
+        if is_mane_plus_clinical {
+            n_mane_plus_clinical += 1;
+        }
+    }
+    writeln!(
+        report_file,
+        "mane_select_transcripts\t{}\nmane_plus_clinical_transcripts\t{}",
+        n_mane_select, n_mane_plus_clinical
+    )?;
+    tracing::info!(
+        "mane_select_transcripts = {}, mane_plus_clinical_transcripts = {}",
+        n_mane_select,
+        n_mane_plus_clinical
+    );
+
     let start = Instant::now();
     writeln!(report_file, "total_genes\t{}", c_genes.len())?;
     c_genes
