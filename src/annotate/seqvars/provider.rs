@@ -462,10 +462,12 @@ impl ProviderInterface for Provider {
     }
 
     fn get_tx_for_gene(&self, gene: &str) -> Result<Vec<TxInfoRecord>, Error> {
-        let tx_acs = self.get_picked_transcripts(gene).ok_or_else(|| {
-            tracing::warn!("gene ID not found {}", gene);
-            Error::NoGeneFound(gene.to_string())
-        })?;
+        let tx_acs = if let Some(tx_acs) = self.get_picked_transcripts(gene) {
+            tx_acs
+        } else {
+            tracing::warn!("no transcripts found for gene: {}", gene);
+            return Ok(Vec::default());
+        };
 
         tx_acs
             .iter()
