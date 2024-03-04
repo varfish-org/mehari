@@ -118,6 +118,8 @@ pub struct Provider {
     /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
+    /// The assembly of the provider.
+    assembly: Assembly,
 }
 
 impl Provider {
@@ -260,6 +262,7 @@ impl Provider {
             tx_map,
             seq_map,
             picked_gene_to_tx_id,
+            assembly,
         }
     }
 
@@ -466,30 +469,34 @@ impl ProviderInterface for Provider {
 
         tx_acs
             .iter()
-            .map(|tx_ac| -> Result<TxInfoRecord, Error> {
-                let tx_idx = *self
-                    .tx_map
-                    .get(tx_ac)
-                    .ok_or(Error::NoTranscriptFound(tx_ac.to_string()))?;
-                let tx_idx = tx_idx as usize;
-                let tx = &self
-                    .tx_seq_db
-                    .tx_db
-                    .as_ref()
-                    .expect("no tx_db?")
-                    .transcripts[tx_idx];
+            .filter_map(|tx_ac| -> Option<Result<TxInfoRecord, Error>> {
+                if let Some(tx_idx) = self.tx_map.get(tx_ac) {
+                    let tx_idx = *tx_idx as usize;
+                    let tx = &self
+                        .tx_seq_db
+                        .tx_db
+                        .as_ref()
+                        .expect("no tx_db?")
+                        .transcripts[tx_idx];
 
-                if let Some(genome_alignment) = tx.genome_alignments.first() {
-                    Ok(TxInfoRecord {
-                        hgnc: tx.gene_id.clone(),
-                        cds_start_i: genome_alignment.cds_start,
-                        cds_end_i: genome_alignment.cds_end,
-                        tx_ac: tx.id.clone(),
-                        alt_ac: genome_alignment.contig.to_string(),
-                        alt_aln_method: "splign".into(),
-                    })
+                    if let Some(genome_alignment) = tx.genome_alignments.first() {
+                        Some(Ok(TxInfoRecord {
+                            hgnc: tx.gene_id.clone(),
+                            cds_start_i: genome_alignment.cds_start,
+                            cds_end_i: genome_alignment.cds_end,
+                            tx_ac: tx.id.clone(),
+                            alt_ac: genome_alignment.contig.to_string(),
+                            alt_aln_method: "splign".into(),
+                        }))
+                    } else {
+                        Some(Err(Error::NoAlignmentFound(
+                            tx_ac.to_string(),
+                            format!("{:?}", self.assembly),
+                        )))
+                    }
                 } else {
-                    Err(Error::NoTranscriptFound(gene.to_string()))
+                    tracing::warn!("transcript ID not found {} for gene {}", tx_ac, gene);
+                    None
                 }
             })
             .collect::<Result<Vec<_>, _>>()
