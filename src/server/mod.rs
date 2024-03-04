@@ -49,7 +49,7 @@ pub fn print_hints(args: &Args) {
 
     // The endpoint `/genes/txs` provides transcript information.
     tracing::info!(
-        "  try: http://{}:{}//genes/txs?hgncId=HGNC:1100&\
+        "  try: http://{}:{}/genes/txs?hgncId=HGNC:1100&\
         genomeBuild=GENOME_BUILD_GRCH37",
         args.listen_host.as_str(),
         args.listen_port
