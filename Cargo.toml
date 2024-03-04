@@ -27,7 +27,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = "4.5"
-annonars = "0.35"
+annonars = "0.36"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bgzip = "0.3"
@@ -54,7 +54,7 @@ nom = "7.1"
 noodles-bgzf = { version = "0.26", features = ["async"] }
 noodles-core = "0.14"
 noodles-csi = "0.30"
-noodles-fasta = "0.32"
+noodles-fasta = "0.33"
 noodles-tabix = "0.36"
 noodles-vcf = { version = "0.49", features = ["async"] }
 parse-display = "0.9"
