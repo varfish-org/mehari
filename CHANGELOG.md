@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.24.2](https://github.com/varfish-org/mehari/compare/v0.24.1...v0.24.2) (2024-03-04)
+
+
+### Features
+
+* report MANE transcript counts in "db create" ([#378](https://github.com/varfish-org/mehari/issues/378)) ([2826b1a](https://github.com/varfish-org/mehari/commit/2826b1a6ff0660385bdd0f80488178a26d4d21aa))
+
+
+### Bug Fixes
+
+* make server genes/tx return empty page on missing gene ([#385](https://github.com/varfish-org/mehari/issues/385)) ([#387](https://github.com/varfish-org/mehari/issues/387)) ([f5d4a2f](https://github.com/varfish-org/mehari/commit/f5d4a2fb6aa45b026418330b1b9d834d4ef80132))
+* miniscule fix to example URL output ([#382](https://github.com/varfish-org/mehari/issues/382)) ([dfb8824](https://github.com/varfish-org/mehari/commit/dfb882440e1ffacee6d2c4f108d39c6574ec641d))
+* warn on missing transcripts rather than failing ([#380](https://github.com/varfish-org/mehari/issues/380)) ([#384](https://github.com/varfish-org/mehari/issues/384)) ([eaa99ae](https://github.com/varfish-org/mehari/commit/eaa99ae830c4e302e919f7e0c2acbf635cd7e5c0))
+
+
+### Miscellaneous Chores
+
+* release as v0.24.2 ([576dbb6](https://github.com/varfish-org/mehari/commit/576dbb6e1153dd2ea65753db3805e281c08431d5))
+
 ## [0.24.1](https://github.com/varfish-org/mehari/compare/v0.24.0...v0.24.1) (2024-02-26)
 
 
