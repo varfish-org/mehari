@@ -77,6 +77,7 @@ fn load_and_extract(
     genome_release: GenomeRelease,
     cdot_version: &mut String,
     report_file: &mut File,
+    mt_tx_ids: &mut indexmap::IndexSet<String>,
 ) -> Result<(), anyhow::Error> {
     writeln!(report_file, "genome_release\t{:?}", genome_release)?;
     let txid_to_label = if let Some(label_tsv_path) = label_tsv_path {
@@ -148,6 +149,7 @@ fn load_and_extract(
         for gb in tx.genome_builds.values() {
             if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_str()) {
                 genes_chrmt.insert(tx.gene_version.clone());
+                mt_tx_ids.insert(tx.id.clone());
             }
             if let Some(tag) = &gb.tag {
                 if tag.contains(&models::Tag::ManeSelect) {
@@ -269,7 +271,9 @@ fn load_and_extract(
                 .get_mut(hgnc_id)
                 .unwrap_or_else(|| panic!("tx {:?} for unknown gene {:?}", tx.id, hgnc_id))
                 .push(tx.id.clone());
+            // build output transcripts
             let mut tx_out = tx.clone();
+            // transfer MANE-related labels from TSV file
             if let Some(txid_to_tags) = txid_to_label.as_ref() {
                 let tx_id_no_version = tx.id.split('.').next().unwrap();
                 if let Some(tags) = txid_to_tags.get(tx_id_no_version) {
@@ -282,6 +286,30 @@ fn load_and_extract(
                     });
                 }
             }
+            // fix coding mitochondrial transcripts that have a CDS that is not a multiple of 3
+            if let Some(cds_start) = tx_out.start_codon {
+                let cds_end = tx_out
+                    .stop_codon
+                    .expect("must be some if start_codon is some");
+                let cds_len = cds_end - cds_start;
+                if cds_len % 3 != 0 {
+                    assert_eq!(
+                        tx.genome_builds.len(),
+                        1,
+                        "only one genome build expected at this point"
+                    );
+                    let gb = tx_out.genome_builds.iter_mut().next().unwrap().1;
+                    assert_eq!(gb.exons.len(), 1, "only single-exon genes assumed on chrMT");
+                    if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_ref()) {
+                        let delta = 3 - cds_len % 3;
+                        tx_out.stop_codon = Some(cds_end + delta);
+                        let exon = gb.exons.iter_mut().next().unwrap();
+                        exon.alt_cds_end_i += delta;
+                        exon.cigar.push_str(&format!("{}I", delta));
+                    }
+                }
+            }
+            // finally, insert into transcripts
             transcripts.insert(tx.id.clone(), tx_out);
         });
     writeln!(
@@ -304,6 +332,7 @@ fn load_and_extract(
 fn build_protobuf(
     path_out: &Path,
     seqrepo: SeqRepo,
+    mt_tx_ids: indexmap::IndexSet<String>,
     tx_data: TranscriptData,
     is_silent: bool,
     genome_release: GenomeRelease,
@@ -345,7 +374,15 @@ fn build_protobuf(
                 namespace,
             });
             let seq = if let Ok(seq) = res_seq {
-                seq
+                // Append poly-A for chrMT transcripts (which are from ENSEMBL).
+                // This also potentially fixes the stop codon.
+                if mt_tx_ids.contains(tx_id) {
+                    let mut seq = seq.into_bytes();
+                    seq.extend_from_slice(b"A".repeat(300).as_slice());
+                    String::from_utf8(seq).expect("must be valid UTF-8")
+                } else {
+                    seq
+                }
             } else {
                 tracing::debug!("Skipping transcript {} because of missing sequence", tx_id);
                 writeln!(
@@ -897,13 +934,17 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
 }
 
 /// Load the cdot JSON files.
-fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData, anyhow::Error> {
+fn load_cdot_files(
+    args: &Args,
+    report_file: &mut File,
+) -> Result<(indexmap::IndexSet<String>, TranscriptData), anyhow::Error> {
     tracing::info!("Loading cdot JSON files ...");
     let start = Instant::now();
     let mut genes = indexmap::IndexMap::new();
     let mut transcripts = indexmap::IndexMap::new();
     let mut transcript_ids_for_gene = indexmap::IndexMap::new();
     let mut cdot_version = String::new();
+    let mut mt_tx_ids = indexmap::IndexSet::new();
     for json_path in &args.path_cdot_json {
         load_and_extract(
             json_path,
@@ -914,6 +955,7 @@ fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData
             args.genome_release,
             &mut cdot_version,
             report_file,
+            &mut mt_tx_ids,
         )?;
     }
     tracing::info!(
@@ -930,11 +972,14 @@ fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData
         transcript_ids_for_gene.len()
     )?;
 
-    Ok(TranscriptData {
-        genes,
-        transcripts,
-        transcript_ids_for_gene,
-    })
+    Ok((
+        mt_tx_ids,
+        TranscriptData {
+            genes,
+            transcripts,
+            transcript_ids_for_gene,
+        },
+    ))
 }
 
 /// Main entry point for `db create txs` sub command.
@@ -949,13 +994,14 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // Open seqrepo,
     let seqrepo = open_seqrepo(args)?;
     // then load cdot files,
-    let tx_data = load_cdot_files(args, &mut report_file)?;
+    let (mt_tx_ids, tx_data) = load_cdot_files(args, &mut report_file)?;
     // then remove redundant onces, and
     let tx_data = filter_transcripts(tx_data, args.max_txs, &args.gene_symbols, &mut report_file)?;
     // finally build protobuf file.
     build_protobuf(
         &args.path_out,
         seqrepo,
+        mt_tx_ids,
         tx_data,
         common.verbose.is_silent(),
         args.genome_release,
@@ -990,6 +1036,7 @@ pub mod test {
         let mut transcript_ids_for_gene = indexmap::IndexMap::new();
         let mut cdot_version = String::new();
         let path_tsv = Path::new("tests/data/db/create/txs/txs_main.tsv");
+        let mut mt_tx_ids = indexmap::IndexSet::new();
         load_and_extract(
             Path::new("tests/data/db/create/txs/cdot-0.2.22.refseq.grch37_grch38.brca1_opa1.json"),
             &Some(path_tsv),
@@ -999,6 +1046,7 @@ pub mod test {
             GenomeRelease::Grch37,
             &mut cdot_version,
             &mut report_file,
+            &mut mt_tx_ids,
         )?;
 
         let tx_data = TranscriptData {
