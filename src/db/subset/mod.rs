@@ -171,6 +171,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 mod tests {
     use temp_testdir::TempDir;
 
+    #[tracing_test::traced_test]
     #[test]
     fn test_subset_tx_db() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
@@ -192,7 +193,7 @@ mod tests {
             &mut buf,
         )?;
 
-        insta::assert_display_snapshot!(String::from_utf8(buf)?);
+        insta::assert_snapshot!(String::from_utf8(buf)?);
 
         Ok(())
     }
