@@ -192,7 +192,7 @@ mod tests {
             &mut buf,
         )?;
 
-        insta::assert_display_snapshot!(String::from_utf8(buf)?);
+        insta::assert_snapshot!(String::from_utf8(buf)?);
 
         Ok(())
     }
