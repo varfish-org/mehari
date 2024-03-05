@@ -16,4 +16,4 @@ jobs:
           project-url: https://github.com/orgs/varfish-org/projects/2
           labeled: bug, needs-triage, enhancement
           label-operator: OR
-          github-token: ${{ secrets.BOT_TOKEN }}
+          github-token: "${{ secrets.BOT_TOKEN }}"
