@@ -1,6 +1,5 @@
 ---
 source: src/db/create/mod.rs
-assertion_line: 1135
 expression: "String::from_utf8(buf)?"
 ---
 txDb:

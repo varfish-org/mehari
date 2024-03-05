@@ -300,7 +300,7 @@ fn load_and_extract(
 
 /// Perform protobuf file construction.
 ///
-/// This can be done by simply converting the models from HGVS to the prost generated data structures.
+/// This can be done by simply converting the models from ``hvs-rs`` to the prost generated data structures.
 fn build_protobuf(
     path_out: &Path,
     seqrepo: SeqRepo,
