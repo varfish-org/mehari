@@ -22,6 +22,12 @@ use crate::{
     pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
 
+/// Mitochondrial accessions.
+const MITOCHONDRIAL_ACCESSIONS: &[&str] = &[
+    "NC_012920.1", // rCRS
+    "NC_001807.4", // CRS
+];
+
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
 
 pub struct TxIntervalTrees {
@@ -583,6 +589,9 @@ impl ProviderInterface for Provider {
             .collect::<Vec<(i32, i32)>>();
         tmp.sort();
 
+        let is_mitochondrial = MITOCHONDRIAL_ACCESSIONS
+            .contains(&tx.genome_alignments.first().unwrap().contig.as_str());
+
         let lengths = tmp.into_iter().map(|(_, length)| length).collect();
         Ok(TxIdentityInfo {
             tx_ac: tx_ac.to_string(),
@@ -592,7 +601,9 @@ impl ProviderInterface for Provider {
             cds_end_i: tx.stop_codon.unwrap_or_default(),
             lengths,
             hgnc,
-            translation_table: if is_selenoprotein {
+            translation_table: if is_mitochondrial {
+                TranslationTable::VertebrateMitochondrial
+            } else if is_selenoprotein {
                 TranslationTable::Selenocysteine
             } else {
                 TranslationTable::Standard
