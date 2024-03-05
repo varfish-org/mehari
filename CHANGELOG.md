@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/varfish-org/mehari/compare/v0.24.2...v0.25.0) (2024-03-05)
+
+
+### Features
+
+* enable using ENSEMBL chrMT transcript ([#381](https://github.com/varfish-org/mehari/issues/381)) ([#393](https://github.com/varfish-org/mehari/issues/393)) ([91b4610](https://github.com/varfish-org/mehari/commit/91b46103e2a7e5b4ffdf1f884257b20408fc7c99))
+
 ## [0.24.2](https://github.com/varfish-org/mehari/compare/v0.24.1...v0.24.2) (2024-03-04)
 
 
