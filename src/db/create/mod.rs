@@ -23,6 +23,9 @@ lazy_static::lazy_static! {
     .unwrap();
 }
 
+/// Mitochondrial accessions.
+const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1"];
+
 /// Command line arguments for `db create txs` sub command.
 #[derive(Parser, Debug)]
 #[command(about = "Construct mehari transcripts and sequence database", long_about = None)]
@@ -74,6 +77,7 @@ fn load_and_extract(
     genome_release: GenomeRelease,
     cdot_version: &mut String,
     report_file: &mut File,
+    mt_tx_ids: &mut indexmap::IndexSet<String>,
 ) -> Result<(), anyhow::Error> {
     writeln!(report_file, "genome_release\t{:?}", genome_release)?;
     let txid_to_label = if let Some(label_tsv_path) = label_tsv_path {
@@ -98,7 +102,7 @@ fn load_and_extract(
                     .collect::<Vec<_>>(),
             );
         }
-        tracing::info!("{:?}", txid_to_label);
+        tracing::trace!("labels = {:?}", txid_to_label);
 
         tracing::info!(
             "...done loading label TSV file ({} entries)",
@@ -134,13 +138,19 @@ fn load_and_extract(
         start.elapsed()
     );
 
-    // Count number of MANE Select and MANE Plus Clinical transcripts.
+    // Count number of MANE Select and MANE Plus Clinical transcripts, collect
+    // chrMT gene names.
+    let mut genes_chrmt = indexmap::IndexSet::new();
     let mut n_mane_select = 0;
     let mut n_mane_plus_clinical = 0;
     for tx in c_txs.values() {
         let mut is_mane_select = false;
         let mut is_mane_plus_clinical = false;
         for gb in tx.genome_builds.values() {
+            if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_str()) {
+                genes_chrmt.insert(tx.gene_version.clone());
+                mt_tx_ids.insert(tx.id.clone());
+            }
             if let Some(tag) = &gb.tag {
                 if tag.contains(&models::Tag::ManeSelect) {
                     is_mane_select = true;
@@ -167,24 +177,29 @@ fn load_and_extract(
         n_mane_select,
         n_mane_plus_clinical
     );
+    tracing::debug!("chrMT genes: {:?}", genes_chrmt);
 
     let start = Instant::now();
     writeln!(report_file, "total_genes\t{}", c_genes.len())?;
-    c_genes
-        .values()
-        .filter(|gene| {
-            gene.hgnc.is_some()
-                && !gene.hgnc.as_ref().unwrap().is_empty()
-                && gene.map_location.is_some()
-                && !gene.map_location.as_ref().unwrap().is_empty()
-                && gene.hgnc.is_some()
-                && !gene.hgnc.as_ref().unwrap().is_empty()
-        })
-        .for_each(|gene| {
+    for (gene_id, gene) in c_genes.iter() {
+        if gene.hgnc.is_none() || gene.hgnc.as_ref().unwrap().is_empty() {
+            writeln!(report_file, "skip because of missing HGNC id\t{}", gene_id)?;
+            tracing::debug!("skip because of missing HGNC id: {}", gene_id);
+        } else if !genes_chrmt.contains(gene_id)
+            && (gene.map_location.is_none() || gene.map_location.as_ref().unwrap().is_empty())
+        {
+            writeln!(
+                report_file,
+                "skip because not chrMT and missing map_location\t{:?}",
+                gene
+            )?;
+            tracing::debug!("skip because of missing map_location\t{:?}", gene);
+        } else {
             let hgnc_id = format!("HGNC:{}", gene.hgnc.as_ref().unwrap());
             transcript_ids_for_gene.entry(hgnc_id.clone()).or_default();
             genes.insert(hgnc_id, gene.clone());
-        });
+        }
+    }
     writeln!(
         report_file,
         "genes with gene_symbol, map_location, hgnc\t{}",
@@ -227,10 +242,28 @@ fn load_and_extract(
             ..tx.clone()
         })
         .filter(|tx| {
-            tx.hgnc.is_some()
-                && !tx.hgnc.as_ref().unwrap().is_empty()
-                && genes.contains_key(&format!("HGNC:{}", tx.hgnc.as_ref().unwrap()))
-                && !tx.genome_builds.is_empty()
+            if tx.hgnc.is_none() || tx.hgnc.as_ref().unwrap().is_empty() {
+                writeln!(report_file, "skip because of missing HGNC id\t{:?}", tx.id)
+                    .expect("problem writing report file");
+                tracing::debug!("skip because of missing HGNC id:{:?}", tx.id);
+                false
+            } else if !genes.contains_key(&format!("HGNC:{}", tx.hgnc.as_ref().unwrap())) {
+                writeln!(report_file, "skip because gene not selected\t{:?}", tx.id)
+                    .expect("problem writing report file");
+                tracing::debug!("skip because gene not selected:{:?}", tx.id);
+                false
+            } else if tx.genome_builds.is_empty() {
+                writeln!(
+                    report_file,
+                    "skip because of empty genome builds\t{:?}",
+                    tx.id
+                )
+                .expect("problem writing report file");
+                tracing::debug!("skip because of empty genome builds:{:?}", tx.id);
+                false
+            } else {
+                true
+            }
         })
         .for_each(|tx| {
             let hgnc_id = &format!("HGNC:{}", tx.hgnc.as_ref().unwrap());
@@ -238,7 +271,9 @@ fn load_and_extract(
                 .get_mut(hgnc_id)
                 .unwrap_or_else(|| panic!("tx {:?} for unknown gene {:?}", tx.id, hgnc_id))
                 .push(tx.id.clone());
+            // build output transcripts
             let mut tx_out = tx.clone();
+            // transfer MANE-related labels from TSV file
             if let Some(txid_to_tags) = txid_to_label.as_ref() {
                 let tx_id_no_version = tx.id.split('.').next().unwrap();
                 if let Some(tags) = txid_to_tags.get(tx_id_no_version) {
@@ -251,6 +286,30 @@ fn load_and_extract(
                     });
                 }
             }
+            // fix coding mitochondrial transcripts that have a CDS that is not a multiple of 3
+            if let Some(cds_start) = tx_out.start_codon {
+                let cds_end = tx_out
+                    .stop_codon
+                    .expect("must be some if start_codon is some");
+                let cds_len = cds_end - cds_start;
+                if cds_len % 3 != 0 {
+                    assert_eq!(
+                        tx.genome_builds.len(),
+                        1,
+                        "only one genome build expected at this point"
+                    );
+                    let gb = tx_out.genome_builds.iter_mut().next().unwrap().1;
+                    assert_eq!(gb.exons.len(), 1, "only single-exon genes assumed on chrMT");
+                    if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_ref()) {
+                        let delta = 3 - cds_len % 3;
+                        tx_out.stop_codon = Some(cds_end + delta);
+                        let exon = gb.exons.iter_mut().next().unwrap();
+                        exon.alt_cds_end_i += delta;
+                        exon.cigar.push_str(&format!("{}I", delta));
+                    }
+                }
+            }
+            // finally, insert into transcripts
             transcripts.insert(tx.id.clone(), tx_out);
         });
     writeln!(
@@ -269,10 +328,11 @@ fn load_and_extract(
 
 /// Perform protobuf file construction.
 ///
-/// This can be done by simply converting the models from HGVS to the prost generated data structures.
+/// This can be done by simply converting the models from ``hvs-rs`` to the prost generated data structures.
 fn build_protobuf(
     path_out: &Path,
     seqrepo: SeqRepo,
+    mt_tx_ids: indexmap::IndexSet<String>,
     tx_data: TranscriptData,
     is_silent: bool,
     genome_release: GenomeRelease,
@@ -304,8 +364,8 @@ fn build_protobuf(
         pb.set_style(PROGRESS_STYLE.clone());
         for (tx_id, tx) in &transcripts {
             pb.inc(1);
-            let namespace = if tx_id.starts_with("ENST") {
-                Some(String::from("ENSEMBL"))
+            let namespace: Option<String> = if tx_id.starts_with("ENST") {
+                Some(String::from("Ensembl"))
             } else {
                 Some(String::from("NCBI"))
             };
@@ -314,7 +374,15 @@ fn build_protobuf(
                 namespace,
             });
             let seq = if let Ok(seq) = res_seq {
-                seq
+                // Append poly-A for chrMT transcripts (which are from ENSEMBL).
+                // This also potentially fixes the stop codon.
+                if mt_tx_ids.contains(tx_id) {
+                    let mut seq = seq.into_bytes();
+                    seq.extend_from_slice(b"A".repeat(300).as_slice());
+                    String::from_utf8(seq).expect("must be valid UTF-8")
+                } else {
+                    seq
+                }
             } else {
                 tracing::debug!("Skipping transcript {} because of missing sequence", tx_id);
                 writeln!(
@@ -741,6 +809,10 @@ fn filter_transcripts(
                             "skipped transcript {} because we have a later version already",
                             &full_ac
                         )?;
+                        tracing::debug!(
+                            "skipping transcript {} because we have a later version already",
+                            &full_ac
+                        );
                         continue; // skip, already have later version
                     } else if ac.starts_with("NR_") && seen_nm {
                         writeln!(
@@ -748,6 +820,10 @@ fn filter_transcripts(
                             "skipped transcript {} because we have a NM transcript",
                             &full_ac
                         )?;
+                        tracing::debug!(
+                            "skipping transcript {} because we have a NM transcript",
+                            &full_ac
+                        );
                         continue; // skip NR transcript as we have NM one
                     } else if ac.starts_with('X') {
                         writeln!(
@@ -755,9 +831,17 @@ fn filter_transcripts(
                             "skipped transcript {} because it is an XR/XM transcript",
                             &full_ac
                         )?;
+                        tracing::debug!(
+                            "skipping transcript {} because it is an XR/XM transcript",
+                            &full_ac
+                        );
                         continue; // skip XR/XM transcript
                     } else {
-                        // Check transcript's CDS length for being multiple of 3 and skip unless it is.
+                        // Check transcript's CDS length for being multiple of 3 and skip unless
+                        // it is.
+                        //
+                        // Note that the chrMT transcripts have been fixed earlier already to
+                        // accomodate for how they are fixed by poly-A tailing.
                         let tx = transcripts
                             .get(&full_ac)
                             .expect("must exist; accession taken from map earlier");
@@ -850,13 +934,17 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
 }
 
 /// Load the cdot JSON files.
-fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData, anyhow::Error> {
+fn load_cdot_files(
+    args: &Args,
+    report_file: &mut File,
+) -> Result<(indexmap::IndexSet<String>, TranscriptData), anyhow::Error> {
     tracing::info!("Loading cdot JSON files ...");
     let start = Instant::now();
     let mut genes = indexmap::IndexMap::new();
     let mut transcripts = indexmap::IndexMap::new();
     let mut transcript_ids_for_gene = indexmap::IndexMap::new();
     let mut cdot_version = String::new();
+    let mut mt_tx_ids = indexmap::IndexSet::new();
     for json_path in &args.path_cdot_json {
         load_and_extract(
             json_path,
@@ -867,6 +955,7 @@ fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData
             args.genome_release,
             &mut cdot_version,
             report_file,
+            &mut mt_tx_ids,
         )?;
     }
     tracing::info!(
@@ -883,11 +972,14 @@ fn load_cdot_files(args: &Args, report_file: &mut File) -> Result<TranscriptData
         transcript_ids_for_gene.len()
     )?;
 
-    Ok(TranscriptData {
-        genes,
-        transcripts,
-        transcript_ids_for_gene,
-    })
+    Ok((
+        mt_tx_ids,
+        TranscriptData {
+            genes,
+            transcripts,
+            transcript_ids_for_gene,
+        },
+    ))
 }
 
 /// Main entry point for `db create txs` sub command.
@@ -902,13 +994,14 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // Open seqrepo,
     let seqrepo = open_seqrepo(args)?;
     // then load cdot files,
-    let tx_data = load_cdot_files(args, &mut report_file)?;
+    let (mt_tx_ids, tx_data) = load_cdot_files(args, &mut report_file)?;
     // then remove redundant onces, and
     let tx_data = filter_transcripts(tx_data, args.max_txs, &args.gene_symbols, &mut report_file)?;
     // finally build protobuf file.
     build_protobuf(
         &args.path_out,
         seqrepo,
+        mt_tx_ids,
         tx_data,
         common.verbose.is_silent(),
         args.genome_release,
@@ -943,6 +1036,7 @@ pub mod test {
         let mut transcript_ids_for_gene = indexmap::IndexMap::new();
         let mut cdot_version = String::new();
         let path_tsv = Path::new("tests/data/db/create/txs/txs_main.tsv");
+        let mut mt_tx_ids = indexmap::IndexSet::new();
         load_and_extract(
             Path::new("tests/data/db/create/txs/cdot-0.2.22.refseq.grch37_grch38.brca1_opa1.json"),
             &Some(path_tsv),
@@ -952,6 +1046,7 @@ pub mod test {
             GenomeRelease::Grch37,
             &mut cdot_version,
             &mut report_file,
+            &mut mt_tx_ids,
         )?;
 
         let tx_data = TranscriptData {
@@ -1032,6 +1127,41 @@ pub mod test {
             path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/seleonoproteins/latest"),
             genome_release: GenomeRelease::Grch38,
+            max_txs: None,
+            gene_symbols: None,
+        };
+
+        run(&common_args, &args)?;
+
+        let mut buf: Vec<u8> = Vec::new();
+        dump::run_with_write(
+            &Default::default(),
+            &dump::Args {
+                path_db: tmp_dir.join("out.bin.zst"),
+            },
+            &mut buf,
+        )?;
+        insta::assert_snapshot!(String::from_utf8(buf)?);
+
+        Ok(())
+    }
+
+    #[tracing_test::traced_test]
+    #[test]
+    fn run_smoke_mitochondrial() -> Result<(), anyhow::Error> {
+        let tmp_dir = TempDir::default();
+
+        let common_args = CommonArgs {
+            verbose: Verbosity::new(5, 0),
+        };
+        let args = Args {
+            path_out: tmp_dir.join("out.bin.zst"),
+            path_cdot_json: vec![PathBuf::from(
+                "tests/data/db/create/mitochondrial/cdot-0.2.23.ensembl.chrMT.grch37.gff3.json",
+            )],
+            path_mane_txs_tsv: None,
+            path_seqrepo_instance: PathBuf::from("tests/data/db/create/mitochondrial/latest"),
+            genome_release: GenomeRelease::Grch37,
             max_txs: None,
             gene_symbols: None,
         };
