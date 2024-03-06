@@ -327,9 +327,8 @@ fn compute_tx_effects_for_breakpoint(
         let tree = &mehari_tx_idx.trees[*idx];
         for it in tree.find(query) {
             let tx = &tx_db.transcripts[*it.data() as usize];
-            let hgnc_id = format!("HGNC:{}", &tx.gene_id);
             effects_by_gene
-                .entry(hgnc_id)
+                .entry(tx.gene_id.clone())
                 .or_default()
                 .extend(gene_tx_effects_for_bp(tx, sv.start()));
         }
