@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.1](https://github.com/varfish-org/mehari/compare/v0.25.0...v0.25.1) (2024-03-06)
+
+
+### Bug Fixes
+
+* move assertion on chrMT transcripts ([#395](https://github.com/varfish-org/mehari/issues/395)) ([6a03acf](https://github.com/varfish-org/mehari/commit/6a03acf3ca309ab490557ad73652cc8b2a5d3c94))
+
 ## [0.25.0](https://github.com/varfish-org/mehari/compare/v0.24.2...v0.25.0) (2024-03-05)
 
 
