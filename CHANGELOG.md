@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.2](https://github.com/varfish-org/mehari/compare/v0.25.1...v0.25.2) (2024-03-06)
+
+
+### Bug Fixes
+
+* strucvars/csq should not double-HGNC prefix gene IDs ([#397](https://github.com/varfish-org/mehari/issues/397)) ([b09782c](https://github.com/varfish-org/mehari/commit/b09782c2c22026a51edb112476990f9b95a67a55))
+
 ## [0.25.1](https://github.com/varfish-org/mehari/compare/v0.25.0...v0.25.1) (2024-03-06)
 
 
