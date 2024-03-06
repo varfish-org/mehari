@@ -299,8 +299,8 @@ fn load_and_extract(
                         "only one genome build expected at this point"
                     );
                     let gb = tx_out.genome_builds.iter_mut().next().unwrap().1;
-                    assert_eq!(gb.exons.len(), 1, "only single-exon genes assumed on chrMT");
                     if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_ref()) {
+                        assert_eq!(gb.exons.len(), 1, "only single-exon genes assumed on chrMT");
                         let delta = 3 - cds_len % 3;
                         tx_out.stop_codon = Some(cds_end + delta);
                         let exon = gb.exons.iter_mut().next().unwrap();
