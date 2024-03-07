@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.3](https://github.com/varfish-org/mehari/compare/v0.25.2...v0.25.3) (2024-03-07)
+
+
+### Bug Fixes
+
+* variants on chrX and chrY were erroneously ignored ([#399](https://github.com/varfish-org/mehari/issues/399)) ([0acc542](https://github.com/varfish-org/mehari/commit/0acc5422b1c54c992e6f4bbfabcfafeb990e2763))
+
 ## [0.25.2](https://github.com/varfish-org/mehari/compare/v0.25.1...v0.25.2) (2024-03-06)
 
 
