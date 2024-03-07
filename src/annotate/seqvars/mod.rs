@@ -455,7 +455,7 @@ where
 
 lazy_static::lazy_static! {
     pub static ref CHROM_MT: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
-    pub static ref CHROM_XY: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
+    pub static ref CHROM_XY: HashSet<&'static str> = HashSet::from_iter(["X", "Y", "chrX", "chrY"].into_iter());
     pub static ref CHROM_AUTO: HashSet<&'static str> = HashSet::from_iter([
         "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18",
         "19", "20", "21", "22", "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9",
