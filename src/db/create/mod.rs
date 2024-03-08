@@ -364,6 +364,7 @@ fn build_protobuf(
         pb.set_style(PROGRESS_STYLE.clone());
         for (tx_id, tx) in &transcripts {
             pb.inc(1);
+            let is_mt = mt_tx_ids.contains(tx_id);
             let namespace: Option<String> = if tx_id.starts_with("ENST") {
                 Some(String::from("Ensembl"))
             } else {
@@ -376,7 +377,7 @@ fn build_protobuf(
             let seq = if let Ok(seq) = res_seq {
                 // Append poly-A for chrMT transcripts (which are from ENSEMBL).
                 // This also potentially fixes the stop codon.
-                if mt_tx_ids.contains(tx_id) {
+                if is_mt {
                     let mut seq = seq.into_bytes();
                     seq.extend_from_slice(b"A".repeat(300).as_slice());
                     String::from_utf8(seq).expect("must be valid UTF-8")
@@ -417,7 +418,8 @@ fn build_protobuf(
                 let tx_seq_to_translate = &seq[cds_start..cds_end];
                 let aa_sequence =
                     translate_cds(tx_seq_to_translate, true, "*", TranslationTable::Standard)?;
-                if !aa_sequence.ends_with('*') {
+                if (!is_mt && !aa_sequence.ends_with('*')) || (is_mt && !aa_sequence.contains("*"))
+                {
                     tracing::debug!(
                         "Skipping transcript {} because of missing stop codon in translated CDS",
                         tx_id
