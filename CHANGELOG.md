@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.4](https://github.com/varfish-org/mehari/compare/v0.25.3...v0.25.4) (2024-03-08)
+
+
+### Bug Fixes
+
+* stop codon issue for Ensembl chrMT transcripts ([#401](https://github.com/varfish-org/mehari/issues/401)) ([895e6f6](https://github.com/varfish-org/mehari/commit/895e6f6439b0b38e62ddfa83a10eb3bde5b998ef))
+
 ## [0.25.3](https://github.com/varfish-org/mehari/compare/v0.25.2...v0.25.3) (2024-03-07)
 
 
