@@ -1105,10 +1105,9 @@ impl VarFishSeqvarTsvWriter {
                         written_refseq = true;
                     }
                 }
+                writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
+                    .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))?;
             }
-
-            writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
-                .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))?;
 
             Ok(())
         } else {
