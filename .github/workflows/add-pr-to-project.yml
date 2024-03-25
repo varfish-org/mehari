@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: register pull requests with release planning project
-        uses: actions/add-to-project@v0.6.0
+        uses: actions/add-to-project@v0.6.1
         with:
           project-url: https://github.com/orgs/varfish-org/projects/2
           labeled: needs-review
