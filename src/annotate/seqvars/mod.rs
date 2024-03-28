@@ -1105,10 +1105,9 @@ impl VarFishSeqvarTsvWriter {
                         written_refseq = true;
                     }
                 }
+                writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
+                    .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))?;
             }
-
-            writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
-                .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))?;
 
             Ok(())
         } else {
@@ -1862,6 +1861,45 @@ mod test {
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
         let expected =
             std::fs::read_to_string("tests/data/annotate/seqvars/clair3-glnexus-min.tsv")?;
+        assert_eq!(&expected, &actual);
+
+        Ok(())
+    }
+
+    /// Test corresponding to https://github.com/varfish-org/mehari/issues/409
+    ///
+    /// Note that we currently re-use the GRCh37 databases in
+    /// `tests/data/annotate/db/grch37` for GRCh38 via symlink.  As the below
+    /// only is a smoke test, this is sufficient.  However, for other tests,
+    /// this will pose a problem.
+    #[test]
+    fn test_brca2_zar1l_affected() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_out = temp.join("output.tsv");
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let args = Args {
+            genome_release: None,
+            report_all_transcripts: true,
+            transcript_source: TranscriptSource::Both,
+            transcript_picking: false,
+            path_db: String::from("tests/data/annotate/db"),
+            path_input_vcf: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
+            output: PathOutput {
+                path_output_vcf: None,
+                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
+            },
+            max_var_count: None,
+            path_input_ped: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped"),
+        };
+
+        run(&args_common, &args)?;
+
+        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
+        let expected =
+            std::fs::read_to_string("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.tsv")?;
         assert_eq!(&expected, &actual);
 
         Ok(())
