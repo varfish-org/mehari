@@ -60,12 +60,6 @@ jobs:
     needs: Formatting
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        include:
-          - label: fast
-          - label: full
-
     services:
       # The tests need a postgres server;  the data will be loaded later
       # after checkout.
@@ -102,28 +96,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: "${{ matrix.label }}"
+          key: "covtest"
           cache-directories: |
             ~/.cargo/registry/src/**/librocksdb-sys-*
 
-      - name: Run cargo-tarpaulin with fast tests
-        uses: actions-rs/tarpaulin@v0.1
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate code coverage
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
         with:
-          version: 0.21.0
-          args: "--skip-clean -- --test-threads 1"
-        if: ${{ matrix.label == 'fast' }}
-
-      - name: Run cargo-tarpaulin with full tests
-        uses: actions-rs/tarpaulin@v0.1
-        with:
-          version: 0.21.0
-          args: "--skip-clean --release --timeout=180 -- --include-ignored"
-        if: ${{ matrix.label == 'full' }}
-
-      - name: Codecov submission of fast test results
-        uses: codecov/codecov-action@v4
-        with:
-          verbose: true
-          fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
-        if: ${{ matrix.label == 'fast' }}
+          files: lcov.info
+          fail_ci_if_error: true
