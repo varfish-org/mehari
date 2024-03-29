@@ -51,3 +51,5 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           push: true
+          cache-from: type=registry,ref=${{ inputs.image }}:buildcache
+          cache-to: type=registry,ref=${{ inputs.image }}:buildcache,mode=max
