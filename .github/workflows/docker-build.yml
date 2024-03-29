@@ -42,7 +42,8 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -51,5 +52,5 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           push: true
-          cache-from: type=gha,ref=${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=gha,ref=${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
