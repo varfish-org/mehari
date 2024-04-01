@@ -51,12 +51,12 @@ jsonl = "4.0"
 lazy_static = "1.4"
 log = "0.4"
 nom = "7.1"
-noodles-bgzf = { version = "0.26", features = ["async"] }
+noodles-bgzf = { version = "0.28", features = ["async"] }
 noodles-core = "0.14"
-noodles-csi = "0.30"
-noodles-fasta = "0.33"
-noodles-tabix = "0.36"
-noodles-vcf = { version = "0.49", features = ["async"] }
+noodles-csi = "0.32"
+noodles-fasta = "0.35"
+noodles-tabix = "0.38"
+noodles-vcf = { version = "0.51", features = ["async"] }
 parse-display = "0.9"
 procfs = "0.16"
 prost = "0.12"
