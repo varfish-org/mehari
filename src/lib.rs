@@ -26,3 +26,5 @@ pub mod pbs;
 pub mod ped;
 pub mod server;
 pub mod verify;
+
+mod plugins;

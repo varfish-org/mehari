@@ -1,13 +1,28 @@
+[workspace]
+members = [
+    "mehari-plugins",
+    "mehari-plugin-vep-nmd",
+]
+resolver = "2"
+
+[workspace.package]
+homepage = "https://github.com/varfish-org/mehari"
+repository = "https://github.com/varfish-org/mehari"
+license = "MIT"
+edition = "2021"
+readme = "README.md"
+
 [package]
 name = "mehari"
 version = "0.25.4"
-edition = "2021"
 authors = ["Manuel Holtgrewe <manuel.holtgrewe@bih-charite.de>"]
 description = "Variant effect prediction all in Rust"
-license = "MIT"
-homepage = "https://github.com/varfish-org/mehari"
-readme = "README.md"
 rust-version = "1.64.0"
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
 
 [features]
 default = []
@@ -68,7 +83,7 @@ rustc-hash = "1.1"
 seqrepo = "0.10"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-serde_with = { version = "3.6", features=["alloc", "macros", "indexmap_2"], default-features = false }
+serde_with = { version = "3.6", features = ["alloc", "macros", "indexmap_2"], default-features = false }
 serde_yaml = "0.9"
 strum = { version = "0.26", features = ["derive"] }
 tempfile = "3"
@@ -80,6 +95,8 @@ uuid = { version = "1.7", features = ["fast-rng", "serde"] }
 zstd = "0.13"
 pbjson = "0.6"
 pbjson-types = "0.6"
+extism = "1.1.0"
+mehari-plugins = { path = "mehari-plugins" }
 
 [build-dependencies]
 anyhow = "1.0"

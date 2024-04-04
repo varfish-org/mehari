@@ -1,0 +1,13 @@
+[package]
+name = "mehari-plugins"
+version = "0.1.0"
+authors = ["Till Hartmann <till.hartmann@bih-charite.de>"]
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+[dependencies]
+serde = { version = "1.0.197", features = ["derive"] }
+anyhow = "1.0.81"
