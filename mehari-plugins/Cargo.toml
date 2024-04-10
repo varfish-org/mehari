@@ -11,3 +11,6 @@ readme.workspace = true
 [dependencies]
 serde = { version = "1.0.197", features = ["derive"] }
 anyhow = "1.0.81"
+getset = "0.1.2"
+derive_builder = "0.20.0"
+derive-new = "0.6.0"

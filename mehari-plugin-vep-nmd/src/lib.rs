@@ -1,22 +1,11 @@
-use extism_convert::{Json, ToBytes};
+use extism_convert::Json;
 use extism_pdk::*;
-use serde::Serialize;
 
 use mehari_plugins::*;
 
-#[derive(ToBytes, Serialize)]
-#[encoding(Json)]
-struct HeaderInfo {
-    tag: String,
-    description: String,
-}
-
 #[plugin_fn]
-pub fn process(record: String) -> FnResult<String> {
-    let mut record: Dummy = serde_json::from_str(&record).expect("Failed deserializing record");
-    record.change_something("after");
-    let record = serde_json::to_string(&record).expect("Failed serializing record");
-    Ok(record)
+pub fn process(Json(tva): Json<TranscriptVariationAllele>) -> FnResult<Option<Json<Annotation>>> {
+    Ok(transcript_escapes_nmd(&tva).then_some(Json(Annotation::new("NMD".into()))))
 }
 
 #[plugin_fn]
@@ -25,139 +14,86 @@ pub fn feature_type() -> FnResult<String> {
 }
 
 #[plugin_fn]
-pub fn header_info() -> FnResult<HeaderInfo> {
-    Ok(HeaderInfo {
+pub fn header_info() -> FnResult<Json<HeaderInfo>> {
+    Ok(Json(HeaderInfo {
         tag: "NMD".into(),
         description: "Nonsense-mediated mRNA decay escaping variants prediction".into(),
-    })
+    }))
+}
+
+// Core logic for NMD prediction
+fn transcript_escapes_nmd(tva: &TranscriptVariationAllele) -> bool {
+    // To qualify for NMD, at least one of the following consequences is required:
+    //   "stop_gained", "frameshift_variant", "splice_donor_variant", "splice_acceptor_variant",
+    if !tva
+        .overlap_consequences()
+        .iter()
+        .any(|oc| INCLUDE_SO.contains(&oc.so_term().as_ref()))
+    {
+        return false;
+    }
+
+    let transcript = tva.transcript();
+    let exons = transcript.exons();
+    let strand = transcript.strand();
+    let variant_feature_end_position = tva.variation_feature().seq_region().end();
+
+    // Rules for NMD prediction
+    variant_within_last_exon(variant_feature_end_position, exons)
+        || variant_upstream_of_penultimate_exon(variant_feature_end_position, strand, exons)
+        || variant_within_first_100_coding_bases(tva.transcript_variation())
+        || variant_is_intronless(transcript)
 }
 
 // Included SO terms
-const INCLUDE_SO: &[&str] = &[
+const INCLUDE_SO: [&str; 4] = [
     "stop_gained",
     "frameshift_variant",
     "splice_donor_variant",
     "splice_acceptor_variant",
 ];
 
-struct TranscriptVariationAllele {
-    transcript: Transcript,
-    transcript_variation: TranscriptVariation,
-    variation_feature: VariationFeature,
+/// Checks whether the variant location falls within the last exon of the transcript
+fn variant_within_last_exon(variant_feature_end_position: u64, exons: &[Exon]) -> bool {
+    let vf_end = variant_feature_end_position;
+    exons
+        .last()
+        .map(|exon| vf_end >= exon.start() && vf_end <= exon.end())
+        .unwrap_or(false)
 }
 
-impl TranscriptVariationAllele {
-    fn overlap_consequences(&self) -> &Vec<OverlapConsequence> {
-        todo!()
-    }
+fn variant_upstream_of_penultimate_exon(
+    variant_feature_end_position: u64,
+    strand: isize,
+    exons: &[Exon],
+) -> bool {
+    let vf_end = variant_feature_end_position;
+    exons
+        .get(exons.len() - 2)
+        .map(|second_last_exon| {
+            let coding_region_end = if strand == -1 {
+                second_last_exon.start().saturating_add(51)
+            } else {
+                second_last_exon.end().saturating_sub(51)
+            };
+            vf_end >= coding_region_end && vf_end <= second_last_exon.end()
+        })
+        .unwrap_or(false)
 }
 
-struct Transcript;
-
-impl Transcript {
-    fn introns(&self) -> &Vec<Intron> {
-        todo!()
-    }
-
-    fn exons(&self) -> &Vec<Exon> {
-        todo!()
-    }
-
-    fn has_introns(&self) -> bool {
-        todo!()
-    }
-
-    fn strand(&self) -> isize {
-        todo!()
-    }
+fn variant_within_first_100_coding_bases(tv: &TranscriptVariation) -> bool {
+    tv.cds().end() <= 101
 }
 
-struct TranscriptVariation;
-
-impl TranscriptVariation {
-    fn cds_start(&self) -> Option<u64> {
-        todo!()
-    }
-    fn cds_end(&self) -> Option<u64> {
-        todo!()
-    }
+fn variant_is_intronless(transcript: &Transcript) -> bool {
+    !transcript.has_introns()
 }
 
-struct Intron;
-struct Exon;
+#[cfg(test)]
+mod tests {
 
-impl Exon {
-    fn start(&self) -> u64 {
-        todo!()
+    #[test]
+    fn test_has_nmd() {
+        panic!()
     }
-
-    fn end(&self) -> u64 {
-        todo!()
-    }
-}
-struct OverlapConsequence;
-
-impl OverlapConsequence {
-    fn so_term(&self) -> &'static str {
-        todo!()
-    }
-}
-
-struct VariationFeature;
-
-impl VariationFeature {
-    fn seq_region_end(&self) -> u64 {
-        todo!()
-    }
-}
-
-// Core logic for NMD prediction
-fn run(tva: &TranscriptVariationAllele) -> Option<&'static str> {
-    // Condition for inclusion
-    if !tva
-        .overlap_consequences()
-        .iter()
-        .any(|oc| INCLUDE_SO.contains(&oc.so_term()))
-    {
-        return None;
-    }
-
-    // Access transcript and variation information
-    let tr = &tva.transcript;
-    let tv = &tva.transcript_variation;
-
-    // Rules for NMD prediction
-    if let Some(variant_coding_region) = tv.cds_end() {
-        if variant_coding_region <= 101 || variant_exon_check(tva) || !tr.has_introns() {
-            return Some("NMD_escaping_variant");
-        }
-    }
-    None
-}
-
-// Check variant location within exons
-fn variant_exon_check(tva: &TranscriptVariationAllele) -> bool {
-    let tr = &tva.transcript;
-    let vf_end = tva.variation_feature.seq_region_end();
-    let exons = tr.exons();
-
-    // Check last exon
-    let last_exon = exons.last().unwrap();
-    if vf_end >= last_exon.start() && vf_end <= last_exon.end() {
-        return true;
-    }
-
-    // Check second-to-last exon
-    if let Some(second_last_exon) = exons.get(exons.len() - 2) {
-        let coding_region_end = if tr.strand() == -1 {
-            second_last_exon.start().saturating_add(51)
-        } else {
-            second_last_exon.end().saturating_sub(51)
-        };
-        if vf_end >= coding_region_end && vf_end <= second_last_exon.end() {
-            return true;
-        }
-    }
-
-    false
 }
