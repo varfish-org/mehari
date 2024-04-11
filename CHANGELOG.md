@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.5](https://github.com/varfish-org/mehari/compare/v0.25.4...v0.25.5) (2024-03-29)
+
+
+### Bug Fixes
+
+* actually produce one tsv record per gene+annotations ([#413](https://github.com/varfish-org/mehari/issues/413)) ([1ccabbb](https://github.com/varfish-org/mehari/commit/1ccabbbd2f59f04acd9eeb0faa62816728a7f40c))
+
 ## [0.25.4](https://github.com/varfish-org/mehari/compare/v0.25.3...v0.25.4) (2024-03-08)
 
 
