@@ -1,22 +1,5 @@
 //! Annotation of sequence variants.
 
-pub mod ann;
-pub mod binning;
-pub mod csq;
-pub mod provider;
-
-use annonars::clinvar_minimal;
-use annonars::common::cli::is_canonical;
-use annonars::common::keys;
-use annonars::freqs::cli::import::reading::guess_assembly;
-use annonars::freqs::serialized::{auto, mt, xy};
-use anyhow::anyhow;
-use noodles_vcf::header::record::value::map::format::Type as FormatType;
-use noodles_vcf::record::genotypes::keys::key::{
-    self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH, READ_DEPTHS,
-};
-use noodles_vcf::record::genotypes::sample;
-use prost::Message;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufWriter, Cursor, Read, Write};
@@ -26,21 +9,33 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use annonars::clinvar_minimal;
+use annonars::common::cli::is_canonical;
+use annonars::common::keys;
+use annonars::freqs::cli::import::reading::guess_assembly;
+use annonars::freqs::serialized::{auto, mt, xy};
+use anyhow::anyhow;
 use biocommons_bioutils::assemblies::Assembly;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use noodles_bgzf::Writer as BgzfWriter;
+use noodles_vcf::header::record::value::map::format::Type as FormatType;
 use noodles_vcf::header::{
     record::value::map::{info::Type as InfoType, Info},
     Number,
 };
 use noodles_vcf::reader::Builder as VariantReaderBuilder;
+use noodles_vcf::record::genotypes::keys::key::{
+    self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH, READ_DEPTHS,
+};
+use noodles_vcf::record::genotypes::sample;
 use noodles_vcf::record::info::field;
 use noodles_vcf::record::Chromosome;
 use noodles_vcf::{
     header::record::value::map::Map, Header as VcfHeader, Record as VcfRecord, Writer as VcfWriter,
 };
+use prost::Message;
 use rocksdb::ThreadMode;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -53,12 +48,16 @@ use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
 use crate::common::GenomeRelease;
-
 use crate::finalize_buf_writer;
 use crate::pbs::txs::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
 
 use self::ann::{AnnField, Consequence, FeatureBiotype};
+
+pub mod ann;
+pub mod binning;
+pub mod csq;
+pub mod provider;
 
 /// Parsing of HGNC xlink records.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1680,7 +1679,6 @@ mod test {
     use temp_testdir::TempDir;
 
     use super::binning::bin_from_range;
-
     use super::{csq::TranscriptSource, run, Args, PathOutput};
 
     #[test]
@@ -1903,5 +1901,237 @@ mod test {
         assert_eq!(&expected, &actual);
 
         Ok(())
+    }
+}
+
+mod foo {
+    use annonars::common::cli::is_canonical;
+    use std::str::FromStr;
+    use std::sync::Arc;
+
+    use annonars::common::keys;
+    use anyhow::Result;
+    use biocommons_bioutils::assemblies::Assembly;
+    use noodles_vcf::record::info::field;
+    use noodles_vcf::Record;
+    use rocksdb::{BoundColumnFamily, DBWithThreadMode, MultiThreaded};
+
+    use crate::annotate::seqvars::csq::{ConsequencePredictor, TranscriptSource, VcfVariant};
+    use crate::annotate::seqvars::provider::Provider as MehariProvider;
+    use crate::annotate::seqvars::ConsequencePredictorConfigBuilder;
+    use crate::annotate::seqvars::MehariProviderConfigBuilder;
+    use crate::annotate::seqvars::{
+        annotate_record_auto, annotate_record_clinvar, annotate_record_mt, annotate_record_xy,
+        load_tx_db, CHROM_AUTO, CHROM_MT, CHROM_XY,
+    };
+    use crate::pbs::txs::TxSeqDatabase;
+
+    const ROCKSDB_SEQVARS_FREQS_PATH: &str = "/mnt/data/mehari/0.21.0/db/grch38/seqvars/freqs";
+    const ROCKSDB_SEQVARS_CLINVAR_PATH: &str = "/mnt/data/mehari/0.21.0/db/grch38/seqvars/clinvar";
+    const TXSEQ_DB_PATH: &str = "/mnt/data/mehari/0.21.0/db/grch38/txs.bin.zst";
+
+    type DbCol<'a> = Arc<BoundColumnFamily<'a>>;
+
+    struct AnnotationSources {
+        pub db_freq: DBWithThreadMode<MultiThreaded>,
+        pub db_clinvar: DBWithThreadMode<MultiThreaded>,
+        pub assembly: Assembly,
+        pub predictor: ConsequencePredictor,
+    }
+
+    fn records() -> Vec<Record> {
+        let mut reader = noodles_vcf::reader::Builder::default()
+            .build_from_path("tests/data/annotate/seqvars/NA-12878WGS_dragen.first250k.vcf.gz")
+            .unwrap();
+        let header = reader.read_header().unwrap();
+        let records: Vec<_> = reader
+            .records(&header)
+            .flatten()
+            .filter(|r| r.alternate_bases().len() == 1)
+            .filter(|r| {
+                let vcf_var = keys::Var::from_vcf_allele(r, 0);
+                vcf_var.alternative != "*"
+            })
+            .collect();
+        records
+    }
+
+    #[test]
+    fn annotate_records() {
+        let mut records = records();
+        dbg!(&records.len());
+
+        fn freq_db() -> Result<DBWithThreadMode<MultiThreaded>> {
+            let options = rocksdb::Options::default();
+            let db_freq = rocksdb::DB::open_cf_for_read_only(
+                &options,
+                ROCKSDB_SEQVARS_FREQS_PATH,
+                ["meta", "autosomal", "gonosomal", "mitochondrial"],
+                false,
+            )?;
+
+            Ok(db_freq)
+        }
+
+        fn clinvar_db() -> Result<DBWithThreadMode<MultiThreaded>> {
+            let options = rocksdb::Options::default();
+            let db_clinvar = rocksdb::DB::open_cf_for_read_only(
+                &options,
+                ROCKSDB_SEQVARS_CLINVAR_PATH,
+                ["meta", "clinvar"],
+                false,
+            )?;
+            Ok(db_clinvar)
+        }
+
+        fn transcript_db() -> Result<TxSeqDatabase> {
+            load_tx_db(TXSEQ_DB_PATH)
+        }
+
+        fn setup() -> anyhow::Result<AnnotationSources> {
+            let db_freq = freq_db()?;
+            let db_clinvar = clinvar_db()?;
+            let tx_db = transcript_db()?;
+            let assembly = Assembly::Grch38;
+
+            let provider = Arc::new(MehariProvider::new(
+                tx_db,
+                assembly,
+                MehariProviderConfigBuilder::default()
+                    .transcript_picking(true)
+                    .build()
+                    .unwrap(),
+            ));
+            let predictor = ConsequencePredictor::new(
+                provider,
+                assembly,
+                ConsequencePredictorConfigBuilder::default()
+                    .report_all_transcripts(true)
+                    .transcript_source(TranscriptSource::Both)
+                    .build()
+                    .unwrap(),
+            );
+            Ok(AnnotationSources {
+                db_freq,
+                db_clinvar,
+                assembly,
+                predictor,
+            })
+        }
+
+        fn handles(dbs: &AnnotationSources) -> (DbCol, DbCol, DbCol, DbCol) {
+            let cf_autosomal = dbs.db_freq.cf_handle("autosomal").unwrap();
+            let cf_gonosomal = dbs.db_freq.cf_handle("gonosomal").unwrap();
+            let cf_mtdna = dbs.db_freq.cf_handle("mitochondrial").unwrap();
+            let cf_clinvar = dbs.db_clinvar.cf_handle("clinvar").unwrap();
+            (cf_autosomal, cf_gonosomal, cf_mtdna, cf_clinvar)
+        }
+
+        fn annotate_record(
+            vcf_record: &mut Record,
+            dbs: &AnnotationSources,
+            cf_autosomal: &DbCol,
+            cf_gonosomal: &DbCol,
+            cf_mtdna: &DbCol,
+            cf_clinvar: &DbCol,
+        ) -> Result<()> {
+            let db_freq = &dbs.db_freq;
+
+            // We currently can only process records with one alternate allele.
+            if vcf_record.alternate_bases().len() != 1 {
+                // return Err(anyhow!("multiple alts"));
+                return Ok(());
+            }
+
+            // Get first alternate allele record.
+            let vcf_var = keys::Var::from_vcf_allele(vcf_record, 0);
+
+            // Skip records with a deletion as alternative allele.
+            if vcf_var.alternative == "*" {
+                // return Err(anyhow!("del alt"));
+                return Ok(());
+            }
+
+            // Only attempt lookups into RocksDB for canonical contigs.
+            if is_canonical(vcf_var.chrom.as_str()) {
+                // Build key for RocksDB database from `vcf_var`.
+                let key: Vec<u8> = vcf_var.clone().into();
+
+                // Annotate with frequency.
+                if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
+                    annotate_record_auto(db_freq, cf_autosomal, &key, vcf_record)?;
+                } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
+                    annotate_record_xy(db_freq, cf_gonosomal, &key, vcf_record)?;
+                } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
+                    annotate_record_mt(db_freq, cf_mtdna, &key, vcf_record)?;
+                } else {
+                    tracing::trace!(
+                        "Record @{:?} on non-canonical chromosome, skipping.",
+                        &vcf_var
+                    );
+                }
+
+                // Annotate with ClinVar information.
+                annotate_record_clinvar(&dbs.db_clinvar, cf_clinvar, &key, vcf_record)?;
+            }
+
+            let keys::Var {
+                chrom,
+                pos,
+                reference,
+                alternative,
+            } = vcf_var;
+
+            // Annotate with variant effect.
+            if let Some(ann_fields) = dbs.predictor.predict(&VcfVariant {
+                chromosome: chrom,
+                position: pos,
+                reference,
+                alternative,
+            })? {
+                if !ann_fields.is_empty() {
+                    vcf_record.info_mut().insert(
+                        field::Key::from_str("ANN").unwrap(),
+                        Some(field::Value::Array(field::value::Array::String(
+                            ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
+                        ))),
+                    );
+                }
+            }
+            Ok(())
+        }
+
+        fn annotate_records(
+            records: &mut Vec<Record>,
+            dbs: &AnnotationSources,
+            cf_autosomal: &DbCol,
+            cf_gonosomal: &DbCol,
+            cf_mtdna: &DbCol,
+            cf_clinvar: &DbCol,
+        ) -> Result<()> {
+            for record in records {
+                annotate_record(
+                    record,
+                    dbs,
+                    cf_autosomal,
+                    cf_gonosomal,
+                    cf_mtdna,
+                    cf_clinvar,
+                )?
+            }
+            Ok(())
+        }
+
+        let dbs = setup().unwrap();
+        let (cf_autosomal, cf_gonosomal, cf_mtdna, cf_clinvar) = handles(&dbs);
+        annotate_records(
+            &mut records,
+            &dbs,
+            &cf_autosomal,
+            &cf_gonosomal,
+            &cf_mtdna,
+            &cf_clinvar,
+        )
+        .unwrap();
     }
 }

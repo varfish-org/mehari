@@ -72,6 +72,10 @@
 //! $ cargo add mehari
 //! ```
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 use clap::{command, Args, Parser, Subcommand};
 
 use mehari::{annotate, common, db, server, verify};
@@ -156,6 +160,9 @@ enum VerifyCommands {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     let cli = Cli::parse();
 
     // Build a tracing subscriber according to the configuration in `cli.common`.
