@@ -18,7 +18,7 @@ fn assembly_mapper(c: &mut Criterion) {
             .unwrap(),
     ));
 
-    c.bench_function("instantiate assembly mapper", |b| {
+    c.bench_function("instantiate-assembly-mapper", |b| {
         b.iter(|| Mapper::new(Default::default(), provider.clone()))
     });
 }
