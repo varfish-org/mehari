@@ -114,3 +114,7 @@ debug = true
 [[bench]]
 name = "annotation"
 harness = false
+
+[[bench]]
+name = "prediction"
+harness = false

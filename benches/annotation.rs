@@ -36,7 +36,7 @@ struct AnnotationSources {
     pub predictor: ConsequencePredictor,
 }
 
-fn records() -> Vec<Record> {
+fn records(n: usize) -> Vec<Record> {
     let mut reader = noodles_vcf::reader::Builder::default()
         .build_from_path("tests/data/annotate/seqvars/NA-12878WGS_dragen.first10k.vcf.gz")
         .unwrap();
@@ -49,13 +49,13 @@ fn records() -> Vec<Record> {
             let vcf_var = keys::Var::from_vcf_allele(&r, 0);
             vcf_var.alternative != "*"
         })
+        .take(n)
         .collect();
     records
 }
 
 fn seqvar_annotation(c: &mut Criterion) {
-    let records = records();
-    dbg!(records.len());
+    let records = records(100);
 
     fn freq_db() -> Result<DBWithThreadMode<MultiThreaded>> {
         let options = rocksdb::Options::default();
@@ -239,7 +239,14 @@ fn seqvar_annotation(c: &mut Criterion) {
     });
 }
 
-mod perf {
+criterion_group!(
+    name = benches;
+    config = Criterion::default().with_profiler(perf::FlamegraphProfiler::new(100));
+    targets = seqvar_annotation
+);
+criterion_main!(benches);
+
+pub mod perf {
     use std::{fs::File, os::raw::c_int, path::Path};
 
     use criterion::profiler::Profiler;
@@ -313,10 +320,3 @@ mod perf {
         }
     }
 }
-
-criterion_group!(
-    name = benches;
-    config = Criterion::default().with_profiler(perf::FlamegraphProfiler::new(100));
-    targets = seqvar_annotation
-);
-criterion_main!(benches);
