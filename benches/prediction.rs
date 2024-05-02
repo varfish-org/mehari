@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use biocommons_bioutils::assemblies::Assembly;
-use criterion::{criterion_group, BatchSize, Criterion, criterion_main};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 use mehari::annotate::seqvars::csq::{ConfigBuilder, ConsequencePredictor, VcfVariant};
 use mehari::annotate::seqvars::load_tx_db;
