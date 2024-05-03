@@ -255,7 +255,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
 pub fn annotate_record_auto<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &Vec<u8>,
+    key: &[u8],
     vcf_record: &mut noodles_vcf::Record,
 ) -> Result<(), anyhow::Error>
 where
@@ -305,7 +305,7 @@ where
 pub fn annotate_record_xy<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &Vec<u8>,
+    key: &[u8],
     vcf_record: &mut noodles_vcf::Record,
 ) -> Result<(), anyhow::Error>
 where
@@ -367,7 +367,7 @@ where
 pub fn annotate_record_mt<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &Vec<u8>,
+    key: &[u8],
     vcf_record: &mut noodles_vcf::Record,
 ) -> Result<(), anyhow::Error>
 where
@@ -409,7 +409,7 @@ where
 pub fn annotate_record_clinvar<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &Vec<u8>,
+    key: &[u8],
     vcf_record: &mut noodles_vcf::Record,
 ) -> Result<(), anyhow::Error>
 where
@@ -1532,7 +1532,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
             // Only attempt lookups into RocksDB for canonical contigs.
             if is_canonical(vcf_var.chrom.as_str()) {
                 // Build key for RocksDB database from `vcf_var`.
-                let key: Vec<u8> = vcf_var.clone().into();
+                let key: Vec<u8> = (&vcf_var).into();
 
                 // Annotate with frequency.
                 if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {

@@ -126,6 +126,8 @@ pub struct Provider {
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
     /// The assembly of the provider.
     assembly: Assembly,
+    data_version: String,
+    schema_version: String,
 }
 
 impl Provider {
@@ -261,6 +263,18 @@ impl Provider {
             None
         };
 
+        // TODO obtain or construct data_version and schema_version somehow
+        // for now, these are just set to a combination of things that make this provider instance
+        // unique, such that `data_version` and `schema_version` can be used as keys for
+        // caching.
+        let data_version = format!(
+            "{:?}{}{}{:?}",
+            assembly,
+            tx_seq_db.version.as_ref().unwrap_or(&"".to_string()),
+            tx_seq_db.genome_release.as_ref().unwrap_or(&"".to_string()),
+            config
+        );
+        let schema_version = data_version.clone();
         Self {
             tx_seq_db,
             tx_trees,
@@ -269,6 +283,8 @@ impl Provider {
             seq_map,
             picked_gene_to_tx_id,
             assembly,
+            data_version,
+            schema_version,
         }
     }
 
@@ -331,11 +347,13 @@ impl Provider {
 
 impl ProviderInterface for Provider {
     fn data_version(&self) -> &str {
-        panic!("not implemented");
+        // TODO replace with proper data_version (see comment in `Provider::new`)
+        &self.data_version
     }
 
     fn schema_version(&self) -> &str {
-        panic!("not implemented");
+        // TODO replace with proper schema_version (see comment in `Provider::new`)
+        &self.schema_version
     }
 
     fn get_assembly_map(

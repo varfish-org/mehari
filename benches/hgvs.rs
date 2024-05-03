@@ -1,6 +1,7 @@
 use biocommons_bioutils::assemblies::Assembly;
 use criterion::{criterion_group, criterion_main, Criterion};
-use hgvs::mapper::assembly::Mapper;
+use hgvs::mapper::alignment;
+use hgvs::mapper::{assembly, variant};
 use mehari::annotate::seqvars::load_tx_db;
 use mehari::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
 use mehari::annotate::seqvars::provider::Provider as MehariProvider;
