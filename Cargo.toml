@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Manuel Holtgrewe <manuel.holtgrewe@bih-charite.de>"]
 description = "Variant effect prediction all in Rust"
 license = "MIT"
-homepage = "https://github.com/varfish-org/mehari"
+repository = "https://github.com/varfish-org/mehari"
 readme = "README.md"
 rust-version = "1.64.0"
 
