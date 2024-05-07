@@ -12,7 +12,7 @@ use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 
 pub mod io;
-pub mod noodles;
+pub(crate) mod noodles;
 
 /// Commonly used command line arguments.
 #[derive(Parser, Debug, Default)]
@@ -156,7 +156,6 @@ macro_rules! set_snapshot_suffix {
 
 pub use set_snapshot_suffix;
 
-
 /// Guess the assembly from the given header.
 ///
 /// If the header only contains chrM, for example, the result may be ambiguous. Use `ambiguous_ok`
@@ -164,7 +163,7 @@ pub use set_snapshot_suffix;
 /// issues.  If the result is incompatible with the `initial_assembly` then an error will
 /// be returned.
 pub fn guess_assembly(
-    vcf_header: &noodles::vcf::Header,
+    vcf_header: &::noodles::vcf::Header,
     ambiguous_ok: bool,
     initial_assembly: Option<Assembly>,
 ) -> Result<Assembly, anyhow::Error> {
