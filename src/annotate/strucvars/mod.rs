@@ -10,6 +10,7 @@ use std::{fs::File, io::BufWriter};
 
 use annonars::common::cli::CANONICAL;
 use annonars::freqs::cli::import::reading::guess_assembly;
+use anyhow::anyhow;
 use bio::data_structures::interval_tree::IntervalTree;
 use biocommons_bioutils::assemblies::Assembly;
 use chrono::Utc;
@@ -25,7 +26,8 @@ use noodles_vcf::variant::record::samples::keys::key;
 use noodles_vcf::variant::record::samples::keys::key::{
     CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
 };
-use noodles_vcf::variant::record::AlternateBases as _;
+use noodles_vcf::variant::record::samples::Sample;
+use noodles_vcf::variant::record::{AlternateBases as _, Samples as _};
 use noodles_vcf::variant::record_buf::info::field;
 use noodles_vcf::variant::record_buf::samples::sample;
 use noodles_vcf::variant::record_buf::samples::Keys;
@@ -816,53 +818,54 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         }
 
         // First, create genotype info records.
-        let mut gt_it = record.samples().values();
-        for sample_name in header.sample_names() {
+        let samples = record.samples();
+        let fields = ["GT", "FT", "GQ", "pec", "pev", "src", "CN", "anc", "pc"];
+        let series = fields.map(|field| samples.select(field));
+        for (sample_idx, sample_name) in header.sample_names().iter().enumerate() {
             tsv_record.genotype.entries.push(GenotypeInfo {
                 name: sample_name.clone(),
                 ..Default::default()
             });
 
             let entry = tsv_record.genotype.entries.last_mut().expect("just pushed");
-            let sample = gt_it.next().expect("genotype iterator exhausted");
 
-            for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
-                match (key.as_ref(), value) {
-                    ("GT", Some(sample::Value::String(gt))) => {
-                        entry.gt = Some(gt.clone());
+            use noodles_vcf::variant::record::samples::Series;
+            for (&field, values) in fields.iter().zip(series.iter()) {
+                if let Some(values) = values {
+                    let v = values.get(sample_idx);
+                    if let Some(v) = v {
+                        match (field, v) {
+                            ("GT", Some(sample::Value::String(gt))) => {
+                                entry.gt = Some(gt.clone());
+                            }
+                            ("FT", Some(sample::Value::String(ft))) => {
+                                entry.ft = Some(ft.split(';').map(|s| s.to_string()).collect());
+                            }
+                            ("GQ", Some(sample::Value::Integer(gq))) => {
+                                entry.gq = Some(*gq);
+                            }
+                            ("pec", Some(sample::Value::Integer(pec))) => {
+                                entry.pec = Some(*pec);
+                            }
+                            ("pev", Some(sample::Value::Integer(pev))) => {
+                                entry.pev = Some(*pev);
+                            }
+                            ("src", Some(sample::Value::Integer(src))) => {
+                                entry.src = Some(*src);
+                            }
+                            ("CN", Some(sample::Value::Integer(cn))) => {
+                                entry.cn = Some(*cn);
+                            }
+                            ("anc", Some(sample::Value::Float(anc))) => {
+                                entry.anc = Some(*anc);
+                            }
+                            ("pc", Some(sample::Value::Integer(pc))) => {
+                                entry.pc = Some(*pc);
+                            }
+                            // Ignore all other keys.
+                            _ => (),
+                        }
                     }
-                    ("FT", Some(sample::Value::String(ft))) => {
-                        entry.ft = Some(ft.split(';').map(|s| s.to_string()).collect());
-                    }
-                    ("GQ", Some(sample::Value::Integer(gq))) => {
-                        entry.gq = Some(*gq);
-                    }
-                    // pec
-                    ("pec", Some(sample::Value::Integer(pec))) => {
-                        entry.pec = Some(*pec);
-                    }
-                    // pev
-                    ("pev", Some(sample::Value::Integer(pev))) => {
-                        entry.pev = Some(*pev);
-                    }
-                    // src
-                    ("src", Some(sample::Value::Integer(src))) => {
-                        entry.src = Some(*src);
-                    }
-                    // amq
-                    ("CN", Some(sample::Value::Integer(cn))) => {
-                        entry.cn = Some(*cn);
-                    }
-                    // anc
-                    ("anc", Some(sample::Value::Float(anc))) => {
-                        entry.anc = Some(*anc);
-                    }
-                    // pc
-                    ("pc", Some(sample::Value::Integer(pc))) => {
-                        entry.pc = Some(*pc);
-                    }
-                    // Ignore all other keys.
-                    _ => (),
                 }
             }
         }
@@ -1383,7 +1386,7 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
         .into_iter()
         .map(String::from)
         .collect();
-        let samples = Samples::new(keys, vec![]);
+        let samples = Samples::new(keys, genotypes);
 
         let info = vec![
             ("END".to_string(), Some(Value::Integer(self.end))),
