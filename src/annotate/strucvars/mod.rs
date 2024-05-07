@@ -1953,6 +1953,7 @@ pub trait VcfRecordConverter {
 
 /// Conversion from VCF records to `VarFishStrucvarTsvRecord`.
 mod conv {
+    use noodles_vcf::header::FileFormat;
     use noodles_vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, POSITION_CONFIDENCE_INTERVALS,
     };
@@ -1961,6 +1962,7 @@ mod conv {
     use noodles_vcf::variant::record_buf::samples::sample;
     use noodles_vcf::variant::RecordBuf as VcfRecord;
 
+    use crate::annotate::genotype_string;
     use crate::ped::PedigreeByName;
     use crate::ped::Sex;
 
@@ -2581,12 +2583,16 @@ mod conv {
             // Extract `FORMAT/*` values.
             for (sample_no, sample) in vcf_record.samples().values().enumerate() {
                 entries[sample_no].name = self.samples[sample_no].clone();
-
                 for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
                         ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
+                        }
+                        ("GT", Some(sample::Value::Genotype(gt))) => {
+                            // FIXME get file format version from header
+                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
                         ("GQ", Some(sample::Value::Integer(gq))) => {
