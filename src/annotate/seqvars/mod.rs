@@ -750,11 +750,11 @@ impl VarFishSeqvarTsvWriter {
         let mut gt_calls = GenotypeCalls::default();
         let samples = record.samples();
         let sample_names = hdr.sample_names().iter();
-        let genotypes = samples.select(&GENOTYPE).expect("No GT key in FORMAT");
-        let read_depths = samples.select(&READ_DEPTH).expect("No RD key in FORMAT");
+        let genotypes = samples.select(GENOTYPE).expect("No GT key in FORMAT");
+        let read_depths = samples.select(READ_DEPTH).expect("No RD key in FORMAT");
         let allele_depths = samples.select("AD").expect("No AD key in FORMAT");
         let conditional_gt_quality = samples
-            .select(&CONDITIONAL_GENOTYPE_QUALITY)
+            .select(CONDITIONAL_GENOTYPE_QUALITY)
             .expect("No CGQ key in FORMAT");
         let sq = samples.select("SQ").expect("No SQ key in FORMAT");
 

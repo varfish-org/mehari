@@ -128,8 +128,8 @@ impl Reader {
 
             // The simplest way to obtain the genotype keys is to iterate and call `as_ref()` on the
             // key.
-            for (key, value) in sample.iter(&header).flatten() {
-                match (key.as_ref(), value) {
+            for (key, value) in sample.iter(header).flatten() {
+                match (key, value) {
                     ("CV", Some(series::Value::Float(cov))) => {
                         cov_sum += factor * cov as f64;
                     }

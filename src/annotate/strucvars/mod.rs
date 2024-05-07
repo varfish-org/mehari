@@ -356,7 +356,7 @@ pub mod vcf_header {
                 Map::<Format>::new(Number::Count(1), Type::Integer, "Split-end coverage"),
             )
             .add_format(
-                "src",
+                "srv",
                 Map::<Format>::new(Number::Count(1), Type::Integer, "Split-end variant support"),
             )
             .add_format(
@@ -744,7 +744,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
                 .variant_end(header)
                 .map(|p| i32::try_from(p.get()))?
                 // E.g., if INS
-                .unwrap_or_else(|_| tsv_record.start)
+                .unwrap_or(tsv_record.start)
         };
 
         let sv_uuid = record.info().get("sv_uuid");
@@ -2873,7 +2873,7 @@ pub async fn run_vcf_to_jsonl(
     let mapping = CHROM_TO_CHROM_NO.deref();
     let mut uuid_buf = [0u8; 16];
 
-    let mut records = reader.record_bufs(&header);
+    let mut records = reader.record_bufs(header);
     while let Some(record) = records
         .try_next()
         .await
