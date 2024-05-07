@@ -30,10 +30,10 @@ use noodles_vcf::variant::io::Write as VcfWrite;
 use noodles_vcf::variant::record::samples::keys::key::{
     CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH,
 };
+use noodles_vcf::variant::record::AlternateBases;
 use noodles_vcf::variant::record_buf::info::field;
 use noodles_vcf::variant::RecordBuf as VcfRecord;
 use noodles_vcf::{header::record::value::map::Map, Header as VcfHeader};
-use noodles_vcf::variant::record::AlternateBases;
 use prost::Message;
 use rocksdb::ThreadMode;
 use rustc_hash::FxHashMap;
@@ -749,14 +749,14 @@ impl VarFishSeqvarTsvWriter {
             .expect("VCF header must be set/written");
         let mut gt_calls = GenotypeCalls::default();
         let samples = record.samples();
-        let mut sample_names = hdr.sample_names().iter();
-        let mut genotypes = samples.select(&GENOTYPE).expect("No GT key in FORMAT");
-        let mut read_depths = samples.select(&READ_DEPTH).expect("No RD key in FORMAT");
-        let mut allele_depths = samples.select("AD").expect("No AD key in FORMAT");
-        let mut conditional_gt_quality = samples
+        let sample_names = hdr.sample_names().iter();
+        let genotypes = samples.select(&GENOTYPE).expect("No GT key in FORMAT");
+        let read_depths = samples.select(&READ_DEPTH).expect("No RD key in FORMAT");
+        let allele_depths = samples.select("AD").expect("No AD key in FORMAT");
+        let conditional_gt_quality = samples
             .select(&CONDITIONAL_GENOTYPE_QUALITY)
             .expect("No CGQ key in FORMAT");
-        let mut sq = samples.select("SQ").expect("No SQ key in FORMAT");
+        let sq = samples.select("SQ").expect("No SQ key in FORMAT");
 
         for (i, name) in sample_names.enumerate() {
             let mut gt_info = GenotypeInfo {

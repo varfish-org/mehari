@@ -211,22 +211,22 @@ pub mod vcf_header {
         let del_id = "DEL";
         let del_alt = Map::<AlternativeAllele>::new("Deletion");
 
-        let del_me_id = "ME";
+        let del_me_id = "DEL:ME";
         let del_me_alt = Map::<AlternativeAllele>::new("Deletion of mobile element");
 
         let ins_id = "INS";
         let ins_alt = Map::<AlternativeAllele>::new("Insertion");
 
-        let ins_me_id = "ME";
+        let ins_me_id = "INS:ME";
         let ins_me_alt = Map::<AlternativeAllele>::new("Insertion of mobile element");
 
         let dup_id = "DUP";
         let dup_alt = Map::<AlternativeAllele>::new("Duplication");
 
-        let dup_tnd_id = "TANDEM";
+        let dup_tnd_id = "DUP:TANDEM";
         let dup_tnd_alt = Map::<AlternativeAllele>::new("Tandem Duplication");
 
-        let dup_dsp_id = "DISPERSED";
+        let dup_dsp_id = "DUP:DISPERSED";
         let dup_dsp_alt = Map::<AlternativeAllele>::new("Dispersed Duplication");
 
         let cnv_id = "CNV";

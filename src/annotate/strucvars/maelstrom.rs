@@ -92,8 +92,9 @@ impl Reader {
         for result in query {
             let record = result?;
 
-            let window_end = record.info().get(header, "END").transpose()?;
-            let window_end = if let Some(Some(Integer(window_end))) = window_end {
+            let window_end = if let Some(Some(Integer(window_end))) =
+                record.info().get(header, "END").transpose()?
+            {
                 window_end as usize
             } else {
                 anyhow::bail!("missing INFO/END in record");
@@ -127,7 +128,7 @@ impl Reader {
 
             // The simplest way to obtain the genotype keys is to iterate and call `as_ref()` on the
             // key.
-            for Ok((key, value)) in sample.iter(&header) {
+            for (key, value) in sample.iter(&header).flatten() {
                 match (key.as_ref(), value) {
                     ("CV", Some(series::Value::Float(cov))) => {
                         cov_sum += factor * cov as f64;
