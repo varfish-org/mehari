@@ -2048,6 +2048,11 @@ mod conv {
                         ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
+                        ("GT", Some(sample::Value::Genotype(gt))) => {
+                            // FIXME get file format version from header
+                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
+                        }
                         // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
                         ("CN", Some(sample::Value::Integer(cn))) => {
                             entries[sample_no].cn = Some(*cn);
@@ -2125,6 +2130,11 @@ mod conv {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
                         ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
+                        }
+                        ("GT", Some(sample::Value::Genotype(gt))) => {
+                            // FIXME get file format version from header
+                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
                         ("GQ", Some(sample::Value::Integer(gq))) => {
@@ -2218,6 +2228,11 @@ mod conv {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
                         ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
+                        }
+                        ("GT", Some(sample::Value::Genotype(gt))) => {
+                            // FIXME get file format version from header
+                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::pev` from `FORMAT/PE`; no pec is computed.
                         ("PE", Some(sample::Value::Integer(pe))) => {
@@ -2333,6 +2348,11 @@ mod conv {
                         ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
+                        ("GT", Some(sample::Value::Genotype(gt))) => {
+                            // FIXME get file format version from header
+                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
+                        }
                         // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
                         ("CN", Some(sample::Value::Integer(cn))) => {
                             entries[sample_no].cn = Some(*cn);
@@ -2392,6 +2412,11 @@ mod conv {
                     // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
                     ("GT", Some(sample::Value::String(gt))) => {
                         process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
+                    }
+                    ("GT", Some(sample::Value::Genotype(gt))) => {
+                        // FIXME get file format version from header
+                        let gt = genotype_string(gt, FileFormat::new(4, 0));
+                        process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                     }
                     // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
                     ("GQ", Some(sample::Value::Integer(gq))) => {
@@ -2488,6 +2513,11 @@ mod conv {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
                         ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
+                        }
+                        ("GT", Some(sample::Value::Genotype(gt))) => {
+                            // FIXME get file format version from header
+                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GL`.
                         ("GL", Some(sample::Value::Array(sample::value::Array::Float(gl)))) => {
@@ -2777,6 +2807,11 @@ mod conv {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
                         ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
+                        }
+                        ("GT", Some(sample::Value::Genotype(gt))) => {
+                            // FIXME get file format version from header
+                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
                         ("GQ", Some(sample::Value::Integer(gq))) => {
