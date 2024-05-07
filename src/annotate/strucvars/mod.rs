@@ -1,19 +1,13 @@
 //! Annotation of structural variant VCF files.
 
-pub mod csq;
-pub mod maelstrom;
-
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::{BufReader, Write};
+use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
 use std::{fs::File, io::BufWriter};
 
-use crate::common::noodles::{open_vcf_reader, AsyncVcfReader};
-use crate::common::GenomeRelease;
-use crate::finalize_buf_writer;
-use crate::ped::PedigreeByName;
 use annonars::common::cli::CANONICAL;
 use annonars::freqs::cli::import::reading::guess_assembly;
 use bio::data_structures::interval_tree::IntervalTree;
@@ -24,30 +18,40 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use futures::TryStreamExt;
 use noodles_bgzf::Writer as BgzfWriter;
-use noodles_vcf::reader::Builder as VariantReaderBuilder;
-use noodles_vcf::record::alternate_bases::Allele;
-use noodles_vcf::record::genotypes::keys::key::{
-    self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
+use noodles_core::Position;
+use noodles_vcf::io::reader::Builder as VariantReaderBuilder;
+use noodles_vcf::variant::record::info::field::key::{END_POSITION, SV_TYPE};
+use noodles_vcf::variant::record::samples::keys::key;
+use noodles_vcf::variant::record::samples::keys::key::{
+    CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
 };
-use noodles_vcf::record::genotypes::sample::value;
-use noodles_vcf::record::genotypes::{sample, Keys};
-use noodles_vcf::record::info::field;
-use noodles_vcf::record::info::field::key::{END_POSITION, SV_TYPE};
-use noodles_vcf::record::{Genotypes, Position};
-use noodles_vcf::Record as VcfRecord;
+use noodles_vcf::variant::record::AlternateBases as _;
+use noodles_vcf::variant::record_buf::info::field;
+use noodles_vcf::variant::record_buf::samples::sample;
+use noodles_vcf::variant::record_buf::samples::Keys;
+use noodles_vcf::variant::record_buf::AlternateBases;
+use noodles_vcf::variant::record_buf::Samples;
+use noodles_vcf::variant::{Record, RecordBuf as VcfRecord};
 use noodles_vcf::{self, Header as VcfHeader};
 use rand::rngs::StdRng;
 use rand::RngCore;
 use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
-use std::ops::Deref;
 use strum::{Display, EnumIter, IntoEnumIterator};
 use uuid::Uuid;
 
-use self::bnd::Breakend;
+use crate::common::noodles::{open_vcf_reader, AsyncVcfReader};
+use crate::common::GenomeRelease;
+use crate::finalize_buf_writer;
+use crate::ped::PedigreeByName;
 
 use super::seqvars::binning::bin_from_range;
 use super::seqvars::{binning, AnnotatedVcfWriter, CHROM_TO_CHROM_NO};
+
+use self::bnd::Breakend;
+
+pub mod csq;
+pub mod maelstrom;
 
 /// Command line arguments for `annotate strucvars` sub command.
 #[derive(Parser, Debug, Clone)]
@@ -111,19 +115,17 @@ pub struct PathOutput {
 
 /// Code for building the VCF header to be written out.
 pub mod vcf_header {
-    use std::str::FromStr;
-
     use annonars::common::cli::is_canonical;
     use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
     use noodles_vcf::header::record::value::map::{Contig, Filter, Format, Info, Other};
     use noodles_vcf::header::record::value::Map;
     use noodles_vcf::header::{self, Number};
-    use noodles_vcf::record::genotypes::keys::key::{
-        self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
-    };
-    use noodles_vcf::record::info::field;
-    use noodles_vcf::record::info::field::key::{
+    use noodles_vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, END_POSITION, POSITION_CONFIDENCE_INTERVALS, SV_TYPE,
+    };
+    use noodles_vcf::variant::record::samples::keys::key;
+    use noodles_vcf::variant::record::samples::keys::key::{
+        CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
     };
     use noodles_vcf::{
         header::{Builder, FileFormat},
@@ -195,7 +197,7 @@ pub mod vcf_header {
                     .insert("accession".parse()?, sequence.refseq_ac.clone())
                     .set_length(sequence.length)
                     .build()?;
-                builder = builder.add_contig(sequence.name.parse()?, contig);
+                builder = builder.add_contig(sequence.name.clone(), contig);
             }
         }
 
@@ -204,43 +206,33 @@ pub mod vcf_header {
 
     /// Add the `ALT` header lines.
     fn add_meta_alt(builder: Builder) -> Result<Builder, anyhow::Error> {
-        use noodles_vcf::{
-            header::record::value::map::AlternativeAllele,
-            record::alternate_bases::allele::{
-                symbol::{structural_variant::Type, StructuralVariant},
-                Symbol,
-            },
-        };
+        use noodles_vcf::header::record::value::map::AlternativeAllele;
 
-        let del_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Deletion));
+        let del_id = "DEL";
         let del_alt = Map::<AlternativeAllele>::new("Deletion");
-        let del_me_id = Symbol::StructuralVariant(StructuralVariant::new(
-            Type::Deletion,
-            vec![String::from("ME")],
-        ));
+
+        let del_me_id = "ME";
         let del_me_alt = Map::<AlternativeAllele>::new("Deletion of mobile element");
-        let ins_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Insertion));
+
+        let ins_id = "INS";
         let ins_alt = Map::<AlternativeAllele>::new("Insertion");
-        let ins_me_id = Symbol::StructuralVariant(StructuralVariant::new(
-            Type::Insertion,
-            vec![String::from("ME")],
-        ));
+
+        let ins_me_id = "ME";
         let ins_me_alt = Map::<AlternativeAllele>::new("Insertion of mobile element");
-        let dup_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Duplication));
+
+        let dup_id = "DUP";
         let dup_alt = Map::<AlternativeAllele>::new("Duplication");
-        let dup_tnd_id = Symbol::StructuralVariant(StructuralVariant::new(
-            Type::Duplication,
-            vec![String::from("TANDEM")],
-        ));
+
+        let dup_tnd_id = "TANDEM";
         let dup_tnd_alt = Map::<AlternativeAllele>::new("Tandem Duplication");
-        let dup_dsp_id = Symbol::StructuralVariant(StructuralVariant::new(
-            Type::Duplication,
-            vec![String::from("DISPERSED")],
-        ));
+
+        let dup_dsp_id = "DISPERSED";
         let dup_dsp_alt = Map::<AlternativeAllele>::new("Dispersed Duplication");
-        let cnv_id = Symbol::StructuralVariant(StructuralVariant::from(Type::CopyNumberVariation));
+
+        let cnv_id = "CNV";
         let cnv_alt = Map::<AlternativeAllele>::new("Copy number variation");
-        let bnd_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Breakend));
+
+        let bnd_id = "BND";
         let bnd_alt = Map::<AlternativeAllele>::new("Breakend");
 
         Ok(builder
@@ -260,17 +252,17 @@ pub mod vcf_header {
         use header::record::value::map::info::Type;
 
         Ok(builder
-            .add_info(END_POSITION, Map::<Info>::from(&END_POSITION))
+            .add_info(END_POSITION, Map::<Info>::from(END_POSITION))
             .add_info(
                 POSITION_CONFIDENCE_INTERVALS,
-                Map::<Info>::from(&POSITION_CONFIDENCE_INTERVALS),
+                Map::<Info>::from(POSITION_CONFIDENCE_INTERVALS),
             )
             .add_info(
                 END_CONFIDENCE_INTERVALS,
-                Map::<Info>::from(&END_CONFIDENCE_INTERVALS),
+                Map::<Info>::from(END_CONFIDENCE_INTERVALS),
             )
             .add_info(
-                field::Key::from_str("CARRIERS_HET")?,
+                "CARRIERS_HET",
                 Map::<Info>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -278,7 +270,7 @@ pub mod vcf_header {
                 ),
             )
             .add_info(
-                field::Key::from_str("CARRIERS_HOM_REF")?,
+                "CARRIERS_HOM_REF",
                 Map::<Info>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -286,7 +278,7 @@ pub mod vcf_header {
                 ),
             )
             .add_info(
-                field::Key::from_str("CARRIERS_HOM_ALT")?,
+                "CARRIERS_HOM_ALT",
                 Map::<Info>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -294,7 +286,7 @@ pub mod vcf_header {
                 ),
             )
             .add_info(
-                field::Key::from_str("CARRIERS_HEMI_REF")?,
+                "CARRIERS_HEMI_REF",
                 Map::<Info>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -302,7 +294,7 @@ pub mod vcf_header {
                 ),
             )
             .add_info(
-                field::Key::from_str("CARRIERS_HEMI_ALT")?,
+                "CARRIERS_HEMI_ALT",
                 Map::<Info>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -310,7 +302,7 @@ pub mod vcf_header {
                 ),
             )
             .add_info(
-                field::Key::from_str("callers")?,
+                "callers",
                 Map::<Info>::new(
                     Number::Unknown,
                     Type::String,
@@ -320,7 +312,7 @@ pub mod vcf_header {
             // The SV UUID will only be written out temporarily until we don't need TSV anymore.
             // TODO: remove this once we don't need TSV anymore.
             .add_info(
-                field::Key::from_str("sv_uuid")?,
+                "sv_uuid",
                 Map::<Info>::new(
                     Number::Unknown,
                     Type::String,
@@ -328,7 +320,7 @@ pub mod vcf_header {
                 ),
             )
             // Note that we will write out the sub type here, actually.
-            .add_info(SV_TYPE, Map::<Info>::from(&SV_TYPE)))
+            .add_info(SV_TYPE, Map::<Info>::from(SV_TYPE)))
     }
 
     /// Add the `FILTER` header lines.
@@ -341,18 +333,18 @@ pub mod vcf_header {
         use header::record::value::map::format::Type;
 
         Ok(builder
-            .add_format(GENOTYPE, Map::<Format>::from(&GENOTYPE))
-            .add_format(key::FILTER, Map::<Format>::from(&key::FILTER))
+            .add_format(GENOTYPE, Map::<Format>::from(GENOTYPE))
+            .add_format(key::FILTER, Map::<Format>::from(key::FILTER))
             .add_format(
                 CONDITIONAL_GENOTYPE_QUALITY,
-                Map::<Format>::from(&CONDITIONAL_GENOTYPE_QUALITY),
+                Map::<Format>::from(CONDITIONAL_GENOTYPE_QUALITY),
             )
             .add_format(
-                key::Key::from_str("pec")?,
+                "pec",
                 Map::<Format>::new(Number::Count(1), Type::Integer, "Paired-end coverage"),
             )
             .add_format(
-                key::Key::from_str("pev")?,
+                "pev",
                 Map::<Format>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -360,31 +352,31 @@ pub mod vcf_header {
                 ),
             )
             .add_format(
-                key::Key::from_str("src")?,
+                "src",
                 Map::<Format>::new(Number::Count(1), Type::Integer, "Split-end coverage"),
             )
             .add_format(
-                key::Key::from_str("src")?,
+                "src",
                 Map::<Format>::new(Number::Count(1), Type::Integer, "Split-end variant support"),
             )
             .add_format(
-                key::Key::from_str("amq")?,
+                "amq",
                 Map::<Format>::new(Number::Count(1), Type::Integer, "Average mapping quality"),
             )
             .add_format(
                 GENOTYPE_COPY_NUMBER,
-                Map::<Format>::from(&GENOTYPE_COPY_NUMBER),
+                Map::<Format>::from(GENOTYPE_COPY_NUMBER),
             )
             .add_format(
-                key::Key::from_str("anc")?,
+                "anc",
                 Map::<Format>::new(
                     Number::Count(1),
                     Type::Integer,
-                    "Average normalied coverage",
+                    "Average normalized coverage",
                 ),
             )
             .add_format(
-                key::Key::from_str("pc")?,
+                "pc",
                 Map::<Format>::new(
                     Number::Count(1),
                     Type::Integer,
@@ -730,39 +722,40 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             _ => panic!("assembly must have been set"),
         }
 
-        tsv_record.chromosome = record.chromosome().to_string();
+        tsv_record.chromosome = record.reference_sequence_name().to_string();
         tsv_record.chromosome_no = *CHROM_TO_CHROM_NO
             .get(&tsv_record.chromosome)
             .expect("chromosome not canonical");
 
-        tsv_record.chromosome2 = record.chromosome().to_string();
+        tsv_record.chromosome2 = record.reference_sequence_name().to_string();
         tsv_record.chromosome_no2 = *CHROM_TO_CHROM_NO
             .get(&tsv_record.chromosome2)
             .expect("chromosome not canonical");
 
         tsv_record.start = {
-            let start: usize = record.position().into();
+            let start: usize = record
+                .variant_start()
+                .expect("Telomeric breakends unsupported")
+                .into();
             start as i32
         };
         tsv_record.end = {
-            let pos_end = record.info().get(&END_POSITION);
-            if let Some(Some(field::Value::Integer(pos_end))) = pos_end {
-                *pos_end
-            } else {
+            record
+                .variant_end(header)
+                .map(|p| i32::try_from(p.get()))?
                 // E.g., if INS
-                tsv_record.start
-            }
+                .unwrap_or_else(|_| tsv_record.start)
         };
 
-        let sv_uuid = record.info().get(&field::Key::from_str("sv_uuid")?);
+        let sv_uuid = record.info().get("sv_uuid");
         if let Some(Some(field::Value::String(sv_uuid))) = sv_uuid {
             tsv_record.sv_uuid = Uuid::from_str(sv_uuid)?;
         }
-        let callers = record.info().get(&field::Key::from_str("callers")?);
+        let callers = record.info().get("callers");
         if let Some(Some(field::Value::String(callers))) = callers {
             tsv_record.callers = callers.split(',').map(|x| x.to_string()).collect();
         }
-        let sv_sub_type = record.info().get(&SV_TYPE);
+        let sv_sub_type = record.info().get(SV_TYPE);
         if let Some(Some(field::Value::String(sv_sub_type))) = sv_sub_type {
             tsv_record.sv_type =
                 SvType::from_str(sv_sub_type.split(':').next().expect("invalid INFO/SVTYPE"))?;
@@ -785,45 +778,37 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         };
 
         tsv_record.pe_orientation = if tsv_record.sv_type == SvType::Bnd {
-            let alt = record.alternate_bases().deref()[0].to_string();
-            bnd::Breakend::from_ref_alt_str("N", alt.as_ref())?.pe_orientation
+            let alt = record.alternate_bases().iter().next().unwrap()?;
+            bnd::Breakend::from_ref_alt_str("N", alt)?.pe_orientation
         } else {
             tsv_record.sv_type.into()
         };
 
-        let num_hom_alt = record
-            .info()
-            .get(&field::Key::from_str("CARRIERS_HOM_ALT")?);
+        let num_hom_alt = record.info().get("CARRIERS_HOM_ALT");
         if let Some(Some(field::Value::Integer(num_hom_alt))) = num_hom_alt {
             tsv_record.num_hom_alt = *num_hom_alt;
         } else {
             panic!("INFO/CARRIERS_HOM_ALT not found");
         }
-        let num_hom_ref = record
-            .info()
-            .get(&field::Key::from_str("CARRIERS_HOM_REF")?);
+        let num_hom_ref = record.info().get("CARRIERS_HOM_REF");
         if let Some(Some(field::Value::Integer(num_hom_ref))) = num_hom_ref {
             tsv_record.num_hom_ref = *num_hom_ref;
         } else {
             panic!("INFO/CARRIERS_HOM_REF not found");
         }
-        let num_het = record.info().get(&field::Key::from_str("CARRIERS_HET")?);
+        let num_het = record.info().get("CARRIERS_HET");
         if let Some(Some(field::Value::Integer(num_het))) = num_het {
             tsv_record.num_het = *num_het;
         } else {
             panic!("INFO/CARRIERS_HET not found");
         }
-        let num_hemi_alt = record
-            .info()
-            .get(&field::Key::from_str("CARRIERS_HEMI_ALT")?);
+        let num_hemi_alt = record.info().get("CARRIERS_HEMI_ALT");
         if let Some(Some(field::Value::Integer(num_hemi_alt))) = num_hemi_alt {
             tsv_record.num_hemi_alt = *num_hemi_alt;
         } else {
             panic!("INFO/CARRIERS_HEMI_ALT not found");
         }
-        let num_hemi_ref = record
-            .info()
-            .get(&field::Key::from_str("CARRIERS_HEMI_REF")?);
+        let num_hemi_ref = record.info().get("CARRIERS_HEMI_REF");
         if let Some(Some(field::Value::Integer(num_hemi_ref))) = num_hemi_ref {
             tsv_record.num_hemi_ref = *num_hemi_ref;
         } else {
@@ -831,7 +816,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         }
 
         // First, create genotype info records.
-        let mut gt_it = record.genotypes().values();
+        let mut gt_it = record.samples().values();
         for sample_name in header.sample_names() {
             tsv_record.genotype.entries.push(GenotypeInfo {
                 name: sample_name.clone(),
@@ -841,7 +826,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             let entry = tsv_record.genotype.entries.last_mut().expect("just pushed");
             let sample = gt_it.next().expect("genotype iterator exhausted");
 
-            for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+            for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                 match (key.as_ref(), value) {
                     ("GT", Some(sample::Value::String(gt))) => {
                         entry.gt = Some(gt.clone());
@@ -1340,6 +1325,10 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<VcfRecord, Self::Error> {
+        use noodles_vcf::variant::record_buf::info::field::value::Array;
+        use noodles_vcf::variant::record_buf::info::field::Value;
+        use noodles_vcf::variant::record_buf::Info;
+
         let mut genotypes = Vec::new();
         for genotype in &self.genotype.entries {
             genotypes.push(vec![
@@ -1348,7 +1337,7 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
                     .as_ref()
                     .map(|gt| sample::Value::String(gt.clone())),
                 genotype.ft.as_ref().map(|ft| {
-                    sample::Value::Array(value::Array::String(
+                    sample::Value::Array(sample::value::Array::String(
                         ft.iter().map(|s| Some(s.clone())).collect(),
                     ))
                 }),
@@ -1378,66 +1367,78 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
                 genotype.pc.as_ref().map(|pc| sample::Value::Integer(*pc)),
             ]);
         }
-        let genotypes = Genotypes::new(
-            Keys::try_from(vec![
-                GENOTYPE,
-                key::FILTER,
-                CONDITIONAL_GENOTYPE_QUALITY,
-                key::Key::from_str("pec")?,
-                key::Key::from_str("pev")?,
-                key::Key::from_str("src")?,
-                key::Key::from_str("srv")?,
-                key::Key::from_str("amq")?,
-                GENOTYPE_COPY_NUMBER,
-                key::Key::from_str("anc")?,
-                key::Key::from_str("pc")?,
-            ])?,
-            genotypes,
+        let keys: Keys = [
+            GENOTYPE,
+            key::FILTER,
+            CONDITIONAL_GENOTYPE_QUALITY,
+            "pec",
+            "pev",
+            "src",
+            "srv",
+            "amq",
+            GENOTYPE_COPY_NUMBER,
+            "anc",
+            "pc",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let samples = Samples::new(keys, vec![]);
+
+        let info = vec![
+            ("END".to_string(), Some(Value::Integer(self.end))),
+            (
+                "sv_uuid".to_string(),
+                Some(Value::String(format!("{}", self.sv_uuid))),
+            ),
+            (
+                "callers".to_string(),
+                Some(Value::Array(Array::String(
+                    self.callers.iter().map(|s| Some(s.to_string())).collect(),
+                ))),
+            ),
+            (
+                "SVTYPE".to_string(),
+                Some(Value::String(format!("{}", self.sv_sub_type))),
+            ),
+        ];
+
+        let mut info: Info = info.into_iter().collect();
+        info.insert("CARRIERS_HET".into(), Some(Value::Integer(self.num_het)));
+        info.insert(
+            "CARRIERS_HOM_REF".into(),
+            Some(Value::Integer(self.num_hom_ref)),
+        );
+        info.insert(
+            "CARRIERS_HOM_ALT".into(),
+            Some(Value::Integer(self.num_hom_alt)),
+        );
+        info.insert(
+            "CARRIERS_HEMI_REF".into(),
+            Some(Value::Integer(self.num_hemi_ref)),
+        );
+        info.insert(
+            "CARRIERS_HEMI_ALT".into(),
+            Some(Value::Integer(self.num_hemi_alt)),
         );
 
-        let info = format!(
-            "END={};sv_uuid={};callers={};SVTYPE={}",
-            self.end,
-            self.sv_uuid,
-            self.callers.join(","),
-            self.sv_sub_type,
-        );
-        let mut info: noodles_vcf::record::Info = info.parse()?;
-        info.insert(
-            field::Key::from_str("CARRIERS_HET")?,
-            Some(field::Value::Integer(self.num_het)),
-        );
-        info.insert(
-            field::Key::from_str("CARRIERS_HOM_REF")?,
-            Some(field::Value::Integer(self.num_hom_ref)),
-        );
-        info.insert(
-            field::Key::from_str("CARRIERS_HOM_ALT")?,
-            Some(field::Value::Integer(self.num_hom_alt)),
-        );
-        info.insert(
-            field::Key::from_str("CARRIERS_HEMI_REF")?,
-            Some(field::Value::Integer(self.num_hemi_ref)),
-        );
-        info.insert(
-            field::Key::from_str("CARRIERS_HEMI_ALT")?,
-            Some(field::Value::Integer(self.num_hemi_alt)),
-        );
-
-        let builder = noodles_vcf::record::Record::builder()
-            .set_chromosome(self.chromosome.parse()?)
-            .set_position(Position::from(self.start as usize))
-            .set_reference_bases("N".parse()?)
+        let builder = noodles_vcf::variant::RecordBuf::builder()
+            .set_reference_sequence_name(self.chromosome.clone())
+            .set_variant_start(Position::try_from(self.start as usize)?)
+            .set_reference_bases("N")
             .set_info(info)
-            .set_genotypes(genotypes);
+            .set_samples(samples);
 
         let builder = if self.sv_sub_type == SvSubType::Bnd {
-            builder.set_alternate_bases(self.info.alt.unwrap().parse()?)
+            builder.set_alternate_bases(AlternateBases::from(vec![self.info.alt.unwrap().into()]))
         } else {
-            builder.set_alternate_bases(format!("<{}>", self.sv_sub_type).parse()?)
+            builder.set_alternate_bases(AlternateBases::from(vec![format!(
+                "<{}>",
+                self.sv_sub_type
+            )]))
         };
 
-        builder.build().map_err(|e| anyhow::anyhow!(e))
+        Ok(builder.build())
     }
 }
 
@@ -1567,7 +1568,7 @@ impl SvCaller {
     fn version_from_info_svmethod(&self, record: &VcfRecord) -> Result<String, anyhow::Error> {
         let value = record
             .info()
-            .get(&field::Key::from_str("SVMETHOD")?)
+            .get("SVMETHOD")
             .ok_or(anyhow::anyhow!("Problem with INFO/SVMETHOD field"))?
             .ok_or(anyhow::anyhow!("Problem with INFO/SVMETHOD INFO field"))?;
         if let field::Value::String(value) = value {
@@ -1623,7 +1624,7 @@ impl SvCaller {
         let mut missing = names.iter().map(|s| s.to_string()).collect::<HashSet<_>>();
 
         for (key, _) in header.formats() {
-            missing.remove(key.as_ref());
+            missing.remove(key);
         }
 
         missing.is_empty()
@@ -1634,7 +1635,7 @@ impl SvCaller {
         let mut missing = names.iter().map(|s| s.to_string()).collect::<HashSet<_>>();
 
         for (key, _) in header.infos() {
-            missing.remove(key.as_ref());
+            missing.remove(key);
         }
 
         missing.is_empty()
@@ -1660,7 +1661,7 @@ impl SvCaller {
 /// Guess the `SvCaller` from the VCF file at the given path.
 pub async fn guess_sv_caller(reader: &mut AsyncVcfReader) -> Result<SvCaller, anyhow::Error> {
     let header = reader.read_header().await?;
-    let mut records = reader.records(&header);
+    let mut records = reader.record_bufs(&header);
     let record = records
         .try_next()
         .await
@@ -1721,7 +1722,7 @@ pub trait VcfRecordConverter {
         vcf_record: &VcfRecord,
         tsv_record: &mut VarFishStrucvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
-        if let Some(alt) = vcf_record.alternate_bases().deref().first() {
+        if let Some(alt) = vcf_record.alternate_bases().as_ref().first() {
             let ref_allele = vcf_record.reference_bases().to_string();
             let alt_allele = alt.to_string();
             if Breakend::from_ref_alt_str(&ref_allele, &alt_allele).is_ok() {
@@ -1778,7 +1779,7 @@ pub trait VcfRecordConverter {
     ) -> Result<(), anyhow::Error> {
         let sv_type = vcf_record
             .info()
-            .get(&SV_TYPE)
+            .get(SV_TYPE)
             .ok_or_else(|| anyhow::anyhow!("SVTYPE not found"))?
             .ok_or_else(|| anyhow::anyhow!("SVTYPE empty"))?;
         if let field::Value::String(value) = sv_type {
@@ -1831,17 +1832,11 @@ pub trait VcfRecordConverter {
         };
 
         // Chromosome (of start position if BND).
-        let chrom = match vcf_record.chromosome() {
-            noodles_vcf::record::Chromosome::Name(name) => name.clone(),
-            noodles_vcf::record::Chromosome::Symbol(_) => {
-                panic!("Chromosome symbols are not supported")
-            }
-        };
-        tsv_record.chromosome = if let Some(chrom) = chrom.strip_prefix("chr") {
-            chrom.to_string()
-        } else {
-            chrom
-        };
+        let chrom = vcf_record.reference_sequence_name();
+        tsv_record.chromosome = chrom
+            .strip_prefix("chr")
+            .map(str::to_string)
+            .unwrap_or(chrom.to_string());
         // Compute chromosome number.
         tsv_record.chromosome_no = CHROM_TO_CHROM_NO
             .get(&tsv_record.chromosome)
@@ -1849,23 +1844,23 @@ pub trait VcfRecordConverter {
             .unwrap_or(0);
 
         // Start position.
-        let start: usize = vcf_record.position().into();
+        let start: usize = vcf_record
+            .variant_start()
+            .expect("Telomeric breakend not supported")
+            .get();
         tsv_record.start = start as i32;
 
         // Extract chromosome 2, from alternative allele for BND.  In the case of BND, also extract
         // end position.  For non-BND, set chromosome 2 to chromosome 1.
         let mut end: Option<i32> = None;
-        let alleles = &**vcf_record.alternate_bases();
+        let alleles = vcf_record.alternate_bases().as_ref();
         if alleles.len() != 1 {
             panic!("Only one alternative allele is supported for SVs");
         }
-        if let Allele::Breakend(bnd_string) = &alleles[0] {
-            let reference = vcf_record
-                .reference_bases()
-                .iter()
-                .map(|c| char::from(*c))
-                .collect::<String>();
-            let bnd = bnd::Breakend::from_ref_alt_str(&reference, bnd_string)?;
+        let allele = &alleles[0];
+        if allele.contains('[') || allele.contains(']') {
+            let reference = vcf_record.reference_bases().to_string();
+            let bnd = Breakend::from_ref_alt_str(&reference, allele)?;
 
             tsv_record.chromosome2 = bnd.chrom.clone();
             end = Some(bnd.pos);
@@ -1890,7 +1885,7 @@ pub trait VcfRecordConverter {
         } else {
             let tmp_end = vcf_record
                 .info()
-                .get(&END_POSITION)
+                .get(END_POSITION)
                 .map(|end| {
                     end.map(|end| match end {
                         field::Value::Integer(value) => Ok(Some(*value)),
@@ -1955,6 +1950,14 @@ pub trait VcfRecordConverter {
 
 /// Conversion from VCF records to `VarFishStrucvarTsvRecord`.
 mod conv {
+    use noodles_vcf::variant::record::info::field::key::{
+        END_CONFIDENCE_INTERVALS, POSITION_CONFIDENCE_INTERVALS,
+    };
+    use noodles_vcf::variant::record_buf::info::field::value::Array;
+    use noodles_vcf::variant::record_buf::info::field::Value;
+    use noodles_vcf::variant::record_buf::samples::sample;
+    use noodles_vcf::variant::RecordBuf as VcfRecord;
+
     use crate::ped::PedigreeByName;
     use crate::ped::Sex;
 
@@ -1962,22 +1965,14 @@ mod conv {
     use super::VarFishStrucvarTsvRecord;
     use super::VcfRecordConverter;
 
-    use noodles_vcf::record::genotypes::sample;
-    use noodles_vcf::record::genotypes::sample::value;
-    use noodles_vcf::record::info::field::key::END_CONFIDENCE_INTERVALS;
-    use noodles_vcf::record::info::field::key::POSITION_CONFIDENCE_INTERVALS;
-    use noodles_vcf::{
-        record::genotypes::sample::Value as SampleValue, record::info::field, Record as VcfRecord,
-    };
-
     /// Helper function that extract the CIPOS and CIEND fields from `vcf_record` into `tsv_record`.
     pub fn extract_standard_cis(
         vcf_record: &VcfRecord,
         tsv_record: &mut VarFishStrucvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
-        let cipos = vcf_record.info().get(&POSITION_CONFIDENCE_INTERVALS);
+        let cipos = vcf_record.info().get(POSITION_CONFIDENCE_INTERVALS);
         // Extract CIPOS; missing field is OK, but if present, must be integer array of length 2.
-        if let Some(Some(field::value::Value::Array(field::value::Array::Integer(cipos)))) = cipos {
+        if let Some(Some(Value::Array(Array::Integer(cipos)))) = cipos {
             if cipos.len() == 2 {
                 tsv_record.start_ci_left =
                     cipos[0].ok_or(anyhow::anyhow!("CIPOS[0] is missing"))?;
@@ -1988,8 +1983,8 @@ mod conv {
             }
         }
         // Extract CIEND; missing field is OK, but if present, must be integer array of length 2.
-        let ciend = vcf_record.info().get(&END_CONFIDENCE_INTERVALS);
-        if let Some(Some(field::value::Value::Array(field::value::Array::Integer(ciend)))) = ciend {
+        let ciend = vcf_record.info().get(END_CONFIDENCE_INTERVALS);
+        if let Some(Some(Value::Array(Array::Integer(ciend)))) = ciend {
             if ciend.len() == 2 {
                 tsv_record.end_ci_left = ciend[0].ok_or(anyhow::anyhow!("CIEND[0] is missing"))?;
                 tsv_record.end_ci_right = ciend[1].ok_or(anyhow::anyhow!("CIEND[1] is missing"))?;
@@ -2039,25 +2034,25 @@ mod conv {
             let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
 
             // Extract `FORMAT/*` values.
-            for (sample_no, sample) in vcf_record.genotypes().values().enumerate() {
+            for (sample_no, sample) in vcf_record.samples().values().enumerate() {
                 entries[sample_no].name = self.samples[sample_no].clone();
 
-                for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+                for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
-                        ("GT", Some(SampleValue::String(gt))) => {
+                        ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
-                        ("CN", Some(SampleValue::Integer(cn))) => {
+                        ("CN", Some(sample::Value::Integer(cn))) => {
                             entries[sample_no].cn = Some(*cn);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
-                        ("GQ", Some(SampleValue::Integer(gq))) => {
+                        ("GQ", Some(sample::Value::Integer(gq))) => {
                             entries[sample_no].gq = Some(*gq);
                         }
                         // Obtain `GenotypeInfo::pc` from `FORMAT/NP`.
-                        ("NP", Some(SampleValue::Integer(np))) => {
+                        ("NP", Some(sample::Value::Integer(np))) => {
                             entries[sample_no].pc = Some(*np);
                         }
                         // Ignore all other keys.
@@ -2114,43 +2109,43 @@ mod conv {
             let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
 
             // Extract `FORMAT/*` values.
-            for (sample_no, sample) in vcf_record.genotypes().values().enumerate() {
+            for (sample_no, sample) in vcf_record.samples().values().enumerate() {
                 entries[sample_no].name = self.samples[sample_no].clone();
 
                 let mut pec = 0;
                 let mut src = 0;
 
-                for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+                for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
-                        ("GT", Some(SampleValue::String(gt))) => {
+                        ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
-                        ("GQ", Some(SampleValue::Integer(gq))) => {
+                        ("GQ", Some(sample::Value::Integer(gq))) => {
                             entries[sample_no].gq = Some(*gq);
                         }
                         // Obtain `GenotypeInfo::ft` from `FORMAT/FT`.
-                        ("FT", Some(SampleValue::String(ft))) => {
+                        ("FT", Some(sample::Value::String(ft))) => {
                             entries[sample_no].ft =
                                 Some(ft.split(';').map(|s| s.to_string()).collect());
                         }
                         // Obtain `GenotypeInfo::pev` from `FORMAT/DV`, and accumulate pec.
-                        ("DV", Some(SampleValue::Integer(dv))) => {
+                        ("DV", Some(sample::Value::Integer(dv))) => {
                             entries[sample_no].pev = Some(*dv);
                             pec += *dv;
                         }
                         // Accumulate `FORMAT/DR` into pec.
-                        ("DR", Some(SampleValue::Integer(dr))) => {
+                        ("DR", Some(sample::Value::Integer(dr))) => {
                             pec += *dr;
                         }
                         // Obtain `GenotypeInfo::srv` from `FORMAT/DV`, and accumulate src.
-                        ("RV", Some(SampleValue::Integer(rv))) => {
+                        ("RV", Some(sample::Value::Integer(rv))) => {
                             entries[sample_no].srv = Some(*rv);
                             src += *rv;
                         }
                         // Accumulate `FORMAT/RR` into src.
-                        ("RR", Some(SampleValue::Integer(rr))) => {
+                        ("RR", Some(sample::Value::Integer(rr))) => {
                             src += *rr;
                         }
                         // Ignore all other keys.
@@ -2210,25 +2205,25 @@ mod conv {
             let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
 
             // Extract `FORMAT/*` values.
-            for (sample_no, sample) in vcf_record.genotypes().values().enumerate() {
+            for (sample_no, sample) in vcf_record.samples().values().enumerate() {
                 entries[sample_no].name = self.samples[sample_no].clone();
 
-                for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+                for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
-                        ("GT", Some(SampleValue::String(gt))) => {
+                        ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::pev` from `FORMAT/PE`; no pec is computed.
-                        ("PE", Some(SampleValue::Integer(pe))) => {
+                        ("PE", Some(sample::Value::Integer(pe))) => {
                             entries[sample_no].pev = Some(*pe);
                         }
                         // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
-                        ("CN", Some(SampleValue::Integer(cn))) => {
+                        ("CN", Some(sample::Value::Integer(cn))) => {
                             entries[sample_no].cn = Some(*cn);
                         }
                         // Obtain `GenotypeInfo::pc` from `FORMAT/BC`.
-                        ("BC", Some(SampleValue::Integer(bc))) => {
+                        ("BC", Some(sample::Value::Integer(bc))) => {
                             entries[sample_no].pc = Some(*bc);
                         }
                         // Ignore all other keys.
@@ -2324,21 +2319,21 @@ mod conv {
             let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
 
             // Extract `FORMAT/*` values.
-            for (sample_no, sample) in vcf_record.genotypes().values().enumerate() {
+            for (sample_no, sample) in vcf_record.samples().values().enumerate() {
                 entries[sample_no].name = self.samples[sample_no].clone();
 
-                for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+                for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
-                        ("GT", Some(SampleValue::String(gt))) => {
+                        ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
-                        ("CN", Some(SampleValue::Integer(cn))) => {
+                        ("CN", Some(sample::Value::Integer(cn))) => {
                             entries[sample_no].cn = Some(*cn);
                         }
                         // Obtain `GenotypeInfo::pc` from `FORMAT/NP`.
-                        ("NP", Some(SampleValue::Integer(np))) => {
+                        ("NP", Some(sample::Value::Integer(np))) => {
                             entries[sample_no].pc = Some(*np);
                         }
                         // Ignore all other keys.
@@ -2384,33 +2379,33 @@ mod conv {
         let mut entries: Vec<GenotypeInfo> = vec![Default::default(); samples.len()];
 
         // Extract `FORMAT/*` values.
-        for (sample_no, sample) in vcf_record.genotypes().values().enumerate() {
+        for (sample_no, sample) in vcf_record.samples().values().enumerate() {
             entries[sample_no].name = samples[sample_no].clone();
 
-            for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+            for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                 match (key.as_ref(), value) {
                     // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
-                    ("GT", Some(SampleValue::String(gt))) => {
+                    ("GT", Some(sample::Value::String(gt))) => {
                         process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                     }
                     // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
-                    ("GQ", Some(SampleValue::Integer(gq))) => {
+                    ("GQ", Some(sample::Value::Integer(gq))) => {
                         entries[sample_no].gq = Some(*gq);
                     }
                     // Obtain `GenotypeInfo::ft` from `FORMAT/FT`.
-                    ("FT", Some(SampleValue::String(ft))) => {
+                    ("FT", Some(sample::Value::String(ft))) => {
                         entries[sample_no].ft =
                             Some(ft.split(';').map(|s| s.to_string()).collect());
                     }
                     // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/PR`.
-                    ("PR", Some(sample::Value::Array(value::Array::Integer(dv)))) => {
+                    ("PR", Some(sample::Value::Array(sample::value::Array::Integer(dv)))) => {
                         let ref_ = dv[0].expect("PR[0] is missing");
                         let var = dv[1].expect("PR[1] is missing");
                         entries[sample_no].pec = Some(ref_ + var);
                         entries[sample_no].pev = Some(var);
                     }
                     // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/PR`.
-                    ("SR", Some(sample::Value::Array(value::Array::Integer(sr)))) => {
+                    ("SR", Some(sample::Value::Array(sample::value::Array::Integer(sr)))) => {
                         let ref_ = sr[0].expect("SR[0] is missing");
                         let var = sr[1].expect("SR[1] is missing");
                         entries[sample_no].src = Some(ref_ + var);
@@ -2480,17 +2475,17 @@ mod conv {
             let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
 
             // Extract `FORMAT/*` values.
-            for (sample_no, sample) in vcf_record.genotypes().values().enumerate() {
+            for (sample_no, sample) in vcf_record.samples().values().enumerate() {
                 entries[sample_no].name = self.samples[sample_no].clone();
 
-                for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+                for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
-                        ("GT", Some(SampleValue::String(gt))) => {
+                        ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GL`.
-                        ("GL", Some(SampleValue::Array(value::Array::Float(gl)))) => {
+                        ("GL", Some(sample::Value::Array(sample::value::Array::Float(gl)))) => {
                             let mut gls = gl.iter().filter_map(|x| *x).collect::<Vec<_>>();
                             gls.sort_by(|a, b| b.partial_cmp(a).unwrap());
                             if gls.len() >= 2 {
@@ -2501,15 +2496,15 @@ mod conv {
                         //
                         // MELT does not allow us to separate SR and PR, so we assign them 50% each.
                         ("DP", Some(sample::Value::Integer(dp))) => {
-                            entries[sample_no].pec = Some(*dp / 2);
-                            entries[sample_no].src = Some(*dp / 2 + *dp % 2);
+                            entries[sample_no].pec = Some(dp / 2);
+                            entries[sample_no].src = Some(dp / 2 + dp % 2);
                         }
                         // Extract variant number of reads from AD.
                         //
                         // MELT does not allow us to separate SR and PR, so we assign them 50% each.
                         ("AD", Some(sample::Value::Integer(ad))) => {
-                            entries[sample_no].pev = Some(*ad / 2);
-                            entries[sample_no].srv = Some(*ad / 2 + *ad % 2);
+                            entries[sample_no].pev = Some(ad / 2);
+                            entries[sample_no].srv = Some(ad / 2 + ad % 2);
                         }
                         // Ignore all other keys.
                         _ => (),
@@ -2581,21 +2576,21 @@ mod conv {
             let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
 
             // Extract `FORMAT/*` values.
-            for (sample_no, sample) in vcf_record.genotypes().values().enumerate() {
+            for (sample_no, sample) in vcf_record.samples().values().enumerate() {
                 entries[sample_no].name = self.samples[sample_no].clone();
 
-                for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+                for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
-                        ("GT", Some(SampleValue::String(gt))) => {
+                        ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
-                        ("GQ", Some(SampleValue::Integer(gq))) => {
+                        ("GQ", Some(sample::Value::Integer(gq))) => {
                             entries[sample_no].gq = Some(*gq);
                         }
                         // Obtain `GenotypeInfo::{pev,pec}` from `FORMAT/DAD[{0,3}]`.
-                        ("PR", Some(sample::Value::Array(value::Array::Integer(dad)))) => {
+                        ("PR", Some(sample::Value::Array(sample::value::Array::Integer(dad)))) => {
                             let ref_ = dad[0].expect("DAD[0] is missing");
                             let var = dad[3].expect("DAD[3] is missing");
                             entries[sample_no].pec = Some(ref_ + var);
@@ -2763,28 +2758,28 @@ mod conv {
             let mut entries: Vec<GenotypeInfo> = vec![Default::default(); self.samples.len()];
 
             // Extract `FORMAT/*` values.
-            for (sample_no, sample) in vcf_record.genotypes().values().enumerate() {
+            for (sample_no, sample) in vcf_record.samples().values().enumerate() {
                 entries[sample_no].name = self.samples[sample_no].clone();
 
                 let mut src = 0;
 
-                for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
+                for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
                         // Obtain `GenotypeInfo::gt` from `FORMAT/GT`.
-                        ("GT", Some(SampleValue::String(gt))) => {
+                        ("GT", Some(sample::Value::String(gt))) => {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
-                        ("GQ", Some(SampleValue::Integer(gq))) => {
+                        ("GQ", Some(sample::Value::Integer(gq))) => {
                             entries[sample_no].gq = Some(*gq);
                         }
                         // Obtain `GenotypeInfo::srv` from `FORMAT/DV`, and accumulate src.
-                        ("DV", Some(SampleValue::Integer(dv))) => {
+                        ("DV", Some(sample::Value::Integer(dv))) => {
                             entries[sample_no].srv = Some(*dv);
-                            src += *dv;
+                            src += dv;
                         }
                         // Add `FORMAT/DR` to src.
-                        ("DR", Some(SampleValue::Integer(dr))) => {
+                        ("DR", Some(sample::Value::Integer(dr))) => {
                             src += *dr;
                         }
                         // Ignore all other keys.
@@ -2878,7 +2873,7 @@ pub async fn run_vcf_to_jsonl(
     let mapping = CHROM_TO_CHROM_NO.deref();
     let mut uuid_buf = [0u8; 16];
 
-    let mut records = reader.records(header);
+    let mut records = reader.record_bufs(&header);
     while let Some(record) = records
         .try_next()
         .await
@@ -3180,7 +3175,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
         if path_output_vcf.ends_with(".vcf.gz") || path_output_vcf.ends_with(".vcf.bgzf") {
-            let mut writer = noodles_vcf::Writer::new(
+            let mut writer = noodles_vcf::io::Writer::new(
                 File::create(path_output_vcf)
                     .map(BufWriter::new)
                     .map(BgzfWriter::new)?,
@@ -3197,7 +3192,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             finalize_buf_writer!(buf_writer);
         } else {
             let mut writer =
-                noodles_vcf::Writer::new(File::create(path_output_vcf).map(BufWriter::new)?);
+                noodles_vcf::io::Writer::new(File::create(path_output_vcf).map(BufWriter::new)?);
             writer.set_assembly(assembly);
             writer.set_pedigree(&pedigree);
 
@@ -3355,13 +3350,14 @@ pub mod bnd {
 
 #[cfg(test)]
 mod test {
-    use rstest::rstest;
     use std::fs::File;
 
     use biocommons_bioutils::assemblies::Assembly;
     use clap_verbosity_flag::Verbosity;
     use noodles_vcf;
+    use noodles_vcf::variant::io::Write;
     use pretty_assertions::assert_eq;
+    use rstest::rstest;
     use temp_testdir::TempDir;
     use uuid::Uuid;
 
@@ -3414,7 +3410,8 @@ mod test {
         let temp = TempDir::default();
         let out_jsonl = File::create(temp.join(out_file_name))?;
 
-        let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
+        let mut reader =
+            noodles_vcf::io::reader::Builder::default().build_from_path(path_input_vcf)?;
         let header_in = reader.read_header()?;
 
         // Setup deterministic bytes for UUID generation.
@@ -3425,7 +3422,7 @@ mod test {
 
         // Convert all VCF records to JSONL, incrementing the first byte for deterministic UUID
         // generation.
-        let mut records = reader.records(&header_in);
+        let mut records = reader.record_bufs(&header_in);
         loop {
             if let Some(record) = records.next() {
                 let uuid = Uuid::from_bytes(bytes);
@@ -3449,7 +3446,7 @@ mod test {
 
     /// Helper that returns sample names from VCF.
     fn vcf_samples(path: &str) -> Result<Vec<String>, anyhow::Error> {
-        let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path)?;
+        let mut reader = noodles_vcf::io::reader::Builder::default().build_from_path(path)?;
         let header: VcfHeader = reader.read_header()?;
         Ok(header
             .sample_names()
@@ -3726,7 +3723,7 @@ mod test {
             &noodles_vcf::Header::builder().build(),
         )?;
 
-        let mut writer = noodles_vcf::Writer::new(Vec::new());
+        let mut writer = noodles_vcf::io::Writer::new(Vec::new());
         writer.write_header(&header)?;
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;
 
@@ -3747,7 +3744,7 @@ mod test {
             &example_trio_header(),
         )?;
 
-        let mut writer = noodles_vcf::Writer::new(Vec::new());
+        let mut writer = noodles_vcf::io::Writer::new(Vec::new());
         writer.write_header(&header)?;
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;
 
@@ -3819,7 +3816,7 @@ mod test {
             &noodles_vcf::Header::builder().build(),
         )?;
 
-        let mut writer = noodles_vcf::Writer::new(Vec::new());
+        let mut writer = noodles_vcf::io::Writer::new(Vec::new());
         writer.write_header(&header)?;
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;
 
@@ -4004,12 +4001,12 @@ mod test {
             &example_trio_header(),
         )?;
 
-        let mut writer = noodles_vcf::Writer::new(Vec::new());
+        let mut writer = noodles_vcf::io::Writer::new(Vec::new());
         writer.write_header(&header)?;
 
         for varfish_record in example_records() {
             let vcf_record: VcfRecord = varfish_record.try_into()?;
-            writer.write_record(&header, &vcf_record)?;
+            writer.write_variant_record(&header, &vcf_record)?;
         }
 
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;

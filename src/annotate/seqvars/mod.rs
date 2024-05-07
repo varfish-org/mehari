@@ -1,9 +1,12 @@
 //! Annotation of sequence variants.
 
-pub mod ann;
-pub mod binning;
-pub mod csq;
-pub mod provider;
+use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{BufWriter, Cursor, Read, Write};
+use std::path::Path;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Instant;
 
 use annonars::clinvar_minimal;
 use annonars::common::cli::is_canonical;
@@ -11,36 +14,27 @@ use annonars::common::keys;
 use annonars::freqs::cli::import::reading::guess_assembly;
 use annonars::freqs::serialized::{auto, mt, xy};
 use anyhow::anyhow;
-use noodles_vcf::header::record::value::map::format::Type as FormatType;
-use noodles_vcf::record::genotypes::keys::key::{
-    self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH, READ_DEPTHS,
-};
-use noodles_vcf::record::genotypes::sample;
-use prost::Message;
-use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::{BufWriter, Cursor, Read, Write};
-use std::ops::Deref;
-use std::path::Path;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Instant;
-
 use biocommons_bioutils::assemblies::Assembly;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use noodles_bgzf::Writer as BgzfWriter;
+use noodles_vcf::header::record::value::map::format::Type as FormatType;
 use noodles_vcf::header::{
     record::value::map::{info::Type as InfoType, Info},
     Number,
 };
-use noodles_vcf::reader::Builder as VariantReaderBuilder;
-use noodles_vcf::record::info::field;
-use noodles_vcf::record::Chromosome;
-use noodles_vcf::{
-    header::record::value::map::Map, Header as VcfHeader, Record as VcfRecord, Writer as VcfWriter,
+use noodles_vcf::io::reader::Builder as VariantReaderBuilder;
+use noodles_vcf::io::writer::Writer as VcfWriter;
+use noodles_vcf::variant::io::Write as VcfWrite;
+use noodles_vcf::variant::record::samples::keys::key::{
+    CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH,
 };
+use noodles_vcf::variant::record_buf::info::field;
+use noodles_vcf::variant::RecordBuf as VcfRecord;
+use noodles_vcf::{header::record::value::map::Map, Header as VcfHeader};
+use noodles_vcf::variant::record::AlternateBases;
+use prost::Message;
 use rocksdb::ThreadMode;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -53,12 +47,16 @@ use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
 use crate::common::GenomeRelease;
-
 use crate::finalize_buf_writer;
 use crate::pbs::txs::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
 
 use self::ann::{AnnField, Consequence, FeatureBiotype};
+
+pub mod ann;
+pub mod binning;
+pub mod csq;
+pub mod provider;
 
 /// Parsing of HGNC xlink records.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -126,7 +124,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
     let mut header_out = header_in.clone();
 
     header_out.infos_mut().insert(
-        field::Key::from_str("gnomad_exomes_an").unwrap(),
+        "gnomad_exomes_an".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::Integer,
@@ -134,7 +132,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         ),
     );
     header_out.infos_mut().insert(
-        field::Key::from_str("gnomad_exomes_hom").unwrap(),
+        "gnomad_exomes_hom".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::Integer,
@@ -142,7 +140,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         ),
     );
     header_out.infos_mut().insert(
-        field::Key::from_str("gnomad_exomes_het").unwrap(),
+        "gnomad_exomes_het".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::Integer,
@@ -150,7 +148,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         ),
     );
     header_out.infos_mut().insert(
-        field::Key::from_str("gnomad_exomes_hemi").unwrap(),
+        "gnomad_exomes_hemi".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::Integer,
@@ -159,7 +157,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
     );
 
     header_out.infos_mut().insert(
-        field::Key::from_str("gnomad_genomes_an").unwrap(),
+        "gnomad_genomes_an".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::Integer,
@@ -167,7 +165,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         ),
     );
     header_out.infos_mut().insert(
-        field::Key::from_str("gnomad_genomes_hom").unwrap(),
+        "gnomad_genomes_hom".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::Integer,
@@ -175,7 +173,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         ),
     );
     header_out.infos_mut().insert(
-        field::Key::from_str("gnomad_genomes_het").unwrap(),
+        "gnomad_genomes_het".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::Integer,
@@ -183,7 +181,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         ),
     );
     header_out.infos_mut().insert(
-        field::Key::from_str("gnomad_genomes_hemi").unwrap(),
+        "gnomad_genomes_hemi".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::Integer,
@@ -192,7 +190,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
     );
 
     header_out.infos_mut().insert(
-        field::Key::from_str("helix_an").unwrap(),
+        "helix_an".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::Integer,
@@ -200,7 +198,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         ),
     );
     header_out.infos_mut().insert(
-        field::Key::from_str("helix_hom").unwrap(),
+        "helix_hom".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::Integer,
@@ -208,7 +206,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         ),
     );
     header_out.infos_mut().insert(
-        field::Key::from_str("helix_het").unwrap(),
+        "helix_het".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::Integer,
@@ -217,7 +215,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
     );
 
     header_out.infos_mut().insert(
-        field::Key::from_str("ANN").unwrap(),
+        "ANN".into(),
         Map::<Info>::new(
             Number::Unknown,
             InfoType::String,
@@ -229,7 +227,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
     );
 
     header_out.infos_mut().insert(
-        field::Key::from_str("clinvar_clinsig").unwrap(),
+        "clinvar_clinsig".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::String,
@@ -237,7 +235,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         ),
     );
     header_out.infos_mut().insert(
-        field::Key::from_str("clinvar_rcv").unwrap(),
+        "clinvar_rcv".into(),
         Map::<Info>::new(
             Number::Count(1),
             InfoType::String,
@@ -245,7 +243,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         ),
     );
     header_out.infos_mut().insert(
-        field::Key::from_str("clinvar_vcv").unwrap(),
+        "clinvar_vcv".into(),
         Map::<Info>::new(Number::Count(1), InfoType::String, "ClinVar VCV accession"),
     );
 
@@ -256,8 +254,8 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
 pub fn annotate_record_auto<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &Vec<u8>,
-    vcf_record: &mut noodles_vcf::Record,
+    key: &[u8],
+    vcf_record: &mut noodles_vcf::variant::RecordBuf,
 ) -> Result<(), anyhow::Error>
 where
     T: ThreadMode,
@@ -266,34 +264,34 @@ where
         let auto_record = auto::Record::from_buf(&freq);
 
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_exomes_an").unwrap(),
+            "gnomad_exomes_an".into(),
             Some(field::Value::Integer(auto_record.gnomad_exomes.an as i32)),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_exomes_hom").unwrap(),
+            "gnomad_exomes_hom".into(),
             Some(field::Value::Integer(
                 auto_record.gnomad_exomes.ac_hom as i32,
             )),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_exomes_het").unwrap(),
+            "gnomad_exomes_het".into(),
             Some(field::Value::Integer(
                 auto_record.gnomad_exomes.ac_het as i32,
             )),
         );
 
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_genomes_an").unwrap(),
+            "gnomad_genomes_an".into(),
             Some(field::Value::Integer(auto_record.gnomad_genomes.an as i32)),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_genomes_hom").unwrap(),
+            "gnomad_genomes_hom".into(),
             Some(field::Value::Integer(
                 auto_record.gnomad_genomes.ac_hom as i32,
             )),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_genomes_het").unwrap(),
+            "gnomad_genomes_het".into(),
             Some(field::Value::Integer(
                 auto_record.gnomad_genomes.ac_het as i32,
             )),
@@ -306,8 +304,8 @@ where
 pub fn annotate_record_xy<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &Vec<u8>,
-    vcf_record: &mut noodles_vcf::Record,
+    key: &[u8],
+    vcf_record: &mut noodles_vcf::variant::RecordBuf,
 ) -> Result<(), anyhow::Error>
 where
     T: ThreadMode,
@@ -316,46 +314,46 @@ where
         let auto_record = xy::Record::from_buf(&freq);
 
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_exomes_an").unwrap(),
+            "gnomad_exomes_an".into(),
             Some(field::Value::Integer(auto_record.gnomad_exomes.an as i32)),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_exomes_hom").unwrap(),
+            "gnomad_exomes_hom".into(),
             Some(field::Value::Integer(
                 auto_record.gnomad_exomes.ac_hom as i32,
             )),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_exomes_het").unwrap(),
+            "gnomad_exomes_het".into(),
             Some(field::Value::Integer(
                 auto_record.gnomad_exomes.ac_het as i32,
             )),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_exomes_hemi").unwrap(),
+            "gnomad_exomes_hemi".into(),
             Some(field::Value::Integer(
                 auto_record.gnomad_exomes.ac_hemi as i32,
             )),
         );
 
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_genomes_an").unwrap(),
+            "gnomad_genomes_an".into(),
             Some(field::Value::Integer(auto_record.gnomad_genomes.an as i32)),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_genomes_hom").unwrap(),
+            "gnomad_genomes_hom".into(),
             Some(field::Value::Integer(
                 auto_record.gnomad_genomes.ac_hom as i32,
             )),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_genomes_het").unwrap(),
+            "gnomad_genomes_het".into(),
             Some(field::Value::Integer(
                 auto_record.gnomad_genomes.ac_het as i32,
             )),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_genomes_hemi").unwrap(),
+            "gnomad_genomes_hemi".into(),
             Some(field::Value::Integer(
                 auto_record.gnomad_genomes.ac_hemi as i32,
             )),
@@ -368,8 +366,8 @@ where
 pub fn annotate_record_mt<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &Vec<u8>,
-    vcf_record: &mut noodles_vcf::Record,
+    key: &[u8],
+    vcf_record: &mut noodles_vcf::variant::RecordBuf,
 ) -> Result<(), anyhow::Error>
 where
     T: ThreadMode,
@@ -378,28 +376,28 @@ where
         let mt_record = mt::Record::from_buf(&freq);
 
         vcf_record.info_mut().insert(
-            field::Key::from_str("helix_an").unwrap(),
+            "helix_an".into(),
             Some(field::Value::Integer(mt_record.helixmtdb.an as i32)),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("helix_hom").unwrap(),
+            "helix_hom".into(),
             Some(field::Value::Integer(mt_record.helixmtdb.ac_hom as i32)),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("helix_het").unwrap(),
+            "helix_het".into(),
             Some(field::Value::Integer(mt_record.helixmtdb.ac_het as i32)),
         );
 
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_genomes_an").unwrap(),
+            "gnomad_genomes_an".into(),
             Some(field::Value::Integer(mt_record.gnomad_mtdna.an as i32)),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_genomes_hom").unwrap(),
+            "gnomad_genomes_hom".into(),
             Some(field::Value::Integer(mt_record.gnomad_mtdna.ac_hom as i32)),
         );
         vcf_record.info_mut().insert(
-            field::Key::from_str("gnomad_genomes_het").unwrap(),
+            "gnomad_genomes_het".into(),
             Some(field::Value::Integer(mt_record.gnomad_mtdna.ac_het as i32)),
         );
     };
@@ -410,8 +408,8 @@ where
 pub fn annotate_record_clinvar<T>(
     db: &rocksdb::DBWithThreadMode<T>,
     cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &Vec<u8>,
-    vcf_record: &mut noodles_vcf::Record,
+    key: &[u8],
+    vcf_record: &mut noodles_vcf::variant::RecordBuf,
 ) -> Result<(), anyhow::Error>
 where
     T: ThreadMode,
@@ -436,17 +434,15 @@ where
                 clinical_significance.into();
 
             vcf_record.info_mut().insert(
-                field::Key::from_str("clinvar_clinsig").unwrap(),
+                "clinvar_clinsig".into(),
                 Some(field::Value::String(clinical_significance.to_string())),
             );
-            vcf_record.info_mut().insert(
-                field::Key::from_str("clinvar_rcv").unwrap(),
-                Some(field::Value::String(rcv)),
-            );
-            vcf_record.info_mut().insert(
-                field::Key::from_str("clinvar_vcv").unwrap(),
-                Some(field::Value::String(vcv)),
-            );
+            vcf_record
+                .info_mut()
+                .insert("clinvar_rcv".into(), Some(field::Value::String(rcv)));
+            vcf_record
+                .info_mut()
+                .insert("clinvar_vcv".into(), Some(field::Value::String(vcv)));
         }
     }
 
@@ -563,7 +559,7 @@ impl<Inner: Write> AnnotatedVcfWriter for VcfWriter<Inner> {
         header: &VcfHeader,
         record: &VcfRecord,
     ) -> Result<(), anyhow::Error> {
-        self.write_record(header, record)
+        self.write_variant_record(header, record)
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 }
@@ -693,22 +689,20 @@ impl VarFishSeqvarTsvWriter {
             Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
             Assembly::Grch38 => String::from("GRCh38"),
         };
-        if let Chromosome::Name(name) = record.chromosome() {
-            // strip "chr" prefix from `name`
-            let name = if let Some(stripped) = name.strip_prefix("chr") {
-                stripped
-            } else {
-                name
-            };
-            // add back "chr" prefix if necessary (for GRCh38)
-            tsv_record.chromosome = if assembly == Assembly::Grch38 {
-                format!("chr{}", name)
-            } else {
-                name.to_string()
-            };
+        let name = record.reference_sequence_name();
+        // strip "chr" prefix from `name`
+        let name = if let Some(stripped) = name.strip_prefix("chr") {
+            stripped
         } else {
-            anyhow::bail!("Cannot handle chromosome: {:?}", record.chromosome())
-        }
+            name
+        };
+        // add back "chr" prefix if necessary (for GRCh38)
+        tsv_record.chromosome = if assembly == Assembly::Grch38 {
+            format!("chr{}", name)
+        } else {
+            name.to_string()
+        };
+
         if let Some(chromosome_no) = CHROM_TO_CHROM_NO.get(&tsv_record.chromosome) {
             tsv_record.chromosome_no = *chromosome_no;
         } else {
@@ -716,9 +710,12 @@ impl VarFishSeqvarTsvWriter {
         }
 
         tsv_record.reference = record.reference_bases().to_string();
-        tsv_record.alternative = record.alternate_bases().deref()[0].to_string();
+        tsv_record.alternative = record.alternate_bases().as_ref()[0].to_string();
 
-        tsv_record.start = record.position().into();
+        tsv_record.start = record
+            .variant_start()
+            .expect("Telomeres unsupported")
+            .into();
         tsv_record.end = tsv_record.start + tsv_record.reference.len() - 1;
         tsv_record.bin =
             binning::bin_from_range(tsv_record.start as i32 - 1, tsv_record.end as i32)? as u32;
@@ -742,20 +739,33 @@ impl VarFishSeqvarTsvWriter {
         record: &VcfRecord,
         tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
+        use noodles_vcf::variant::record_buf::samples::sample::value::Array;
+        use noodles_vcf::variant::record_buf::samples::sample::Value;
+
         // Extract genotype information.
         let hdr = self
             .header
             .as_ref()
             .expect("VCF header must be set/written");
         let mut gt_calls = GenotypeCalls::default();
-        for (name, sample) in hdr.sample_names().iter().zip(record.genotypes().values()) {
+        let samples = record.samples();
+        let mut sample_names = hdr.sample_names().iter();
+        let mut genotypes = samples.select(&GENOTYPE).expect("No GT key in FORMAT");
+        let mut read_depths = samples.select(&READ_DEPTH).expect("No RD key in FORMAT");
+        let mut allele_depths = samples.select("AD").expect("No AD key in FORMAT");
+        let mut conditional_gt_quality = samples
+            .select(&CONDITIONAL_GENOTYPE_QUALITY)
+            .expect("No CGQ key in FORMAT");
+        let mut sq = samples.select("SQ").expect("No SQ key in FORMAT");
+
+        for (i, name) in sample_names.enumerate() {
             let mut gt_info = GenotypeInfo {
-                name: name.to_string(),
+                name: name.clone(),
                 ..Default::default()
             };
 
-            if let Some(gt) = sample.get(&GENOTYPE).map(|value| match value {
-                Some(sample::Value::String(s)) => s.to_owned(),
+            if let Some(gt) = genotypes.get(i).map(|value| match value {
+                Some(Value::String(s)) => s.to_owned(),
                 _ => ".".into(),
             }) {
                 let individual = self
@@ -818,43 +828,41 @@ impl VarFishSeqvarTsvWriter {
                 gt_info.gt = Some(gt);
             }
 
-            if let Some(dp) = sample
-                .get(&READ_DEPTH)
+            if let Some(dp) = read_depths
+                .get(i)
                 .map(|value| match value {
-                    Some(sample::Value::Integer(i)) => Ok(*i),
+                    Some(Value::Integer(i)) => Ok(*i),
                     None => Ok(-1),
-                    _ => anyhow::bail!(format!("invalid DP value {:?} in {:#?}", value, sample)),
+                    _ => anyhow::bail!(format!("invalid DP value {:?} in {:#?}", value, name)),
                 })
                 .transpose()?
             {
                 gt_info.dp = Some(dp);
             }
 
-            if let Some(ad) = sample
-                .get(&READ_DEPTHS)
+            if let Some(ad) = allele_depths
+                .get(i)
                 .map(|value| match value {
-                    Some(sample::Value::Array(sample::value::Array::Integer(arr))) => {
-                        Ok(arr[1].unwrap_or(0))
-                    }
+                    Some(Value::Array(Array::Integer(arr))) => Ok(arr[1].unwrap_or(0)),
                     None => Ok(-1),
-                    _ => anyhow::bail!(format!("invalid AD value {:?} in {:#?}", value, sample)),
+                    _ => anyhow::bail!(format!("invalid AD value {:?} in {:#?}", value, name)),
                 })
                 .transpose()?
             {
                 gt_info.ad = Some(ad);
             }
 
-            if let Some(gq) = sample
-                .get(&CONDITIONAL_GENOTYPE_QUALITY)
+            if let Some(gq) = conditional_gt_quality
+                .get(i)
                 .map(|value| match value {
-                    Some(sample::Value::Integer(i)) => Ok(*i),
+                    Some(Value::Integer(i)) => Ok(*i),
                     None => Ok(-1),
                     _ => anyhow::bail!(format!(
                         "invalid GQ value {:?} in {:#?} at {:?}:{:?}",
                         value,
-                        sample,
-                        record.chromosome(),
-                        record.position()
+                        name,
+                        record.reference_sequence_name(),
+                        record.variant_start()
                     )),
                 })
                 .transpose()?
@@ -862,11 +870,11 @@ impl VarFishSeqvarTsvWriter {
                 gt_info.gq = Some(gq);
             }
 
-            if let Some(sq) = sample
-                .get(&key::Key::from_str("SQ")?)
+            if let Some(sq) = sq
+                .get(i)
                 .map(|value| match value {
-                    Some(sample::Value::Float(f)) => Ok(*f),
-                    Some(sample::Value::Array(sample::value::Array::Float(f))) => {
+                    Some(Value::Float(f)) => Ok(*f),
+                    Some(Value::Array(Array::Float(f))) => {
                         Ok(f[0].expect("SQ should be a single float value"))
                     }
                     None => Ok(-1.0),
@@ -874,9 +882,9 @@ impl VarFishSeqvarTsvWriter {
                         anyhow::bail!(format!(
                             "invalid SQ value {:?} in {:#?} at {:?}:{:?}",
                             value,
-                            sample,
-                            record.chromosome(),
-                            record.position()
+                            name,
+                            record.reference_sequence_name(),
+                            record.variant_start()
                         ))
                     }
                 })
@@ -899,10 +907,9 @@ impl VarFishSeqvarTsvWriter {
         tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
         // Extract gnomAD frequencies.
-
         let gnomad_exomes_an = record
             .info()
-            .get(&field::Key::from_str("gnomad_exomes_an").unwrap())
+            .get("gnomad_exomes_an")
             .unwrap_or_default()
             .map(|v| match v {
                 field::Value::Integer(value) => *value,
@@ -912,7 +919,7 @@ impl VarFishSeqvarTsvWriter {
         if gnomad_exomes_an > 0 {
             tsv_record.gnomad_exomes_homozygous = record
                 .info()
-                .get(&field::Key::from_str("gnomad_exomes_hom").unwrap())
+                .get("gnomad_exomes_hom")
                 .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
                     field::Value::Integer(value) => *value,
@@ -921,7 +928,7 @@ impl VarFishSeqvarTsvWriter {
                 .unwrap_or_default();
             tsv_record.gnomad_exomes_heterozygous = record
                 .info()
-                .get(&field::Key::from_str("gnomad_exomes_het").unwrap())
+                .get("gnomad_exomes_het")
                 .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
                     field::Value::Integer(value) => *value,
@@ -930,7 +937,7 @@ impl VarFishSeqvarTsvWriter {
                 .unwrap_or_default();
             tsv_record.gnomad_exomes_hemizygous = record
                 .info()
-                .get(&field::Key::from_str("gnomad_exomes_hemi").unwrap())
+                .get("gnomad_exomes_hemi")
                 .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
                     field::Value::Integer(value) => *value,
@@ -946,7 +953,7 @@ impl VarFishSeqvarTsvWriter {
 
         let gnomad_genomes_an = record
             .info()
-            .get(&field::Key::from_str("gnomad_genomes_an").unwrap())
+            .get("gnomad_genomes_an")
             .unwrap_or_default()
             .map(|v| match v {
                 field::Value::Integer(value) => *value,
@@ -956,7 +963,7 @@ impl VarFishSeqvarTsvWriter {
         if gnomad_genomes_an > 0 {
             tsv_record.gnomad_genomes_homozygous = record
                 .info()
-                .get(&field::Key::from_str("gnomad_genomes_hom").unwrap())
+                .get("gnomad_genomes_hom")
                 .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
                     field::Value::Integer(value) => *value,
@@ -965,7 +972,7 @@ impl VarFishSeqvarTsvWriter {
                 .unwrap_or_default();
             tsv_record.gnomad_genomes_heterozygous = record
                 .info()
-                .get(&field::Key::from_str("gnomad_genomes_het").unwrap())
+                .get("gnomad_genomes_het")
                 .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
                     field::Value::Integer(value) => *value,
@@ -974,7 +981,7 @@ impl VarFishSeqvarTsvWriter {
                 .unwrap_or_default();
             tsv_record.gnomad_genomes_hemizygous = record
                 .info()
-                .get(&field::Key::from_str("gnomad_genomes_hemi").unwrap())
+                .get("gnomad_genomes_hemi")
                 .unwrap_or(Some(&field::Value::Integer(0)))
                 .map(|v| match v {
                     field::Value::Integer(value) => *value,
@@ -1003,7 +1010,7 @@ impl VarFishSeqvarTsvWriter {
     ) -> Result<(), anyhow::Error> {
         if let Some(anns) = record
             .info()
-            .get(&field::Key::from_str("ANN").unwrap())
+            .get("ANN")
             .unwrap_or_default()
             .map(|v| match v {
                 field::Value::Array(field::value::Array::String(values)) => values
@@ -1125,7 +1132,7 @@ impl VarFishSeqvarTsvWriter {
     ) -> Result<(), anyhow::Error> {
         tsv_record.in_clinvar = record
             .info()
-            .get(&field::Key::from_str("clinvar_clinsig").unwrap())
+            .get("clinvar_clinsig")
             .unwrap_or_default()
             .map(|v| match v {
                 field::Value::String(value) => {
@@ -1502,13 +1509,13 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     let mut total_written = 0usize;
 
     writer.write_header(&header_out)?;
-    let mut records = reader.records(&header_in);
+    let mut records = reader.record_bufs(&header_in);
     loop {
         if let Some(record) = records.next() {
             let mut vcf_record = record?;
 
             // We currently can only process records with one alternate allele.
-            if vcf_record.alternate_bases().len() != 1 {
+            if vcf_record.alternate_bases().iter().count() != 1 {
                 tracing::error!(
                     "Found record with more than one alternate allele.  This is currently not supported. \
                     Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
@@ -1569,7 +1576,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
             })? {
                 if !ann_fields.is_empty() {
                     vcf_record.info_mut().insert(
-                        field::Key::from_str("ANN").unwrap(),
+                        "ANN".into(),
                         Some(field::Value::Array(field::value::Array::String(
                             ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
                         ))),
@@ -1680,7 +1687,6 @@ mod test {
     use temp_testdir::TempDir;
 
     use super::binning::bin_from_range;
-
     use super::{csq::TranscriptSource, run, Args, PathOutput};
 
     #[test]
