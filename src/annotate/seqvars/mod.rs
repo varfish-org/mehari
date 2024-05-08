@@ -8,6 +8,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::annotate::genotype_string;
 use annonars::clinvar_minimal;
 use annonars::common::cli::is_canonical;
 use annonars::common::keys;
@@ -22,7 +23,7 @@ use noodles_bgzf::Writer as BgzfWriter;
 use noodles_vcf::header::record::value::map::format::Type as FormatType;
 use noodles_vcf::header::{
     record::value::map::{info::Type as InfoType, Info},
-    Number,
+    FileFormat, Number,
 };
 use noodles_vcf::io::reader::Builder as VariantReaderBuilder;
 use noodles_vcf::io::writer::Writer as VcfWriter;
@@ -756,6 +757,7 @@ impl VarFishSeqvarTsvWriter {
             genotypes.as_ref().and_then(|gt| {
                 gt.get(sample_idx).map(|value| match value {
                     Some(Value::String(s)) => s.to_owned(),
+                    Some(Value::Genotype(gt)) => genotype_string(gt, FileFormat::new(4, 3)),
                     _ => ".".into(),
                 })
             })
