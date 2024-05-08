@@ -16,6 +16,7 @@ use crate::finalize_buf_writer;
 use crate::ped::PedigreeByName;
 use annonars::common::cli::CANONICAL;
 use annonars::freqs::cli::import::reading::guess_assembly;
+use anyhow::Error;
 use bio::data_structures::interval_tree::IntervalTree;
 use biocommons_bioutils::assemblies::Assembly;
 use chrono::Utc;
@@ -912,6 +913,10 @@ impl AsyncAnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             tsv_record.num_hemi_ref,
             &tsv_record.genotype.for_tsv(),
         ).map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
+    }
+
+    async fn flush(&mut self) -> Result<(), Error> {
+        Ok(self.inner.flush()?)
     }
 
     fn set_assembly(&mut self, assembly: Assembly) {

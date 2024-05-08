@@ -43,7 +43,7 @@ use rocksdb::{BoundColumnFamily, DBWithThreadMode, ThreadMode};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thousands::Separable;
-use tokio::io::AsyncBufRead;
+use tokio::io::{AsyncBufRead, AsyncWriteExt};
 
 use crate::annotate::seqvars::csq::{
     ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
@@ -546,6 +546,9 @@ pub(crate) trait AsyncAnnotatedVcfWriter {
         header: &VcfHeader,
         record: &VcfRecord,
     ) -> Result<(), anyhow::Error>;
+
+    async fn flush(&mut self) -> Result<(), anyhow::Error>;
+
     fn set_hgnc_map(&mut self, _hgnc_map: FxHashMap<String, HgncRecord>) {
         // nop
     }
@@ -572,6 +575,10 @@ impl<Inner: Write> AsyncAnnotatedVcfWriter for VcfWriter<Inner> {
         self.write_record(header, record)
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
+
+    async fn flush(&mut self) -> Result<(), Error> {
+        Ok(<VcfWriter<Inner>>::get_mut(self).flush()?)
+    }
 }
 
 /// Implement `AnnotatedVcfWriter` for `AsyncWriter`.
@@ -592,6 +599,12 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVcfWriter
         self.write_record(record)
             .await
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
+    }
+
+    async fn flush(&mut self) -> Result<(), Error> {
+        Ok(<noodles_vcf::AsyncWriter<Inner>>::get_mut(self)
+            .flush()
+            .await?)
     }
 }
 
@@ -1426,6 +1439,10 @@ impl AsyncAnnotatedVcfWriter for VarFishSeqvarTsvWriter {
         self.expand_refseq_ensembl_and_write(record, &mut tsv_record)
     }
 
+    async fn flush(&mut self) -> Result<(), Error> {
+        Ok(self.inner.flush()?)
+    }
+
     fn set_hgnc_map(&mut self, hgnc_map: FxHashMap<String, HgncRecord>) {
         self.hgnc_map = Some(hgnc_map)
     }
@@ -1548,6 +1565,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             );
 
             run_with_writer(&mut writer, args).await?;
+            writer.flush().await?;
         } else {
             let mut writer = noodles_vcf::AsyncWriter::new(
                 tokio::fs::File::create(path_output_vcf)
@@ -1556,6 +1574,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             );
 
             run_with_writer(&mut writer, args).await?;
+            writer.flush().await?;
         }
     } else {
         // Load the HGNC xlink map.
@@ -1683,7 +1702,7 @@ async fn run_with_writer(
         total_written.separate_with_commas(),
         start.elapsed()
     );
-
+    writer.flush().await?;
     Ok(())
 }
 
