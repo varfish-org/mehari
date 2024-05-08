@@ -1,10 +1,12 @@
 //! Annotation of sequence variants.
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufWriter, Cursor, Read, Write};
 use std::ops::Deref;
 use std::path::Path;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -14,11 +16,12 @@ use annonars::common::cli::is_canonical;
 use annonars::common::keys;
 use annonars::freqs::cli::import::reading::guess_assembly;
 use annonars::freqs::serialized::{auto, mt, xy};
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 use biocommons_bioutils::assemblies::Assembly;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use futures::future::BoxFuture;
 use noodles_bgzf::Writer as BgzfWriter;
 use noodles_vcf::header::record::value::map::format::Type as FormatType;
 use noodles_vcf::header::{
@@ -40,6 +43,7 @@ use rocksdb::{BoundColumnFamily, DBWithThreadMode, ThreadMode};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thousands::Separable;
+use tokio::io::AsyncBufRead;
 
 use crate::annotate::seqvars::csq::{
     ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
@@ -535,10 +539,13 @@ pub fn load_tx_db(tx_path: &str) -> Result<TxSeqDatabase, anyhow::Error> {
 }
 
 /// Mehari-local trait for writing out annotated VCF records as VCF or VarFish TSV.
-pub trait AnnotatedVcfWriter {
-    fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
-    fn write_record(&mut self, header: &VcfHeader, record: &VcfRecord)
-        -> Result<(), anyhow::Error>;
+pub(crate) trait AsyncAnnotatedVcfWriter {
+    async fn write_variant_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
+    async fn write_variant_record(
+        &mut self,
+        header: &VcfHeader,
+        record: &VcfRecord,
+    ) -> Result<(), anyhow::Error>;
     fn set_hgnc_map(&mut self, _hgnc_map: FxHashMap<String, HgncRecord>) {
         // nop
     }
@@ -551,18 +558,39 @@ pub trait AnnotatedVcfWriter {
 }
 
 /// Implement `AnnotatedVcfWriter` for `VcfWriter`.
-impl<Inner: Write> AnnotatedVcfWriter for VcfWriter<Inner> {
-    fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
+impl<Inner: Write> AsyncAnnotatedVcfWriter for VcfWriter<Inner> {
+    async fn write_variant_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.write_header(header)
             .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
     }
 
-    fn write_record(
+    async fn write_variant_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
     ) -> Result<(), anyhow::Error> {
         self.write_record(header, record)
+            .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
+    }
+}
+
+/// Implement `AnnotatedVcfWriter` for `AsyncWriter`.
+impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVcfWriter
+    for noodles_vcf::AsyncWriter<Inner>
+{
+    async fn write_variant_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
+        self.write_header(header)
+            .await
+            .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
+    }
+
+    async fn write_variant_record(
+        &mut self,
+        header: &VcfHeader,
+        record: &VcfRecord,
+    ) -> Result<(), anyhow::Error> {
+        self.write_record(record)
+            .await
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 }
@@ -1319,8 +1347,8 @@ impl VarFishSeqvarTsvRecord {
 }
 
 /// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
-impl AnnotatedVcfWriter for VarFishSeqvarTsvWriter {
-    fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
+impl AsyncAnnotatedVcfWriter for VarFishSeqvarTsvWriter {
+    async fn write_variant_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.header = Some(header.clone());
         let header = &[
             "release",
@@ -1377,7 +1405,7 @@ impl AnnotatedVcfWriter for VarFishSeqvarTsvWriter {
             .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
     }
 
-    fn write_record(
+    async fn write_variant_record(
         &mut self,
         _header: &VcfHeader,
         record: &VcfRecord,
@@ -1433,7 +1461,7 @@ impl Annotator {
         }
     }
 
-    fn handles(&self) -> Handles {
+    fn db_handles(&self) -> Handles {
         Handles(
             self.db_freq.cf_handle("autosomal").unwrap(),
             self.db_freq.cf_handle("gonosomal").unwrap(),
@@ -1512,26 +1540,22 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     tracing::info!("config = {:#?}", &args);
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
         if path_output_vcf.ends_with(".vcf.gz") || path_output_vcf.ends_with(".vcf.bgzf") {
-            let mut writer = VcfWriter::new(
-                File::create(path_output_vcf)
-                    .map(BufWriter::new)
-                    .map(BgzfWriter::new)?,
+            let mut writer = noodles_vcf::AsyncWriter::new(
+                tokio::fs::File::create(path_output_vcf)
+                    .await
+                    .map(tokio::io::BufWriter::new)
+                    .map(noodles_bgzf::AsyncWriter::new)?,
             );
 
             run_with_writer(&mut writer, args).await?;
-
-            let bgzf_writer = writer.into_inner();
-            let mut buf_writer = bgzf_writer
-                .finish()
-                .map_err(|e| anyhow::anyhow!("problem finishing BGZF: {}", e))?;
-            finalize_buf_writer!(buf_writer);
         } else {
-            let mut writer = VcfWriter::new(File::create(path_output_vcf).map(BufWriter::new)?);
+            let mut writer = noodles_vcf::AsyncWriter::new(
+                tokio::fs::File::create(path_output_vcf)
+                    .await
+                    .map(tokio::io::BufWriter::new)?,
+            );
 
             run_with_writer(&mut writer, args).await?;
-
-            let mut buf_writer = writer.into_inner();
-            finalize_buf_writer!(buf_writer);
         }
     } else {
         // Load the HGNC xlink map.
@@ -1579,15 +1603,11 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 
 /// Run the annotation with the given `Write` within the `VcfWriter`.
 async fn run_with_writer(
-    writer: &mut dyn AnnotatedVcfWriter,
+    writer: &mut impl AsyncAnnotatedVcfWriter,
     args: &Args,
 ) -> Result<(), anyhow::Error> {
     tracing::info!("Open VCF and read header");
-    let mut reader = tokio::fs::File::open(&args.path_input_vcf)
-        .await
-        .map(tokio::io::BufReader::new)
-        .map(noodles_bgzf::AsyncReader::new)
-        .map(noodles_vcf::AsyncReader::new)?;
+    let mut reader = get_async_vcf_reader(&args.path_input_vcf).await?;
 
     let mut header_in = reader.read_header().await?;
     let header_out = build_header(&header_in);
@@ -1607,6 +1627,88 @@ async fn run_with_writer(
     writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
+    let annotator = setup_annotator(&args, assembly)?;
+    let handles = annotator.db_handles();
+
+    // Perform the VCF annotation.
+    tracing::info!("Annotating VCF ...");
+    let start = Instant::now();
+    let mut prev = Instant::now();
+    let mut total_written = 0usize;
+
+    writer.write_variant_header(&header_out).await?;
+
+    use futures::TryStreamExt;
+    let mut records = reader.records(&header_in);
+    loop {
+        if let Some(mut vcf_record) = records.try_next().await? {
+            // We currently can only process records with one alternate allele.
+            if vcf_record.alternate_bases().len() != 1 {
+                tracing::error!(
+                    "Found record with more than one alternate allele.  This is currently not supported. \
+                    Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
+                    &vcf_record
+                );
+                anyhow::bail!("multi-allelic records not supported");
+            }
+
+            annotator.annotate(&mut vcf_record, &handles)?;
+
+            if prev.elapsed().as_secs() >= 60 {
+                tracing::info!("at {:?}", keys::Var::from_vcf_allele(&vcf_record, 0));
+                prev = Instant::now();
+            }
+
+            // Write out the record.
+            writer
+                .write_variant_record(&header_out, &vcf_record)
+                .await?;
+        } else {
+            break; // all done
+        }
+
+        total_written += 1;
+        if let Some(max_var_count) = args.max_var_count {
+            if total_written >= max_var_count {
+                tracing::warn!(
+                    "Stopping after {} records as requested by --max-var-count",
+                    total_written
+                );
+                break;
+            }
+        }
+    }
+    tracing::info!(
+        "... annotated {} records in {:?}",
+        total_written.separate_with_commas(),
+        start.elapsed()
+    );
+
+    Ok(())
+}
+
+async fn get_async_vcf_reader(
+    path: impl AsRef<Path>,
+) -> Result<noodles_vcf::AsyncReader<Pin<Box<dyn AsyncBufRead>>>, Error> {
+    let path = path.as_ref();
+    let reader: noodles_vcf::AsyncReader<_> = match path.extension().and_then(OsStr::to_str) {
+        Some("gz") | Some("bgzf") => tokio::fs::File::open(path)
+            .await
+            .map(tokio::io::BufReader::new)
+            .map(noodles_bgzf::AsyncReader::new)
+            .map(|r| Box::pin(r) as Pin<Box<dyn AsyncBufRead>>)
+            .map(noodles_vcf::AsyncReader::new)?,
+        Some("vcf") => tokio::fs::File::open(path)
+            .await
+            .map(tokio::io::BufReader::new)
+            .map(|r| Box::pin(r) as Pin<Box<dyn AsyncBufRead>>)
+            .map(noodles_vcf::AsyncReader::new)?,
+        other => return Err(anyhow!("Unknown extension {:?}", other)),
+    };
+    Ok(reader)
+}
+
+fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> {
     // Open the frequency RocksDB database in read only mode.
     tracing::info!("Opening frequency database");
     let rocksdb_path = format!(
@@ -1663,61 +1765,7 @@ async fn run_with_writer(
     tracing::info!("... done building transcript interval trees");
 
     let annotator = Annotator::new(db_freq, db_clinvar, predictor);
-    let handles = annotator.handles();
-
-    // Perform the VCF annotation.
-    tracing::info!("Annotating VCF ...");
-    let start = Instant::now();
-    let mut prev = Instant::now();
-    let mut total_written = 0usize;
-
-    writer.write_header(&header_out)?;
-
-    use futures::TryStreamExt;
-    let mut records = reader.records(&header_in);
-    loop {
-        if let Some(mut vcf_record) = records.try_next().await? {
-            // We currently can only process records with one alternate allele.
-            if vcf_record.alternate_bases().len() != 1 {
-                tracing::error!(
-                    "Found record with more than one alternate allele.  This is currently not supported. \
-                    Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
-                    &vcf_record
-                );
-                anyhow::bail!("multi-allelic records not supported");
-            }
-
-            annotator.annotate(&mut vcf_record, &handles)?;
-
-            if prev.elapsed().as_secs() >= 60 {
-                tracing::info!("at {:?}", keys::Var::from_vcf_allele(&vcf_record, 0));
-                prev = Instant::now();
-            }
-
-            // Write out the record.
-            writer.write_record(&header_out, &vcf_record)?;
-        } else {
-            break; // all done
-        }
-
-        total_written += 1;
-        if let Some(max_var_count) = args.max_var_count {
-            if total_written >= max_var_count {
-                tracing::warn!(
-                    "Stopping after {} records as requested by --max-var-count",
-                    total_written
-                );
-                break;
-            }
-        }
-    }
-    tracing::info!(
-        "... annotated {} records in {:?}",
-        total_written.separate_with_commas(),
-        start.elapsed()
-    );
-
-    Ok(())
+    Ok(annotator)
 }
 
 #[cfg(test)]
@@ -1949,237 +1997,5 @@ mod test {
         assert_eq!(&expected, &actual);
 
         Ok(())
-    }
-}
-
-mod foo {
-    use annonars::common::cli::is_canonical;
-    use std::str::FromStr;
-    use std::sync::Arc;
-
-    use annonars::common::keys;
-    use anyhow::Result;
-    use biocommons_bioutils::assemblies::Assembly;
-    use noodles_vcf::record::info::field;
-    use noodles_vcf::Record;
-    use rocksdb::{BoundColumnFamily, DBWithThreadMode, MultiThreaded};
-
-    use crate::annotate::seqvars::csq::{ConsequencePredictor, TranscriptSource, VcfVariant};
-    use crate::annotate::seqvars::provider::Provider as MehariProvider;
-    use crate::annotate::seqvars::ConsequencePredictorConfigBuilder;
-    use crate::annotate::seqvars::MehariProviderConfigBuilder;
-    use crate::annotate::seqvars::{
-        annotate_record_auto, annotate_record_clinvar, annotate_record_mt, annotate_record_xy,
-        load_tx_db, CHROM_AUTO, CHROM_MT, CHROM_XY,
-    };
-    use crate::pbs::txs::TxSeqDatabase;
-
-    const ROCKSDB_SEQVARS_FREQS_PATH: &str = "/mnt/data/mehari/0.21.0/db/grch38/seqvars/freqs";
-    const ROCKSDB_SEQVARS_CLINVAR_PATH: &str = "/mnt/data/mehari/0.21.0/db/grch38/seqvars/clinvar";
-    const TXSEQ_DB_PATH: &str = "/mnt/data/mehari/0.21.0/db/grch38/txs.bin.zst";
-
-    type DbCol<'a> = Arc<BoundColumnFamily<'a>>;
-
-    struct AnnotationSources {
-        pub db_freq: DBWithThreadMode<MultiThreaded>,
-        pub db_clinvar: DBWithThreadMode<MultiThreaded>,
-        pub assembly: Assembly,
-        pub predictor: ConsequencePredictor,
-    }
-
-    fn records() -> Vec<Record> {
-        let mut reader = noodles_vcf::reader::Builder::default()
-            .build_from_path("tests/data/annotate/seqvars/NA-12878WGS_dragen.first250k.vcf.gz")
-            .unwrap();
-        let header = reader.read_header().unwrap();
-        let records: Vec<_> = reader
-            .records(&header)
-            .flatten()
-            .filter(|r| r.alternate_bases().len() == 1)
-            .filter(|r| {
-                let vcf_var = keys::Var::from_vcf_allele(r, 0);
-                vcf_var.alternative != "*"
-            })
-            .collect();
-        records
-    }
-
-    #[test]
-    fn annotate_records() {
-        let mut records = records();
-        dbg!(&records.len());
-
-        fn freq_db() -> Result<DBWithThreadMode<MultiThreaded>> {
-            let options = rocksdb::Options::default();
-            let db_freq = rocksdb::DB::open_cf_for_read_only(
-                &options,
-                ROCKSDB_SEQVARS_FREQS_PATH,
-                ["meta", "autosomal", "gonosomal", "mitochondrial"],
-                false,
-            )?;
-
-            Ok(db_freq)
-        }
-
-        fn clinvar_db() -> Result<DBWithThreadMode<MultiThreaded>> {
-            let options = rocksdb::Options::default();
-            let db_clinvar = rocksdb::DB::open_cf_for_read_only(
-                &options,
-                ROCKSDB_SEQVARS_CLINVAR_PATH,
-                ["meta", "clinvar"],
-                false,
-            )?;
-            Ok(db_clinvar)
-        }
-
-        fn transcript_db() -> Result<TxSeqDatabase> {
-            load_tx_db(TXSEQ_DB_PATH)
-        }
-
-        fn setup() -> anyhow::Result<AnnotationSources> {
-            let db_freq = freq_db()?;
-            let db_clinvar = clinvar_db()?;
-            let tx_db = transcript_db()?;
-            let assembly = Assembly::Grch38;
-
-            let provider = Arc::new(MehariProvider::new(
-                tx_db,
-                assembly,
-                MehariProviderConfigBuilder::default()
-                    .transcript_picking(true)
-                    .build()
-                    .unwrap(),
-            ));
-            let predictor = ConsequencePredictor::new(
-                provider,
-                assembly,
-                ConsequencePredictorConfigBuilder::default()
-                    .report_all_transcripts(true)
-                    .transcript_source(TranscriptSource::Both)
-                    .build()
-                    .unwrap(),
-            );
-            Ok(AnnotationSources {
-                db_freq,
-                db_clinvar,
-                assembly,
-                predictor,
-            })
-        }
-
-        fn handles(dbs: &AnnotationSources) -> (DbCol, DbCol, DbCol, DbCol) {
-            let cf_autosomal = dbs.db_freq.cf_handle("autosomal").unwrap();
-            let cf_gonosomal = dbs.db_freq.cf_handle("gonosomal").unwrap();
-            let cf_mtdna = dbs.db_freq.cf_handle("mitochondrial").unwrap();
-            let cf_clinvar = dbs.db_clinvar.cf_handle("clinvar").unwrap();
-            (cf_autosomal, cf_gonosomal, cf_mtdna, cf_clinvar)
-        }
-
-        fn annotate_record(
-            vcf_record: &mut Record,
-            dbs: &AnnotationSources,
-            cf_autosomal: &DbCol,
-            cf_gonosomal: &DbCol,
-            cf_mtdna: &DbCol,
-            cf_clinvar: &DbCol,
-        ) -> Result<()> {
-            let db_freq = &dbs.db_freq;
-
-            // We currently can only process records with one alternate allele.
-            if vcf_record.alternate_bases().len() != 1 {
-                // return Err(anyhow!("multiple alts"));
-                return Ok(());
-            }
-
-            // Get first alternate allele record.
-            let vcf_var = keys::Var::from_vcf_allele(vcf_record, 0);
-
-            // Skip records with a deletion as alternative allele.
-            if vcf_var.alternative == "*" {
-                // return Err(anyhow!("del alt"));
-                return Ok(());
-            }
-
-            // Only attempt lookups into RocksDB for canonical contigs.
-            if is_canonical(vcf_var.chrom.as_str()) {
-                // Build key for RocksDB database from `vcf_var`.
-                let key: Vec<u8> = vcf_var.clone().into();
-
-                // Annotate with frequency.
-                if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
-                    annotate_record_auto(db_freq, cf_autosomal, &key, vcf_record)?;
-                } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
-                    annotate_record_xy(db_freq, cf_gonosomal, &key, vcf_record)?;
-                } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
-                    annotate_record_mt(db_freq, cf_mtdna, &key, vcf_record)?;
-                } else {
-                    tracing::trace!(
-                        "Record @{:?} on non-canonical chromosome, skipping.",
-                        &vcf_var
-                    );
-                }
-
-                // Annotate with ClinVar information.
-                annotate_record_clinvar(&dbs.db_clinvar, cf_clinvar, &key, vcf_record)?;
-            }
-
-            let keys::Var {
-                chrom,
-                pos,
-                reference,
-                alternative,
-            } = vcf_var;
-
-            // Annotate with variant effect.
-            if let Some(ann_fields) = dbs.predictor.predict(&VcfVariant {
-                chromosome: chrom,
-                position: pos,
-                reference,
-                alternative,
-            })? {
-                if !ann_fields.is_empty() {
-                    vcf_record.info_mut().insert(
-                        field::Key::from_str("ANN").unwrap(),
-                        Some(field::Value::Array(field::value::Array::String(
-                            ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
-                        ))),
-                    );
-                }
-            }
-            Ok(())
-        }
-
-        fn annotate_records(
-            records: &mut Vec<Record>,
-            dbs: &AnnotationSources,
-            cf_autosomal: &DbCol,
-            cf_gonosomal: &DbCol,
-            cf_mtdna: &DbCol,
-            cf_clinvar: &DbCol,
-        ) -> Result<()> {
-            for record in records {
-                annotate_record(
-                    record,
-                    dbs,
-                    cf_autosomal,
-                    cf_gonosomal,
-                    cf_mtdna,
-                    cf_clinvar,
-                )?
-            }
-            Ok(())
-        }
-
-        let dbs = setup().unwrap();
-        let (cf_autosomal, cf_gonosomal, cf_mtdna, cf_clinvar) = handles(&dbs);
-        annotate_records(
-            &mut records,
-            &dbs,
-            &cf_autosomal,
-            &cf_gonosomal,
-            &cf_mtdna,
-            &cf_clinvar,
-        )
-        .unwrap();
     }
 }

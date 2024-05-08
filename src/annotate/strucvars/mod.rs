@@ -47,7 +47,7 @@ use uuid::Uuid;
 use self::bnd::Breakend;
 
 use super::seqvars::binning::bin_from_range;
-use super::seqvars::{binning, AnnotatedVcfWriter, CHROM_TO_CHROM_NO};
+use super::seqvars::{binning, AsyncAnnotatedVcfWriter, CHROM_TO_CHROM_NO};
 
 /// Command line arguments for `annotate strucvars` sub command.
 #[derive(Parser, Debug, Clone)]
@@ -677,8 +677,8 @@ impl GenotypeCalls {
 }
 
 /// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
-impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
-    fn write_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
+impl AsyncAnnotatedVcfWriter for VarFishStrucvarTsvWriter {
+    async fn write_variant_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.header = Some(header.clone());
         let header = &[
             "release",
@@ -713,7 +713,7 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
     }
 
-    fn write_record(
+    async fn write_variant_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
@@ -3060,7 +3060,7 @@ pub fn read_and_cluster_for_contig(
 /// * `pedigree`: The pedigree of case.
 /// * `header`: The input VCF header.
 async fn run_with_writer(
-    writer: &mut dyn AnnotatedVcfWriter,
+    writer: &mut impl AsyncAnnotatedVcfWriter,
     args: &Args,
     pedigree: &PedigreeByName,
     header: &VcfHeader,
@@ -3127,7 +3127,7 @@ async fn run_with_writer(
         &file_date,
         header,
     )?;
-    writer.write_header(&header_out)?;
+    writer.write_variant_header(&header_out).await?;
 
     tracing::info!("Clustering SVs to output...");
     // Read through temporary files by contig, cluster by overlap as configured, and write to `writer`.
@@ -3141,7 +3141,9 @@ async fn run_with_writer(
             args.min_overlap,
         )?;
         for record in clusters {
-            writer.write_record(&header_out, &record.try_into()?)?;
+            writer
+                .write_variant_record(&header_out, &record.try_into()?)
+                .await?;
         }
     }
     tracing::info!("... done clustering SVs to output");
@@ -3367,7 +3369,7 @@ mod test {
 
     use crate::{
         annotate::{
-            seqvars::AnnotatedVcfWriter,
+            seqvars::AsyncAnnotatedVcfWriter,
             strucvars::{
                 GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvSubType, SvType,
                 VarFishStrucvarTsvRecord,
@@ -4021,8 +4023,8 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn write_tsv_from_varfish_records() -> Result<(), anyhow::Error> {
+    #[tokio::test]
+    async fn write_tsv_from_varfish_records() -> Result<(), anyhow::Error> {
         let header = vcf_header::build(
             Assembly::Grch38,
             &example_trio(),
@@ -4035,13 +4037,13 @@ mod test {
         // scope for writer
         {
             let mut writer = VarFishStrucvarTsvWriter::with_path(temp.join("out.tsv"));
-            writer.write_header(&header)?;
+            writer.write_variant_header(&header).await?;
             writer.set_assembly(Assembly::Grch37p10);
             writer.set_pedigree(&example_trio());
 
             for varfish_record in example_records() {
                 let vcf_record: VcfRecord = varfish_record.try_into()?;
-                writer.write_record(&header, &vcf_record)?;
+                writer.write_variant_record(&header, &vcf_record).await?;
             }
         }
 
