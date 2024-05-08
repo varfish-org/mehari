@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufWriter, Cursor, Read, Write};
+use std::io::{BufReader, BufWriter, Cursor, Read, Write};
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
@@ -33,10 +33,11 @@ use noodles_vcf::record::genotypes::sample;
 use noodles_vcf::record::info::field;
 use noodles_vcf::record::Chromosome;
 use noodles_vcf::{
-    header::record::value::map::Map, Header as VcfHeader, Record as VcfRecord, Writer as VcfWriter,
+    header::record::value::map::Map, Header as VcfHeader, Record as VcfRecord, Record,
+    Writer as VcfWriter,
 };
 use prost::Message;
-use rocksdb::ThreadMode;
+use rocksdb::{BoundColumnFamily, DBWithThreadMode, ThreadMode};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thousands::Separable;
@@ -1411,195 +1412,100 @@ impl AnnotatedVcfWriter for VarFishSeqvarTsvWriter {
     }
 }
 
-/// Run the annotation with the given `Write` within the `VcfWriter`.
-fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(), anyhow::Error> {
-    tracing::info!("Open VCF and read header");
-    let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
-    let mut header_in = reader.read_header()?;
-    let header_out = build_header(&header_in);
+type DbCol<'a> = Arc<BoundColumnFamily<'a>>;
+#[derive(Clone)]
+struct Handles<'a>(DbCol<'a>, DbCol<'a>, DbCol<'a>, DbCol<'a>);
 
-    // Work around glnexus issue with RNC.
-    if let Some(format) = header_in.formats_mut().get_mut("RNC") {
-        *format.number_mut() = Number::Count(1);
-        *format.type_mut() = FormatType::String;
-    }
-
-    // Guess genome release from contigs in VCF header.
-    let genome_release = args.genome_release.map(|gr| match gr {
-        GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
-        GenomeRelease::Grch38 => Assembly::Grch38,
-    });
-    let assembly = guess_assembly(&header_in, false, genome_release)?;
-    writer.set_assembly(assembly);
-    tracing::info!("Determined input assembly to be {:?}", &assembly);
-
-    // Open the frequency RocksDB database in read only mode.
-    tracing::info!("Opening frequency database");
-    let rocksdb_path = format!(
-        "{}/{}/seqvars/freqs",
-        &args.path_db,
-        path_component(assembly)
-    );
-    tracing::debug!("RocksDB path = {}", &rocksdb_path);
-    let options = rocksdb::Options::default();
-    let db_freq = rocksdb::DB::open_cf_for_read_only(
-        &options,
-        &rocksdb_path,
-        ["meta", "autosomal", "gonosomal", "mitochondrial"],
-        false,
-    )?;
-
-    let cf_autosomal = db_freq.cf_handle("autosomal").unwrap();
-    let cf_gonosomal = db_freq.cf_handle("gonosomal").unwrap();
-    let cf_mtdna = db_freq.cf_handle("mitochondrial").unwrap();
-
-    // Open the ClinVar RocksDB database in read only mode.
-    tracing::info!("Opening ClinVar database");
-    let rocksdb_path = format!(
-        "{}/{}/seqvars/clinvar",
-        &args.path_db,
-        path_component(assembly)
-    );
-    tracing::debug!("RocksDB path = {}", &rocksdb_path);
-    let options = rocksdb::Options::default();
-    let db_clinvar =
-        rocksdb::DB::open_cf_for_read_only(&options, &rocksdb_path, ["meta", "clinvar"], false)?;
-
-    let cf_clinvar = db_clinvar.cf_handle("clinvar").unwrap();
-
-    // Open the serialized transcripts.
-    tracing::info!("Opening transcript database");
-    let tx_db = load_tx_db(&format!(
-        "{}/{}/txs.bin.zst",
-        &args.path_db,
-        path_component(assembly)
-    ))?;
-    tracing::info!("Building transcript interval trees ...");
-    let provider = Arc::new(MehariProvider::new(
-        tx_db,
-        assembly,
-        MehariProviderConfigBuilder::default()
-            .transcript_picking(args.transcript_picking)
-            .build()
-            .unwrap(),
-    ));
-    let predictor = ConsequencePredictor::new(
-        provider,
-        assembly,
-        ConsequencePredictorConfigBuilder::default()
-            .report_all_transcripts(args.report_all_transcripts)
-            .transcript_source(args.transcript_source)
-            .build()
-            .unwrap(),
-    );
-    tracing::info!("... done building transcript interval trees");
-
-    // Perform the VCF annotation.
-    tracing::info!("Annotating VCF ...");
-    let start = Instant::now();
-    let mut prev = Instant::now();
-    let mut total_written = 0usize;
-
-    writer.write_header(&header_out)?;
-    let mut records = reader.records(&header_in);
-    loop {
-        if let Some(record) = records.next() {
-            let mut vcf_record = record?;
-
-            // We currently can only process records with one alternate allele.
-            if vcf_record.alternate_bases().len() != 1 {
-                tracing::error!(
-                    "Found record with more than one alternate allele.  This is currently not supported. \
-                    Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
-                    &vcf_record
-                );
-                anyhow::bail!("multi-allelic records not supported");
-            }
-
-            // Get first alternate allele record.
-            let vcf_var = keys::Var::from_vcf_allele(&vcf_record, 0);
-
-            // Skip records with a deletion as alternative allele.
-            if vcf_var.alternative == "*" {
-                continue;
-            }
-
-            if prev.elapsed().as_secs() >= 60 {
-                tracing::info!("at {:?}", &vcf_var);
-                prev = Instant::now();
-            }
-
-            // Only attempt lookups into RocksDB for canonical contigs.
-            if is_canonical(vcf_var.chrom.as_str()) {
-                // Build key for RocksDB database from `vcf_var`.
-                let key: Vec<u8> = vcf_var.clone().into();
-
-                // Annotate with frequency.
-                if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
-                    annotate_record_auto(&db_freq, &cf_autosomal, &key, &mut vcf_record)?;
-                } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
-                    annotate_record_xy(&db_freq, &cf_gonosomal, &key, &mut vcf_record)?;
-                } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
-                    annotate_record_mt(&db_freq, &cf_mtdna, &key, &mut vcf_record)?;
-                } else {
-                    tracing::trace!(
-                        "Record @{:?} on non-canonical chromosome, skipping.",
-                        &vcf_var
-                    );
-                }
-
-                // Annotate with ClinVar information.
-                annotate_record_clinvar(&db_clinvar, &cf_clinvar, &key, &mut vcf_record)?;
-            }
-
-            let keys::Var {
-                chrom,
-                pos,
-                reference,
-                alternative,
-            } = vcf_var;
-
-            // Annotate with variant effect.
-            if let Some(ann_fields) = predictor.predict(&VcfVariant {
-                chromosome: chrom,
-                position: pos,
-                reference,
-                alternative,
-            })? {
-                if !ann_fields.is_empty() {
-                    vcf_record.info_mut().insert(
-                        field::Key::from_str("ANN").unwrap(),
-                        Some(field::Value::Array(field::value::Array::String(
-                            ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
-                        ))),
-                    );
-                }
-            }
-
-            // Write out the record.
-            writer.write_record(&header_out, &vcf_record)?;
-        } else {
-            break; // all done
-        }
-
-        total_written += 1;
-        if let Some(max_var_count) = args.max_var_count {
-            if total_written >= max_var_count {
-                tracing::warn!(
-                    "Stopping after {} records as requested by --max-var-count",
-                    total_written
-                );
-                break;
-            }
+struct Annotator {
+    db_freq: DBWithThreadMode<rocksdb::MultiThreaded>,
+    db_clinvar: DBWithThreadMode<rocksdb::MultiThreaded>,
+    predictor: ConsequencePredictor,
+}
+impl Annotator {
+    fn new(
+        db_freq: DBWithThreadMode<rocksdb::MultiThreaded>,
+        db_clinvar: DBWithThreadMode<rocksdb::MultiThreaded>,
+        predictor: ConsequencePredictor,
+    ) -> Self {
+        Self {
+            db_freq,
+            db_clinvar,
+            predictor,
         }
     }
-    tracing::info!(
-        "... annotated {} records in {:?}",
-        total_written.separate_with_commas(),
-        start.elapsed()
-    );
 
-    Ok(())
+    fn handles(&self) -> Handles {
+        Handles(
+            self.db_freq.cf_handle("autosomal").unwrap(),
+            self.db_freq.cf_handle("gonosomal").unwrap(),
+            self.db_freq.cf_handle("mitochondrial").unwrap(),
+            self.db_clinvar.cf_handle("clinvar").unwrap(),
+        )
+    }
+}
+
+impl Annotator {
+    fn annotate(
+        &self,
+        vcf_record: &mut VcfRecord,
+        Handles(cf_autosomal, cf_gonosomal, cf_mtdna, cf_clinvar): &Handles,
+    ) -> anyhow::Result<()> {
+        // Get first alternate allele record.
+        let vcf_var = keys::Var::from_vcf_allele(&vcf_record, 0);
+
+        // Skip records with a deletion as alternative allele.
+        if vcf_var.alternative == "*" {
+            return Ok(());
+        }
+
+        // Only attempt lookups into RocksDB for canonical contigs.
+        if is_canonical(vcf_var.chrom.as_str()) {
+            // Build key for RocksDB database from `vcf_var`.
+            let key: Vec<u8> = vcf_var.clone().into();
+
+            // Annotate with frequency.
+            if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
+                annotate_record_auto(&self.db_freq, &cf_autosomal, &key, vcf_record)?;
+            } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
+                annotate_record_xy(&self.db_freq, &cf_gonosomal, &key, vcf_record)?;
+            } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
+                annotate_record_mt(&self.db_freq, &cf_mtdna, &key, vcf_record)?;
+            } else {
+                tracing::trace!(
+                    "Record @{:?} on non-canonical chromosome, skipping.",
+                    &vcf_var
+                );
+            }
+
+            // Annotate with ClinVar information.
+            annotate_record_clinvar(&self.db_clinvar, &cf_clinvar, &key, vcf_record)?;
+        }
+
+        let keys::Var {
+            chrom,
+            pos,
+            reference,
+            alternative,
+        } = vcf_var;
+
+        // Annotate with variant effect.
+        if let Some(ann_fields) = self.predictor.predict(&VcfVariant {
+            chromosome: chrom,
+            position: pos,
+            reference,
+            alternative,
+        })? {
+            if !ann_fields.is_empty() {
+                vcf_record.info_mut().insert(
+                    field::Key::from_str("ANN").unwrap(),
+                    Some(field::Value::Array(field::value::Array::String(
+                        ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
+                    ))),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Main entry point for `annotate seqvars` sub command.
@@ -1668,6 +1574,141 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             .flush()
             .map_err(|e| anyhow::anyhow!("problem flushing file: {}", e))?;
     }
+
+    Ok(())
+}
+
+/// Run the annotation with the given `Write` within the `VcfWriter`.
+fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(), anyhow::Error> {
+    tracing::info!("Open VCF and read header");
+    let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
+    let mut header_in = reader.read_header()?;
+    let header_out = build_header(&header_in);
+
+    // Work around glnexus issue with RNC.
+    if let Some(format) = header_in.formats_mut().get_mut("RNC") {
+        *format.number_mut() = Number::Count(1);
+        *format.type_mut() = FormatType::String;
+    }
+
+    // Guess genome release from contigs in VCF header.
+    let genome_release = args.genome_release.map(|gr| match gr {
+        GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
+        GenomeRelease::Grch38 => Assembly::Grch38,
+    });
+    let assembly = guess_assembly(&header_in, false, genome_release)?;
+    writer.set_assembly(assembly);
+    tracing::info!("Determined input assembly to be {:?}", &assembly);
+
+    // Open the frequency RocksDB database in read only mode.
+    tracing::info!("Opening frequency database");
+    let rocksdb_path = format!(
+        "{}/{}/seqvars/freqs",
+        &args.path_db,
+        path_component(assembly)
+    );
+    tracing::debug!("RocksDB path = {}", &rocksdb_path);
+    let options = rocksdb::Options::default();
+    let db_freq = rocksdb::DB::open_cf_for_read_only(
+        &options,
+        &rocksdb_path,
+        ["meta", "autosomal", "gonosomal", "mitochondrial"],
+        false,
+    )?;
+
+    // Open the ClinVar RocksDB database in read only mode.
+    tracing::info!("Opening ClinVar database");
+    let rocksdb_path = format!(
+        "{}/{}/seqvars/clinvar",
+        &args.path_db,
+        path_component(assembly)
+    );
+    tracing::debug!("RocksDB path = {}", &rocksdb_path);
+    let options = rocksdb::Options::default();
+    let db_clinvar =
+        rocksdb::DB::open_cf_for_read_only(&options, &rocksdb_path, ["meta", "clinvar"], false)?;
+
+    // Open the serialized transcripts.
+    tracing::info!("Opening transcript database");
+    let tx_db = load_tx_db(&format!(
+        "{}/{}/txs.bin.zst",
+        &args.path_db,
+        path_component(assembly)
+    ))?;
+    tracing::info!("Building transcript interval trees ...");
+    let provider = Arc::new(MehariProvider::new(
+        tx_db,
+        assembly,
+        MehariProviderConfigBuilder::default()
+            .transcript_picking(args.transcript_picking)
+            .build()
+            .unwrap(),
+    ));
+    let predictor = ConsequencePredictor::new(
+        provider,
+        assembly,
+        ConsequencePredictorConfigBuilder::default()
+            .report_all_transcripts(args.report_all_transcripts)
+            .transcript_source(args.transcript_source)
+            .build()
+            .unwrap(),
+    );
+    tracing::info!("... done building transcript interval trees");
+
+    let annotator = Annotator::new(db_freq, db_clinvar, predictor);
+    let handles = annotator.handles();
+
+    // Perform the VCF annotation.
+    tracing::info!("Annotating VCF ...");
+    let start = Instant::now();
+    let mut prev = Instant::now();
+    let mut total_written = 0usize;
+
+    writer.write_header(&header_out)?;
+    let mut records = reader.records(&header_in);
+    loop {
+        if let Some(record) = records.next() {
+            let mut vcf_record = record?;
+
+            // We currently can only process records with one alternate allele.
+            if vcf_record.alternate_bases().len() != 1 {
+                tracing::error!(
+                    "Found record with more than one alternate allele.  This is currently not supported. \
+                    Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
+                    &vcf_record
+                );
+                anyhow::bail!("multi-allelic records not supported");
+            }
+
+            annotator.annotate(&mut vcf_record, &handles)?;
+
+            if prev.elapsed().as_secs() >= 60 {
+                tracing::info!("at {:?}", keys::Var::from_vcf_allele(&vcf_record, 0));
+                prev = Instant::now();
+            }
+
+            // Write out the record.
+            writer.write_record(&header_out, &vcf_record)?;
+        } else {
+            break; // all done
+        }
+
+        total_written += 1;
+        if let Some(max_var_count) = args.max_var_count {
+            if total_written >= max_var_count {
+                tracing::warn!(
+                    "Stopping after {} records as requested by --max-var-count",
+                    total_written
+                );
+                break;
+            }
+        }
+    }
+    tracing::info!(
+        "... annotated {} records in {:?}",
+        total_written.separate_with_commas(),
+        start.elapsed()
+    );
 
     Ok(())
 }
