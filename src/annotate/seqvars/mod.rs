@@ -1532,7 +1532,7 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
             // Only attempt lookups into RocksDB for canonical contigs.
             if is_canonical(vcf_var.chrom.as_str()) {
                 // Build key for RocksDB database from `vcf_var`.
-                let key: Vec<u8> = vcf_var.clone();
+                let key: Vec<u8> = vcf_var.clone().into();
 
                 // Annotate with frequency.
                 if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
