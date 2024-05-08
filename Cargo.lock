@@ -1983,6 +1983,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hgvs"
 version = "0.16.0"
+source = "git+https://github.com/varfish-org/hgvs-rs?rev=7b9a3ecdb5978b26f19b1b6d365537adb236eab1#7b9a3ecdb5978b26f19b1b6d365537adb236eab1"
 dependencies = [
  "ahash 0.8.11",
  "base16ct",
@@ -3822,6 +3823,7 @@ checksum = "92d43fe69e652f3df9bdc2b85b2854a0825b86e4fb76bc44d945137d053639ca"
 [[package]]
 name = "seqrepo"
 version = "0.10.1"
+source = "git+https://github.com/varfish-org/seqrepo-rs?rev=7d8824a0f600e72296aa7e9e5c5143cdba7e1234#7d8824a0f600e72296aa7e9e5c5143cdba7e1234"
 dependencies = [
  "chrono",
  "noodles-bgzf 0.26.0",
