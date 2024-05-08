@@ -193,7 +193,7 @@ async fn main() -> Result<(), anyhow::Error> {
             DbCommands::Subset(args) => db::subset::run(&cli.common, args)?,
         },
         Commands::Annotate(annotate) => match &annotate.command {
-            AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args)?,
+            AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args).await?,
             AnnotateCommands::Strucvars(args) => {
                 annotate::strucvars::run(&cli.common, args).await?
             }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use annonars::common::cli::is_canonical;
 use annonars::common::keys;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use biocommons_bioutils::assemblies::Assembly;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use noodles_vcf::record::info::field;
@@ -46,7 +46,7 @@ fn records(n: usize) -> Vec<Record> {
         .flatten()
         .filter(|r| r.alternate_bases().len() == 1)
         .filter(|r| {
-            let vcf_var = keys::Var::from_vcf_allele(&r, 0);
+            let vcf_var = keys::Var::from_vcf_allele(r, 0);
             vcf_var.alternative != "*"
         })
         .take(n)
@@ -140,7 +140,7 @@ fn seqvar_annotation(c: &mut Criterion) {
         }
 
         // Get first alternate allele record.
-        let vcf_var = keys::Var::from_vcf_allele(&vcf_record, 0);
+        let vcf_var = keys::Var::from_vcf_allele(vcf_record, 0);
 
         // Skip records with a deletion as alternative allele.
         if vcf_var.alternative == "*" {
@@ -155,11 +155,11 @@ fn seqvar_annotation(c: &mut Criterion) {
 
             // Annotate with frequency.
             if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
-                annotate_record_auto(&db_freq, cf_autosomal, &key, &mut vcf_record)?;
+                annotate_record_auto(db_freq, cf_autosomal, &key, vcf_record)?;
             } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
-                annotate_record_xy(&db_freq, cf_gonosomal, &key, &mut vcf_record)?;
+                annotate_record_xy(db_freq, cf_gonosomal, &key, vcf_record)?;
             } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
-                annotate_record_mt(&db_freq, cf_mtdna, &key, &mut vcf_record)?;
+                annotate_record_mt(db_freq, cf_mtdna, &key, vcf_record)?;
             } else {
                 tracing::trace!(
                     "Record @{:?} on non-canonical chromosome, skipping.",
@@ -168,7 +168,7 @@ fn seqvar_annotation(c: &mut Criterion) {
             }
 
             // Annotate with ClinVar information.
-            annotate_record_clinvar(&dbs.db_clinvar, cf_clinvar, &key, &mut vcf_record)?;
+            annotate_record_clinvar(&dbs.db_clinvar, cf_clinvar, &key, vcf_record)?;
         }
 
         let keys::Var {

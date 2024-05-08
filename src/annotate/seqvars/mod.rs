@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Cursor, Read, Write};
+use std::io::{BufWriter, Cursor, Read, Write};
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
@@ -33,8 +33,7 @@ use noodles_vcf::record::genotypes::sample;
 use noodles_vcf::record::info::field;
 use noodles_vcf::record::Chromosome;
 use noodles_vcf::{
-    header::record::value::map::Map, Header as VcfHeader, Record as VcfRecord, Record,
-    Writer as VcfWriter,
+    header::record::value::map::Map, Header as VcfHeader, Record as VcfRecord, Writer as VcfWriter,
 };
 use prost::Message;
 use rocksdb::{BoundColumnFamily, DBWithThreadMode, ThreadMode};
@@ -1451,7 +1450,7 @@ impl Annotator {
         Handles(cf_autosomal, cf_gonosomal, cf_mtdna, cf_clinvar): &Handles,
     ) -> anyhow::Result<()> {
         // Get first alternate allele record.
-        let vcf_var = keys::Var::from_vcf_allele(&vcf_record, 0);
+        let vcf_var = keys::Var::from_vcf_allele(vcf_record, 0);
 
         // Skip records with a deletion as alternative allele.
         if vcf_var.alternative == "*" {
@@ -1465,11 +1464,11 @@ impl Annotator {
 
             // Annotate with frequency.
             if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
-                annotate_record_auto(&self.db_freq, &cf_autosomal, &key, vcf_record)?;
+                annotate_record_auto(&self.db_freq, cf_autosomal, &key, vcf_record)?;
             } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
-                annotate_record_xy(&self.db_freq, &cf_gonosomal, &key, vcf_record)?;
+                annotate_record_xy(&self.db_freq, cf_gonosomal, &key, vcf_record)?;
             } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
-                annotate_record_mt(&self.db_freq, &cf_mtdna, &key, vcf_record)?;
+                annotate_record_mt(&self.db_freq, cf_mtdna, &key, vcf_record)?;
             } else {
                 tracing::trace!(
                     "Record @{:?} on non-canonical chromosome, skipping.",
@@ -1478,7 +1477,7 @@ impl Annotator {
             }
 
             // Annotate with ClinVar information.
-            annotate_record_clinvar(&self.db_clinvar, &cf_clinvar, &key, vcf_record)?;
+            annotate_record_clinvar(&self.db_clinvar, cf_clinvar, &key, vcf_record)?;
         }
 
         let keys::Var {
@@ -1509,7 +1508,7 @@ impl Annotator {
 }
 
 /// Main entry point for `annotate seqvars` sub command.
-pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
+pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("config = {:#?}", &args);
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
         if path_output_vcf.ends_with(".vcf.gz") || path_output_vcf.ends_with(".vcf.bgzf") {
@@ -1519,7 +1518,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
                     .map(BgzfWriter::new)?,
             );
 
-            run_with_writer(&mut writer, args)?;
+            run_with_writer(&mut writer, args).await?;
 
             let bgzf_writer = writer.into_inner();
             let mut buf_writer = bgzf_writer
@@ -1529,7 +1528,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         } else {
             let mut writer = VcfWriter::new(File::create(path_output_vcf).map(BufWriter::new)?);
 
-            run_with_writer(&mut writer, args)?;
+            run_with_writer(&mut writer, args).await?;
 
             let mut buf_writer = writer.into_inner();
             finalize_buf_writer!(buf_writer);
@@ -1568,7 +1567,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         tracing::info!("... done loading pedigree");
 
         writer.set_hgnc_map(hgnc_map);
-        run_with_writer(&mut writer, args)?;
+        run_with_writer(&mut writer, args).await?;
 
         writer
             .flush()
@@ -1579,10 +1578,18 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 }
 
 /// Run the annotation with the given `Write` within the `VcfWriter`.
-fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(), anyhow::Error> {
+async fn run_with_writer(
+    writer: &mut dyn AnnotatedVcfWriter,
+    args: &Args,
+) -> Result<(), anyhow::Error> {
     tracing::info!("Open VCF and read header");
-    let mut reader = VariantReaderBuilder::default().build_from_path(&args.path_input_vcf)?;
-    let mut header_in = reader.read_header()?;
+    let mut reader = tokio::fs::File::open(&args.path_input_vcf)
+        .await
+        .map(tokio::io::BufReader::new)
+        .map(noodles_bgzf::AsyncReader::new)
+        .map(noodles_vcf::AsyncReader::new)?;
+
+    let mut header_in = reader.read_header().await?;
     let header_out = build_header(&header_in);
 
     // Work around glnexus issue with RNC.
@@ -1665,11 +1672,11 @@ fn run_with_writer(writer: &mut dyn AnnotatedVcfWriter, args: &Args) -> Result<(
     let mut total_written = 0usize;
 
     writer.write_header(&header_out)?;
+
+    use futures::TryStreamExt;
     let mut records = reader.records(&header_in);
     loop {
-        if let Some(record) = records.next() {
-            let mut vcf_record = record?;
-
+        if let Some(mut vcf_record) = records.try_next().await? {
             // We currently can only process records with one alternate allele.
             if vcf_record.alternate_bases().len() != 1 {
                 tracing::error!(
@@ -1722,8 +1729,8 @@ mod test {
     use super::binning::bin_from_range;
     use super::{csq::TranscriptSource, run, Args, PathOutput};
 
-    #[test]
-    fn smoke_test_output_vcf() -> Result<(), anyhow::Error> {
+    #[tokio::test]
+    async fn smoke_test_output_vcf() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
         let path_out = temp.join("output.vcf");
 
@@ -1745,7 +1752,7 @@ mod test {
             path_input_ped: String::from("tests/data/annotate/seqvars/brca1.examples.ped"),
         };
 
-        run(&args_common, &args)?;
+        run(&args_common, &args).await?;
 
         let actual = std::fs::read_to_string(args.output.path_output_vcf.unwrap())?;
         insta::assert_snapshot!(actual);
@@ -1753,8 +1760,8 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn smoke_test_output_tsv() -> Result<(), anyhow::Error> {
+    #[tokio::test]
+    async fn smoke_test_output_tsv() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
         let path_out = temp.join("output.tsv");
 
@@ -1776,7 +1783,7 @@ mod test {
             path_input_ped: String::from("tests/data/annotate/seqvars/brca1.examples.ped"),
         };
 
-        run(&args_common, &args)?;
+        run(&args_common, &args).await?;
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
         insta::assert_snapshot!(actual);
@@ -1796,8 +1803,8 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn test_badly_formed_vcf_entry() -> Result<(), anyhow::Error> {
+    #[tokio::test]
+    async fn test_badly_formed_vcf_entry() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
         let path_out = temp.join("output.tsv");
 
@@ -1819,7 +1826,7 @@ mod test {
             path_input_ped: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.ped"),
         };
 
-        run(&args_common, &args)?;
+        run(&args_common, &args).await?;
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
         let expected =
@@ -1833,8 +1840,8 @@ mod test {
     /// considerations.
     ///
     /// See: https://support-docs.illumina.com/SW/DRAGEN_v310/Content/SW/DRAGEN/MitochondrialCalling.htm
-    #[test]
-    fn test_dragen_mitochondrial_variant() -> Result<(), anyhow::Error> {
+    #[tokio::test]
+    async fn test_dragen_mitochondrial_variant() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
         let path_out = temp.join("output.tsv");
 
@@ -1856,7 +1863,7 @@ mod test {
             path_input_ped: String::from("tests/data/annotate/seqvars/mitochondrial_variants.ped"),
         };
 
-        run(&args_common, &args)?;
+        run(&args_common, &args).await?;
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
         let expected =
@@ -1872,8 +1879,8 @@ mod test {
     /// `tests/data/annotate/db/grch37` for GRCh38 via symlink.  As the below
     /// only is a smoke test, this is sufficient.  However, for other tests,
     /// this will pose a problem.
-    #[test]
-    fn test_clair3_glnexus_variants() -> Result<(), anyhow::Error> {
+    #[tokio::test]
+    async fn test_clair3_glnexus_variants() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
         let path_out = temp.join("output.tsv");
 
@@ -1895,7 +1902,7 @@ mod test {
             path_input_ped: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.ped"),
         };
 
-        run(&args_common, &args)?;
+        run(&args_common, &args).await?;
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
         let expected =
@@ -1911,8 +1918,8 @@ mod test {
     /// `tests/data/annotate/db/grch37` for GRCh38 via symlink.  As the below
     /// only is a smoke test, this is sufficient.  However, for other tests,
     /// this will pose a problem.
-    #[test]
-    fn test_brca2_zar1l_affected() -> Result<(), anyhow::Error> {
+    #[tokio::test]
+    async fn test_brca2_zar1l_affected() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
         let path_out = temp.join("output.tsv");
 
@@ -1934,7 +1941,7 @@ mod test {
             path_input_ped: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped"),
         };
 
-        run(&args_common, &args)?;
+        run(&args_common, &args).await?;
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
         let expected =
