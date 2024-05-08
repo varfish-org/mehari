@@ -111,6 +111,11 @@ opt-level = 3
 inherits = "release"
 debug = true
 
+[profile.perf]
+inherits = "release"
+debug = false
+lto = "fat"
+codegen-units = 1
 
 [[bench]]
 name = "annotation"
