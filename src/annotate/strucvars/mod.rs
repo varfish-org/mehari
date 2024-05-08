@@ -757,6 +757,9 @@ impl AnnotatedVcfWriter for VarFishStrucvarTsvWriter {
         if let Some(Some(field::Value::String(callers))) = callers {
             tsv_record.callers = callers.split(',').map(|x| x.to_string()).collect();
         }
+        if let Some(Some(field::Value::Array(field::value::Array::String(callers)))) = callers {
+            tsv_record.callers = callers.iter().flatten().cloned().collect();
+        }
         let sv_sub_type = record.info().get(SV_TYPE);
         if let Some(Some(field::Value::String(sv_sub_type))) = sv_sub_type {
             tsv_record.sv_type =
