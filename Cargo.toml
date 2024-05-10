@@ -117,10 +117,3 @@ debug = false
 lto = "fat"
 codegen-units = 1
 
-[[bench]]
-name = "prediction"
-harness = false
-
-[[bench]]
-name = "hgvs"
-harness = false
