@@ -118,10 +118,6 @@ lto = "fat"
 codegen-units = 1
 
 [[bench]]
-name = "annotation"
-harness = false
-
-[[bench]]
 name = "prediction"
 harness = false
 
