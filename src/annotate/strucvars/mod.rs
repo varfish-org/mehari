@@ -762,8 +762,14 @@ impl AsyncAnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             tsv_record.sv_uuid = Uuid::from_str(sv_uuid)?;
         }
         let callers = record.info().get("callers");
-        if let Some(Some(field::Value::String(callers))) = callers {
-            tsv_record.callers = callers.split(',').map(|x| x.to_string()).collect();
+        match callers {
+            Some(Some(field::Value::String(callers))) => {
+                tsv_record.callers = callers.split(',').map(|x| x.to_string()).collect();
+            }
+            Some(Some(field::Value::Array(field::value::Array::String(callers)))) => {
+                tsv_record.callers = callers.iter().flatten().cloned().collect();
+            }
+            _ => (),
         }
         let sv_sub_type = record.info().get(SV_TYPE);
         if let Some(Some(field::Value::String(sv_sub_type))) = sv_sub_type {
