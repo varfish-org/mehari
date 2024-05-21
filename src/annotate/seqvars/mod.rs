@@ -1559,26 +1559,9 @@ impl Annotator {
 pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("config = {:#?}", &args);
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
-        if path_output_vcf.ends_with(".vcf.gz") || path_output_vcf.ends_with(".vcf.bgzf") {
-            let mut writer = noodles::vcf::AsyncWriter::new(
-                tokio::fs::File::create(path_output_vcf)
-                    .await
-                    .map(tokio::io::BufWriter::new)
-                    .map(noodles::bgzf::AsyncWriter::new)?,
-            );
-
-            run_with_writer(&mut writer, args).await?;
-            writer.flush().await?;
-        } else {
-            let mut writer = noodles::vcf::AsyncWriter::new(
-                tokio::fs::File::create(path_output_vcf)
-                    .await
-                    .map(tokio::io::BufWriter::new)?,
-            );
-
-            run_with_writer(&mut writer, args).await?;
-            writer.flush().await?;
-        }
+        let mut writer = open_vcf_writer(path_output_vcf).await?;
+        run_with_writer(&mut writer, args).await?;
+        writer.flush().await?;
     } else {
         // Load the HGNC xlink map.
         let hgnc_map = {
