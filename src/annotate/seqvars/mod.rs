@@ -49,6 +49,7 @@ use crate::annotate::seqvars::csq::{
 use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
+use crate::common::noodles::open_vcf_writer;
 use crate::common::{guess_assembly, GenomeRelease};
 
 use crate::pbs::txs::TxSeqDatabase;
