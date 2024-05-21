@@ -14,6 +14,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::annotate::genotype_string;
 use annonars::clinvar_minimal;
 use annonars::common::cli::is_canonical;
 use annonars::common::keys;
@@ -27,6 +28,7 @@ use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
 use noodles::vcf::header::record::value::map::format::Type as FormatType;
 use noodles::vcf::header::record::value::map::info::Number;
 use noodles::vcf::header::record::value::map::{info::Type as InfoType, Info};
+use noodles::vcf::header::FileFormat;
 use noodles::vcf::io::writer::Writer as VcfWriter;
 use noodles::vcf::variant::io::Write as VcfWrite;
 use noodles::vcf::variant::record::samples::keys::key::{
@@ -786,13 +788,90 @@ impl VarFishSeqvarTsvWriter {
         let mut gt_calls = GenotypeCalls::default();
         let samples = record.samples();
         let sample_names = hdr.sample_names().iter();
-        let genotypes = samples.select(GENOTYPE).expect("No GT key in FORMAT");
-        let read_depths = samples.select(READ_DEPTH).expect("No RD key in FORMAT");
-        let allele_depths = samples.select("AD").expect("No AD key in FORMAT");
-        let conditional_gt_quality = samples
-            .select(CONDITIONAL_GENOTYPE_QUALITY)
-            .expect("No CGQ key in FORMAT");
-        let sq = samples.select("SQ").expect("No SQ key in FORMAT");
+
+        // The following couple of lines are quite ugly,
+        // there's probably a more elegant way to do this
+        let genotypes = samples.select(GENOTYPE);
+        let get_genotype = |sample_idx| {
+            genotypes.as_ref().and_then(|gt| {
+                gt.get(sample_idx).map(|value| match value {
+                    Some(Value::String(s)) => s.to_owned(),
+                    Some(Value::Genotype(gt)) => genotype_string(gt, FileFormat::new(4, 3)),
+                    _ => ".".into(),
+                })
+            })
+        };
+
+        let read_depths = samples.select(READ_DEPTH);
+        let get_read_depth = |sample_idx| {
+            read_depths.as_ref().and_then(|rd| {
+                rd.get(sample_idx)
+                    .map(|value| match value {
+                        Some(Value::Integer(i)) => Ok(*i),
+                        None => Ok(-1),
+                        _ => anyhow::bail!(format!("invalid DP value {:?}", value)),
+                    })
+                    .transpose()
+                    .unwrap()
+            })
+        };
+
+        let allele_depths = samples.select("AD");
+        let get_allele_depths = |sample_idx| {
+            allele_depths.as_ref().and_then(|ad| {
+                ad.get(sample_idx)
+                    .map(|value| match value {
+                        Some(Value::Array(Array::Integer(arr))) => Ok(arr[1].unwrap_or(0)),
+                        None => Ok(-1),
+                        _ => anyhow::bail!(format!("invalid AD value {:?}", value)),
+                    })
+                    .transpose()
+                    .unwrap()
+            })
+        };
+
+        let conditional_gt_quality = samples.select(CONDITIONAL_GENOTYPE_QUALITY);
+        let get_conditional_gt_quality = |sample_idx| {
+            conditional_gt_quality.as_ref().and_then(|cgq| {
+                cgq.get(sample_idx)
+                    .map(|value| match value {
+                        Some(Value::Integer(i)) => Ok(*i),
+                        None => Ok(-1),
+                        _ => anyhow::bail!(format!(
+                            "invalid GQ value {:?} at {:?}:{:?}",
+                            value,
+                            record.reference_sequence_name(),
+                            record.variant_start()
+                        )),
+                    })
+                    .transpose()
+                    .unwrap()
+            })
+        };
+
+        let sq = samples.select("SQ");
+        let get_sq = |sample_idx| {
+            sq.as_ref().and_then(|sq| {
+                sq.get(sample_idx)
+                    .map(|value| match value {
+                        Some(Value::Float(f)) => Ok(*f),
+                        Some(Value::Array(Array::Float(f))) => {
+                            Ok(f[0].expect("SQ should be a single float value"))
+                        }
+                        None => Ok(-1.0),
+                        _ => {
+                            anyhow::bail!(format!(
+                                "invalid SQ value {:?} at {:?}:{:?}",
+                                value,
+                                record.reference_sequence_name(),
+                                record.variant_start()
+                            ))
+                        }
+                    })
+                    .transpose()
+                    .unwrap()
+            })
+        };
 
         for (i, name) in sample_names.enumerate() {
             let mut gt_info = GenotypeInfo {
@@ -800,10 +879,7 @@ impl VarFishSeqvarTsvWriter {
                 ..Default::default()
             };
 
-            if let Some(gt) = genotypes.get(i).map(|value| match value {
-                Some(Value::String(s)) => s.to_owned(),
-                _ => ".".into(),
-            }) {
+            if let Some(gt) = get_genotype(i) {
                 let individual = self
                     .pedigree
                     .as_ref()
@@ -864,68 +940,19 @@ impl VarFishSeqvarTsvWriter {
                 gt_info.gt = Some(gt);
             }
 
-            if let Some(dp) = read_depths
-                .get(i)
-                .map(|value| match value {
-                    Some(Value::Integer(i)) => Ok(*i),
-                    None => Ok(-1),
-                    _ => anyhow::bail!(format!("invalid DP value {:?} in {:#?}", value, name)),
-                })
-                .transpose()?
-            {
+            if let Some(dp) = get_read_depth(i) {
                 gt_info.dp = Some(dp);
             }
 
-            if let Some(ad) = allele_depths
-                .get(i)
-                .map(|value| match value {
-                    Some(Value::Array(Array::Integer(arr))) => Ok(arr[1].unwrap_or(0)),
-                    None => Ok(-1),
-                    _ => anyhow::bail!(format!("invalid AD value {:?} in {:#?}", value, name)),
-                })
-                .transpose()?
-            {
+            if let Some(ad) = get_allele_depths(i) {
                 gt_info.ad = Some(ad);
             }
 
-            if let Some(gq) = conditional_gt_quality
-                .get(i)
-                .map(|value| match value {
-                    Some(Value::Integer(i)) => Ok(*i),
-                    None => Ok(-1),
-                    _ => anyhow::bail!(format!(
-                        "invalid GQ value {:?} in {:#?} at {:?}:{:?}",
-                        value,
-                        name,
-                        record.reference_sequence_name(),
-                        record.variant_start()
-                    )),
-                })
-                .transpose()?
-            {
+            if let Some(gq) = get_conditional_gt_quality(i) {
                 gt_info.gq = Some(gq);
             }
 
-            if let Some(sq) = sq
-                .get(i)
-                .map(|value| match value {
-                    Some(Value::Float(f)) => Ok(*f),
-                    Some(Value::Array(Array::Float(f))) => {
-                        Ok(f[0].expect("SQ should be a single float value"))
-                    }
-                    None => Ok(-1.0),
-                    _ => {
-                        anyhow::bail!(format!(
-                            "invalid SQ value {:?} in {:#?} at {:?}:{:?}",
-                            value,
-                            name,
-                            record.reference_sequence_name(),
-                            record.variant_start()
-                        ))
-                    }
-                })
-                .transpose()?
-            {
+            if let Some(sq) = get_sq(i) {
                 gt_info.gq = Some(sq as i32);
             }
 
