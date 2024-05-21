@@ -24,7 +24,7 @@ use noodles::vcf::io::reader::Builder as VariantReaderBuilder;
 use noodles::vcf::variant::record::info::field::key::{END_POSITION, SV_TYPE};
 use noodles::vcf::variant::record::samples::keys::key;
 use noodles::vcf::variant::record::samples::keys::key::{
-    CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
+    CONDITIONAL_GENOTYPE_QUALITY, FILTER, GENOTYPE, GENOTYPE_COPY_NUMBER,
 };
 use noodles::vcf::variant::record::AlternateBases as _;
 use noodles::vcf::variant::record_buf::info::field;
@@ -337,7 +337,7 @@ pub mod vcf_header {
 
         Ok(builder
             .add_format(GENOTYPE, Map::<Format>::from(GENOTYPE))
-            .add_format(key::FILTER, Map::<Format>::from(key::FILTER))
+            .add_format(FILTER, Map::<Format>::from(FILTER))
             .add_format(
                 CONDITIONAL_GENOTYPE_QUALITY,
                 Map::<Format>::from(CONDITIONAL_GENOTYPE_QUALITY),
@@ -1389,7 +1389,7 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
         }
         let keys: Keys = [
             GENOTYPE,
-            key::FILTER,
+            FILTER,
             CONDITIONAL_GENOTYPE_QUALITY,
             "pec",
             "pev",
@@ -1403,15 +1403,8 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
         .into_iter()
         .map(String::from)
         .collect();
-        let samples = Samples::new(keys, vec![]);
+        let samples = Samples::new(keys, genotypes);
 
-        let info = format!(
-            "END={};sv_uuid={};callers={};SVTYPE={}",
-            self.end,
-            self.sv_uuid,
-            self.callers.join(","),
-            self.sv_sub_type,
-        );
         let info = vec![
             ("END".to_string(), Some(Value::Integer(self.end))),
             (
