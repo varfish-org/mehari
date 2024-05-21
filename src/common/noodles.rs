@@ -1,8 +1,9 @@
 //! Helper code for using noodles.
 
-use futures::future::join_all;
+use crate::common::io::tokio::open_read_maybe_bgzf;
+use futures::future::{join_all, BoxFuture};
 use futures::Stream;
-use noodles::vcf::variant::RecordBuf;
+use noodles::vcf::variant::{Record, RecordBuf};
 use noodles::vcf::Header;
 use std::path::Path;
 use tokio::io;
@@ -13,66 +14,38 @@ use super::io::{tokio::open_read_maybe_gz, tokio::open_write_maybe_bgzf};
 /// Alias for the async vcf reader type that we will use.
 pub type AsyncVcfReader = noodles::vcf::AsyncReader<std::pin::Pin<Box<dyn AsyncBufRead>>>;
 
-/// Alias for the async vcf reader type that we will use.
-pub type AsyncBcfReader = noodles::bcf::AsyncReader<noodles::bgzf::AsyncReader<tokio::fs::File>>;
-
 /// A variant format reader.
 pub(crate) trait AsyncNoodlesReader<R> {
     /// Reads a VCF header.
-    async fn read_variant_header(&mut self) -> io::Result<Header>;
+    async fn read_vcf_header(&mut self) -> io::Result<Header>;
 
     /// Returns an iterator over records.
-    async fn variant_records<'r, 'h: 'r>(
+    async fn vcf_records<'r, 'h: 'r>(
         &'r mut self,
         header: &'h Header,
-    ) -> impl Stream<Item = io::Result<RecordBuf>> + 'r;
+    ) -> impl Stream<Item = io::Result<impl Record>> + 'r;
 }
 
 impl<R> AsyncNoodlesReader<R> for AsyncVcfReader {
-    async fn read_variant_header(&mut self) -> io::Result<Header> {
+    async fn read_vcf_header(&mut self) -> io::Result<Header> {
         self.read_header().await
     }
 
-    async fn variant_records<'r, 'h: 'r>(
+    async fn vcf_records<'r, 'h: 'r>(
         &'r mut self,
         header: &'h Header,
-    ) -> impl Stream<Item = io::Result<RecordBuf>> + 'r {
+    ) -> impl Stream<Item = io::Result<impl noodles::vcf::variant::Record>> + 'r {
         self.record_bufs(header)
-    }
-}
-
-impl<R> AsyncNoodlesReader<R> for AsyncBcfReader {
-    async fn read_variant_header(&mut self) -> io::Result<Header> {
-        self.read_header().await
-    }
-
-    async fn variant_records<'r, 'h: 'r>(
-        &'r mut self,
-        header: &'h Header,
-    ) -> impl Stream<Item = io::Result<RecordBuf>> + 'r {
-        self.records()
     }
 }
 
 /// Helper function that opens one VCF reader at the given path.
 pub async fn open_vcf_reader(path_in: &str) -> Result<AsyncVcfReader, anyhow::Error> {
     Ok(noodles::vcf::AsyncReader::new(
-        open_read_maybe_gz(path_in)
+        open_read_maybe_bgzf(path_in)
             .await
             .map_err(|e| anyhow::anyhow!("could not build VCF reader: {}", e))?,
     ))
-}
-
-pub async fn open_bcf_reader(path_in: impl AsRef<Path>) -> Result<AsyncBcfReader, anyhow::Error> {
-    Ok(tokio::fs::File::open(path_in)
-        .await
-        .map(noodles::bcf::AsyncReader::new)?)
-}
-
-pub async fn open_reader<R>(
-    path_in: impl AsRef<Path>,
-) -> Result<std::pin::Pin<Box<dyn AsyncNoodlesReader<R>>>, anyhow::Error> {
-    todo!()
 }
 
 /// Helper function that opens a list of paths as VCF readers.

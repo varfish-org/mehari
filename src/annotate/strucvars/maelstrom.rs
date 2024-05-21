@@ -6,7 +6,7 @@ use std::{
 };
 
 use noodles::core::{Position, Region};
-use noodles::vcf as vcf;
+use noodles::vcf;
 use noodles::vcf::variant::record::info::field::Value::Integer;
 use noodles::vcf::variant::record::samples::series;
 
@@ -92,8 +92,9 @@ impl Reader {
         for result in query {
             let record = result?;
 
-            let window_end = record.info().get(header, "END").transpose()?;
-            let window_end = if let Some(Some(Integer(window_end))) = window_end {
+            let window_end = if let Some(Some(Integer(window_end))) =
+                record.info().get(header, "END").transpose()?
+            {
                 window_end as usize
             } else {
                 anyhow::bail!("missing INFO/END in record");
@@ -127,16 +128,18 @@ impl Reader {
 
             // The simplest way to obtain the genotype keys is to iterate and call `as_ref()` on the
             // key.
-            for Ok((key, value)) in sample.iter(&header) {
-                match (key.as_ref(), value) {
-                    ("CV", Some(series::Value::Float(cov))) => {
-                        cov_sum += factor * cov as f64;
+            for key_value in sample.iter(&header) {
+                if let Ok((key, value)) = key_value {
+                    match (key.as_ref(), value) {
+                        ("CV", Some(series::Value::Float(cov))) => {
+                            cov_sum += factor * cov as f64;
+                        }
+                        ("MQ", Some(series::Value::Float(mq))) => {
+                            mq_sum += factor * mq as f64;
+                        }
+                        // Ignore all other keys.
+                        _ => (),
                     }
-                    ("MQ", Some(series::Value::Float(mq))) => {
-                        mq_sum += factor * mq as f64;
-                    }
-                    // Ignore all other keys.
-                    _ => (),
                 }
             }
         }

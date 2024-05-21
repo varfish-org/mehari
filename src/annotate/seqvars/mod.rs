@@ -535,8 +535,8 @@ pub fn load_tx_db(tx_path: &str) -> Result<TxSeqDatabase, anyhow::Error> {
 
 /// Mehari-local trait for writing out annotated VCF records as VCF or VarFish TSV.
 pub(crate) trait AsyncAnnotatedVcfWriter {
-    async fn write_variant_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
-    async fn write_variant_record(
+    async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
+    async fn write_noodles_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
@@ -557,17 +557,17 @@ pub(crate) trait AsyncAnnotatedVcfWriter {
 
 /// Implement `AnnotatedVcfWriter` for `VcfWriter`.
 impl<Inner: Write> AsyncAnnotatedVcfWriter for VcfWriter<Inner> {
-    async fn write_variant_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
+    async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.write_header(header)
             .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
     }
 
-    async fn write_variant_record(
+    async fn write_noodles_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
     ) -> Result<(), anyhow::Error> {
-        noodles::vcf::variant::io::Write::write_variant_record(self, header, record)
+        self.write_variant_record(header, record)
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
@@ -580,13 +580,13 @@ impl<Inner: Write> AsyncAnnotatedVcfWriter for VcfWriter<Inner> {
 impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVcfWriter
     for noodles::vcf::AsyncWriter<Inner>
 {
-    async fn write_variant_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
+    async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.write_header(header)
             .await
             .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
     }
 
-    async fn write_variant_record(
+    async fn write_noodles_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
@@ -1367,7 +1367,7 @@ impl VarFishSeqvarTsvRecord {
 
 /// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
 impl AsyncAnnotatedVcfWriter for VarFishSeqvarTsvWriter {
-    async fn write_variant_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
+    async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.header = Some(header.clone());
         let header = &[
             "release",
@@ -1424,7 +1424,7 @@ impl AsyncAnnotatedVcfWriter for VarFishSeqvarTsvWriter {
             .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
     }
 
-    async fn write_variant_record(
+    async fn write_noodles_record(
         &mut self,
         _header: &VcfHeader,
         record: &VcfRecord,
@@ -1661,7 +1661,7 @@ async fn run_with_writer(
     let mut prev = Instant::now();
     let mut total_written = 0usize;
 
-    writer.write_variant_header(&header_out).await?;
+    writer.write_noodles_header(&header_out).await?;
 
     use futures::TryStreamExt;
     let mut records = reader.record_bufs(&header_in);
@@ -1680,18 +1680,13 @@ async fn run_with_writer(
             annotator.annotate(&mut vcf_record, &handles)?;
 
             if prev.elapsed().as_secs() >= 60 {
-                tracing::info!(
-                    "at {:?} {:?} {:?}",
-                    vcf_record.reference_sequence_name(),
-                    vcf_record.alternate_bases(),
-                    vcf_record.variant_start()
-                );
+                tracing::info!("at {:?}", keys::Var::from_vcf_allele(&vcf_record, 0));
                 prev = Instant::now();
             }
 
             // Write out the record.
             writer
-                .write_variant_record(&header_out, &vcf_record)
+                .write_noodles_record(&header_out, &vcf_record)
                 .await?;
         } else {
             break; // all done

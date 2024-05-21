@@ -48,6 +48,41 @@ where
     }
 }
 
+/// Transparently open a file with noodles bgzf decoder for reading.
+///
+/// # Arguments
+///
+/// * `path` - A path to the file to open.
+pub async fn open_read_maybe_bgzf<P>(path: P) -> Result<Pin<Box<dyn AsyncBufRead>>, anyhow::Error>
+where
+    P: AsRef<Path>,
+{
+    let path_is_gzip = is_gz(path.as_ref());
+    tracing::trace!(
+        "Opening {} as {} for reading (async)",
+        path.as_ref().display(),
+        if path_is_gzip {
+            "gzip (allow multi-member)"
+        } else {
+            "plain text"
+        }
+    );
+    let file = File::open(path.as_ref())
+        .await
+        .map_err(|e| anyhow::anyhow!("could not open file {}: {}", path.as_ref().display(), e))?;
+
+    if path_is_gzip {
+        let bufreader = BufReader::new(file);
+        let decoder = {
+            let mut decoder = noodles::bgzf::r#async::Reader::new(bufreader);
+            decoder
+        };
+        Ok(Box::pin(BufReader::new(decoder)))
+    } else {
+        Ok(Box::pin(BufReader::new(file)))
+    }
+}
+
 /// Transparently open a file with bgzip encoder for writing.
 ///
 /// Note that decoding of multi-member gzip files is automatically supported, as is needed for

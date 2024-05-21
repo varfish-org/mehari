@@ -1,52 +1,53 @@
 //! Annotation of structural variant VCF files.
-use std::{fs::File, io::BufWriter};
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::{BufReader, Write};
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
+use std::{fs::File, io::BufWriter};
 
 use annonars::common::cli::CANONICAL;
-use annonars::freqs::cli::import::reading::guess_assembly;
 use anyhow::Error;
 use bio::data_structures::interval_tree::IntervalTree;
 use biocommons_bioutils::assemblies::Assembly;
 use chrono::Utc;
 use clap::{Args as ClapArgs, Parser};
-use flate2::Compression;
 use flate2::write::GzEncoder;
+use flate2::Compression;
 use futures::TryStreamExt;
 use noodles::bgzf::Writer as BgzfWriter;
 use noodles::core::Position;
-use noodles::vcf::{self, Header as VcfHeader};
+use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
 use noodles::vcf::io::reader::Builder as VariantReaderBuilder;
-use noodles::vcf::variant::{Record, RecordBuf as VcfRecord};
-use noodles::vcf::variant::record::AlternateBases as _;
 use noodles::vcf::variant::record::info::field::key::{END_POSITION, SV_TYPE};
 use noodles::vcf::variant::record::samples::keys::key;
 use noodles::vcf::variant::record::samples::keys::key::{
     CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
 };
-use noodles::vcf::variant::record_buf::AlternateBases;
+use noodles::vcf::variant::record::AlternateBases as _;
 use noodles::vcf::variant::record_buf::info::field;
-use noodles::vcf::variant::record_buf::Samples;
-use noodles::vcf::variant::record_buf::samples::Keys;
 use noodles::vcf::variant::record_buf::samples::sample;
-use rand::RngCore;
+use noodles::vcf::variant::record_buf::samples::Keys;
+use noodles::vcf::variant::record_buf::AlternateBases;
+use noodles::vcf::variant::record_buf::Samples;
+use noodles::vcf::variant::{Record, RecordBuf as VcfRecord};
+use noodles::vcf::{self, Header as VcfHeader};
 use rand::rngs::StdRng;
+use rand::RngCore;
 use rand_core::SeedableRng;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, IntoEnumIterator};
 use uuid::Uuid;
 
+use crate::common::guess_assembly;
+use crate::common::noodles::{open_vcf_reader, AsyncVcfReader};
 use crate::common::GenomeRelease;
-use crate::common::noodles::{AsyncVcfReader, open_vcf_reader};
 use crate::finalize_buf_writer;
 use crate::ped::PedigreeByName;
 
-use super::seqvars::{AsyncAnnotatedVcfWriter, binning, CHROM_TO_CHROM_NO};
 use super::seqvars::binning::bin_from_range;
+use super::seqvars::{binning, AsyncAnnotatedVcfWriter, CHROM_TO_CHROM_NO};
 
 use self::bnd::Breakend;
 
@@ -117,20 +118,21 @@ pub struct PathOutput {
 pub mod vcf_header {
     use annonars::common::cli::is_canonical;
     use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
-    use noodles::vcf::{
-        header::{Builder, FileFormat},
-        Header,
-    };
     use noodles::vcf::header;
+    use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
+    use noodles::vcf::header::record::value::map::info::Number;
     use noodles::vcf::header::record::value::map::{Contig, Filter, Format, Info, Other};
     use noodles::vcf::header::record::value::Map;
-    use noodles::vcf::header::record::value::map::info::Number;
     use noodles::vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, END_POSITION, POSITION_CONFIDENCE_INTERVALS, SV_TYPE,
     };
     use noodles::vcf::variant::record::samples::keys::key;
     use noodles::vcf::variant::record::samples::keys::key::{
         CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
+    };
+    use noodles::vcf::{
+        header::{Builder, FileFormat},
+        Header,
     };
 
     use crate::ped::{Disease, PedigreeByName, Sex};
@@ -341,27 +343,35 @@ pub mod vcf_header {
             )
             .add_format(
                 "pec",
-                Map::<Format>::new(Number::Count(1), Type::Integer, "Paired-end coverage"),
+                Map::<Format>::new(FormatNumber::Count(1), Type::Integer, "Paired-end coverage"),
             )
             .add_format(
                 "pev",
                 Map::<Format>::new(
-                    Number::Count(1),
+                    FormatNumber::Count(1),
                     Type::Integer,
                     "Paired-end variant support",
                 ),
             )
             .add_format(
                 "src",
-                Map::<Format>::new(Number::Count(1), Type::Integer, "Split-end coverage"),
+                Map::<Format>::new(FormatNumber::Count(1), Type::Integer, "Split-end coverage"),
             )
             .add_format(
                 "src",
-                Map::<Format>::new(Number::Count(1), Type::Integer, "Split-end variant support"),
+                Map::<Format>::new(
+                    FormatNumber::Count(1),
+                    Type::Integer,
+                    "Split-end variant support",
+                ),
             )
             .add_format(
                 "amq",
-                Map::<Format>::new(Number::Count(1), Type::Integer, "Average mapping quality"),
+                Map::<Format>::new(
+                    FormatNumber::Count(1),
+                    Type::Integer,
+                    "Average mapping quality",
+                ),
             )
             .add_format(
                 GENOTYPE_COPY_NUMBER,
@@ -370,7 +380,7 @@ pub mod vcf_header {
             .add_format(
                 "anc",
                 Map::<Format>::new(
-                    Number::Count(1),
+                    FormatNumber::Count(1),
                     Type::Integer,
                     "Average normalized coverage",
                 ),
@@ -378,7 +388,7 @@ pub mod vcf_header {
             .add_format(
                 "pc",
                 Map::<Format>::new(
-                    Number::Count(1),
+                    FormatNumber::Count(1),
                     Type::Integer,
                     "Point count (windows/targets/probes)",
                 ),
@@ -670,7 +680,7 @@ impl GenotypeCalls {
 
 /// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
 impl AsyncAnnotatedVcfWriter for VarFishStrucvarTsvWriter {
-    async fn write_variant_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
+    async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.header = Some(header.clone());
         let header = &[
             "release",
@@ -705,7 +715,7 @@ impl AsyncAnnotatedVcfWriter for VarFishStrucvarTsvWriter {
             .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
     }
 
-    async fn write_variant_record(
+    async fn write_noodles_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
@@ -1852,7 +1862,7 @@ pub trait VcfRecordConverter {
         tsv_record.chromosome = if let Some(chrom) = chrom.strip_prefix("chr") {
             chrom.to_string()
         } else {
-            chrom
+            chrom.to_string()
         };
         // Compute chromosome number.
         tsv_record.chromosome_no = CHROM_TO_CHROM_NO
@@ -1971,8 +1981,8 @@ mod conv {
     use noodles::vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, POSITION_CONFIDENCE_INTERVALS,
     };
-    use noodles::vcf::variant::record_buf::info::field::Value;
     use noodles::vcf::variant::record_buf::info::field::value::Array;
+    use noodles::vcf::variant::record_buf::info::field::Value;
     use noodles::vcf::variant::record_buf::samples::sample;
     use noodles::vcf::variant::RecordBuf as VcfRecord;
 
@@ -3073,7 +3083,7 @@ pub fn read_and_cluster_for_contig(
 /// * `pedigree`: The pedigree of case.
 /// * `header`: The input VCF header.
 async fn run_with_writer(
-    writer: &mut dyn AsyncAnnotatedVcfWriter,
+    writer: &mut impl AsyncAnnotatedVcfWriter,
     args: &Args,
     pedigree: &PedigreeByName,
     header: &VcfHeader,
@@ -3140,7 +3150,7 @@ async fn run_with_writer(
         &file_date,
         header,
     )?;
-    writer.write_variant_header(&header_out).await?;
+    writer.write_noodles_header(&header_out).await?;
 
     tracing::info!("Clustering SVs to output...");
     // Read through temporary files by contig, cluster by overlap as configured, and write to `writer`.
@@ -3155,7 +3165,7 @@ async fn run_with_writer(
         )?;
         for record in clusters {
             writer
-                .write_variant_record(&header_out, &record.try_into()?)
+                .write_noodles_record(&header_out, &record.try_into()?)
                 .await?;
         }
     }
@@ -3389,19 +3399,19 @@ mod test {
                 VarFishStrucvarTsvRecord,
             },
         },
-        common::{GenomeRelease, noodles::open_vcf_reader},
+        common::{noodles::open_vcf_reader, GenomeRelease},
         ped::{Disease, Individual, PedigreeByName, Sex},
     };
 
     use super::{
-        Args,
         bnd::Breakend,
         build_vcf_record_converter,
         conv::{
             ClinCnvVcfRecordConverter, DellyVcfRecordConverter, DragenCnvVcfRecordConverter,
             DragenSvVcfRecordConverter, GcnvVcfRecordConverter, MantaVcfRecordConverter,
             MeltVcfRecordConverter, PopdelVcfRecordConverter,
-        }, guess_sv_caller, PathOutput, run, VarFishStrucvarTsvWriter, vcf_header, VcfHeader,
+        },
+        guess_sv_caller, run, vcf_header, Args, PathOutput, VarFishStrucvarTsvWriter, VcfHeader,
         VcfRecord, VcfRecordConverter,
     };
 
@@ -4052,13 +4062,13 @@ mod test {
         // scope for writer
         {
             let mut writer = VarFishStrucvarTsvWriter::with_path(temp.join("out.tsv"));
-            writer.write_variant_header(&header).await?;
+            writer.write_noodles_header(&header).await?;
             writer.set_assembly(Assembly::Grch37p10);
             writer.set_pedigree(&example_trio());
 
             for varfish_record in example_records() {
                 let vcf_record: VcfRecord = varfish_record.try_into()?;
-                writer.write_variant_record(&header, &vcf_record).await?;
+                writer.write_noodles_record(&header, &vcf_record).await?;
             }
         }
 
@@ -4113,7 +4123,7 @@ mod test {
         };
 
         async {
-            run(&args_common, &args).await?;
+            run(&args_common, &args).await.unwrap();
         };
 
         let expected = std::fs::read_to_string(format!(
