@@ -129,7 +129,7 @@ pub mod vcf_header {
     };
     use noodles::vcf::variant::record::samples::keys::key;
     use noodles::vcf::variant::record::samples::keys::key::{
-        CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
+        CONDITIONAL_GENOTYPE_QUALITY, FILTER, GENOTYPE, GENOTYPE_COPY_NUMBER,
     };
     use noodles::vcf::{
         header::{Builder, FileFormat},
