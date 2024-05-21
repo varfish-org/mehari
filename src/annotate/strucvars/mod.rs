@@ -22,7 +22,6 @@ use noodles::core::Position;
 use noodles::vcf::header::FileFormat;
 use noodles::vcf::io::reader::Builder as VariantReaderBuilder;
 use noodles::vcf::variant::record::info::field::key::{END_POSITION, SV_TYPE};
-use noodles::vcf::variant::record::samples::keys::key;
 use noodles::vcf::variant::record::samples::keys::key::{
     CONDITIONAL_GENOTYPE_QUALITY, FILTER, GENOTYPE, GENOTYPE_COPY_NUMBER,
 };
@@ -127,7 +126,7 @@ pub mod vcf_header {
     use noodles::vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, END_POSITION, POSITION_CONFIDENCE_INTERVALS, SV_TYPE,
     };
-    use noodles::vcf::variant::record::samples::keys::key;
+
     use noodles::vcf::variant::record::samples::keys::key::{
         CONDITIONAL_GENOTYPE_QUALITY, FILTER, GENOTYPE, GENOTYPE_COPY_NUMBER,
     };
