@@ -51,13 +51,6 @@ jsonl = "4.0"
 lazy_static = "1.4"
 log = "0.4"
 nom = "7.1"
-noodles-bgzf = { version = "0.29.0", features = ["async"] }
-noodles-core = "0.14"
-noodles-csi = "0.33.0"
-noodles-fasta = "0.36.0"
-noodles-tabix = "0.39.0"
-noodles-vcf = { version = "0.49", features = ["async"] }
-noodles-bcf = { version = "0.52.0", features = ["async"] }
 parse-display = "0.9"
 procfs = "0.16"
 prost = "0.12"
@@ -83,6 +76,10 @@ pbjson = "0.6"
 pbjson-types = "0.6"
 coz = "0.1.3"
 dhat = "0.3.3"
+
+[dependencies.noodles]
+version = "0.74"
+features = ["async", "bgzf", "core", "vcf", "bcf", "csi", "fasta", "tabix"]
 
 [build-dependencies]
 anyhow = "1.0"
