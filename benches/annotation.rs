@@ -6,8 +6,8 @@ use annonars::common::keys;
 use anyhow::Result;
 use biocommons_bioutils::assemblies::Assembly;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use noodles_vcf::record::info::field;
-use noodles_vcf::Record;
+use noodles::vcf::record::info::field;
+use noodles::vcf::Record;
 use rocksdb::{BoundColumnFamily, DBWithThreadMode, MultiThreaded};
 
 use mehari::annotate::seqvars::csq::{
@@ -37,7 +37,7 @@ struct AnnotationSources {
 }
 
 fn records(n: usize) -> Vec<Record> {
-    let mut reader = noodles_vcf::reader::Builder::default()
+    let mut reader = noodles::vcf::reader::Builder::default()
         .build_from_path("tests/data/annotate/seqvars/NA-12878WGS_dragen.first10k.vcf.gz")
         .unwrap();
     let header = reader.read_header().unwrap();

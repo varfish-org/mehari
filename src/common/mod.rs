@@ -1,9 +1,12 @@
 //! Commonly used code.
 
+use annonars::common::cli::CANONICAL;
+use annonars::freqs::cli::import::reading::ContigMap;
+use std::collections::HashMap;
 use std::ops::Range;
 
 use crate::pbs::txs::GenomeBuild;
-use biocommons_bioutils::assemblies::Assembly;
+use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
 use byte_unit::{Byte, UnitType};
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
@@ -152,3 +155,99 @@ macro_rules! set_snapshot_suffix {
 }
 
 pub use set_snapshot_suffix;
+
+
+/// Guess the assembly from the given header.
+///
+/// If the header only contains chrM, for example, the result may be ambiguous. Use `ambiguous_ok`
+/// to allow or disallow this.  You can specify an initial value for the assembly to overcome
+/// issues.  If the result is incompatible with the `initial_assembly` then an error will
+/// be returned.
+pub fn guess_assembly(
+    vcf_header: &noodles::vcf::Header,
+    ambiguous_ok: bool,
+    initial_assembly: Option<Assembly>,
+) -> Result<Assembly, anyhow::Error> {
+    let mut result = initial_assembly;
+
+    let assembly_infos = [
+        (Assembly::Grch37p10, &ASSEMBLY_INFOS[Assembly::Grch37p10]),
+        (Assembly::Grch38, &ASSEMBLY_INFOS[Assembly::Grch38]),
+    ];
+
+    // Check each assembly.
+    for (assembly, info) in assembly_infos.iter() {
+        // Collect contig name / length pairs for the assembly.
+        let contig_map = ContigMap::new(*assembly);
+        let mut lengths = HashMap::new();
+        for seq in &info.sequences {
+            if CANONICAL.contains(&seq.name.as_str()) {
+                lengths.insert(
+                    contig_map.name_map.get(seq.name.as_str()).unwrap(),
+                    seq.length,
+                );
+            }
+        }
+
+        // Count compatible and incompatible contigs.
+        let mut incompatible = 0;
+        let mut compatible = 0;
+        for (name, data) in vcf_header.contigs() {
+            if let Some(length) = data.length() {
+                let idx = contig_map.name_map.get(name);
+                if let Some(idx) = idx {
+                    let name = &info.sequences[*idx].name;
+                    if CANONICAL.contains(&name.as_ref()) {
+                        if *lengths.get(idx).unwrap() == length {
+                            compatible += 1;
+                        } else {
+                            incompatible += 1;
+                        }
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    "Cannot guess assembly because no length for contig {}",
+                    &name
+                );
+                compatible = 0;
+                break;
+            }
+        }
+
+        if compatible > 0 && incompatible == 0 {
+            // Found a compatible assembly.  Check if we already have one and bail out if
+            // ambiguity is not allowed.  Anyway, we only keep the first found compatible
+            // assembly.
+            if let Some(result) = result {
+                if result != *assembly && !ambiguous_ok {
+                    return Err(anyhow::anyhow!(
+                        "Found ambiguity;  initial={:?}, previous={:?}, current={:?}",
+                        initial_assembly,
+                        result,
+                        assembly,
+                    ));
+                }
+                // else: do not re-assign
+            } else {
+                result = Some(*assembly);
+            }
+        } else {
+            // Found incompatible assembly, bail out if is the initial assembly.
+            if let Some(initial_assembly) = initial_assembly {
+                if initial_assembly == *assembly {
+                    return Err(anyhow::anyhow!(
+                        "Incompatible with initial assembly {:?}",
+                        result.unwrap()
+                    ));
+                }
+            }
+        }
+    }
+
+    if let Some(result) = result {
+        Ok(result)
+    } else {
+        Err(anyhow::anyhow!("No matching assembly found"))
+    }
+}

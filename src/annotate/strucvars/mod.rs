@@ -24,19 +24,10 @@ use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use futures::TryStreamExt;
-use noodles_bgzf::Writer as BgzfWriter;
-use noodles_vcf::reader::Builder as VariantReaderBuilder;
-use noodles_vcf::record::alternate_bases::Allele;
-use noodles_vcf::record::genotypes::keys::key::{
-    self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
-};
-use noodles_vcf::record::genotypes::sample::value;
-use noodles_vcf::record::genotypes::{sample, Keys};
-use noodles_vcf::record::info::field;
-use noodles_vcf::record::info::field::key::{END_POSITION, SV_TYPE};
-use noodles_vcf::record::{Genotypes, Position};
-use noodles_vcf::Record as VcfRecord;
-use noodles_vcf::{self, Header as VcfHeader};
+use noodles::bgzf::Writer as BgzfWriter;
+use noodles::vcf::io::reader::Builder as VariantReaderBuilder;
+use noodles::vcf::Record as VcfRecord;
+use noodles::vcf::{self, Header as VcfHeader};
 use rand::rngs::StdRng;
 use rand::RngCore;
 use rand_core::SeedableRng;
@@ -116,17 +107,10 @@ pub mod vcf_header {
 
     use annonars::common::cli::is_canonical;
     use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
-    use noodles_vcf::header::record::value::map::{Contig, Filter, Format, Info, Other};
-    use noodles_vcf::header::record::value::Map;
-    use noodles_vcf::header::{self, Number};
-    use noodles_vcf::record::genotypes::keys::key::{
-        self, CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, GENOTYPE_COPY_NUMBER,
-    };
-    use noodles_vcf::record::info::field;
-    use noodles_vcf::record::info::field::key::{
-        END_CONFIDENCE_INTERVALS, END_POSITION, POSITION_CONFIDENCE_INTERVALS, SV_TYPE,
-    };
-    use noodles_vcf::{
+    use noodles::vcf::header::record::value::map::{Contig, Filter, Format, Info, Other};
+    use noodles::vcf::header::record::value::Map;
+    use noodles::vcf::header;
+    use noodles::vcf::{
         header::{Builder, FileFormat},
         Header,
     };
@@ -205,13 +189,7 @@ pub mod vcf_header {
 
     /// Add the `ALT` header lines.
     fn add_meta_alt(builder: Builder) -> Result<Builder, anyhow::Error> {
-        use noodles_vcf::{
-            header::record::value::map::AlternativeAllele,
-            record::alternate_bases::allele::{
-                symbol::{structural_variant::Type, StructuralVariant},
-                Symbol,
-            },
-        };
+        use noodles::vcf::header::record::value::map::AlternativeAllele;
 
         let del_id = Symbol::StructuralVariant(StructuralVariant::from(Type::Deletion));
         let del_alt = Map::<AlternativeAllele>::new("Deletion");
@@ -421,7 +399,7 @@ pub mod vcf_header {
         let mut builder = add_meta_fields(builder)?;
 
         // Wait for https://github.com/zaeleus/noodles/issues/162#issuecomment-1514444101
-        // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles_vcf::header::record::value::map::Other>::builder();
+        // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles::vcf::header::record::value::map::Other>::builder();
 
         for i in pedigree.individuals.values() {
             if header.sample_names().contains(&i.name) {
@@ -431,7 +409,7 @@ pub mod vcf_header {
             // Add SAMPLE entry.
             builder = builder.insert(
                 "SAMPLE".parse()?,
-                noodles_vcf::header::record::Value::Map(
+                noodles::vcf::header::record::Value::Map(
                     i.name.clone(),
                     Map::<Other>::builder()
                         .insert("Sex".parse()?, sex_str(i.sex))
@@ -450,7 +428,7 @@ pub mod vcf_header {
             }
             builder = builder.insert(
                 "PEDIGREE".parse()?,
-                noodles_vcf::header::record::Value::Map(i.name.clone(), map_builder.build()?),
+                noodles::vcf::header::record::Value::Map(i.name.clone(), map_builder.build()?),
             )?;
         }
 
@@ -462,7 +440,7 @@ pub mod vcf_header {
         Ok(builder
             .insert(
                 "META".parse()?,
-                noodles_vcf::header::record::Value::Map(
+                noodles::vcf::header::record::Value::Map(
                     String::from("Sex"),
                     Map::<Other>::builder()
                         .insert("Type".parse()?, "String")
@@ -473,7 +451,7 @@ pub mod vcf_header {
             )?
             .insert(
                 "META".parse()?,
-                noodles_vcf::header::record::Value::Map(
+                noodles::vcf::header::record::Value::Map(
                     String::from("GonosomalKaryotype"),
                     Map::<Other>::builder()
                         .insert("Type".parse()?, "String")
@@ -487,7 +465,7 @@ pub mod vcf_header {
             )?
             .insert(
                 "META".parse()?,
-                noodles_vcf::header::record::Value::Map(
+                noodles::vcf::header::record::Value::Map(
                     String::from("Affected"),
                     Map::<Other>::builder()
                         .insert("Type".parse()?, "String")
@@ -1407,7 +1385,7 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
             self.callers.join(","),
             self.sv_sub_type,
         );
-        let mut info: noodles_vcf::record::Info = info.parse()?;
+        let mut info: noodles::vcf::record::Info = info.parse()?;
         info.insert(
             field::Key::from_str("CARRIERS_HET")?,
             Some(field::Value::Integer(self.num_het)),
@@ -1429,7 +1407,7 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
             Some(field::Value::Integer(self.num_hemi_alt)),
         );
 
-        let builder = noodles_vcf::record::Record::builder()
+        let builder = noodles::vcf::record::Record::builder()
             .set_chromosome(self.chromosome.parse()?)
             .set_position(Position::from(self.start as usize))
             .set_reference_bases("N".parse()?)
@@ -1545,7 +1523,7 @@ impl SvCaller {
             SvCaller::Melt { .. } => {
                 for (key, values) in header.other_records() {
                     if key.as_ref() == "source" {
-                        if let noodles_vcf::header::record::value::Collection::Unstructured(inner) =
+                        if let noodles::vcf::header::record::value::Collection::Unstructured(inner) =
                             values
                         {
                             if let Some(version) = inner[0].split('v').last() {
@@ -1590,7 +1568,7 @@ impl SvCaller {
     ) -> Result<String, anyhow::Error> {
         for (key, values) in header.other_records() {
             if key.as_ref() == "source" {
-                if let noodles_vcf::header::record::value::Collection::Unstructured(inner) = values
+                if let noodles::vcf::header::record::value::Collection::Unstructured(inner) = values
                 {
                     if let Some(version) = inner[0].split(splitter).last() {
                         return Ok(version.to_string());
@@ -1610,7 +1588,7 @@ impl SvCaller {
     ) -> Result<String, anyhow::Error> {
         for (key, values) in header.other_records() {
             if key.as_ref() == row_key {
-                if let noodles_vcf::header::record::value::Collection::Structured(inner) = values {
+                if let noodles::vcf::header::record::value::Collection::Structured(inner) = values {
                     for (_, inner2) in inner.iter() {
                         if let Some(version) = inner2.other_fields().get("Version") {
                             return Ok(version.to_string());
@@ -1649,7 +1627,7 @@ impl SvCaller {
     fn source_starts_with(&self, header: &VcfHeader, prefix: &str) -> bool {
         for (key, values) in header.other_records() {
             if key.as_ref() == "source" {
-                if let noodles_vcf::header::record::value::Collection::Unstructured(inner) = values
+                if let noodles::vcf::header::record::value::Collection::Unstructured(inner) = values
                 {
                     if inner[0].starts_with(prefix) {
                         return true;
@@ -1836,12 +1814,7 @@ pub trait VcfRecordConverter {
         };
 
         // Chromosome (of start position if BND).
-        let chrom = match vcf_record.chromosome() {
-            noodles_vcf::record::Chromosome::Name(name) => name.clone(),
-            noodles_vcf::record::Chromosome::Symbol(_) => {
-                panic!("Chromosome symbols are not supported")
-            }
-        };
+        let chrom = vcf_record.reference_sequence_name();
         tsv_record.chromosome = if let Some(chrom) = chrom.strip_prefix("chr") {
             chrom.to_string()
         } else {
@@ -1966,14 +1939,10 @@ mod conv {
     use super::GenotypeInfo;
     use super::VarFishStrucvarTsvRecord;
     use super::VcfRecordConverter;
-
-    use noodles_vcf::record::genotypes::sample;
-    use noodles_vcf::record::genotypes::sample::value;
-    use noodles_vcf::record::info::field::key::END_CONFIDENCE_INTERVALS;
-    use noodles_vcf::record::info::field::key::POSITION_CONFIDENCE_INTERVALS;
-    use noodles_vcf::{
-        record::genotypes::sample::Value as SampleValue, record::info::field, Record as VcfRecord,
-    };
+    use noodles::vcf::Record as VcfRecord;
+    use noodles::vcf::variant::record::info::field;
+    use noodles::vcf::variant::record::info::field::key::POSITION_CONFIDENCE_INTERVALS;
+    use noodles::vcf::variant::record::samples::series::Value::String;
 
     /// Helper function that extract the CIPOS and CIEND fields from `vcf_record` into `tsv_record`.
     pub fn extract_standard_cis(
@@ -3187,7 +3156,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
         if path_output_vcf.ends_with(".vcf.gz") || path_output_vcf.ends_with(".vcf.bgzf") {
-            let mut writer = noodles_vcf::Writer::new(
+            let mut writer = noodles::vcf::Writer::new(
                 File::create(path_output_vcf)
                     .map(BufWriter::new)
                     .map(BgzfWriter::new)?,
@@ -3204,7 +3173,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             finalize_buf_writer!(buf_writer);
         } else {
             let mut writer =
-                noodles_vcf::Writer::new(File::create(path_output_vcf).map(BufWriter::new)?);
+                noodles::vcf::Writer::new(File::create(path_output_vcf).map(BufWriter::new)?);
             writer.set_assembly(assembly);
             writer.set_pedigree(&pedigree);
 
@@ -3367,7 +3336,7 @@ mod test {
 
     use biocommons_bioutils::assemblies::Assembly;
     use clap_verbosity_flag::Verbosity;
-    use noodles_vcf;
+    use noodles::vcf;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
     use uuid::Uuid;
@@ -3421,7 +3390,7 @@ mod test {
         let temp = TempDir::default();
         let out_jsonl = File::create(temp.join(out_file_name))?;
 
-        let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
+        let mut reader = noodles::vcf::reader::Builder::default().build_from_path(path_input_vcf)?;
         let header_in = reader.read_header()?;
 
         // Setup deterministic bytes for UUID generation.
@@ -3456,7 +3425,7 @@ mod test {
 
     /// Helper that returns sample names from VCF.
     fn vcf_samples(path: &str) -> Result<Vec<String>, anyhow::Error> {
-        let mut reader = noodles_vcf::reader::Builder::default().build_from_path(path)?;
+        let mut reader = noodles::vcf::reader::Builder::default().build_from_path(path)?;
         let header: VcfHeader = reader.read_header()?;
         Ok(header
             .sample_names()
@@ -3730,10 +3699,10 @@ mod test {
             Assembly::Grch37p10,
             &Default::default(),
             "20150314",
-            &noodles_vcf::Header::builder().build(),
+            &noodles::vcf::Header::builder().build(),
         )?;
 
-        let mut writer = noodles_vcf::Writer::new(Vec::new());
+        let mut writer = noodles::vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;
 
@@ -3754,7 +3723,7 @@ mod test {
             &example_trio_header(),
         )?;
 
-        let mut writer = noodles_vcf::Writer::new(Vec::new());
+        let mut writer = noodles::vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;
 
@@ -3767,8 +3736,8 @@ mod test {
     }
 
     /// Generate VCF header for example trio.
-    fn example_trio_header() -> noodles_vcf::Header {
-        let mut builder = noodles_vcf::Header::builder();
+    fn example_trio_header() -> noodles::vcf::Header {
+        let mut builder = noodles::vcf::Header::builder();
 
         for indiv in example_trio().individuals.values() {
             builder = builder.add_sample_name(indiv.name.clone());
@@ -3823,10 +3792,10 @@ mod test {
             Assembly::Grch38,
             &Default::default(),
             "20150314",
-            &noodles_vcf::Header::builder().build(),
+            &noodles::vcf::Header::builder().build(),
         )?;
 
-        let mut writer = noodles_vcf::Writer::new(Vec::new());
+        let mut writer = noodles::vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
         let actual = std::str::from_utf8(&writer.get_ref()[..])?;
 
@@ -4011,7 +3980,7 @@ mod test {
             &example_trio_header(),
         )?;
 
-        let mut writer = noodles_vcf::Writer::new(Vec::new());
+        let mut writer = noodles::vcf::Writer::new(Vec::new());
         writer.write_header(&header)?;
 
         for varfish_record in example_records() {

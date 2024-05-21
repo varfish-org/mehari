@@ -1,7 +1,7 @@
 //! Tokio-based async common I/O code.
 
 use async_compression::tokio::bufread::GzipDecoder;
-use noodles_bgzf as bgzf;
+use noodles::bgzf as bgzf;
 use std::path::Path;
 use std::pin::Pin;
 use tokio::fs::File;

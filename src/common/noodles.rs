@@ -1,7 +1,7 @@
 //! Helper code for using noodles.
 
 use futures::future::join_all;
-use noodles_vcf as vcf;
+use noodles::vcf as vcf;
 use tokio::io::{AsyncBufRead, AsyncWrite};
 
 use super::io::{tokio::open_read_maybe_gz, tokio::open_write_maybe_bgzf};

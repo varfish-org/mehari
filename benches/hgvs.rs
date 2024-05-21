@@ -20,14 +20,51 @@ fn assembly_mapper(c: &mut Criterion) {
     ));
 
     c.bench_function("instantiate-assembly-mapper", |b| {
-        b.iter(|| Mapper::new(Default::default(), provider.clone()))
+        b.iter(|| assembly::Mapper::new(Default::default(), provider.clone()))
+    });
+}
+
+fn alignment_mapper(c: &mut Criterion) {
+    let tx_path = "/mnt/data/mehari/0.21.0/db/grch37/txs.bin.zst";
+    let tx_db = load_tx_db(tx_path).unwrap();
+    let provider = Arc::new(MehariProvider::new(
+        tx_db,
+        Assembly::Grch37p10,
+        MehariProviderConfigBuilder::default()
+            .transcript_picking(false)
+            .build()
+            .unwrap(),
+    ));
+    let tx_ac = "NM_178434.2";
+    let alt_ac = "NC_000001.10";
+    c.bench_function("instantiate-alignment-mapper", |b| {
+        b.iter(|| {
+            alignment::Mapper::new(
+                &Default::default(),
+                provider.clone(),
+                tx_ac,
+                alt_ac,
+                "not-transcript",
+            )
+        })
+    });
+    c.bench_function("instantiate-alignment-mapper-transcript", |b| {
+        b.iter(|| {
+            alignment::Mapper::new(
+                &Default::default(),
+                provider.clone(),
+                tx_ac,
+                alt_ac,
+                "transcript",
+            )
+        })
     });
 }
 
 criterion_group!(
     name = benches;
     config = Criterion::default().with_profiler(perf::FlamegraphProfiler::new(100));
-    targets = assembly_mapper
+    targets = assembly_mapper, alignment_mapper
 );
 criterion_main!(benches);
 
