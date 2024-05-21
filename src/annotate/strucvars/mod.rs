@@ -18,7 +18,6 @@ use flate2::Compression;
 use futures::TryStreamExt;
 use noodles::bgzf::Writer as BgzfWriter;
 use noodles::core::Position;
-use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
 use noodles::vcf::io::reader::Builder as VariantReaderBuilder;
 use noodles::vcf::variant::record::info::field::key::{END_POSITION, SV_TYPE};
 use noodles::vcf::variant::record::samples::keys::key;
@@ -32,7 +31,7 @@ use noodles::vcf::variant::record_buf::samples::Keys;
 use noodles::vcf::variant::record_buf::AlternateBases;
 use noodles::vcf::variant::record_buf::Samples;
 use noodles::vcf::variant::{Record, RecordBuf as VcfRecord};
-use noodles::vcf::{self, Header as VcfHeader};
+use noodles::vcf::Header as VcfHeader;
 use rand::rngs::StdRng;
 use rand::RngCore;
 use rand_core::SeedableRng;
@@ -754,7 +753,7 @@ impl AsyncAnnotatedVcfWriter for VarFishStrucvarTsvWriter {
                 .variant_end(header)
                 .map(|p| i32::try_from(p.get()))?
                 // E.g., if INS
-                .unwrap_or_else(|_| tsv_record.start)
+                .unwrap_or(tsv_record.start)
         };
 
         let sv_uuid = record.info().get("sv_uuid");
@@ -1451,7 +1450,7 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
             .set_samples(samples);
 
         let builder = if self.sv_sub_type == SvSubType::Bnd {
-            builder.set_alternate_bases(AlternateBases::from(vec![self.info.alt.unwrap().into()]))
+            builder.set_alternate_bases(AlternateBases::from(vec![self.info.alt.unwrap()]))
         } else {
             builder.set_alternate_bases(AlternateBases::from(vec![format!(
                 "<{}>",
@@ -1890,13 +1889,13 @@ pub trait VcfRecordConverter {
             let reference = vcf_record.reference_bases().to_string();
             let bnd = Breakend::from_ref_alt_str(&reference, allele)?;
 
-            tsv_record.chromosome2 = bnd.chrom.clone();
+            tsv_record.chromosome2.clone_from(&bnd.chrom);
             end = Some(bnd.pos);
 
             // Obtain paired-end orientation.
             tsv_record.pe_orientation = bnd.pe_orientation;
         } else {
-            tsv_record.chromosome2 = tsv_record.chromosome.clone();
+            tsv_record.chromosome2.clone_from(&tsv_record.chromosome);
         }
 
         // Compute chromosome number of second chromosome.
@@ -2063,7 +2062,7 @@ mod conv {
 
             // Extract `FORMAT/*` values.
             for (sample_no, sample) in vcf_record.samples().values().enumerate() {
-                entries[sample_no].name = self.samples[sample_no].clone();
+                entries[sample_no].name.clone_from(&self.samples[sample_no]);
 
                 for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
@@ -2138,7 +2137,7 @@ mod conv {
 
             // Extract `FORMAT/*` values.
             for (sample_no, sample) in vcf_record.samples().values().enumerate() {
-                entries[sample_no].name = self.samples[sample_no].clone();
+                entries[sample_no].name.clone_from(&self.samples[sample_no]);
 
                 let mut pec = 0;
                 let mut src = 0;
@@ -2234,7 +2233,7 @@ mod conv {
 
             // Extract `FORMAT/*` values.
             for (sample_no, sample) in vcf_record.samples().values().enumerate() {
-                entries[sample_no].name = self.samples[sample_no].clone();
+                entries[sample_no].name.clone_from(&self.samples[sample_no]);
 
                 for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
@@ -2348,7 +2347,7 @@ mod conv {
 
             // Extract `FORMAT/*` values.
             for (sample_no, sample) in vcf_record.samples().values().enumerate() {
-                entries[sample_no].name = self.samples[sample_no].clone();
+                entries[sample_no].name.clone_from(&self.samples[sample_no]);
 
                 for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
@@ -2408,7 +2407,7 @@ mod conv {
 
         // Extract `FORMAT/*` values.
         for (sample_no, sample) in vcf_record.samples().values().enumerate() {
-            entries[sample_no].name = samples[sample_no].clone();
+            entries[sample_no].name.clone_from(&samples[sample_no]);
 
             for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                 match (key.as_ref(), value) {
@@ -2504,7 +2503,7 @@ mod conv {
 
             // Extract `FORMAT/*` values.
             for (sample_no, sample) in vcf_record.samples().values().enumerate() {
-                entries[sample_no].name = self.samples[sample_no].clone();
+                entries[sample_no].name.clone_from(&self.samples[sample_no]);
 
                 for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
@@ -2605,7 +2604,7 @@ mod conv {
 
             // Extract `FORMAT/*` values.
             for (sample_no, sample) in vcf_record.samples().values().enumerate() {
-                entries[sample_no].name = self.samples[sample_no].clone();
+                entries[sample_no].name.clone_from(&self.samples[sample_no]);
 
                 for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                     match (key.as_ref(), value) {
@@ -2787,7 +2786,7 @@ mod conv {
 
             // Extract `FORMAT/*` values.
             for (sample_no, sample) in vcf_record.samples().values().enumerate() {
-                entries[sample_no].name = self.samples[sample_no].clone();
+                entries[sample_no].name.clone_from(&self.samples[sample_no]);
 
                 let mut src = 0;
 
@@ -2901,7 +2900,7 @@ pub async fn run_vcf_to_jsonl(
     let mapping = CHROM_TO_CHROM_NO.deref();
     let mut uuid_buf = [0u8; 16];
 
-    let mut records = reader.record_bufs(&header);
+    let mut records = reader.record_bufs(header);
     while let Some(record) = records
         .try_next()
         .await
@@ -3384,7 +3383,7 @@ mod test {
 
     use biocommons_bioutils::assemblies::Assembly;
     use clap_verbosity_flag::Verbosity;
-    use noodles::vcf;
+
     use noodles::vcf::variant::io::Write;
     use pretty_assertions::assert_eq;
     use rstest::rstest;

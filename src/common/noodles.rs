@@ -1,11 +1,10 @@
 //! Helper code for using noodles.
 
 use crate::common::io::tokio::open_read_maybe_bgzf;
-use futures::future::{join_all, BoxFuture};
+use futures::future::join_all;
 use futures::Stream;
-use noodles::vcf::variant::{Record, RecordBuf};
+use noodles::vcf::variant::Record;
 use noodles::vcf::Header;
-use std::path::Path;
 use tokio::io;
 use tokio::io::{AsyncBufRead, AsyncWrite};
 

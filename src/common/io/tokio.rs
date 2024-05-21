@@ -73,10 +73,7 @@ where
 
     if path_is_gzip {
         let bufreader = BufReader::new(file);
-        let decoder = {
-            let mut decoder = noodles::bgzf::r#async::Reader::new(bufreader);
-            decoder
-        };
+        let decoder = { noodles::bgzf::r#async::Reader::new(bufreader) };
         Ok(Box::pin(BufReader::new(decoder)))
     } else {
         Ok(Box::pin(BufReader::new(file)))

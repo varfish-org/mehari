@@ -7,7 +7,7 @@ pub mod provider;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{BufWriter, Cursor, Read, Write};
+use std::io::{Cursor, Read, Write};
 use std::path::Path;
 use std::pin::Pin;
 use std::str::FromStr;
@@ -23,13 +23,10 @@ use biocommons_bioutils::assemblies::Assembly;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use futures::future::BoxFuture;
-use noodles::bgzf::Writer as BgzfWriter;
 use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
 use noodles::vcf::header::record::value::map::format::Type as FormatType;
 use noodles::vcf::header::record::value::map::info::Number;
 use noodles::vcf::header::record::value::map::{info::Type as InfoType, Info};
-use noodles::vcf::io::reader::Builder as VariantReaderBuilder;
 use noodles::vcf::io::writer::Writer as VcfWriter;
 use noodles::vcf::variant::io::Write as VcfWrite;
 use noodles::vcf::variant::record::samples::keys::key::{
@@ -54,7 +51,6 @@ use crate::annotate::seqvars::provider::{
 };
 use crate::common::{guess_assembly, GenomeRelease};
 
-use crate::finalize_buf_writer;
 use crate::pbs::txs::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
 
@@ -788,14 +784,14 @@ impl VarFishSeqvarTsvWriter {
             .expect("VCF header must be set/written");
         let mut gt_calls = GenotypeCalls::default();
         let samples = record.samples();
-        let mut sample_names = hdr.sample_names().iter();
-        let mut genotypes = samples.select(&GENOTYPE).expect("No GT key in FORMAT");
-        let mut read_depths = samples.select(&READ_DEPTH).expect("No RD key in FORMAT");
-        let mut allele_depths = samples.select("AD").expect("No AD key in FORMAT");
-        let mut conditional_gt_quality = samples
-            .select(&CONDITIONAL_GENOTYPE_QUALITY)
+        let sample_names = hdr.sample_names().iter();
+        let genotypes = samples.select(GENOTYPE).expect("No GT key in FORMAT");
+        let read_depths = samples.select(READ_DEPTH).expect("No RD key in FORMAT");
+        let allele_depths = samples.select("AD").expect("No AD key in FORMAT");
+        let conditional_gt_quality = samples
+            .select(CONDITIONAL_GENOTYPE_QUALITY)
             .expect("No CGQ key in FORMAT");
-        let mut sq = samples.select("SQ").expect("No SQ key in FORMAT");
+        let sq = samples.select("SQ").expect("No SQ key in FORMAT");
 
         for (i, name) in sample_names.enumerate() {
             let mut gt_info = GenotypeInfo {
@@ -1103,8 +1099,8 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.ensembl_transcript_id = Some(ann.feature_id.clone());
                         tsv_record.ensembl_transcript_coding =
                             Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
-                        tsv_record.ensembl_hgvs_c = ann.hgvs_t.clone();
-                        tsv_record.ensembl_hgvs_p = ann.hgvs_p.clone();
+                        tsv_record.ensembl_hgvs_c.clone_from(&ann.hgvs_t);
+                        tsv_record.ensembl_hgvs_p.clone_from(&ann.hgvs_p);
                         if !ann.consequences.is_empty() {
                             tsv_record.ensembl_effect = Some(
                                 ann.consequences
@@ -1132,8 +1128,8 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.refseq_transcript_id = Some(ann.feature_id.clone());
                         tsv_record.refseq_transcript_coding =
                             Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
-                        tsv_record.refseq_hgvs_c = ann.hgvs_t.clone();
-                        tsv_record.refseq_hgvs_p = ann.hgvs_p.clone();
+                        tsv_record.refseq_hgvs_c.clone_from(&ann.hgvs_t);
+                        tsv_record.refseq_hgvs_p.clone_from(&ann.hgvs_p);
                         if !ann.consequences.is_empty() {
                             tsv_record.refseq_effect = Some(
                                 ann.consequences
@@ -1652,7 +1648,7 @@ async fn run_with_writer(
     writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
-    let annotator = setup_annotator(&args, assembly)?;
+    let annotator = setup_annotator(args, assembly)?;
     let handles = annotator.db_handles();
 
     // Perform the VCF annotation.
