@@ -4129,6 +4129,7 @@ mod test {
     #[rstest]
     #[case(true)]
     #[case(false)]
+    #[tokio::test]
     async fn test_with_maelstrom_reader(#[case] is_tsv: bool) -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
 
