@@ -4082,7 +4082,7 @@ mod test {
     #[rstest]
     #[case(true)]
     #[case(false)]
-    fn test_with_maelstrom_reader(#[case] is_tsv: bool) -> Result<(), anyhow::Error> {
+    async fn test_with_maelstrom_reader(#[case] is_tsv: bool) -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
 
         let args_common = crate::common::Args {
@@ -4121,9 +4121,7 @@ mod test {
             rng_seed: Some(42),
         };
 
-        async {
-            run(&args_common, &args).await.unwrap();
-        };
+        run(&args_common, &args).await?;
 
         let expected = std::fs::read_to_string(format!(
             "tests/data/annotate/strucvars/maelstrom/delly2-min-with-maelstrom{}",
