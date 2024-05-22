@@ -636,7 +636,7 @@ struct VarFishSeqvarTsvWriter {
     hgnc_map: Option<FxHashMap<String, HgncRecord>>,
 }
 
-/// Entry with genotype (`gt`), coverage (`dp`), allele depth (`ad`) and
+/// Entry with genotype (`gt`), coverage (`dp`), allele depth (`ad`), somatic quality (`sq`) and
 /// genotype quality (`gq`).
 #[derive(Debug, Default)]
 struct GenotypeInfo {
@@ -645,6 +645,7 @@ struct GenotypeInfo {
     pub dp: Option<i32>,
     pub ad: Option<i32>,
     pub gq: Option<i32>,
+    pub sq: Option<f32>,
 }
 
 #[derive(Debug, Default)]
@@ -976,9 +977,8 @@ impl VarFishSeqvarTsvWriter {
             if let Some(gq) = get_conditional_gt_quality(i) {
                 gt_info.gq = Some(gq);
             }
-
             if let Some(sq) = get_sq(i) {
-                gt_info.gq = Some(sq as i32);
+                gt_info.sq = Some(sq);
             }
 
             gt_calls.entries.push(gt_info);
