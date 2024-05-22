@@ -27,7 +27,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = "4.5"
-annonars = { git = "https://github.com/varfish-org/annonars", rev = "42b0455df5379fb509f714f171a693e85832da3c" }
+annonars = { git = "https://github.com/varfish-org/annonars", rev = "d89d6ec5ab0149379e9c4604e52fcf3077e97313" }
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bgzip = "0.3"
