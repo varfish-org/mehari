@@ -41,7 +41,7 @@ use strum::{Display, EnumIter, IntoEnumIterator};
 use uuid::Uuid;
 
 use crate::common::guess_assembly;
-use crate::common::noodles::{open_vcf_reader, AsyncVcfReader};
+use crate::common::noodles::{open_variant_reader, AsyncVcfReader, NoodlesVariantReader};
 use crate::common::GenomeRelease;
 use crate::finalize_buf_writer;
 use crate::ped::PedigreeByName;
@@ -1685,9 +1685,11 @@ impl SvCaller {
 }
 
 /// Guess the `SvCaller` from the VCF file at the given path.
-pub async fn guess_sv_caller(reader: &mut AsyncVcfReader) -> Result<SvCaller, anyhow::Error> {
+pub async fn guess_sv_caller(
+    reader: &mut impl NoodlesVariantReader,
+) -> Result<SvCaller, anyhow::Error> {
     let header = reader.read_header().await?;
-    let mut records = reader.record_bufs(&header);
+    let mut records = reader.records(&header).await;
     let record = records
         .try_next()
         .await
@@ -2912,7 +2914,7 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
 /// Note that we will consider the "25 canonical" contigs only (chr1..chr22, chrX, chrY, chrM).
 pub async fn run_vcf_to_jsonl(
     pedigree: &PedigreeByName,
-    reader: &mut AsyncVcfReader,
+    reader: &mut impl NoodlesVariantReader,
     header: &VcfHeader,
     sv_caller: &SvCaller,
     tmp_dir: &tempfile::TempDir,
@@ -2947,7 +2949,7 @@ pub async fn run_vcf_to_jsonl(
     let mapping = CHROM_TO_CHROM_NO.deref();
     let mut uuid_buf = [0u8; 16];
 
-    let mut records = reader.record_bufs(header);
+    let mut records = reader.records(header).await;
     while let Some(record) = records
         .try_next()
         .await
@@ -3161,12 +3163,12 @@ async fn run_with_writer(
     for path_input in args.path_input_vcf.iter() {
         tracing::debug!("processing VCF file {}", path_input);
         let sv_caller = {
-            let mut reader = open_vcf_reader(path_input).await?;
+            let mut reader = open_variant_reader(path_input).await?;
             guess_sv_caller(&mut reader).await?
         };
         tracing::debug!("guessed caller/version to be {:?}", &sv_caller);
 
-        let mut reader = open_vcf_reader(path_input).await?;
+        let mut reader = open_variant_reader(path_input).await?;
         let header: VcfHeader = reader.read_header().await?;
         run_vcf_to_jsonl(
             pedigree,
@@ -3445,7 +3447,7 @@ mod test {
                 VarFishStrucvarTsvRecord,
             },
         },
-        common::{noodles::open_vcf_reader, GenomeRelease},
+        common::{noodles::open_variant_reader, GenomeRelease},
         ped::{Disease, Individual, PedigreeByName, Sex},
     };
 
@@ -3702,7 +3704,7 @@ mod test {
             let path_expected_txt = format!("tests/data/annotate/strucvars/{}-min.out.jsonl", key);
             let samples = vcf_samples(&path_input_vcf)?;
             let pedigree: PedigreeByName = sample_ped(&samples);
-            let mut reader = open_vcf_reader(&path_input_vcf).await?;
+            let mut reader = open_variant_reader(&path_input_vcf).await?;
             let sv_caller = guess_sv_caller(&mut reader).await?;
             let converter = build_vcf_record_converter(&sv_caller, &samples);
 
@@ -3719,7 +3721,8 @@ mod test {
 
     #[tokio::test]
     async fn guess_sv_caller_clincnv() -> Result<(), anyhow::Error> {
-        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/clincnv-min.vcf").await?;
+        let mut reader =
+            open_variant_reader("tests/data/annotate/strucvars/clincnv-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_yaml_snapshot!(sv_caller);
 
@@ -3728,7 +3731,8 @@ mod test {
 
     #[tokio::test]
     async fn guess_sv_caller_delly() -> Result<(), anyhow::Error> {
-        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/delly2-min.vcf").await?;
+        let mut reader =
+            open_variant_reader("tests/data/annotate/strucvars/delly2-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_yaml_snapshot!(sv_caller);
 
@@ -3737,7 +3741,8 @@ mod test {
 
     #[tokio::test]
     async fn guess_sv_caller_dragen_sv() -> Result<(), anyhow::Error> {
-        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/dragen-sv-min.vcf").await?;
+        let mut reader =
+            open_variant_reader("tests/data/annotate/strucvars/dragen-sv-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_yaml_snapshot!(sv_caller);
 
@@ -3747,7 +3752,7 @@ mod test {
     #[tokio::test]
     async fn guess_sv_caller_dragen_cnv() -> Result<(), anyhow::Error> {
         let mut reader =
-            open_vcf_reader("tests/data/annotate/strucvars/dragen-cnv-min.vcf").await?;
+            open_variant_reader("tests/data/annotate/strucvars/dragen-cnv-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_yaml_snapshot!(sv_caller);
 
@@ -3756,7 +3761,7 @@ mod test {
 
     #[tokio::test]
     async fn guess_sv_caller_gcnv() -> Result<(), anyhow::Error> {
-        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/gcnv-min.vcf").await?;
+        let mut reader = open_variant_reader("tests/data/annotate/strucvars/gcnv-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_yaml_snapshot!(sv_caller);
 
@@ -3765,7 +3770,7 @@ mod test {
 
     #[tokio::test]
     async fn guess_sv_caller_manta() -> Result<(), anyhow::Error> {
-        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/manta-min.vcf").await?;
+        let mut reader = open_variant_reader("tests/data/annotate/strucvars/manta-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_yaml_snapshot!(sv_caller);
 
@@ -3774,7 +3779,7 @@ mod test {
 
     #[tokio::test]
     async fn guess_sv_caller_melt() -> Result<(), anyhow::Error> {
-        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/melt-min.vcf").await?;
+        let mut reader = open_variant_reader("tests/data/annotate/strucvars/melt-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_yaml_snapshot!(sv_caller);
 
@@ -3783,7 +3788,8 @@ mod test {
 
     #[tokio::test]
     async fn guess_sv_caller_popdel() -> Result<(), anyhow::Error> {
-        let mut reader = open_vcf_reader("tests/data/annotate/strucvars/popdel-min.vcf").await?;
+        let mut reader =
+            open_variant_reader("tests/data/annotate/strucvars/popdel-min.vcf").await?;
         let sv_caller = guess_sv_caller(&mut reader).await?;
         insta::assert_yaml_snapshot!(sv_caller);
 

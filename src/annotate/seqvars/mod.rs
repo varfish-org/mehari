@@ -51,7 +51,7 @@ use crate::annotate::seqvars::csq::{
 use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
-use crate::common::noodles::open_vcf_writer;
+use crate::common::noodles::{open_variant_reader, open_vcf_writer, NoodlesVariantReader};
 use crate::common::{guess_assembly, GenomeRelease};
 
 use crate::pbs::txs::TxSeqDatabase;
@@ -1639,7 +1639,7 @@ async fn run_with_writer(
     args: &Args,
 ) -> Result<(), anyhow::Error> {
     tracing::info!("Open VCF and read header");
-    let mut reader = get_async_vcf_reader(&args.path_input_vcf).await?;
+    let mut reader = open_variant_reader(&args.path_input_vcf).await?;
 
     let mut header_in = reader.read_header().await?;
     let header_out = build_header(&header_in);
@@ -1671,7 +1671,7 @@ async fn run_with_writer(
     writer.write_noodles_header(&header_out).await?;
 
     use futures::TryStreamExt;
-    let mut records = reader.record_bufs(&header_in);
+    let mut records = reader.records(&header_in).await;
     loop {
         if let Some(mut vcf_record) = records.try_next().await? {
             // We currently can only process records with one alternate allele.
@@ -1717,27 +1717,6 @@ async fn run_with_writer(
     );
     writer.flush().await?;
     Ok(())
-}
-
-async fn get_async_vcf_reader(
-    path: impl AsRef<Path>,
-) -> Result<noodles::vcf::AsyncReader<Pin<Box<dyn AsyncBufRead>>>, Error> {
-    let path = path.as_ref();
-    let reader: noodles::vcf::AsyncReader<_> = match path.extension().and_then(OsStr::to_str) {
-        Some("gz") | Some("bgzf") => tokio::fs::File::open(path)
-            .await
-            .map(tokio::io::BufReader::new)
-            .map(noodles::bgzf::AsyncReader::new)
-            .map(|r| Box::pin(r) as Pin<Box<dyn AsyncBufRead>>)
-            .map(noodles::vcf::AsyncReader::new)?,
-        Some("vcf") => tokio::fs::File::open(path)
-            .await
-            .map(tokio::io::BufReader::new)
-            .map(|r| Box::pin(r) as Pin<Box<dyn AsyncBufRead>>)
-            .map(noodles::vcf::AsyncReader::new)?,
-        other => return Err(anyhow!("Unknown extension {:?}", other)),
-    };
-    Ok(reader)
 }
 
 fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> {
