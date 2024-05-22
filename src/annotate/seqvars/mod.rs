@@ -5,11 +5,9 @@ pub mod csq;
 pub mod provider;
 
 use std::collections::{HashMap, HashSet};
-use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
-use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -43,7 +41,7 @@ use rocksdb::{BoundColumnFamily, DBWithThreadMode, ThreadMode};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use thousands::Separable;
-use tokio::io::{AsyncBufRead, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 use crate::annotate::seqvars::csq::{
     ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
@@ -51,7 +49,7 @@ use crate::annotate::seqvars::csq::{
 use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
-use crate::common::noodles::{open_variant_reader, open_vcf_writer, NoodlesVariantReader};
+use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
 use crate::common::{guess_assembly, GenomeRelease};
 
 use crate::pbs::txs::TxSeqDatabase;
@@ -533,7 +531,7 @@ pub fn load_tx_db(tx_path: &str) -> Result<TxSeqDatabase, anyhow::Error> {
 }
 
 /// Mehari-local trait for writing out annotated VCF records as VCF or VarFish TSV.
-pub(crate) trait AsyncAnnotatedVcfWriter {
+pub(crate) trait AsyncAnnotatedVariantWriter {
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
     async fn write_noodles_record(
         &mut self,
@@ -555,7 +553,7 @@ pub(crate) trait AsyncAnnotatedVcfWriter {
 }
 
 /// Implement `AnnotatedVcfWriter` for `VcfWriter`.
-impl<Inner: Write> AsyncAnnotatedVcfWriter for VcfWriter<Inner> {
+impl<Inner: Write> AsyncAnnotatedVariantWriter for VcfWriter<Inner> {
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.write_header(header)
             .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
@@ -575,8 +573,8 @@ impl<Inner: Write> AsyncAnnotatedVcfWriter for VcfWriter<Inner> {
     }
 }
 
-/// Implement `AnnotatedVcfWriter` for `AsyncWriter`.
-impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVcfWriter
+/// Implement `AsyncAnnotatedVariantWriter` for `AsyncWriter`.
+impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
     for noodles::vcf::AsyncWriter<Inner>
 {
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
@@ -597,6 +595,33 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVcfWriter
 
     async fn flush(&mut self) -> Result<(), Error> {
         Ok(<noodles::vcf::AsyncWriter<Inner>>::get_mut(self)
+            .flush()
+            .await?)
+    }
+}
+
+/// Implement `AsyncAnnotatedVariantWriter` for `AsyncWriter`.
+impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
+    for noodles::bcf::AsyncWriter<Inner>
+{
+    async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), Error> {
+        self.write_header(header)
+            .await
+            .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
+    }
+
+    async fn write_noodles_record(
+        &mut self,
+        header: &VcfHeader,
+        record: &VcfRecord,
+    ) -> Result<(), anyhow::Error> {
+        noodles::bcf::AsyncWriter::write_variant_record(self, header, record)
+            .await
+            .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
+    }
+
+    async fn flush(&mut self) -> Result<(), Error> {
+        Ok(<noodles::bcf::AsyncWriter<Inner>>::get_mut(self)
             .flush()
             .await?)
     }
@@ -1390,7 +1415,7 @@ impl VarFishSeqvarTsvRecord {
 }
 
 /// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
-impl AsyncAnnotatedVcfWriter for VarFishSeqvarTsvWriter {
+impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.header = Some(header.clone());
         let header = &[
@@ -1586,7 +1611,7 @@ impl Annotator {
 pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("config = {:#?}", &args);
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
-        let mut writer = open_vcf_writer(path_output_vcf).await?;
+        let mut writer = open_variant_writer(path_output_vcf).await?;
         run_with_writer(&mut writer, args).await?;
         writer.flush().await?;
     } else {
@@ -1635,7 +1660,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 
 /// Run the annotation with the given `Write` within the `VcfWriter`.
 async fn run_with_writer(
-    writer: &mut impl AsyncAnnotatedVcfWriter,
+    writer: &mut impl AsyncAnnotatedVariantWriter,
     args: &Args,
 ) -> Result<(), anyhow::Error> {
     tracing::info!("Open VCF and read header");

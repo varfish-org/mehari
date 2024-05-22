@@ -41,13 +41,13 @@ use strum::{Display, EnumIter, IntoEnumIterator};
 use uuid::Uuid;
 
 use crate::common::guess_assembly;
-use crate::common::noodles::{open_variant_reader, AsyncVcfReader, NoodlesVariantReader};
+use crate::common::noodles::{open_variant_reader, NoodlesVariantReader};
 use crate::common::GenomeRelease;
 use crate::finalize_buf_writer;
 use crate::ped::PedigreeByName;
 
 use super::seqvars::binning::bin_from_range;
-use super::seqvars::{binning, AsyncAnnotatedVcfWriter, CHROM_TO_CHROM_NO};
+use super::seqvars::{binning, AsyncAnnotatedVariantWriter, CHROM_TO_CHROM_NO};
 
 use self::bnd::Breakend;
 
@@ -679,7 +679,7 @@ impl GenotypeCalls {
 }
 
 /// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
-impl AsyncAnnotatedVcfWriter for VarFishStrucvarTsvWriter {
+impl AsyncAnnotatedVariantWriter for VarFishStrucvarTsvWriter {
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.header = Some(header.clone());
         let header = &[
@@ -1685,7 +1685,7 @@ impl SvCaller {
 }
 
 /// Guess the `SvCaller` from the VCF file at the given path.
-pub async fn guess_sv_caller(
+pub(crate) async fn guess_sv_caller(
     reader: &mut impl NoodlesVariantReader,
 ) -> Result<SvCaller, anyhow::Error> {
     let header = reader.read_header().await?;
@@ -2912,7 +2912,7 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
 /// Convert the records in the VCF reader to the JSONL file per contig in `tmp_dir`.
 ///
 /// Note that we will consider the "25 canonical" contigs only (chr1..chr22, chrX, chrY, chrM).
-pub async fn run_vcf_to_jsonl(
+pub(crate) async fn run_vcf_to_jsonl(
     pedigree: &PedigreeByName,
     reader: &mut impl NoodlesVariantReader,
     header: &VcfHeader,
@@ -3131,7 +3131,7 @@ pub fn read_and_cluster_for_contig(
 /// * `pedigree`: The pedigree of case.
 /// * `header`: The input VCF header.
 async fn run_with_writer(
-    writer: &mut impl AsyncAnnotatedVcfWriter,
+    writer: &mut impl AsyncAnnotatedVariantWriter,
     args: &Args,
     pedigree: &PedigreeByName,
     header: &VcfHeader,
@@ -3441,7 +3441,7 @@ mod test {
 
     use crate::{
         annotate::{
-            seqvars::AsyncAnnotatedVcfWriter,
+            seqvars::AsyncAnnotatedVariantWriter,
             strucvars::{
                 GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvSubType, SvType,
                 VarFishStrucvarTsvRecord,
