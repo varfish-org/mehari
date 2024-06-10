@@ -1963,7 +1963,7 @@ dependencies = [
  "md-5",
  "nom",
  "postgres",
- "quick_cache 0.5.1",
+ "quick_cache",
  "regex",
  "rustc-hash",
  "seqrepo",
@@ -2452,7 +2452,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c2a198fb6b0eada2a8df47933734e6d35d350665a33a3593d7164fa52c75c19"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.5",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -2654,7 +2654,7 @@ dependencies = [
  "procfs",
  "prost",
  "prost-build",
- "quick_cache 0.4.2",
+ "quick_cache",
  "rand",
  "rand_core",
  "rocksdb",
@@ -3633,18 +3633,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f50b1c63b38611e7d4d7f68b82d3ad0cc71a2ad2e7f61fc10f1328d917c93cd"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "quick_cache"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1380629287ed1247c1e0fcc6d43efdcec508b65382c9ab775cc8f3df7ca07b0"
-dependencies = [
- "ahash 0.8.11",
- "equivalent",
- "hashbrown 0.14.5",
- "parking_lot",
 ]
 
 [[package]]
