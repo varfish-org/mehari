@@ -105,13 +105,11 @@ opt-level = 3
 [profile.dev.package.similar]
 opt-level = 3
 
-[profile.profiling]
-inherits = "release"
-debug = true
-
-[profile.perf]
-inherits = "release"
+[profile.release]
 debug = false
 lto = "fat"
 codegen-units = 1
 
+[profile.profiling]
+inherits = "release"
+debug = true
