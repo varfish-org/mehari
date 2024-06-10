@@ -7,11 +7,11 @@ description = "Variant effect prediction all in Rust"
 license = "MIT"
 homepage = "https://github.com/varfish-org/mehari"
 readme = "README.md"
-rust-version = "1.64.0"
+rust-version = "1.70.0"
 
 [features]
 default = []
-
+dhat-heap = []  # for heap profiling with dhats
 documentation = []
 
 [package.metadata.docs.rs]
@@ -27,7 +27,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = "4.5"
-annonars = "0.36"
+annonars = "0.38"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bgzip = "0.3"
@@ -44,31 +44,26 @@ derive_builder = { version = "0.20", features = ["clippy"] }
 env_logger = "0.11"
 flate2 = "1.0"
 futures = "0.3"
-hgvs = "0.16"
+hgvs = "0.16.1"
 indexmap = { version = "2.2", features = ["serde"] }
 indicatif = "0.17"
+itertools = "*"
 jsonl = "4.0"
 lazy_static = "1.4"
 log = "0.4"
 nom = "7.1"
-noodles-bgzf = { version = "0.26", features = ["async"] }
-noodles-core = "0.14"
-noodles-csi = "0.30"
-noodles-fasta = "0.33"
-noodles-tabix = "0.36"
-noodles-vcf = { version = "0.49", features = ["async"] }
 parse-display = "0.9"
 procfs = "0.16"
 prost = "0.12"
 quick_cache = "0.4"
 rand = "0.8"
 rand_core = "0.6"
-rocksdb = { version = "0.21", features = ["multi-threaded-cf"] }
+rocksdb = { version = "0.22", features = ["multi-threaded-cf"] }
 rustc-hash = "1.1"
-seqrepo = "0.10"
+seqrepo = { version = "0.10.2", features = ["cached"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-serde_with = { version = "3.6", features=["alloc", "macros", "indexmap_2"], default-features = false }
+serde_with = { version = "3.6", features = ["alloc", "macros", "indexmap_2"], default-features = false }
 serde_yaml = "0.9"
 strum = { version = "0.26", features = ["derive"] }
 tempfile = "3"
@@ -80,6 +75,12 @@ uuid = { version = "1.7", features = ["fast-rng", "serde"] }
 zstd = "0.13"
 pbjson = "0.6"
 pbjson-types = "0.6"
+coz = "0.1.3"
+dhat = "0.3.3"
+
+[dependencies.noodles]
+version = "0.75"
+features = ["async", "bgzf", "core", "vcf", "bcf", "csi", "fasta", "tabix"]
 
 [build-dependencies]
 anyhow = "1.0"
@@ -92,12 +93,23 @@ csv = "1.3"
 hxdmp = "0.2"
 insta = { version = "1.36", features = ["yaml"] }
 pretty_assertions = "1.4"
-rstest = "0.18"
+rstest = "0.19"
 temp_testdir = "0.2"
 tracing-test = "0.2"
+criterion = { version = "0.5.1", features = ["async_tokio"] }
+pprof = { version = "0.13.0", features = ["flamegraph"] }
 
 # Compile insta with full optimization.
 [profile.dev.package.insta]
 opt-level = 3
 [profile.dev.package.similar]
 opt-level = 3
+
+[profile.release]
+debug = false
+lto = "fat"
+codegen-units = 1
+
+[profile.profiling]
+inherits = "release"
+debug = true

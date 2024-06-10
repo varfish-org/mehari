@@ -1,13 +1,14 @@
 //! Code for reading maelstrom coverage and mapping quality VCF files.
 
-use noodles_core::{Position, Region};
-use noodles_vcf as vcf;
-use noodles_vcf::record::info::field;
 use std::{
     ops::Range,
     path::{Path, PathBuf},
-    str::FromStr,
 };
+
+use noodles::core::{Position, Region};
+use noodles::vcf;
+use noodles::vcf::variant::record::info::field::Value::Integer;
+use noodles::vcf::variant::record::samples::series;
 
 /// Read access for maelstrom coverage/mapping quality VCF files.
 ///
@@ -19,7 +20,7 @@ pub struct Reader {
     /// Name of the single sample in the VCF file.
     pub sample_name: String,
     /// The internal reader.
-    pub reader: vcf::IndexedReader<std::fs::File>,
+    pub reader: vcf::io::IndexedReader<noodles::bgzf::Reader<std::fs::File>>,
     /// The header from the VCF file.
     pub header: vcf::header::Header,
 }
@@ -37,7 +38,7 @@ impl Reader {
         P: AsRef<Path> + Clone,
     {
         let path = p.as_ref().to_path_buf();
-        let mut reader = vcf::indexed_reader::Builder::default().build_from_path(&path)?;
+        let mut reader = vcf::io::indexed_reader::Builder::default().build_from_path(&path)?;
         let header = reader.read_header()?;
         let sample = if header.sample_names().len() == 1 {
             header
@@ -79,6 +80,7 @@ impl Reader {
         let pos_end = Position::try_from(end)?;
         let region = Region::new(chrom, pos_start..=pos_end);
         let query = self.reader.query(&self.header, &region)?;
+        let header = &self.header;
 
         // Read in the records and compute the mean coverage and mapping quality.  The records
         // describe the mean statistics over a window.  We go all the way to compute fractions
@@ -90,14 +92,17 @@ impl Reader {
         for result in query {
             let record = result?;
 
-            let window_end = record.info().get(&field::Key::from_str("END")?);
-            use vcf::record::info::field::Value::Integer;
-            let window_end = if let Some(Some(Integer(window_end))) = window_end {
-                *window_end as usize
+            let window_end = if let Some(Some(Integer(window_end))) =
+                record.info().get(header, "END").transpose()?
+            {
+                window_end as usize
             } else {
                 anyhow::bail!("missing INFO/END in record");
             };
-            let window_start: usize = record.position().into();
+            let window_start: usize = record
+                .variant_start()
+                .expect("Telomeric breakends not supported")?
+                .get();
             let window_size = window_end - window_start + 1;
 
             // Use first and last window values only in fractions.
@@ -116,20 +121,20 @@ impl Reader {
             count += factor;
 
             let sample = record
-                .genotypes()
-                .values()
+                .samples()
+                .iter()
                 .next()
                 .expect("just checked for ==1 sample");
 
             // The simplest way to obtain the genotype keys is to iterate and call `as_ref()` on the
             // key.
-            for (key, value) in sample.keys().iter().zip(sample.values().iter()) {
-                match (key.as_ref(), value) {
-                    ("CV", Some(vcf::record::genotypes::sample::Value::Float(cov))) => {
-                        cov_sum += factor * (*cov) as f64;
+            for (key, value) in sample.iter(header).flatten() {
+                match (key, value) {
+                    ("CV", Some(series::Value::Float(cov))) => {
+                        cov_sum += factor * cov as f64;
                     }
-                    ("MQ", Some(vcf::record::genotypes::sample::Value::Float(mq))) => {
-                        mq_sum += factor * (*mq) as f64;
+                    ("MQ", Some(series::Value::Float(mq))) => {
+                        mq_sum += factor * mq as f64;
                     }
                     // Ignore all other keys.
                     _ => (),
@@ -159,8 +164,9 @@ pub struct Record {
 
 #[cfg(test)]
 mod test {
-    use super::Reader;
     use pretty_assertions::assert_eq;
+
+    use super::Reader;
 
     #[test]
     fn reader_from_path() -> Result<(), anyhow::Error> {

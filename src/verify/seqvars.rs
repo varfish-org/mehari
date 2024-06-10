@@ -9,7 +9,7 @@ use std::{
 
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
-use noodles_core::{Position, Region};
+use noodles::core::{Position, Region};
 use quick_cache::unsync::Cache;
 
 use crate::annotate::seqvars::{
@@ -120,8 +120,8 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         "Opening reference FASTA file: {}",
         &args.path_reference_fasta
     );
-    let fai_index = noodles_fasta::fai::read(format!("{}.fai", args.path_reference_fasta))?;
-    let mut fai_reader = noodles_fasta::indexed_reader::Builder::default()
+    let fai_index = noodles::fasta::fai::read(format!("{}.fai", args.path_reference_fasta))?;
+    let mut fai_reader = noodles::fasta::indexed_reader::Builder::default()
         .set_index(fai_index)
         .build_from_path(&args.path_reference_fasta)?;
 

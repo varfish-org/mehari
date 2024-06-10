@@ -418,7 +418,7 @@ fn build_protobuf(
                 let tx_seq_to_translate = &seq[cds_start..cds_end];
                 let aa_sequence =
                     translate_cds(tx_seq_to_translate, true, "*", TranslationTable::Standard)?;
-                if (!is_mt && !aa_sequence.ends_with('*')) || (is_mt && !aa_sequence.contains("*"))
+                if (!is_mt && !aa_sequence.ends_with('*')) || (is_mt && !aa_sequence.contains('*'))
                 {
                     tracing::debug!(
                         "Skipping transcript {} because of missing stop codon in translated CDS",
