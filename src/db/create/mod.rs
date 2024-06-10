@@ -137,7 +137,7 @@ fn load_and_extract(
     );
     writeln!(
         report_file,
-        r#"{{ "#transcripts_kept": {} }}",
+        r#"{{ "transcripts_kept": {} }}"#,
         transcripts.len()
     )?;
     Ok(())
