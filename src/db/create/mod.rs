@@ -72,9 +72,9 @@ struct LabelEntry {
 fn load_and_extract(
     json_path: &Path,
     label_tsv_path: &Option<&Path>,
-    transcript_ids_for_gene: &mut indexmap::IndexMap<String, Vec<String>>,
-    genes: &mut indexmap::IndexMap<String, models::Gene>,
-    transcripts: &mut indexmap::IndexMap<String, models::Transcript>,
+    transcript_ids_for_gene: &mut IndexMap<String, Vec<String>>,
+    genes: &mut IndexMap<String, Gene>,
+    transcripts: &mut IndexMap<String, Transcript>,
     genome_release: GenomeRelease,
     cdot_version: &mut String,
     report_file: &mut impl Write,
@@ -92,115 +92,28 @@ fn load_and_extract(
     )?;
     writeln!(report_file, r#"{{ "cdot_json_path": {:?} }}"#, json_path)?;
 
-        let mut txid_to_label = indexmap::IndexMap::new();
-        for result in rdr.deserialize() {
-            let entry: LabelEntry = result?;
-            txid_to_label.insert(
-                entry.transcript_id,
-                entry
-                    .label
-                    .split(',')
-                    .map(models::str_to_tag)
-                    .collect::<Vec<_>>(),
-            );
-        }
-        tracing::trace!("labels = {:?}", txid_to_label);
-
-        tracing::info!(
-            "...done loading label TSV file ({} entries)",
-            txid_to_label.len()
-        );
-        Some(txid_to_label)
-    } else {
-        None
-    };
-
-    tracing::info!("Loading cdot transcripts from {:?}", json_path);
-    writeln!(report_file, "cdot_json_path\t{:?}", json_path)?;
-    let start = Instant::now();
-    let models::Container {
-        genes: c_genes,
-        transcripts: c_txs,
-        cdot_version: c_version,
-        ..
-    } = if json_path.extension().unwrap_or_default() == "gz" {
-        tracing::info!("(from gzip compressed file)");
-        serde_json::from_reader(std::io::BufReader::new(flate2::read::GzDecoder::new(
-            File::open(json_path)?,
-        )))?
-    } else {
-        tracing::info!("(from uncompressed file)");
-        serde_json::from_reader(std::io::BufReader::new(File::open(json_path)?))?
-    };
+    let txid_to_label = label_tsv_path.map(txid_to_label).transpose()?;
+    let (c_genes, c_txs, c_version) = load_cdot_transcripts(json_path)?;
     *cdot_version = c_version;
-    tracing::info!(
-        "loading / deserializing {} genes and {} transcripts from cdot took {:?}",
-        c_genes.len().separate_with_commas(),
-        c_txs.len().separate_with_commas(),
-        start.elapsed()
-    );
 
     // Count number of MANE Select and MANE Plus Clinical transcripts, collect
     // chrMT gene names.
-    let mut genes_chrmt = indexmap::IndexSet::new();
-    let mut n_mane_select = 0;
-    let mut n_mane_plus_clinical = 0;
-    for tx in c_txs.values() {
-        let mut is_mane_select = false;
-        let mut is_mane_plus_clinical = false;
-        for gb in tx.genome_builds.values() {
-            if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_str()) {
-                genes_chrmt.insert(tx.gene_version.clone());
-                mt_tx_ids.insert(tx.id.clone());
-            }
-            if let Some(tag) = &gb.tag {
-                if tag.contains(&models::Tag::ManeSelect) {
-                    is_mane_select = true;
-                }
-                if tag.contains(&models::Tag::ManePlusClinical) {
-                    is_mane_plus_clinical = true;
-                }
-            }
-        }
-        if is_mane_select {
-            n_mane_select += 1;
-        }
-        if is_mane_plus_clinical {
-            n_mane_plus_clinical += 1;
-        }
-    }
+    let (genes_chrmt, n_mane_select, n_mane_plus_clinical) =
+        gather_transcript_stats(mt_tx_ids, &c_txs);
     writeln!(
         report_file,
         r#"{{ "mane_select_transcripts": {}, "mane_plus_clinical_transcripts": {} }}"#,
         n_mane_select, n_mane_plus_clinical
     )?;
-    tracing::info!(
-        "mane_select_transcripts = {}, mane_plus_clinical_transcripts = {}",
-        n_mane_select,
-        n_mane_plus_clinical
-    );
-    tracing::debug!("chrMT genes: {:?}", genes_chrmt);
 
-    let start = Instant::now();
-    writeln!(report_file, "total_genes\t{}", c_genes.len())?;
-    for (gene_id, gene) in c_genes.iter() {
-        if gene.hgnc.is_none() || gene.hgnc.as_ref().unwrap().is_empty() {
-            writeln!(report_file, "skip because of missing HGNC id\t{}", gene_id)?;
-            tracing::debug!("skip because of missing HGNC id: {}", gene_id);
-        } else if !genes_chrmt.contains(gene_id)
-            && (gene.map_location.is_none() || gene.map_location.as_ref().unwrap().is_empty())
-        {
-            writeln!(
-                report_file,
-                "skip because not chrMT and missing map_location\t{:?}",
-                gene
-            )?;
-            tracing::debug!("skip because of missing map_location\t{:?}", gene);
-        } else {
-            let hgnc_id = format!("HGNC:{}", gene.hgnc.as_ref().unwrap());
-            transcript_ids_for_gene.entry(hgnc_id.clone()).or_default();
-            genes.insert(hgnc_id, gene.clone());
-        }
+    let (keep, discard) = filter_genes(&c_genes, &genes_chrmt);
+    for (_gene_id, gene) in keep {
+        let hgnc_id = format!("HGNC:{}", gene.hgnc.as_ref().unwrap());
+        transcript_ids_for_gene.entry(hgnc_id.clone()).or_default();
+        genes.insert(hgnc_id, gene.clone());
+    }
+    for d in discard {
+        writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
     }
     writeln!(
         report_file,
@@ -218,14 +131,13 @@ fn load_and_extract(
         txid_to_label,
         report_file,
     );
-    tracing::debug!(
-        "some 10 genes (symbols): {:?}",
-        genes
-            .values()
-            .take(10)
-            .map(|tx| tx.gene_symbol.clone().unwrap_or_default())
-            .collect::<Vec<_>>()
-    );
+    writeln!(
+        report_file,
+        "{{ 'transcripts_kept': {} }}",
+        transcripts.len()
+    )?;
+    Ok(())
+}
 
 fn process_transcripts(
     transcript_ids_for_gene: &mut IndexMap<String, Vec<String>>,
@@ -249,7 +161,7 @@ fn process_transcripts(
     ];
     c_txs
         .values()
-        .map(|tx| models::Transcript {
+        .map(|tx| Transcript {
             genome_builds: tx
                 .genome_builds
                 .iter()
@@ -264,28 +176,24 @@ fn process_transcripts(
             ..tx.clone()
         })
         .filter(|tx| {
-            if tx.hgnc.is_none() || tx.hgnc.as_ref().unwrap().is_empty() {
-                writeln!(report_file, "skip because of missing HGNC id\t{:?}", tx.id)
-                    .expect("problem writing report file");
-                tracing::debug!("skip because of missing HGNC id:{:?}", tx.id);
-                false
-            } else if !genes.contains_key(&format!("HGNC:{}", tx.hgnc.as_ref().unwrap())) {
-                writeln!(report_file, "skip because gene not selected\t{:?}", tx.id)
-                    .expect("problem writing report file");
-                tracing::debug!("skip because gene not selected:{:?}", tx.id);
-                false
-            } else if tx.genome_builds.is_empty() {
-                writeln!(
-                    report_file,
-                    "skip because of empty genome builds\t{:?}",
-                    tx.id
-                )
-                .expect("problem writing report file");
-                tracing::debug!("skip because of empty genome builds:{:?}", tx.id);
-                false
-            } else {
-                true
+            for (filter, reason) in &filters {
+                if filter(tx) {
+                    let d = Discard {
+                        kind: GeneOrTranscript::Transcript,
+                        reason: *reason,
+                        id: tx.id.clone(),
+                        gene_name: tx.gene_name.clone(),
+                    };
+                    writeln!(
+                        report_file,
+                        "{}",
+                        serde_json::to_string(&d).expect("Failed serializing")
+                    )
+                    .expect("Failed writing to report file");
+                    return false;
+                }
             }
+            true
         })
         .for_each(|tx| {
             let hgnc_id = &format!("HGNC:{}", tx.hgnc.as_ref().unwrap());
@@ -334,18 +242,145 @@ fn process_transcripts(
             // finally, insert into transcripts
             transcripts.insert(tx.id.clone(), tx_out);
         });
-    writeln!(
-        report_file,
-        "transcripts with alignment on genome and link to selected gene\t{}",
-        transcripts.len()
-    )?;
-    tracing::info!(
-        "Processed {} genes; total transcript count: {}",
-        c_txs.len().separate_with_commas(),
-        transcripts.len().separate_with_commas()
-    );
-    tracing::info!("extracting datastructures took {:?}", start.elapsed());
-    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+enum Reason {
+    MissingHgncId,
+    NotMTandMissingMapLocation,
+    DeselectedGene,
+    EmptyGenomeBuilds,
+    OldVersion,
+    NMTranscript,
+    XTranscript,
+    InvalidCdsLength,
+    NoTranscript,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+enum GeneOrTranscript {
+    Gene,
+    Transcript,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct Discard {
+    kind: GeneOrTranscript,
+    reason: Reason,
+    id: String,
+    gene_name: Option<String>,
+}
+
+fn filter_genes(
+    c_genes: &IndexMap<String, Gene>,
+    genes_chrmt: &IndexSet<String>,
+) -> (Vec<(String, Gene)>, Vec<Discard>) {
+    let missing_hgnc = |_gene_id: &str, gene: &Gene| -> bool {
+        gene.hgnc.is_none() || gene.hgnc.as_ref().unwrap().is_empty()
+    };
+    // let not_mitochondrion_and_missing_map_location = |gene_id: &str, gene: &Gene| -> bool {
+    //     !genes_chrmt.contains(gene_id)
+    //         && (gene.map_location.is_none() || gene.map_location.as_ref().unwrap().is_empty())
+    // };
+    let filters: [(&dyn Fn(&str, &Gene) -> bool, Reason); 1] = [
+        (&missing_hgnc, Reason::MissingHgncId),
+        // (
+        //     &not_mitochondrion_and_missing_map_location,
+        //     Reason::NotMTandMissingMapLocation,
+        // ),
+    ];
+
+    c_genes.iter().partition_map(|(gene_id, gene)| {
+        for (filter, reason) in &filters {
+            if filter(gene_id, gene) {
+                return Either::Right(Discard {
+                    kind: GeneOrTranscript::Gene,
+                    reason: *reason,
+                    id: gene_id.to_string(),
+                    gene_name: gene.gene_symbol.clone(),
+                });
+            }
+        }
+        return Either::Left((gene_id.to_string(), gene.clone()));
+    })
+}
+
+fn gather_transcript_stats(
+    mt_tx_ids: &mut IndexSet<String>,
+    c_txs: &IndexMap<String, Transcript>,
+) -> (IndexSet<String>, i32, i32) {
+    let mut genes_chrmt = indexmap::IndexSet::new();
+    let mut n_mane_select = 0;
+    let mut n_mane_plus_clinical = 0;
+    for tx in c_txs.values() {
+        let mut is_mane_select = false;
+        let mut is_mane_plus_clinical = false;
+        for gb in tx.genome_builds.values() {
+            if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_str()) {
+                genes_chrmt.insert(tx.gene_version.clone());
+                mt_tx_ids.insert(tx.id.clone());
+            }
+            if let Some(tag) = &gb.tag {
+                if tag.contains(&models::Tag::ManeSelect) {
+                    is_mane_select = true;
+                }
+                if tag.contains(&models::Tag::ManePlusClinical) {
+                    is_mane_plus_clinical = true;
+                }
+            }
+        }
+        if is_mane_select {
+            n_mane_select += 1;
+        }
+        if is_mane_plus_clinical {
+            n_mane_plus_clinical += 1;
+        }
+    }
+    (genes_chrmt, n_mane_select, n_mane_plus_clinical)
+}
+
+fn txid_to_label(label_tsv_path: impl AsRef<Path>) -> Result<IndexMap<String, Vec<Tag>>, Error> {
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(b'\t')
+        .comment(Some(b'#'))
+        .has_headers(false)
+        .from_path(label_tsv_path.as_ref())?;
+
+    rdr.deserialize()
+        .map(|result| {
+            result
+                .map(|entry: LabelEntry| {
+                    (
+                        entry.transcript_id,
+                        entry
+                            .label
+                            .split(',')
+                            .map(models::str_to_tag)
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .map_err(anyhow::Error::from)
+        })
+        .collect()
+}
+fn load_cdot_transcripts(
+    json_path: &Path,
+) -> Result<(IndexMap<String, Gene>, IndexMap<String, Transcript>, String), Error> {
+    let models::Container {
+        genes: c_genes,
+        transcripts: c_txs,
+        cdot_version: c_version,
+        ..
+    } = if json_path.extension().unwrap_or_default() == "gz" {
+        tracing::info!("(from gzip compressed file)");
+        serde_json::from_reader(std::io::BufReader::new(flate2::read::GzDecoder::new(
+            File::open(json_path)?,
+        )))?
+    } else {
+        tracing::info!("(from uncompressed file)");
+        serde_json::from_reader(std::io::BufReader::new(File::open(json_path)?))?
+    };
+    Ok((c_genes, c_txs, c_version))
 }
 
 /// Perform protobuf file construction.
@@ -440,7 +475,7 @@ fn build_protobuf(
                 let tx_seq_to_translate = &seq[cds_start..cds_end];
                 let aa_sequence =
                     translate_cds(tx_seq_to_translate, true, "*", TranslationTable::Standard)?;
-                if (!is_mt && !aa_sequence.ends_with('*')) || (is_mt && !aa_sequence.contains('*'))
+                if (!is_mt && !aa_sequence.ends_with('*')) || (is_mt && !aa_sequence.contains("*"))
                 {
                     tracing::debug!(
                         "Skipping transcript {} because of missing stop codon in translated CDS",
@@ -748,8 +783,8 @@ fn filter_transcripts(
     tracing::info!("Filtering transcripts ...");
     let start = Instant::now();
     let selected_hgnc_ids = gene_symbols.as_ref().map(|gene_symbols| {
-        let symbol_to_hgnc: indexmap::IndexMap<_, _> =
-            indexmap::IndexMap::from_iter(tx_data.genes.iter().flat_map(|(hgnc_id, g)| {
+        let symbol_to_hgnc: IndexMap<_, _> =
+            IndexMap::from_iter(tx_data.genes.iter().flat_map(|(hgnc_id, g)| {
                 g.gene_symbol
                     .as_ref()
                     .map(|gene_symbol| (gene_symbol.clone(), hgnc_id.clone()))
@@ -783,7 +818,7 @@ fn filter_transcripts(
     let mut chosen = IndexSet::new();
     // Filter map from gene symbol to Vec of chosen transcript identifiers.
     let transcript_ids_for_gene = {
-        let mut tmp = indexmap::IndexMap::new();
+        let mut tmp = IndexMap::new();
 
         for (hgnc_id, tx_ids) in &transcript_ids_for_gene {
             // Skip transcripts where the gene symbol is not contained in `selected_hgnc_ids`.
@@ -811,7 +846,7 @@ fn filter_transcripts(
                 })
                 .collect();
             // Sort descendingly by version.
-            versioned.sort_by(|a, b| b.1.cmp(&a.1));
+            versioned.sort_unstable_by_key(|(_, v)| std::cmp::Reverse(*v));
 
             // Build `next_tx_ids`.
             let mut seen_ac = IndexSet::new();
@@ -828,37 +863,31 @@ fn filter_transcripts(
                 for release in releases {
                     #[allow(clippy::if_same_then_else)]
                     if seen_ac.contains(&(ac.clone(), release.clone())) {
-                        writeln!(
-                            report_file,
-                            "skipped transcript {} because we have a later version already",
-                            &full_ac
-                        )?;
-                        tracing::debug!(
-                            "skipping transcript {} because we have a later version already",
-                            &full_ac
-                        );
+                        let d = Discard {
+                            kind: GeneOrTranscript::Transcript,
+                            reason: Reason::OldVersion,
+                            id: full_ac.clone(),
+                            gene_name: None,
+                        };
+                        writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
                         continue; // skip, already have later version
                     } else if ac.starts_with("NR_") && seen_nm {
-                        writeln!(
-                            report_file,
-                            "skipped transcript {} because we have a NM transcript",
-                            &full_ac
-                        )?;
-                        tracing::debug!(
-                            "skipping transcript {} because we have a NM transcript",
-                            &full_ac
-                        );
+                        let d = Discard {
+                            kind: GeneOrTranscript::Transcript,
+                            reason: Reason::NMTranscript,
+                            id: full_ac.clone(),
+                            gene_name: None,
+                        };
+                        writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
                         continue; // skip NR transcript as we have NM one
                     } else if ac.starts_with('X') {
-                        writeln!(
-                            report_file,
-                            "skipped transcript {} because it is an XR/XM transcript",
-                            &full_ac
-                        )?;
-                        tracing::debug!(
-                            "skipping transcript {} because it is an XR/XM transcript",
-                            &full_ac
-                        );
+                        let d = Discard {
+                            kind: GeneOrTranscript::Transcript,
+                            reason: Reason::XTranscript,
+                            id: full_ac.clone(),
+                            gene_name: None,
+                        };
+                        writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
                         continue; // skip XR/XM transcript
                     } else {
                         // Check transcript's CDS length for being multiple of 3 and skip unless
@@ -874,8 +903,13 @@ fn filter_transcripts(
                                 tx.stop_codon.expect("must be some if start_codon is some");
                             let cds_len = cds_end - cds_start;
                             if cds_len % 3 != 0 {
-                                tracing::debug!("skipping transcript {} because its CDS length is not a multiple of 3", &full_ac);
-                                writeln!(report_file, "skipped transcript {} because its CDS length {} is not a multiple of 3", &full_ac, cds_len)?;
+                                let d = Discard {
+                                    kind: GeneOrTranscript::Transcript,
+                                    reason: Reason::InvalidCdsLength,
+                                    id: full_ac.clone(),
+                                    gene_name: None,
+                                };
+                                writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
                                 continue;
                             }
                         }
@@ -894,11 +928,13 @@ fn filter_transcripts(
             if !next_tx_ids.is_empty() {
                 tmp.insert(hgnc_id.clone(), next_tx_ids);
             } else {
-                writeln!(
-                    report_file,
-                    "skipped gene {} because we have no transcripts left",
-                    hgnc_id
-                )?;
+                let d = Discard {
+                    kind: GeneOrTranscript::Gene,
+                    reason: Reason::NoTranscript,
+                    id: hgnc_id.clone(),
+                    gene_name: None,
+                };
+                writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
             }
         }
 
@@ -913,7 +949,11 @@ fn filter_transcripts(
         "  => {} transcripts left",
         transcripts.len().separate_with_commas()
     );
-    writeln!(report_file, "total transcripts\t{}", transcripts.len())?;
+    writeln!(
+        report_file,
+        r#"{{ total_transcripts: {} }}"#,
+        transcripts.len()
+    )?;
 
     let genes: indexmap::IndexMap<_, _> = genes
         .into_iter()
