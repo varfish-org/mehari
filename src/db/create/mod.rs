@@ -137,7 +137,7 @@ fn load_and_extract(
     );
     writeln!(
         report_file,
-        "{{ 'transcripts_kept': {} }}",
+        r#"{{ "#transcripts_kept": {} }}",
         transcripts.len()
     )?;
     Ok(())
@@ -259,6 +259,9 @@ enum Reason {
     XTranscript,
     InvalidCdsLength,
     NoTranscript,
+    MissingSequence,
+    CdsEndAfterSequenceEnd,
+    MissingStopCodon,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -446,12 +449,13 @@ fn build_protobuf(
                     seq
                 }
             } else {
-                tracing::debug!("Skipping transcript {} because of missing sequence", tx_id);
-                writeln!(
-                    report_file,
-                    "skip transcript because it has no sequence\t{}",
-                    tx_id
-                )?;
+                let d = Discard {
+                    kind: GeneOrTranscript::Transcript,
+                    reason: Reason::MissingSequence,
+                    id: tx_id.clone(),
+                    gene_name: None,
+                };
+                writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
                 tx_skipped_noseq.insert(tx_id.clone());
                 continue;
             };
@@ -461,19 +465,13 @@ fn build_protobuf(
                 let cds_start = cds_start as usize;
                 let cds_end = tx.stop_codon.expect("must be some if start_codon is some") as usize;
                 if cds_end > seq.len() {
-                    tracing::error!(
-                        "CDS end {} is larger than sequence length {} for {}",
-                        cds_end,
-                        seq.len(),
-                        tx_id
-                    );
-                    writeln!(
-                        report_file,
-                        "skip transcript CDS end {} is longer than sequence length {} for\t{}",
-                        cds_end,
-                        seq.len(),
-                        tx_id
-                    )?;
+                    let d = Discard {
+                        kind: GeneOrTranscript::Transcript,
+                        reason: Reason::CdsEndAfterSequenceEnd, // (cds_end, seq.len())
+                        id: tx_id.clone(),
+                        gene_name: None,
+                    };
+                    writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
                     continue;
                 }
                 let tx_seq_to_translate = &seq[cds_start..cds_end];
@@ -481,15 +479,13 @@ fn build_protobuf(
                     translate_cds(tx_seq_to_translate, true, "*", TranslationTable::Standard)?;
                 if (!is_mt && !aa_sequence.ends_with('*')) || (is_mt && !aa_sequence.contains('*'))
                 {
-                    tracing::debug!(
-                        "Skipping transcript {} because of missing stop codon in translated CDS",
-                        tx_id
-                    );
-                    writeln!(
-                        report_file,
-                        "Skipping transcript {} because of missing stop codon in translated CDS",
-                        tx_id
-                    )?;
+                    let d = Discard {
+                        kind: GeneOrTranscript::Transcript,
+                        reason: Reason::MissingStopCodon,
+                        id: tx_id.clone(),
+                        gene_name: None,
+                    };
+                    writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
                     tx_skipped_nostop.insert(tx_id.clone());
                     continue;
                 }
@@ -538,15 +534,13 @@ fn build_protobuf(
                 })
                 .collect::<Vec<_>>();
             if tx_ids.is_empty() {
-                tracing::debug!(
-                    "Skipping gene {} as all transcripts have been removed.",
-                    gene_symbol
-                );
-                writeln!(
-                    report_file,
-                    "skip gene from protobuf because all transcripts have been removed\t{}",
-                    gene_symbol
-                )?;
+                let d = Discard {
+                    kind: GeneOrTranscript::Gene,
+                    reason: Reason::NoTranscript,
+                    id: gene_symbol.clone(),
+                    gene_name: gene.gene_symbol.clone(),
+                };
+                writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
                 continue;
             }
 
@@ -955,7 +949,7 @@ fn filter_transcripts(
     );
     writeln!(
         report_file,
-        r#"{{ total_transcripts: {} }}"#,
+        r#"{{ "total_transcripts": {} }}"#,
         transcripts.len()
     )?;
 
@@ -1035,7 +1029,7 @@ fn load_cdot_files(
     );
     writeln!(
         report_file,
-        "total genes\t{}\ntotal transcripts\t{}",
+        r#"{{ "total_genes": {}, "total_transcripts": {} }}"#,
         transcripts.len(),
         transcript_ids_for_gene.len()
     )?;
