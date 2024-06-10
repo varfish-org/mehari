@@ -5,13 +5,17 @@ use std::io::BufWriter;
 use std::path::Path;
 use std::{io::Write, path::PathBuf, time::Instant};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 use clap::Parser;
 use hgvs::data::cdot::json::models;
+use hgvs::data::cdot::json::models::{Gene, Tag, Transcript};
 use hgvs::sequences::{translate_cds, TranslationTable};
+use indexmap::{IndexMap, IndexSet};
 use indicatif::{ProgressBar, ProgressStyle};
+use itertools::{Either, Itertools};
 use prost::Message;
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
+use serde::Serialize;
 use thousands::Separable;
 
 use crate::common::{trace_rss_now, GenomeRelease};
