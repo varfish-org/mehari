@@ -1,6 +1,7 @@
 //! Transcript database.
 
 use std::fs::File;
+use std::io::BufWriter;
 use std::path::Path;
 use std::{io::Write, path::PathBuf, time::Instant};
 
@@ -76,19 +77,20 @@ fn load_and_extract(
     transcripts: &mut indexmap::IndexMap<String, models::Transcript>,
     genome_release: GenomeRelease,
     cdot_version: &mut String,
-    report_file: &mut File,
-    mt_tx_ids: &mut indexmap::IndexSet<String>,
-) -> Result<(), anyhow::Error> {
-    writeln!(report_file, "genome_release\t{:?}", genome_release)?;
-    let txid_to_label = if let Some(label_tsv_path) = label_tsv_path {
-        tracing::info!("Loading label TSV file...");
-        writeln!(report_file, "label_tsv_path\t{:?}", label_tsv_path)?;
-
-        let mut rdr = csv::ReaderBuilder::new()
-            .delimiter(b'\t')
-            .comment(Some(b'#'))
-            .has_headers(false)
-            .from_path(label_tsv_path)?;
+    report_file: &mut impl Write,
+    mt_tx_ids: &mut IndexSet<String>,
+) -> Result<(), Error> {
+    writeln!(
+        report_file,
+        r#"{{ "genome_release": "{:?}" }}"#,
+        genome_release
+    )?;
+    writeln!(
+        report_file,
+        r#"{{ "label_tsv_path": "{:?}" }}"#,
+        label_tsv_path
+    )?;
+    writeln!(report_file, r#"{{ "cdot_json_path": {:?} }}"#, json_path)?;
 
         let mut txid_to_label = indexmap::IndexMap::new();
         for result in rdr.deserialize() {
@@ -169,7 +171,7 @@ fn load_and_extract(
     }
     writeln!(
         report_file,
-        "mane_select_transcripts\t{}\nmane_plus_clinical_transcripts\t{}",
+        r#"{{ "mane_select_transcripts": {}, "mane_plus_clinical_transcripts": {} }}"#,
         n_mane_select, n_mane_plus_clinical
     )?;
     tracing::info!(
@@ -202,17 +204,19 @@ fn load_and_extract(
     }
     writeln!(
         report_file,
-        "genes with gene_symbol, map_location, hgnc\t{}",
+        r#"{{ "total_genes": {}, "genes_kept": {} }}"#,
+        c_genes.len(),
         genes.len()
     )?;
-    tracing::info!(
-        "Processed {} genes; total gene count: {}",
-        c_genes.len().separate_with_commas(),
-        genes.len()
-    );
-    tracing::debug!(
-        "some 10 genes (HGNC IDs): {:?}",
-        genes.keys().take(10).collect::<Vec<_>>()
+    writeln!(report_file, r#"{{ "total_transcripts": {} }}"#, c_txs.len())?;
+    process_transcripts(
+        transcript_ids_for_gene,
+        genes,
+        transcripts,
+        genome_release,
+        c_txs,
+        txid_to_label,
+        report_file,
     );
     tracing::debug!(
         "some 10 genes (symbols): {:?}",
@@ -223,8 +227,26 @@ fn load_and_extract(
             .collect::<Vec<_>>()
     );
 
-    tracing::info!("Processing transcripts");
-    writeln!(report_file, "total_transcripts\t{}", c_txs.len())?;
+fn process_transcripts(
+    transcript_ids_for_gene: &mut IndexMap<String, Vec<String>>,
+    genes: &mut IndexMap<String, Gene>,
+    transcripts: &mut IndexMap<String, Transcript>,
+    genome_release: GenomeRelease,
+    c_txs: IndexMap<String, Transcript>,
+    txid_to_label: Option<IndexMap<String, Vec<Tag>>>,
+    report_file: &mut impl Write,
+) {
+    let missing_hgnc =
+        |tx: &Transcript| -> bool { tx.hgnc.is_none() || tx.hgnc.as_ref().unwrap().is_empty() };
+    let deselected_gene = |tx: &Transcript| -> bool {
+        !genes.contains_key(&format!("HGNC:{}", tx.hgnc.as_ref().unwrap()))
+    };
+    let empty_genome_builds = |tx: &Transcript| -> bool { tx.genome_builds.is_empty() };
+    let filters: [(&dyn Fn(&Transcript) -> bool, Reason); 3] = [
+        (&missing_hgnc, Reason::MissingHgncId),
+        (&deselected_gene, Reason::DeselectedGene),
+        (&empty_genome_builds, Reason::EmptyGenomeBuilds),
+    ];
     c_txs
         .values()
         .map(|tx| models::Transcript {
@@ -336,7 +358,7 @@ fn build_protobuf(
     tx_data: TranscriptData,
     is_silent: bool,
     genome_release: GenomeRelease,
-    report_file: &mut File,
+    report_file: &mut impl Write,
 ) -> Result<(), anyhow::Error> {
     let TranscriptData {
         genes,
@@ -721,7 +743,7 @@ fn filter_transcripts(
     tx_data: TranscriptData,
     max_genes: Option<u32>,
     gene_symbols: &Option<Vec<String>>,
-    report_file: &mut File,
+    report_file: &mut impl Write,
 ) -> Result<TranscriptData, anyhow::Error> {
     tracing::info!("Filtering transcripts ...");
     let start = Instant::now();
@@ -938,7 +960,7 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
 /// Load the cdot JSON files.
 fn load_cdot_files(
     args: &Args,
-    report_file: &mut File,
+    report_file: &mut impl Write,
 ) -> Result<(indexmap::IndexSet<String>, TranscriptData), anyhow::Error> {
     tracing::info!("Loading cdot JSON files ...");
     let start = Instant::now();
@@ -986,7 +1008,8 @@ fn load_cdot_files(
 
 /// Main entry point for `db create txs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
-    let mut report_file = File::create(format!("{}.report", args.path_out.display()))?;
+    let mut report_file =
+        File::create(format!("{}.report.jsonl", args.path_out.display())).map(BufWriter::new)?;
     tracing::info!(
         "Building transcript and sequence database file\ncommon args: {:#?}\nargs: {:#?}",
         common,
