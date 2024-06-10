@@ -27,7 +27,8 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = "4.5"
-annonars = { git = "https://github.com/varfish-org/annonars", rev = "3e3397efa3d81f9b0731b714305412f8e4daa9bc" }
+# annonars = { git = "https://github.com/varfish-org/annonars", rev = "3e3397efa3d81f9b0731b714305412f8e4daa9bc" }
+annonars = { path = "../annonars" }
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bgzip = "0.3"
@@ -58,7 +59,7 @@ prost = "0.12"
 quick_cache = "0.4"
 rand = "0.8"
 rand_core = "0.6"
-rocksdb = { version = "0.22", features = ["multi-threaded-cf"] }
+rocksdb = { version = "0.21", features = ["multi-threaded-cf"] }
 rustc-hash = "1.1"
 seqrepo = { git = "https://github.com/varfish-org/seqrepo-rs", rev = "7d8824a0f600e72296aa7e9e5c5143cdba7e1234", features = ["cached"] }
 serde_json = "1.0"
