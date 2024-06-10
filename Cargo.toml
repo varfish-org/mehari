@@ -47,6 +47,7 @@ futures = "0.3"
 hgvs = { git = "https://github.com/varfish-org/hgvs-rs", rev = "7b9a3ecdb5978b26f19b1b6d365537adb236eab1" }
 indexmap = { version = "2.2", features = ["serde"] }
 indicatif = "0.17"
+itertools = "*"
 jsonl = "4.0"
 lazy_static = "1.4"
 log = "0.4"
