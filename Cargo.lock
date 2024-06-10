@@ -2644,7 +2644,7 @@ dependencies = [
  "lazy_static",
  "log",
  "nom",
- "noodles 0.75.0",
+ "noodles 0.76.0",
  "parse-display",
  "pbjson",
  "pbjson-build",
@@ -2824,9 +2824,23 @@ version = "0.75.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ad98dd2ec9ff133dedc622d512c18f702636bc34ef1947cda3818469d7f048a"
 dependencies = [
+ "noodles-bed",
+ "noodles-bgzf",
+ "noodles-core",
+ "noodles-csi",
+ "noodles-gff",
+ "noodles-tabix",
+ "noodles-vcf 0.58.0",
+]
+
+[[package]]
+name = "noodles"
+version = "0.76.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a346e5a6000033512105890243ff310a307637ae9d9de317f7480e136549a4d"
+dependencies = [
  "noodles-bam",
  "noodles-bcf",
- "noodles-bed",
  "noodles-bgzf",
  "noodles-core",
  "noodles-cram",
@@ -2836,18 +2850,7 @@ dependencies = [
  "noodles-gff",
  "noodles-sam",
  "noodles-tabix",
- "noodles-vcf",
-]
-
-[[package]]
-name = "noodles"
-version = "0.76.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a346e5a6000033512105890243ff310a307637ae9d9de317f7480e136549a4d"
-dependencies = [
- "noodles-bgzf",
- "noodles-core",
- "noodles-fasta",
+ "noodles-vcf 0.59.0",
 ]
 
 [[package]]
@@ -2871,9 +2874,9 @@ dependencies = [
 
 [[package]]
 name = "noodles-bcf"
-version = "0.55.0"
+version = "0.56.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdaa37b4c7021a75325799a6f317815fbfd5cbe0ff4cfc203e3a09dec97e50cd"
+checksum = "84399185965e44a6fe2ea499cf2bc81e4e687bde7b39de5e8fa5b72c6a0a0982"
 dependencies = [
  "byteorder",
  "futures",
@@ -2881,7 +2884,7 @@ dependencies = [
  "noodles-bgzf",
  "noodles-core",
  "noodles-csi",
- "noodles-vcf",
+ "noodles-vcf 0.59.0",
  "tokio",
 ]
 
@@ -3035,6 +3038,21 @@ name = "noodles-vcf"
 version = "0.58.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c76dee29d04abbd913da7866909c7d80416d62df0407f4d2bad262c02a4cfade"
+dependencies = [
+ "indexmap",
+ "memchr",
+ "noodles-bgzf",
+ "noodles-core",
+ "noodles-csi",
+ "noodles-tabix",
+ "percent-encoding",
+]
+
+[[package]]
+name = "noodles-vcf"
+version = "0.59.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7363b498e8a015db55777ccbc5cb0036182175851443c62ef847c7152c8a9919"
 dependencies = [
  "futures",
  "indexmap",
