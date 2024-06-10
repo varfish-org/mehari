@@ -371,8 +371,8 @@ fn build_protobuf(
 
     // Construct sequence database.
     tracing::info!("  Constructing sequence database ...");
-    let mut tx_skipped_noseq = indexmap::IndexSet::new(); // skipped because of missing sequence
-    let mut tx_skipped_nostop = indexmap::IndexSet::new(); // skipped because of missing stop codon
+    let mut tx_skipped_noseq = IndexSet::new(); // skipped because of missing sequence
+    let mut tx_skipped_nostop = IndexSet::new(); // skipped because of missing stop codon
     let seq_db = {
         // Insert into protobuf and keep track of pointers in `Vec`s.
         let mut aliases = Vec::new();
@@ -780,7 +780,7 @@ fn filter_transcripts(
     };
 
     // We keep track of the chosen transcript identifiers.
-    let mut chosen = indexmap::IndexSet::new();
+    let mut chosen = IndexSet::new();
     // Filter map from gene symbol to Vec of chosen transcript identifiers.
     let transcript_ids_for_gene = {
         let mut tmp = indexmap::IndexMap::new();
@@ -814,7 +814,7 @@ fn filter_transcripts(
             versioned.sort_by(|a, b| b.1.cmp(&a.1));
 
             // Build `next_tx_ids`.
-            let mut seen_ac = indexmap::IndexSet::new();
+            let mut seen_ac = IndexSet::new();
             let mut next_tx_ids = Vec::new();
             for (ac, version) in versioned {
                 let full_ac = format!("{}.{}", &ac, version);
@@ -961,14 +961,14 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
 fn load_cdot_files(
     args: &Args,
     report_file: &mut impl Write,
-) -> Result<(indexmap::IndexSet<String>, TranscriptData), anyhow::Error> {
+) -> Result<(IndexSet<String>, TranscriptData), anyhow::Error> {
     tracing::info!("Loading cdot JSON files ...");
     let start = Instant::now();
     let mut genes = indexmap::IndexMap::new();
     let mut transcripts = indexmap::IndexMap::new();
     let mut transcript_ids_for_gene = indexmap::IndexMap::new();
     let mut cdot_version = String::new();
-    let mut mt_tx_ids = indexmap::IndexSet::new();
+    let mut mt_tx_ids = IndexSet::new();
     for json_path in &args.path_cdot_json {
         load_and_extract(
             json_path,
