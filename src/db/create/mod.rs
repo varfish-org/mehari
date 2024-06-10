@@ -91,8 +91,8 @@ fn load_and_extract(
     )?;
     writeln!(
         report_file,
-        r#"{{ "label_tsv_path": "{:?}" }}"#,
-        label_tsv_path
+        r#"{{ "label_tsv_path": {:?} }}"#,
+        label_tsv_path.and_then(|p| p.to_str()).unwrap_or("")
     )?;
     writeln!(report_file, r#"{{ "cdot_json_path": {:?} }}"#, json_path)?;
 
