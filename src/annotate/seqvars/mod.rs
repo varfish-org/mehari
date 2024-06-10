@@ -13,7 +13,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::annotate::genotype_string;
-use annonars::clinvar_minimal;
 use annonars::common::cli::is_canonical;
 use annonars::common::keys;
 use annonars::freqs::serialized::{auto, mt, xy};
@@ -226,19 +225,11 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
     );
 
     header_out.infos_mut().insert(
-        "clinvar_clinsig".into(),
+        "clinvar_germline_classification".into(),
         Map::<Info>::new(
-            Number::Count(1),
+            Number::Unknown,
             InfoType::String,
-            "ClinVar clinical significance (one highest significance per VCV)",
-        ),
-    );
-    header_out.infos_mut().insert(
-        "clinvar_rcv".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::String,
-            "ClinVar RCV accession (corresponds to clinvar_clinsig)",
+            "ClinVar clinical significance",
         ),
     );
     header_out.infos_mut().insert(
@@ -414,35 +405,48 @@ where
     T: ThreadMode,
 {
     if let Some(raw_value) = db.get_cf(cf, key)? {
-        let clinvar_record =
-            annonars::pbs::clinvar::minimal::Record::decode(&mut std::io::Cursor::new(&raw_value))?;
+        let record_list = annonars::pbs::clinvar::minimal::ExtractedVcvRecordList::decode(
+            &mut std::io::Cursor::new(&raw_value),
+        )?;
 
-        let annonars::pbs::clinvar::minimal::Record {
-            vcv,
-            reference_assertions,
-            ..
-        } = clinvar_record;
-        if let Some(reference_assertion) = reference_assertions.first() {
-            let annonars::pbs::clinvar::minimal::ReferenceAssertion {
-                rcv,
-                clinical_significance,
-                ..
-            } = reference_assertion.clone();
-
-            let clinical_significance: clinvar_minimal::cli::reading::ClinicalSignificance =
-                clinical_significance.into();
-
-            vcf_record.info_mut().insert(
-                "clinvar_clinsig".into(),
-                Some(field::Value::String(clinical_significance.to_string())),
-            );
-            vcf_record
-                .info_mut()
-                .insert("clinvar_rcv".into(), Some(field::Value::String(rcv)));
-            vcf_record
-                .info_mut()
-                .insert("clinvar_vcv".into(), Some(field::Value::String(vcv)));
+        let mut clinvar_vcvs = Vec::new();
+        let mut clinvar_germline_classifications = Vec::new();
+        for clinvar_record in record_list.records.iter() {
+            let accession = clinvar_record.accession.as_ref().expect("must have VCV");
+            let vcv = format!("{}.{}", accession.accession, accession.version);
+            let classifications = clinvar_record
+                .classifications
+                .as_ref()
+                .expect("must have classifications");
+            if let Some(germline_classification) = &classifications.germline_classification {
+                let description = germline_classification
+                    .description
+                    .as_ref()
+                    .expect("description missing")
+                    .to_string();
+                clinvar_vcvs.push(vcv);
+                clinvar_germline_classifications.push(description);
+            }
         }
+
+        vcf_record.info_mut().insert(
+            "clinvar_vcv".into(),
+            Some(field::Value::Array(field::value::Array::String(
+                clinvar_vcvs
+                    .into_iter()
+                    .map(|s| Some(s))
+                    .collect::<Vec<_>>(),
+            ))),
+        );
+        vcf_record.info_mut().insert(
+            "clinvar_germline_classification".into(),
+            Some(field::Value::Array(field::value::Array::String(
+                clinvar_germline_classifications
+                    .into_iter()
+                    .map(|s| Some(s))
+                    .collect::<Vec<_>>(),
+            ))),
+        );
     }
 
     Ok(())
@@ -692,12 +696,21 @@ impl GenotypeCalls {
                 result.push_str(&format!("\"\"\"dp\"\"\":{}", dp));
             }
 
+            // The DRAGEN variant caller writes out FORMAT/SQ for chrMT ("somatic quality") as
+            // it uses the somatic genotyping model for mitochondrial callers.  We just write
+            // this out as GQ for now.
             if let Some(gq) = &entry.gq {
                 if prev {
                     result.push(',');
                 }
                 // prev = true;
                 result.push_str(&format!("\"\"\"gq\"\"\":{}", gq));
+            } else if let Some(sq) = &entry.sq {
+                if prev {
+                    result.push(',');
+                }
+                // prev = true;
+                result.push_str(&format!("\"\"\"gq\"\"\":{}", sq.round() as i32));
             }
 
             result.push('}');
@@ -1220,17 +1233,8 @@ impl VarFishSeqvarTsvWriter {
     ) -> Result<(), anyhow::Error> {
         tsv_record.in_clinvar = record
             .info()
-            .get("clinvar_clinsig")
-            .unwrap_or_default()
-            .map(|v| match v {
-                field::Value::String(value) => {
-                    clinvar_minimal::cli::reading::ClinicalSignificance::from_str(value).unwrap_or(
-                        clinvar_minimal::cli::reading::ClinicalSignificance::UncertainSignificance,
-                    ) >= clinvar_minimal::cli::reading::ClinicalSignificance::LikelyPathogenic
-                }
-                _ => panic!("Unexpected value type for INFO/clinvar_clinsig"),
-            })
-            .unwrap_or_default();
+            .get("clinvar_germline_classification")
+            .is_some();
 
         Ok(())
     }
