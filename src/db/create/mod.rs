@@ -94,13 +94,9 @@ fn load_and_extract(
         "{}",
         serde_json::to_string(&serde_json::json!({"label_tsv_path": label_tsv_path}))?
     )?;
-    writeln!(
-        report_file,
-        "{}",
-        serde_json::to_string(&serde_json::json!({"cdot_json_path": json_path}))?
-    )?;
 
     let txid_to_label = label_tsv_path.map(txid_to_label).transpose()?;
+    let source = json_path.to_str().expect("Invalid path");
     let (c_genes, c_txs, c_version) = load_cdot_transcripts(json_path)?;
     *cdot_version = c_version;
 
@@ -116,7 +112,7 @@ fn load_and_extract(
         )?
     )?;
 
-    let (keep, discard) = filter_genes(&c_genes, &genes_chrmt);
+    let (keep, discard) = filter_genes(&source, &c_genes, &genes_chrmt);
     for (_gene_id, gene) in keep {
         let hgnc_id = format!("HGNC:{}", gene.hgnc.as_ref().unwrap());
         transcript_ids_for_gene.entry(hgnc_id.clone()).or_default();
@@ -134,6 +130,7 @@ fn load_and_extract(
     )?;
     let total_transcripts = c_txs.len();
     process_transcripts(
+        source,
         transcript_ids_for_gene,
         genes,
         transcripts,
@@ -153,6 +150,7 @@ fn load_and_extract(
 }
 
 fn process_transcripts(
+    source: &str,
     transcript_ids_for_gene: &mut IndexMap<String, Vec<String>>,
     genes: &mut IndexMap<String, Gene>,
     transcripts: &mut IndexMap<String, Transcript>,
@@ -192,6 +190,7 @@ fn process_transcripts(
             for (filter, reason) in &filters {
                 if filter(tx) {
                     let d = Discard {
+                        source: source.into(),
                         kind: GeneOrTranscript::Transcript,
                         reason: *reason,
                         id: tx.id.clone(),
@@ -260,7 +259,7 @@ fn process_transcripts(
 #[derive(Debug, Clone, Copy, Serialize)]
 enum Reason {
     MissingHgncId,
-    NotMTandMissingMapLocation,
+    // NotMTandMissingMapLocation,
     DeselectedGene,
     EmptyGenomeBuilds,
     OldVersion,
@@ -281,6 +280,7 @@ enum GeneOrTranscript {
 
 #[derive(Debug, Clone, Serialize)]
 struct Discard {
+    source: String,
     kind: GeneOrTranscript,
     reason: Reason,
     id: String,
@@ -288,8 +288,9 @@ struct Discard {
 }
 
 fn filter_genes(
+    source: &str,
     c_genes: &IndexMap<String, Gene>,
-    genes_chrmt: &IndexSet<String>,
+    _genes_chrmt: &IndexSet<String>,
 ) -> (Vec<(String, Gene)>, Vec<Discard>) {
     let missing_hgnc = |_gene_id: &str, gene: &Gene| -> bool {
         gene.hgnc.is_none() || gene.hgnc.as_ref().unwrap().is_empty()
@@ -310,6 +311,7 @@ fn filter_genes(
         for (filter, reason) in &filters {
             if filter(gene_id, gene) {
                 return Either::Right(Discard {
+                    source: source.into(),
                     kind: GeneOrTranscript::Gene,
                     reason: *reason,
                     id: gene_id.to_string(),
@@ -459,6 +461,7 @@ fn build_protobuf(
                 }
             } else {
                 let d = Discard {
+                    source: "protobuf".into(),
                     kind: GeneOrTranscript::Transcript,
                     reason: Reason::MissingSequence,
                     id: tx_id.clone(),
@@ -475,6 +478,7 @@ fn build_protobuf(
                 let cds_end = tx.stop_codon.expect("must be some if start_codon is some") as usize;
                 if cds_end > seq.len() {
                     let d = Discard {
+                        source: "protobuf".into(),
                         kind: GeneOrTranscript::Transcript,
                         reason: Reason::CdsEndAfterSequenceEnd, // (cds_end, seq.len())
                         id: tx_id.clone(),
@@ -489,6 +493,7 @@ fn build_protobuf(
                 if (!is_mt && !aa_sequence.ends_with('*')) || (is_mt && !aa_sequence.contains('*'))
                 {
                     let d = Discard {
+                        source: "protobuf".into(),
                         kind: GeneOrTranscript::Transcript,
                         reason: Reason::MissingStopCodon,
                         id: tx_id.clone(),
@@ -544,6 +549,7 @@ fn build_protobuf(
                 .collect::<Vec<_>>();
             if tx_ids.is_empty() {
                 let d = Discard {
+                    source: "protobuf".into(),
                     kind: GeneOrTranscript::Gene,
                     reason: Reason::NoTranscript,
                     id: gene_symbol.clone(),
@@ -768,9 +774,9 @@ fn build_protobuf(
 /// Data as loaded from cdot after processing.
 #[derive(Debug)]
 struct TranscriptData {
-    pub genes: indexmap::IndexMap<String, models::Gene>,
-    pub transcripts: indexmap::IndexMap<String, models::Transcript>,
-    pub transcript_ids_for_gene: indexmap::IndexMap<String, Vec<String>>,
+    pub genes: IndexMap<String, Gene>,
+    pub transcripts: IndexMap<String, Transcript>,
+    pub transcript_ids_for_gene: IndexMap<String, Vec<String>>,
 }
 
 /// Filter transcripts for gene.
@@ -871,6 +877,7 @@ fn filter_transcripts(
                     #[allow(clippy::if_same_then_else)]
                     if seen_ac.contains(&(ac.clone(), release.clone())) {
                         let d = Discard {
+                            source: "aggregated_cdot".into(),
                             kind: GeneOrTranscript::Transcript,
                             reason: Reason::OldVersion,
                             id: full_ac.clone(),
@@ -880,6 +887,7 @@ fn filter_transcripts(
                         continue; // skip, already have later version
                     } else if ac.starts_with("NR_") && seen_nm {
                         let d = Discard {
+                            source: "aggregated_cdot".into(),
                             kind: GeneOrTranscript::Transcript,
                             reason: Reason::NMTranscript,
                             id: full_ac.clone(),
@@ -889,6 +897,7 @@ fn filter_transcripts(
                         continue; // skip NR transcript as we have NM one
                     } else if ac.starts_with('X') {
                         let d = Discard {
+                            source: "aggregated_cdot".into(),
                             kind: GeneOrTranscript::Transcript,
                             reason: Reason::XTranscript,
                             id: full_ac.clone(),
@@ -911,6 +920,7 @@ fn filter_transcripts(
                             let cds_len = cds_end - cds_start;
                             if cds_len % 3 != 0 {
                                 let d = Discard {
+                                    source: "aggregated_cdot".into(),
                                     kind: GeneOrTranscript::Transcript,
                                     reason: Reason::InvalidCdsLength,
                                     id: full_ac.clone(),
@@ -936,6 +946,7 @@ fn filter_transcripts(
                 tmp.insert(hgnc_id.clone(), next_tx_ids);
             } else {
                 let d = Discard {
+                    source: "aggregated_cdot".into(),
                     kind: GeneOrTranscript::Gene,
                     reason: Reason::NoTranscript,
                     id: hgnc_id.clone(),
