@@ -73,7 +73,7 @@ struct LabelEntry {
 
 /// Load and extract from cdot JSON.
 #[allow(clippy::too_many_arguments)]
-fn load_and_extract(
+fn load_and_extract_into(
     json_path: &Path,
     label_tsv_path: &Option<&Path>,
     transcript_ids_for_gene: &mut IndexMap<String, Vec<String>>,
@@ -112,11 +112,19 @@ fn load_and_extract(
         report_file,
         "{}",
         serde_json::to_string(
-            &serde_json::json!({"source": source, "n_mane_select": n_mane_select, "n_mane_plus_clinical": n_mane_plus_clinical})
+            &serde_json::json!({"source": source, "n_chr_mt": genes_chrmt.len(), "n_mane_select": n_mane_select, "n_mane_plus_clinical": n_mane_plus_clinical})
         )?
     )?;
 
     let (keep, discard) = filter_genes(&source, &c_genes, &genes_chrmt);
+    writeln!(
+        report_file,
+        "{}",
+        serde_json::to_string(
+            &serde_json::json!({"source": source, "kept": keep.len(), "discarded": discard.len()})
+        )?
+    )?;
+
     for (_gene_id, gene) in keep {
         let hgnc_id = format!("HGNC:{}", gene.hgnc.as_ref().unwrap());
         transcript_ids_for_gene.entry(hgnc_id.clone()).or_default();
@@ -1025,16 +1033,16 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
 fn load_cdot_files(
     args: &Args,
     report_file: &mut impl Write,
-) -> Result<(IndexSet<String>, TranscriptData), anyhow::Error> {
+) -> Result<(IndexSet<String>, TranscriptData), Error> {
     tracing::info!("Loading cdot JSON files ...");
     let start = Instant::now();
-    let mut genes = indexmap::IndexMap::new();
-    let mut transcripts = indexmap::IndexMap::new();
-    let mut transcript_ids_for_gene = indexmap::IndexMap::new();
+    let mut genes = IndexMap::new();
+    let mut transcripts = IndexMap::new();
+    let mut transcript_ids_for_gene = IndexMap::new();
     let mut cdot_version = String::new();
     let mut mt_tx_ids = IndexSet::new();
     for json_path in &args.path_cdot_json {
-        load_and_extract(
+        load_and_extract_into(
             json_path,
             &args.path_mane_txs_tsv.as_ref().map(|p| p.as_ref()),
             &mut transcript_ids_for_gene,
@@ -1057,7 +1065,7 @@ fn load_cdot_files(
         report_file,
         "{}",
         serde_json::to_string(
-            &serde_json::json!({"source": "aggregated_cdot", "total_genes": transcripts.len(), "total_transcripts": transcript_ids_for_gene.len()})
+            &serde_json::json!({"source": "aggregated_cdot", "total_genes": transcripts.len(), "total_transcripts": transcripts.len(), "total_transcript_ids_for_gene": transcript_ids_for_gene.len()})
         )?
     )?;
 
@@ -1114,7 +1122,7 @@ pub mod test {
     use crate::db::create::TranscriptData;
     use crate::db::dump;
 
-    use super::{filter_transcripts, load_and_extract, run, Args};
+    use super::{filter_transcripts, load_and_extract_into, run, Args};
 
     #[test]
     fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {
@@ -1127,7 +1135,7 @@ pub mod test {
         let mut cdot_version = String::new();
         let path_tsv = Path::new("tests/data/db/create/txs/txs_main.tsv");
         let mut mt_tx_ids = indexmap::IndexSet::new();
-        load_and_extract(
+        load_and_extract_into(
             Path::new("tests/data/db/create/txs/cdot-0.2.22.refseq.grch37_grch38.brca1_opa1.json"),
             &Some(path_tsv),
             &mut transcript_ids_for_gene,
