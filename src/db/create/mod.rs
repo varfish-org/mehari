@@ -87,12 +87,16 @@ fn load_and_extract(
     writeln!(
         report_file,
         "{}",
-        serde_json::to_string(&serde_json::json!({"genome_release": genome_release}))?
+        serde_json::to_string(
+            &serde_json::json!({"source": json_path, "genome_release": genome_release})
+        )?
     )?;
     writeln!(
         report_file,
         "{}",
-        serde_json::to_string(&serde_json::json!({"label_tsv_path": label_tsv_path}))?
+        serde_json::to_string(
+            &serde_json::json!({"source": json_path, "label_tsv_path": label_tsv_path})
+        )?
     )?;
 
     let txid_to_label = label_tsv_path.map(txid_to_label).transpose()?;
@@ -108,7 +112,7 @@ fn load_and_extract(
         report_file,
         "{}",
         serde_json::to_string(
-            &serde_json::json!({"n_mane_select": n_mane_select, "n_mane_plus_clinical": n_mane_plus_clinical})
+            &serde_json::json!({"source": source, "n_mane_select": n_mane_select, "n_mane_plus_clinical": n_mane_plus_clinical})
         )?
     )?;
 
@@ -125,7 +129,7 @@ fn load_and_extract(
         report_file,
         "{}",
         serde_json::to_string(
-            &serde_json::json!({"total_genes": c_genes.len(), "genes_kept": genes.len()})
+            &serde_json::json!({"source": source, "total_genes": c_genes.len(), "genes_kept": genes.len()})
         )?,
     )?;
     let total_transcripts = c_txs.len();
@@ -143,7 +147,7 @@ fn load_and_extract(
         report_file,
         "{}",
         serde_json::to_string(
-            &serde_json::json!({"total_transcripts": total_transcripts, "transcripts_kept": transcripts.len()})
+            &serde_json::json!({"source": source, "total_transcripts": total_transcripts, "transcripts_kept": transcripts.len()})
         )?,
     )?;
     Ok(())
@@ -263,8 +267,8 @@ enum Reason {
     DeselectedGene,
     EmptyGenomeBuilds,
     OldVersion,
-    NMTranscript,
-    XTranscript,
+    UseNmTranscriptInsteadOfNr,
+    PredictedTranscript,
     InvalidCdsLength,
     NoTranscript,
     MissingSequence,
@@ -327,7 +331,7 @@ fn gather_transcript_stats(
     mt_tx_ids: &mut IndexSet<String>,
     c_txs: &IndexMap<String, Transcript>,
 ) -> (IndexSet<String>, i32, i32) {
-    let mut genes_chrmt = indexmap::IndexSet::new();
+    let mut genes_chrmt = IndexSet::new();
     let mut n_mane_select = 0;
     let mut n_mane_plus_clinical = 0;
     for tx in c_txs.values() {
@@ -407,7 +411,7 @@ fn load_cdot_transcripts(
 fn build_protobuf(
     path_out: &Path,
     seqrepo: SeqRepo,
-    mt_tx_ids: indexmap::IndexSet<String>,
+    mt_tx_ids: IndexSet<String>,
     tx_data: TranscriptData,
     is_silent: bool,
     genome_release: GenomeRelease,
@@ -889,7 +893,7 @@ fn filter_transcripts(
                         let d = Discard {
                             source: "aggregated_cdot".into(),
                             kind: GeneOrTranscript::Transcript,
-                            reason: Reason::NMTranscript,
+                            reason: Reason::UseNmTranscriptInsteadOfNr,
                             id: full_ac.clone(),
                             gene_name: None,
                         };
@@ -899,7 +903,7 @@ fn filter_transcripts(
                         let d = Discard {
                             source: "aggregated_cdot".into(),
                             kind: GeneOrTranscript::Transcript,
-                            reason: Reason::XTranscript,
+                            reason: Reason::PredictedTranscript,
                             id: full_ac.clone(),
                             gene_name: None,
                         };
@@ -970,7 +974,9 @@ fn filter_transcripts(
     writeln!(
         report_file,
         "{}",
-        serde_json::to_string(&serde_json::json!({"total_transcripts": transcripts.len()}))?
+        serde_json::to_string(
+            &serde_json::json!({"source": "aggregated_cdot", "total_transcripts": transcripts.len()})
+        )?
     )?;
 
     let genes: indexmap::IndexMap<_, _> = genes
@@ -1043,15 +1049,15 @@ fn load_cdot_files(
     tracing::info!(
         "... done loading cdot JSON files in {:?} -- #genes = {}, #transcripts = {}, #transcript_ids_for_gene = {}",
         start.elapsed(),
-        genes.len().separate_with_commas(),
-        transcripts.len().separate_with_commas(),
-        transcript_ids_for_gene.len().separate_with_commas()
+        genes.len().separate_with_underscores(),
+        transcripts.len().separate_with_underscores(),
+        transcript_ids_for_gene.len().separate_with_underscores()
     );
     writeln!(
         report_file,
         "{}",
         serde_json::to_string(
-            &serde_json::json!({ "total_genes": transcripts.len(), "total_transcripts": transcript_ids_for_gene.len()})
+            &serde_json::json!({"source": "aggregated_cdot", "total_genes": transcripts.len(), "total_transcripts": transcript_ids_for_gene.len()})
         )?
     )?;
 
