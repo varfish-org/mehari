@@ -86,15 +86,19 @@ fn load_and_extract(
 ) -> Result<(), Error> {
     writeln!(
         report_file,
-        r#"{{ "genome_release": "{:?}" }}"#,
-        genome_release
+        "{}",
+        serde_json::to_string(&serde_json::json!({"genome_release": genome_release}))?
     )?;
     writeln!(
         report_file,
-        r#"{{ "label_tsv_path": {:?} }}"#,
-        label_tsv_path.and_then(|p| p.to_str()).unwrap_or("")
+        "{}",
+        serde_json::to_string(&serde_json::json!({"label_tsv_path": label_tsv_path}))?
     )?;
-    writeln!(report_file, r#"{{ "cdot_json_path": {:?} }}"#, json_path)?;
+    writeln!(
+        report_file,
+        "{}",
+        serde_json::to_string(&serde_json::json!({"cdot_json_path": json_path}))?
+    )?;
 
     let txid_to_label = label_tsv_path.map(txid_to_label).transpose()?;
     let (c_genes, c_txs, c_version) = load_cdot_transcripts(json_path)?;
@@ -106,8 +110,10 @@ fn load_and_extract(
         gather_transcript_stats(mt_tx_ids, &c_txs);
     writeln!(
         report_file,
-        r#"{{ "mane_select_transcripts": {}, "mane_plus_clinical_transcripts": {} }}"#,
-        n_mane_select, n_mane_plus_clinical
+        "{}",
+        serde_json::to_string(
+            &serde_json::json!({"n_mane_select": n_mane_select, "n_mane_plus_clinical": n_mane_plus_clinical})
+        )?
     )?;
 
     let (keep, discard) = filter_genes(&c_genes, &genes_chrmt);
@@ -121,11 +127,12 @@ fn load_and_extract(
     }
     writeln!(
         report_file,
-        r#"{{ "total_genes": {}, "genes_kept": {} }}"#,
-        c_genes.len(),
-        genes.len()
+        "{}",
+        serde_json::to_string(
+            &serde_json::json!({"total_genes": c_genes.len(), "genes_kept": genes.len()})
+        )?,
     )?;
-    writeln!(report_file, r#"{{ "total_transcripts": {} }}"#, c_txs.len())?;
+    let total_transcripts = c_txs.len();
     process_transcripts(
         transcript_ids_for_gene,
         genes,
@@ -137,8 +144,10 @@ fn load_and_extract(
     );
     writeln!(
         report_file,
-        r#"{{ "transcripts_kept": {} }}"#,
-        transcripts.len()
+        "{}",
+        serde_json::to_string(
+            &serde_json::json!({"total_transcripts": total_transcripts, "transcripts_kept": transcripts.len()})
+        )?,
     )?;
     Ok(())
 }
@@ -939,7 +948,7 @@ fn filter_transcripts(
         tmp
     };
 
-    let transcripts: indexmap::IndexMap<_, _> = transcripts
+    let transcripts: IndexMap<_, _> = transcripts
         .into_iter()
         .filter(|(tx_id, _)| chosen.contains(tx_id))
         .collect();
@@ -949,8 +958,8 @@ fn filter_transcripts(
     );
     writeln!(
         report_file,
-        r#"{{ "total_transcripts": {} }}"#,
-        transcripts.len()
+        "{}",
+        serde_json::to_string(&serde_json::json!({"total_transcripts": transcripts.len()}))?
     )?;
 
     let genes: indexmap::IndexMap<_, _> = genes
@@ -1029,9 +1038,10 @@ fn load_cdot_files(
     );
     writeln!(
         report_file,
-        r#"{{ "total_genes": {}, "total_transcripts": {} }}"#,
-        transcripts.len(),
-        transcript_ids_for_gene.len()
+        "{}",
+        serde_json::to_string(
+            &serde_json::json!({ "total_genes": transcripts.len(), "total_transcripts": transcript_ids_for_gene.len()})
+        )?
     )?;
 
     Ok((
