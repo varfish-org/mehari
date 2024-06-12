@@ -71,18 +71,21 @@ struct LabelEntry {
     label: String,
 }
 
+type HgncId = String;
+type TranscriptId = String;
+
 /// Load and extract from cdot JSON.
 #[allow(clippy::too_many_arguments)]
 fn load_and_extract_into(
     json_path: &Path,
     label_tsv_path: &Option<&Path>,
-    transcript_ids_for_gene: &mut IndexMap<String, Vec<String>>,
-    genes: &mut IndexMap<String, Gene>,
-    transcripts: &mut IndexMap<String, Transcript>,
+    hgnc_id_to_transcript_ids: &mut IndexMap<HgncId, Vec<String>>,
+    hgnc_id_to_gene: &mut IndexMap<HgncId, Gene>,
+    transcripts: &mut IndexMap<TranscriptId, Transcript>,
     genome_release: GenomeRelease,
     cdot_version: &mut String,
     report_file: &mut impl Write,
-    mt_tx_ids: &mut IndexSet<String>,
+    mt_transcript_ids: &mut IndexSet<TranscriptId>,
 ) -> Result<(), Error> {
     writeln!(
         report_file,
@@ -101,13 +104,13 @@ fn load_and_extract_into(
 
     let txid_to_label = label_tsv_path.map(txid_to_label).transpose()?;
     let source = json_path.to_str().expect("Invalid path");
-    let (c_genes, c_txs, c_version) = load_cdot_transcripts(json_path)?;
+    let (cdot_genes, cdot_transcripts, c_version) = load_cdot_transcripts(json_path)?;
     *cdot_version = c_version;
 
     // Count number of MANE Select and MANE Plus Clinical transcripts, collect
     // chrMT gene names.
     let (genes_chrmt, n_mane_select, n_mane_plus_clinical) =
-        gather_transcript_stats(mt_tx_ids, &c_txs);
+        gather_transcript_stats(mt_transcript_ids, &cdot_transcripts);
     writeln!(
         report_file,
         "{}",
@@ -116,7 +119,7 @@ fn load_and_extract_into(
         )?
     )?;
 
-    let (keep, discard) = filter_genes(&source, &c_genes, &genes_chrmt);
+    let (keep, discard) = filter_genes(&source, &cdot_genes, &genes_chrmt);
     writeln!(
         report_file,
         "{}",
@@ -127,8 +130,10 @@ fn load_and_extract_into(
 
     for (_gene_id, gene) in keep {
         let hgnc_id = format!("HGNC:{}", gene.hgnc.as_ref().unwrap());
-        transcript_ids_for_gene.entry(hgnc_id.clone()).or_default();
-        genes.insert(hgnc_id, gene.clone());
+        hgnc_id_to_transcript_ids
+            .entry(hgnc_id.clone())
+            .or_default();
+        hgnc_id_to_gene.insert(hgnc_id, gene.clone());
     }
     for d in discard {
         writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
@@ -140,14 +145,14 @@ fn load_and_extract_into(
             &serde_json::json!({"source": source, "total_genes": c_genes.len(), "genes_kept": genes.len()})
         )?,
     )?;
-    let total_transcripts = c_txs.len();
+    let total_transcripts = cdot_transcripts.len();
     process_transcripts(
         source,
-        transcript_ids_for_gene,
-        genes,
+        hgnc_id_to_transcript_ids,
+        hgnc_id_to_gene,
         transcripts,
         genome_release,
-        c_txs,
+        cdot_transcripts,
         txid_to_label,
         report_file,
     );
@@ -163,18 +168,18 @@ fn load_and_extract_into(
 
 fn process_transcripts(
     source: &str,
-    transcript_ids_for_gene: &mut IndexMap<String, Vec<String>>,
-    genes: &mut IndexMap<String, Gene>,
-    transcripts: &mut IndexMap<String, Transcript>,
+    hgnc_id_to_transcript_ids: &mut IndexMap<HgncId, Vec<TranscriptId>>,
+    hgnc_id_to_gene: &mut IndexMap<HgncId, Gene>,
+    transcripts: &mut IndexMap<TranscriptId, Transcript>,
     genome_release: GenomeRelease,
-    c_txs: IndexMap<String, Transcript>,
-    txid_to_label: Option<IndexMap<String, Vec<Tag>>>,
+    cdot_transcripts: IndexMap<TranscriptId, Transcript>,
+    transcript_id_to_tags: Option<IndexMap<TranscriptId, Vec<Tag>>>,
     report_file: &mut impl Write,
 ) {
     let missing_hgnc =
         |tx: &Transcript| -> bool { tx.hgnc.is_none() || tx.hgnc.as_ref().unwrap().is_empty() };
     let deselected_gene = |tx: &Transcript| -> bool {
-        !genes.contains_key(&format!("HGNC:{}", tx.hgnc.as_ref().unwrap()))
+        !hgnc_id_to_gene.contains_key(&format!("HGNC:{}", tx.hgnc.as_ref().unwrap()))
     };
     let empty_genome_builds = |tx: &Transcript| -> bool { tx.genome_builds.is_empty() };
     let filters: [(&dyn Fn(&Transcript) -> bool, Reason); 3] = [
@@ -182,7 +187,7 @@ fn process_transcripts(
         (&deselected_gene, Reason::DeselectedGene),
         (&empty_genome_builds, Reason::EmptyGenomeBuilds),
     ];
-    c_txs
+    cdot_transcripts
         .values()
         .map(|tx| Transcript {
             genome_builds: tx
@@ -221,14 +226,14 @@ fn process_transcripts(
         })
         .for_each(|tx| {
             let hgnc_id = &format!("HGNC:{}", tx.hgnc.as_ref().unwrap());
-            transcript_ids_for_gene
+            hgnc_id_to_transcript_ids
                 .get_mut(hgnc_id)
                 .unwrap_or_else(|| panic!("tx {:?} for unknown gene {:?}", tx.id, hgnc_id))
                 .push(tx.id.clone());
             // build output transcripts
             let mut tx_out = tx.clone();
             // transfer MANE-related labels from TSV file
-            if let Some(txid_to_tags) = txid_to_label.as_ref() {
+            if let Some(txid_to_tags) = transcript_id_to_tags.as_ref() {
                 let tx_id_no_version = tx.id.split('.').next().unwrap();
                 if let Some(tags) = txid_to_tags.get(tx_id_no_version) {
                     tx_out.genome_builds.iter_mut().for_each(|(_, alignment)| {
@@ -301,7 +306,7 @@ struct Discard {
 
 fn filter_genes(
     source: &str,
-    c_genes: &IndexMap<String, Gene>,
+    cdot_genes: &IndexMap<String, Gene>,
     _genes_chrmt: &IndexSet<String>,
 ) -> (Vec<(String, Gene)>, Vec<Discard>) {
     let missing_hgnc = |_gene_id: &str, gene: &Gene| -> bool {
@@ -319,7 +324,7 @@ fn filter_genes(
         // ),
     ];
 
-    c_genes.iter().partition_map(|(gene_id, gene)| {
+    cdot_genes.iter().partition_map(|(gene_id, gene)| {
         for (filter, reason) in &filters {
             if filter(gene_id, gene) {
                 return Either::Right(Discard {
@@ -336,25 +341,25 @@ fn filter_genes(
 }
 
 fn gather_transcript_stats(
-    mt_tx_ids: &mut IndexSet<String>,
-    c_txs: &IndexMap<String, Transcript>,
+    mt_transcript_ids: &mut IndexSet<TranscriptId>,
+    cdot_transcripts: &IndexMap<String, Transcript>,
 ) -> (IndexSet<String>, i32, i32) {
     let mut genes_chrmt = IndexSet::new();
     let mut n_mane_select = 0;
     let mut n_mane_plus_clinical = 0;
-    for tx in c_txs.values() {
+    for tx in cdot_transcripts.values() {
         let mut is_mane_select = false;
         let mut is_mane_plus_clinical = false;
         for gb in tx.genome_builds.values() {
             if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_str()) {
                 genes_chrmt.insert(tx.gene_version.clone());
-                mt_tx_ids.insert(tx.id.clone());
+                mt_transcript_ids.insert(tx.id.clone());
             }
             if let Some(tag) = &gb.tag {
-                if tag.contains(&models::Tag::ManeSelect) {
+                if tag.contains(&Tag::ManeSelect) {
                     is_mane_select = true;
                 }
-                if tag.contains(&models::Tag::ManePlusClinical) {
+                if tag.contains(&Tag::ManePlusClinical) {
                     is_mane_plus_clinical = true;
                 }
             }
@@ -397,9 +402,9 @@ fn load_cdot_transcripts(
     json_path: &Path,
 ) -> Result<(IndexMap<String, Gene>, IndexMap<String, Transcript>, String), Error> {
     let models::Container {
-        genes: c_genes,
-        transcripts: c_txs,
-        cdot_version: c_version,
+        genes,
+        transcripts,
+        cdot_version,
         ..
     } = if json_path.extension().unwrap_or_default() == "gz" {
         tracing::info!("(from gzip compressed file)");
@@ -410,12 +415,12 @@ fn load_cdot_transcripts(
         tracing::info!("(from uncompressed file)");
         serde_json::from_reader(std::io::BufReader::new(File::open(json_path)?))?
     };
-    Ok((c_genes, c_txs, c_version))
+    Ok((genes, transcripts, cdot_version))
 }
 
 /// Perform protobuf file construction.
 ///
-/// This can be done by simply converting the models from ``hvs-rs`` to the prost generated data structures.
+/// This can be done by simply converting the models from ``hgvs-rs`` to the prost generated data structures.
 fn build_protobuf(
     path_out: &Path,
     seqrepo: SeqRepo,
