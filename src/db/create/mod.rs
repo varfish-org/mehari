@@ -20,13 +20,15 @@ use thousands::Separable;
 
 use crate::common::{trace_rss_now, GenomeRelease};
 
-lazy_static::lazy_static! {
-    /// Progress bar style to use.
-    pub static ref PROGRESS_STYLE: ProgressStyle = ProgressStyle::with_template(
+use once_cell::sync::Lazy;
+
+/// Progress bar style to use.
+pub static PROGRESS_STYLE: Lazy<ProgressStyle> = Lazy::new(|| {
+    ProgressStyle::with_template(
         "[{elapsed_precise}] [{wide_bar:.cyan/blue}] {human_pos}/{human_len} ({eta})",
     )
-    .unwrap();
-}
+    .unwrap()
+});
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1"];

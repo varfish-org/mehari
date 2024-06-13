@@ -35,6 +35,7 @@ use noodles::vcf::variant::record::AlternateBases;
 use noodles::vcf::variant::record_buf::info::field;
 use noodles::vcf::variant::RecordBuf as VcfRecord;
 use noodles::vcf::{header::record::value::map::Map, Header as VcfHeader};
+use once_cell::sync::Lazy;
 use prost::Message;
 use rocksdb::{BoundColumnFamily, DBWithThreadMode, ThreadMode};
 use rustc_hash::FxHashMap;
@@ -452,52 +453,58 @@ where
     Ok(())
 }
 
-lazy_static::lazy_static! {
-    pub static ref CHROM_MT: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
-    pub static ref CHROM_XY: HashSet<&'static str> = HashSet::from_iter(["X", "Y", "chrX", "chrY"].into_iter());
-    pub static ref CHROM_AUTO: HashSet<&'static str> = HashSet::from_iter([
-        "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18",
-        "19", "20", "21", "22", "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9",
-        "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20",
-        "chr21", "chr22"
-    ].into_iter());
+pub static CHROM_MT: Lazy<HashSet<&'static str>> =
+    Lazy::new(|| HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter()));
+pub static CHROM_XY: Lazy<HashSet<&'static str>> =
+    Lazy::new(|| HashSet::from_iter(["X", "Y", "chrX", "chrY"].into_iter()));
 
-    /// Mapping from chromosome name to chromsome number.
-    pub static ref CHROM_TO_CHROM_NO: HashMap<String, u32> = {
-        let mut m = HashMap::new();
+pub static CHROM_AUTO: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    HashSet::from_iter(
+        [
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
+            "17", "18", "19", "20", "21", "22", "chr1", "chr2", "chr3", "chr4", "chr5", "chr6",
+            "chr7", "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16",
+            "chr17", "chr18", "chr19", "chr20", "chr21", "chr22",
+        ]
+        .into_iter(),
+    )
+});
 
-        for i in 1..=22 {
-            m.insert(format!("chr{}", i), i);
-            m.insert(format!("{}", i), i);
-        }
-        m.insert(String::from("X"), 23);
-        m.insert(String::from("chrX"), 23);
-        m.insert(String::from("Y"), 24);
-        m.insert(String::from("chrY"), 24);
-        m.insert(String::from("M"), 25);
-        m.insert(String::from("chrM"), 25);
-        m.insert(String::from("MT"), 25);
-        m.insert(String::from("chrMT"), 25);
+/// Mapping from chromosome name to chromsome number.
+pub static CHROM_TO_CHROM_NO: Lazy<HashMap<String, u32>> = Lazy::new(|| {
+    let mut m = HashMap::new();
 
-        m
-    };
+    for i in 1..=22 {
+        m.insert(format!("chr{}", i), i);
+        m.insert(format!("{}", i), i);
+    }
+    m.insert(String::from("X"), 23);
+    m.insert(String::from("chrX"), 23);
+    m.insert(String::from("Y"), 24);
+    m.insert(String::from("chrY"), 24);
+    m.insert(String::from("M"), 25);
+    m.insert(String::from("chrM"), 25);
+    m.insert(String::from("MT"), 25);
+    m.insert(String::from("chrMT"), 25);
 
-    /// Mapping from chromosome number to canonical chromosome name.
-    ///
-    /// We use the names without `"chr"` prefix for the canonical name.  In the case of GRCh38,
-    /// the the prefix must be prepended.
-    pub static ref CHROM_NO_TO_NAME: Vec<String> = {
-        let mut v = Vec::new();
-        v.push(String::from("")); // 0
-        for i in 1..=22 {
-            v.push(format!("{}", i));
-        }
-        v.push(String::from("X"));
-        v.push(String::from("Y"));
-        v.push(String::from("MT"));
-        v
-    };
-}
+    m
+});
+
+/// Mapping from chromosome number to canonical chromosome name.
+///
+/// We use the names without `"chr"` prefix for the canonical name.  In the case of GRCh38,
+/// the the prefix must be prepended.
+pub static CHROM_NO_TO_NAME: Lazy<Vec<String>> = Lazy::new(|| {
+    let mut v = Vec::new();
+    v.push(String::from("")); // 0
+    for i in 1..=22 {
+        v.push(format!("{}", i));
+    }
+    v.push(String::from("X"));
+    v.push(String::from("Y"));
+    v.push(String::from("MT"));
+    v
+});
 
 /// Return path component for the assembly.
 pub fn path_component(assembly: Assembly) -> &'static str {

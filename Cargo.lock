@@ -2645,6 +2645,7 @@ dependencies = [
  "log",
  "nom",
  "noodles 0.75.0",
+ "once_cell",
  "parse-display",
  "pbjson",
  "pbjson-build",
