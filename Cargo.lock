@@ -2641,7 +2641,6 @@ dependencies = [
  "insta",
  "itertools 0.13.0",
  "jsonl",
- "lazy_static",
  "log",
  "nom",
  "noodles 0.75.0",
