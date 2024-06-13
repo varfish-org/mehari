@@ -13,14 +13,13 @@ use hgvs::sequences::{translate_cds, TranslationTable};
 use indexmap::{IndexMap, IndexSet};
 use indicatif::{ProgressBar, ProgressStyle};
 use itertools::{Either, Itertools};
+use once_cell::sync::Lazy;
 use prost::Message;
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
 use serde::Serialize;
 use thousands::Separable;
 
 use crate::common::{trace_rss_now, GenomeRelease};
-
-use once_cell::sync::Lazy;
 
 /// Progress bar style to use.
 pub static PROGRESS_STYLE: Lazy<ProgressStyle> = Lazy::new(|| {
@@ -144,7 +143,7 @@ fn load_and_extract_into(
         report_file,
         "{}",
         serde_json::to_string(
-            &serde_json::json!({"source": source, "total_genes": c_genes.len(), "genes_kept": genes.len()})
+            &serde_json::json!({"source": source, "total_genes": cdot_genes.len(), "genes_kept": hgnc_id_to_gene.len()})
         )?,
     )?;
     let total_transcripts = cdot_transcripts.len();
@@ -431,7 +430,7 @@ fn build_protobuf(
     is_silent: bool,
     genome_release: GenomeRelease,
     report_file: &mut impl Write,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), Error> {
     let TranscriptData {
         genes,
         transcripts,
@@ -527,7 +526,7 @@ fn build_protobuf(
             // Register sequence into protobuf.
             aliases.push(tx_id.clone());
             aliases_idx.push(seqs.len() as u32);
-            seqs.push(seq.clone());
+            seqs.push(seq);
         }
         pb.finish_and_clear();
         // Finalize by creating `SequenceDb`.
