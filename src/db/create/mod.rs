@@ -1100,14 +1100,14 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         args
     );
 
-    // Open seqrepo,
+    // Open seqrepo …
     let seqrepo = open_seqrepo(args)?;
-    // then load cdot files,
+    // … then load cdot files …
     let mut tx_data = load_cdot_files(args, &mut report_file)?;
-    // then remove redundant onces, and
+    // … then remove redundant ones …
     tx_data.filter_transcripts(args.max_txs, &args.gene_symbols, &mut report_file)?;
 
-    // finally build protobuf file.
+    // … and finally build protobuf file.
     build_protobuf(
         &args.path_out,
         seqrepo,
