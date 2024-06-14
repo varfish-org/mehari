@@ -82,7 +82,6 @@ struct TranscriptLoader {
     source: String,
     genome_release: GenomeRelease,
     cdot_version: String,
-    genes: IndexMap<GeneId, Gene>,
     transcripts: IndexMap<TranscriptId, Transcript>,
     mt_gene_ids: IndexSet<GeneId>,
     mt_transcript_ids: IndexSet<TranscriptId>,
@@ -108,11 +107,10 @@ impl TranscriptLoader {
     fn merge(&mut self, other: &mut Self) -> &mut Self {
         assert_eq!(self.genome_release, other.genome_release);
         assert_eq!(self.cdot_version, other.cdot_version);
-        self.genes.extend(other.genes.drain(..));
+        self.hgnc_id_to_gene.extend(other.hgnc_id_to_gene.drain(..));
         self.mt_transcript_ids
             .extend(other.mt_transcript_ids.drain(..));
         self.transcripts.extend(other.transcripts.drain(..));
-        self.hgnc_id_to_gene.extend(other.hgnc_id_to_gene.drain(..));
         self.transcript_ids_for_gene
             .extend(other.transcript_ids_for_gene.drain(..));
         self
@@ -300,7 +298,7 @@ impl TranscriptLoader {
         let start = Instant::now();
         let selected_hgnc_ids = gene_symbols.as_ref().map(|gene_symbols| {
             let symbol_to_hgnc: IndexMap<_, _> =
-                IndexMap::from_iter(self.genes.iter().flat_map(|(hgnc_id, g)| {
+                IndexMap::from_iter(self.hgnc_id_to_gene.iter().flat_map(|(hgnc_id, g)| {
                     g.gene_symbol
                         .as_ref()
                         .map(|gene_symbol| (gene_symbol.clone(), hgnc_id.clone()))
@@ -325,7 +323,7 @@ impl TranscriptLoader {
         // We keep track of the chosen transcript identifiers.
         let mut chosen = IndexSet::new();
         // Filter map from gene symbol to Vec of chosen transcript identifiers.
-        let transcript_ids_for_gene = {
+        self.transcript_ids_for_gene = {
             let mut tmp = IndexMap::new();
 
             for (hgnc_id, tx_ids) in transcript_ids_for_gene {
@@ -465,11 +463,11 @@ impl TranscriptLoader {
             json_str!({"source": "aggregated_cdot", "total_transcripts": self.transcripts.len()}),
         )?;
 
-        self.genes
-            .retain2(|gene_id, _| transcript_ids_for_gene.contains_key(gene_id));
+        self.hgnc_id_to_gene
+            .retain2(|gene_id, _| self.transcript_ids_for_gene.contains_key(gene_id));
         tracing::debug!(
             "  => {} genes left",
-            self.genes.len().separate_with_commas()
+            self.hgnc_id_to_gene.len().separate_with_commas()
         );
 
         tracing::info!("... done filtering transcripts in {:?}", start.elapsed());
@@ -507,7 +505,7 @@ impl TranscriptLoader {
                     });
                 }
             }
-            return Either::Left((gene_id.to_string(), gene.clone()));
+            Either::Left((gene_id.to_string(), gene.clone()))
         })
     }
 }
@@ -629,7 +627,7 @@ fn build_protobuf(
     report: &mut impl FnMut(String) -> Result<(), Error>,
 ) -> Result<(), Error> {
     let TranscriptLoader {
-        genes,
+        hgnc_id_to_gene: genes,
         transcripts,
         transcript_ids_for_gene,
         mt_transcript_ids: mt_tx_ids,
@@ -804,17 +802,17 @@ fn build_protobuf(
                     if let Some(tag) = alignment.tag.as_ref() {
                         for t in tag {
                             let elem = match t {
-                                models::Tag::Basic => crate::pbs::txs::TranscriptTag::Basic.into(),
-                                models::Tag::EnsemblCanonical => {
+                                Tag::Basic => crate::pbs::txs::TranscriptTag::Basic.into(),
+                                Tag::EnsemblCanonical => {
                                     crate::pbs::txs::TranscriptTag::EnsemblCanonical.into()
                                 }
-                                models::Tag::ManeSelect => {
+                                Tag::ManeSelect => {
                                     crate::pbs::txs::TranscriptTag::ManeSelect.into()
                                 }
-                                models::Tag::ManePlusClinical => {
+                                Tag::ManePlusClinical => {
                                     crate::pbs::txs::TranscriptTag::ManePlusClinical.into()
                                 }
-                                models::Tag::RefSeqSelect => {
+                                Tag::RefSeqSelect => {
                                     crate::pbs::txs::TranscriptTag::RefSeqSelect.into()
                                 }
                             };
@@ -885,7 +883,7 @@ fn build_protobuf(
                 } else {
                     crate::pbs::txs::TranscriptBiotype::NonCoding.into()
                 };
-                let models::Transcript {
+                let Transcript {
                     protein,
                     start_codon,
                     stop_codon,
@@ -989,7 +987,7 @@ fn build_protobuf(
 }
 
 /// Create file-backed `SeqRepo`.
-fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
+fn open_seqrepo(args: &Args) -> Result<SeqRepo, Error> {
     tracing::info!("Opening seqrepo...");
     let start = Instant::now();
     let seqrepo = PathBuf::from(&args.path_seqrepo_instance);
@@ -1047,7 +1045,7 @@ fn load_cdot_files(
     tracing::info!(
         "... done loading cdot JSON files in {:?} -- #genes = {}, #transcripts = {}, #transcript_ids_for_gene = {}",
         start.elapsed(),
-        merged.genes.len().separate_with_underscores(),
+        merged.hgnc_id_to_gene.len().separate_with_underscores(),
         merged.transcripts.len().separate_with_underscores(),
         merged.transcript_ids_for_gene.len().separate_with_underscores()
     );
@@ -1099,8 +1097,8 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 #[cfg(test)]
 pub mod test {
     use std::fs::File;
-    use std::io::BufWriter;
     use std::io::Write;
+    use std::io::{BufWriter, Read};
     use std::path::{Path, PathBuf};
 
     use clap_verbosity_flag::Verbosity;
