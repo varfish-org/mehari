@@ -626,7 +626,7 @@ fn build_protobuf(
     tx_data: TranscriptLoader,
     is_silent: bool,
     genome_release: GenomeRelease,
-    report_file: &mut impl Write,
+    report: &mut impl FnMut(String) -> Result<(), Error>,
 ) -> Result<(), Error> {
     let TranscriptLoader {
         genes,
@@ -684,7 +684,7 @@ fn build_protobuf(
                     id: tx_id.clone(),
                     gene_name: None,
                 };
-                writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
+                report(serde_json::to_string(&d)?)?;
                 tx_skipped_noseq.insert(tx_id.clone());
                 continue;
             };
@@ -701,7 +701,7 @@ fn build_protobuf(
                         id: tx_id.clone(),
                         gene_name: None,
                     };
-                    writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
+                    report(serde_json::to_string(&d)?)?;
                     continue;
                 }
                 let tx_seq_to_translate = &seq[cds_start..cds_end];
@@ -716,7 +716,7 @@ fn build_protobuf(
                         id: tx_id.clone(),
                         gene_name: None,
                     };
-                    writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
+                    report(serde_json::to_string(&d)?)?;
                     tx_skipped_nostop.insert(tx_id.clone());
                     continue;
                 }
@@ -772,7 +772,7 @@ fn build_protobuf(
                     id: gene_symbol.clone(),
                     gene_name: gene.gene_symbol.clone(),
                 };
-                writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
+                report(serde_json::to_string(&d)?)?;
                 continue;
             }
 
@@ -1089,7 +1089,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         tx_data,
         common.verbose.is_silent(),
         args.genome_release,
-        &mut report_file,
+        &mut report,
     )?;
 
     tracing::info!("Done building transcript and sequence database file");
@@ -1099,6 +1099,8 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 #[cfg(test)]
 pub mod test {
     use std::fs::File;
+    use std::io::BufWriter;
+    use std::io::Write;
     use std::path::{Path, PathBuf};
 
     use clap_verbosity_flag::Verbosity;
@@ -1113,7 +1115,7 @@ pub mod test {
     #[test]
     fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {
         let tmp_dir = TempDir::default();
-        let mut report_file = File::create(tmp_dir.join("report"))?;
+        let mut report_file = File::create(tmp_dir.join("report")).map(BufWriter::new)?;
         let mut report = |s: String| -> Result<(), anyhow::Error> {
             writeln!(report_file, "{}", s)?;
             Ok(())
