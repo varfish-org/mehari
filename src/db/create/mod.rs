@@ -87,7 +87,13 @@ struct TranscriptLoader {
     mt_gene_ids: IndexSet<GeneId>,
     mt_transcript_ids: IndexSet<TranscriptId>,
     hgnc_id_to_gene: IndexMap<HgncId, Gene>,
-    hgnc_id_to_transcript_ids: IndexMap<HgncId, Vec<TranscriptId>>,
+    transcript_ids_for_gene: IndexMap<HgncId, Vec<TranscriptId>>,
+}
+
+macro_rules! json_str {
+    ($($json:tt)+) => {
+        serde_json::to_string(&serde_json::json!($($json)+)).expect("Failed serializing")
+    };
 }
 
 impl TranscriptLoader {
@@ -107,8 +113,8 @@ impl TranscriptLoader {
             .extend(other.mt_transcript_ids.drain(..));
         self.transcripts.extend(other.transcripts.drain(..));
         self.hgnc_id_to_gene.extend(other.hgnc_id_to_gene.drain(..));
-        self.hgnc_id_to_transcript_ids
-            .extend(other.hgnc_id_to_transcript_ids.drain(..));
+        self.transcript_ids_for_gene
+            .extend(other.transcript_ids_for_gene.drain(..));
         self
     }
 
@@ -117,14 +123,10 @@ impl TranscriptLoader {
         &mut self,
         path: impl AsRef<Path>,
         label_tsv_path: &Option<&Path>,
-        report_file: &mut impl Write,
+        report: &mut impl FnMut(String) -> Result<(), Error>,
     ) -> Result<(), Error> {
-        writeln!(
-            report_file,
-            "{}",
-            serde_json::to_string(
-                &serde_json::json!({"source": path.as_ref(), "genome_release": self.genome_release, "label_tsv_path": label_tsv_path})
-            )?
+        report(
+            json_str!({"source": path.as_ref(), "genome_release": self.genome_release, "label_tsv_path": label_tsv_path}),
         )?;
 
         let txid_to_label = label_tsv_path.map(txid_to_label).transpose()?;
@@ -144,51 +146,33 @@ impl TranscriptLoader {
         self.mt_gene_ids = genes_chrmt;
         self.mt_transcript_ids = transcripts_chrmt;
 
-        writeln!(
-            report_file,
-            "{}",
-            serde_json::to_string(&serde_json::json!({
-                "source": source,
-                "n_chr_mt": self.mt_gene_ids.len(),
-                "n_mane_select": n_mane_select,
-                "n_mane_plus_clinical": n_mane_plus_clinical
-            }))?
-        )?;
+        report(json_str!({
+            "source": source,
+            "n_chr_mt": self.mt_gene_ids.len(),
+            "n_mane_select": n_mane_select,
+            "n_mane_plus_clinical": n_mane_plus_clinical
+        }))?;
 
         let (keep, discard) = self.filter_genes(&cdot_genes);
-        writeln!(
-            report_file,
-            "{}",
-            serde_json::to_string(
-                &serde_json::json!({"source": source, "kept": keep.len(), "discarded": discard.len()})
-            )?
-        )?;
+        report(json_str!({"source": source, "kept": keep.len(), "discarded": discard.len()}))?;
 
         for (_gene_id, gene) in keep {
             let hgnc_id = format!("HGNC:{}", gene.hgnc.as_ref().unwrap());
-            self.hgnc_id_to_transcript_ids
+            self.transcript_ids_for_gene
                 .entry(hgnc_id.clone())
                 .or_default();
             self.hgnc_id_to_gene.insert(hgnc_id, gene.clone());
         }
         for d in discard {
-            writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
+            report(serde_json::to_string(&d)?)?;
         }
-        writeln!(
-            report_file,
-            "{}",
-            serde_json::to_string(
-                &serde_json::json!({"source": source, "total_genes": cdot_genes.len(), "genes_kept": self.hgnc_id_to_gene.len()})
-            )?,
+        report(
+            json_str!({"source": source, "total_genes": cdot_genes.len(), "genes_kept": self.hgnc_id_to_gene.len()}),
         )?;
         let total_transcripts = cdot_transcripts.len();
-        self.process_transcripts(cdot_transcripts, txid_to_label, report_file);
-        writeln!(
-            report_file,
-            "{}",
-            serde_json::to_string(
-                &serde_json::json!({"source": source, "total_transcripts": total_transcripts, "transcripts_kept": self.transcripts.len()})
-            )?,
+        self.process_transcripts(cdot_transcripts, txid_to_label, report);
+        report(
+            json_str!({"source": source, "total_transcripts": total_transcripts, "transcripts_kept": self.transcripts.len()}),
         )?;
         Ok(())
     }
@@ -197,7 +181,7 @@ impl TranscriptLoader {
         &mut self,
         cdot_transcripts: IndexMap<TranscriptId, Transcript>,
         transcript_id_to_tags: Option<IndexMap<TranscriptId, Vec<Tag>>>,
-        report_file: &mut impl Write,
+        report: &mut impl FnMut(String) -> Result<(), Error>,
     ) {
         let missing_hgnc =
             |tx: &Transcript| -> bool { tx.hgnc.is_none() || tx.hgnc.as_ref().unwrap().is_empty() };
@@ -238,12 +222,8 @@ impl TranscriptLoader {
                             id: tx.id.clone(),
                             gene_name: tx.gene_name.clone(),
                         };
-                        writeln!(
-                            report_file,
-                            "{}",
-                            serde_json::to_string(&d).expect("Failed serializing")
-                        )
-                        .expect("Failed writing to report file");
+                        report(serde_json::to_string(&d).expect("Failed serializing"))
+                            .expect("Failed writing to report file");
                         return false;
                     }
                 }
@@ -251,7 +231,7 @@ impl TranscriptLoader {
             })
             .for_each(|tx| {
                 let hgnc_id = &format!("HGNC:{}", tx.hgnc.as_ref().unwrap());
-                self.hgnc_id_to_transcript_ids
+                self.transcript_ids_for_gene
                     .get_mut(hgnc_id)
                     .unwrap_or_else(|| panic!("tx {:?} for unknown gene {:?}", tx.id, hgnc_id))
                     .push(tx.id.clone());
@@ -314,8 +294,8 @@ impl TranscriptLoader {
         &mut self,
         max_genes: Option<u32>,
         gene_symbols: &Option<Vec<String>>,
-        report_file: &mut impl Write,
-    ) -> Result<(), anyhow::Error> {
+        report: &mut impl FnMut(String) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         tracing::info!("Filtering transcripts ...");
         let start = Instant::now();
         let selected_hgnc_ids = gene_symbols.as_ref().map(|gene_symbols| {
@@ -337,13 +317,9 @@ impl TranscriptLoader {
         let transcript_ids_for_gene: Box<dyn Iterator<Item = (&HgncId, &Vec<TranscriptId>)>> =
             if let Some(max_genes) = max_genes {
                 tracing::warn!("Limiting to {} genes!", max_genes);
-                Box::new(
-                    self.hgnc_id_to_transcript_ids
-                        .iter()
-                        .take(max_genes as usize),
-                )
+                Box::new(self.transcript_ids_for_gene.iter().take(max_genes as usize))
             } else {
-                Box::new(self.hgnc_id_to_transcript_ids.iter())
+                Box::new(self.transcript_ids_for_gene.iter())
             };
 
         // We keep track of the chosen transcript identifiers.
@@ -403,7 +379,7 @@ impl TranscriptLoader {
                                 id: full_ac.clone(),
                                 gene_name: None,
                             };
-                            writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
+                            report(serde_json::to_string(&d)?)?;
                             continue; // skip, already have later version
                         } else if ac.starts_with("NR_") && seen_nm {
                             let d = Discard {
@@ -413,7 +389,7 @@ impl TranscriptLoader {
                                 id: full_ac.clone(),
                                 gene_name: None,
                             };
-                            writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
+                            report(serde_json::to_string(&d)?)?;
                             continue; // skip NR transcript as we have NM one
                         } else if ac.starts_with('X') {
                             let d = Discard {
@@ -423,7 +399,7 @@ impl TranscriptLoader {
                                 id: full_ac.clone(),
                                 gene_name: None,
                             };
-                            writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
+                            report(serde_json::to_string(&d)?)?;
                             continue; // skip XR/XM transcript
                         } else {
                             // Check transcript's CDS length for being multiple of 3 and skip unless
@@ -447,7 +423,7 @@ impl TranscriptLoader {
                                         id: full_ac.clone(),
                                         gene_name: None,
                                     };
-                                    writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
+                                    report(serde_json::to_string(&d)?)?;
                                     continue;
                                 }
                             }
@@ -473,7 +449,7 @@ impl TranscriptLoader {
                         id: hgnc_id.clone(),
                         gene_name: None,
                     };
-                    writeln!(report_file, "{}", serde_json::to_string(&d)?)?;
+                    report(serde_json::to_string(&d)?)?;
                 }
             }
 
@@ -485,12 +461,8 @@ impl TranscriptLoader {
             "  => {} transcripts left",
             self.transcripts.len().separate_with_commas()
         );
-        writeln!(
-            report_file,
-            "{}",
-            serde_json::to_string(
-                &serde_json::json!({"source": "aggregated_cdot", "total_transcripts": self.transcripts.len()})
-            )?
+        report(
+            json_str!({"source": "aggregated_cdot", "total_transcripts": self.transcripts.len()}),
         )?;
 
         self.genes
@@ -659,7 +631,7 @@ fn build_protobuf(
     let TranscriptLoader {
         genes,
         transcripts,
-        hgnc_id_to_transcript_ids: transcript_ids_for_gene,
+        transcript_ids_for_gene,
         mt_transcript_ids: mt_tx_ids,
         ..
     } = tx_data;
@@ -1045,7 +1017,10 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, anyhow::Error> {
 }
 
 /// Load the cdot JSON files.
-fn load_cdot_files(args: &Args, report_file: &mut impl Write) -> Result<TranscriptLoader, Error> {
+fn load_cdot_files(
+    args: &Args,
+    report: &mut impl FnMut(String) -> Result<(), Error>,
+) -> Result<TranscriptLoader, Error> {
     tracing::info!("Loading cdot JSON files ...");
     let start = Instant::now();
     let merged = args
@@ -1058,9 +1033,9 @@ fn load_cdot_files(args: &Args, report_file: &mut impl Write) -> Result<Transcri
                 .load_cdot(
                     cdot_path,
                     &args.path_mane_txs_tsv.as_ref().map(|p| p.as_ref()),
-                    report_file,
+                    report,
                 )
-                .expect(&format!("failed to load cdot json from {:?}", cdot_path));
+                .unwrap_or_else(|_| panic!("failed to load cdot json from {:?}", cdot_path));
             loader
         })
         .reduce(|mut a, mut b| {
@@ -1074,18 +1049,14 @@ fn load_cdot_files(args: &Args, report_file: &mut impl Write) -> Result<Transcri
         start.elapsed(),
         merged.genes.len().separate_with_underscores(),
         merged.transcripts.len().separate_with_underscores(),
-        merged.hgnc_id_to_transcript_ids.len().separate_with_underscores()
+        merged.transcript_ids_for_gene.len().separate_with_underscores()
     );
-    writeln!(
-        report_file,
-        "{}",
-        serde_json::to_string(&serde_json::json!({
-            "source": "aggregated_cdot",
-            "total_genes": merged.transcripts.len(),
-            "total_transcripts": merged.transcripts.len(),
-            "total_transcript_ids_for_gene": merged.hgnc_id_to_transcript_ids.len()
-        }))?
-    )?;
+    report(json_str!({
+        "source": "aggregated_cdot",
+        "total_genes": merged.transcripts.len(),
+        "total_transcripts": merged.transcripts.len(),
+        "total_transcript_ids_for_gene": merged.transcript_ids_for_gene.len()
+    }))?;
 
     Ok(merged)
 }
@@ -1094,6 +1065,10 @@ fn load_cdot_files(args: &Args, report_file: &mut impl Write) -> Result<Transcri
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     let mut report_file =
         File::create(format!("{}.report.jsonl", args.path_out.display())).map(BufWriter::new)?;
+    let mut report = |s: String| -> Result<(), Error> {
+        writeln!(report_file, "{}", s)?;
+        Ok(())
+    };
     tracing::info!(
         "Building transcript and sequence database file\ncommon args: {:#?}\nargs: {:#?}",
         common,
@@ -1103,9 +1078,9 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // Open seqrepo …
     let seqrepo = open_seqrepo(args)?;
     // … then load cdot files …
-    let mut tx_data = load_cdot_files(args, &mut report_file)?;
+    let mut tx_data = load_cdot_files(args, &mut report)?;
     // … then remove redundant ones …
-    tx_data.filter_transcripts(args.max_txs, &args.gene_symbols, &mut report_file)?;
+    tx_data.filter_transcripts(args.max_txs, &args.gene_symbols, &mut report)?;
 
     // … and finally build protobuf file.
     build_protobuf(
@@ -1130,39 +1105,27 @@ pub mod test {
     use temp_testdir::TempDir;
 
     use crate::common::{Args as CommonArgs, GenomeRelease};
-    use crate::db::create::TranscriptData;
+    use crate::db::create::TranscriptLoader;
     use crate::db::dump;
 
-    use super::{filter_transcripts, load_and_extract_into, run, Args};
+    use super::{run, Args};
 
     #[test]
     fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {
         let tmp_dir = TempDir::default();
         let mut report_file = File::create(tmp_dir.join("report"))?;
+        let mut report = |s: String| -> Result<(), anyhow::Error> {
+            writeln!(report_file, "{}", s)?;
+            Ok(())
+        };
 
-        let mut genes = indexmap::IndexMap::new();
-        let mut transcripts = indexmap::IndexMap::new();
-        let mut transcript_ids_for_gene = indexmap::IndexMap::new();
-        let mut cdot_version = String::new();
         let path_tsv = Path::new("tests/data/db/create/txs/txs_main.tsv");
-        let mut mt_tx_ids = indexmap::IndexSet::new();
-        load_and_extract_into(
+        let mut tx_data = TranscriptLoader::new("", GenomeRelease::Grch37);
+        tx_data.load_cdot(
             Path::new("tests/data/db/create/txs/cdot-0.2.22.refseq.grch37_grch38.brca1_opa1.json"),
             &Some(path_tsv),
-            &mut transcript_ids_for_gene,
-            &mut genes,
-            &mut transcripts,
-            GenomeRelease::Grch37,
-            &mut cdot_version,
-            &mut report_file,
-            &mut mt_tx_ids,
+            &mut report,
         )?;
-
-        let tx_data = TranscriptData {
-            genes,
-            transcripts,
-            transcript_ids_for_gene,
-        };
 
         eprintln!("{:#?}", &tx_data.transcript_ids_for_gene);
         insta::assert_yaml_snapshot!(tx_data
@@ -1173,8 +1136,8 @@ pub mod test {
             .map(|s| s.as_str())
             .collect::<Vec<_>>());
 
-        let filtered = filter_transcripts(tx_data, None, &None, &mut report_file)?;
-        insta::assert_yaml_snapshot!(filtered
+        tx_data.filter_transcripts(None, &None, &mut report)?;
+        insta::assert_yaml_snapshot!(tx_data
             .transcript_ids_for_gene
             .get("HGNC:1100")
             .unwrap()
@@ -1182,7 +1145,7 @@ pub mod test {
             .map(|s| s.as_str())
             .collect::<Vec<_>>());
 
-        insta::assert_snapshot!(&cdot_version);
+        insta::assert_snapshot!(&tx_data.cdot_version);
 
         Ok(())
     }
