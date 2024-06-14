@@ -1554,7 +1554,7 @@ impl Annotator {
         Handles(cf_autosomal, cf_gonosomal, cf_mtdna, cf_clinvar): &Handles,
     ) -> anyhow::Result<()> {
         // Get first alternate allele record.
-        let vcf_var = keys::Var::from_vcf_allele(vcf_record, 0);
+        let vcf_var = from_vcf_allele(vcf_record, 0);
 
         // Skip records with a deletion as alternative allele.
         if vcf_var.alternative == "*" {
@@ -1716,7 +1716,7 @@ async fn run_with_writer(
             annotator.annotate(&mut vcf_record, &handles)?;
 
             if prev.elapsed().as_secs() >= 60 {
-                tracing::info!("at {:?}", keys::Var::from_vcf_allele(&vcf_record, 0));
+                tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
                 prev = Instant::now();
             }
 
@@ -1806,6 +1806,23 @@ fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> 
 
     let annotator = Annotator::new(db_freq, db_clinvar, predictor);
     Ok(annotator)
+}
+
+/// Create for all alternate alleles from the given VCF record.
+pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usize) -> keys::Var {
+    let chrom = value.reference_sequence_name().to_string();
+    let pos: usize = value
+        .variant_start()
+        .expect("Telomeric breakends not supported")
+        .get();
+    let pos = i32::try_from(pos).unwrap();
+    let reference = value.reference_bases().to_string();
+    keys::Var {
+        chrom,
+        pos,
+        reference,
+        alternative: value.alternate_bases().as_ref()[allele_no].to_string(),
+    }
 }
 
 #[cfg(test)]
