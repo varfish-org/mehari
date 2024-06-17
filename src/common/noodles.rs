@@ -53,7 +53,9 @@ pub enum VariantReader {
 }
 
 pub trait NoodlesVariantReader {
+    #[allow(async_fn_in_trait)]
     async fn read_header(&mut self) -> tokio::io::Result<Header>;
+    #[allow(async_fn_in_trait)]
     async fn records<'a>(
         &'a mut self,
         header: &'a Header,
@@ -61,6 +63,7 @@ pub trait NoodlesVariantReader {
 }
 
 impl NoodlesVariantReader for VariantReader {
+    #[allow(async_fn_in_trait)]
     async fn read_header(&mut self) -> std::io::Result<Header> {
         match self {
             VariantReader::Vcf(r) => r.read_header().await,
@@ -68,6 +71,7 @@ impl NoodlesVariantReader for VariantReader {
         }
     }
 
+    #[allow(async_fn_in_trait)]
     async fn records<'a>(
         &'a mut self,
         header: &'a Header,
