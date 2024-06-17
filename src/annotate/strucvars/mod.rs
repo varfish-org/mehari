@@ -1483,7 +1483,7 @@ pub enum SvCaller {
 
 impl SvCaller {
     /// Consider the VCF header and return whether the caller is compatible with `self`.
-    fn caller_compatible(&self, header: &VcfHeader) -> bool {
+    pub fn caller_compatible(&self, header: &VcfHeader) -> bool {
         match self {
             SvCaller::ClinCnv { .. } => {
                 self.all_format_defined(header, &["GT", "CN", "GQ", "NP"])
