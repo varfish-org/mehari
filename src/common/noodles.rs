@@ -47,12 +47,12 @@ pub async fn open_variant_reader(path: impl AsRef<Path>) -> anyhow::Result<Varia
     }
 }
 
-pub(crate) enum VariantReader {
+pub enum VariantReader {
     Vcf(AsyncVcfReader),
     Bcf(AsyncBcfReader),
 }
 
-pub(crate) trait NoodlesVariantReader {
+pub trait NoodlesVariantReader {
     async fn read_header(&mut self) -> tokio::io::Result<Header>;
     async fn records<'a>(
         &'a mut self,
@@ -135,7 +135,7 @@ trait NoodlesVariantWriter {
     ) -> std::io::Result<()>;
 }
 
-pub(crate) enum VariantWriter {
+pub enum VariantWriter {
     Vcf(AsyncVcfWriter),
     Bcf(AsyncBcfWriter),
 }

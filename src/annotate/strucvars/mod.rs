@@ -1685,7 +1685,7 @@ impl SvCaller {
 }
 
 /// Guess the `SvCaller` from the VCF file at the given path.
-pub(crate) async fn guess_sv_caller(
+pub async fn guess_sv_caller(
     reader: &mut impl NoodlesVariantReader,
 ) -> Result<SvCaller, anyhow::Error> {
     let header = reader.read_header().await?;
@@ -2912,7 +2912,7 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
 /// Convert the records in the VCF reader to the JSONL file per contig in `tmp_dir`.
 ///
 /// Note that we will consider the "25 canonical" contigs only (chr1..chr22, chrX, chrY, chrM).
-pub(crate) async fn run_vcf_to_jsonl(
+pub async fn run_vcf_to_jsonl(
     pedigree: &PedigreeByName,
     reader: &mut impl NoodlesVariantReader,
     header: &VcfHeader,

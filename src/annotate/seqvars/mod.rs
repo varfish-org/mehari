@@ -535,7 +535,7 @@ pub fn load_tx_db(tx_path: &str) -> Result<TxSeqDatabase, anyhow::Error> {
 }
 
 /// Mehari-local trait for writing out annotated VCF records as VCF or VarFish TSV.
-pub(crate) trait AsyncAnnotatedVariantWriter {
+pub trait AsyncAnnotatedVariantWriter {
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
     async fn write_noodles_record(
         &mut self,
