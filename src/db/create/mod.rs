@@ -128,6 +128,7 @@ impl TranscriptId {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Serialize)]
+#[serde(tag = "type", content = "value")]
 enum Identifier {
     Hgnc(HgncId),
     Symbol(String),
