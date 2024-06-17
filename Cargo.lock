@@ -276,9 +276,9 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "annonars"
-version = "0.38.0"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43f63b1012c50a77c1892f64227bccb03719c101d39e940c9e18d54c22254298"
+checksum = "37532e1e083ca6dcc0a1420ad7d8b718c78103d325222749d8d7091237d19aaf"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -299,7 +299,7 @@ dependencies = [
  "indicatif",
  "itertools 0.13.0",
  "log",
- "noodles 0.75.0",
+ "noodles",
  "pbjson",
  "pbjson-build",
  "pbjson-types",
@@ -2673,7 +2673,7 @@ dependencies = [
  "jsonl",
  "log",
  "nom",
- "noodles 0.75.0",
+ "noodles",
  "nutype",
  "once_cell",
  "parse-display",
@@ -2851,9 +2851,9 @@ dependencies = [
 
 [[package]]
 name = "noodles"
-version = "0.75.0"
+version = "0.76.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ad98dd2ec9ff133dedc622d512c18f702636bc34ef1947cda3818469d7f048a"
+checksum = "7a346e5a6000033512105890243ff310a307637ae9d9de317f7480e136549a4d"
 dependencies = [
  "noodles-bam",
  "noodles-bcf",
@@ -2868,17 +2868,6 @@ dependencies = [
  "noodles-sam",
  "noodles-tabix",
  "noodles-vcf",
-]
-
-[[package]]
-name = "noodles"
-version = "0.76.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a346e5a6000033512105890243ff310a307637ae9d9de317f7480e136549a4d"
-dependencies = [
- "noodles-bgzf",
- "noodles-core",
- "noodles-fasta",
 ]
 
 [[package]]
@@ -2902,9 +2891,9 @@ dependencies = [
 
 [[package]]
 name = "noodles-bcf"
-version = "0.55.0"
+version = "0.56.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdaa37b4c7021a75325799a6f317815fbfd5cbe0ff4cfc203e3a09dec97e50cd"
+checksum = "84399185965e44a6fe2ea499cf2bc81e4e687bde7b39de5e8fa5b72c6a0a0982"
 dependencies = [
  "byteorder",
  "futures",
@@ -2918,9 +2907,9 @@ dependencies = [
 
 [[package]]
 name = "noodles-bed"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57cdbb2ee5fce84ca241d9bafba8554aadf2ccc534f7ebb71e1c646e259b187c"
+checksum = "1d114cc62a405cc763e0e0607a037e5bb9298e281690f9e10bc2ffc2312f92b3"
 dependencies = [
  "noodles-core",
 ]
@@ -3063,9 +3052,9 @@ dependencies = [
 
 [[package]]
 name = "noodles-vcf"
-version = "0.58.0"
+version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c76dee29d04abbd913da7866909c7d80416d62df0407f4d2bad262c02a4cfade"
+checksum = "7363b498e8a015db55777ccbc5cb0036182175851443c62ef847c7152c8a9919"
 dependencies = [
  "futures",
  "indexmap",
@@ -4113,7 +4102,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9bad563692d6dc960f5a22a77b8efd212fdf38d2c09645246426c96ea615541"
 dependencies = [
  "chrono",
- "noodles 0.76.0",
+ "noodles",
  "rusqlite",
  "thiserror",
  "tracing",
