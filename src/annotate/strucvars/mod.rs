@@ -1462,8 +1462,9 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
                 self.sv_sub_type
             )]))
         };
+        let res = builder.build();
 
-        Ok(builder.build())
+        Ok(res)
     }
 }
 
@@ -1752,7 +1753,7 @@ pub trait VcfRecordConverter {
     ) -> Result<(), anyhow::Error> {
         if let Some(alt) = vcf_record.alternate_bases().as_ref().first() {
             let ref_allele = vcf_record.reference_bases().to_string();
-            let alt_allele = alt.to_string();
+            let alt_allele = alt.clone();
             if Breakend::from_ref_alt_str(&ref_allele, &alt_allele).is_ok() {
                 tsv_record.info.alt = Some(alt_allele);
             }
