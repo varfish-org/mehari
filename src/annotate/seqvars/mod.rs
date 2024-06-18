@@ -534,15 +534,20 @@ pub fn load_tx_db(tx_path: &str) -> Result<TxSeqDatabase, anyhow::Error> {
         .map_err(|e| anyhow!("failed to decode protobuf file {}: {}", tx_path, e))
 }
 
-/// Mehari-local trait for writing out annotated VCF records as VCF or VarFish TSV.
-pub(crate) trait AsyncAnnotatedVariantWriter {
+/// Trait for writing out annotated VCF records as VCF or VarFish TSV.
+///
+/// TODO: use async_trait crate
+pub trait AsyncAnnotatedVariantWriter {
+    #[allow(async_fn_in_trait)]
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
+    #[allow(async_fn_in_trait)]
     async fn write_noodles_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
     ) -> Result<(), anyhow::Error>;
 
+    #[allow(async_fn_in_trait)]
     async fn flush(&mut self) -> Result<(), anyhow::Error>;
 
     fn set_hgnc_map(&mut self, _hgnc_map: FxHashMap<String, HgncRecord>) {
