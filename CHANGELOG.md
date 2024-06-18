@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.7](https://github.com/varfish-org/mehari/compare/v0.25.6...v0.25.7) (2024-06-18)
+
+
+### Bug Fixes
+
+* make cargo release work again ([#469](https://github.com/varfish-org/mehari/issues/469)) ([a3f85fd](https://github.com/varfish-org/mehari/commit/a3f85fd23f0a1b2a73c684681b5c2bf73e805c3c))
+
 ## [0.25.6](https://github.com/varfish-org/mehari/compare/v0.25.5...v0.25.6) (2024-06-18)
 
 
