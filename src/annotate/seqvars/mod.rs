@@ -82,7 +82,7 @@ pub struct Args {
     pub genome_release: Option<GenomeRelease>,
     /// Path to the input PED file.
     #[arg(long)]
-    pub path_input_ped: String,
+    pub path_input_ped: Option<String>,
     /// Path to the input VCF file.
     #[arg(long)]
     pub path_input_vcf: String,
@@ -1652,7 +1652,15 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 
         // Load the pedigree.
         tracing::info!("Loading pedigree...");
-        let pedigree = PedigreeByName::from_path(&args.path_input_ped)?;
+        let pedigree = match &args.path_input_ped {
+            Some(p) => {
+                tracing::info!("Loading pedigree from file {}", p);
+                PedigreeByName::from_path(p)?
+            }
+            None => {
+                std::panic!("No pedigree file provided. This is required for tsv annotation.")
+            }
+        };
         writer.set_pedigree(&pedigree);
         tracing::info!("... done loading pedigree");
 
@@ -1859,7 +1867,9 @@ mod test {
                 path_output_tsv: None,
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/brca1.examples.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/brca1.examples.ped",
+            )),
         };
 
         run(&args_common, &args).await?;
@@ -1890,7 +1900,9 @@ mod test {
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/brca1.examples.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/brca1.examples.ped",
+            )),
         };
 
         run(&args_common, &args).await?;
@@ -1933,7 +1945,9 @@ mod test {
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/badly_formed_vcf_entry.ped",
+            )),
         };
 
         run(&args_common, &args).await?;
@@ -1970,7 +1984,9 @@ mod test {
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/mitochondrial_variants.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/mitochondrial_variants.ped",
+            )),
         };
 
         run(&args_common, &args).await?;
@@ -2009,7 +2025,9 @@ mod test {
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/clair3-glnexus-min.ped",
+            )),
         };
 
         run(&args_common, &args).await?;
@@ -2048,7 +2066,9 @@ mod test {
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped",
+            )),
         };
 
         run(&args_common, &args).await?;
