@@ -52,7 +52,7 @@ use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVa
 use crate::common::{guess_assembly, GenomeRelease};
 
 use crate::pbs::txs::TxSeqDatabase;
-use crate::ped::{PedigreeByName, Sex, Individual, Disease};
+use crate::ped::{PedigreeByName, Sex};
 
 use self::ann::{AnnField, Consequence, FeatureBiotype};
 
