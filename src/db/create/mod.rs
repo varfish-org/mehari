@@ -8,6 +8,7 @@ use std::{io::Write, path::PathBuf, time::Instant};
 
 use anyhow::{anyhow, Error};
 use clap::Parser;
+use derive_new::new;
 use hgvs::data::cdot::json::models;
 use hgvs::data::cdot::json::models::{Gene, Tag, Transcript};
 use hgvs::sequences::{translate_cds, TranslationTable};
@@ -369,24 +370,55 @@ impl TranscriptLoader {
     fn filter_transcripts(
         &mut self,
         max_genes: Option<u32>,
-        gene_symbols: &Option<Vec<String>>,
+        selected_hgnc_ids: &Option<Vec<Identifier>>,
         report: &mut impl FnMut(ReportEntry) -> Result<(), Error>,
     ) -> Result<(), Error> {
         tracing::info!("Filtering transcripts ...");
+
+        /// Params used as args for filter functions defined below
+        #[derive(new)]
+        struct Params<'a> {
+            ac: &'a str,
+            release: &'a str,
+            tx: &'a Transcript,
+            seen_ac: &'a IndexSet<(String, String)>,
+            seen_nm: bool,
+        }
+
+        // Check whether we have already seen the same version of the transcript.
+        let old_version = |p: &Params| -> bool {
+            p.seen_ac
+                .contains(&(p.ac.to_string(), p.release.to_string()))
+        };
+
+        // Check whether we have already seen an NM transcript for the gene.
+        let nm_instead_of_nr = |p: &Params| -> bool { p.ac.starts_with("NR_") && p.seen_nm };
+
+        // Check whether the transcript is predicted.
+        let predicted = |p: &Params| -> bool { p.ac.starts_with('X') };
+
+        // Check transcript's CDS length for being a multiple of 3.
+        //
+        // Note that the chrMT transcripts have been fixed earlier already to
+        // accomodate for how they are fixed by poly-A tailing.
+        let invalid_cds_length = |p: &Params| -> bool {
+            if let (Some(cds_start), Some(cds_end)) = (p.tx.start_codon, p.tx.stop_codon) {
+                let cds_len = cds_end - cds_start;
+                cds_len % 3 != 0
+            } else {
+                false
+            }
+        };
+
+        type Filter = fn(&Params) -> bool;
+        let filters: [(Filter, Reason); 4] = [
+            (old_version, Reason::OldVersion),
+            (nm_instead_of_nr, Reason::UseNmTranscriptInsteadOfNr),
+            (predicted, Reason::PredictedTranscript),
+            (invalid_cds_length, Reason::InvalidCdsLength),
+        ];
+
         let start = Instant::now();
-        let selected_hgnc_ids = gene_symbols.as_ref().map(|gene_symbols| {
-            let result: Vec<_> = gene_symbols
-                .iter()
-                .map(|symbol| {
-                    self.gene_id_to_hgnc
-                        .get(symbol)
-                        .map(|h| Identifier::Hgnc(*h))
-                        .unwrap_or_else(|| Identifier::Symbol(symbol.clone()))
-                })
-                .collect();
-            tracing::info!("Will limit to {:?}", &result);
-            result
-        });
 
         // Potentially limit number of genes.
         let transcript_ids_for_gene: Box<dyn Iterator<Item = (&HgncId, &Vec<TranscriptId>)>> =
@@ -416,24 +448,15 @@ impl TranscriptLoader {
 
                 // Only select the highest version of each transcript.
                 //
-                // First, split off transcript versions from accessions and look for NM transcript.
-                let mut seen_nm = false;
-                let mut versioned: Vec<_> = tx_ids
-                    .iter()
-                    .map(|tx_id| {
-                        if tx_id.starts_with("NM_") {
-                            seen_nm = true;
-                        }
-                        let s: Vec<_> = tx_id.split('.').collect();
-                        (s[0], s[1].parse::<u32>().expect("invalid version"))
-                    })
-                    .collect();
-                // Sort descendingly by version.
-                versioned.sort_unstable_by_key(|(_, v)| std::cmp::Reverse(*v));
+                // First, look for NM transcript,
+                // and split off transcript versions from accessions and sort them.
+                let seen_nm = tx_ids.iter().any(|tx_id| tx_id.starts_with("NM_"));
+                let versioned = Self::split_off_versions(tx_ids);
 
                 // Build `next_tx_ids`.
                 let mut seen_ac = IndexSet::new();
                 let mut next_tx_ids = Vec::new();
+
                 for (ac, version) in versioned {
                     let full_ac = TranscriptId::new(format!("{}.{}", &ac, version))?;
                     let ac = ac.to_string();
@@ -445,72 +468,26 @@ impl TranscriptLoader {
                         .unwrap_or_default();
 
                     for release in releases {
-                        #[allow(clippy::if_same_then_else)]
-                        if seen_ac.contains(&(ac.clone(), release.clone())) {
+                        let tx = self
+                            .transcripts
+                            .get(&full_ac)
+                            .expect("must exist; accession taken from map earlier");
+                        let p = Params::new(&ac, &release, tx, &seen_ac, seen_nm);
+                        if let Some(reason) = filters.iter().find_map(|(f, r)| f(&p).then(|| *r)) {
                             let d = Discard {
                                 source: "aggregated_cdot".into(),
                                 kind: GeneOrTranscript::Transcript,
-                                reason: Reason::OldVersion,
+                                reason,
                                 id: Identifier::TxId(full_ac.clone()),
                                 gene_name: None,
                                 tags: None,
                             };
                             report(ReportEntry::Discard(d))?;
-                            continue; // skip, already have later version
-                        } else if ac.starts_with("NR_") && seen_nm {
-                            let d = Discard {
-                                source: "aggregated_cdot".into(),
-                                kind: GeneOrTranscript::Transcript,
-                                reason: Reason::UseNmTranscriptInsteadOfNr,
-                                id: Identifier::TxId(full_ac.clone()),
-                                gene_name: None,
-                                tags: None,
-                            };
-                            report(ReportEntry::Discard(d))?;
-                            continue; // skip NR transcript as we have NM one
-                        } else if ac.starts_with('X') {
-                            let d = Discard {
-                                source: "aggregated_cdot".into(),
-                                kind: GeneOrTranscript::Transcript,
-                                reason: Reason::PredictedTranscript,
-                                id: Identifier::TxId(full_ac.clone()),
-                                gene_name: None,
-                                tags: None,
-                            };
-                            report(ReportEntry::Discard(d))?;
-                            continue; // skip XR/XM transcript
-                        } else {
-                            // Check transcript's CDS length for being multiple of 3 and skip unless
-                            // it is.
-                            //
-                            // Note that the chrMT transcripts have been fixed earlier already to
-                            // accomodate for how they are fixed by poly-A tailing.
-                            let tx = self
-                                .transcripts
-                                .get(&full_ac)
-                                .expect("must exist; accession taken from map earlier");
-                            if let Some(cds_start) = tx.start_codon {
-                                let cds_end =
-                                    tx.stop_codon.expect("must be some if start_codon is some");
-                                let cds_len = cds_end - cds_start;
-                                if cds_len % 3 != 0 {
-                                    let d = Discard {
-                                        source: "aggregated_cdot".into(),
-                                        kind: GeneOrTranscript::Transcript,
-                                        reason: Reason::InvalidCdsLength,
-                                        id: Identifier::TxId(full_ac.clone()),
-                                        gene_name: None,
-                                        tags: None,
-                                    };
-                                    report(ReportEntry::Discard(d))?;
-                                    continue;
-                                }
-                            }
-
-                            // Otherwise, mark transcript as included by storing its accession.
-                            next_tx_ids.push(full_ac.clone());
-                            seen_ac.insert((ac.clone(), release));
+                            continue;
                         }
+                        // Otherwise, mark transcript as included by storing its accession.
+                        next_tx_ids.push(full_ac.clone());
+                        seen_ac.insert((ac.clone(), release));
                     }
                 }
 
@@ -519,7 +496,7 @@ impl TranscriptLoader {
                 chosen.extend(next_tx_ids.iter().cloned());
 
                 if !next_tx_ids.is_empty() {
-                    tmp.insert(hgnc_id.clone(), next_tx_ids);
+                    tmp.insert(*hgnc_id, next_tx_ids);
                 } else {
                     let d = Discard {
                         source: "aggregated_cdot".into(),
@@ -554,6 +531,35 @@ impl TranscriptLoader {
 
         tracing::info!("... done filtering transcripts in {:?}", start.elapsed());
         Ok(())
+    }
+
+    fn symbols_to_id(&self, gene_symbols: &Option<Vec<String>>) -> Option<Vec<Identifier>> {
+        gene_symbols.as_ref().map(|gene_symbols| {
+            let result: Vec<_> = gene_symbols
+                .iter()
+                .map(|symbol| {
+                    self.gene_id_to_hgnc
+                        .get(symbol)
+                        .map(|h| Identifier::Hgnc(*h))
+                        .unwrap_or_else(|| Identifier::Symbol(symbol.clone()))
+                })
+                .collect();
+            tracing::info!("Will limit to {:?}", &result);
+            result
+        })
+    }
+
+    /// Split off versions from transcript identifiers, then sort descending by version.
+    fn split_off_versions(tx_ids: &Vec<TranscriptId>) -> Vec<(&str, u32)> {
+        let mut versioned: Vec<_> = tx_ids
+            .iter()
+            .map(|tx_id| {
+                let s: Vec<_> = tx_id.split('.').collect();
+                (s[0], s[1].parse::<u32>().expect("invalid version"))
+            })
+            .collect();
+        versioned.sort_unstable_by_key(|(k, v)| (k.to_string(), std::cmp::Reverse(*v)));
+        versioned
     }
 
     fn filter_genes(
@@ -1185,7 +1191,8 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // … then load cdot files …
     let mut tx_data = load_cdot_files(args, &mut report)?;
     // … then remove redundant ones …
-    tx_data.filter_transcripts(args.max_txs, &args.gene_symbols, &mut report)?;
+    let selected_hgnc_ids = tx_data.symbols_to_id(&args.gene_symbols);
+    tx_data.filter_transcripts(args.max_txs, &selected_hgnc_ids, &mut report)?;
 
     // … and finally build protobuf file.
     build_protobuf(
