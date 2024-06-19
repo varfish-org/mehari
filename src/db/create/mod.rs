@@ -21,6 +21,7 @@ use once_cell::sync::Lazy;
 use prost::Message;
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
 use serde::Serialize;
+use serde_json::json;
 use thousands::Separable;
 
 use crate::common::{trace_rss_now, GenomeRelease};
@@ -150,10 +151,12 @@ struct TranscriptLoader {
     gene_id_to_hgnc: IndexMap<GeneId, HgncId>,
 }
 
-macro_rules! json_str {
-    ($($json:tt)+) => {
-        serde_json::to_string(&serde_json::json!($($json)+)).expect("Failed serializing")
-    };
+/// Convenience method for getting all tags for all genome builds of a transcript
+fn get_tags(tx: &Transcript) -> Vec<Tag> {
+    tx.genome_builds
+        .values()
+        .flat_map(|values| values.tag.clone().unwrap_or(vec![]))
+        .collect()
 }
 
 impl TranscriptLoader {
@@ -184,11 +187,11 @@ impl TranscriptLoader {
         &mut self,
         path: impl AsRef<Path>,
         label_tsv_path: &Option<&Path>,
-        report: &mut impl FnMut(String) -> Result<(), Error>,
+        report: &mut impl FnMut(ReportEntry) -> Result<(), Error>,
     ) -> Result<(), Error> {
-        report(
-            json_str!({"source": path.as_ref(), "genome_release": self.genome_release, "label_tsv_path": label_tsv_path}),
-        )?;
+        report(ReportEntry::Log(
+            json!({"source": path.as_ref(), "genome_release": self.genome_release, "label_tsv_path": label_tsv_path}),
+        ))?;
 
         let txid_to_label = label_tsv_path.map(txid_to_label).transpose()?;
         let source = path.as_ref().to_str().expect("Invalid path");
@@ -215,15 +218,17 @@ impl TranscriptLoader {
         self.mt_gene_ids = genes_chrmt;
         self.mt_transcript_ids = transcripts_chrmt;
 
-        report(json_str!({
+        report(ReportEntry::Log(json!({
             "source": source,
             "n_chr_mt": self.mt_gene_ids.len(),
             "n_mane_select": n_mane_select,
             "n_mane_plus_clinical": n_mane_plus_clinical
-        }))?;
+        })))?;
 
         let (keep, discard) = self.filter_genes(&cdot_genes);
-        report(json_str!({"source": source, "kept": keep.len(), "discarded": discard.len()}))?;
+        report(ReportEntry::Log(
+            json!({"source": source, "kept": keep.len(), "discarded": discard.len()}),
+        ))?;
 
         for (gene_id, gene) in keep {
             let hgnc_id = gene.hgnc.as_ref().unwrap().parse()?;
@@ -233,16 +238,16 @@ impl TranscriptLoader {
             self.gene_id_to_hgnc.insert(gene_id, hgnc_id);
         }
         for d in discard {
-            report(serde_json::to_string(&d)?)?;
+            report(ReportEntry::Discard(d))?;
         }
-        report(
-            json_str!({"source": source, "total_genes": cdot_genes.len(), "genes_kept": self.hgnc_id_to_gene.len()}),
-        )?;
+        report(ReportEntry::Log(
+            json!({"source": source, "total_genes": cdot_genes.len(), "genes_kept": self.hgnc_id_to_gene.len()}),
+        ))?;
         let total_transcripts = cdot_transcripts.len();
         self.process_transcripts(cdot_transcripts, txid_to_label, report);
-        report(
-            json_str!({"source": source, "total_transcripts": total_transcripts, "transcripts_kept": self.transcripts.len()}),
-        )?;
+        report(ReportEntry::Log(
+            json!({"source": source, "total_transcripts": total_transcripts, "transcripts_kept": self.transcripts.len()}),
+        ))?;
         Ok(())
     }
 
@@ -250,7 +255,7 @@ impl TranscriptLoader {
         &mut self,
         cdot_transcripts: IndexMap<TranscriptId, Transcript>,
         transcript_id_to_tags: Option<IndexMap<TranscriptId, Vec<Tag>>>,
-        report: &mut impl FnMut(String) -> Result<(), Error>,
+        report: &mut impl FnMut(ReportEntry) -> Result<(), Error>,
     ) {
         let missing_hgnc =
             |tx: &Transcript| -> bool { tx.hgnc.is_none() || tx.hgnc.as_ref().unwrap().is_empty() };
@@ -290,9 +295,9 @@ impl TranscriptLoader {
                             reason: *reason,
                             id: Identifier::TxId(TranscriptId::new(tx.id.clone()).unwrap()),
                             gene_name: tx.gene_name.clone(),
+                            tags: Some(get_tags(tx)),
                         };
-                        report(serde_json::to_string(&d).expect("Failed serializing"))
-                            .expect("Failed writing to report file");
+                        report(ReportEntry::Discard(d)).expect("Failed writing to report file");
                         return false;
                     }
                 }
@@ -365,7 +370,7 @@ impl TranscriptLoader {
         &mut self,
         max_genes: Option<u32>,
         gene_symbols: &Option<Vec<String>>,
-        report: &mut impl FnMut(String) -> Result<(), Error>,
+        report: &mut impl FnMut(ReportEntry) -> Result<(), Error>,
     ) -> Result<(), Error> {
         tracing::info!("Filtering transcripts ...");
         let start = Instant::now();
@@ -448,8 +453,9 @@ impl TranscriptLoader {
                                 reason: Reason::OldVersion,
                                 id: Identifier::TxId(full_ac.clone()),
                                 gene_name: None,
+                                tags: None,
                             };
-                            report(serde_json::to_string(&d)?)?;
+                            report(ReportEntry::Discard(d))?;
                             continue; // skip, already have later version
                         } else if ac.starts_with("NR_") && seen_nm {
                             let d = Discard {
@@ -458,8 +464,9 @@ impl TranscriptLoader {
                                 reason: Reason::UseNmTranscriptInsteadOfNr,
                                 id: Identifier::TxId(full_ac.clone()),
                                 gene_name: None,
+                                tags: None,
                             };
-                            report(serde_json::to_string(&d)?)?;
+                            report(ReportEntry::Discard(d))?;
                             continue; // skip NR transcript as we have NM one
                         } else if ac.starts_with('X') {
                             let d = Discard {
@@ -468,8 +475,9 @@ impl TranscriptLoader {
                                 reason: Reason::PredictedTranscript,
                                 id: Identifier::TxId(full_ac.clone()),
                                 gene_name: None,
+                                tags: None,
                             };
-                            report(serde_json::to_string(&d)?)?;
+                            report(ReportEntry::Discard(d))?;
                             continue; // skip XR/XM transcript
                         } else {
                             // Check transcript's CDS length for being multiple of 3 and skip unless
@@ -492,8 +500,9 @@ impl TranscriptLoader {
                                         reason: Reason::InvalidCdsLength,
                                         id: Identifier::TxId(full_ac.clone()),
                                         gene_name: None,
+                                        tags: None,
                                     };
-                                    report(serde_json::to_string(&d)?)?;
+                                    report(ReportEntry::Discard(d))?;
                                     continue;
                                 }
                             }
@@ -518,8 +527,9 @@ impl TranscriptLoader {
                         reason: Reason::NoTranscript,
                         id: Identifier::Hgnc(*hgnc_id),
                         gene_name: None,
+                        tags: None,
                     };
-                    report(serde_json::to_string(&d)?)?;
+                    report(ReportEntry::Discard(d))?;
                 }
             }
 
@@ -531,9 +541,9 @@ impl TranscriptLoader {
             "  => {} transcripts left",
             self.transcripts.len().separate_with_commas()
         );
-        report(
-            json_str!({"source": "aggregated_cdot", "total_transcripts": self.transcripts.len()}),
-        )?;
+        report(ReportEntry::Log(
+            json!({"source": "aggregated_cdot", "total_transcripts": self.transcripts.len()}),
+        ))?;
 
         self.hgnc_id_to_gene
             .retain2(|gene_id, _| self.transcript_ids_for_gene.contains_key(gene_id));
@@ -574,6 +584,7 @@ impl TranscriptLoader {
                         reason: *reason,
                         id: Identifier::GeneId(gene_id.clone()),
                         gene_name: gene.gene_symbol.clone(),
+                        tags: None,
                     });
                 }
             }
@@ -604,12 +615,20 @@ enum GeneOrTranscript {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", content = "value")]
+enum ReportEntry {
+    Discard(Discard),
+    Log(serde_json::Value),
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct Discard {
     source: String,
     kind: GeneOrTranscript,
     reason: Reason,
     id: Identifier,
     gene_name: Option<String>,
+    tags: Option<Vec<Tag>>,
 }
 
 fn gather_transcript_stats(
@@ -702,7 +721,7 @@ fn build_protobuf(
     tx_data: TranscriptLoader,
     is_silent: bool,
     genome_release: GenomeRelease,
-    report: &mut impl FnMut(String) -> Result<(), Error>,
+    report: &mut impl FnMut(ReportEntry) -> Result<(), Error>,
 ) -> Result<(), Error> {
     let TranscriptLoader {
         hgnc_id_to_gene: genes,
@@ -759,8 +778,9 @@ fn build_protobuf(
                     reason: Reason::MissingSequence,
                     id: Identifier::TxId(tx_id.clone()),
                     gene_name: None,
+                    tags: Some(get_tags(&tx)),
                 };
-                report(serde_json::to_string(&d)?)?;
+                report(ReportEntry::Discard(d))?;
                 tx_skipped_noseq.insert(tx_id.clone());
                 continue;
             };
@@ -776,8 +796,9 @@ fn build_protobuf(
                         reason: Reason::CdsEndAfterSequenceEnd, // (cds_end, seq.len())
                         id: Identifier::TxId(tx_id.clone()),
                         gene_name: None,
+                        tags: Some(get_tags(tx)),
                     };
-                    report(serde_json::to_string(&d)?)?;
+                    report(ReportEntry::Discard(d))?;
                     continue;
                 }
                 let tx_seq_to_translate = &seq[cds_start..cds_end];
@@ -791,8 +812,9 @@ fn build_protobuf(
                         reason: Reason::MissingStopCodon,
                         id: Identifier::TxId(tx_id.clone()),
                         gene_name: None,
+                        tags: Some(get_tags(tx)),
                     };
-                    report(serde_json::to_string(&d)?)?;
+                    report(ReportEntry::Discard(d))?;
                     tx_skipped_nostop.insert(tx_id.clone());
                     continue;
                 }
@@ -847,8 +869,9 @@ fn build_protobuf(
                     reason: Reason::NoTranscript,
                     id: Identifier::Hgnc(gene_symbol.clone()),
                     gene_name: gene.gene_symbol.clone(),
+                    tags: None,
                 };
-                report(serde_json::to_string(&d)?)?;
+                report(ReportEntry::Discard(d))?;
                 continue;
             }
 
@@ -1101,7 +1124,7 @@ fn open_seqrepo(args: &Args) -> Result<SeqRepo, Error> {
 /// Load the cdot JSON files.
 fn load_cdot_files(
     args: &Args,
-    report: &mut impl FnMut(String) -> Result<(), Error>,
+    report: &mut impl FnMut(ReportEntry) -> Result<(), Error>,
 ) -> Result<TranscriptLoader, Error> {
     tracing::info!("Loading cdot JSON files ...");
     let start = Instant::now();
@@ -1133,12 +1156,12 @@ fn load_cdot_files(
         merged.transcripts.len().separate_with_underscores(),
         merged.transcript_ids_for_gene.len().separate_with_underscores()
     );
-    report(json_str!({
+    report(ReportEntry::Log(json!({
         "source": "aggregated_cdot",
         "total_genes": merged.transcripts.len(),
         "total_transcripts": merged.transcripts.len(),
         "total_transcript_ids_for_gene": merged.transcript_ids_for_gene.len()
-    }))?;
+    })))?;
 
     Ok(merged)
 }
@@ -1147,8 +1170,8 @@ fn load_cdot_files(
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     let mut report_file =
         File::create(format!("{}.report.jsonl", args.path_out.display())).map(BufWriter::new)?;
-    let mut report = |s: String| -> Result<(), Error> {
-        writeln!(report_file, "{}", s)?;
+    let mut report = |r: ReportEntry| -> Result<(), Error> {
+        writeln!(report_file, "{}", serde_json::to_string(&r)?)?;
         Ok(())
     };
     tracing::info!(
@@ -1189,7 +1212,7 @@ pub mod test {
     use temp_testdir::TempDir;
 
     use crate::common::{Args as CommonArgs, GenomeRelease};
-    use crate::db::create::TranscriptLoader;
+    use crate::db::create::{ReportEntry, TranscriptLoader};
     use crate::db::dump;
 
     use super::{run, Args};
@@ -1198,8 +1221,8 @@ pub mod test {
     fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {
         let tmp_dir = TempDir::default();
         let mut report_file = File::create(tmp_dir.join("report")).map(BufWriter::new)?;
-        let mut report = |s: String| -> Result<(), anyhow::Error> {
-            writeln!(report_file, "{}", s)?;
+        let mut report = |r: ReportEntry| -> Result<(), anyhow::Error> {
+            writeln!(report_file, "{}", serde_json::to_string(&r)?)?;
             Ok(())
         };
 
