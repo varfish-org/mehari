@@ -533,20 +533,16 @@ impl TranscriptLoader {
         Ok(())
     }
 
-    fn symbols_to_id(&self, gene_symbols: &Option<Vec<String>>) -> Option<Vec<Identifier>> {
-        gene_symbols.as_ref().map(|gene_symbols| {
-            let result: Vec<_> = gene_symbols
-                .iter()
-                .map(|symbol| {
-                    self.gene_id_to_hgnc
-                        .get(symbol)
-                        .map(|h| Identifier::Hgnc(*h))
-                        .unwrap_or_else(|| Identifier::Symbol(symbol.clone()))
-                })
-                .collect();
-            tracing::info!("Will limit to {:?}", &result);
-            result
-        })
+    fn symbols_to_id(&self, gene_symbols: &[String]) -> Vec<Identifier> {
+        gene_symbols
+            .iter()
+            .map(|symbol| {
+                self.gene_id_to_hgnc
+                    .get(symbol)
+                    .map(|h| Identifier::Hgnc(*h))
+                    .unwrap_or_else(|| Identifier::Symbol(symbol.clone()))
+            })
+            .collect()
     }
 
     /// Split off versions from transcript identifiers, then sort descending by version.
@@ -1191,7 +1187,12 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // … then load cdot files …
     let mut tx_data = load_cdot_files(args, &mut report)?;
     // … then remove redundant ones …
-    let selected_hgnc_ids = tx_data.symbols_to_id(&args.gene_symbols);
+    let selected_hgnc_ids = args.gene_symbols.as_ref().map(|symbols| {
+        let r = tx_data.symbols_to_id(symbols);
+        tracing::info!("Will limit to {:?}", r);
+        r
+    });
+
     tx_data.filter_transcripts(args.max_txs, &selected_hgnc_ids, &mut report)?;
 
     // … and finally build protobuf file.
