@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/varfish-org/mehari/compare/v0.25.7...v0.26.0) (2024-06-19)
+
+
+### Features
+
+* Make path-input-ped optional ([#472](https://github.com/varfish-org/mehari/issues/472)) ([e6cf526](https://github.com/varfish-org/mehari/commit/e6cf526dc5667d20c7a4bf1f76a698659b3dcb28))
+
 ## [0.25.7](https://github.com/varfish-org/mehari/compare/v0.25.6...v0.25.7) (2024-06-18)
 
 
