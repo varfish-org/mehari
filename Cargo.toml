@@ -49,7 +49,7 @@ indexmap = { version = "2.2", features = ["serde"] }
 indicatif = "0.17"
 itertools = "0.13"
 jsonl = "4.0"
-lazy_static = "1.4"
+lazy_static = "1.5"
 log = "0.4"
 nom = "7.1"
 parse-display = "0.9"
