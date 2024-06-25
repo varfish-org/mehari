@@ -187,14 +187,13 @@ impl TranscriptLoader {
     fn load_cdot(
         &mut self,
         path: impl AsRef<Path>,
-        label_tsv_path: &Option<&Path>,
+        txid_to_label: &Option<IndexMap<TranscriptId, Vec<Tag>>>,
         report: &mut impl FnMut(ReportEntry) -> Result<(), Error>,
     ) -> Result<(), Error> {
         report(ReportEntry::Log(
-            json!({"source": path.as_ref(), "genome_release": self.genome_release, "label_tsv_path": label_tsv_path}),
+            json!({"source": path.as_ref(), "genome_release": self.genome_release}),
         ))?;
 
-        let txid_to_label = label_tsv_path.map(txid_to_label).transpose()?;
         let source = path.as_ref().to_str().expect("Invalid path");
         let models::Container {
             genes: cdot_genes,
@@ -245,7 +244,7 @@ impl TranscriptLoader {
             json!({"source": source, "total_genes": cdot_genes.len(), "genes_kept": self.hgnc_id_to_gene.len()}),
         ))?;
         let total_transcripts = cdot_transcripts.len();
-        self.process_transcripts(cdot_transcripts, txid_to_label, report);
+        self.process_transcripts(cdot_transcripts, txid_to_label.clone(), report);
         report(ReportEntry::Log(
             json!({"source": source, "total_transcripts": total_transcripts, "transcripts_kept": self.transcripts.len()}),
         ))?;
@@ -1096,25 +1095,20 @@ fn build_protobuf(
 }
 
 /// Create file-backed `SeqRepo`.
-fn open_seqrepo(args: &Args) -> Result<SeqRepo, Error> {
+fn open_seqrepo(path: impl AsRef<Path>) -> Result<SeqRepo, Error> {
     tracing::info!("Opening seqrepo...");
     let start = Instant::now();
-    let seqrepo = PathBuf::from(&args.path_seqrepo_instance);
+    let seqrepo = PathBuf::from(path.as_ref());
+    let p = path.as_ref().to_str();
     let path = seqrepo
         .parent()
-        .ok_or(anyhow::anyhow!(
-            "Could not get parent from {:?}",
-            &args.path_seqrepo_instance
-        ))?
+        .ok_or(anyhow::anyhow!("Could not get parent from {:?}", &p))?
         .to_str()
         .unwrap()
         .to_string();
     let instance = seqrepo
         .file_name()
-        .ok_or(anyhow::anyhow!(
-            "Could not get basename from {:?}",
-            &args.path_seqrepo_instance
-        ))?
+        .ok_or(anyhow::anyhow!("Could not get basename from {:?}", &p))?
         .to_str()
         .unwrap()
         .to_string();
@@ -1130,6 +1124,11 @@ fn load_cdot_files(
 ) -> Result<TranscriptLoader, Error> {
     tracing::info!("Loading cdot JSON files ...");
     let start = Instant::now();
+    let labels = args
+        .path_mane_txs_tsv
+        .as_ref()
+        .map(txid_to_label)
+        .transpose()?;
     let merged = args
         .path_cdot_json
         .iter()
@@ -1137,11 +1136,7 @@ fn load_cdot_files(
             let mut loader =
                 TranscriptLoader::new(cdot_path.to_str().unwrap_or_default(), args.genome_release);
             loader
-                .load_cdot(
-                    cdot_path,
-                    &args.path_mane_txs_tsv.as_ref().map(|p| p.as_ref()),
-                    report,
-                )
+                .load_cdot(cdot_path, &labels, report)
                 .unwrap_or_else(|_| panic!("failed to load cdot json from {:?}", cdot_path));
             loader
         })
@@ -1183,7 +1178,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     );
 
     // Open seqrepo …
-    let seqrepo = open_seqrepo(args)?;
+    let seqrepo = open_seqrepo(&args.path_seqrepo_instance)?;
     // … then load cdot files …
     let mut tx_data = load_cdot_files(args, &mut report)?;
     // … then remove redundant ones …
@@ -1217,10 +1212,12 @@ pub mod test {
     use std::path::{Path, PathBuf};
 
     use clap_verbosity_flag::Verbosity;
+    use hgvs::sequences::{translate_cds, TranslationTable};
+    use seqrepo::{AliasOrSeqId, Interface};
     use temp_testdir::TempDir;
 
     use crate::common::{Args as CommonArgs, GenomeRelease};
-    use crate::db::create::{ReportEntry, TranscriptLoader};
+    use crate::db::create::{open_seqrepo, ReportEntry, TranscriptLoader};
     use crate::db::dump;
 
     use super::{run, Args};
@@ -1236,9 +1233,10 @@ pub mod test {
 
         let path_tsv = Path::new("tests/data/db/create/txs/txs_main.tsv");
         let mut tx_data = TranscriptLoader::new("", GenomeRelease::Grch37);
+        let labels = super::txid_to_label(path_tsv)?;
         tx_data.load_cdot(
             Path::new("tests/data/db/create/txs/cdot-0.2.22.refseq.grch37_grch38.brca1_opa1.json"),
-            &Some(path_tsv),
+            &Some(labels),
             &mut report,
         )?;
 
