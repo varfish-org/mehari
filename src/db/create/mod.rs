@@ -622,6 +622,7 @@ enum Reason {
     MissingSequence,
     CdsEndAfterSequenceEnd,
     MissingStopCodon,
+    TranscriptPriority,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -1144,7 +1145,7 @@ fn load_cdot_files(
         .as_ref()
         .map(txid_to_label)
         .transpose()?;
-    let merged = args
+    let loaders = args
         .path_cdot_json
         .iter()
         .map(|cdot_path| {
@@ -1155,7 +1156,34 @@ fn load_cdot_files(
                 .unwrap_or_else(|_| panic!("failed to load cdot json from {:?}", cdot_path));
             loader
         })
+        .collect_vec();
+    let merged = loaders
+        .into_iter()
         .reduce(|mut a, mut b| {
+            // because we're loading multiple cdot files,
+            // it may happen that there are multiple entries from different sources
+            // for the same hgnc id
+            // in that case, we report which transcripts are "overwritten" by the merge
+            for key in b.transcript_ids_for_gene.keys() {
+                if let Some(txs) = a.transcript_ids_for_gene.get(key) {
+                    for tx in txs {
+                        report(ReportEntry::Discard(Discard {
+                            source: "aggregated_cdot".into(),
+                            kind: GeneOrTranscript::Transcript,
+                            reason: Reason::TranscriptPriority,
+                            id: Identifier::TxId(tx.clone()),
+                            gene_name: Some(
+                                a.hgnc_id_to_gene
+                                    .get(key)
+                                    .and_then(|g| g.gene_symbol.clone())
+                                    .unwrap_or_default(),
+                            ),
+                            tags: None,
+                        }))
+                        .expect("failed to report discarded transcript");
+                    }
+                }
+            }
             a.merge(&mut b);
             a
         })
