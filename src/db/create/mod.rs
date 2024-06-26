@@ -442,6 +442,21 @@ impl TranscriptLoader {
                     .unwrap_or(true)
                 {
                     tracing::trace!("skipping {} / {:?}, because not selected", hgnc_id, tx_ids);
+                    let gene_symbol = self
+                        .hgnc_id_to_gene
+                        .get(hgnc_id)
+                        .and_then(|g| g.gene_symbol.clone());
+                    for tx_id in tx_ids {
+                        let d = Discard {
+                            source: "aggregated_cdot".into(),
+                            kind: GeneOrTranscript::Transcript,
+                            reason: Reason::DeselectedGene,
+                            id: Identifier::TxId(tx_id.clone()),
+                            gene_name: gene_symbol.clone(),
+                            tags: None,
+                        };
+                        report(ReportEntry::Discard(d))?;
+                    }
                     continue;
                 }
 
