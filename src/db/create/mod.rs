@@ -1007,7 +1007,7 @@ fn build_protobuf(
                     ..
                 } = tx_model.clone();
 
-                tags.sort();
+                tags.sort_unstable();
                 tags.dedup();
 
                 data_transcripts.push(crate::pbs::txs::Transcript {
