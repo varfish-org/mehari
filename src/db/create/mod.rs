@@ -72,6 +72,8 @@ pub struct Args {
 struct LabelEntry {
     /// Transcript identifier without version.
     transcript_id: String,
+    /// Transcript version.
+    transcript_version: usize,
     /// Gene symbol (unused).
     _gene_symbol: String,
     /// Label to transfer.
@@ -265,10 +267,12 @@ impl TranscriptLoader {
                 .contains_key(&tx.hgnc.as_ref().unwrap().parse::<HgncId>().unwrap())
         };
         let empty_genome_builds = |tx: &Transcript| -> bool { tx.genome_builds.is_empty() };
-        let filters: [(&dyn Fn(&Transcript) -> bool, Reason); 3] = [
+        let partial = |tx: &Transcript| -> bool { matches!(tx.partial, Some(1)) };
+        let filters: [(&dyn Fn(&Transcript) -> bool, Reason); 4] = [
             (&missing_hgnc, Reason::MissingHgncId),
             (&deselected_gene, Reason::DeselectedGene),
             (&empty_genome_builds, Reason::EmptyGenomeBuilds),
+            (&partial, Reason::OnlyPartialAlignmentInRefSeq),
         ];
         cdot_transcripts
             .values()
@@ -623,6 +627,7 @@ enum Reason {
     CdsEndAfterSequenceEnd,
     MissingStopCodon,
     TranscriptPriority,
+    OnlyPartialAlignmentInRefSeq,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -1153,7 +1158,7 @@ fn load_cdot_files(
                 TranscriptLoader::new(cdot_path.to_str().unwrap_or_default(), args.genome_release);
             loader
                 .load_cdot(cdot_path, &labels, report)
-                .unwrap_or_else(|_| panic!("failed to load cdot json from {:?}", cdot_path));
+                .unwrap();
             loader
         })
         .collect_vec();
