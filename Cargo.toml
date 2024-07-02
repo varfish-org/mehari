@@ -42,6 +42,7 @@ csv = "1.3"
 derivative = "2.2"
 derive_builder = { version = "0.20", features = ["clippy"] }
 derive-new = "0.6.0"
+enumflags2 = { version = "0.7.10", features = ["serde"] }
 env_logger = "0.11"
 flate2 = "1.0"
 futures = "0.3"
@@ -52,7 +53,7 @@ itertools = "0.13"
 jsonl = "4.0"
 log = "0.4"
 nom = "7.1"
-nutype = { version = "0.4.2" , features = ["serde"]}
+nutype = { version = "0.4.2", features = ["serde"] }
 parse-display = "0.9"
 procfs = "0.16"
 prost = "0.12"
