@@ -24,6 +24,8 @@ use prost::Message;
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
 use serde::Serialize;
 use serde_json::json;
+use serde_with::serde_as;
+use serde_with::DisplayFromStr;
 use thousands::Separable;
 
 use crate::common::{trace_rss_now, GenomeRelease};
@@ -218,10 +220,11 @@ impl TranscriptLoader {
         self.cdot_version = cdot_version;
 
         for (gene_id, gene) in cdot_genes {
-            let hgnc_id = gene.hgnc.as_ref().unwrap().parse()?;
-            self.hgnc_id_to_transcript_ids.entry(hgnc_id).or_default();
             self.gene_id_to_gene.insert(gene_id.clone(), gene.clone());
-            self.hgnc_id_to_gene_id.insert(hgnc_id, gene_id.clone());
+            if let Some(hgnc_id) = gene.hgnc.as_ref().map(|hgnc| hgnc.parse()).transpose()? {
+                self.hgnc_id_to_transcript_ids.entry(hgnc_id).or_default();
+                self.hgnc_id_to_gene_id.insert(hgnc_id, gene_id.clone());
+            }
         }
 
         for (tx_id, tx) in cdot_transcripts {
@@ -234,16 +237,13 @@ impl TranscriptLoader {
             }
         }
 
-        report(ReportEntry::Log(
-            json!({"source": source, "total_genes": self.gene_id_to_gene.len()}),
-        ))?;
         self.fix_transcript_genome_builds();
         if let Some(txid_to_label) = transcript_id_to_tags {
             self.update_transcript_tags(txid_to_label);
         }
         self.fix_mitochondrial_cds();
         report(ReportEntry::Log(
-            json!({"source": source, "total_transcripts": self.transcripts.len()}),
+            json!({"source": source, "total_genes": self.gene_id_to_gene.len(), "total_transcripts": self.transcripts.len()}),
         ))?;
         Ok(())
     }
@@ -625,7 +625,7 @@ impl TranscriptLoader {
                         .iter()
                         .filter_map(|(f, r)| f(gene_id, gene).then(|| *r))
                         .fold(BitFlags::<Reason>::default(), |a, b| a | b);
-                    if reason.is_empty() {
+                    if !reason.is_empty() {
                         Either::Right(Discard {
                             source: self.source.clone(),
                             kind: GeneOrTranscript::Gene,
@@ -642,39 +642,29 @@ impl TranscriptLoader {
             json!({"source": self.source, "kept": keep.len(), "discarded": discard.len()}),
         ))?;
         for d in discard {
-            self.remove(&d.id, report)?;
+            self.remove(&d.id)?;
             report(ReportEntry::Discard(d))?;
         }
         Ok(())
     }
 
-    fn remove(
-        &mut self,
-        id: &Identifier,
-        report: &mut impl FnMut(ReportEntry) -> Result<(), Error>,
-    ) -> Result<(), Error> {
+    fn remove(&mut self, id: &Identifier) -> Result<(), Error> {
         match id {
             Identifier::Hgnc(hgnc_id) => {
                 let gene_id = self
                     .hgnc_id_to_gene_id
                     .swap_remove(hgnc_id)
                     .ok_or_else(|| anyhow!("Gene not found: {}", hgnc_id))?;
-                let gene = self.gene_id_to_gene.swap_remove(&gene_id);
-                report(ReportEntry::Log(
-                    json!({"source": self.source, "removed": id, "gene": gene.map(|g| g.gene_symbol)}),
-                ))?;
+                let _gene = self.gene_id_to_gene.swap_remove(&gene_id);
             }
             Identifier::TxId(tx_id) => {
-                let tx = self
+                let _tx = self
                     .transcripts
                     .swap_remove(tx_id)
                     .ok_or_else(|| anyhow!("Transcript not found: {}", tx_id))?;
-                report(ReportEntry::Log(
-                    json!({"source": self.source, "removed": id, "gene": tx.gene_name}),
-                ))?;
             }
             Identifier::GeneId(gene_id) => {
-                let gene = self
+                let _gene = self
                     .gene_id_to_gene
                     .swap_remove(gene_id)
                     .ok_or_else(|| anyhow!("Gene not found: {}", gene_id))?;
@@ -691,14 +681,8 @@ impl TranscriptLoader {
                         .ok_or_else(|| anyhow!("Gene not found: {}", hgnc_id))?;
                     for tx_id in tx_ids {
                         self.transcripts.swap_remove(&tx_id);
-                        report(ReportEntry::Log(
-                            json!({"source": self.source, "removed": Identifier::TxId(tx_id.clone()), "gene": gene.gene_symbol}),
-                        ))?;
                     }
                 }
-                report(ReportEntry::Log(
-                    json!({"source": self.source, "removed": id, "gene": gene.gene_symbol}),
-                ))?;
             }
         }
 
@@ -749,11 +733,12 @@ enum ReportEntry {
     Discard(Discard),
     Log(serde_json::Value),
 }
-
+#[serde_as]
 #[derive(Debug, Clone, Serialize)]
 struct Discard {
     source: String,
     kind: GeneOrTranscript,
+    #[serde_as(as = "DisplayFromStr")]
     reason: BitFlags<Reason>,
     id: Identifier,
     gene_name: Option<String>,
