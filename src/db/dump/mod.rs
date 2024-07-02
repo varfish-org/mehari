@@ -32,5 +32,7 @@ pub fn run_with_write<W: Write>(
 
 /// Main entry point for `db create txs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
-    run_with_write(common, args, &mut std::io::stdout())
+    let writer = &mut std::io::stdout();
+    run_with_write(common, args, writer)?;
+    Ok(writer.flush()?)
 }
