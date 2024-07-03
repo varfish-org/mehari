@@ -20,6 +20,7 @@ use nom::ToUsize;
 use nutype::nutype;
 use once_cell::sync::Lazy;
 use prost::Message;
+use rayon::iter::Either;
 use rayon::prelude::*;
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
 use serde::Serialize;
@@ -423,18 +424,23 @@ impl TranscriptLoader {
         Ok(())
     }
 
-    fn filter_transcripts_with_sequence(&mut self, seq_repo: &SeqRepo) -> Result<(), Error> {
+    fn filter_transcripts_with_sequence(
+        &mut self,
+        seq_repo: &SeqRepo,
+    ) -> Result<HashMap<TranscriptId, String>, Error> {
         tracing::info!("Filtering transcripts with seqrepo …");
         let start = Instant::now();
-
         let (_, mt_txs) = self.find_on_contigs(MITOCHONDRIAL_ACCESSIONS);
-        let discards = self
+        let (discards, keeps): (Vec<_>, HashMap<TranscriptId, String>) = self
             .transcripts
             .par_iter()
-            .filter_map(|(tx_id, tx)| {
+            .partition_map(|(tx_id, tx)| {
                 let valid_cds_length = tx.cds_length().map_or(false, |l| l % 3 == 0);
                 if !valid_cds_length {
-                    return Some((Identifier::TxId(tx_id.clone()), Reason::InvalidCdsLength));
+                    return Either::Left((
+                        Identifier::TxId(tx_id.clone()),
+                        Reason::InvalidCdsLength,
+                    ));
                 }
 
                 let namespace: String = if tx_id.starts_with("ENST") {
@@ -449,7 +455,10 @@ impl TranscriptLoader {
                 if let Ok(seq) = seq {
                     let is_mt = mt_txs.contains(tx_id);
                     let seq = if seq.is_empty() {
-                        return Some((Identifier::TxId(tx_id.clone()), Reason::MissingSequence));
+                        return Either::Left((
+                            Identifier::TxId(tx_id.clone()),
+                            Reason::MissingSequence,
+                        ));
                     } else {
                         if is_mt {
                             append_poly_a(seq)
@@ -464,7 +473,7 @@ impl TranscriptLoader {
                     {
                         let (cds_start, cds_end) = (cds_start as usize, cds_end as usize);
                         if cds_end > seq.len() {
-                            return Some((
+                            return Either::Left((
                                 Identifier::TxId(tx_id.clone()),
                                 Reason::CdsEndAfterSequenceEnd,
                             ));
@@ -475,25 +484,25 @@ impl TranscriptLoader {
                             true,
                             "*",
                             TranslationTable::Standard,
-                        )
-                        .ok()?;
+                        ).expect("Translation should work, since the length is guaranteed to be a multiple of 3 at this point");
 
                         if (!is_mt && !aa_sequence.ends_with('*'))
                             || (is_mt && !aa_sequence.contains('*'))
                         {
-                            return Some((
+                            Either::Left((
                                 Identifier::TxId(tx_id.clone()),
                                 Reason::MissingStopCodon,
-                            ));
+                            ))
+                        } else {
+                            Either::Right((tx_id.clone(), seq))
                         }
-                        return None;
+                    } else {
+                        Either::Right((tx_id.clone(), seq))
                     }
-                    return None;
                 } else {
-                    return Some((Identifier::TxId(tx_id.clone()), Reason::MissingSequence));
+                    Either::Left((Identifier::TxId(tx_id.clone()), Reason::MissingSequence))
                 }
-            })
-            .collect::<Vec<_>>();
+            });
 
         for (id, reason) in discards {
             self.mark_discarded(&id, reason.into())?;
@@ -505,6 +514,23 @@ impl TranscriptLoader {
             start.elapsed()
         );
 
+        Ok(keeps)
+    }
+
+    fn filter_empty_transcripts(&mut self) -> Result<(), Error> {
+        for (hgnc_id, txs) in self.hgnc_id_to_transcript_ids.iter() {
+            if txs.is_empty() {
+                *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
+                    Reason::NoTranscript;
+                if let Some(gene_id) = self.hgnc_id_to_gene_id.get(hgnc_id) {
+                    *self
+                        .discards
+                        .entry(Identifier::GeneId(gene_id.clone()))
+                        .or_default() |= Reason::NoTranscript;
+                }
+            }
+        }
+        self.discard()?;
         Ok(())
     }
 
@@ -718,6 +744,7 @@ impl TranscriptLoader {
                 kind,
                 Reason::all()
                     .iter()
+                    .filter(|r| count_groups[&kind][r] > 0)
                     .map(|r| format!("{:#?}: {}", r, count_groups[&kind][&r]))
                     .join(", ")
             );
@@ -726,46 +753,21 @@ impl TranscriptLoader {
     }
 
     fn _discard_id(&mut self, id: &Identifier, reason: BitFlags<Reason>) -> Result<(), Error> {
+        *self.discards.entry(id.clone()).or_default() |= reason;
         match id {
             Identifier::Hgnc(hgnc_id) => {
-                let gene_id = self.hgnc_id_to_gene_id.remove(hgnc_id).unwrap();
-                let _gene = self.gene_id_to_gene.remove(&gene_id);
-                let tx_ids = self.hgnc_id_to_transcript_ids.remove(hgnc_id).unwrap();
-                for tx_id in tx_ids {
-                    self.transcripts.remove(&tx_id);
-                    *self.discards.entry(Identifier::TxId(tx_id)).or_default() |= reason;
-                }
+                let _gene_id = self.hgnc_id_to_gene_id.remove(hgnc_id);
+                let _txs = self.hgnc_id_to_transcript_ids.remove(hgnc_id);
             }
             Identifier::TxId(tx_id) => {
-                self.transcripts.remove(tx_id).unwrap();
+                let _transcript = self.transcripts.remove(tx_id);
             }
             Identifier::GeneId(gene_id) => {
-                let gene = self
-                    .gene_id_to_gene
-                    .remove(gene_id)
-                    .ok_or_else(|| anyhow!("No gene found for gene id {:?}", gene_id))?;
-                if let Some(hgnc_id) = self.hgnc_id_to_gene_id.iter().find_map(|(k, v)| {
-                    if v == gene_id {
-                        Some(k)
-                    } else {
-                        None
-                    }
-                }) {
-                    *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |= reason;
-                }
-                if let Some(hgnc_id) = gene.hgnc {
-                    let hgnc_id = hgnc_id.parse()?;
-                    *self.discards.entry(Identifier::Hgnc(hgnc_id)).or_default() |= reason;
-                    if let Some(_gene_id) = self.hgnc_id_to_gene_id.remove(&hgnc_id) {
-                        ()
-                    }
-
-                    if let Some(tx_ids) = self.hgnc_id_to_transcript_ids.remove(&hgnc_id) {
-                        for tx_id in tx_ids {
-                            self.transcripts.remove(&tx_id);
-                            *self.discards.entry(Identifier::TxId(tx_id)).or_default() |= reason;
-                        }
-                    }
+                let gene = self.gene_id_to_gene.remove(gene_id);
+                if let Some(hgnc_id) = gene.and_then(|g| g.hgnc) {
+                    let hgnc_id: HgncId = hgnc_id.parse()?;
+                    self.hgnc_id_to_transcript_ids.remove(&hgnc_id);
+                    self.hgnc_id_to_gene_id.remove(&hgnc_id);
                 }
             }
         }
@@ -785,12 +787,10 @@ impl TranscriptLoader {
     /// This can be done by simply converting the models from ``hgvs-rs`` to the prost generated data structures.
     fn build_protobuf(
         &mut self,
-        seqrepo: &SeqRepo,
+        sequence_map: &mut HashMap<TranscriptId, String>,
         is_silent: bool,
         genome_release: GenomeRelease,
     ) -> Result<TxSeqDatabase, Error> {
-        let (_, mt_transcript_ids) = self.find_on_contigs(MITOCHONDRIAL_ACCESSIONS);
-
         tracing::info!("Constructing protobuf data structures …");
         trace_rss_now();
         let start = Instant::now();
@@ -810,25 +810,7 @@ impl TranscriptLoader {
             pb.set_style(PROGRESS_STYLE.clone());
             for (tx_id, _tx) in &self.transcripts {
                 pb.inc(1);
-                let is_mt = mt_transcript_ids.contains(tx_id);
-                let namespace: String = if tx_id.starts_with("ENST") {
-                    String::from("Ensembl")
-                } else {
-                    String::from("NCBI")
-                };
-                let res_seq = seqrepo.fetch_sequence(&AliasOrSeqId::Alias {
-                    value: (*tx_id).to_string(),
-                    namespace: Some(namespace.clone()),
-                });
-                let seq = if let Ok(seq) = res_seq {
-                    if is_mt {
-                        append_poly_a(seq)
-                    } else {
-                        seq
-                    }
-                } else {
-                    continue;
-                };
+                let seq = sequence_map.remove(tx_id).unwrap();
 
                 // Register sequence into protobuf.
                 aliases.push((*tx_id).to_string());
@@ -849,7 +831,7 @@ impl TranscriptLoader {
         tracing::info!("  Creating transcript records for each gene…");
         let data_transcripts = {
             let hgnc_ids = {
-                let mut hgnc_ids: Vec<_> = self.hgnc_id_to_gene_id.keys().cloned().collect();
+                let mut hgnc_ids: Vec<_> = self.hgnc_id_to_transcript_ids.keys().cloned().collect();
                 hgnc_ids.sort();
                 hgnc_ids
             };
@@ -861,22 +843,6 @@ impl TranscriptLoader {
                     .hgnc_id_to_transcript_ids
                     .get(hgnc_id)
                     .unwrap_or_else(|| panic!("No transcripts for hgnc id {:?}", &hgnc_id));
-                let tx_ids = tx_ids
-                    .iter()
-                    .filter(|&tx_id| {
-                        self.discards
-                            .entry(Identifier::TxId(tx_id.clone()))
-                            .or_default()
-                            .is_empty()
-                    })
-                    .collect::<Vec<_>>();
-                if tx_ids.is_empty() {
-                    *self
-                        .discards
-                        .entry(Identifier::Hgnc(hgnc_id.clone()))
-                        .or_default() |= Reason::NoTranscript;
-                    continue;
-                }
 
                 // ... for each transcript of the gene ...
                 for tx_id in tx_ids {
@@ -1267,7 +1233,8 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
     tx_data.filter_genes()?;
     tx_data.filter_transcripts(args.max_txs, &selected_hgnc_ids)?;
-    tx_data.filter_transcripts_with_sequence(&seqrepo)?;
+    let mut sequence_map = tx_data.filter_transcripts_with_sequence(&seqrepo)?;
+    tx_data.filter_empty_transcripts()?;
 
     report(ReportEntry::Log(json!({
         "source": "cdot_filtered",
@@ -1287,8 +1254,11 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     })))?;
 
     // … and finally build protobuf file.
-    let tx_db =
-        tx_data.build_protobuf(&seqrepo, common.verbose.is_silent(), args.genome_release)?;
+    let tx_db = tx_data.build_protobuf(
+        &mut sequence_map,
+        common.verbose.is_silent(),
+        args.genome_release,
+    )?;
 
     for (id, reason) in tx_data.discards.into_iter().sorted_unstable() {
         report(ReportEntry::Discard(Discard {
