@@ -371,7 +371,7 @@ impl TranscriptLoader {
         // Apply first set of filters (which do not depend on hgnc grouping)
         let _empty = HashSet::new();
         for (tx_id, tx) in &self.transcript_id_to_transcript {
-            let p = Params::new(tx, "", "", &_empty, false);
+            let p = Params::new(tx, tx_id, "", &_empty, false);
             let reason = tx_filters
                 .iter()
                 .filter_map(|(f, r)| f(&p).then(|| *r))
