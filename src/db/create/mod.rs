@@ -158,7 +158,7 @@ impl TranscriptExt for Transcript {
 struct TranscriptLoader {
     genome_release: GenomeRelease,
     cdot_version: String,
-    transcripts: HashMap<TranscriptId, Transcript>,
+    transcript_id_to_transcript: HashMap<TranscriptId, Transcript>,
     hgnc_id_to_gene_id: HashMap<HgncId, GeneId>,
     hgnc_id_to_transcript_ids: HashMap<HgncId, Vec<TranscriptId>>,
     gene_id_to_gene: HashMap<GeneId, Gene>,
@@ -179,7 +179,8 @@ impl TranscriptLoader {
         self.hgnc_id_to_gene_id
             .extend(other.hgnc_id_to_gene_id.drain());
         self.gene_id_to_gene.extend(other.gene_id_to_gene.drain());
-        self.transcripts.extend(other.transcripts.drain());
+        self.transcript_id_to_transcript
+            .extend(other.transcript_id_to_transcript.drain());
         self.hgnc_id_to_transcript_ids
             .extend(other.hgnc_id_to_transcript_ids.drain());
         for (id, reason) in other.discards.drain() {
@@ -214,8 +215,11 @@ impl TranscriptLoader {
         }
 
         for (tx_id, tx) in cdot_transcripts {
-            self.transcripts.insert(tx_id.clone(), tx.clone());
-            if let Some(hgnc_id) = tx.hgnc.as_ref().map(|hgnc| hgnc.parse()).transpose()? {
+            self.transcript_id_to_transcript
+                .insert(tx_id.clone(), tx.clone());
+
+            if let Some(hgnc_id) = tx.hgnc.as_ref() {
+                let hgnc_id = hgnc_id.parse()?;
                 self.hgnc_id_to_transcript_ids
                     .entry(hgnc_id)
                     .or_default()
@@ -262,6 +266,40 @@ impl TranscriptLoader {
         Ok(())
     }
 
+    fn filter_selected(&mut self, selected_ids: &Vec<Identifier>) -> Result<(), Error> {
+        // Discard everything which is not associated with the ids contained in `selected_ids`.
+        for id in selected_ids {
+            self.mark_discarded(id, Reason::DeselectedGene.into())?;
+            match id {
+                Identifier::Hgnc(hgnc_id) => {
+                    for tx_id in self.hgnc_id_to_transcript_ids.get(hgnc_id).unwrap() {
+                        *self
+                            .discards
+                            .entry(Identifier::TxId(tx_id.clone()))
+                            .or_default() |= Reason::DeselectedGene;
+                    }
+                }
+                Identifier::GeneId(gene_id) => {
+                    let gene = self.gene_id_to_gene.get(gene_id).unwrap();
+                    if let Some(ref hgnc_id) = gene.hgnc {
+                        let hgnc_id = hgnc_id.parse::<HgncId>().unwrap();
+                        for tx_id in self.hgnc_id_to_transcript_ids.get(&hgnc_id).unwrap() {
+                            *self
+                                .discards
+                                .entry(Identifier::TxId(tx_id.clone()))
+                                .or_default() |= Reason::DeselectedGene;
+                        }
+                    }
+                }
+                Identifier::TxId(_tx_id) => {
+                    *self.discards.entry(id.clone()).or_default() |= Reason::DeselectedGene;
+                }
+            }
+        }
+        self.discard()?;
+        Ok(())
+    }
+
     /// Filter transcripts for gene.
     ///
     /// We employ the following rules:
@@ -270,11 +308,7 @@ impl TranscriptLoader {
     ///   transcripts that have the highest version number for one assembly.
     /// - Do not pick any `XM_`/`XR_` (NCBI predicted only) transcripts.
     /// - Do not pick any `NR_` transcripts when there are coding `NM_` transcripts.
-    fn filter_transcripts(
-        &mut self,
-        max_genes: Option<u32>,
-        selected_hgnc_ids: &Option<Vec<Identifier>>,
-    ) -> Result<(), Error> {
+    fn filter_transcripts(&mut self, max_genes: Option<u32>) -> Result<(), Error> {
         tracing::info!("Filtering transcripts …");
 
         /// Params used as args for filter functions defined below
@@ -285,15 +319,10 @@ impl TranscriptLoader {
             tx: &'a Transcript,
             seen_ac: &'a HashSet<(String, String)>,
             seen_nm: bool,
-            hgnc_id_to_gene_id: &'a HashMap<HgncId, GeneId>,
         }
 
         let missing_hgnc =
             |p: &Params| -> bool { p.tx.hgnc.is_none() || p.tx.hgnc.as_ref().unwrap().is_empty() };
-        let deselected_gene = |p: &Params| -> bool {
-            !p.hgnc_id_to_gene_id
-                .contains_key(&p.tx.hgnc.as_ref().unwrap().parse::<HgncId>().unwrap())
-        };
         let empty_genome_builds = |p: &Params| -> bool { p.tx.genome_builds.is_empty() };
         let partial = |p: &Params| -> bool { matches!(p.tx.partial, Some(1)) };
 
@@ -317,9 +346,8 @@ impl TranscriptLoader {
             |p: &Params| -> bool { p.tx.cds_length().map_or(true, |l| l % 3 != 0) };
 
         type Filter = fn(&Params) -> bool;
-        let filters: [(Filter, Reason); 8] = [
+        let filters: [(Filter, Reason); 7] = [
             (missing_hgnc, Reason::MissingHgncId),
-            (deselected_gene, Reason::DeselectedGene),
             (empty_genome_builds, Reason::EmptyGenomeBuilds),
             (partial, Reason::OnlyPartialAlignmentInRefSeq),
             (old_version, Reason::OldVersion),
@@ -345,22 +373,6 @@ impl TranscriptLoader {
 
         // Filter map from gene symbol to Vec of chosen transcript identifiers.
         for (hgnc_id, tx_ids) in hgnc_id_to_transcript_ids {
-            // Skip transcripts where the gene symbol is not contained in `selected_hgnc_ids`.
-            if !selected_hgnc_ids
-                .as_ref()
-                .map(|ids| ids.contains(&Identifier::Hgnc(*hgnc_id)))
-                .unwrap_or(true)
-            {
-                tracing::trace!("skipping {} / {:?}, because not selected", hgnc_id, tx_ids);
-                for tx_id in tx_ids {
-                    *self
-                        .discards
-                        .entry(Identifier::TxId(tx_id.clone()))
-                        .or_default() |= Reason::DeselectedGene;
-                }
-                continue;
-            }
-
             // Only select the highest version of each transcript.
             //
             // First, look for NM transcript,
@@ -377,24 +389,17 @@ impl TranscriptLoader {
                 let ac = ac.to_string();
 
                 let releases = self
-                    .transcripts
+                    .transcript_id_to_transcript
                     .get(&full_ac)
                     .map(|tx| tx.genome_builds.keys().cloned().collect::<Vec<_>>())
                     .unwrap_or_default();
 
                 for release in releases {
                     let tx = self
-                        .transcripts
+                        .transcript_id_to_transcript
                         .get(&full_ac)
                         .expect("must exist; accession taken from map earlier");
-                    let p = Params::new(
-                        &ac,
-                        &release,
-                        tx,
-                        &seen_ac,
-                        seen_nm,
-                        &self.hgnc_id_to_gene_id,
-                    );
+                    let p = Params::new(&ac, &release, tx, &seen_ac, seen_nm);
                     let reason = filters
                         .iter()
                         .filter_map(|(f, r)| f(&p).then(|| *r))
@@ -432,7 +437,7 @@ impl TranscriptLoader {
         let start = Instant::now();
         let (_, mt_txs) = self.find_on_contigs(MITOCHONDRIAL_ACCESSIONS);
         let (discards, keeps): (Vec<_>, HashMap<TranscriptId, String>) = self
-            .transcripts
+            .transcript_id_to_transcript
             .par_iter()
             .partition_map(|(tx_id, tx)| {
                 let valid_cds_length = tx.cds_length().map_or(false, |l| l % 3 == 0);
@@ -538,7 +543,7 @@ impl TranscriptLoader {
         &self,
         contig_accessions: &[&str],
     ) -> (HashSet<GeneId>, HashSet<TranscriptId>) {
-        self.transcripts
+        self.transcript_id_to_transcript
             .values()
             .filter(|tx| {
                 tx.genome_builds
@@ -561,7 +566,7 @@ impl TranscriptLoader {
 
     fn gather_transcript_stats(&self) -> Result<(usize, usize, usize), Error> {
         let (mut n_mane_select, mut n_mane_plus_clinical, mut n_mt) = (0, 0, 0);
-        for tx in self.transcripts.values() {
+        for tx in self.transcript_id_to_transcript.values() {
             let mut is_mane_select = false;
             let mut is_mane_plus_clinical = false;
             for gb in tx.genome_builds.values() {
@@ -588,56 +593,66 @@ impl TranscriptLoader {
     }
 
     fn update_transcript_tags(&mut self, transcript_id_to_tags: &HashMap<TranscriptId, Vec<Tag>>) {
-        self.transcripts.iter_mut().for_each(|(tx_id, tx)| {
-            // transfer MANE-related labels from TSV file
-            let tx_id_no_version = tx_id.without_version().unwrap();
-            if let Some(tags) = transcript_id_to_tags.get(&tx_id_no_version) {
-                tx.genome_builds.iter_mut().for_each(|(_, alignment)| {
-                    if let Some(alignment_tag) = &mut alignment.tag {
-                        alignment_tag.extend(tags.iter().cloned());
-                        alignment_tag.sort();
-                        alignment_tag.dedup();
-                    }
-                });
-            }
-        });
+        self.transcript_id_to_transcript
+            .iter_mut()
+            .for_each(|(tx_id, tx)| {
+                // transfer MANE-related labels from TSV file
+                let tx_id_no_version = tx_id.without_version().unwrap();
+                if let Some(tags) = transcript_id_to_tags.get(&tx_id_no_version) {
+                    tx.genome_builds.iter_mut().for_each(|(_, alignment)| {
+                        if let Some(alignment_tag) = &mut alignment.tag {
+                            alignment_tag.extend(tags.iter().cloned());
+                            alignment_tag.sort();
+                            alignment_tag.dedup();
+                        }
+                    });
+                }
+            });
     }
 
     fn fix_transcript_genome_builds(&mut self) {
-        self.transcripts.values_mut().for_each(|tx| {
-            tx.genome_builds.retain(|key, _| {
-                matches!(
-                    (key.as_str(), self.genome_release),
-                    ("GRCh37", GenomeRelease::Grch37) | ("GRCh38", GenomeRelease::Grch38)
-                )
+        self.transcript_id_to_transcript
+            .values_mut()
+            .for_each(|tx| {
+                tx.genome_builds.retain(|key, _| {
+                    matches!(
+                        (key.as_str(), self.genome_release),
+                        ("GRCh37", GenomeRelease::Grch37) | ("GRCh38", GenomeRelease::Grch38)
+                    )
+                });
             });
-        });
     }
 
     fn fix_mitochondrial_cds(&mut self) {
-        self.transcripts.values_mut().for_each(|tx| {
-            // fix coding mitochondrial transcripts that have a CDS that is not a multiple of 3
-            if let Some(cds_start) = tx.start_codon {
-                let cds_end = tx.stop_codon.expect("must be some if start_codon is some");
-                let cds_len = cds_end - cds_start;
-                if cds_len % 3 != 0 {
-                    assert_eq!(
-                        tx.genome_builds.len(),
-                        1,
-                        "only one genome build expected at this point"
-                    );
-                    let gb = tx.genome_builds.iter_mut().next().unwrap().1;
-                    if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_ref()) {
-                        assert_eq!(gb.exons.len(), 1, "only single-exon genes assumed on chrMT");
-                        let delta = 3 - cds_len % 3;
-                        tx.stop_codon = Some(cds_end + delta);
-                        let exon = gb.exons.iter_mut().next().unwrap();
-                        exon.alt_cds_end_i += delta;
-                        exon.cigar.push_str(&format!("{}I", delta));
+        self.transcript_id_to_transcript
+            .values_mut()
+            .for_each(|tx| {
+                // fix coding mitochondrial transcripts that have a CDS that is not a multiple of 3
+                if let Some(cds_start) = tx.start_codon {
+                    let cds_end = tx.stop_codon.expect("must be some if start_codon is some");
+                    let cds_len = cds_end - cds_start;
+                    if cds_len % 3 != 0 {
+                        assert_eq!(
+                            tx.genome_builds.len(),
+                            1,
+                            "only one genome build expected at this point"
+                        );
+                        let gb = tx.genome_builds.iter_mut().next().unwrap().1;
+                        if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_ref()) {
+                            assert_eq!(
+                                gb.exons.len(),
+                                1,
+                                "only single-exon genes assumed on chrMT"
+                            );
+                            let delta = 3 - cds_len % 3;
+                            tx.stop_codon = Some(cds_end + delta);
+                            let exon = gb.exons.iter_mut().next().unwrap();
+                            exon.alt_cds_end_i += delta;
+                            exon.cigar.push_str(&format!("{}I", delta));
+                        }
                     }
                 }
-            }
-        });
+            });
     }
 
     fn symbols_to_id(&self, gene_symbols: &[String]) -> Vec<Identifier> {
@@ -659,6 +674,37 @@ impl TranscriptLoader {
             .collect()
     }
 
+    fn gene_name(&self, id: &Identifier) -> Option<String> {
+        match id {
+            Identifier::Hgnc(hgnc_id) => self
+                .hgnc_id_to_gene_id
+                .get(hgnc_id)
+                .and_then(|gene_id| self.gene_id_to_gene.get(gene_id))
+                .and_then(|gene| gene.gene_symbol.clone()),
+            Identifier::TxId(tx_id) => self
+                .transcript_id_to_transcript
+                .get(tx_id)
+                .and_then(|tx| tx.gene_name.clone()),
+            Identifier::GeneId(gene_id) => self
+                .gene_id_to_gene
+                .get(gene_id)
+                .and_then(|gene| gene.gene_symbol.clone()),
+        }
+    }
+
+    fn tags(&self, id: &Identifier) -> Option<Vec<Tag>> {
+        match id {
+            Identifier::TxId(tx_id) => self.transcript_id_to_transcript.get(tx_id).map(|tx| {
+                tx.genome_builds
+                    .values()
+                    .flat_map(|gb| gb.tag.clone())
+                    .flatten()
+                    .collect()
+            }),
+            _ => None,
+        }
+    }
+
     /// Split off versions from transcript identifiers, then sort descending by version.
     fn split_off_versions(tx_ids: &Vec<TranscriptId>) -> Vec<(&str, u32)> {
         let mut versioned: Vec<_> = tx_ids
@@ -674,7 +720,7 @@ impl TranscriptLoader {
 
     fn discard(&mut self) -> Result<(), Error> {
         let (n_transcripts_pre, n_genes_pre, n_hgnc_ids_pre) = (
-            self.transcripts.len(),
+            self.transcript_id_to_transcript.len(),
             self.gene_id_to_gene.len(),
             self.hgnc_id_to_transcript_ids.len(),
         );
@@ -696,6 +742,12 @@ impl TranscriptLoader {
         }
 
         for (id, reason) in self.discards.clone() {
+            if reason.is_empty() {
+                tracing::warn!("Empty discard reason for {:#?}", id);
+                continue;
+            }
+            self._discard_id(&id, reason)?;
+
             match id {
                 Identifier::TxId(_) => {
                     for r in reason.iter() {
@@ -725,10 +777,9 @@ impl TranscriptLoader {
                     }
                 }
             }
-            self._discard_id(&id, reason)?;
         }
         let (n_transcripts_post, n_genes_post, n_hgnc_ids_post) = (
-            self.transcripts.len(),
+            self.transcript_id_to_transcript.len(),
             self.gene_id_to_gene.len(),
             self.hgnc_id_to_transcript_ids.len(),
         );
@@ -757,17 +808,33 @@ impl TranscriptLoader {
         match id {
             Identifier::Hgnc(hgnc_id) => {
                 let _gene_id = self.hgnc_id_to_gene_id.remove(hgnc_id);
-                let _txs = self.hgnc_id_to_transcript_ids.remove(hgnc_id);
+                if let Some(gene_id) = _gene_id {
+                    self.gene_id_to_gene.remove(&GeneId::new(gene_id.clone())?);
+                }
+                let txs = self.hgnc_id_to_transcript_ids.remove(hgnc_id);
+                for tx_id in txs.unwrap_or_default() {
+                    let _transcript = self.transcript_id_to_transcript.remove(&tx_id);
+                }
             }
             Identifier::TxId(tx_id) => {
-                let _transcript = self.transcripts.remove(tx_id);
+                let transcript = self.transcript_id_to_transcript.remove(tx_id);
+                if let Some(hgnc) = transcript.and_then(|t| t.hgnc) {
+                    let hgnc_id: HgncId = hgnc.parse()?;
+                    let txs = self.hgnc_id_to_transcript_ids.get_mut(&hgnc_id);
+                    if let Some(txs) = txs {
+                        txs.retain(|tx| tx != tx_id);
+                    }
+                }
             }
             Identifier::GeneId(gene_id) => {
                 let gene = self.gene_id_to_gene.remove(gene_id);
                 if let Some(hgnc_id) = gene.and_then(|g| g.hgnc) {
                     let hgnc_id: HgncId = hgnc_id.parse()?;
-                    self.hgnc_id_to_transcript_ids.remove(&hgnc_id);
-                    self.hgnc_id_to_gene_id.remove(&hgnc_id);
+                    let _gene_id = self.hgnc_id_to_gene_id.remove(&hgnc_id);
+                    let txs = self.hgnc_id_to_transcript_ids.remove(&hgnc_id);
+                    for tx_id in txs.unwrap_or_default() {
+                        let _transcript = self.transcript_id_to_transcript.remove(&tx_id);
+                    }
                 }
             }
         }
@@ -805,10 +872,10 @@ impl TranscriptLoader {
             let pb = if is_silent {
                 ProgressBar::hidden()
             } else {
-                ProgressBar::new(self.transcripts.len() as u64)
+                ProgressBar::new(self.transcript_id_to_transcript.len() as u64)
             };
             pb.set_style(PROGRESS_STYLE.clone());
-            for (tx_id, _tx) in &self.transcripts {
+            for (tx_id, _tx) in &self.transcript_id_to_transcript {
                 pb.inc(1);
                 let seq = sequence_map.remove(tx_id).unwrap();
 
@@ -848,7 +915,7 @@ impl TranscriptLoader {
                 for tx_id in tx_ids {
                     let mut tags: Vec<i32> = Vec::new();
                     let tx = self
-                        .transcripts
+                        .transcript_id_to_transcript
                         .get(tx_id)
                         .unwrap_or_else(|| panic!("No transcript for id {:?}", tx_id));
                     // ... build genome alignment for selected:
@@ -1158,10 +1225,9 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
         .iter()
         .map(|cdot_path| {
             let mut loader = TranscriptLoader::new(args.genome_release);
-            loader.load_cdot(cdot_path).unwrap();
-            loader
+            loader.load_cdot(cdot_path).map(|_| loader)
         })
-        .collect_vec();
+        .collect::<Result<Vec<_>, Error>>()?;
     let mut merged = loaders
         .into_iter()
         .reduce(|mut a, mut b| {
@@ -1188,7 +1254,10 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
         "… done loading cdot JSON files in {:?} -- #genes = {}, #transcripts = {}, #hgnc_ids = {}",
         start.elapsed(),
         merged.gene_id_to_gene.len().separate_with_underscores(),
-        merged.transcripts.len().separate_with_underscores(),
+        merged
+            .transcript_id_to_transcript
+            .len()
+            .separate_with_underscores(),
         merged
             .hgnc_id_to_transcript_ids
             .len()
@@ -1217,29 +1286,32 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
     // … then load cdot files …
     let mut tx_data = load_cdot_files(args)?;
+    let raw_tx_data = tx_data.clone();
     report(ReportEntry::Log(json!({
         "source": "cdot",
         "total_genes": tx_data.gene_id_to_gene.len(),
-        "total_transcripts": tx_data.transcripts.len(),
+        "total_transcripts": tx_data.transcript_id_to_transcript.len(),
         "total_hgnc_ids": tx_data.hgnc_id_to_transcript_ids.len()
     })))?;
 
     // … then remove information for certain genes …
-    let selected_hgnc_ids = args.gene_symbols.as_ref().map(|symbols| {
-        let r = tx_data.symbols_to_id(symbols);
-        tracing::info!("Will limit to {:?}", r);
-        r
-    });
+    if let Some(ids) = args
+        .gene_symbols
+        .as_ref()
+        .map(|symbols| tx_data.symbols_to_id(symbols))
+    {
+        tx_data.filter_selected(&ids)?;
+    }
 
     tx_data.filter_genes()?;
-    tx_data.filter_transcripts(args.max_txs, &selected_hgnc_ids)?;
+    tx_data.filter_transcripts(args.max_txs)?;
     let mut sequence_map = tx_data.filter_transcripts_with_sequence(&seqrepo)?;
     tx_data.filter_empty_transcripts()?;
 
     report(ReportEntry::Log(json!({
         "source": "cdot_filtered",
         "total_genes": tx_data.gene_id_to_gene.len(),
-        "total_transcripts": tx_data.transcripts.len(),
+        "total_transcripts": tx_data.transcript_id_to_transcript.len(),
         "total_hgnc_ids": tx_data.hgnc_id_to_transcript_ids.len()
     })))?;
 
@@ -1264,9 +1336,9 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         report(ReportEntry::Discard(Discard {
             source: "protobuf".into(),
             reason,
-            id,
-            gene_name: None,
-            tags: None,
+            id: id.clone(),
+            gene_name: raw_tx_data.gene_name(&id),
+            tags: raw_tx_data.tags(&id),
         }))?;
     }
 
@@ -1350,7 +1422,7 @@ pub mod test {
             .map(|s| s.as_str())
             .collect::<Vec<_>>());
 
-        tx_data.filter_transcripts(None, &None)?;
+        tx_data.filter_transcripts(None)?;
         insta::assert_yaml_snapshot!(tx_data
             .hgnc_id_to_transcript_ids
             .get(&1100)
