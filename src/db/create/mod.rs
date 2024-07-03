@@ -64,7 +64,7 @@ pub struct Args {
     /// transcript id (without version), (unused) gene symbol, and label.
     #[arg(long)]
     pub path_mane_txs_tsv: Option<PathBuf>,
-    /// Maximal number of transcripts to process.
+    /// Maximal number of transcripts to process. DEPRECATED.
     #[arg(long)]
     pub max_txs: Option<u32>,
     /// Limit transcript database to the following HGNC symbols.  Useful for
@@ -196,7 +196,7 @@ impl TranscriptLoader {
             transcripts: cdot_transcripts,
             cdot_version,
             ..
-        } = load_cdot_transcripts(path.as_ref())?;
+        } = read_cdot_json(path.as_ref())?;
         let cdot_genes = cdot_genes
             .into_iter()
             .map(|(gene_id, gene)| GeneId::new(gene_id).map(|g| (g, gene)))
@@ -209,8 +209,10 @@ impl TranscriptLoader {
 
         for (gene_id, gene) in cdot_genes {
             self.gene_id_to_gene.insert(gene_id.clone(), gene.clone());
-            if let Some(hgnc_id) = gene.hgnc.as_ref().map(|hgnc| hgnc.parse()).transpose()? {
+            if let Some(hgnc_id) = gene.hgnc.as_ref() {
+                let hgnc_id = hgnc_id.parse()?;
                 self.hgnc_id_to_gene_id.insert(hgnc_id, gene_id.clone());
+                self.hgnc_id_to_transcript_ids.entry(hgnc_id).or_default();
             }
         }
 
@@ -308,15 +310,15 @@ impl TranscriptLoader {
     ///   transcripts that have the highest version number for one assembly.
     /// - Do not pick any `XM_`/`XR_` (NCBI predicted only) transcripts.
     /// - Do not pick any `NR_` transcripts when there are coding `NM_` transcripts.
-    fn filter_transcripts(&mut self, max_genes: Option<u32>) -> Result<(), Error> {
+    fn filter_transcripts(&mut self) -> Result<(), Error> {
         tracing::info!("Filtering transcripts …");
 
         /// Params used as args for filter functions defined below
         #[derive(new)]
         struct Params<'a> {
+            tx: &'a Transcript,
             ac: &'a str,
             release: &'a str,
-            tx: &'a Transcript,
             seen_ac: &'a HashSet<(String, String)>,
             seen_nm: bool,
         }
@@ -345,34 +347,46 @@ impl TranscriptLoader {
         let invalid_cds_length =
             |p: &Params| -> bool { p.tx.cds_length().map_or(true, |l| l % 3 != 0) };
 
+        // We have two sets of filters here:
+        // `tx_filters`: for every transcript known to us at this point (so every transcript from cdot)
+        // `hgnc_grouped_filters`: all transcripts associated to an hgnc id
+        // The latter set relies on the grouping of transcripts by hgnc id,
+        // e.g. to discard transcripts with an older version within the same hgnc group
         type Filter = fn(&Params) -> bool;
-        let filters: [(Filter, Reason); 7] = [
+        let tx_filters: [(Filter, Reason); 5] = [
             (missing_hgnc, Reason::MissingHgncId),
             (empty_genome_builds, Reason::EmptyGenomeBuilds),
             (partial, Reason::OnlyPartialAlignmentInRefSeq),
-            (old_version, Reason::OldVersion),
-            (nm_instead_of_nr, Reason::UseNmTranscriptInsteadOfNr),
             (predicted, Reason::PredictedTranscript),
             (invalid_cds_length, Reason::InvalidCdsLength),
         ];
 
+        let hgnc_grouped_filters: [(Filter, Reason); 2] = [
+            (old_version, Reason::OldVersion),
+            (nm_instead_of_nr, Reason::UseNmTranscriptInsteadOfNr),
+        ];
+
         let start = Instant::now();
 
-        // Potentially limit number of genes.
-        let hgnc_id_to_transcript_ids: Box<dyn Iterator<Item = (&HgncId, &Vec<TranscriptId>)>> =
-            if let Some(max_genes) = max_genes {
-                tracing::warn!("Limiting to {} genes!", max_genes);
-                Box::new(
-                    self.hgnc_id_to_transcript_ids
-                        .iter()
-                        .take(max_genes as usize),
-                )
-            } else {
-                Box::new(self.hgnc_id_to_transcript_ids.iter())
-            };
+        // Apply first set of filters (which do not depend on hgnc grouping)
+        let _empty = HashSet::new();
+        for (tx_id, tx) in &self.transcript_id_to_transcript {
+            let p = Params::new(tx, "", "", &_empty, false);
+            let reason = tx_filters
+                .iter()
+                .filter_map(|(f, r)| f(&p).then(|| *r))
+                .fold(BitFlags::<Reason>::default(), |a, b| a | b);
+            let empty = reason.is_empty();
+            if !empty {
+                *self
+                    .discards
+                    .entry(Identifier::TxId(tx_id.clone()))
+                    .or_default() |= reason;
+            }
+        }
 
-        // Filter map from gene symbol to Vec of chosen transcript identifiers.
-        for (hgnc_id, tx_ids) in hgnc_id_to_transcript_ids {
+        // Apply second set of filters (which depend on hgnc grouping)
+        for (hgnc_id, tx_ids) in self.hgnc_id_to_transcript_ids.iter() {
             // Only select the highest version of each transcript.
             //
             // First, look for NM transcript,
@@ -387,20 +401,16 @@ impl TranscriptLoader {
             for (ac, version) in versioned {
                 let full_ac = TranscriptId::new(format!("{}.{}", &ac, version))?;
                 let ac = ac.to_string();
-
-                let releases = self
+                let tx = self
                     .transcript_id_to_transcript
                     .get(&full_ac)
-                    .map(|tx| tx.genome_builds.keys().cloned().collect::<Vec<_>>())
-                    .unwrap_or_default();
+                    .expect("must exist; accession taken from map earlier");
+
+                let releases = tx.genome_builds.keys().cloned().collect::<Vec<_>>();
 
                 for release in releases {
-                    let tx = self
-                        .transcript_id_to_transcript
-                        .get(&full_ac)
-                        .expect("must exist; accession taken from map earlier");
-                    let p = Params::new(&ac, &release, tx, &seen_ac, seen_nm);
-                    let reason = filters
+                    let p = Params::new(tx, &ac, &release, &seen_ac, seen_nm);
+                    let reason = hgnc_grouped_filters
                         .iter()
                         .filter_map(|(f, r)| f(&p).then(|| *r))
                         .fold(BitFlags::<Reason>::default(), |a, b| a | b);
@@ -410,11 +420,11 @@ impl TranscriptLoader {
                             .discards
                             .entry(Identifier::TxId(full_ac.clone()))
                             .or_default() |= reason;
-                        continue;
+                    } else {
+                        // Otherwise, mark transcript as included by storing its accession.
+                        next_tx_ids.push(full_ac.clone());
+                        seen_ac.insert((ac.clone(), release));
                     }
-                    // Otherwise, mark transcript as included by storing its accession.
-                    next_tx_ids.push(full_ac.clone());
-                    seen_ac.insert((ac.clone(), release));
                 }
             }
 
@@ -440,14 +450,6 @@ impl TranscriptLoader {
             .transcript_id_to_transcript
             .par_iter()
             .partition_map(|(tx_id, tx)| {
-                let valid_cds_length = tx.cds_length().map_or(false, |l| l % 3 == 0);
-                if !valid_cds_length {
-                    return Either::Left((
-                        Identifier::TxId(tx_id.clone()),
-                        Reason::InvalidCdsLength,
-                    ));
-                }
-
                 let namespace: String = if tx_id.starts_with("ENST") {
                     String::from("Ensembl")
                 } else {
@@ -1176,7 +1178,7 @@ fn txid_to_label(
         })
         .collect()
 }
-fn load_cdot_transcripts(path: impl AsRef<Path>) -> Result<models::Container, Error> {
+fn read_cdot_json(path: impl AsRef<Path>) -> Result<models::Container, Error> {
     Ok(if path.as_ref().extension().unwrap_or_default() == "gz" {
         tracing::info!("(from gzip compressed file)");
         serde_json::from_reader(std::io::BufReader::new(flate2::read::GzDecoder::new(
@@ -1304,7 +1306,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     }
 
     tx_data.filter_genes()?;
-    tx_data.filter_transcripts(args.max_txs)?;
+    tx_data.filter_transcripts()?;
     let mut sequence_map = tx_data.filter_transcripts_with_sequence(&seqrepo)?;
     tx_data.filter_empty_transcripts()?;
 
@@ -1422,7 +1424,7 @@ pub mod test {
             .map(|s| s.as_str())
             .collect::<Vec<_>>());
 
-        tx_data.filter_transcripts(None)?;
+        tx_data.filter_transcripts()?;
         insta::assert_yaml_snapshot!(tx_data
             .hgnc_id_to_transcript_ids
             .get(&1100)
