@@ -1240,9 +1240,7 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
             for hgnc_id in b.hgnc_id_to_transcript_ids.keys() {
                 if let Some(tx_ids) = a.hgnc_id_to_transcript_ids.get(hgnc_id) {
                     for tx_id in tx_ids {
-                        *a.discards
-                            .entry(Identifier::TxId(tx_id.clone()))
-                            .or_default() |= Reason::TranscriptPriority;
+                        tracing::trace!("Transcript overwritten by cli precedence {}", tx_id);
                     }
                 }
             }
