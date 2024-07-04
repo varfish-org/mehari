@@ -208,18 +208,15 @@ impl TranscriptLoader {
         self.cdot_version = cdot_version;
 
         for (gene_id, gene) in cdot_genes {
-            self.gene_id_to_gene.insert(gene_id.clone(), gene.clone());
             if let Some(hgnc_id) = gene.hgnc.as_ref() {
                 let hgnc_id = hgnc_id.parse()?;
                 self.hgnc_id_to_gene_id.insert(hgnc_id, gene_id.clone());
                 self.hgnc_id_to_transcript_ids.entry(hgnc_id).or_default();
             }
+            self.gene_id_to_gene.insert(gene_id, gene);
         }
 
         for (tx_id, tx) in cdot_transcripts {
-            self.transcript_id_to_transcript
-                .insert(tx_id.clone(), tx.clone());
-
             if let Some(hgnc_id) = tx.hgnc.as_ref() {
                 let hgnc_id = hgnc_id.parse()?;
                 self.hgnc_id_to_transcript_ids
@@ -227,6 +224,7 @@ impl TranscriptLoader {
                     .or_default()
                     .push(tx_id.clone());
             }
+            self.transcript_id_to_transcript.insert(tx_id, tx);
         }
         Ok(())
     }
