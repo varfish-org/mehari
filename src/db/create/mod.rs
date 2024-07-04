@@ -15,11 +15,9 @@ use enumflags2::{bitflags, BitFlag, BitFlags};
 use hgvs::data::cdot::json::models;
 use hgvs::data::cdot::json::models::{Gene, Tag, Transcript};
 use hgvs::sequences::{translate_cds, TranslationTable};
-use indicatif::{ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use nom::ToUsize;
 use nutype::nutype;
-use once_cell::sync::Lazy;
 use prost::Message;
 use rayon::iter::Either;
 use rayon::prelude::*;
@@ -33,14 +31,6 @@ use thousands::Separable;
 
 use crate::common::{trace_rss_now, GenomeRelease};
 use crate::pbs::txs::TxSeqDatabase;
-
-/// Progress bar style to use.
-pub static PROGRESS_STYLE: Lazy<ProgressStyle> = Lazy::new(|| {
-    ProgressStyle::with_template(
-        "[{elapsed_precise}] [{wide_bar:.cyan/blue}] {human_pos}/{human_len} ({eta})",
-    )
-    .unwrap()
-});
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1"];
@@ -257,7 +247,7 @@ impl TranscriptLoader {
             .filter_map(|(gene_id, gene)| {
                 let reason = filters
                     .iter()
-                    .filter_map(|(f, r)| f(gene_id, gene).then(|| *r))
+                    .filter_map(|(f, r)| f(gene_id, gene).then_some(*r))
                     .fold(BitFlags::<Reason>::default(), |a, b| a | b);
                 let empty = reason.is_empty();
                 (!empty).then(|| (Identifier::GeneId(gene_id.clone()), reason))
@@ -381,7 +371,7 @@ impl TranscriptLoader {
                 let p = Params::new(tx, tx_id, "", &_empty, false);
                 let reason = tx_filters
                     .iter()
-                    .filter_map(|(f, r)| f(&p).then(|| *r))
+                    .filter_map(|(f, r)| f(&p).then_some(*r))
                     .fold(BitFlags::<Reason>::default(), |a, b| a | b);
                 let empty = reason.is_empty();
                 (!empty).then(|| (Identifier::TxId(tx_id.clone()), reason))
@@ -420,7 +410,7 @@ impl TranscriptLoader {
                     let p = Params::new(tx, &ac, &release, &seen_ac, seen_nm);
                     let reason = hgnc_grouped_filters
                         .iter()
-                        .filter_map(|(f, r)| f(&p).then(|| *r))
+                        .filter_map(|(f, r)| f(&p).then_some(*r))
                         .fold(BitFlags::<Reason>::default(), |a, b| a | b);
                     let empty = reason.is_empty();
                     if !empty {
@@ -453,6 +443,7 @@ impl TranscriptLoader {
     ) -> Result<HashMap<TranscriptId, String>, Error> {
         tracing::info!("Filtering transcripts with seqrepo …");
         let start = Instant::now();
+
         let (_, mt_txs) = self.find_on_contigs(MITOCHONDRIAL_ACCESSIONS);
         let (discards, keeps): (Vec<_>, HashMap<TranscriptId, String>) = self
             .transcript_id_to_transcript
@@ -474,12 +465,10 @@ impl TranscriptLoader {
                             Identifier::TxId(tx_id.clone()),
                             Reason::MissingSequence,
                         ));
+                    } else if is_mt {
+                        append_poly_a(seq)
                     } else {
-                        if is_mt {
-                            append_poly_a(seq)
-                        } else {
-                            seq
-                        }
+                        seq
                     };
                     // Skip transcript if it is coding and the translated CDS does not have a stop codon.
                     if let Some((cds_start, cds_end)) = tx
@@ -566,10 +555,9 @@ impl TranscriptLoader {
             })
             .map(|tx| {
                 let hgnc_id: HgncId = tx.hgnc.as_ref().unwrap().parse().unwrap();
-                let gene_id = self.hgnc_id_to_gene_id.get(&hgnc_id).expect(&format!(
-                    "No gene ID found for hgnc id {:#?}",
-                    tx.hgnc.as_ref()
-                ));
+                let gene_id = self.hgnc_id_to_gene_id.get(&hgnc_id).unwrap_or_else(|| {
+                    panic!("No gene ID found for hgnc id {:#?}", tx.hgnc.as_ref())
+                });
                 (
                     GeneId::new(gene_id.clone()).expect("Invalid GeneId"),
                     TranscriptId::new(tx.id.clone()).expect("Invalid TranscriptId"),
@@ -682,7 +670,7 @@ impl TranscriptLoader {
                             .map(|g| g.gene_symbol == Some(symbol.clone()))
                             .unwrap_or(false)
                     })
-                    .expect(&format!("Gene symbol not found: {}", symbol));
+                    .unwrap_or_else(|| panic!("Gene symbol not found: {}", symbol));
                 Identifier::Hgnc(*hgnc_id)
             })
             .collect()
@@ -888,7 +876,6 @@ impl TranscriptLoader {
     fn build_protobuf(
         &mut self,
         sequence_map: &mut HashMap<TranscriptId, String>,
-        is_silent: bool,
         genome_release: GenomeRelease,
     ) -> Result<TxSeqDatabase, Error> {
         tracing::info!("Constructing protobuf data structures …");
@@ -916,14 +903,8 @@ impl TranscriptLoader {
             let mut aliases = Vec::new();
             let mut aliases_idx = Vec::new();
             let mut seqs = Vec::new();
-            let pb = if is_silent {
-                ProgressBar::hidden()
-            } else {
-                ProgressBar::new(tx_ids.len() as u64)
-            };
-            pb.set_style(PROGRESS_STYLE.clone());
+
             for tx_id in &tx_ids {
-                pb.inc(1);
                 let seq = sequence_map.remove(tx_id).unwrap();
 
                 // Register sequence into protobuf.
@@ -931,7 +912,7 @@ impl TranscriptLoader {
                 aliases_idx.push(seqs.len() as u32);
                 seqs.push(seq);
             }
-            pb.finish_and_clear();
+
             // Finalize by creating `SequenceDb`.
             crate::pbs::txs::SequenceDb {
                 aliases,
@@ -954,7 +935,7 @@ impl TranscriptLoader {
                     .unwrap_or_else(|| panic!("No transcripts for hgnc id {:?}", &hgnc_id));
 
                 // ... for each transcript of the gene ...
-                for tx_id in tx_ids.into_iter().sorted_unstable() {
+                for tx_id in tx_ids.iter().sorted_unstable() {
                     let mut tags: Vec<i32> = Vec::new();
                     let tx = self
                         .transcript_id_to_transcript
@@ -1308,10 +1289,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         args
     );
 
-    // Open seqrepo …
-    let seqrepo = open_seqrepo(&args.path_seqrepo_instance)?;
-
-    // … then load cdot files …
+    // Load cdot files …
     let mut tx_data = load_cdot_files(args)?;
     let raw_tx_data = tx_data.clone();
     report(ReportEntry::Log(json!({
@@ -1330,10 +1308,19 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         tx_data.filter_selected(&ids)?;
     }
 
+    // … then filter genes (missing hgnc id and/or symbol) …
     tx_data.filter_genes()?;
+    // … then filter transcripts …
     tx_data.filter_transcripts()?;
+    // … ensure there are no hgnc keys without associated transcripts left …
     tx_data.filter_empty_hgnc_mappings()?;
+
+    // Open seqrepo …
+    let seqrepo = open_seqrepo(&args.path_seqrepo_instance)?;
+    // … and filter transcripts based on their sequences,
+    // e.g. checking whether their translation contains a stop codon …
     let mut sequence_map = tx_data.filter_transcripts_with_sequence(&seqrepo)?;
+    // … and, again, ensure there are no hgnc keys without associated transcripts left …
     tx_data.filter_empty_hgnc_mappings()?;
 
     report(ReportEntry::Log(json!({
@@ -1343,7 +1330,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         "total_hgnc_ids": tx_data.hgnc_id_to_transcript_ids.len()
     })))?;
 
-    // Count number of chrMt, MANE Select and MANE Plus Clinical transcripts.
+    // For some stats, count number of chrMt, MANE Select and MANE Plus Clinical transcripts.
     let (n_mt, n_mane_select, n_mane_plus_clinical) = tx_data.gather_transcript_stats()?;
 
     report(ReportEntry::Log(json!({
@@ -1354,12 +1341,9 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     })))?;
 
     // … and finally build protobuf file.
-    let tx_db = tx_data.build_protobuf(
-        &mut sequence_map,
-        common.verbose.is_silent(),
-        args.genome_release,
-    )?;
+    let tx_db = tx_data.build_protobuf(&mut sequence_map, args.genome_release)?;
 
+    // List all discarded transcripts and genes.
     for (id, reason) in tx_data.discards.into_iter().sorted_unstable() {
         report(ReportEntry::Discard(Discard {
             source: "protobuf".into(),
