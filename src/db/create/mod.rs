@@ -702,6 +702,8 @@ impl TranscriptLoader {
                     .values()
                     .flat_map(|gb| gb.tag.clone())
                     .flatten()
+                    .sorted_unstable()
+                    .dedup()
                     .collect()
             }),
             Identifier::Hgnc(hgnc_id) => {
@@ -712,6 +714,8 @@ impl TranscriptLoader {
                             self.tags(&Identifier::TxId(tx_id.clone()))
                                 .unwrap_or_default()
                         })
+                        .sorted_unstable()
+                        .dedup()
                         .collect()
                 })
             }
