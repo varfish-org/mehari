@@ -1,12 +1,5 @@
 //! Transcript database.
 
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Formatter};
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::Path;
-use std::{io::Write, path::PathBuf, time::Instant};
-
 use anyhow::{anyhow, Error};
 use clap::Parser;
 use derive_new::new;
@@ -27,6 +20,13 @@ use serde::Serialize;
 use serde_json::json;
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
+use std::cmp::PartialEq;
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Display, Formatter};
+use std::fs::File;
+use std::io::BufWriter;
+use std::path::Path;
+use std::{io::Write, path::PathBuf, time::Instant};
 use strum::Display;
 use thousands::Separable;
 
@@ -244,8 +244,13 @@ impl TranscriptLoader {
         let missing_hgnc = |_gene_id: &str, gene: &Gene| -> bool {
             gene.hgnc.is_none() || gene.hgnc.as_ref().unwrap().is_empty()
         };
-        let filters: [(&dyn Fn(&str, &Gene) -> bool, Reason); 1] =
-            [(&missing_hgnc, Reason::MissingHgncId)];
+        let missing_symbol = |_gene_id: &str, gene: &Gene| -> bool {
+            gene.gene_symbol.is_none() || gene.gene_symbol.as_ref().unwrap().is_empty()
+        };
+        let filters: [(&dyn Fn(&str, &Gene) -> bool, Reason); 2] = [
+            (&missing_hgnc, Reason::MissingHgncId),
+            (&missing_symbol, Reason::MissingGeneSymbol),
+        ];
 
         let discarded_genes = self
             .gene_id_to_gene
@@ -384,6 +389,7 @@ impl TranscriptLoader {
                     .or_default() |= reason;
             }
         }
+        self.discard()?;
 
         // Apply second set of filters (which depend on hgnc grouping)
         for (hgnc_id, tx_ids) in self.hgnc_id_to_transcript_ids.iter() {
@@ -430,7 +436,7 @@ impl TranscriptLoader {
 
             if next_tx_ids.is_empty() {
                 *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
-                    Reason::NoTranscript;
+                    Reason::NoTranscriptLeft;
             }
         }
         self.discard()?;
@@ -476,9 +482,8 @@ impl TranscriptLoader {
                     // Skip transcript if it is coding and the translated CDS does not have a stop codon.
                     if let Some((cds_start, cds_end)) = tx
                         .start_codon
-                        .and_then(|start| tx.stop_codon.map(|stop| (start, stop)))
+                        .and_then(|start| tx.stop_codon.map(|stop| (start as usize, stop as usize)))
                     {
-                        let (cds_start, cds_end) = (cds_start as usize, cds_end as usize);
                         if cds_end > seq.len() {
                             return Either::Left((
                                 Identifier::TxId(tx_id.clone()),
@@ -524,23 +529,28 @@ impl TranscriptLoader {
         Ok(keeps)
     }
 
-    fn filter_empty_transcripts(&mut self) -> Result<(), Error> {
+    /// Remove all hgnc ids for which there are no transcripts left.
+    /// This also removes the gene ids associated with the respective hgnc ids.
+    fn filter_empty_hgnc_mappings(&mut self) -> Result<(), Error> {
+        tracing::info!("Removing empty HGNC mappings …");
         for (hgnc_id, txs) in self.hgnc_id_to_transcript_ids.iter() {
             if txs.is_empty() {
                 *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
-                    Reason::NoTranscript;
+                    Reason::NoTranscriptLeft;
                 if let Some(gene_id) = self.hgnc_id_to_gene_id.get(hgnc_id) {
                     *self
                         .discards
                         .entry(Identifier::GeneId(gene_id.clone()))
-                        .or_default() |= Reason::NoTranscript;
+                        .or_default() |= Reason::NoTranscriptLeft;
                 }
             }
         }
         self.discard()?;
+        tracing::info!("… done removing empty HGNC mappings");
         Ok(())
     }
 
+    /// Find all genes and transcripts on the given contigs.
     fn find_on_contigs(
         &self,
         contig_accessions: &[&str],
@@ -864,6 +874,18 @@ impl TranscriptLoader {
         trace_rss_now();
         let start = Instant::now();
 
+        let (hgnc_ids, tx_ids): (Vec<HgncId>, HashSet<TranscriptId>) = {
+            let mut hgnc_ids = self.hgnc_id_to_transcript_ids.keys().cloned().collect_vec();
+            hgnc_ids.sort_unstable();
+            let tx_ids = self
+                .hgnc_id_to_transcript_ids
+                .values()
+                .flatten()
+                .cloned()
+                .collect();
+            (hgnc_ids, tx_ids)
+        };
+
         // Construct sequence database.
         tracing::info!("  Constructing sequence database …");
         let seq_db = {
@@ -874,10 +896,10 @@ impl TranscriptLoader {
             let pb = if is_silent {
                 ProgressBar::hidden()
             } else {
-                ProgressBar::new(self.transcript_id_to_transcript.len() as u64)
+                ProgressBar::new(tx_ids.len() as u64)
             };
             pb.set_style(PROGRESS_STYLE.clone());
-            for (tx_id, _tx) in &self.transcript_id_to_transcript {
+            for tx_id in &tx_ids {
                 pb.inc(1);
                 let seq = sequence_map.remove(tx_id).unwrap();
 
@@ -899,11 +921,6 @@ impl TranscriptLoader {
 
         tracing::info!("  Creating transcript records for each gene…");
         let data_transcripts = {
-            let hgnc_ids = {
-                let mut hgnc_ids: Vec<_> = self.hgnc_id_to_transcript_ids.keys().cloned().collect();
-                hgnc_ids.sort();
-                hgnc_ids
-            };
             let mut data_transcripts = Vec::new();
             // For each gene (in hgnc id order) ...
             for hgnc_id in &hgnc_ids {
@@ -1014,7 +1031,6 @@ impl TranscriptLoader {
                     // Now, just obtain the basic properties and create a new `data::Transcript`.
                     let Gene {
                         biotype,
-                        hgnc,
                         gene_symbol,
                         ..
                     } = self.gene_id_to_gene.get(gene_id).unwrap().clone();
@@ -1033,21 +1049,10 @@ impl TranscriptLoader {
                     tags.sort_unstable();
                     tags.dedup();
 
-                    if gene_symbol.is_none() {
-                        *self
-                            .discards
-                            .entry(Identifier::TxId(tx_id.clone()))
-                            .or_default() |= Reason::MissingGeneSymbol;
-                        continue;
-                    }
-
                     data_transcripts.push(crate::pbs::txs::Transcript {
                         id: (*tx_id).to_string(),
                         gene_symbol: gene_symbol.expect("missing gene symbol"),
-                        gene_id: hgnc
-                            .map(|s| s.parse::<HgncId>().expect("Invalid HGNC Id"))
-                            .expect("missing HGNC ID")
-                            .to_string(),
+                        gene_id: hgnc_id.to_string(),
                         biotype,
                         tags,
                         protein,
@@ -1061,7 +1066,6 @@ impl TranscriptLoader {
             data_transcripts
         };
 
-        self.discard()?;
         tracing::info!(" … done creating transcripts in {:#?}", start.elapsed());
 
         trace_rss_now();
@@ -1122,7 +1126,7 @@ enum Reason {
     UseNmTranscriptInsteadOfNr,
     PredictedTranscript,
     InvalidCdsLength,
-    NoTranscript,
+    NoTranscriptLeft,
     MissingSequence,
     CdsEndAfterSequenceEnd,
     MissingStopCodon,
@@ -1305,8 +1309,9 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
 
     tx_data.filter_genes()?;
     tx_data.filter_transcripts()?;
+    tx_data.filter_empty_hgnc_mappings()?;
     let mut sequence_map = tx_data.filter_transcripts_with_sequence(&seqrepo)?;
-    tx_data.filter_empty_transcripts()?;
+    tx_data.filter_empty_hgnc_mappings()?;
 
     report(ReportEntry::Log(json!({
         "source": "cdot_filtered",
