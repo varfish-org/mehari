@@ -819,10 +819,18 @@ impl TranscriptLoader {
             Identifier::Hgnc(hgnc_id) => {
                 let _gene_id = self.hgnc_id_to_gene_id.remove(hgnc_id);
                 if let Some(gene_id) = _gene_id {
+                    *self
+                        .discards
+                        .entry(Identifier::GeneId(gene_id.clone()))
+                        .or_default() |= reason;
                     self.gene_id_to_gene.remove(&GeneId::new(gene_id.clone())?);
                 }
                 let txs = self.hgnc_id_to_transcript_ids.remove(hgnc_id);
                 for tx_id in txs.unwrap_or_default() {
+                    *self
+                        .discards
+                        .entry(Identifier::TxId(tx_id.clone()))
+                        .or_default() |= reason;
                     let _transcript = self.transcript_id_to_transcript.remove(&tx_id);
                 }
             }
@@ -841,8 +849,19 @@ impl TranscriptLoader {
                 if let Some(hgnc_id) = gene.and_then(|g| g.hgnc) {
                     let hgnc_id: HgncId = hgnc_id.parse()?;
                     let _gene_id = self.hgnc_id_to_gene_id.remove(&hgnc_id);
+                    if let Some(gene_id) = _gene_id {
+                        *self
+                            .discards
+                            .entry(Identifier::GeneId(gene_id.clone()))
+                            .or_default() |= reason;
+                    }
+
                     let txs = self.hgnc_id_to_transcript_ids.remove(&hgnc_id);
                     for tx_id in txs.unwrap_or_default() {
+                        *self
+                            .discards
+                            .entry(Identifier::TxId(tx_id.clone()))
+                            .or_default() |= reason;
                         let _transcript = self.transcript_id_to_transcript.remove(&tx_id);
                     }
                 }
