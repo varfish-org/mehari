@@ -170,10 +170,21 @@ impl TranscriptLoader {
         self.hgnc_id_to_gene_id
             .extend(other.hgnc_id_to_gene_id.drain());
         self.gene_id_to_gene.extend(other.gene_id_to_gene.drain());
-        self.transcript_id_to_transcript
-            .extend(other.transcript_id_to_transcript.drain());
-        self.hgnc_id_to_transcript_ids
-            .extend(other.hgnc_id_to_transcript_ids.drain());
+        for (tx_id, tx) in other.transcript_id_to_transcript.drain() {
+            if let Some(old_tx) = self.transcript_id_to_transcript.insert(tx_id, tx.clone()) {
+                panic!(
+                    "Duplicate transcript: {}\n{:#?},\n{:#?}",
+                    old_tx.id, &old_tx, &tx
+                );
+            }
+        }
+
+        for (hgnc_id, mut tx_ids) in other.hgnc_id_to_transcript_ids.drain() {
+            let ids = self.hgnc_id_to_transcript_ids.entry(hgnc_id).or_default();
+            ids.append(&mut tx_ids);
+            ids.sort_unstable();
+            ids.dedup();
+        }
         for (id, reason) in other.discards.drain() {
             *self.discards.entry(id).or_default() |= reason;
         }
@@ -1259,17 +1270,6 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
     let mut merged = loaders
         .into_iter()
         .reduce(|mut a, mut b| {
-            // because we're loading multiple cdot files,
-            // it may happen that there are multiple entries from different sources
-            // for the same hgnc id
-            // in that case, we report which transcripts are "overwritten" by the merge
-            for hgnc_id in b.hgnc_id_to_transcript_ids.keys() {
-                if let Some(tx_ids) = a.hgnc_id_to_transcript_ids.get(hgnc_id) {
-                    for tx_id in tx_ids {
-                        tracing::trace!("Transcript overwritten by cli precedence {}", tx_id);
-                    }
-                }
-            }
             a.merge(&mut b);
             a
         })
