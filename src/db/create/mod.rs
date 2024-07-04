@@ -236,9 +236,10 @@ impl TranscriptLoader {
         let missing_symbol = |_gene_id: &str, gene: &Gene| -> bool {
             gene.gene_symbol.is_none() || gene.gene_symbol.as_ref().unwrap().is_empty()
         };
-        let filters: [(&dyn Fn(&str, &Gene) -> bool, Reason); 2] = [
-            (&missing_hgnc, Reason::MissingHgncId),
-            (&missing_symbol, Reason::MissingGeneSymbol),
+        type Filter = fn(&str, &Gene) -> bool;
+        let filters: [(Filter, Reason); 2] = [
+            (missing_hgnc, Reason::MissingHgncId),
+            (missing_symbol, Reason::MissingGeneSymbol),
         ];
 
         let discarded_genes = self
@@ -708,7 +709,7 @@ impl TranscriptLoader {
     }
 
     /// Split off versions from transcript identifiers, then sort descending by version.
-    fn split_off_versions(tx_ids: &Vec<TranscriptId>) -> Vec<(&str, u32)> {
+    fn split_off_versions(tx_ids: &[TranscriptId]) -> Vec<(&str, u32)> {
         let mut versioned: Vec<_> = tx_ids
             .iter()
             .map(|tx_id| {
