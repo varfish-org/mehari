@@ -891,13 +891,15 @@ impl TranscriptLoader {
         trace_rss_now();
         let start = Instant::now();
 
-        let (hgnc_ids, tx_ids): (Vec<HgncId>, HashSet<TranscriptId>) = {
+        let (hgnc_ids, tx_ids): (Vec<HgncId>, Vec<TranscriptId>) = {
             let mut hgnc_ids = self.hgnc_id_to_transcript_ids.keys().cloned().collect_vec();
             hgnc_ids.sort_unstable();
             let tx_ids = self
                 .hgnc_id_to_transcript_ids
                 .values()
                 .flatten()
+                .sorted_unstable()
+                .dedup()
                 .cloned()
                 .collect();
             (hgnc_ids, tx_ids)
@@ -948,7 +950,7 @@ impl TranscriptLoader {
                     .unwrap_or_else(|| panic!("No transcripts for hgnc id {:?}", &hgnc_id));
 
                 // ... for each transcript of the gene ...
-                for tx_id in tx_ids {
+                for tx_id in tx_ids.into_iter().sorted_unstable() {
                     let mut tags: Vec<i32> = Vec::new();
                     let tx = self
                         .transcript_id_to_transcript
