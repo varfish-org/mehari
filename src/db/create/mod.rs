@@ -880,7 +880,6 @@ impl TranscriptLoader {
         genome_release: GenomeRelease,
     ) -> Result<TxSeqDatabase, Error> {
         tracing::info!("Constructing protobuf data structures …");
-        trace_rss_now();
         let start = Instant::now();
 
         let (hgnc_ids, tx_ids): (Vec<HgncId>, Vec<TranscriptId>) = {
@@ -921,8 +920,6 @@ impl TranscriptLoader {
                 seqs,
             }
         };
-
-        trace_rss_now();
 
         tracing::info!("  Creating transcript records for each gene…");
         let data_transcripts = {
@@ -1073,8 +1070,6 @@ impl TranscriptLoader {
 
         tracing::info!(" … done creating transcripts in {:#?}", start.elapsed());
 
-        trace_rss_now();
-
         // Build mapping of gene HGNC symbol to transcript IDs.
         tracing::info!("  Build gene symbol to transcript ID mapping …");
         let gene_to_tx = self
@@ -1086,8 +1081,6 @@ impl TranscriptLoader {
             })
             .collect::<Vec<_>>();
         tracing::info!(" … done building gene symbol to transcript ID mapping");
-
-        trace_rss_now();
 
         // Compose transcript database from transcripts and gene to transcript mapping.
         tracing::info!("  Composing transcript seq database …");
@@ -1105,8 +1098,6 @@ impl TranscriptLoader {
         };
 
         tracing::info!(" … done composing transcript seq database");
-
-        trace_rss_now();
 
         Ok(tx_seq_db)
     }
@@ -1293,6 +1284,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     // Load cdot files …
     let mut tx_data = load_cdot_files(args)?;
     let raw_tx_data = tx_data.clone();
+    trace_rss_now();
     report(ReportEntry::Log(json!({
         "source": "cdot",
         "total_genes": tx_data.gene_id_to_gene.len(),
@@ -1323,6 +1315,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     let mut sequence_map = tx_data.filter_transcripts_with_sequence(&seqrepo)?;
     // … and, again, ensure there are no hgnc keys without associated transcripts left …
     tx_data.filter_empty_hgnc_mappings()?;
+    trace_rss_now();
 
     report(ReportEntry::Log(json!({
         "source": "cdot_filtered",
@@ -1354,6 +1347,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
             tags: raw_tx_data.tags(&id),
         }))?;
     }
+    trace_rss_now();
 
     write_tx_db(tx_db, &args.path_out)?;
 
@@ -1369,8 +1363,6 @@ fn write_tx_db(tx_db: TxSeqDatabase, path: impl AsRef<Path>) -> Result<(), Error
         .encode(&mut buf)
         .map_err(|e| anyhow!("failed to encode: {}", e))?;
     tracing::info!("  … done constructing final tx and seq database");
-
-    trace_rss_now();
 
     // Write out the final transcript and sequence database.
     tracing::info!("  Writing out final database …");
@@ -1396,7 +1388,6 @@ fn write_tx_db(tx_db: TxSeqDatabase, path: impl AsRef<Path>) -> Result<(), Error
         .write_all(&buf)
         .map_err(|e| anyhow!("failed to write to {}: {}", path.display(), e))?;
     tracing::info!("  … done writing out final database");
-    trace_rss_now();
 
     Ok(())
 }
