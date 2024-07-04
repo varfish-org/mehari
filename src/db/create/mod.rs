@@ -169,7 +169,18 @@ impl TranscriptLoader {
         assert_eq!(self.cdot_version, other.cdot_version);
         self.hgnc_id_to_gene_id
             .extend(other.hgnc_id_to_gene_id.drain());
-        self.gene_id_to_gene.extend(other.gene_id_to_gene.drain());
+
+        for (gene_id, gene) in other.gene_id_to_gene.drain() {
+            if let Some(old_gene) = self.gene_id_to_gene.insert(gene_id.clone(), gene.clone()) {
+                panic!(
+                    "Duplicate gene: {}\n{:#?},\n{:#?}",
+                    old_gene.hgnc.as_ref().unwrap(),
+                    &old_gene,
+                    &gene
+                );
+            }
+        }
+
         for (tx_id, tx) in other.transcript_id_to_transcript.drain() {
             if let Some(old_tx) = self.transcript_id_to_transcript.insert(tx_id, tx.clone()) {
                 panic!(
@@ -185,6 +196,7 @@ impl TranscriptLoader {
             ids.sort_unstable();
             ids.dedup();
         }
+
         for (id, reason) in other.discards.drain() {
             *self.discards.entry(id).or_default() |= reason;
         }
