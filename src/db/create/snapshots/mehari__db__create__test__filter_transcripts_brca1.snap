@@ -1,10 +1,10 @@
 ---
 source: src/db/create/mod.rs
-expression: "tx_data.hgnc_id_to_transcript_ids.get(&1100).unwrap().iter().map(|s|\n            s.as_str()).collect::<Vec<_>>()"
+expression: "tx_data.hgnc_id_to_transcript_ids.get(&1100).unwrap().iter().map(|s|\n                s.as_str()).sorted_unstable().collect::<Vec<_>>()"
 ---
 - NM_007294.4
-- NR_027676.2
-- NM_007299.4
-- NM_007298.3
-- NM_007300.4
 - NM_007297.4
+- NM_007298.3
+- NM_007299.4
+- NM_007300.4
+- NR_027676.2

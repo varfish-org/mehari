@@ -1,5 +1,13 @@
 //! Transcript database.
 
+use std::cmp::PartialEq;
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Display, Formatter};
+use std::fs::File;
+use std::io::BufWriter;
+use std::path::Path;
+use std::{io::Write, path::PathBuf, time::Instant};
+
 use anyhow::{anyhow, Error};
 use clap::Parser;
 use derive_new::new;
@@ -20,13 +28,6 @@ use serde::Serialize;
 use serde_json::json;
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
-use std::cmp::PartialEq;
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Formatter};
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::Path;
-use std::{io::Write, path::PathBuf, time::Instant};
 use strum::Display;
 use thousands::Separable;
 
@@ -373,19 +374,22 @@ impl TranscriptLoader {
 
         // Apply first set of filters (which do not depend on hgnc grouping)
         let _empty = HashSet::new();
-        for (tx_id, tx) in &self.transcript_id_to_transcript {
-            let p = Params::new(tx, tx_id, "", &_empty, false);
-            let reason = tx_filters
-                .iter()
-                .filter_map(|(f, r)| f(&p).then(|| *r))
-                .fold(BitFlags::<Reason>::default(), |a, b| a | b);
-            let empty = reason.is_empty();
-            if !empty {
-                *self
-                    .discards
-                    .entry(Identifier::TxId(tx_id.clone()))
-                    .or_default() |= reason;
-            }
+        let discarded = self
+            .transcript_id_to_transcript
+            .iter()
+            .filter_map(|(tx_id, tx)| {
+                let p = Params::new(tx, tx_id, "", &_empty, false);
+                let reason = tx_filters
+                    .iter()
+                    .filter_map(|(f, r)| f(&p).then(|| *r))
+                    .fold(BitFlags::<Reason>::default(), |a, b| a | b);
+                let empty = reason.is_empty();
+                (!empty).then(|| (Identifier::TxId(tx_id.clone()), reason))
+            })
+            .collect_vec();
+
+        for (id, reason) in discarded {
+            self.mark_discarded(&id, reason)?;
         }
         self.discard()?;
 
@@ -1417,12 +1421,11 @@ pub mod test {
     use std::path::{Path, PathBuf};
 
     use clap_verbosity_flag::Verbosity;
-    use hgvs::sequences::{translate_cds, TranslationTable};
-    use seqrepo::{AliasOrSeqId, Interface};
+    use itertools::Itertools;
     use temp_testdir::TempDir;
 
     use crate::common::{Args as CommonArgs, GenomeRelease};
-    use crate::db::create::{open_seqrepo, TranscriptLoader};
+    use crate::db::create::TranscriptLoader;
     use crate::db::dump;
 
     use super::{run, Args};
@@ -1444,6 +1447,7 @@ pub mod test {
             .unwrap()
             .iter()
             .map(|s| s.as_str())
+            .sorted_unstable()
             .collect::<Vec<_>>());
 
         tx_data.filter_transcripts()?;
@@ -1453,6 +1457,7 @@ pub mod test {
             .unwrap()
             .iter()
             .map(|s| s.as_str())
+            .sorted_unstable()
             .collect::<Vec<_>>());
 
         insta::assert_snapshot!(&tx_data.cdot_version);
