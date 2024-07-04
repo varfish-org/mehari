@@ -704,7 +704,29 @@ impl TranscriptLoader {
                     .flatten()
                     .collect()
             }),
-            _ => None,
+            Identifier::Hgnc(hgnc_id) => {
+                self.hgnc_id_to_transcript_ids.get(hgnc_id).map(|tx_ids| {
+                    tx_ids
+                        .iter()
+                        .flat_map(|tx_id| {
+                            self.tags(&Identifier::TxId(tx_id.clone()))
+                                .unwrap_or_default()
+                        })
+                        .collect()
+                })
+            }
+            Identifier::GeneId(gene_id) => {
+                if let Some(hgnc_id) = self
+                    .gene_id_to_gene
+                    .get(gene_id)
+                    .and_then(|gene| gene.hgnc.as_ref())
+                {
+                    let hgnc_id = hgnc_id.parse().unwrap();
+                    self.tags(&Identifier::Hgnc(hgnc_id))
+                } else {
+                    None
+                }
+            }
         }
     }
 
