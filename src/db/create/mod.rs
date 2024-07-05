@@ -13,7 +13,7 @@ use clap::Parser;
 use derive_new::new;
 use enumflags2::{bitflags, BitFlag, BitFlags};
 use hgvs::data::cdot::json::models;
-use hgvs::data::cdot::json::models::{Gene, Tag, Transcript};
+use hgvs::data::cdot::json::models::{BioType, Gene, Tag, Transcript};
 use hgvs::sequences::{translate_cds, TranslationTable};
 use itertools::Itertools;
 use nom::ToUsize;
@@ -145,6 +145,16 @@ impl TranscriptExt for Transcript {
     }
 }
 
+use once_cell::sync::Lazy;
+static DISCARD_BIOTYPES: Lazy<HashSet<BioType>> = Lazy::new(|| {
+    HashSet::from([
+        BioType::Pseudogene,
+        BioType::AberrantProcessedTranscript,
+        BioType::UnconfirmedTranscript,
+        BioType::NmdTranscriptVariant,
+    ])
+});
+
 #[derive(Debug, Clone, Default)]
 struct TranscriptLoader {
     genome_release: GenomeRelease,
@@ -174,9 +184,7 @@ impl TranscriptLoader {
             if let Some(old_gene) = self.gene_id_to_gene.insert(gene_id.clone(), gene.clone()) {
                 panic!(
                     "Duplicate gene: {}\n{:#?},\n{:#?}",
-                    old_gene.hgnc.as_ref().unwrap(),
-                    &old_gene,
-                    &gene
+                    &gene_id, &old_gene, &gene
                 );
             }
         }
@@ -240,6 +248,36 @@ impl TranscriptLoader {
             }
             self.transcript_id_to_transcript.insert(tx_id, tx);
         }
+
+        Ok(())
+    }
+
+    fn filter_initial_hgnc_entries(&mut self) -> Result<(), Error> {
+        for (hgnc_id, tx_ids) in &self.hgnc_id_to_transcript_ids {
+            if tx_ids.is_empty() {
+                *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
+                    Reason::NoTranscripts;
+            }
+            if let Some(gene_id) = self.hgnc_id_to_gene_id.get(hgnc_id) {
+                if let Some(gene) = self.gene_id_to_gene.get(gene_id) {
+                    if gene
+                        .biotype
+                        .as_ref()
+                        .map_or(false, |bt| bt.iter().any(|b| DISCARD_BIOTYPES.contains(b)))
+                    {
+                        *self
+                            .discards
+                            .entry(Identifier::GeneId(gene_id.clone()))
+                            .or_default() |= Reason::Biotype;
+                        *self
+                            .discards
+                            .entry(Identifier::Hgnc(hgnc_id.clone()))
+                            .or_default() |= Reason::Biotype;
+                    }
+                }
+            }
+        }
+        self.discard()?;
         Ok(())
     }
 
@@ -259,10 +297,17 @@ impl TranscriptLoader {
         let missing_symbol = |_gene_id: &str, gene: &Gene| -> bool {
             gene.gene_symbol.is_none() || gene.gene_symbol.as_ref().unwrap().is_empty()
         };
+        let biotype = |_gene_id: &str, gene: &Gene| -> bool {
+            gene.biotype
+                .as_ref()
+                .map(|bt| bt.iter().any(|bt| DISCARD_BIOTYPES.contains(bt)))
+                .unwrap_or(false)
+        };
         type Filter = fn(&str, &Gene) -> bool;
-        let filters: [(Filter, Reason); 2] = [
+        let filters: [(Filter, Reason); 3] = [
             (missing_hgnc, Reason::MissingHgncId),
             (missing_symbol, Reason::MissingGeneSymbol),
+            (biotype, Reason::Biotype),
         ];
 
         let discarded_genes = self
@@ -362,8 +407,26 @@ impl TranscriptLoader {
         //
         // Note that the chrMT transcripts have been fixed earlier already to
         // accomodate for how they are fixed by poly-A tailing.
-        let invalid_cds_length =
-            |p: &Params| -> bool { p.tx.cds_length().map_or(true, |l| l % 3 != 0) };
+        let invalid_cds_length = |p: &Params| -> bool {
+            let keep_biotypes =
+                HashSet::from([BioType::MtRRna, BioType::MtTRna, BioType::ProteinCoding]);
+            if p.tx
+                .biotype
+                .as_ref()
+                .map(|biotypes| biotypes.iter().any(|bt| keep_biotypes.contains(bt)))
+                .unwrap_or(false)
+            {
+                return false;
+            }
+            p.tx.cds_length().map_or(true, |l| l % 3 != 0)
+        };
+
+        let biotype = |p: &Params| -> bool {
+            p.tx.biotype
+                .as_ref()
+                .map(|bt| bt.iter().any(|bt| DISCARD_BIOTYPES.contains(bt)))
+                .unwrap_or(false)
+        };
 
         // We have two sets of filters here:
         // `tx_filters`: for every transcript known to us at this point (so every transcript from cdot)
@@ -371,12 +434,13 @@ impl TranscriptLoader {
         // The latter set relies on the grouping of transcripts by hgnc id,
         // e.g. to discard transcripts with an older version within the same hgnc group
         type Filter = fn(&Params) -> bool;
-        let tx_filters: [(Filter, Reason); 5] = [
+        let tx_filters: [(Filter, Reason); 6] = [
             (missing_hgnc, Reason::MissingHgncId),
             (empty_genome_builds, Reason::EmptyGenomeBuilds),
             (partial, Reason::OnlyPartialAlignmentInRefSeq),
             (predicted, Reason::PredictedTranscript),
             (invalid_cds_length, Reason::InvalidCdsLength),
+            (biotype, Reason::Biotype),
         ];
 
         let hgnc_grouped_filters: [(Filter, Reason); 2] = [
@@ -1161,7 +1225,7 @@ fn append_poly_a(seq: String) -> String {
 }
 
 #[bitflags]
-#[repr(u16)]
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, Serialize, Hash, PartialEq, Eq)]
 enum Reason {
     MissingHgncId,
@@ -1171,6 +1235,7 @@ enum Reason {
     UseNmTranscriptInsteadOfNr,
     PredictedTranscript,
     InvalidCdsLength,
+    NoTranscripts,
     NoTranscriptLeft,
     MissingSequence,
     CdsEndAfterSequenceEnd,
@@ -1178,6 +1243,7 @@ enum Reason {
     TranscriptPriority,
     OnlyPartialAlignmentInRefSeq,
     MissingGeneSymbol,
+    Biotype,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1339,6 +1405,8 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
         tx_data.filter_selected(&ids)?;
     }
 
+    // … then filter hgnc entries with no transcripts to boot …
+    tx_data.filter_initial_hgnc_entries()?;
     // … then filter genes (missing hgnc id and/or symbol) …
     tx_data.filter_genes()?;
     // … then filter transcripts …
