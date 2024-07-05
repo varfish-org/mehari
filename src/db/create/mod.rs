@@ -144,6 +144,23 @@ impl TranscriptExt for Transcript {
     }
 }
 
+trait BioTypeExt {
+    fn is_protein_coding(&self) -> bool;
+}
+
+impl BioTypeExt for BioType {
+    fn is_protein_coding(&self) -> bool {
+        matches!(
+            self,
+            BioType::ProteinCoding
+                | BioType::TrCGene
+                | BioType::TrDGene
+                | BioType::TrJGene
+                | BioType::TrVGene
+        )
+    }
+}
+
 use once_cell::sync::Lazy;
 static DISCARD_BIOTYPES: Lazy<HashSet<BioType>> = Lazy::new(|| {
     HashSet::from([
@@ -176,7 +193,7 @@ impl TranscriptLoader {
         assert_eq!(self.genome_release, other.genome_release);
         assert_eq!(self.cdot_version, other.cdot_version);
         for (hgnc_id, gene) in other.hgnc_id_to_gene.drain() {
-            if let Some(old_gene) = self.hgnc_id_to_gene.insert(hgnc_id.clone(), gene.clone()) {
+            if let Some(old_gene) = self.hgnc_id_to_gene.insert(hgnc_id, gene.clone()) {
                 tracing::warn!(
                     "Overwriting gene: {}\n{:#?},\n{:#?}",
                     &hgnc_id,
@@ -264,10 +281,8 @@ impl TranscriptLoader {
                     .as_ref()
                     .map_or(false, |bt| bt.iter().any(|b| DISCARD_BIOTYPES.contains(b)))
                 {
-                    *self
-                        .discards
-                        .entry(Identifier::Hgnc(hgnc_id.clone()))
-                        .or_default() |= Reason::Biotype;
+                    *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
+                        Reason::Biotype;
                 }
             }
         }
@@ -310,7 +325,7 @@ impl TranscriptLoader {
                     .filter_map(|(f, r)| f(*hgnc_id, gene).then_some(*r))
                     .fold(BitFlags::<Reason>::default(), |a, b| a | b);
                 let empty = reason.is_empty();
-                (!empty).then(|| (Identifier::Hgnc(*hgnc_id), reason))
+                (!empty).then_some((Identifier::Hgnc(*hgnc_id), reason))
             })
             .collect_vec();
 
@@ -385,19 +400,18 @@ impl TranscriptLoader {
         // Check transcript's CDS length for being a multiple of 3.
         //
         // Note that the chrMT transcripts have been fixed earlier already to
-        // accomodate for how they are fixed by poly-A tailing.
+        // accommodate for how they are fixed by poly-A tailing.
         let invalid_cds_length = |p: &Params| -> bool {
-            let keep_biotypes =
-                HashSet::from([BioType::MtRRna, BioType::MtTRna, BioType::ProteinCoding]);
-            if p.tx
-                .biotype
-                .as_ref()
-                .map(|biotypes| biotypes.iter().any(|bt| keep_biotypes.contains(bt)))
-                .unwrap_or(false)
-            {
-                return false;
+            let biotypes = p.tx.biotype.as_ref();
+            if let Some(biotypes) = biotypes {
+                if biotypes.iter().any(|bt| bt.is_protein_coding()) {
+                    p.tx.cds_length().map_or(true, |l| l % 3 != 0)
+                } else {
+                    false
+                }
+            } else {
+                false
             }
-            p.tx.cds_length().map_or(true, |l| l % 3 != 0)
         };
 
         let biotype = |p: &Params| -> bool {
