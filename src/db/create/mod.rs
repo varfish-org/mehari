@@ -284,6 +284,9 @@ impl TranscriptLoader {
                     *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
                         Reason::Biotype;
                 }
+            } else {
+                *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
+                    Reason::MissingGene;
             }
         }
         self.discard()?;
@@ -552,9 +555,12 @@ impl TranscriptLoader {
                         seq
                     };
                     // Skip transcript if it is coding and the translated CDS does not have a stop codon.
-                    if let Some((cds_start, cds_end)) = tx
+                    let protein_coding = tx.biotype.as_ref().map(|bt| bt.iter().any(|b| b.is_protein_coding())).unwrap_or(false);
+                    let cds = tx
                         .start_codon
-                        .and_then(|start| tx.stop_codon.map(|stop| (start as usize, stop as usize)))
+                        .and_then(|start| tx.stop_codon.map(|stop| (start as usize, stop as usize)));
+                    let cds = if protein_coding { cds } else { None };
+                    if let Some((cds_start, cds_end)) = cds
                     {
                         if cds_end > seq.len() {
                             return Either::Left((
@@ -822,7 +828,9 @@ impl TranscriptLoader {
                 continue;
             }
             self._discard_id(&id, reason)?;
+        }
 
+        for (id, reason) in &self.discards {
             match id {
                 Identifier::TxId(_) => {
                     for r in reason.iter() {
@@ -888,6 +896,12 @@ impl TranscriptLoader {
                     let txs = self.hgnc_id_to_transcript_ids.get_mut(&hgnc_id);
                     if let Some(txs) = txs {
                         txs.retain(|tx| tx != tx_id);
+                        if txs.is_empty() {
+                            *self.discards.entry(Identifier::Hgnc(hgnc_id)).or_default() |=
+                                Reason::NoTranscriptLeft;
+                            self.hgnc_id_to_transcript_ids.remove(&hgnc_id);
+                            self.hgnc_id_to_gene.remove(&hgnc_id);
+                        }
                     }
                 }
             }
@@ -1160,6 +1174,7 @@ enum Reason {
     MissingStopCodon,
     TranscriptPriority,
     OnlyPartialAlignmentInRefSeq,
+    MissingGene,
     MissingGeneSymbol,
     Biotype,
 }
