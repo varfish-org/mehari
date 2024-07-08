@@ -96,16 +96,6 @@ impl Display for HgncId {
         Display
     )
 )]
-struct GeneId(String);
-
-#[nutype(
-    sanitize(trim),
-    validate(not_empty),
-    derive(
-        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, AsRef, Deref, Borrow, Into,
-        Display
-    )
-)]
 struct GeneSymbol(String);
 
 #[nutype(
@@ -144,11 +134,21 @@ enum Identifier {
 }
 trait TranscriptExt {
     fn cds_length(&self) -> Option<u32>;
+
+    fn protein_coding(&self) -> bool;
 }
 impl TranscriptExt for Transcript {
     fn cds_length(&self) -> Option<u32> {
         self.start_codon
             .and_then(|start| self.stop_codon.map(|stop| stop.abs_diff(start)))
+    }
+
+    fn protein_coding(&self) -> bool {
+        matches!(self.protein.as_ref().map(|p| !p.is_empty()), Some(true))
+            || self
+                .biotype
+                .as_ref()
+                .map_or(false, |bt| bt.iter().any(|b| b.is_protein_coding()))
     }
 }
 
@@ -158,9 +158,15 @@ trait BioTypeExt {
 
 impl BioTypeExt for BioType {
     fn is_protein_coding(&self) -> bool {
+        // see https://www.ensembl.org/info/genome/genebuild/biotypes.html
+        // and https://www.ensembl.org/Help/Faq?id=468
         matches!(
             self,
             BioType::ProteinCoding
+                | BioType::MRna
+                | BioType::IgCGene
+                | BioType::IgDGene
+                | BioType::IgVGene
                 | BioType::TrCGene
                 | BioType::TrDGene
                 | BioType::TrJGene
@@ -242,10 +248,7 @@ impl TranscriptLoader {
             cdot_version,
             ..
         } = read_cdot_json(path.as_ref())?;
-        let cdot_genes = cdot_genes
-            .into_iter()
-            .map(|(gene_id, gene)| GeneId::try_new(gene_id).map(|g| (g, gene)))
-            .collect::<Result<HashMap<_, _>, _>>()?;
+        let cdot_genes = cdot_genes.into_iter().collect::<HashMap<_, _>>();
         let cdot_transcripts = cdot_transcripts
             .into_iter()
             .map(|(txid, tx)| TranscriptId::try_new(txid).map(|t| (t, tx)))
@@ -406,7 +409,36 @@ impl TranscriptLoader {
         let empty_genome_builds = |p: &Params| -> bool { p.tx.genome_builds.is_empty() };
 
         // Check whether the transcript is marked as partial.
-        let partial = |p: &Params| -> bool { matches!(p.tx.partial, Some(1)) };
+        // Ignore "partial" tag for NR transcripts.
+        // For protein coding transcripts which are marked as partial,
+        // check whether there's at least 1bp of 5' and 3' UTR
+        // (and then discard the 'partial' tag).
+        let partial = |p: &Params| -> bool {
+            if !matches!(p.tx.partial, Some(1)) {
+                return false;
+            }
+            if p.tx_id.starts_with("NR") {
+                false
+            } else if p.tx.protein_coding() {
+                if let Some((start, stop)) =
+                    p.tx.start_codon
+                        .and_then(|start| p.tx.stop_codon.map(|stop| (start, stop)))
+                {
+                    p.tx.genome_builds.iter().any(|(_release, alignment)| {
+                        let mut exons = alignment.exons.clone();
+                        exons.is_empty() || {
+                            exons.sort_unstable_by_key(|e| e.alt_cds_start_i);
+                            let (first, last) = (exons.first().unwrap(), exons.last().unwrap());
+                            !(first.alt_cds_start_i < start && last.alt_cds_end_i > stop)
+                        }
+                    })
+                } else {
+                    true
+                }
+            } else {
+                true
+            }
+        };
 
         // Check whether the transcript is predicted.
         let predicted = |p: &Params| -> bool { p.tx_id.starts_with('X') };
@@ -416,13 +448,8 @@ impl TranscriptLoader {
         // Note that the chrMT transcripts have been fixed earlier already to
         // accommodate for how they are fixed by poly-A tailing.
         let invalid_cds_length = |p: &Params| -> bool {
-            let biotypes = p.tx.biotype.as_ref();
-            if let Some(biotypes) = biotypes {
-                if biotypes.iter().any(|bt| bt.is_protein_coding()) {
-                    p.tx.cds_length().map_or(true, |l| l % 3 != 0)
-                } else {
-                    false
-                }
+            if p.tx.protein_coding() {
+                p.tx.cds_length().map_or(true, |l| l % 3 != 0)
             } else {
                 false
             }
@@ -583,11 +610,10 @@ impl TranscriptLoader {
                         seq
                     };
                     // Skip transcript if it is coding and the translated CDS does not have a stop codon.
-                    let protein_coding = tx.biotype.as_ref().map(|bt| bt.iter().any(|b| b.is_protein_coding())).unwrap_or(false);
                     let cds = tx
                         .start_codon
                         .and_then(|start| tx.stop_codon.map(|stop| (start as usize, stop as usize)));
-                    let cds = if protein_coding { cds } else { None };
+                    let cds = if tx.protein_coding() { cds } else { None };
                     if let Some((cds_start, cds_end)) = cds
                     {
                         if cds_end > seq.len() {
@@ -951,6 +977,28 @@ impl TranscriptLoader {
             panic!("Empty discard reason for {:#?}", id);
         }
         *self.discards.entry(id.clone()).or_default() |= reason;
+        Ok(())
+    }
+
+    /// For each transcript that has been discarded for whatever reason, propagate the reason to its
+    /// parent hgnc entry *if* the hgnc entry already exists and has a non-empty reason
+    /// (to avoid erroneously discarding hgnc entries for a non-important reason).
+    fn propagate_discard_reasons(&mut self, raw: &Self) -> Result<(), Error> {
+        let discards = self.discards.clone();
+        for (tx_id, reason) in discards.iter().filter_map(|(id, reason)| match id {
+            Identifier::TxId(tx_id) => Some((tx_id, reason)),
+            _ => None,
+        }) {
+            let tx = &raw.transcript_id_to_transcript[tx_id];
+            if let Some(hgnc_id) = tx.hgnc.as_ref() {
+                let hgnc_id = hgnc_id.parse()?;
+                if let Some(hgnc_reason) = self.discards.get_mut(&Identifier::Hgnc(hgnc_id)) {
+                    if !hgnc_reason.is_empty() {
+                        *hgnc_reason |= *reason;
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
@@ -1390,6 +1438,8 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Erro
     let mut sequence_map = tx_data.filter_transcripts_with_sequence(&seqrepo)?;
     // … and, again, ensure there are no hgnc keys without associated transcripts left …
     tx_data.filter_empty_hgnc_mappings()?;
+    // … and update all discard annotations …
+    tx_data.propagate_discard_reasons(&raw_tx_data)?;
     trace_rss_now();
 
     report(ReportEntry::Log(json!({
