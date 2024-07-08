@@ -317,7 +317,7 @@ impl TranscriptLoader {
         };
         // Check whether all transcripts for a gene are predicted.
         let predicted_only = |_hgnc_id: HgncId, _gene: &Gene, txs: &[&Transcript]| -> bool {
-            txs.iter().all(|tx| tx.id.starts_with("X"))
+            txs.iter().all(|tx| tx.id.starts_with('X'))
         };
         type Filter = fn(HgncId, &Gene, &[&Transcript]) -> bool;
         let filters: [(Filter, Reason); 3] = [
@@ -535,7 +535,7 @@ impl TranscriptLoader {
                     .iter()
                     .enumerate()
                     .filter_map(|(idx, tx)| {
-                        let p = GroupParams::new(idx, &tx_ids, &txs);
+                        let p = GroupParams::new(idx, tx_ids, &txs);
                         let reason = hgnc_grouped_tx_filters
                             .iter()
                             .filter_map(|(f, r)| f(&p).then_some(*r))
