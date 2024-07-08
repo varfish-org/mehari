@@ -474,6 +474,11 @@ impl TranscriptLoader {
             // First, look for NM transcript,
             // and split off transcript versions from accessions and sort them.
             let seen_nm = tx_ids.iter().any(|tx_id| tx_id.starts_with("NM_"));
+            let predicted_only = tx_ids.iter().all(|tx_id| tx_id.starts_with("X"));
+            if predicted_only {
+                *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
+                    Reason::PredictedTranscriptsOnly;
+            }
             let versioned = Self::split_off_versions(tx_ids);
 
             // Build `next_tx_ids`.
@@ -1160,23 +1165,24 @@ fn append_poly_a(seq: String) -> String {
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, Serialize, Hash, PartialEq, Eq)]
 enum Reason {
-    MissingHgncId,
+    Biotype,
+    CdsEndAfterSequenceEnd,
     DeselectedGene,
     EmptyGenomeBuilds,
-    OldVersion,
-    UseNmTranscriptInsteadOfNr,
-    PredictedTranscript,
     InvalidCdsLength,
-    NoTranscripts,
-    NoTranscriptLeft,
-    MissingSequence,
-    CdsEndAfterSequenceEnd,
-    MissingStopCodon,
-    TranscriptPriority,
-    OnlyPartialAlignmentInRefSeq,
     MissingGene,
     MissingGeneSymbol,
-    Biotype,
+    MissingHgncId,
+    MissingSequence,
+    MissingStopCodon,
+    NoTranscriptLeft,
+    NoTranscripts,
+    OldVersion,
+    OnlyPartialAlignmentInRefSeq,
+    PredictedTranscript,
+    PredictedTranscriptsOnly,
+    TranscriptPriority,
+    UseNmTranscriptInsteadOfNr,
 }
 
 #[derive(Debug, Clone, Serialize)]
