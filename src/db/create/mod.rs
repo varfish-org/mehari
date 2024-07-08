@@ -96,16 +96,6 @@ impl Display for HgncId {
         Display
     )
 )]
-struct GeneSymbol(String);
-
-#[nutype(
-    sanitize(trim),
-    validate(not_empty),
-    derive(
-        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, AsRef, Deref, Borrow, Into,
-        Display
-    )
-)]
 struct TranscriptId(String);
 
 impl TranscriptId {
