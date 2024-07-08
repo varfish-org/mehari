@@ -474,7 +474,7 @@ impl TranscriptLoader {
             // First, look for NM transcript,
             // and split off transcript versions from accessions and sort them.
             let seen_nm = tx_ids.iter().any(|tx_id| tx_id.starts_with("NM_"));
-            let predicted_only = tx_ids.iter().all(|tx_id| tx_id.starts_with("X"));
+            let predicted_only = tx_ids.iter().all(|tx_id| tx_id.starts_with('X'));
             if predicted_only {
                 *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
                     Reason::PredictedTranscriptsOnly;
