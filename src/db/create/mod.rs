@@ -119,7 +119,7 @@ struct TranscriptId(String);
 
 impl TranscriptId {
     fn without_version(&self) -> Result<Self, Error> {
-        Ok(Self::new(
+        Ok(Self::try_new(
             self.as_ref()
                 .split('.')
                 .next()
@@ -237,11 +237,11 @@ impl TranscriptLoader {
         } = read_cdot_json(path.as_ref())?;
         let cdot_genes = cdot_genes
             .into_iter()
-            .map(|(gene_id, gene)| GeneId::new(gene_id).map(|g| (g, gene)))
+            .map(|(gene_id, gene)| GeneId::try_new(gene_id).map(|g| (g, gene)))
             .collect::<Result<HashMap<_, _>, _>>()?;
         let cdot_transcripts = cdot_transcripts
             .into_iter()
-            .map(|(txid, tx)| TranscriptId::new(txid).map(|t| (t, tx)))
+            .map(|(txid, tx)| TranscriptId::try_new(txid).map(|t| (t, tx)))
             .collect::<Result<HashMap<_, _>, _>>()?;
         self.cdot_version = cdot_version;
 
@@ -486,7 +486,7 @@ impl TranscriptLoader {
             let mut next_tx_ids = Vec::new();
 
             for (ac, version) in versioned {
-                let full_ac = TranscriptId::new(format!("{}.{}", &ac, version))?;
+                let full_ac = TranscriptId::try_new(format!("{}.{}", &ac, version))?;
                 let ac = ac.to_string();
                 let tx = self
                     .transcript_id_to_transcript
@@ -642,7 +642,7 @@ impl TranscriptLoader {
                 let hgnc_id: HgncId = tx.hgnc.as_ref().unwrap().parse().unwrap();
                 (
                     hgnc_id,
-                    TranscriptId::new(tx.id.clone()).expect("Invalid TranscriptId"),
+                    TranscriptId::try_new(tx.id.clone()).expect("Invalid TranscriptId"),
                 )
             })
             .unzip()
@@ -1216,7 +1216,7 @@ fn txid_to_label(
             result
                 .map_err(anyhow::Error::from)
                 .and_then(|entry: LabelEntry| {
-                    TranscriptId::new(entry.transcript_id)
+                    TranscriptId::try_new(entry.transcript_id)
                         .map(|txid| {
                             (
                                 txid,
