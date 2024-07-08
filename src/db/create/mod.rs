@@ -311,28 +311,39 @@ impl TranscriptLoader {
 
     fn filter_genes(&mut self) -> Result<(), Error> {
         tracing::info!("Filtering genes …");
-        let missing_symbol = |_hgnc_id: HgncId, gene: &Gene| -> bool {
+        // Check whether the gene has a gene symbol.
+        let missing_symbol = |_hgnc_id: HgncId, gene: &Gene, _txs: &[&Transcript]| -> bool {
             gene.gene_symbol.is_none() || gene.gene_symbol.as_ref().unwrap().is_empty()
         };
-        let biotype = |_hgnc_id: HgncId, gene: &Gene| -> bool {
+        // Check whether the gene has a biotype that should be discarded.
+        let biotype = |_hgnc_id: HgncId, gene: &Gene, _txs: &[&Transcript]| -> bool {
             gene.biotype
                 .as_ref()
                 .map(|bt| bt.iter().any(|bt| DISCARD_BIOTYPES.contains(bt)))
                 .unwrap_or(false)
         };
-        type Filter = fn(HgncId, &Gene) -> bool;
-        let filters: [(Filter, Reason); 2] = [
+        // Check whether all transcripts for a gene are predicted.
+        let predicted_only = |_hgnc_id: HgncId, _gene: &Gene, txs: &[&Transcript]| -> bool {
+            txs.iter().all(|tx| tx.id.starts_with("X"))
+        };
+        type Filter = fn(HgncId, &Gene, &[&Transcript]) -> bool;
+        let filters: [(Filter, Reason); 3] = [
             (missing_symbol, Reason::MissingGeneSymbol),
             (biotype, Reason::Biotype),
+            (predicted_only, Reason::PredictedTranscriptsOnly),
         ];
 
         let discarded_genes = self
             .hgnc_id_to_gene
             .iter()
             .filter_map(|(hgnc_id, gene)| {
+                let txs = self.hgnc_id_to_transcript_ids[hgnc_id]
+                    .iter()
+                    .map(|tx_id| &self.transcript_id_to_transcript[tx_id])
+                    .collect_vec();
                 let reason = filters
                     .iter()
-                    .filter_map(|(f, r)| f(*hgnc_id, gene).then_some(*r))
+                    .filter_map(|(f, r)| f(*hgnc_id, gene, &txs).then_some(*r))
                     .fold(BitFlags::<Reason>::default(), |a, b| a | b);
                 let empty = reason.is_empty();
                 (!empty).then_some((Identifier::Hgnc(*hgnc_id), reason))
@@ -427,7 +438,7 @@ impl TranscriptLoader {
 
         // We have two sets of filters here:
         // `tx_filters`: for every transcript known to us at this point (so every transcript from cdot)
-        // `hgnc_grouped_filters`: all transcripts associated to an hgnc id
+        // `hgnc_grouped_tx_filters`: all transcripts associated to an hgnc id
         // The latter set relies on the grouping of transcripts by hgnc id,
         // e.g. to discard transcripts with an older version within the same hgnc group
         type Filter = fn(&Params) -> bool;
@@ -468,14 +479,9 @@ impl TranscriptLoader {
                 && p.tx_ids.iter().any(|tx_id| tx_id.starts_with("NM_"))
         };
 
-        // Check whether all transcripts in the group are predicted.
-        let predicted_only =
-            |p: &GroupParams| -> bool { p.tx_ids.iter().all(|tx_id| tx_id.starts_with("X")) };
-
-        let hgnc_grouped_filters: [(GroupFilter, Reason); 3] = [
+        let hgnc_grouped_tx_filters: [(GroupFilter, Reason); 2] = [
             (old_version, Reason::OldVersion),
             (nm_instead_of_nr, Reason::UseNmTranscriptInsteadOfNr),
-            (predicted_only, Reason::PredictedTranscriptsOnly),
         ];
 
         let start = Instant::now();
@@ -498,23 +504,22 @@ impl TranscriptLoader {
         for (id, reason) in discarded {
             self.mark_discarded(&id, reason)?;
         }
-        self.discard()?;
 
         // Apply second set of filters (which depend on hgnc grouping)
         let discarded = self
             .hgnc_id_to_transcript_ids
             .iter()
-            .filter_map(|(hgnc_id, tx_ids)| {
+            .filter_map(|(_hgnc_id, tx_ids)| {
                 let txs = tx_ids
                     .iter()
                     .map(|tx_id| self.transcript_id_to_transcript.get(tx_id).unwrap())
                     .collect_vec();
-                let mut tx_reasons = tx_ids
+                let tx_reasons = tx_ids
                     .iter()
                     .enumerate()
                     .filter_map(|(idx, tx)| {
                         let p = GroupParams::new(idx, &tx_ids, &txs);
-                        let reason = hgnc_grouped_filters
+                        let reason = hgnc_grouped_tx_filters
                             .iter()
                             .filter_map(|(f, r)| f(&p).then_some(*r))
                             .fold(BitFlags::<Reason>::default(), |a, b| a | b);
@@ -529,15 +534,6 @@ impl TranscriptLoader {
                 if tx_reasons.is_empty() {
                     None
                 } else {
-                    if tx_reasons
-                        .iter()
-                        .any(|(_, reason)| reason.contains(Reason::PredictedTranscriptsOnly))
-                    {
-                        tx_reasons.push((
-                            Identifier::Hgnc(*hgnc_id),
-                            Reason::PredictedTranscriptsOnly.into(),
-                        ));
-                    }
                     Some(tx_reasons)
                 }
             })
