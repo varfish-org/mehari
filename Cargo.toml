@@ -31,7 +31,7 @@ annonars = "0.39.0"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bgzip = "0.3"
-bio = "1.5"
+bio = "2.0.0"
 biocommons-bioutils = "0.1.4"
 byteorder = "1.4"
 byte-unit = "5.1"
@@ -48,7 +48,7 @@ flate2 = "1.0"
 futures = "0.3"
 hgvs = "0.16.1"
 indexmap = { version = "2.2", features = ["serde"] }
-indicatif = "0.17"
+indicatif = { version = "0.17", features = ["rayon"] }
 itertools = "0.13"
 jsonl = "4.0"
 log = "0.4"
@@ -57,12 +57,12 @@ nutype = { version = "0.4.2", features = ["serde"] }
 parse-display = "0.9"
 procfs = "0.16"
 prost = "0.12"
-quick_cache = "0.4"
+quick_cache = "0.6.0"
 rand = "0.8"
 rand_core = "0.6"
 rayon = "1.10.0"
 rocksdb = { version = "0.22.0", features = ["multi-threaded-cf"] }
-rustc-hash = "1.1"
+rustc-hash = "2.0.0"
 seqrepo = { version = "0.10.2", features = ["cached"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
