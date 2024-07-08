@@ -46,7 +46,7 @@ enumflags2 = { version = "0.7.10", features = ["serde"] }
 env_logger = "0.11"
 flate2 = "1.0"
 futures = "0.3"
-hgvs = "0.16.1"
+hgvs = { path = "../hgvs-rs" }
 indexmap = { version = "2.2", features = ["serde"] }
 indicatif = { version = "0.17", features = ["rayon"] }
 itertools = "0.13"
