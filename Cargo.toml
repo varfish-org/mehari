@@ -55,7 +55,7 @@ nom = "7.1"
 parse-display = "0.9"
 procfs = "0.16"
 prost = "0.12"
-quick_cache = "0.5"
+quick_cache = "0.6"
 rand = "0.8"
 rand_core = "0.6"
 rocksdb = { version = "0.22", features = ["multi-threaded-cf"] }
