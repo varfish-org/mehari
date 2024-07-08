@@ -1,6 +1,6 @@
 //! Transcript database.
 
-use std::cmp::PartialEq;
+use std::cmp::{PartialEq, Reverse};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
@@ -18,6 +18,7 @@ use hgvs::sequences::{translate_cds, TranslationTable};
 use itertools::Itertools;
 use nom::ToUsize;
 use nutype::nutype;
+use once_cell::sync::Lazy;
 use prost::Message;
 use rayon::iter::Either;
 use rayon::prelude::*;
@@ -126,6 +127,13 @@ impl TranscriptId {
                 .ok_or(anyhow!("No version to split off"))?,
         )?)
     }
+
+    fn split_version(&self) -> (&str, u32) {
+        let (ac, version) = self
+            .rsplit_once('.')
+            .expect("Invalid accession, expected format 'ac.version'.");
+        (ac, version.parse::<u32>().expect("invalid version"))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Hash)]
@@ -161,7 +169,6 @@ impl BioTypeExt for BioType {
     }
 }
 
-use once_cell::sync::Lazy;
 static DISCARD_BIOTYPES: Lazy<HashSet<BioType>> = Lazy::new(|| {
     HashSet::from([
         BioType::Pseudogene,
@@ -377,28 +384,21 @@ impl TranscriptLoader {
         #[derive(new)]
         struct Params<'a> {
             tx: &'a Transcript,
-            ac: &'a str,
-            release: &'a str,
-            seen_ac: &'a HashSet<(String, String)>,
-            seen_nm: bool,
+            tx_id: &'a str,
         }
 
+        // Check whether the transcript has an HGNC id.
         let missing_hgnc =
             |p: &Params| -> bool { p.tx.hgnc.is_none() || p.tx.hgnc.as_ref().unwrap().is_empty() };
+
+        // Check whether the transcript has any genome builds.
         let empty_genome_builds = |p: &Params| -> bool { p.tx.genome_builds.is_empty() };
+
+        // Check whether the transcript is marked as partial.
         let partial = |p: &Params| -> bool { matches!(p.tx.partial, Some(1)) };
 
-        // Check whether we have already seen the same version of the transcript.
-        let old_version = |p: &Params| -> bool {
-            p.seen_ac
-                .contains(&(p.ac.to_string(), p.release.to_string()))
-        };
-
-        // Check whether we have already seen an NM transcript for the gene.
-        let nm_instead_of_nr = |p: &Params| -> bool { p.ac.starts_with("NR_") && p.seen_nm };
-
         // Check whether the transcript is predicted.
-        let predicted = |p: &Params| -> bool { p.ac.starts_with('X') };
+        let predicted = |p: &Params| -> bool { p.tx_id.starts_with('X') };
 
         // Check transcript's CDS length for being a multiple of 3.
         //
@@ -417,6 +417,7 @@ impl TranscriptLoader {
             }
         };
 
+        // Check whether the transcript has a biotype that should be discarded.
         let biotype = |p: &Params| -> bool {
             p.tx.biotype
                 .as_ref()
@@ -439,20 +440,52 @@ impl TranscriptLoader {
             (biotype, Reason::Biotype),
         ];
 
-        let hgnc_grouped_filters: [(Filter, Reason); 2] = [
+        #[derive(new)]
+        struct GroupParams<'a> {
+            idx: usize,
+            tx_ids: &'a [TranscriptId],
+            txs: &'a [&'a Transcript],
+        }
+        type GroupFilter = fn(&GroupParams) -> bool;
+
+        // Check whether we have a newer version of the same transcript accession available.
+        let old_version = |p: &GroupParams| -> bool {
+            let versioned = Self::by_release_and_version(p.txs);
+            let (tx_ac, tx_version) = p.tx_ids[p.idx].split_version();
+            for release in p.txs[p.idx].genome_builds.keys() {
+                if let Some(other) = versioned.get(&(release.into(), tx_ac.to_string())) {
+                    if other.iter().any(|(version, _tx)| *version > tx_version) {
+                        return true;
+                    }
+                }
+            }
+            false
+        };
+
+        // Check whether we have already seen an NM transcript for the gene.
+        let nm_instead_of_nr = |p: &GroupParams| -> bool {
+            p.tx_ids[p.idx].starts_with("NR_")
+                && p.tx_ids.iter().any(|tx_id| tx_id.starts_with("NM_"))
+        };
+
+        // Check whether all transcripts in the group are predicted.
+        let predicted_only =
+            |p: &GroupParams| -> bool { p.tx_ids.iter().all(|tx_id| tx_id.starts_with("X")) };
+
+        let hgnc_grouped_filters: [(GroupFilter, Reason); 3] = [
             (old_version, Reason::OldVersion),
             (nm_instead_of_nr, Reason::UseNmTranscriptInsteadOfNr),
+            (predicted_only, Reason::PredictedTranscriptsOnly),
         ];
 
         let start = Instant::now();
 
         // Apply first set of filters (which do not depend on hgnc grouping)
-        let _empty = HashSet::new();
         let discarded = self
             .transcript_id_to_transcript
             .iter()
             .filter_map(|(tx_id, tx)| {
-                let p = Params::new(tx, tx_id, "", &_empty, false);
+                let p = Params::new(tx, tx_id);
                 let reason = tx_filters
                     .iter()
                     .filter_map(|(f, r)| f(&p).then_some(*r))
@@ -468,57 +501,51 @@ impl TranscriptLoader {
         self.discard()?;
 
         // Apply second set of filters (which depend on hgnc grouping)
-        for (hgnc_id, tx_ids) in self.hgnc_id_to_transcript_ids.iter() {
-            // Only select the highest version of each transcript.
-            //
-            // First, look for NM transcript,
-            // and split off transcript versions from accessions and sort them.
-            let seen_nm = tx_ids.iter().any(|tx_id| tx_id.starts_with("NM_"));
-            let predicted_only = tx_ids.iter().all(|tx_id| tx_id.starts_with('X'));
-            if predicted_only {
-                *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
-                    Reason::PredictedTranscriptsOnly;
-            }
-            let versioned = Self::split_off_versions(tx_ids);
-
-            // Build `next_tx_ids`.
-            let mut seen_ac = HashSet::new();
-            let mut next_tx_ids = Vec::new();
-
-            for (ac, version) in versioned {
-                let full_ac = TranscriptId::try_new(format!("{}.{}", &ac, version))?;
-                let ac = ac.to_string();
-                let tx = self
-                    .transcript_id_to_transcript
-                    .get(&full_ac)
-                    .expect("must exist; accession taken from map earlier");
-
-                let releases = tx.genome_builds.keys().cloned().collect::<Vec<_>>();
-
-                for release in releases {
-                    let p = Params::new(tx, &ac, &release, &seen_ac, seen_nm);
-                    let reason = hgnc_grouped_filters
+        let discarded = self
+            .hgnc_id_to_transcript_ids
+            .iter()
+            .filter_map(|(hgnc_id, tx_ids)| {
+                let txs = tx_ids
+                    .iter()
+                    .map(|tx_id| self.transcript_id_to_transcript.get(tx_id).unwrap())
+                    .collect_vec();
+                let mut tx_reasons = tx_ids
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, tx)| {
+                        let p = GroupParams::new(idx, &tx_ids, &txs);
+                        let reason = hgnc_grouped_filters
+                            .iter()
+                            .filter_map(|(f, r)| f(&p).then_some(*r))
+                            .fold(BitFlags::<Reason>::default(), |a, b| a | b);
+                        let empty = reason.is_empty();
+                        if !empty {
+                            Some((Identifier::TxId(tx.clone()), reason))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect_vec();
+                if tx_reasons.is_empty() {
+                    None
+                } else {
+                    if tx_reasons
                         .iter()
-                        .filter_map(|(f, r)| f(&p).then_some(*r))
-                        .fold(BitFlags::<Reason>::default(), |a, b| a | b);
-                    let empty = reason.is_empty();
-                    if !empty {
-                        *self
-                            .discards
-                            .entry(Identifier::TxId(full_ac.clone()))
-                            .or_default() |= reason;
-                    } else {
-                        // Otherwise, mark transcript as included by storing its accession.
-                        next_tx_ids.push(full_ac.clone());
-                        seen_ac.insert((ac.clone(), release));
+                        .any(|(_, reason)| reason.contains(Reason::PredictedTranscriptsOnly))
+                    {
+                        tx_reasons.push((
+                            Identifier::Hgnc(*hgnc_id),
+                            Reason::PredictedTranscriptsOnly.into(),
+                        ));
                     }
+                    Some(tx_reasons)
                 }
-            }
+            })
+            .flatten()
+            .collect_vec();
 
-            if next_tx_ids.is_empty() {
-                *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
-                    Reason::NoTranscriptLeft;
-            }
+        for (id, reason) in discarded {
+            self.mark_discarded(&id, reason)?;
         }
         self.discard()?;
 
@@ -793,16 +820,25 @@ impl TranscriptLoader {
         }
     }
 
-    /// Split off versions from transcript identifiers, then sort descending by version.
-    fn split_off_versions(tx_ids: &[TranscriptId]) -> Vec<(&str, u32)> {
-        let mut versioned: Vec<_> = tx_ids
+    /// Group transcripts by release and version (sorted descending).
+    fn by_release_and_version<'a>(
+        txs: &[&'a Transcript],
+    ) -> HashMap<(String, String), Vec<(u32, &'a Transcript)>> {
+        let mut versioned = txs
             .iter()
-            .map(|tx_id| {
-                let s: Vec<_> = tx_id.split('.').collect();
-                (s[0], s[1].parse::<u32>().expect("invalid version"))
+            .flat_map(|tx| {
+                let releases = tx.genome_builds.keys().cloned().collect_vec();
+                let tx_id = TranscriptId::try_new(&tx.id).unwrap();
+                let (ac, version) = tx_id.split_version();
+                let ac = ac.to_string();
+                releases
+                    .into_iter()
+                    .map(move |r| ((r, ac.clone()), (version, *tx)))
             })
-            .collect();
-        versioned.sort_unstable_by_key(|(k, v)| (k.to_string(), std::cmp::Reverse(*v)));
+            .into_group_map();
+        versioned.values_mut().for_each(|txs| {
+            txs.sort_unstable_by_key(|(version, _)| Reverse(*version));
+        });
         versioned
     }
 
