@@ -114,6 +114,12 @@ debug = false
 lto = "fat"
 codegen-units = 1
 
+[profile.dev]
+debug = true
+lto = false
+codegen-units = 128
+opt-level = 3
+
 [profile.profiling]
 inherits = "release"
 debug = true
