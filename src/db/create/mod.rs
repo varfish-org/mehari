@@ -195,7 +195,7 @@ impl TranscriptLoader {
         for (hgnc_id, gene) in other.hgnc_id_to_gene.drain() {
             if let Some(old_gene) = self.hgnc_id_to_gene.insert(hgnc_id, gene.clone()) {
                 tracing::warn!(
-                    "Overwriting gene: {}\n{:#?},\n{:#?}",
+                    "Overwriting gene: {}\n{:?},\n{:?}",
                     &hgnc_id,
                     &old_gene,
                     &gene
@@ -206,7 +206,7 @@ impl TranscriptLoader {
         for (tx_id, tx) in other.transcript_id_to_transcript.drain() {
             if let Some(old_tx) = self.transcript_id_to_transcript.insert(tx_id, tx.clone()) {
                 tracing::warn!(
-                    "Overwriting transcript: {}\n{:#?},\n{:#?}",
+                    "Overwriting transcript: {}\n{:?},\n{:?}",
                     old_tx.id,
                     &old_tx,
                     &tx
