@@ -165,7 +165,7 @@ impl BioTypeExt for BioType {
     }
 }
 
-static DISCARD_BIOTYPES: Lazy<HashSet<BioType>> = Lazy::new(|| {
+static DISCARD_BIOTYPES_TRANSCRIPTS: Lazy<HashSet<BioType>> = Lazy::new(|| {
     HashSet::from([
         BioType::Pseudogene,
         BioType::AberrantProcessedTranscript,
@@ -173,6 +173,9 @@ static DISCARD_BIOTYPES: Lazy<HashSet<BioType>> = Lazy::new(|| {
         BioType::NmdTranscriptVariant,
     ])
 });
+
+static DISCARD_BIOTYPES_GENES: Lazy<HashSet<BioType>> =
+    Lazy::new(|| HashSet::from([BioType::Pseudogene]));
 
 #[derive(Debug, Clone, Default)]
 struct TranscriptLoader {
@@ -276,11 +279,9 @@ impl TranscriptLoader {
                     Reason::NoTranscripts;
             }
             if let Some(gene) = self.hgnc_id_to_gene.get(hgnc_id) {
-                if gene
-                    .biotype
-                    .as_ref()
-                    .map_or(false, |bt| bt.iter().any(|b| DISCARD_BIOTYPES.contains(b)))
-                {
+                if gene.biotype.as_ref().map_or(false, |bt| {
+                    bt.iter().any(|b| DISCARD_BIOTYPES_GENES.contains(b))
+                }) {
                     *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
                         Reason::Biotype;
                 }
@@ -312,7 +313,7 @@ impl TranscriptLoader {
         let biotype = |_hgnc_id: HgncId, gene: &Gene, _txs: &[&Transcript]| -> bool {
             gene.biotype
                 .as_ref()
-                .map(|bt| bt.iter().any(|bt| DISCARD_BIOTYPES.contains(bt)))
+                .map(|bt| bt.iter().any(|bt| DISCARD_BIOTYPES_GENES.contains(bt)))
                 .unwrap_or(false)
         };
         // Check whether all transcripts for a gene are predicted.
@@ -449,7 +450,10 @@ impl TranscriptLoader {
         let biotype = |p: &Params| -> bool {
             p.tx.biotype
                 .as_ref()
-                .map(|bt| bt.iter().any(|bt| DISCARD_BIOTYPES.contains(bt)))
+                .map(|bt| {
+                    bt.iter()
+                        .any(|bt| DISCARD_BIOTYPES_TRANSCRIPTS.contains(bt))
+                })
                 .unwrap_or(false)
         };
 
