@@ -43,26 +43,36 @@ pub struct Args {
     /// Genome release to extract transcripts for.
     #[arg(long)]
     pub genome_release: GenomeRelease,
+
     /// Path to output protobuf file to write to.
     #[arg(long)]
     pub path_out: PathBuf,
+
     /// Paths to the cdot JSON transcripts to import.
     #[arg(long, required = true)]
     pub path_cdot_json: Vec<PathBuf>,
+
     /// Path to the seqrepo instance directory to use.
     #[arg(long)]
     pub path_seqrepo_instance: PathBuf,
+
     /// Path to TSV file for label transfer of transcripts.  Columns are
     /// transcript id (without version), (unused) gene symbol, and label.
     #[arg(long)]
     pub path_mane_txs_tsv: Option<PathBuf>,
+
     /// Maximal number of transcripts to process. DEPRECATED.
     #[arg(long)]
     pub max_txs: Option<u32>,
+
     /// Limit transcript database to the following HGNC symbols.  Useful for
     /// building test databases.
     #[arg(long)]
     pub gene_symbols: Option<Vec<String>>,
+
+    /// Number of threads to use for steps supporting parallel processing.
+    #[arg(long)]
+    pub threads: Option<usize>,
 }
 
 /// Helper struct for parsing the label TSV file.
@@ -1384,7 +1394,13 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
 }
 
 /// Main entry point for `db create txs` sub command.
-pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
+pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
+    if let Some(threads) = args.threads {
+        rayon::ThreadPoolBuilder::default()
+            .num_threads(threads)
+            .build_global()?;
+    }
+
     let mut report_file =
         File::create(format!("{}.report.jsonl", args.path_out.display())).map(BufWriter::new)?;
     let mut report = |r: ReportEntry| -> Result<(), Error> {
