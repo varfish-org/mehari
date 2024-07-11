@@ -71,8 +71,8 @@ pub struct Args {
     pub gene_symbols: Option<Vec<String>>,
 
     /// Number of threads to use for steps supporting parallel processing.
-    #[arg(long)]
-    pub threads: Option<usize>,
+    #[arg(long, default_value = "1")]
+    pub threads: usize,
 }
 
 /// Helper struct for parsing the label TSV file.
@@ -1395,11 +1395,9 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
 
 /// Main entry point for `db create txs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
-    if let Some(threads) = args.threads {
-        rayon::ThreadPoolBuilder::default()
-            .num_threads(threads)
-            .build_global()?;
-    }
+    rayon::ThreadPoolBuilder::default()
+        .num_threads(args.threads)
+        .build_global()?;
 
     let mut report_file =
         File::create(format!("{}.report.jsonl", args.path_out.display())).map(BufWriter::new)?;
@@ -1592,6 +1590,7 @@ pub mod test {
             genome_release: GenomeRelease::Grch38,
             max_txs: None,
             gene_symbols: None,
+            threads: 1,
         };
 
         run(&common_args, &args)?;
@@ -1626,6 +1625,7 @@ pub mod test {
             genome_release: GenomeRelease::Grch38,
             max_txs: None,
             gene_symbols: None,
+            threads: 1,
         };
 
         run(&common_args, &args)?;
@@ -1661,6 +1661,7 @@ pub mod test {
             genome_release: GenomeRelease::Grch37,
             max_txs: None,
             gene_symbols: None,
+            threads: 1,
         };
 
         run(&common_args, &args)?;
