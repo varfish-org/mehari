@@ -35,6 +35,7 @@ use crate::pbs::txs::TxSeqDatabase;
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1"];
+const MITOCHONDRIAL_ACCESSION: &str = "NC_012920.1";
 
 /// Command line arguments for `db create txs` sub command.
 #[derive(Parser, Debug)]
@@ -136,6 +137,8 @@ trait TranscriptExt {
     fn cds_length(&self) -> Option<u32>;
 
     fn protein_coding(&self) -> bool;
+
+    fn is_on_contig(&self, contig: &str) -> bool;
 }
 impl TranscriptExt for Transcript {
     fn cds_length(&self) -> Option<u32> {
@@ -149,6 +152,10 @@ impl TranscriptExt for Transcript {
                 .biotype
                 .as_ref()
                 .map_or(false, |bt| bt.iter().any(|b| b.is_protein_coding()))
+    }
+
+    fn is_on_contig(&self, contig: &str) -> bool {
+        self.genome_builds.values().any(|gb| &gb.contig == contig)
     }
 }
 
@@ -177,15 +184,16 @@ impl BioTypeExt for BioType {
 
 static DISCARD_BIOTYPES_TRANSCRIPTS: Lazy<HashSet<BioType>> = Lazy::new(|| {
     HashSet::from([
-        BioType::Pseudogene,
+        BioType::PseudogenicTranscript,
         BioType::AberrantProcessedTranscript,
         BioType::UnconfirmedTranscript,
         BioType::NmdTranscriptVariant,
     ])
 });
 
-static DISCARD_BIOTYPES_GENES: Lazy<HashSet<BioType>> =
-    Lazy::new(|| HashSet::from([BioType::Pseudogene]));
+// this used to contain `BioType::Pseudogene`,
+// but we keep pseudogenes (as there are cases where a protein still is produced in certain individuals)
+static DISCARD_BIOTYPES_GENES: Lazy<HashSet<BioType>> = Lazy::new(|| HashSet::from([]));
 
 #[derive(Debug, Clone, Default)]
 struct TranscriptLoader {
@@ -195,6 +203,7 @@ struct TranscriptLoader {
     hgnc_id_to_gene: HashMap<HgncId, Gene>,
     hgnc_id_to_transcript_ids: HashMap<HgncId, Vec<TranscriptId>>,
     discards: HashMap<Identifier, BitFlags<Reason>>,
+    fixes: HashMap<Identifier, BitFlags<Fix>>,
 }
 
 impl TranscriptLoader {
@@ -239,6 +248,9 @@ impl TranscriptLoader {
 
         for (id, reason) in other.discards.drain() {
             *self.discards.entry(id).or_default() |= reason;
+        }
+        for (id, fix) in other.fixes.drain() {
+            *self.fixes.entry(id).or_default() |= fix;
         }
         self
     }
@@ -310,7 +322,7 @@ impl TranscriptLoader {
         if let Some(txid_to_label) = transcript_id_to_tags {
             self.update_transcript_tags(txid_to_label);
         }
-        self.fix_mitochondrial_cds();
+        self.fix_cds();
     }
 
     fn filter_genes(&mut self) -> Result<(), Error> {
@@ -421,21 +433,23 @@ impl TranscriptLoader {
             if p.tx_id.starts_with("NR") {
                 false
             } else if p.tx.protein_coding() {
-                if let Some((start, stop)) =
-                    p.tx.start_codon
-                        .and_then(|start| p.tx.stop_codon.map(|stop| (start, stop)))
-                {
-                    p.tx.genome_builds.iter().any(|(_release, alignment)| {
-                        let mut exons = alignment.exons.clone();
-                        exons.is_empty() || {
-                            exons.sort_unstable_by_key(|e| e.alt_cds_start_i);
-                            let (first, last) = (exons.first().unwrap(), exons.last().unwrap());
-                            !(first.alt_cds_start_i < start && last.alt_cds_end_i > stop)
-                        }
-                    })
-                } else {
-                    true
+                assert_eq!(p.tx.genome_builds.len(), 1);
+                let alignment = p.tx.genome_builds.values().next().unwrap();
+                let exons = alignment.exons.clone();
+                if exons.is_empty() {
+                    return true;
                 }
+                let five_prime_trunc = {
+                    let cds_start = alignment.cds_start;
+                    let first = exons.iter().min_by_key(|e| e.alt_start_i).unwrap();
+                    Some(first.alt_start_i) == cds_start
+                };
+                let three_prime_trunc = {
+                    let cds_end = alignment.cds_end;
+                    let last = exons.iter().max_by_key(|e| e.alt_end_i).unwrap();
+                    Some(last.alt_end_i) == cds_end
+                };
+                !five_prime_trunc && !three_prime_trunc
             } else {
                 true
             }
@@ -443,18 +457,6 @@ impl TranscriptLoader {
 
         // Check whether the transcript is predicted.
         let predicted = |p: &Params| -> bool { p.tx_id.starts_with('X') };
-
-        // Check transcript's CDS length for being a multiple of 3.
-        //
-        // Note that the chrMT transcripts have been fixed earlier already to
-        // accommodate for how they are fixed by poly-A tailing.
-        let invalid_cds_length = |p: &Params| -> bool {
-            if p.tx.protein_coding() {
-                p.tx.cds_length().map_or(true, |l| l % 3 != 0)
-            } else {
-                false
-            }
-        };
 
         // Check whether the transcript has a biotype that should be discarded.
         let biotype = |p: &Params| -> bool {
@@ -473,12 +475,11 @@ impl TranscriptLoader {
         // The latter set relies on the grouping of transcripts by hgnc id,
         // e.g. to discard transcripts with an older version within the same hgnc group
         type Filter = fn(&Params) -> bool;
-        let tx_filters: [(Filter, Reason); 6] = [
+        let tx_filters: [(Filter, Reason); 5] = [
             (missing_hgnc, Reason::MissingHgncId),
             (empty_genome_builds, Reason::EmptyGenomeBuilds),
             (partial, Reason::OnlyPartialAlignmentInRefSeq),
             (predicted, Reason::PredictedTranscript),
-            (invalid_cds_length, Reason::InvalidCdsLength),
             (biotype, Reason::Biotype),
         ];
 
@@ -587,11 +588,57 @@ impl TranscriptLoader {
         tracing::info!("Filtering transcripts with seqrepo …");
         let start = Instant::now();
 
-        let (_, mt_txs) = self.find_on_contigs(MITOCHONDRIAL_ACCESSIONS);
+        let five_prime_truncated = |tx: &Transcript| -> bool {
+            let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
+            if tx.protein_coding() && !is_mt {
+                tx.genome_builds.iter().any(|(_release, alignment)| {
+                    let cds_start = alignment.cds_start;
+                    let mut exons = alignment.exons.clone();
+                    exons.is_empty() || {
+                        exons.sort_unstable_by_key(|e| e.alt_start_i);
+                        let first = exons.first().unwrap();
+                        Some(first.alt_start_i) == cds_start
+                    }
+                })
+            } else {
+                false
+            }
+        };
+        let three_prime_truncated = |tx: &Transcript| -> bool {
+            let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
+            if tx.protein_coding() && !is_mt {
+                tx.genome_builds.iter().any(|(_release, alignment)| {
+                    let cds_end = alignment.cds_end;
+                    let mut exons = alignment.exons.clone();
+                    exons.is_empty() || {
+                        exons.sort_unstable_by_key(|e| e.alt_end_i);
+                        let last = exons.last().unwrap();
+                        Some(last.alt_end_i) == cds_end
+                    }
+                })
+            } else {
+                false
+            }
+        };
+
+        // Check transcript's CDS length for being a multiple of 3.
+        //
+        // Note that the chrMT transcripts have been fixed earlier already to
+        // accommodate for how they are fixed by poly-A tailing.
+        let invalid_cds_length = |tx: &Transcript| -> bool {
+            if tx.protein_coding() {
+                tx.cds_length().map_or(true, |l| l % 3 != 0)
+            } else {
+                false
+            }
+        };
+
         let (discards, keeps): (Vec<_>, HashMap<TranscriptId, String>) = self
             .transcript_id_to_transcript
             .par_iter()
             .partition_map(|(tx_id, tx)| {
+                let has_invalid_cds_length = invalid_cds_length(tx);
+
                 let namespace: String = if tx_id.starts_with("ENST") {
                     String::from("Ensembl")
                 } else {
@@ -602,16 +649,12 @@ impl TranscriptLoader {
                     namespace: Some(namespace.clone()),
                 });
                 if let Ok(seq) = seq {
-                    let is_mt = mt_txs.contains(tx_id);
-                    let seq = if seq.is_empty() {
+                    let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
+                    if seq.is_empty() {
                         return Either::Left((
                             Identifier::TxId(tx_id.clone()),
-                            Reason::MissingSequence,
+                            Reason::MissingSequence.into(),
                         ));
-                    } else if is_mt {
-                        append_poly_a(seq)
-                    } else {
-                        seq
                     };
                     // Skip transcript if it is coding and the translated CDS does not have a stop codon.
                     let cds = tx
@@ -620,12 +663,9 @@ impl TranscriptLoader {
                     let cds = if tx.protein_coding() { cds } else { None };
                     if let Some((cds_start, cds_end)) = cds
                     {
-                        if cds_end > seq.len() {
-                            return Either::Left((
-                                Identifier::TxId(tx_id.clone()),
-                                Reason::CdsEndAfterSequenceEnd,
-                            ));
-                        }
+                        let cds_length = cds_end - cds_start;
+                        let delta = (3 - (cds_length % 3)).max(cds_length.saturating_sub(seq.len()));
+                        let seq = append_poly_a(seq, delta + 30);
                         let tx_seq_to_translate = &seq[cds_start..cds_end];
                         let aa_sequence = translate_cds(
                             tx_seq_to_translate,
@@ -634,21 +674,31 @@ impl TranscriptLoader {
                             TranslationTable::Standard,
                         ).expect("Translation should work, since the length is guaranteed to be a multiple of 3 at this point");
 
-                        if (!is_mt && !aa_sequence.ends_with('*'))
-                            || (is_mt && !aa_sequence.contains('*'))
-                        {
-                            Either::Left((
-                                Identifier::TxId(tx_id.clone()),
-                                Reason::MissingStopCodon,
-                            ))
-                        } else {
+                        let mut reason = Reason::empty();
+                        let has_missing_stop_codon = (!is_mt && !aa_sequence.ends_with('*'))
+                            || (is_mt && !aa_sequence.contains('*'));
+                        if has_missing_stop_codon {
+                            reason |= Reason::MissingStopCodon;
+                            if five_prime_truncated(tx) {
+                                reason |= Reason::FivePrimeEndTruncated;
+                            }
+                            if three_prime_truncated(tx) {
+                                reason |= Reason::ThreePrimeEndTruncated;
+                            }
+                            if has_invalid_cds_length {
+                                reason |= Reason::InvalidCdsLength;
+                            }
+                        }
+                        if reason.is_empty() {
                             Either::Right((tx_id.clone(), seq))
+                        } else {
+                            Either::Left((Identifier::TxId(tx_id.clone()), reason))
                         }
                     } else {
                         Either::Right((tx_id.clone(), seq))
                     }
                 } else {
-                    Either::Left((Identifier::TxId(tx_id.clone()), Reason::MissingSequence))
+                    Either::Left((Identifier::TxId(tx_id.clone()), Reason::MissingSequence.into()))
                 }
             });
 
@@ -676,6 +726,31 @@ impl TranscriptLoader {
         }
         self.discard()?;
         tracing::info!("… done removing empty HGNC mappings");
+        Ok(())
+    }
+
+    fn update_pseudogene_status(&mut self) -> Result<(), Error> {
+        let empty = Reason::empty();
+        for (hgnc_id, _) in &self.hgnc_id_to_transcript_ids {
+            if !self
+                .discards
+                .get(&Identifier::Hgnc(*hgnc_id))
+                .unwrap_or(&empty)
+                .contains(Reason::NoTranscriptLeft)
+            {
+                continue;
+            }
+            if let Some(gene) = self.hgnc_id_to_gene.get(hgnc_id) {
+                if gene
+                    .biotype
+                    .as_ref()
+                    .map_or(false, |bt| bt.contains(&BioType::Pseudogene))
+                {
+                    *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
+                        Reason::Pseudogene;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -743,6 +818,10 @@ impl TranscriptLoader {
                             alignment_tag.dedup();
                         }
                     });
+                    self.fixes
+                        .entry(Identifier::TxId(tx_id.clone()))
+                        .or_default()
+                        .insert(Fix::Tags);
                 }
             });
     }
@@ -751,43 +830,49 @@ impl TranscriptLoader {
         self.transcript_id_to_transcript
             .values_mut()
             .for_each(|tx| {
+                let n = tx.genome_builds.len();
                 tx.genome_builds.retain(|key, _| {
                     matches!(
                         (key.as_str(), self.genome_release),
                         ("GRCh37", GenomeRelease::Grch37) | ("GRCh38", GenomeRelease::Grch38)
                     )
                 });
+                if n != tx.genome_builds.len() {
+                    self.fixes
+                        .entry(Identifier::TxId(TranscriptId::try_new(&tx.id).unwrap()))
+                        .or_default()
+                        .insert(Fix::GenomeBuild);
+                }
             });
     }
 
-    fn fix_mitochondrial_cds(&mut self) {
+    fn fix_cds(&mut self) {
         self.transcript_id_to_transcript
             .values_mut()
-            .for_each(|tx| {
-                // fix coding mitochondrial transcripts that have a CDS that is not a multiple of 3
-                if let Some(cds_start) = tx.start_codon {
-                    let cds_end = tx.stop_codon.expect("must be some if start_codon is some");
-                    let cds_len = cds_end - cds_start;
-                    if cds_len % 3 != 0 {
-                        assert_eq!(
-                            tx.genome_builds.len(),
-                            1,
-                            "only one genome build expected at this point"
-                        );
-                        let gb = tx.genome_builds.iter_mut().next().unwrap().1;
-                        if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_ref()) {
-                            assert_eq!(
-                                gb.exons.len(),
-                                1,
-                                "only single-exon genes assumed on chrMT"
-                            );
-                            let delta = 3 - cds_len % 3;
-                            tx.stop_codon = Some(cds_end + delta);
-                            let exon = gb.exons.iter_mut().next().unwrap();
-                            exon.alt_cds_end_i += delta;
-                            exon.cigar.push_str(&format!("{}I", delta));
-                        }
-                    }
+            .filter(|tx| tx.protein_coding())
+            .filter_map(|tx| {
+                tx.start_codon
+                    .and_then(|start| tx.stop_codon.map(|stop| (start, stop)))
+                    .and_then(|(cds_start, cds_end)| {
+                        let cds_len = cds_end - cds_start;
+                        (cds_len % 3 != 0).then_some((tx, cds_start, cds_end, cds_len))
+                    })
+            })
+            .for_each(|(tx, _cds_start, cds_end, cds_len)| {
+                assert_eq!(tx.genome_builds.len(), 1);
+                for gb in tx.genome_builds.values_mut() {
+                    let delta = 3 - (cds_len % 3);
+                    if delta == 0 {
+                        continue;
+                    };
+                    tx.stop_codon = Some(cds_end + delta);
+                    let exon = gb.exons.iter_mut().max_by_key(|g| g.alt_cds_end_i).unwrap();
+                    exon.alt_cds_end_i += delta;
+                    exon.cigar.push_str(&format!("{}I", delta));
+                    self.fixes
+                        .entry(Identifier::TxId(TranscriptId::try_new(&tx.id).unwrap()))
+                        .or_default()
+                        .insert(Fix::Cds);
                 }
             });
     }
@@ -1237,11 +1322,11 @@ impl TranscriptLoader {
     }
 }
 
-fn append_poly_a(seq: String) -> String {
+fn append_poly_a(seq: String, length: usize) -> String {
     // Append poly-A for chrMT transcripts (which are from ENSEMBL).
     // This also potentially fixes the stop codon.
     let mut seq = seq.into_bytes();
-    seq.extend_from_slice(b"A".repeat(300).as_slice());
+    seq.extend_from_slice(b"A".repeat(length).as_slice());
     String::from_utf8(seq).expect("must be valid UTF-8")
 }
 
@@ -1253,6 +1338,7 @@ enum Reason {
     CdsEndAfterSequenceEnd,
     DeselectedGene,
     EmptyGenomeBuilds,
+    FivePrimeEndTruncated,
     InvalidCdsLength,
     MissingGene,
     MissingGeneSymbol,
@@ -1265,14 +1351,26 @@ enum Reason {
     OnlyPartialAlignmentInRefSeq,
     PredictedTranscript,
     PredictedTranscriptsOnly,
+    Pseudogene,
+    ThreePrimeEndTruncated,
     TranscriptPriority,
     UseNmTranscriptInsteadOfNr,
+}
+
+#[bitflags]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Serialize, Hash, PartialEq, Eq)]
+enum Fix {
+    Cds,
+    GenomeBuild,
+    Tags,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "value")]
 enum ReportEntry {
     Discard(Discard),
+    Fix(LogFix),
     Log(serde_json::Value),
 }
 #[serde_as]
@@ -1281,6 +1379,17 @@ struct Discard {
     source: String,
     #[serde_as(as = "DisplayFromStr")]
     reason: BitFlags<Reason>,
+    id: Identifier,
+    gene_name: Option<String>,
+    tags: Option<Vec<Tag>>,
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+struct LogFix {
+    source: String,
+    #[serde_as(as = "DisplayFromStr")]
+    fix: BitFlags<Fix>,
     id: Identifier,
     gene_name: Option<String>,
     tags: Option<Vec<Tag>>,
@@ -1413,6 +1522,16 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
 
     // Load cdot files …
     let mut tx_data = load_cdot_files(args)?;
+    for (id, fix) in tx_data.fixes.iter() {
+        report(ReportEntry::Fix(LogFix {
+            source: "cdot".into(),
+            fix: *fix,
+            id: id.clone(),
+            gene_name: tx_data.gene_name(id),
+            tags: tx_data.tags(id),
+        }))?;
+    }
+
     let raw_tx_data = tx_data.clone();
     trace_rss_now();
     report(ReportEntry::Log(json!({
@@ -1446,6 +1565,9 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
     let mut sequence_map = tx_data.filter_transcripts_with_sequence(&seqrepo)?;
     // … and, again, ensure there are no hgnc keys without associated transcripts left …
     tx_data.filter_empty_hgnc_mappings()?;
+    // … if there are genes with no transcripts left, check whether they are pseudogenes …
+    tx_data.update_pseudogene_status()?;
+
     // … and update all discard annotations …
     tx_data.propagate_discard_reasons(&raw_tx_data)?;
     trace_rss_now();
