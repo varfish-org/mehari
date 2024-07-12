@@ -1079,13 +1079,15 @@ impl TranscriptLoader {
         let empty = BitFlags::empty();
         for (hgnc_id, _) in self.hgnc_id_to_gene.iter() {
             let tx_ids = self.hgnc_id_to_transcript_ids.get(hgnc_id).unwrap();
-            if tx_ids.iter().all(|tx_id| {
-                !self
-                    .discards
-                    .get(&Identifier::TxId(tx_id.clone()))
-                    .unwrap_or(&empty)
-                    .is_empty()
-            }) {
+            if !tx_ids.is_empty()
+                && tx_ids.iter().all(|tx_id| {
+                    !self
+                        .discards
+                        .get(&Identifier::TxId(tx_id.clone()))
+                        .unwrap_or(&empty)
+                        .is_empty()
+                })
+            {
                 *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
                     Reason::NoTranscriptLeft;
             }
