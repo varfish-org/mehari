@@ -184,7 +184,7 @@ impl BioTypeExt for BioType {
 
 static DISCARD_BIOTYPES_TRANSCRIPTS: Lazy<HashSet<BioType>> = Lazy::new(|| {
     HashSet::from([
-        BioType::PseudogenicTranscript,
+        // BioType::PseudogenicTranscript,
         BioType::AberrantProcessedTranscript,
         BioType::UnconfirmedTranscript,
         BioType::NmdTranscriptVariant,
