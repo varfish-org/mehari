@@ -955,7 +955,7 @@ impl TranscriptLoader {
         versioned
     }
 
-    fn discard(&mut self) -> Result<(), Error> {
+    fn discard(&mut self, remove: bool) -> Result<(), Error> {
         let (n_transcripts_pre, n_hgnc_ids_pre) = (
             self.transcript_id_to_transcript.len(),
             self.hgnc_id_to_transcript_ids.len(),
@@ -981,7 +981,7 @@ impl TranscriptLoader {
                 tracing::warn!("Empty discard reason for {:#?}", id);
                 continue;
             }
-            self._discard_id(&id, reason)?;
+            self._discard_id(&id, reason, remove)?;
         }
 
         for (id, reason) in &self.discards {
@@ -1029,18 +1029,39 @@ impl TranscriptLoader {
         Ok(())
     }
 
-    fn _discard_id(&mut self, id: &Identifier, reason: BitFlags<Reason>) -> Result<(), Error> {
+    fn _discard_id(
+        &mut self,
+        id: &Identifier,
+        reason: BitFlags<Reason>,
+        remove: bool,
+    ) -> Result<(), Error> {
+        let mut get_gene = |id: &HgncId| -> Option<Gene> {
+            if remove {
+                self.hgnc_id_to_gene.remove(id)
+            } else {
+                self.hgnc_id_to_gene.get(id).cloned()
+            }
+        };
+        let mut get_txs = |id: &HgncId| -> Option<Vec<TranscriptId>> {
+            if remove {
+                self.hgnc_id_to_transcript_ids.remove(id)
+            } else {
+                self.hgnc_id_to_transcript_ids.get(id).cloned()
+            }
+        };
         *self.discards.entry(id.clone()).or_default() |= reason;
         match id {
             Identifier::Hgnc(hgnc_id) => {
-                let _gene = self.hgnc_id_to_gene.remove(hgnc_id);
-                let txs = self.hgnc_id_to_transcript_ids.remove(hgnc_id);
+                let _gene = get_gene(hgnc_id);
+                let txs = get_txs(hgnc_id);
                 for tx_id in txs.unwrap_or_default() {
                     *self
                         .discards
                         .entry(Identifier::TxId(tx_id.clone()))
                         .or_default() |= reason;
-                    let _transcript = self.transcript_id_to_transcript.remove(&tx_id);
+                    if remove {
+                        let _transcript = self.transcript_id_to_transcript.remove(&tx_id);
+                    }
                 }
             }
             Identifier::TxId(tx_id) => {
@@ -1132,6 +1153,13 @@ impl TranscriptLoader {
                 .flatten()
                 .sorted_unstable()
                 .dedup()
+                .filter(|&tx_id| {
+                    self.discards
+                        .get(&Identifier::TxId(tx_id.clone()))
+                        .map_or(true, |reason| {
+                            !reason.contains(Reason::MissingSequence | Reason::MissingHgncId)
+                        })
+                })
                 .cloned()
                 .collect();
             (hgnc_ids, tx_ids)
@@ -1605,6 +1633,11 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
     tx_data.filter_empty_hgnc_mappings()?;
     // … if there are genes with no transcripts left, check whether they are pseudogenes …
     tx_data.update_pseudogene_status()?;
+
+    // … trigger the discard routine, but do not remove anything, just make sure they are consistent,
+    // and report the stats.
+    let remove = false;
+    tx_data.discard(remove)?;
 
     // … and update all discard annotations …
     tx_data.propagate_discard_reasons(&raw_tx_data)?;
