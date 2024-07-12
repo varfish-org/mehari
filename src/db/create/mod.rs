@@ -731,7 +731,7 @@ impl TranscriptLoader {
 
     fn update_pseudogene_status(&mut self) -> Result<(), Error> {
         let empty = Reason::empty();
-        for (hgnc_id, _) in &self.hgnc_id_to_transcript_ids {
+        for (hgnc_id, gene) in &self.hgnc_id_to_gene {
             if !self
                 .discards
                 .get(&Identifier::Hgnc(*hgnc_id))
@@ -740,15 +740,12 @@ impl TranscriptLoader {
             {
                 continue;
             }
-            if let Some(gene) = self.hgnc_id_to_gene.get(hgnc_id) {
-                if gene
-                    .biotype
-                    .as_ref()
-                    .map_or(false, |bt| bt.contains(&BioType::Pseudogene))
-                {
-                    *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
-                        Reason::Pseudogene;
-                }
+            if gene
+                .biotype
+                .as_ref()
+                .map_or(false, |bt| bt.contains(&BioType::Pseudogene))
+            {
+                *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |= Reason::Pseudogene;
             }
         }
         Ok(())
