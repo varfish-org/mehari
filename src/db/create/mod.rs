@@ -340,7 +340,7 @@ impl TranscriptLoader {
         };
         // Check whether all transcripts for a gene are predicted.
         let predicted_only = |_hgnc_id: HgncId, _gene: &Gene, txs: &[&Transcript]| -> bool {
-            txs.iter().all(|tx| tx.id.starts_with('X'))
+            !txs.empty() && txs.iter().all(|tx| tx.id.starts_with('X'))
         };
         type Filter = fn(HgncId, &Gene, &[&Transcript]) -> bool;
         let filters: [(Filter, Reason); 3] = [
