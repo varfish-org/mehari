@@ -1280,7 +1280,7 @@ impl TranscriptLoader {
 
                     data_transcripts.push(crate::pbs::txs::Transcript {
                         id: (*tx_id).to_string(),
-                        gene_symbol: gene_symbol.expect("missing gene symbol"),
+                        gene_symbol: gene_symbol.unwrap_or("<MISSING>".to_string()),
                         gene_id: hgnc_id.to_string(),
                         biotype,
                         tags,
