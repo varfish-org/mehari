@@ -449,7 +449,7 @@ impl TranscriptLoader {
                     let last = exons.iter().max_by_key(|e| e.alt_end_i).unwrap();
                     Some(last.alt_end_i) == cds_end
                 };
-                !five_prime_trunc && !three_prime_trunc
+                five_prime_trunc && three_prime_trunc
             } else {
                 true
             }
