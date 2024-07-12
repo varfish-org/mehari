@@ -312,7 +312,7 @@ impl TranscriptLoader {
                     Reason::MissingGene;
             }
         }
-        self.discard()?;
+        // self.discard()?;
         tracing::info!("… done filter Hgnc entries");
         Ok(())
     }
@@ -369,7 +369,7 @@ impl TranscriptLoader {
         for (id, reason) in discarded_genes {
             self.mark_discarded(&id, reason)?;
         }
-        self.discard()?;
+        // self.discard()?;
         tracing::info!("… done filtering genes");
         Ok(())
     }
@@ -392,7 +392,7 @@ impl TranscriptLoader {
                 }
             }
         }
-        self.discard()?;
+        // self.discard()?;
         Ok(())
     }
 
@@ -575,7 +575,7 @@ impl TranscriptLoader {
         for (id, reason) in discarded {
             self.mark_discarded(&id, reason)?;
         }
-        self.discard()?;
+        // self.discard()?;
 
         tracing::info!("… done filtering transcripts in {:?}", start.elapsed());
         Ok(())
@@ -637,6 +637,11 @@ impl TranscriptLoader {
             .transcript_id_to_transcript
             .par_iter()
             .partition_map(|(tx_id, tx)| {
+                if let Some(d) = self.discards.get(&Identifier::TxId(tx_id.clone())) {
+                    if !d.is_empty() {
+                        return Either::Left((Identifier::TxId(tx_id.clone()), d.clone()));
+                    }
+                }
                 let has_invalid_cds_length = invalid_cds_length(tx);
 
                 let namespace: String = if tx_id.starts_with("ENST") {
@@ -705,7 +710,7 @@ impl TranscriptLoader {
         for (id, reason) in discards {
             self.mark_discarded(&id, reason.into())?;
         }
-        self.discard()?;
+        // self.discard()?;
 
         tracing::info!(
             "… done filtering transcripts with seqrepo in {:?}",
@@ -724,7 +729,7 @@ impl TranscriptLoader {
                     Reason::NoTranscriptLeft;
             }
         }
-        self.discard()?;
+        // self.discard()?;
         tracing::info!("… done removing empty HGNC mappings");
         Ok(())
     }
@@ -1267,6 +1272,12 @@ impl TranscriptLoader {
                     tags.sort_unstable();
                     tags.dedup();
 
+                    // Combine discard reasons for transcript and gene level.
+                    let filtered = self
+                        .discards
+                        .get(&Identifier::TxId(tx_id.clone()))
+                        .map_or(false, |reason| !reason.is_empty());
+
                     data_transcripts.push(crate::pbs::txs::Transcript {
                         id: (*tx_id).to_string(),
                         gene_symbol: gene_symbol.expect("missing gene symbol"),
@@ -1277,6 +1288,7 @@ impl TranscriptLoader {
                         start_codon,
                         stop_codon,
                         genome_alignments,
+                        filtered: Some(filtered),
                     });
                 }
             }
@@ -1291,9 +1303,14 @@ impl TranscriptLoader {
         let gene_to_tx = self
             .hgnc_id_to_transcript_ids
             .iter()
-            .map(|(gene_id, tx_ids)| crate::pbs::txs::GeneToTxId {
-                gene_id: gene_id.to_string(),
-                tx_ids: tx_ids.iter().map(|tx_id| tx_id.to_string()).collect(),
+            .map(|(hgnc_id, tx_ids)| {
+                let hgnc_reason = self.discards.get(&Identifier::Hgnc(*hgnc_id));
+                let filtered = hgnc_reason.map_or(false, |reason| !reason.is_empty());
+                crate::pbs::txs::GeneToTxId {
+                    gene_id: hgnc_id.to_string(),
+                    tx_ids: tx_ids.iter().map(|tx_id| tx_id.to_string()).collect(),
+                    filtered: Some(filtered),
+                }
             })
             .collect::<Vec<_>>();
         tracing::info!(" … done building gene symbol to transcript ID mapping");

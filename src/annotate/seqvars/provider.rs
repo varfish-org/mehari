@@ -146,6 +146,7 @@ impl Provider {
                 .expect("no tx_db?")
                 .gene_to_tx
                 .iter()
+                .filter(|gene| !gene.filtered.unwrap_or(false))
                 .enumerate()
                 .map(|(idx, entry)| (entry.gene_id.clone(), idx as u32)),
         );
@@ -156,6 +157,7 @@ impl Provider {
                 .expect("no tx_db?")
                 .transcripts
                 .iter()
+                .filter(|tx| !tx.filtered.unwrap_or(false))
                 .enumerate()
                 .map(|(idx, tx)| (tx.id.clone(), idx as u32)),
         );
@@ -209,6 +211,7 @@ impl Provider {
                         GeneToTxId {
                             gene_id: entry.gene_id.clone(),
                             tx_ids: mane_tx_ids,
+                            filtered: Some(false),
                         }
                     } else {
                         // Otherwise, determine the longest transcript's length.
@@ -244,6 +247,7 @@ impl Provider {
                         GeneToTxId {
                             gene_id: entry.gene_id.clone(),
                             tx_ids: vec![tx_id],
+                            filtered: Some(false),
                         }
                     };
 
