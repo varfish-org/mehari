@@ -664,8 +664,8 @@ impl TranscriptLoader {
                     if let Some((cds_start, cds_end)) = cds
                     {
                         let cds_length = cds_end - cds_start;
-                        let delta = (3 - (cds_length % 3)).max(cds_length.saturating_sub(seq.len()));
-                        let seq = append_poly_a(seq, delta + 30);
+                        let delta = (3 - (cds_length % 3)).max(cds_end.saturating_sub(seq.len()));
+                        let seq = append_poly_a(seq, delta);
                         let tx_seq_to_translate = &seq[cds_start..cds_end];
                         let aa_sequence = translate_cds(
                             tx_seq_to_translate,
@@ -685,7 +685,7 @@ impl TranscriptLoader {
                             if three_prime_truncated(tx) {
                                 reason |= Reason::ThreePrimeEndTruncated;
                             }
-                            if has_invalid_cds_length {
+                            if has_invalid_cds_length || self.fixes.get(&Identifier::TxId(tx_id.clone())).map_or(false, |f| f.contains(Fix::Cds)) {
                                 reason |= Reason::InvalidCdsLength;
                             }
                         }
