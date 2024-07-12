@@ -1075,6 +1075,19 @@ impl TranscriptLoader {
     /// parent hgnc entry *if* the hgnc entry already exists and has a non-empty reason
     /// (to avoid erroneously discarding hgnc entries for a non-important reason).
     fn propagate_discard_reasons(&mut self, raw: &Self) -> Result<(), Error> {
+        // First check whether all transcripts of a gene have been marked as discarded.
+        for (hgnc_id, _) in self.hgnc_id_to_gene.iter() {
+            let tx_ids = self.hgnc_id_to_transcript_ids.get(hgnc_id).unwrap();
+            if tx_ids
+                .iter()
+                .all(|tx_id| self.discards.contains_key(&Identifier::TxId(tx_id.clone())))
+            {
+                *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
+                    Reason::NoTranscriptLeft;
+            }
+        }
+
+        // then propagate the reasons to the hgnc entries
         let discards = self.discards.clone();
         for (tx_id, reason) in discards.iter().filter_map(|(id, reason)| match id {
             Identifier::TxId(tx_id) => Some((tx_id, reason)),
@@ -1277,6 +1290,11 @@ impl TranscriptLoader {
                         .discards
                         .get(&Identifier::TxId(tx_id.clone()))
                         .map_or(false, |reason| !reason.is_empty());
+                    let filtered = filtered
+                        | self
+                            .discards
+                            .get(&Identifier::Hgnc(*hgnc_id))
+                            .map_or(false, |reason| !reason.is_empty());
 
                     data_transcripts.push(crate::pbs::txs::Transcript {
                         id: (*tx_id).to_string(),
