@@ -1105,7 +1105,7 @@ impl TranscriptLoader {
         let start = Instant::now();
 
         let (hgnc_ids, tx_ids): (Vec<HgncId>, Vec<TranscriptId>) = {
-            let mut hgnc_ids = self.hgnc_id_to_transcript_ids.keys().cloned().collect_vec();
+            let mut hgnc_ids = self.hgnc_id_to_gene.keys().cloned().collect_vec();
             hgnc_ids.sort_unstable();
             let tx_ids = self
                 .hgnc_id_to_transcript_ids
@@ -1127,12 +1127,12 @@ impl TranscriptLoader {
             let mut seqs = Vec::new();
 
             for tx_id in &tx_ids {
-                let seq = sequence_map.remove(tx_id).unwrap();
-
-                // Register sequence into protobuf.
-                aliases.push((*tx_id).to_string());
-                aliases_idx.push(seqs.len() as u32);
-                seqs.push(seq);
+                if let Some(seq) = sequence_map.remove(tx_id) {
+                    // Register sequence into protobuf.
+                    aliases.push((*tx_id).to_string());
+                    aliases_idx.push(seqs.len() as u32);
+                    seqs.push(seq);
+                }
             }
 
             // Finalize by creating `SequenceDb`.
