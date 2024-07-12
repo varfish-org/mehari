@@ -1076,12 +1076,16 @@ impl TranscriptLoader {
     /// (to avoid erroneously discarding hgnc entries for a non-important reason).
     fn propagate_discard_reasons(&mut self, raw: &Self) -> Result<(), Error> {
         // First check whether all transcripts of a gene have been marked as discarded.
+        let empty = BitFlags::empty();
         for (hgnc_id, _) in self.hgnc_id_to_gene.iter() {
             let tx_ids = self.hgnc_id_to_transcript_ids.get(hgnc_id).unwrap();
-            if tx_ids
-                .iter()
-                .all(|tx_id| self.discards.contains_key(&Identifier::TxId(tx_id.clone())))
-            {
+            if tx_ids.iter().all(|tx_id| {
+                !self
+                    .discards
+                    .get(&Identifier::TxId(tx_id.clone()))
+                    .unwrap_or(&empty)
+                    .is_empty()
+            }) {
                 *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
                     Reason::NoTranscriptLeft;
             }
