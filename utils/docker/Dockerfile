@@ -27,7 +27,7 @@ RUN apt-get update && \
 RUN rustup component add rustfmt
 # Install build dependency `protoc`.
 COPY utils/install-protoc.sh /tmp
-RUN CMAKE_INSTALL_PREFIX=/usr/local bash /tmp/install-protoc.sh
+RUN PREFIX=/usr/local bash /tmp/install-protoc.sh
 
 #### Now for the two-step building.
 ####
