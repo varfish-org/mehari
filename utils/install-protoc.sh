@@ -8,19 +8,13 @@
 set -x
 set -euo pipefail
 
-CMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX-$HOME/.local/share/protoc}
+RELEASE=${RELEASE-27.2}
+ARCH=${ARCH-linux-x86_64}
+PREFIX=${PREFIX-$HOME/.local/share/protoc}
 
-mkdir -p utils/var
-cd utils/var
+wget -O /tmp/protoc-${RELEASE}-${ARCH}.zip \
+    https://github.com/protocolbuffers/protobuf/releases/download/v${RELEASE}/protoc-${RELEASE}-${ARCH}.zip
 
-apt-get update
-apt-get install -y git cmake build-essential
-
-if [[ ! -e protobuf ]]; then
-    git clone https://github.com/protocolbuffers/protobuf.git
-fi
-cd protobuf
-git submodule update --init --recursive
-
-cmake . -DCMAKE_INSTALL_PREFIX=$CMAKE_INSTALL_PREFIX
-make -j 8 install
+mkdir -p $PREFIX
+cd $PREFIX
+unzip /tmp/protoc-${RELEASE}-${ARCH}.zip
