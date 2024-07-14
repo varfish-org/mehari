@@ -58,11 +58,13 @@ fn load_cdot_files(paths: &[PathBuf]) -> Result<IdCollection> {
         genes
             .into_values()
             .flat_map(|g| g.hgnc.map(|hgnc| format!("HGNC:{hgnc}")))
+            .chain(
+                transcripts
+                    .values()
+                    .flat_map(|t| t.hgnc.as_ref().map(|hgnc| format!("HGNC:{hgnc}"))),
+            )
             .collect(),
-        transcripts
-            .into_values()
-            .flat_map(|t| t.hgnc.map(|hgnc| format!("HGNC:{hgnc}")))
-            .collect(),
+        transcripts.keys().cloned().collect(),
     ))
 }
 
@@ -211,25 +213,29 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
     let tx_db = load_tx_db(&format!("{}", args.path_db.display()))?
         .tx_db
         .unwrap();
-    let tx_db_hgnc_ids: HashSet<HgncId> =
-        tx_db.gene_to_tx.iter().map(|g| g.gene_id.clone()).collect();
+    let tx_db_hgnc_ids: HashSet<HgncId> = tx_db
+        .gene_to_tx
+        .iter()
+        .map(|g| g.gene_id.clone())
+        .chain(tx_db.transcripts.iter().map(|tx| tx.gene_id.clone()))
+        .collect();
     let tx_db_tx_ids: HashSet<OtherId> = tx_db.transcripts.iter().map(|tx| tx.id.clone()).collect();
     let (cdot_hgnc_ids, cdot_tx_ids) = load_cdot_files(&args.path_cdot_json)?;
     let (hgnc_hgnc_ids, hgnc_other_ids) = load_hgnc_set(&args.path_hgnc_json)?;
     let (disease_gene_hgnc_ids, disease_gene_gene_symbols) =
         load_disease_gene_set(&args.path_disease_gene_tsv)?;
 
-    for hgnc_id in cdot_hgnc_ids.difference(&tx_db_hgnc_ids) {
-        tracing::warn!("HGNC ID {} not found in transcript database", hgnc_id);
-        if let Some(annotations) = hgnc_hgnc_ids.get(hgnc_id) {
+    for hgnc_id in &cdot_hgnc_ids - &tx_db_hgnc_ids {
+        tracing::warn!("cdot HGNC ID {} not found in transcript database", &hgnc_id);
+        if let Some(annotations) = hgnc_hgnc_ids.get(&hgnc_id) {
             if !annotations.is_empty() {
-                tracing::warn!("HGNC ID {} has annotations {:?}", hgnc_id, annotations);
+                tracing::warn!("HGNC ID {} has annotations {:?}", &hgnc_id, annotations);
             }
         }
     }
 
-    for hgnc_id in disease_gene_hgnc_ids.difference(&cdot_hgnc_ids) {
-        tracing::warn!("HGNC ID {} not found in cdot JSON", hgnc_id);
+    for hgnc_id in &disease_gene_hgnc_ids - &cdot_hgnc_ids {
+        tracing::warn!("disease gene HGNC ID {} not found in cdot JSON", &hgnc_id);
     }
 
     Ok(())
