@@ -193,7 +193,14 @@ static DISCARD_BIOTYPES_TRANSCRIPTS: Lazy<HashSet<BioType>> = Lazy::new(|| {
 
 // this used to contain `BioType::Pseudogene`,
 // but we keep pseudogenes (as there are cases where a protein still is produced in certain individuals)
-static DISCARD_BIOTYPES_GENES: Lazy<HashSet<BioType>> = Lazy::new(|| HashSet::from([]));
+static DISCARD_BIOTYPES_GENES: Lazy<HashSet<BioType>> = Lazy::new(|| {
+    HashSet::from([
+        BioType::CGeneSegment,
+        BioType::DGeneSegment,
+        BioType::JGeneSegment,
+        BioType::VGeneSegment,
+    ])
+});
 
 #[derive(Debug, Clone, Default)]
 struct TranscriptLoader {
