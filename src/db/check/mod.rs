@@ -495,6 +495,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
         });
 
         if has_transcripts {
+            valid = false;
             let empty = vec![];
             let cdot_ids = info
                 .unwrap_or(&empty)
