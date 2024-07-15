@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use strum::Display;
 
 /// Command line arguments for `db check` sub command.
 #[derive(Parser, Debug)]
@@ -34,7 +35,41 @@ type HgncId = String;
 type GeneSymbol = String;
 type OtherId = String;
 
-type IdCollection = (HashSet<HgncId>, HashSet<OtherId>);
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord, Display)]
+enum Id {
+    Hgnc(HgncId),
+    GeneSymbol(GeneSymbol),
+    NcbiAccession(String),
+    NcbiGene(String),
+    NcbiTranscript(String),
+    EnsemblAccession(String),
+    EnsemblGene(String),
+    EnsemblTranscript(String),
+}
+
+impl From<String> for Id {
+    fn from(value: String) -> Self {
+        if value.starts_with("HGNC:") {
+            Id::Hgnc(value)
+        } else if value.starts_with("ENSG") {
+            Id::EnsemblGene(value)
+        } else if value.starts_with("ENST") {
+            Id::EnsemblTranscript(value)
+        } else if value.starts_with("NM_")
+            || value.starts_with("NR_")
+            || value.starts_with("XM_")
+            || value.starts_with("XR_")
+        {
+            Id::NcbiTranscript(value)
+        } else if value.parse::<usize>().is_ok() {
+            Id::NcbiGene(value)
+        } else {
+            Id::GeneSymbol(value)
+        }
+    }
+}
+
+type IdCollection = HashSet<Id>;
 
 fn load_cdot_files(paths: &[PathBuf]) -> Result<IdCollection> {
     let cdot_containers = paths
@@ -54,18 +89,31 @@ fn load_cdot_files(paths: &[PathBuf]) -> Result<IdCollection> {
         })
         .unwrap();
 
-    Ok((
-        genes
-            .into_values()
-            .flat_map(|g| g.hgnc.map(|hgnc| format!("HGNC:{hgnc}")))
-            .chain(
-                transcripts
-                    .values()
-                    .flat_map(|t| t.hgnc.as_ref().map(|hgnc| format!("HGNC:{hgnc}"))),
-            )
-            .collect(),
-        transcripts.keys().cloned().collect(),
-    ))
+    Ok(genes
+        .iter()
+        .flat_map(|(gene_id, g)| {
+            let gid = Id::from(gene_id.clone());
+            let mut ids = vec![gid];
+            if let Some(ref hgnc_id) = g.hgnc {
+                ids.push(Id::Hgnc(format!("HGNC:{hgnc_id}")));
+            }
+            if let Some(ref gene_symbol) = g.gene_symbol {
+                ids.push(Id::GeneSymbol(gene_symbol.clone()));
+            }
+            ids
+        })
+        .chain(transcripts.iter().flat_map(|(tx_id, t)| {
+            let tid = Id::from(tx_id.clone());
+            let mut ids = vec![tid];
+            if let Some(ref hgnc_id) = t.hgnc {
+                ids.push(Id::Hgnc(format!("HGNC:{hgnc_id}")));
+            }
+            if let Some(ref gene_symbol) = t.gene_name {
+                ids.push(Id::GeneSymbol(gene_symbol.clone()));
+            }
+            ids
+        }))
+        .collect())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -141,28 +189,26 @@ enum Annotation {
     NoEnsemblGeneId,
     NoEnsemblTranscriptId,
 }
-fn load_hgnc_set(
-    path: impl AsRef<Path>,
-) -> Result<(HashMap<HgncId, BitFlags<Annotation>>, HashSet<OtherId>)> {
+
+fn load_hgnc_set(path: impl AsRef<Path>) -> Result<HashMap<Id, BitFlags<Annotation>>> {
     let hgnc: Value = {
         let reader = File::open(path).map(BufReader::new)?;
         serde_json::from_reader::<_, Value>(reader)?["response"]["docs"].to_owned()
     };
     let entries: Vec<HgncEntry> = serde_json::from_value(hgnc)?;
-    let mut external_ids = HashSet::new();
-    let mut hgnc_ids = HashMap::new();
+    let mut ids = HashMap::new();
     entries.into_iter().for_each(|entry| {
-        let hgnc_id = entry.hgnc_id;
-        let ncbi_gene_id = entry.entrez_id;
-        let ensembl_gene_id = entry.ensembl_gene_id;
+        let hgnc_id = Id::Hgnc(entry.hgnc_id);
+        let ncbi_gene_id = entry.entrez_id.map(Id::NcbiGene);
+        let ensembl_gene_id = entry.ensembl_gene_id.map(Id::EnsemblGene);
         let mut annotation = Annotation::empty();
         if let Some(gene_id) = ncbi_gene_id {
-            external_ids.insert(gene_id);
+            ids.entry(gene_id).or_default();
         } else {
             annotation |= Annotation::NoNcbiGeneId;
         }
         if let Some(gene_id) = ensembl_gene_id {
-            external_ids.insert(gene_id);
+            ids.entry(gene_id).or_default();
         } else {
             annotation |= Annotation::NoEnsemblGeneId;
         }
@@ -171,28 +217,35 @@ fn load_hgnc_set(
             if refseq_accessions.is_empty() {
                 annotation |= Annotation::NoNcbiTranscriptId;
             }
-            external_ids.extend(refseq_accessions);
+            ids.extend(
+                refseq_accessions
+                    .into_iter()
+                    .map(|id| (Id::NcbiAccession(id), BitFlags::empty())),
+            );
         }
 
         if let Some(mane_select) = entry.mane_select {
             if !mane_select.iter().any(|r| r.starts_with("ENST")) {
                 annotation |= Annotation::NoEnsemblTranscriptId;
             }
-            external_ids.extend(mane_select);
+            ids.extend(
+                mane_select
+                    .into_iter()
+                    .map(|id| (Id::from(id), BitFlags::empty())),
+            )
         }
 
-        hgnc_ids.insert(hgnc_id, annotation);
+        *ids.entry(hgnc_id).or_default() |= annotation;
     });
-    Ok((hgnc_ids, external_ids))
+    Ok(ids)
 }
 
-fn load_disease_gene_set(path: impl AsRef<Path>) -> Result<(HashSet<HgncId>, HashSet<GeneSymbol>)> {
+fn load_disease_gene_set(path: impl AsRef<Path>) -> Result<HashSet<Id>> {
     let reader = File::open(path).map(BufReader::new)?;
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .from_reader(reader);
-    let mut hgnc_ids = HashSet::new();
-    let mut gene_symbols = HashSet::new();
+    let mut ids = HashSet::new();
     let header = rdr.headers().cloned().unwrap();
     let header = header
         .iter()
@@ -203,39 +256,43 @@ fn load_disease_gene_set(path: impl AsRef<Path>) -> Result<(HashSet<HgncId>, Has
         let record = record?;
         let gene_symbol = record[header["gene_symbol"]].to_string();
         let hgnc_id = record[header["hgnc_id"]].to_string();
-        hgnc_ids.insert(hgnc_id.clone());
-        gene_symbols.insert(gene_symbol);
+        ids.insert(Id::Hgnc(hgnc_id.clone()));
+        ids.insert(Id::GeneSymbol(gene_symbol.clone()));
     }
-    Ok((hgnc_ids, gene_symbols))
+    Ok(ids)
 }
 
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
     let tx_db = load_tx_db(&format!("{}", args.path_db.display()))?
         .tx_db
         .unwrap();
-    let tx_db_hgnc_ids: HashSet<HgncId> = tx_db
+    let tx_db_ids: HashSet<Id> = tx_db
         .gene_to_tx
         .iter()
-        .map(|g| g.gene_id.clone())
-        .chain(tx_db.transcripts.iter().map(|tx| tx.gene_id.clone()))
+        .map(|g| Id::from(g.gene_id.clone()))
+        .chain(tx_db.transcripts.iter().flat_map(|tx| {
+            vec![
+                Id::from(tx.id.clone()),
+                Id::from(tx.gene_id.clone()),
+                Id::from(tx.gene_symbol.clone()),
+            ]
+        }))
         .collect();
-    let tx_db_tx_ids: HashSet<OtherId> = tx_db.transcripts.iter().map(|tx| tx.id.clone()).collect();
-    let (cdot_hgnc_ids, cdot_tx_ids) = load_cdot_files(&args.path_cdot_json)?;
-    let (hgnc_hgnc_ids, hgnc_other_ids) = load_hgnc_set(&args.path_hgnc_json)?;
-    let (disease_gene_hgnc_ids, disease_gene_gene_symbols) =
-        load_disease_gene_set(&args.path_disease_gene_tsv)?;
+    let cdot_ids = load_cdot_files(&args.path_cdot_json)?;
+    let hgnc_ids = load_hgnc_set(&args.path_hgnc_json)?;
+    let disease_gene_ids = load_disease_gene_set(&args.path_disease_gene_tsv)?;
 
-    for hgnc_id in &cdot_hgnc_ids - &tx_db_hgnc_ids {
-        tracing::warn!("cdot HGNC ID {} not found in transcript database", &hgnc_id);
-        if let Some(annotations) = hgnc_hgnc_ids.get(&hgnc_id) {
+    for id in &cdot_ids - &tx_db_ids {
+        tracing::warn!("cdot {:?} not found in transcript database", &id);
+        if let Some(annotations) = hgnc_ids.get(&id) {
             if !annotations.is_empty() {
-                tracing::warn!("HGNC ID {} has annotations {:?}", &hgnc_id, annotations);
+                tracing::warn!("HGNC {:?} has annotations {:?}", &id, annotations);
             }
         }
     }
 
-    for hgnc_id in &disease_gene_hgnc_ids - &cdot_hgnc_ids {
-        tracing::warn!("disease gene HGNC ID {} not found in cdot JSON", &hgnc_id);
+    for id in &disease_gene_ids - &cdot_ids {
+        tracing::warn!("disease gene {:?} not found in cdot JSON", &id);
     }
 
     Ok(())
