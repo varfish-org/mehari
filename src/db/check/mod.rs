@@ -323,7 +323,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
         }))
         .into_group_map();
 
-    let discarded_mane_keys: HashMap<Id, BitFlags<FilterReason>> = tx_db
+    let discarded_mane_entries: HashMap<Id, BitFlags<FilterReason>> = tx_db
         .transcripts
         .iter()
         .filter_map(|tx| {
@@ -353,11 +353,11 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
     let mut out = File::create(&args.output).map(BufWriter::new)?;
     let mut valid = true;
 
-    if !discarded_mane_keys.is_empty() {
+    if !discarded_mane_entries.is_empty() {
         valid = false;
         writeln!(
             &mut out,
-            "Discarded MANE transcripts: {discarded_mane_keys:?}"
+            "Discarded MANE transcripts: {discarded_mane_entries:?}"
         )?;
     }
 
