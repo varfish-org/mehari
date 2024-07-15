@@ -283,7 +283,7 @@ dependencies = [
  "actix-web",
  "anyhow",
  "bgzip",
- "bio",
+ "bio 1.6.0",
  "biocommons-bioutils",
  "boolvec",
  "byteorder",
@@ -667,7 +667,7 @@ dependencies = [
  "newtype_derive",
  "num-integer",
  "num-traits",
- "ordered-float",
+ "ordered-float 3.9.2",
  "petgraph",
  "rand",
  "regex",
@@ -676,6 +676,45 @@ dependencies = [
  "statrs",
  "strum 0.25.0",
  "strum_macros 0.25.3",
+ "thiserror",
+ "triple_accel",
+ "vec_map",
+]
+
+[[package]]
+name = "bio"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77ffe04b598449a4486a45bc15884537a01cb2015d978ce66e51a47b2740ddbe"
+dependencies = [
+ "anyhow",
+ "approx",
+ "bio-types",
+ "bit-set",
+ "bv",
+ "bytecount",
+ "csv",
+ "custom_derive",
+ "editdistancek",
+ "enum-map",
+ "fxhash",
+ "itertools 0.13.0",
+ "itertools-num",
+ "lazy_static",
+ "multimap 0.10.0",
+ "ndarray",
+ "newtype_derive",
+ "num-integer",
+ "num-traits",
+ "ordered-float 4.2.1",
+ "petgraph",
+ "rand",
+ "regex",
+ "serde",
+ "serde_derive",
+ "statrs",
+ "strum 0.25.0",
+ "strum_macros 0.26.4",
  "thiserror",
  "triple_accel",
  "vec_map",
@@ -1951,7 +1990,7 @@ checksum = "c860777179557614169d38d0ef292aff2e14aa2a95464dba6654c6753b4d0998"
 dependencies = [
  "ahash 0.8.11",
  "base16ct",
- "bio",
+ "bio 1.6.0",
  "biocommons-bioutils",
  "cached",
  "chrono",
@@ -2618,7 +2657,7 @@ dependencies = [
  "async-compression",
  "async-std",
  "bgzip",
- "bio",
+ "bio 2.0.0",
  "biocommons-bioutils",
  "byte-unit",
  "byteorder",
@@ -2745,6 +2784,9 @@ name = "multimap"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "defc4c55412d89136f966bbb339008b474350e5e6e78d2714439c386b3137a03"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "nalgebra"
@@ -3143,6 +3185,15 @@ name = "ordered-float"
 version = "3.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1e1c390732d15f1d48471625cd92d154e66db2c56645e29a9cd26f4699f72dc"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "ordered-float"
+version = "4.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19ff2cf528c6c03d9ed653d6c4ce1dc0582dc4af309790ad92f07c1cd551b0be"
 dependencies = [
  "num-traits",
 ]
