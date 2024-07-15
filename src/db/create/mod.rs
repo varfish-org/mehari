@@ -167,24 +167,21 @@ impl BioTypeExt for BioType {
     fn is_protein_coding(&self) -> bool {
         // see https://www.ensembl.org/info/genome/genebuild/biotypes.html
         // and https://www.ensembl.org/Help/Faq?id=468
-        matches!(
-            self,
-            BioType::ProteinCoding
-                | BioType::MRna
-                | BioType::IgCGene
-                | BioType::IgDGene
-                | BioType::IgVGene
-                | BioType::TrCGene
-                | BioType::TrDGene
-                | BioType::TrJGene
-                | BioType::TrVGene
-        )
+        matches!(self, BioType::ProteinCoding | BioType::MRna)
     }
 }
 
 static DISCARD_BIOTYPES_TRANSCRIPTS: Lazy<HashSet<BioType>> = Lazy::new(|| {
     HashSet::from([
         // BioType::PseudogenicTranscript,
+        BioType::IgCGene,
+        BioType::IgDGene,
+        BioType::IgJGene,
+        BioType::IgVGene,
+        BioType::TrCGene,
+        BioType::TrDGene,
+        BioType::TrJGene,
+        BioType::TrVGene,
         BioType::AberrantProcessedTranscript,
         BioType::UnconfirmedTranscript,
         BioType::NmdTranscriptVariant,
