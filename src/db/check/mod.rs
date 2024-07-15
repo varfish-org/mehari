@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::Parser;
+use derive_new::new;
 use enumflags2::BitFlags;
 use hgvs::data::cdot::json::models::Container as Cdot;
 use itertools::Itertools;
@@ -217,6 +218,7 @@ fn load_hgnc_set(path: impl AsRef<Path>) -> Result<IdCollection> {
             let ncbi_gene_id = entry.entrez_id.map(Id::NcbiGene);
             let ensembl_gene_id = entry.ensembl_gene_id.map(Id::EnsemblGene);
 
+            ids.push(hgnc_id.clone());
             ids.push(Id::GeneSymbol(entry.symbol));
             ids.push(Id::GeneName(entry.name));
 
@@ -285,6 +287,24 @@ fn load_known_issues(path: impl AsRef<Path>) -> Result<HashMap<Id, String>> {
 }
 
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
+    #[derive(Debug, Serialize, Display)]
+    enum Status {
+        Ok,
+        Err,
+    }
+
+    #[derive(Debug, Serialize, new)]
+    struct Entry {
+        status: Status,
+        id: Id,
+        check: String,
+        known_issue: bool,
+        reason: BitFlags<FilterReason>,
+        additional_information: Option<String>,
+    }
+
+    let mut report = Vec::new();
+
     let tx_db = load_tx_db(&format!("{}", args.db.display()))?
         .tx_db
         .unwrap();
@@ -323,6 +343,31 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
         }))
         .into_group_map();
 
+    let filter_reasons = tx_db
+        .transcripts
+        .iter()
+        .filter_map(|tx| {
+            tx.filtered.and_then(|f| {
+                f.then(|| {
+                    (
+                        Id::from(tx.id.clone()),
+                        BitFlags::<FilterReason>::from_bits(tx.filter_reason.unwrap()).unwrap(),
+                    )
+                })
+            })
+        })
+        .chain(tx_db.gene_to_tx.iter().filter_map(|g| {
+            g.filtered.and_then(|f| {
+                f.then(|| {
+                    (
+                        Id::Hgnc(g.gene_id.clone()),
+                        BitFlags::<FilterReason>::from_bits(g.filter_reason.unwrap()).unwrap(),
+                    )
+                })
+            })
+        }))
+        .collect::<HashMap<_, _>>();
+
     let discarded_mane_entries: HashMap<Id, BitFlags<FilterReason>> = tx_db
         .transcripts
         .iter()
@@ -347,28 +392,38 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
 
     let cdot_keys: HashSet<_> = cdot_ids.keys().collect();
     let all_tx_db_keys: HashSet<_> = tx_db_ids.keys().collect();
+    let all_tx_db_values: HashSet<_> = tx_db_ids.values().flatten().collect();
     let disease_gene_keys: HashSet<_> = disease_gene_ids.keys().collect();
     // let known_issue_keys: HashSet<_> = known_issues.keys().collect();
 
-    let mut out = File::create(&args.output).map(BufWriter::new)?;
     let mut valid = true;
 
     if !discarded_mane_entries.is_empty() {
         valid = false;
-        writeln!(
-            &mut out,
-            "Discarded MANE transcripts: {discarded_mane_entries:?}"
-        )?;
+        for (id, reason) in &discarded_mane_entries {
+            report.push(Entry::new(
+                Status::Err,
+                id.clone(),
+                "Discarded MANE transcript".to_string(),
+                false,
+                *reason,
+                None,
+            ));
+        }
     }
 
-    for id in &cdot_keys - &all_tx_db_keys {
+    for id in &cdot_keys - &(&all_tx_db_keys | &all_tx_db_values) {
         let info = hgnc_ids.get(&id);
 
         if let Some(r) = known_issues.get(id) {
-            writeln!(
-                &mut out,
-                "cdot {id:?} not found in transcript database, known issue: {r}"
-            )?;
+            report.push(Entry::new(
+                Status::Ok,
+                id.clone(),
+                "Cdot source missing from tx_db".to_string(),
+                true,
+                BitFlags::empty(),
+                Some(r.clone()),
+            ));
             continue;
         }
 
@@ -377,34 +432,103 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
                 .any(|a| matches!(a, Id::NcbiTranscript(_) | Id::EnsemblTranscript(_)))
         });
         let is_filtered = filtered_ids.contains(&id);
-        if has_transcripts {
-            writeln!(&mut out,
-                "cdot {id:?} (filtered: {is_filtered}) not found in transcript database, even though the id has associated transcripts in the hgnc complete set: {info:?}",
-            )?;
-            if !is_filtered {
+        let reason = if is_filtered {
+            filter_reasons[&id]
+        } else {
+            BitFlags::empty()
+        };
+        if !reason.contains(FilterReason::NoTranscripts) && has_transcripts {
+            if is_filtered {
+                report.push(Entry::new(
+                    Status::Err,
+                    id.clone(),
+                    "Cdot source missing from tx_db".to_string(),
+                    false,
+                    reason,
+                    None,
+                ));
+            } else {
                 valid = false;
+                let empty = vec![];
+                let cdot_ids = info
+                    .unwrap_or(&empty)
+                    .iter()
+                    .filter_map(|id| cdot_keys.contains(id).then(|| id.to_string()))
+                    .join(", ");
+                report.push(Entry::new(
+                    Status::Err,
+                    id.clone(),
+                    "Cdot source missing from tx_db".to_string(),
+                    false,
+                    BitFlags::empty(),
+                    Some(format!("hgnc: {info:?}, cdot: {cdot_ids}")),
+                ));
             }
         }
     }
 
     for id in &disease_gene_keys - &cdot_keys {
         if let Some(r) = known_issues.get(id) {
-            writeln!(
-                &mut out,
-                "disease gene {id:?} not found in cdot, known issue: {r}"
-            )?;
+            report.push(Entry::new(
+                Status::Ok,
+                id.clone(),
+                "Disease gene missing from cdot".to_string(),
+                true,
+                BitFlags::empty(),
+                Some(r.clone()),
+            ));
             continue;
         }
 
         let info = hgnc_ids.get(&id);
 
-        writeln!(
-            &mut out,
-            "disease gene {id:?} not found in cdot, hgnc info: {info:?}"
-        )?;
+        let has_transcripts = info.map_or(false, |info| {
+            info.iter()
+                .any(|a| matches!(a, Id::NcbiTranscript(_) | Id::EnsemblTranscript(_)))
+        });
+
+        if has_transcripts {
+            let empty = vec![];
+            let cdot_ids = info
+                .unwrap_or(&empty)
+                .iter()
+                .filter_map(|id| cdot_keys.contains(id).then(|| id.to_string()))
+                .join(", ");
+            report.push(Entry::new(
+                Status::Err,
+                id.clone(),
+                "Disease gene missing from cdot".to_string(),
+                false,
+                BitFlags::empty(),
+                Some(format!("hgnc: {info:?}, cdot: {cdot_ids}")),
+            ));
+        } else {
+            report.push(Entry::new(
+                Status::Ok,
+                id.clone(),
+                "Disease gene missing from cdot".to_string(),
+                false,
+                BitFlags::empty(),
+                Some("no transcripts available".to_string()),
+            ));
+        }
     }
 
-    writeln!(&mut out, "Status:\t{}", if valid { "OK" } else { "ERROR" })?;
+    report.push(Entry::new(
+        if valid { Status::Ok } else { Status::Err },
+        Id::Empty,
+        "Overall Status".to_string(),
+        false,
+        BitFlags::empty(),
+        None,
+    ));
+
+    let mut out = csv::WriterBuilder::default()
+        .delimiter(b'\t')
+        .from_path(&args.output)?;
+    for entry in report {
+        out.serialize(entry)?;
+    }
     out.flush()?;
 
     Ok(())
