@@ -118,12 +118,12 @@ fn load_cdot_files(paths: &[PathBuf]) -> Result<IdCollection> {
                 .as_ref()
                 .map_or(Id::Empty, |h| Id::Hgnc(format!("HGNC:{h}")));
             let gid = Id::from(gene_id.clone());
-            let mut ids = vec![(hgnc_id.clone(), gid)];
+            let mut ids = vec![hgnc_id.clone(), gid];
 
             if let Some(ref gene_symbol) = g.gene_symbol {
-                ids.push((hgnc_id, Id::GeneSymbol(gene_symbol.clone())));
+                ids.push(Id::GeneSymbol(gene_symbol.clone()));
             }
-            ids
+            repeat(hgnc_id).zip(ids)
         })
         .chain(transcripts.iter().flat_map(|(tx_id, t)| {
             let hgnc_id = t
@@ -131,11 +131,18 @@ fn load_cdot_files(paths: &[PathBuf]) -> Result<IdCollection> {
                 .as_ref()
                 .map_or(Id::Empty, |h| Id::Hgnc(format!("HGNC:{h}")));
             let tid = Id::from(tx_id.clone());
-            let mut ids = vec![(hgnc_id.clone(), tid)];
+            let tid2 = Id::from(t.id.clone());
+            let (accession, _) = tx_id.rsplit_once('.').unwrap_or((tx_id, ""));
+            let tid3 = if accession.starts_with("ENS") {
+                Id::EnsemblAccession(accession.to_string())
+            } else {
+                Id::NcbiAccession(accession.to_string())
+            };
+            let mut ids = vec![hgnc_id.clone(), tid, tid2, tid3];
             if let Some(ref gene_symbol) = t.gene_name {
-                ids.push((hgnc_id, Id::GeneSymbol(gene_symbol.clone())));
+                ids.push(Id::GeneSymbol(gene_symbol.clone()));
             }
-            ids
+            repeat(hgnc_id).zip(ids)
         }))
         .into_group_map())
 }
@@ -453,7 +460,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
                 let cdot_ids = info
                     .unwrap_or(&empty)
                     .iter()
-                    .filter_map(|id| cdot_keys.contains(id).then(|| id.to_string()))
+                    .filter_map(|id| cdot_keys.contains(id).then(|| format!("{id:?}")))
                     .join(", ");
                 report.push(Entry::new(
                     Status::Err,
@@ -492,7 +499,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
             let cdot_ids = info
                 .unwrap_or(&empty)
                 .iter()
-                .filter_map(|id| cdot_keys.contains(id).then(|| id.to_string()))
+                .filter_map(|id| cdot_keys.contains(id).then(|| format!("{id:?}")))
                 .join(", ");
             report.push(Entry::new(
                 Status::Err,
