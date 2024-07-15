@@ -300,9 +300,9 @@ dependencies = [
  "itertools 0.13.0",
  "log",
  "noodles",
- "pbjson",
- "pbjson-build",
- "pbjson-types",
+ "pbjson 0.6.0",
+ "pbjson-build 0.6.2",
+ "pbjson-types 0.6.0",
  "prost 0.12.6",
  "prost-build 0.12.6",
  "rayon",
@@ -2646,9 +2646,9 @@ dependencies = [
  "nom",
  "noodles",
  "parse-display",
- "pbjson",
- "pbjson-build",
- "pbjson-types",
+ "pbjson 0.6.0",
+ "pbjson-build 0.6.2",
+ "pbjson-types 0.7.0",
  "pprof",
  "pretty_assertions",
  "procfs",
@@ -3224,6 +3224,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pbjson"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7e6349fa080353f4a597daffd05cb81572a9c031a6d4fff7e504947496fcc68"
+dependencies = [
+ "base64 0.21.7",
+ "serde",
+]
+
+[[package]]
 name = "pbjson-build"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3236,6 +3246,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pbjson-build"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6eea3058763d6e656105d1403cb04e0a41b7bbac6362d413e7c33be0c32279c9"
+dependencies = [
+ "heck 0.5.0",
+ "itertools 0.13.0",
+ "prost 0.13.0",
+ "prost-types 0.13.0",
+]
+
+[[package]]
 name = "pbjson-types"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3243,10 +3265,25 @@ checksum = "18f596653ba4ac51bdecbb4ef6773bc7f56042dc13927910de1684ad3d32aa12"
 dependencies = [
  "bytes",
  "chrono",
- "pbjson",
- "pbjson-build",
+ "pbjson 0.6.0",
+ "pbjson-build 0.6.2",
  "prost 0.12.6",
  "prost-build 0.12.6",
+ "serde",
+]
+
+[[package]]
+name = "pbjson-types"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e54e5e7bfb1652f95bc361d76f3c780d8e526b134b85417e774166ee941f0887"
+dependencies = [
+ "bytes",
+ "chrono",
+ "pbjson 0.7.0",
+ "pbjson-build 0.7.0",
+ "prost 0.13.0",
+ "prost-build 0.13.0",
  "serde",
 ]
 
