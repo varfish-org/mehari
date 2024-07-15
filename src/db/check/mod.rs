@@ -1,4 +1,9 @@
-use crate::annotate::seqvars::load_tx_db;
+use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Write};
+use std::iter::repeat;
+use std::path::{Path, PathBuf};
+
 use anyhow::Result;
 use clap::Parser;
 use hgvs::data::cdot::json::models::Container as Cdot;
@@ -6,12 +11,9 @@ use itertools::Itertools;
 use serde;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::BufReader;
-use std::iter::repeat;
-use std::path::{Path, PathBuf};
 use strum::Display;
+
+use crate::annotate::seqvars::load_tx_db;
 
 /// Command line arguments for `db check` sub command.
 #[derive(Parser, Debug)]
@@ -30,6 +32,9 @@ pub struct Args {
 
     #[arg(long)]
     pub path_disease_gene_tsv: PathBuf,
+
+    #[arg(long)]
+    pub output: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord, Display)]
@@ -288,6 +293,9 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
     let cdot_keys: HashSet<_> = cdot_ids.keys().collect();
     let all_tx_db_keys: HashSet<_> = tx_db_ids.keys().collect();
     let disease_gene_keys: HashSet<_> = disease_gene_ids.keys().collect();
+
+    let mut out = File::create(&args.output).map(BufWriter::new)?;
+    let mut valid = true;
     for id in &cdot_keys - &all_tx_db_keys {
         let info = hgnc_ids.get(&id);
         let has_transcripts = info.map_or(false, |info| {
@@ -296,16 +304,25 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
         });
         let is_filtered = filtered_ids.contains(&id);
         if has_transcripts {
-            tracing::warn!(
+            writeln!(&mut out,
                 "cdot {id:?} (filtered: {is_filtered}) not found in transcript database, even though the id has associated transcripts in the hgnc complete set: {info:?}",
-            );
+            )?;
+            if !is_filtered {
+                valid = false;
+            }
         }
     }
 
     for id in &disease_gene_keys - &cdot_keys {
         let info = hgnc_ids.get(&id);
-        tracing::warn!("disease gene {id:?} not found in cdot, hgnc info: {info:?}");
+        writeln!(
+            &mut out,
+            "disease gene {id:?} not found in cdot, hgnc info: {info:?}"
+        )?;
     }
+
+    writeln!(&mut out, "Status:\t{}", if valid { "OK" } else { "ERROR" })?;
+    out.flush()?;
 
     Ok(())
 }
