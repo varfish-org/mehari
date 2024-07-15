@@ -1327,10 +1327,8 @@ impl TranscriptLoader {
                     tags.dedup();
 
                     // Combine discard reasons for transcript and gene level.
-                    let filtered = self
-                        .discards
-                        .get(&Identifier::TxId(tx_id.clone()))
-                        .map_or(false, |reason| !reason.is_empty());
+                    let reason = self.discards.get(&Identifier::TxId(tx_id.clone()));
+                    let filtered = reason.map_or(false, |reason| !reason.is_empty());
                     let filtered = filtered
                         | self
                             .discards
@@ -1348,6 +1346,7 @@ impl TranscriptLoader {
                         stop_codon,
                         genome_alignments,
                         filtered: Some(filtered),
+                        filter_reason: reason.map(|r| r.bits()),
                     });
                 }
             }
@@ -1369,6 +1368,7 @@ impl TranscriptLoader {
                     gene_id: hgnc_id.to_string(),
                     tx_ids: tx_ids.iter().map(|tx_id| tx_id.to_string()).collect(),
                     filtered: Some(filtered),
+                    filter_reason: hgnc_reason.map(|r| r.bits()),
                 }
             })
             .collect::<Vec<_>>();
@@ -1406,7 +1406,7 @@ fn append_poly_a(seq: String, length: usize) -> String {
 #[bitflags]
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, Serialize, Hash, PartialEq, Eq)]
-enum Reason {
+pub(crate) enum Reason {
     Biotype,
     CdsEndAfterSequenceEnd,
     DeselectedGene,

@@ -25,6 +25,8 @@ message GeneToTxId {
     repeated string tx_ids = 2;
     // Whether this gene has been filtered out because of missing transcripts.
     optional bool filtered = 3;
+    // Reason for filtering.
+    optional uint32 filter_reason = 4;
 }
 
 // Container for the transcript-related database.
@@ -85,6 +87,8 @@ message Transcript {
     repeated GenomeAlignment genome_alignments = 9;
     // Whether this transcript has an issue (e.g. MissingStopCodon), cf. `mehari::db::create::mod::Reason`.
     optional bool filtered = 10;
+    // Reason for filtering.
+    optional uint32 filter_reason = 11;
 }
 
 // Enumeration for the known genome builds.

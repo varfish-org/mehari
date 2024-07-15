@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::Parser;
+use enumflags2::BitFlags;
 use hgvs::data::cdot::json::models::Container as Cdot;
 use itertools::Itertools;
 use serde;
@@ -14,6 +15,8 @@ use serde_json::Value;
 use strum::Display;
 
 use crate::annotate::seqvars::load_tx_db;
+use crate::db::create::Reason as FilterReason;
+use crate::pbs::txs::TranscriptTag;
 
 /// Command line arguments for `db check` sub command.
 #[derive(Parser, Debug)]
@@ -21,20 +24,33 @@ use crate::annotate::seqvars::load_tx_db;
 pub struct Args {
     /// Path to database file to check
     #[arg(long)]
-    pub path_db: PathBuf,
+    pub db: PathBuf,
 
     /// Paths to the cdot JSON transcripts to check against.
     #[arg(long, required = true)]
-    pub path_cdot_json: Vec<PathBuf>,
+    pub cdot: Vec<PathBuf>,
 
+    /// Path to the HGNC JSON file to check against.
     #[arg(long)]
-    pub path_hgnc_json: PathBuf,
+    pub hgnc: PathBuf,
 
+    /// Path to the disease gene TSV file to check against.
     #[arg(long)]
-    pub path_disease_gene_tsv: PathBuf,
+    pub disease_genes: PathBuf,
+
+    /// Path to the known issues TSV.
+    #[arg(long)]
+    pub known_issues: PathBuf,
 
     #[arg(long)]
     pub output: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct KnownIssue {
+    id_type: String,
+    id: String,
+    description: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord, Display)]
@@ -248,8 +264,28 @@ fn load_disease_gene_set(path: impl AsRef<Path>) -> Result<IdCollection> {
     Ok(ids)
 }
 
+fn load_known_issues(path: impl AsRef<Path>) -> Result<HashMap<Id, String>> {
+    let reader = File::open(path).map(BufReader::new)?;
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(b'\t')
+        .from_reader(reader);
+    let mut ids: HashMap<Id, String> = HashMap::new();
+    for record in rdr.deserialize() {
+        let record: KnownIssue = record?;
+        let id = match record.id_type.as_ref() {
+            "hgnc_id" => Id::Hgnc(record.id),
+            "gene_symbol" => Id::GeneSymbol(record.id),
+            "refseq_id" => Id::NcbiGene(record.id),
+            "ensembl_id" => Id::EnsemblGene(record.id),
+            _ => Id::from(record.id),
+        };
+        ids.insert(id, record.description);
+    }
+    Ok(ids)
+}
+
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
-    let tx_db = load_tx_db(&format!("{}", args.path_db.display()))?
+    let tx_db = load_tx_db(&format!("{}", args.db.display()))?
         .tx_db
         .unwrap();
     let filtered_ids: HashSet<Id> = tx_db
@@ -286,18 +322,56 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
             ]
         }))
         .into_group_map();
-    let cdot_ids = load_cdot_files(&args.path_cdot_json)?;
-    let hgnc_ids = load_hgnc_set(&args.path_hgnc_json)?;
-    let disease_gene_ids = load_disease_gene_set(&args.path_disease_gene_tsv)?;
+
+    let discarded_mane_keys: HashMap<Id, BitFlags<FilterReason>> = tx_db
+        .transcripts
+        .iter()
+        .filter_map(|tx| {
+            tx.filtered.and_then(|f| {
+                (f && (tx.tags.contains(&(TranscriptTag::ManeSelect as i32))
+                    || tx.tags.contains(&(TranscriptTag::ManePlusClinical as i32))))
+                .then(|| {
+                    (
+                        Id::from(tx.id.clone()),
+                        BitFlags::<FilterReason>::from_bits(tx.filter_reason.unwrap()).unwrap(),
+                    )
+                })
+            })
+        })
+        .collect();
+
+    let cdot_ids = load_cdot_files(&args.cdot)?;
+    let hgnc_ids = load_hgnc_set(&args.hgnc)?;
+    let disease_gene_ids = load_disease_gene_set(&args.disease_genes)?;
+    let known_issues = load_known_issues(&args.known_issues)?;
 
     let cdot_keys: HashSet<_> = cdot_ids.keys().collect();
     let all_tx_db_keys: HashSet<_> = tx_db_ids.keys().collect();
     let disease_gene_keys: HashSet<_> = disease_gene_ids.keys().collect();
+    // let known_issue_keys: HashSet<_> = known_issues.keys().collect();
 
     let mut out = File::create(&args.output).map(BufWriter::new)?;
     let mut valid = true;
+
+    if !discarded_mane_keys.is_empty() {
+        valid = false;
+        writeln!(
+            &mut out,
+            "Discarded MANE transcripts: {discarded_mane_keys:?}"
+        )?;
+    }
+
     for id in &cdot_keys - &all_tx_db_keys {
         let info = hgnc_ids.get(&id);
+
+        if let Some(r) = known_issues.get(id) {
+            writeln!(
+                &mut out,
+                "cdot {id:?} not found in transcript database, known issue: {r}"
+            )?;
+            continue;
+        }
+
         let has_transcripts = info.map_or(false, |info| {
             info.iter()
                 .any(|a| matches!(a, Id::NcbiTranscript(_) | Id::EnsemblTranscript(_)))
@@ -314,7 +388,16 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
     }
 
     for id in &disease_gene_keys - &cdot_keys {
+        if let Some(r) = known_issues.get(id) {
+            writeln!(
+                &mut out,
+                "disease gene {id:?} not found in cdot, known issue: {r}"
+            )?;
+            continue;
+        }
+
         let info = hgnc_ids.get(&id);
+
         writeln!(
             &mut out,
             "disease gene {id:?} not found in cdot, hgnc info: {info:?}"

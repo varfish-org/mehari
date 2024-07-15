@@ -212,6 +212,7 @@ impl Provider {
                             gene_id: entry.gene_id.clone(),
                             tx_ids: mane_tx_ids,
                             filtered: Some(false),
+                            filter_reason: None,
                         }
                     } else {
                         // Otherwise, determine the longest transcript's length.
@@ -248,6 +249,7 @@ impl Provider {
                             gene_id: entry.gene_id.clone(),
                             tx_ids: vec![tx_id],
                             filtered: Some(false),
+                            filter_reason: None,
                         }
                     };
 
