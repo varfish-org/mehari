@@ -21,7 +21,8 @@ use crate::annotate::seqvars::load_tx_db;
 use crate::db::create::Reason as FilterReason;
 use crate::pbs::txs::TranscriptTag;
 
-/// Command line arguments for `db check` sub command.
+/// Check a mehari transcript database against information from
+/// cdot, HGNC, human-phenotype-ontology and a collection of known issues.
 #[derive(Parser, Debug)]
 #[command(about = "Check transcript database", long_about = None)]
 pub struct Args {
@@ -45,6 +46,7 @@ pub struct Args {
     #[arg(long)]
     pub known_issues: PathBuf,
 
+    /// Path to the output TSV file.
     #[arg(long)]
     pub output: PathBuf,
 }
@@ -296,12 +298,14 @@ fn load_known_issues(path: impl AsRef<Path>) -> Result<HashMap<Id, String>> {
 }
 
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
+    // Status for the report entries
     #[derive(Debug, Serialize, Display)]
     enum Status {
         Ok,
         Err,
     }
 
+    // Entries for the report
     #[serde_as]
     #[derive(Debug, Serialize, new)]
     struct Entry {
@@ -316,9 +320,11 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
 
     let mut report = Vec::new();
 
+    // Load the transcript database
     let tx_db = load_tx_db(&format!("{}", args.db.display()))?
         .tx_db
         .unwrap();
+    // … and determine all Ids that have been filtered out
     let filtered_ids: HashSet<Id> = tx_db
         .gene_to_tx
         .iter()
@@ -338,6 +344,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
         }))
         .collect();
 
+    // … as well as all Ids that are present in the transcript database
     let tx_db_ids: IdCollection = tx_db
         .gene_to_tx
         .iter()
@@ -354,6 +361,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
         }))
         .into_group_map();
 
+    // … keep track of the reasons why genes/transcripts have been filtered out
     let filter_reasons = tx_db
         .transcripts
         .iter()
@@ -378,11 +386,14 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
             })
         }))
         .collect::<HashMap<_, _>>();
+
+    // … and report genes that have been filtered out for reasons other than the ones listed below
     let uninteresting_reasons = FilterReason::NoTranscripts
         | FilterReason::PredictedTranscriptsOnly
         | FilterReason::Biotype
         | FilterReason::Pseudogene
         | FilterReason::DeselectedGene;
+
     filter_reasons
         .iter()
         .filter_map(|(id, reason)| {
@@ -420,6 +431,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
         })
         .collect();
 
+    // Load the cdot, hgnc, disease gene and known issue sets
     let cdot_ids = load_cdot_files(&args.cdot)?;
     let hgnc_ids = load_hgnc_set(&args.hgnc)?;
     let disease_gene_ids = load_disease_gene_set(&args.disease_genes)?;
@@ -431,8 +443,10 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
     let disease_gene_keys: HashSet<_> = disease_gene_ids.keys().collect();
     // let known_issue_keys: HashSet<_> = known_issues.keys().collect();
 
+    // Keep track of the overall validity of the transcript database
     let mut valid = true;
 
+    // Ensure no Mane entries have been discarded
     if !discarded_mane_entries.is_empty() {
         valid = false;
         for (id, reason) in &discarded_mane_entries {
@@ -447,6 +461,8 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
         }
     }
 
+    // Check for missing entries in the transcript database,
+    // i.e. those where cdot has information but the transcript database does not
     for id in &cdot_keys - &(&all_tx_db_keys | &all_tx_db_values) {
         let info = hgnc_ids.get(&id);
 
@@ -502,6 +518,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
         }
     }
 
+    // Check cdot for well known disease genes from the human phenotype ontology
     for id in &disease_gene_keys - &cdot_keys {
         if let Some(r) = known_issues.get(id) {
             report.push(Entry::new(
