@@ -13,6 +13,8 @@ use itertools::Itertools;
 use serde;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use serde_with::serde_as;
+use serde_with::DisplayFromStr;
 use strum::Display;
 
 use crate::annotate::seqvars::load_tx_db;
@@ -300,12 +302,14 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
         Err,
     }
 
+    #[serde_as]
     #[derive(Debug, Serialize, new)]
     struct Entry {
         status: Status,
         id: Id,
         check: String,
         known_issue: bool,
+        #[serde_as(as = "DisplayFromStr")]
         reason: BitFlags<FilterReason>,
         additional_information: Option<String>,
     }
