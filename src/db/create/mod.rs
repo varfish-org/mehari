@@ -1616,115 +1616,119 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
 
 /// Main entry point for `db create txs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
-    rayon::ThreadPoolBuilder::default()
-        .num_threads(args.threads)
-        .build_global()?;
+    fn _run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
+        let mut report_file = File::create(format!("{}.report.jsonl", args.path_out.display()))
+            .map(BufWriter::new)?;
+        let mut report = |r: ReportEntry| -> Result<(), Error> {
+            writeln!(report_file, "{}", serde_json::to_string(&r)?)?;
+            Ok(())
+        };
+        tracing::info!(
+            "Building transcript and sequence database file\ncommon args: {:#?}\nargs: {:#?}",
+            common,
+            args
+        );
 
-    let mut report_file =
-        File::create(format!("{}.report.jsonl", args.path_out.display())).map(BufWriter::new)?;
-    let mut report = |r: ReportEntry| -> Result<(), Error> {
-        writeln!(report_file, "{}", serde_json::to_string(&r)?)?;
+        // Load cdot files …
+        let mut tx_data = load_cdot_files(args)?;
+        for (id, fix) in tx_data.fixes.iter() {
+            report(ReportEntry::Fix(LogFix {
+                source: "cdot".into(),
+                fix: *fix,
+                id: id.clone(),
+                gene_name: tx_data.gene_name(id),
+                tags: tx_data.tags(id),
+            }))?;
+        }
+
+        let raw_tx_data = tx_data.clone();
+        trace_rss_now();
+        report(ReportEntry::Log(json!({
+            "source": "cdot",
+            "total_transcripts": tx_data.transcript_id_to_transcript.len(),
+            "total_hgnc_ids": tx_data.hgnc_id_to_transcript_ids.len()
+        })))?;
+
+        // … then remove information for certain genes …
+        if let Some(ids) = args
+            .gene_symbols
+            .as_ref()
+            .map(|symbols| tx_data.symbols_to_id(symbols))
+        {
+            tx_data.filter_selected(&ids)?;
+        }
+
+        // … then filter hgnc entries with no transcripts to boot …
+        tx_data.filter_initial_hgnc_entries()?;
+        // … then filter genes (missing hgnc id and/or symbol) …
+        tx_data.filter_genes()?;
+        // … then filter transcripts …
+        tx_data.filter_transcripts()?;
+        // … ensure there are no hgnc keys without associated transcripts left …
+        tx_data.filter_empty_hgnc_mappings()?;
+
+        // Open seqrepo …
+        let seqrepo = open_seqrepo(&args.path_seqrepo_instance)?;
+        // … and filter transcripts based on their sequences,
+        // e.g. checking whether their translation contains a stop codon …
+        let mut sequence_map = tx_data.filter_transcripts_with_sequence(&seqrepo)?;
+        // … and, again, ensure there are no hgnc keys without associated transcripts left …
+        tx_data.filter_empty_hgnc_mappings()?;
+        // … if there are genes with no transcripts left, check whether they are pseudogenes …
+        tx_data.update_pseudogene_status()?;
+
+        // … trigger the discard routine, but do not remove anything, just make sure they are consistent,
+        // and report the stats.
+        let remove = false;
+        tx_data.discard(remove)?;
+
+        // … and update all discard annotations …
+        tx_data.propagate_discard_reasons(&raw_tx_data)?;
+
+        trace_rss_now();
+
+        report(ReportEntry::Log(json!({
+            "source": "cdot_filtered",
+            "total_transcripts": tx_data.transcript_id_to_transcript.len(),
+            "total_hgnc_ids": tx_data.hgnc_id_to_transcript_ids.len()
+        })))?;
+
+        // For some stats, count number of chrMt, MANE Select and MANE Plus Clinical transcripts.
+        let (n_mt, n_mane_select, n_mane_plus_clinical) = tx_data.gather_transcript_stats()?;
+
+        report(ReportEntry::Log(json!({
+            "source": "cdot_filtered",
+            "n_mt": n_mt,
+            "n_mane_select": n_mane_select,
+            "n_mane_plus_clinical": n_mane_plus_clinical
+        })))?;
+
+        // … and finally build protobuf file.
+        let tx_db = tx_data.build_protobuf(&mut sequence_map, args.genome_release)?;
+
+        // List all discarded transcripts and genes.
+        for (id, reason) in tx_data.discards.into_iter().sorted_unstable() {
+            report(ReportEntry::Discard(Discard {
+                source: "protobuf".into(),
+                reason,
+                id: id.clone(),
+                gene_name: raw_tx_data.gene_name(&id),
+                tags: raw_tx_data.tags(&id),
+            }))?;
+        }
+        trace_rss_now();
+
+        write_tx_db(tx_db, &args.path_out)?;
+
+        tracing::info!("Done building transcript and sequence database file");
         Ok(())
-    };
-    tracing::info!(
-        "Building transcript and sequence database file\ncommon args: {:#?}\nargs: {:#?}",
-        common,
-        args
-    );
-
-    // Load cdot files …
-    let mut tx_data = load_cdot_files(args)?;
-    for (id, fix) in tx_data.fixes.iter() {
-        report(ReportEntry::Fix(LogFix {
-            source: "cdot".into(),
-            fix: *fix,
-            id: id.clone(),
-            gene_name: tx_data.gene_name(id),
-            tags: tx_data.tags(id),
-        }))?;
     }
 
-    let raw_tx_data = tx_data.clone();
-    trace_rss_now();
-    report(ReportEntry::Log(json!({
-        "source": "cdot",
-        "total_transcripts": tx_data.transcript_id_to_transcript.len(),
-        "total_hgnc_ids": tx_data.hgnc_id_to_transcript_ids.len()
-    })))?;
+    let threadpool = rayon::ThreadPoolBuilder::default()
+        .num_threads(args.threads)
+        .build()?;
 
-    // … then remove information for certain genes …
-    if let Some(ids) = args
-        .gene_symbols
-        .as_ref()
-        .map(|symbols| tx_data.symbols_to_id(symbols))
-    {
-        tx_data.filter_selected(&ids)?;
-    }
-
-    // … then filter hgnc entries with no transcripts to boot …
-    tx_data.filter_initial_hgnc_entries()?;
-    // … then filter genes (missing hgnc id and/or symbol) …
-    tx_data.filter_genes()?;
-    // … then filter transcripts …
-    tx_data.filter_transcripts()?;
-    // … ensure there are no hgnc keys without associated transcripts left …
-    tx_data.filter_empty_hgnc_mappings()?;
-
-    // Open seqrepo …
-    let seqrepo = open_seqrepo(&args.path_seqrepo_instance)?;
-    // … and filter transcripts based on their sequences,
-    // e.g. checking whether their translation contains a stop codon …
-    let mut sequence_map = tx_data.filter_transcripts_with_sequence(&seqrepo)?;
-    // … and, again, ensure there are no hgnc keys without associated transcripts left …
-    tx_data.filter_empty_hgnc_mappings()?;
-    // … if there are genes with no transcripts left, check whether they are pseudogenes …
-    tx_data.update_pseudogene_status()?;
-
-    // … trigger the discard routine, but do not remove anything, just make sure they are consistent,
-    // and report the stats.
-    let remove = false;
-    tx_data.discard(remove)?;
-
-    // … and update all discard annotations …
-    tx_data.propagate_discard_reasons(&raw_tx_data)?;
-
-    trace_rss_now();
-
-    report(ReportEntry::Log(json!({
-        "source": "cdot_filtered",
-        "total_transcripts": tx_data.transcript_id_to_transcript.len(),
-        "total_hgnc_ids": tx_data.hgnc_id_to_transcript_ids.len()
-    })))?;
-
-    // For some stats, count number of chrMt, MANE Select and MANE Plus Clinical transcripts.
-    let (n_mt, n_mane_select, n_mane_plus_clinical) = tx_data.gather_transcript_stats()?;
-
-    report(ReportEntry::Log(json!({
-        "source": "cdot_filtered",
-        "n_mt": n_mt,
-        "n_mane_select": n_mane_select,
-        "n_mane_plus_clinical": n_mane_plus_clinical
-    })))?;
-
-    // … and finally build protobuf file.
-    let tx_db = tx_data.build_protobuf(&mut sequence_map, args.genome_release)?;
-
-    // List all discarded transcripts and genes.
-    for (id, reason) in tx_data.discards.into_iter().sorted_unstable() {
-        report(ReportEntry::Discard(Discard {
-            source: "protobuf".into(),
-            reason,
-            id: id.clone(),
-            gene_name: raw_tx_data.gene_name(&id),
-            tags: raw_tx_data.tags(&id),
-        }))?;
-    }
-    trace_rss_now();
-
-    write_tx_db(tx_db, &args.path_out)?;
-
-    tracing::info!("Done building transcript and sequence database file");
-    Ok(())
+    threadpool.install(|| _run(common, args))
 }
 
 fn write_tx_db(tx_db: TxSeqDatabase, path: impl AsRef<Path>) -> Result<(), Error> {
