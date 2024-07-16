@@ -83,7 +83,7 @@ dhat = "0.3.3"
 once_cell = "1.19.0"
 
 [dependencies.noodles]
-version = "0.76.0"
+version = "0.77.0"
 features = ["async", "bgzf", "core", "vcf", "bcf", "csi", "fasta", "tabix"]
 
 [build-dependencies]
