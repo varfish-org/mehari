@@ -12,7 +12,7 @@ use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 
 pub mod io;
-pub(crate) mod noodles;
+pub mod noodles;
 
 /// Commonly used command line arguments.
 #[derive(Parser, Debug, Default)]

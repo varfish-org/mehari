@@ -83,7 +83,7 @@ pub struct Args {
     pub genome_release: Option<GenomeRelease>,
     /// Path to the input PED file.
     #[arg(long)]
-    pub path_input_ped: String,
+    pub path_input_ped: Option<String>,
     /// Path to the input VCF file.
     #[arg(long)]
     pub path_input_vcf: String,
@@ -535,15 +535,20 @@ pub fn load_tx_db(tx_path: &str) -> Result<TxSeqDatabase, anyhow::Error> {
         .map_err(|e| anyhow!("failed to decode protobuf file {}: {}", tx_path, e))
 }
 
-/// Mehari-local trait for writing out annotated VCF records as VCF or VarFish TSV.
-pub(crate) trait AsyncAnnotatedVariantWriter {
+/// Trait for writing out annotated VCF records as VCF or VarFish TSV.
+///
+/// TODO: use async_trait crate
+pub trait AsyncAnnotatedVariantWriter {
+    #[allow(async_fn_in_trait)]
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
+    #[allow(async_fn_in_trait)]
     async fn write_noodles_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
     ) -> Result<(), anyhow::Error>;
 
+    #[allow(async_fn_in_trait)]
     async fn flush(&mut self) -> Result<(), anyhow::Error>;
 
     fn set_hgnc_map(&mut self, _hgnc_map: FxHashMap<String, HgncRecord>) {
@@ -1555,7 +1560,7 @@ impl Annotator {
         Handles(cf_autosomal, cf_gonosomal, cf_mtdna, cf_clinvar): &Handles,
     ) -> anyhow::Result<()> {
         // Get first alternate allele record.
-        let vcf_var = keys::Var::from_vcf_allele(vcf_record, 0);
+        let vcf_var = from_vcf_allele(vcf_record, 0);
 
         // Skip records with a deletion as alternative allele.
         if vcf_var.alternative == "*" {
@@ -1648,7 +1653,15 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 
         // Load the pedigree.
         tracing::info!("Loading pedigree...");
-        let pedigree = PedigreeByName::from_path(&args.path_input_ped)?;
+        let pedigree = match &args.path_input_ped {
+            Some(p) => {
+                tracing::info!("Loading pedigree from file {}", p);
+                PedigreeByName::from_path(p)?
+            }
+            None => {
+                std::panic!("No pedigree file provided. This is required for tsv annotation.")
+            }
+        };
         writer.set_pedigree(&pedigree);
         tracing::info!("... done loading pedigree");
 
@@ -1717,7 +1730,7 @@ async fn run_with_writer(
             annotator.annotate(&mut vcf_record, &handles)?;
 
             if prev.elapsed().as_secs() >= 60 {
-                tracing::info!("at {:?}", keys::Var::from_vcf_allele(&vcf_record, 0));
+                tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
                 prev = Instant::now();
             }
 
@@ -1809,6 +1822,23 @@ fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> 
     Ok(annotator)
 }
 
+/// Create for all alternate alleles from the given VCF record.
+pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usize) -> keys::Var {
+    let chrom = value.reference_sequence_name().to_string();
+    let pos: usize = value
+        .variant_start()
+        .expect("Telomeric breakends not supported")
+        .get();
+    let pos = i32::try_from(pos).unwrap();
+    let reference = value.reference_bases().to_string();
+    keys::Var {
+        chrom,
+        pos,
+        reference,
+        alternative: value.alternate_bases().as_ref()[allele_no].to_string(),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use clap_verbosity_flag::Verbosity;
@@ -1838,7 +1868,9 @@ mod test {
                 path_output_tsv: None,
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/brca1.examples.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/brca1.examples.ped",
+            )),
         };
 
         run(&args_common, &args).await?;
@@ -1869,7 +1901,9 @@ mod test {
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/brca1.examples.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/brca1.examples.ped",
+            )),
         };
 
         run(&args_common, &args).await?;
@@ -1912,7 +1946,9 @@ mod test {
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/badly_formed_vcf_entry.ped",
+            )),
         };
 
         run(&args_common, &args).await?;
@@ -1949,7 +1985,9 @@ mod test {
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/mitochondrial_variants.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/mitochondrial_variants.ped",
+            )),
         };
 
         run(&args_common, &args).await?;
@@ -1988,7 +2026,9 @@ mod test {
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/clair3-glnexus-min.ped",
+            )),
         };
 
         run(&args_common, &args).await?;
@@ -2027,7 +2067,9 @@ mod test {
                 path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
             },
             max_var_count: None,
-            path_input_ped: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped"),
+            path_input_ped: Some(String::from(
+                "tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped",
+            )),
         };
 
         run(&args_common, &args).await?;

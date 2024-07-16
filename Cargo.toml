@@ -1,11 +1,11 @@
 [package]
 name = "mehari"
-version = "0.25.5"
+version = "0.25.7"
 edition = "2021"
 authors = ["Manuel Holtgrewe <manuel.holtgrewe@bih-charite.de>"]
 description = "Variant effect prediction all in Rust"
 license = "MIT"
-homepage = "https://github.com/varfish-org/mehari"
+repository = "https://github.com/varfish-org/mehari"
 readme = "README.md"
 rust-version = "1.70.0"
 
@@ -26,7 +26,7 @@ name = "mehari"
 path = "src/main.rs"
 
 [dependencies]
-actix-web = "4.5"
+actix-web = "4.8"
 annonars = "0.39.0"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
@@ -66,7 +66,7 @@ rustc-hash = "2.0.0"
 seqrepo = { version = "0.10.2", features = ["cached"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-serde_with = { version = "3.6", features = ["alloc", "macros", "indexmap_2"], default-features = false }
+serde_with = { version = "3.8", features = ["alloc", "macros", "indexmap_2"], default-features = false }
 serde_yaml = "0.9"
 strum = { version = "0.26", features = ["derive"] }
 tempfile = "3"
@@ -74,7 +74,7 @@ thousands = "0.2"
 tokio = { version = "1.35", features = ["full"] }
 tracing-subscriber = "0.3"
 tracing = { version = "0.1", features = ["log"] }
-uuid = { version = "1.7", features = ["fast-rng", "serde"] }
+uuid = { version = "1.9", features = ["fast-rng", "serde"] }
 zstd = "0.13"
 pbjson = "0.7.0"
 pbjson-types = "0.7.0"

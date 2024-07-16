@@ -11,7 +11,7 @@ const VCF_4_4: FileFormat = FileFormat::new(4, 4);
 
 // noodles genotype writing is private: https://github.com/zaeleus/noodles/blob/master/noodles-vcf/src/io/writer/record/samples/sample/value/genotype.rs
 // so we recreate that here
-pub(crate) fn genotype_string(gt: &Genotype, vcf_version: FileFormat) -> String {
+pub fn genotype_string(gt: &Genotype, vcf_version: FileFormat) -> String {
     let gt = gt
         .as_ref()
         .iter()

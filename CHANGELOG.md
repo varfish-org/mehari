@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.25.7](https://github.com/varfish-org/mehari/compare/v0.25.6...v0.25.7) (2024-06-18)
+
+
+### Bug Fixes
+
+* make cargo release work again ([#469](https://github.com/varfish-org/mehari/issues/469)) ([a3f85fd](https://github.com/varfish-org/mehari/commit/a3f85fd23f0a1b2a73c684681b5c2bf73e805c3c))
+
+## [0.25.6](https://github.com/varfish-org/mehari/compare/v0.25.5...v0.25.6) (2024-06-18)
+
+
+### Bug Fixes
+
+* bump annonars dependency ([#462](https://github.com/varfish-org/mehari/issues/462)) ([83b47d3](https://github.com/varfish-org/mehari/commit/83b47d31ae18dccf6efddf5a59e228ea19ae5e09))
+* copy over keys::Var::from_vcf_allele from annonars to avoid noodles version conflicts in the future ([#461](https://github.com/varfish-org/mehari/issues/461)) ([952d8a9](https://github.com/varfish-org/mehari/commit/952d8a9c27fa2b00ab17f2dc5906b7528c2efed3))
+* make previously public code public again ([#465](https://github.com/varfish-org/mehari/issues/465)) ([0ef7652](https://github.com/varfish-org/mehari/commit/0ef7652e6306f631bdf8d7e06f14173e7cd81cdb))
+* Performance improvements ([#444](https://github.com/varfish-org/mehari/issues/444)) ([b996795](https://github.com/varfish-org/mehari/commit/b996795258ce5616a387f466963b131fa0ec5ac8))
+
 ## [0.25.5](https://github.com/varfish-org/mehari/compare/v0.25.4...v0.25.5) (2024-03-29)
 
 

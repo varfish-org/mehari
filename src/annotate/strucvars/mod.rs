@@ -1462,8 +1462,9 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
                 self.sv_sub_type
             )]))
         };
+        let res = builder.build();
 
-        Ok(builder.build())
+        Ok(res)
     }
 }
 
@@ -1483,7 +1484,7 @@ pub enum SvCaller {
 
 impl SvCaller {
     /// Consider the VCF header and return whether the caller is compatible with `self`.
-    fn caller_compatible(&self, header: &VcfHeader) -> bool {
+    pub fn caller_compatible(&self, header: &VcfHeader) -> bool {
         match self {
             SvCaller::ClinCnv { .. } => {
                 self.all_format_defined(header, &["GT", "CN", "GQ", "NP"])
@@ -1685,7 +1686,7 @@ impl SvCaller {
 }
 
 /// Guess the `SvCaller` from the VCF file at the given path.
-pub(crate) async fn guess_sv_caller(
+pub async fn guess_sv_caller(
     reader: &mut impl NoodlesVariantReader,
 ) -> Result<SvCaller, anyhow::Error> {
     let header = reader.read_header().await?;
@@ -1752,7 +1753,7 @@ pub trait VcfRecordConverter {
     ) -> Result<(), anyhow::Error> {
         if let Some(alt) = vcf_record.alternate_bases().as_ref().first() {
             let ref_allele = vcf_record.reference_bases().to_string();
-            let alt_allele = alt.to_string();
+            let alt_allele = alt.clone();
             if Breakend::from_ref_alt_str(&ref_allele, &alt_allele).is_ok() {
                 tsv_record.info.alt = Some(alt_allele);
             }
@@ -2912,7 +2913,7 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
 /// Convert the records in the VCF reader to the JSONL file per contig in `tmp_dir`.
 ///
 /// Note that we will consider the "25 canonical" contigs only (chr1..chr22, chrX, chrY, chrM).
-pub(crate) async fn run_vcf_to_jsonl(
+pub async fn run_vcf_to_jsonl(
     pedigree: &PedigreeByName,
     reader: &mut impl NoodlesVariantReader,
     header: &VcfHeader,
