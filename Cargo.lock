@@ -2008,9 +2008,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hgvs"
-version = "0.16.2"
+version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30f9b4824dcefc87f3cfc223e5d216a64fccea7748848c253292dd873dff223c"
+checksum = "8b31444f90c3098209c6239341d0f3c29fc711e65455c14fb2317664c30daf19"
 dependencies = [
  "ahash 0.8.11",
  "base16ct",
@@ -2568,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "mehari"
-version = "0.25.5"
+version = "0.25.7"
 dependencies = [
  "actix-web",
  "annonars",
