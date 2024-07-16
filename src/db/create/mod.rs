@@ -1389,15 +1389,23 @@ impl TranscriptLoader {
 
         // Build mapping of gene HGNC symbol to transcript IDs.
         tracing::info!("  Build gene symbol to transcript ID mapping …");
-        let gene_to_tx = self
-            .hgnc_id_to_transcript_ids
+        let empty = vec![];
+        let gene_to_tx = hgnc_ids
             .iter()
-            .map(|(hgnc_id, tx_ids)| {
+            .map(|hgnc_id| {
+                let tx_ids = self
+                    .hgnc_id_to_transcript_ids
+                    .get(hgnc_id)
+                    .unwrap_or(&empty);
                 let hgnc_reason = self.discards.get(&Identifier::Hgnc(*hgnc_id));
                 let filtered = hgnc_reason.map_or(false, |reason| !reason.is_empty());
                 crate::pbs::txs::GeneToTxId {
                     gene_id: hgnc_id.to_string(),
-                    tx_ids: tx_ids.iter().map(|tx_id| tx_id.to_string()).collect(),
+                    tx_ids: tx_ids
+                        .iter()
+                        .sorted_unstable()
+                        .map(|tx_id| tx_id.to_string())
+                        .collect(),
                     filtered: Some(filtered),
                     filter_reason: hgnc_reason.map(|r| r.bits()),
                 }

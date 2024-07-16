@@ -377,11 +377,12 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
     let uninteresting_reasons = FilterReason::NoTranscripts
         | FilterReason::PredictedTranscriptsOnly
         | FilterReason::Biotype
+        | FilterReason::Pseudogene
         | FilterReason::DeselectedGene;
     filter_reasons
         .iter()
         .filter_map(|(id, reason)| {
-            if !reason.intersects(uninteresting_reasons) {
+            if matches!(id, Id::Hgnc(_)) && !reason.intersects(uninteresting_reasons) {
                 Some((id.clone(), *reason))
             } else {
                 None
