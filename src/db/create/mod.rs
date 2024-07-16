@@ -727,6 +727,17 @@ impl TranscriptLoader {
     /// Remove all hgnc ids for which there are no transcripts left.
     fn filter_empty_hgnc_mappings(&mut self) -> Result<(), Error> {
         tracing::info!("Removing empty HGNC mappings …");
+        let hgnc_ids_gene: HashSet<_> = self.hgnc_id_to_gene.keys().collect();
+        let hgnc_ids_tx: HashSet<_> = self.hgnc_id_to_transcript_ids.keys().collect();
+        let hgnc_gene_but_no_tx = &hgnc_ids_gene - &hgnc_ids_tx;
+        let hgnc_tx_but_no_gene = &hgnc_ids_tx - &hgnc_ids_gene;
+        for hgnc_id in hgnc_gene_but_no_tx {
+            *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |= Reason::NoTranscripts;
+        }
+        for hgnc_id in hgnc_tx_but_no_gene {
+            *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |= Reason::MissingGene;
+        }
+
         for (hgnc_id, txs) in self.hgnc_id_to_transcript_ids.iter() {
             if txs.is_empty() {
                 *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
@@ -1149,8 +1160,18 @@ impl TranscriptLoader {
         let start = Instant::now();
 
         let (hgnc_ids, tx_ids): (Vec<HgncId>, Vec<TranscriptId>) = {
-            let mut hgnc_ids = self.hgnc_id_to_gene.keys().cloned().collect_vec();
-            hgnc_ids.sort_unstable();
+            // ensure we use all hgnc_ids that are available to us;
+            // this includes hgnc_ids for which we only have transcripts but no genes or vice versa
+            let hgnc_ids = self
+                .hgnc_id_to_gene
+                .keys()
+                .cloned()
+                .chain(self.hgnc_id_to_transcript_ids.keys().cloned())
+                .sorted_unstable()
+                .dedup()
+                .collect_vec();
+
+            // We do, however, discard transcripts that have no sequence or hgnc id.
             let tx_ids = self
                 .hgnc_id_to_transcript_ids
                 .values()
@@ -1307,8 +1328,21 @@ impl TranscriptLoader {
                         biotype,
                         gene_symbol,
                         ..
-                    } = self.hgnc_id_to_gene.get(hgnc_id).unwrap().clone();
-                    let biotype = if biotype.unwrap().contains(&BioType::ProteinCoding) {
+                    } = self
+                        .hgnc_id_to_gene
+                        .get(hgnc_id)
+                        .cloned()
+                        .unwrap_or_else(|| Gene {
+                            aliases: None,
+                            biotype: None,
+                            description: None,
+                            gene_symbol: None,
+                            hgnc: Some(hgnc_id.to_string()),
+                            map_location: None,
+                            summary: None,
+                            url: "".to_string(),
+                        });
+                    let biotype = if biotype.unwrap_or(vec![]).contains(&BioType::ProteinCoding) {
                         crate::pbs::txs::TranscriptBiotype::Coding.into()
                     } else {
                         crate::pbs::txs::TranscriptBiotype::NonCoding.into()
@@ -1645,6 +1679,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
 
     // … and update all discard annotations …
     tx_data.propagate_discard_reasons(&raw_tx_data)?;
+
     trace_rss_now();
 
     report(ReportEntry::Log(json!({
