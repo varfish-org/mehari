@@ -374,6 +374,29 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
             })
         }))
         .collect::<HashMap<_, _>>();
+    let uninteresting_reasons = FilterReason::NoTranscripts
+        | FilterReason::PredictedTranscriptsOnly
+        | FilterReason::Biotype
+        | FilterReason::DeselectedGene;
+    filter_reasons
+        .iter()
+        .filter_map(|(id, reason)| {
+            if !reason.intersects(uninteresting_reasons) {
+                Some((id.clone(), *reason))
+            } else {
+                None
+            }
+        })
+        .for_each(|(id, reason)| {
+            report.push(Entry::new(
+                Status::Err,
+                id,
+                "Potential issue".to_string(),
+                false,
+                reason,
+                None,
+            ));
+        });
 
     let discarded_mane_entries: HashMap<Id, BitFlags<FilterReason>> = tx_db
         .transcripts
