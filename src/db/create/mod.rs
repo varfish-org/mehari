@@ -13,7 +13,7 @@ use clap::Parser;
 use derive_new::new;
 use enumflags2::{bitflags, BitFlag, BitFlags};
 use hgvs::data::cdot::json::models;
-use hgvs::data::cdot::json::models::{BioType, Gene, Tag, Transcript};
+use hgvs::data::cdot::json::models::{BioType, Gene, GenomeAlignment, Tag, Transcript};
 use hgvs::sequences::{translate_cds, TranslationTable};
 use itertools::Itertools;
 use nom::ToUsize;
@@ -1193,21 +1193,18 @@ impl TranscriptLoader {
         // Construct sequence database.
         tracing::info!("  Constructing sequence database …");
         let seq_db = {
-            // Insert into protobuf and keep track of pointers in `Vec`s.
-            let mut aliases = Vec::new();
-            let mut aliases_idx = Vec::new();
-            let mut seqs = Vec::new();
+            // filter out transcripts that have no sequence, enumerate, collect; build SequenceDb
+            let (aliases, aliases_idx, seqs) = tx_ids
+                .iter()
+                .filter_map(|tx_id| {
+                    sequence_map
+                        .remove(tx_id)
+                        .map(|seq| ((*tx_id).to_string(), seq))
+                })
+                .enumerate()
+                .map(|(idx, (tx_id, seq))| (tx_id, idx as u32, seq))
+                .multiunzip();
 
-            for tx_id in &tx_ids {
-                if let Some(seq) = sequence_map.remove(tx_id) {
-                    // Register sequence into protobuf.
-                    aliases.push((*tx_id).to_string());
-                    aliases_idx.push(seqs.len() as u32);
-                    seqs.push(seq);
-                }
-            }
-
-            // Finalize by creating `SequenceDb`.
             crate::pbs::txs::SequenceDb {
                 aliases,
                 aliases_idx,
@@ -1216,174 +1213,19 @@ impl TranscriptLoader {
         };
 
         tracing::info!("  Creating transcript records for each gene…");
-        let data_transcripts = {
-            let mut data_transcripts = Vec::new();
-            // For each gene (in hgnc id order) ...
-            for hgnc_id in &hgnc_ids {
+        let data_transcripts = hgnc_ids
+            .iter()
+            .flat_map(|hgnc_id| {
                 let tx_ids = self
                     .hgnc_id_to_transcript_ids
                     .get(hgnc_id)
                     .unwrap_or_else(|| panic!("No transcripts for hgnc id {:?}", &hgnc_id));
-
-                // ... for each transcript of the gene ...
-                for tx_id in tx_ids.iter().sorted_unstable() {
-                    let mut tags: Vec<i32> = Vec::new();
-                    let tx = self
-                        .transcript_id_to_transcript
-                        .get(tx_id)
-                        .unwrap_or_else(|| panic!("No transcript for id {:?}", tx_id));
-                    // ... build genome alignment for selected:
-                    let mut genome_alignments = Vec::new();
-                    for (genome_build, alignment) in &tx.genome_builds {
-                        // obtain basic properties
-                        let genome_build = match genome_build.as_ref() {
-                            "GRCh37" => crate::pbs::txs::GenomeBuild::Grch37,
-                            "GRCh38" => crate::pbs::txs::GenomeBuild::Grch38,
-                            _ => panic!("Unknown genome build {:?}", genome_build),
-                        };
-                        let models::GenomeAlignment {
-                            contig,
-                            cds_start,
-                            cds_end,
-                            ..
-                        } = alignment.clone();
-                        let strand = match alignment.strand {
-                            models::Strand::Plus => crate::pbs::txs::Strand::Plus,
-                            models::Strand::Minus => crate::pbs::txs::Strand::Minus,
-                        };
-                        if let Some(tag) = alignment.tag.as_ref() {
-                            for t in tag {
-                                let elem = match t {
-                                    Tag::Basic => crate::pbs::txs::TranscriptTag::Basic.into(),
-                                    Tag::EnsemblCanonical => {
-                                        crate::pbs::txs::TranscriptTag::EnsemblCanonical.into()
-                                    }
-                                    Tag::ManeSelect => {
-                                        crate::pbs::txs::TranscriptTag::ManeSelect.into()
-                                    }
-                                    Tag::ManePlusClinical => {
-                                        crate::pbs::txs::TranscriptTag::ManePlusClinical.into()
-                                    }
-                                    Tag::RefSeqSelect => {
-                                        crate::pbs::txs::TranscriptTag::RefSeqSelect.into()
-                                    }
-                                };
-                                if !tags.contains(&elem) {
-                                    tags.push(elem);
-                                }
-                            }
-                        }
-                        // Look into any "note" string for a selenoprotein marker and
-                        // add this as a tag.
-                        if let Some(note) = alignment.note.as_ref() {
-                            let needle = "UGA stop codon recoded as selenocysteine";
-                            if note.contains(needle) {
-                                tags.push(crate::pbs::txs::TranscriptTag::Selenoprotein.into());
-                            }
-                        }
-                        // and construct vector of all exons
-                        let exons: Vec<_> = alignment
-                            .exons
-                            .iter()
-                            .map(|exon| {
-                                let models::Exon {
-                                    alt_start_i,
-                                    alt_end_i,
-                                    ord,
-                                    alt_cds_start_i,
-                                    alt_cds_end_i,
-                                    cigar,
-                                } = exon.clone();
-                                crate::pbs::txs::ExonAlignment {
-                                    alt_start_i,
-                                    alt_end_i,
-                                    ord,
-                                    alt_cds_start_i: if alt_cds_start_i == -1 {
-                                        None
-                                    } else {
-                                        Some(alt_cds_start_i)
-                                    },
-                                    alt_cds_end_i: if alt_cds_end_i == -1 {
-                                        None
-                                    } else {
-                                        Some(alt_cds_end_i)
-                                    },
-                                    cigar,
-                                }
-                            })
-                            .collect();
-                        // and finally push the genome alignment
-                        genome_alignments.push(crate::pbs::txs::GenomeAlignment {
-                            genome_build: genome_build.into(),
-                            contig,
-                            cds_start,
-                            cds_end,
-                            strand: strand.into(),
-                            exons,
-                        });
-                    }
-
-                    // Now, just obtain the basic properties and create a new `data::Transcript`.
-                    let Gene {
-                        biotype,
-                        gene_symbol,
-                        ..
-                    } = self
-                        .hgnc_id_to_gene
-                        .get(hgnc_id)
-                        .cloned()
-                        .unwrap_or_else(|| Gene {
-                            aliases: None,
-                            biotype: None,
-                            description: None,
-                            gene_symbol: None,
-                            hgnc: Some(hgnc_id.to_string()),
-                            map_location: None,
-                            summary: None,
-                            url: "".to_string(),
-                        });
-                    let biotype = if biotype.unwrap_or(vec![]).contains(&BioType::ProteinCoding) {
-                        crate::pbs::txs::TranscriptBiotype::Coding.into()
-                    } else {
-                        crate::pbs::txs::TranscriptBiotype::NonCoding.into()
-                    };
-                    let Transcript {
-                        protein,
-                        start_codon,
-                        stop_codon,
-                        ..
-                    } = tx.clone();
-
-                    tags.sort_unstable();
-                    tags.dedup();
-
-                    // Combine discard reasons for transcript and gene level.
-                    let reason = self.discards.get(&Identifier::TxId(tx_id.clone()));
-                    let filtered = reason.map_or(false, |reason| !reason.is_empty());
-                    let filtered = filtered
-                        | self
-                            .discards
-                            .get(&Identifier::Hgnc(*hgnc_id))
-                            .map_or(false, |reason| !reason.is_empty());
-
-                    data_transcripts.push(crate::pbs::txs::Transcript {
-                        id: (*tx_id).to_string(),
-                        gene_symbol: gene_symbol.unwrap_or("<MISSING>".to_string()),
-                        gene_id: hgnc_id.to_string(),
-                        biotype,
-                        tags,
-                        protein,
-                        start_codon,
-                        stop_codon,
-                        genome_alignments,
-                        filtered: Some(filtered),
-                        filter_reason: reason.map(|r| r.bits()),
-                    });
-                }
-            }
-
-            data_transcripts
-        };
+                tx_ids
+                    .iter()
+                    .sorted_unstable()
+                    .map(|tx_id| self.protobuf_transcript(hgnc_id, tx_id))
+            })
+            .collect();
 
         tracing::info!(" … done creating transcripts in {:#?}", start.elapsed());
 
@@ -1431,6 +1273,174 @@ impl TranscriptLoader {
         tracing::info!(" … done composing transcript seq database");
 
         Ok(tx_seq_db)
+    }
+
+    fn protobuf_transcript(
+        &self,
+        hgnc_id: &HgncId,
+        tx_id: &TranscriptId,
+    ) -> crate::pbs::txs::Transcript {
+        let tx = self
+            .transcript_id_to_transcript
+            .get(tx_id)
+            .unwrap_or_else(|| panic!("No transcript for id {:?}", tx_id));
+
+        // Combine discard reasons for transcript and gene level.
+        let reason = self.discards.get(&Identifier::TxId(tx_id.clone()));
+        let filtered = reason.map_or(false, |reason| !reason.is_empty());
+        let filtered = filtered
+            | self
+                .discards
+                .get(&Identifier::Hgnc(*hgnc_id))
+                .map_or(false, |reason| !reason.is_empty());
+
+        // ... build genome alignment for selected:
+        let (genome_alignments, tags): (Vec<_>, Vec<_>) = tx
+            .genome_builds
+            .iter()
+            .map(|(genome_build, alignment)| {
+                Self::protobuf_genome_alignment(genome_build, alignment)
+            })
+            .unzip();
+        let tags = tags
+            .into_iter()
+            .flatten()
+            .sorted_unstable()
+            .dedup()
+            .collect();
+
+        // Now, just obtain the basic properties and create a new `data::Transcript`.
+        let Gene {
+            biotype,
+            gene_symbol,
+            ..
+        } = self
+            .hgnc_id_to_gene
+            .get(hgnc_id)
+            .cloned()
+            .unwrap_or_else(|| Gene {
+                aliases: None,
+                biotype: None,
+                description: None,
+                gene_symbol: None,
+                hgnc: Some(hgnc_id.to_string()),
+                map_location: None,
+                summary: None,
+                url: "".to_string(),
+            });
+        let biotype = if biotype.unwrap_or(vec![]).contains(&BioType::ProteinCoding) {
+            crate::pbs::txs::TranscriptBiotype::Coding.into()
+        } else {
+            crate::pbs::txs::TranscriptBiotype::NonCoding.into()
+        };
+        let Transcript {
+            protein,
+            start_codon,
+            stop_codon,
+            ..
+        } = tx.clone();
+
+        crate::pbs::txs::Transcript {
+            id: (*tx_id).to_string(),
+            gene_symbol: gene_symbol.unwrap_or("<MISSING>".to_string()),
+            gene_id: hgnc_id.to_string(),
+            biotype,
+            tags,
+            protein,
+            start_codon,
+            stop_codon,
+            genome_alignments,
+            filtered: Some(filtered),
+            filter_reason: reason.map(|r| r.bits()),
+        }
+    }
+
+    fn protobuf_genome_alignment(
+        genome_build: &String,
+        alignment: &GenomeAlignment,
+    ) -> (crate::pbs::txs::GenomeAlignment, HashSet<i32>) {
+        let mut tags = HashSet::new();
+        // obtain basic properties
+        let genome_build = match genome_build.as_ref() {
+            "GRCh37" => crate::pbs::txs::GenomeBuild::Grch37,
+            "GRCh38" => crate::pbs::txs::GenomeBuild::Grch38,
+            _ => panic!("Unknown genome build {:?}", genome_build),
+        };
+        let models::GenomeAlignment {
+            contig,
+            cds_start,
+            cds_end,
+            ..
+        } = alignment.clone();
+        let strand = match alignment.strand {
+            models::Strand::Plus => crate::pbs::txs::Strand::Plus,
+            models::Strand::Minus => crate::pbs::txs::Strand::Minus,
+        };
+        if let Some(tag) = alignment.tag.as_ref() {
+            for t in tag {
+                let elem = match t {
+                    Tag::Basic => crate::pbs::txs::TranscriptTag::Basic.into(),
+                    Tag::EnsemblCanonical => {
+                        crate::pbs::txs::TranscriptTag::EnsemblCanonical.into()
+                    }
+                    Tag::ManeSelect => crate::pbs::txs::TranscriptTag::ManeSelect.into(),
+                    Tag::ManePlusClinical => {
+                        crate::pbs::txs::TranscriptTag::ManePlusClinical.into()
+                    }
+                    Tag::RefSeqSelect => crate::pbs::txs::TranscriptTag::RefSeqSelect.into(),
+                };
+                tags.insert(elem);
+            }
+        }
+        // Look into any "note" string for a selenoprotein marker and
+        // add this as a tag.
+        if let Some(note) = alignment.note.as_ref() {
+            let needle = "UGA stop codon recoded as selenocysteine";
+            if note.contains(needle) {
+                tags.insert(crate::pbs::txs::TranscriptTag::Selenoprotein.into());
+            }
+        }
+        // and construct vector of all exons
+        let exons: Vec<_> = alignment
+            .exons
+            .iter()
+            .map(|exon| {
+                let models::Exon {
+                    alt_start_i,
+                    alt_end_i,
+                    ord,
+                    alt_cds_start_i,
+                    alt_cds_end_i,
+                    cigar,
+                } = exon.clone();
+                crate::pbs::txs::ExonAlignment {
+                    alt_start_i,
+                    alt_end_i,
+                    ord,
+                    alt_cds_start_i: if alt_cds_start_i == -1 {
+                        None
+                    } else {
+                        Some(alt_cds_start_i)
+                    },
+                    alt_cds_end_i: if alt_cds_end_i == -1 {
+                        None
+                    } else {
+                        Some(alt_cds_end_i)
+                    },
+                    cigar,
+                }
+            })
+            .collect();
+
+        let genome_alignment = crate::pbs::txs::GenomeAlignment {
+            genome_build: genome_build.into(),
+            contig,
+            cds_start,
+            cds_end,
+            strand: strand.into(),
+            exons,
+        };
+        (genome_alignment, tags)
     }
 }
 
