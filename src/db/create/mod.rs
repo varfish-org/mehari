@@ -771,28 +771,6 @@ impl TranscriptLoader {
         Ok(())
     }
 
-    /// Find all genes and transcripts on the given contigs.
-    fn find_on_contigs(
-        &self,
-        contig_accessions: &[&str],
-    ) -> (HashSet<HgncId>, HashSet<TranscriptId>) {
-        self.transcript_id_to_transcript
-            .values()
-            .filter(|tx| {
-                tx.genome_builds
-                    .values()
-                    .any(|gb| contig_accessions.contains(&gb.contig.as_str()))
-            })
-            .map(|tx| {
-                let hgnc_id: HgncId = tx.hgnc.as_ref().unwrap().parse().unwrap();
-                (
-                    hgnc_id,
-                    TranscriptId::try_new(tx.id.clone()).expect("Invalid TranscriptId"),
-                )
-            })
-            .unzip()
-    }
-
     fn gather_transcript_stats(&self) -> Result<(usize, usize, usize), Error> {
         let (mut n_mane_select, mut n_mane_plus_clinical, mut n_mt) = (0, 0, 0);
         for tx in self.transcript_id_to_transcript.values() {
