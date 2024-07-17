@@ -146,7 +146,7 @@ impl Provider {
                 .expect("no tx_db?")
                 .gene_to_tx
                 .iter()
-                .filter(|gene| !gene.filtered.unwrap_or(false))
+                // .filter(|gene| !gene.filtered.unwrap_or(false))
                 .enumerate()
                 .map(|(idx, entry)| (entry.gene_id.clone(), idx as u32)),
         );
@@ -157,7 +157,7 @@ impl Provider {
                 .expect("no tx_db?")
                 .transcripts
                 .iter()
-                .filter(|tx| !tx.filtered.unwrap_or(false))
+                // .filter(|tx| !tx.filtered.unwrap_or(false))
                 .enumerate()
                 .map(|(idx, tx)| (tx.id.clone(), idx as u32)),
         );
@@ -309,7 +309,7 @@ impl Provider {
     ///
     /// The picked transcript IDs, or None if the gene is not found.
     pub fn get_picked_transcripts(&self, hgnc_id: &str) -> Option<Vec<String>> {
-        self.gene_map.get(hgnc_id).map(|gene_idx| {
+        self.gene_map.get(hgnc_id).and_then(|gene_idx| {
             let gene_to_tx = if let Some(picked_gene_to_tx_id) = self.picked_gene_to_tx_id.as_ref()
             {
                 picked_gene_to_tx_id
@@ -322,7 +322,12 @@ impl Provider {
             //     hgnc_id,
             //     &gene_to_tx[*gene_idx as usize].tx_ids
             // );
-            gene_to_tx[*gene_idx as usize].tx_ids.clone()
+            let gene = &gene_to_tx[*gene_idx as usize];
+            if let Some(true) = gene.filtered {
+                None
+            } else {
+                Some(gene.tx_ids.clone())
+            }
         })
     }
 
@@ -336,17 +341,18 @@ impl Provider {
     ///
     /// The `Transcript` for the given accession, or None if the accession was not found.
     pub fn get_tx(&self, tx_id: &str) -> Option<Transcript> {
-        self.tx_map.get(tx_id).map(|idx| {
-            let result = self
+        self.tx_map.get(tx_id).and_then(|idx| {
+            let tx = &self
                 .tx_seq_db
                 .tx_db
                 .as_ref()
                 .expect("no tx_db?")
-                .transcripts[*idx as usize]
-                .clone();
-
-            // tracing::trace!("get_tx({}) = {:?}", tx_id, &result);
-            result
+                .transcripts[*idx as usize];
+            if let Some(true) = tx.filtered {
+                None
+            } else {
+                Some(tx.clone())
+            }
         })
     }
 }
