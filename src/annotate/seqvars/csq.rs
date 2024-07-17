@@ -495,7 +495,7 @@ impl ConsequencePredictor {
             }
         } else if is_upstream {
             let val = -(min_start + 1 - var_end);
-            if val.abs() <= 5_000 {
+            if val.abs() <= PADDING {
                 match Strand::try_from(alignment.strand).expect("invalid strand") {
                     Strand::Plus => consequences.push(Consequence::UpstreamGeneVariant),
                     Strand::Minus => consequences.push(Consequence::DownstreamGeneVariant),
@@ -507,7 +507,7 @@ impl ConsequencePredictor {
             }
         } else if is_downstream {
             let val = var_start + 1 - max_end;
-            if val.abs() <= 5_000 {
+            if val.abs() <= PADDING {
                 match Strand::try_from(alignment.strand).expect("invalid strand") {
                     Strand::Plus => consequences.push(Consequence::DownstreamGeneVariant),
                     Strand::Minus => consequences.push(Consequence::UpstreamGeneVariant),
