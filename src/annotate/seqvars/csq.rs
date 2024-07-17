@@ -283,16 +283,24 @@ impl ConsequencePredictor {
         // NB: The coordinates of var_start, var_end, as well as the exon boundaries
         // are 0-based.
 
-        let tx = self.provider.get_tx(&tx_record.tx_ac).unwrap();
-
-        // Skip transcripts that are protein coding but do not have a CDS.
-        // TODO: do not include such transcripts when building the database.
-        if TranscriptBiotype::try_from(tx.biotype).expect("invalid tx biotype")
-            == TranscriptBiotype::Coding
-            && tx.start_codon.is_none()
-        {
+        let tx = self.provider.get_tx(&tx_record.tx_ac);
+        let tx = if let Some(tx) = tx {
+            // Skip transcripts that are protein coding but do not have a CDS.
+            // TODO: do not include such transcripts when building the database.
+            if TranscriptBiotype::try_from(tx.biotype).expect("invalid tx biotype")
+                == TranscriptBiotype::Coding
+                && tx.start_codon.is_none()
+            {
+                return Ok(None);
+            }
+            tx
+        } else {
+            tracing::warn!(
+                "Requested transcript accession {}, got None (potentially filtered)",
+                &tx_record.tx_ac
+            );
             return Ok(None);
-        }
+        };
 
         let mut consequences: Vec<Consequence> = Vec::new();
 
