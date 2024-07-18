@@ -920,7 +920,7 @@ impl AsyncAnnotatedVariantWriter for VarFishStrucvarTsvWriter {
         ).map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), Error> {
         Ok(self.inner.flush()?)
     }
 

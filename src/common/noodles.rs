@@ -10,7 +10,7 @@ use noodles::bcf;
 use noodles::vcf;
 use noodles::vcf::variant::RecordBuf;
 use noodles::vcf::Header;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::annotate::seqvars::AsyncAnnotatedVariantWriter;
 use crate::common::io::tokio::open_read_maybe_bgzf;
@@ -179,10 +179,10 @@ impl AsyncAnnotatedVariantWriter for VariantWriter {
         self.write_record(header, record).await.map_err(Into::into)
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), Error> {
         match self {
-            VariantWriter::Vcf(r) => r.flush().await,
-            VariantWriter::Bcf(r) => r.flush().await,
+            VariantWriter::Vcf(r) => r.get_mut().shutdown().await.map_err(Into::into),
+            VariantWriter::Bcf(r) => r.get_mut().shutdown().await.map_err(Into::into),
         }
     }
 }

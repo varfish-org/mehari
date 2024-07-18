@@ -549,7 +549,7 @@ pub trait AsyncAnnotatedVariantWriter {
     ) -> Result<(), anyhow::Error>;
 
     #[allow(async_fn_in_trait)]
-    async fn flush(&mut self) -> Result<(), anyhow::Error>;
+    async fn shutdown(&mut self) -> Result<(), anyhow::Error>;
 
     fn set_hgnc_map(&mut self, _hgnc_map: FxHashMap<String, HgncRecord>) {
         // nop
@@ -578,7 +578,7 @@ impl<Inner: Write> AsyncAnnotatedVariantWriter for VcfWriter<Inner> {
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), Error> {
         Ok(<VcfWriter<Inner>>::get_mut(self).flush()?)
     }
 }
@@ -603,7 +603,7 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), Error> {
         Ok(<noodles::vcf::AsyncWriter<Inner>>::get_mut(self)
             .flush()
             .await?)
@@ -630,7 +630,7 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), Error> {
         Ok(<noodles::bcf::AsyncWriter<Inner>>::get_mut(self)
             .flush()
             .await?)
@@ -1504,7 +1504,7 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
         self.expand_refseq_ensembl_and_write(record, &mut tsv_record)
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), Error> {
         Ok(self.inner.flush()?)
     }
 
@@ -1623,7 +1623,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
         let mut writer = open_variant_writer(path_output_vcf).await?;
         run_with_writer(&mut writer, args).await?;
-        writer.flush().await?;
+        writer.shutdown().await?;
     } else {
         // Load the HGNC xlink map.
         let hgnc_map = {
@@ -1758,7 +1758,7 @@ async fn run_with_writer(
         total_written.separate_with_commas(),
         start.elapsed()
     );
-    writer.flush().await?;
+    writer.shutdown().await?;
     Ok(())
 }
 
