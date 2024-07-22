@@ -2676,7 +2676,7 @@ dependencies = [
  "nom",
  "noodles",
  "parse-display",
- "pbjson 0.6.0",
+ "pbjson 0.7.0",
  "pbjson-build 0.7.0",
  "pbjson-types 0.7.0",
  "pprof",
