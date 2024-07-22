@@ -276,14 +276,14 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "annonars"
-version = "0.39.0"
+version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37532e1e083ca6dcc0a1420ad7d8b718c78103d325222749d8d7091237d19aaf"
+checksum = "8f1a0363fc4a6c133dedd77510768c1292da2aa915054db1e5e4436732997efe"
 dependencies = [
  "actix-web",
  "anyhow",
  "bgzip",
- "bio 1.6.0",
+ "bio",
  "biocommons-bioutils",
  "boolvec",
  "byteorder",
@@ -299,16 +299,16 @@ dependencies = [
  "indicatif",
  "itertools 0.13.0",
  "log",
- "noodles",
- "pbjson 0.6.0",
- "pbjson-build 0.6.2",
- "pbjson-types 0.6.0",
- "prost 0.12.6",
- "prost-build 0.12.6",
+ "noodles 0.77.0",
+ "pbjson",
+ "pbjson-build",
+ "pbjson-types",
+ "prost 0.13.1",
+ "prost-build",
  "rayon",
  "rocksdb",
  "rocksdb-utils-lookup",
- "rustc-hash",
+ "rustc-hash 2.0.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -637,48 +637,9 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "rustc-hash",
+ "rustc-hash 1.1.0",
  "shlex",
  "syn 2.0.66",
-]
-
-[[package]]
-name = "bio"
-version = "1.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a72cb93babf08c85b375c2938ac678cc637936b3ebb72266d433cec2577f6c2"
-dependencies = [
- "anyhow",
- "approx",
- "bio-types",
- "bit-set",
- "bv",
- "bytecount",
- "csv",
- "custom_derive",
- "editdistancek",
- "enum-map",
- "fxhash",
- "itertools 0.11.0",
- "itertools-num",
- "lazy_static",
- "multimap 0.9.1",
- "ndarray",
- "newtype_derive",
- "num-integer",
- "num-traits",
- "ordered-float 3.9.2",
- "petgraph",
- "rand",
- "regex",
- "serde",
- "serde_derive",
- "statrs",
- "strum 0.25.0",
- "strum_macros 0.25.3",
- "thiserror",
- "triple_accel",
- "vec_map",
 ]
 
 [[package]]
@@ -701,12 +662,12 @@ dependencies = [
  "itertools 0.13.0",
  "itertools-num",
  "lazy_static",
- "multimap 0.10.0",
+ "multimap",
  "ndarray",
  "newtype_derive",
  "num-integer",
  "num-traits",
- "ordered-float 4.2.1",
+ "ordered-float",
  "petgraph",
  "rand",
  "regex",
@@ -974,9 +935,9 @@ dependencies = [
 
 [[package]]
 name = "cached"
-version = "0.50.0"
+version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10a7d38ed2761b8a13ce42bc44b09d5a052b88da2f9fead624c779f31ac0729a"
+checksum = "a8466736fe5dbcaf8b8ee24f9bbefe43c884dc3e9ff7178da70f55bffca1133c"
 dependencies = [
  "ahash 0.8.11",
  "cached_proc_macro",
@@ -989,9 +950,9 @@ dependencies = [
 
 [[package]]
 name = "cached_proc_macro"
-version = "0.21.0"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "771aa57f3b17da6c8bcacb187bb9ec9bc81c8160e72342e67c329e0e1651a669"
+checksum = "575f32e012222055211b70f5b0601f951f84523410a0e65c81f2744a6042450d"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -1478,7 +1439,7 @@ dependencies = [
  "lazy_static",
  "mintex",
  "parking_lot",
- "rustc-hash",
+ "rustc-hash 1.1.0",
  "serde",
  "serde_json",
  "thousands",
@@ -1984,13 +1945,13 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hgvs"
-version = "0.16.1"
+version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c860777179557614169d38d0ef292aff2e14aa2a95464dba6654c6753b4d0998"
+checksum = "8b31444f90c3098209c6239341d0f3c29fc711e65455c14fb2317664c30daf19"
 dependencies = [
  "ahash 0.8.11",
  "base16ct",
- "bio 1.6.0",
+ "bio",
  "biocommons-bioutils",
  "cached",
  "chrono",
@@ -2002,9 +1963,9 @@ dependencies = [
  "md-5",
  "nom",
  "postgres",
- "quick_cache 0.5.1",
+ "quick_cache",
  "regex",
- "rustc-hash",
+ "rustc-hash 2.0.0",
  "seqrepo",
  "serde",
  "serde_json",
@@ -2648,7 +2609,7 @@ dependencies = [
  "async-compression",
  "async-std",
  "bgzip",
- "bio 2.0.0",
+ "bio",
  "biocommons-bioutils",
  "byte-unit",
  "byteorder",
@@ -2674,22 +2635,22 @@ dependencies = [
  "lazy_static",
  "log",
  "nom",
- "noodles",
+ "noodles 0.76.0",
  "parse-display",
- "pbjson 0.7.0",
- "pbjson-build 0.7.0",
- "pbjson-types 0.7.0",
+ "pbjson",
+ "pbjson-build",
+ "pbjson-types",
  "pprof",
  "pretty_assertions",
  "procfs",
  "prost 0.12.6",
- "prost-build 0.13.1",
- "quick_cache 0.6.0",
+ "prost-build",
+ "quick_cache",
  "rand",
  "rand_core",
  "rocksdb",
  "rstest",
- "rustc-hash",
+ "rustc-hash 1.1.0",
  "seqrepo",
  "serde",
  "serde_json",
@@ -2759,15 +2720,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "multimap"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1a5d38b9b352dbd913288736af36af41c48d61b1a8cd34bcecd727561b7d511"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -2859,17 +2811,31 @@ checksum = "7a346e5a6000033512105890243ff310a307637ae9d9de317f7480e136549a4d"
 dependencies = [
  "noodles-bam",
  "noodles-bcf",
- "noodles-bed",
- "noodles-bgzf",
+ "noodles-bgzf 0.30.0",
  "noodles-core",
  "noodles-cram",
- "noodles-csi",
+ "noodles-csi 0.35.0",
  "noodles-fasta",
  "noodles-fastq",
- "noodles-gff",
+ "noodles-gff 0.33.0",
  "noodles-sam",
- "noodles-tabix",
- "noodles-vcf",
+ "noodles-tabix 0.41.0",
+ "noodles-vcf 0.59.0",
+]
+
+[[package]]
+name = "noodles"
+version = "0.77.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f8629ce12eeb2d6483be18af64beb9488840299ecd617be4ec2f4ebf66688e6"
+dependencies = [
+ "noodles-bed",
+ "noodles-bgzf 0.31.0",
+ "noodles-core",
+ "noodles-csi 0.36.0",
+ "noodles-gff 0.34.0",
+ "noodles-tabix 0.42.0",
+ "noodles-vcf 0.60.0",
 ]
 
 [[package]]
@@ -2884,9 +2850,9 @@ dependencies = [
  "bytes",
  "futures",
  "indexmap",
- "noodles-bgzf",
+ "noodles-bgzf 0.30.0",
  "noodles-core",
- "noodles-csi",
+ "noodles-csi 0.35.0",
  "noodles-sam",
  "tokio",
 ]
@@ -2900,18 +2866,18 @@ dependencies = [
  "byteorder",
  "futures",
  "indexmap",
- "noodles-bgzf",
+ "noodles-bgzf 0.30.0",
  "noodles-core",
- "noodles-csi",
- "noodles-vcf",
+ "noodles-csi 0.35.0",
+ "noodles-vcf 0.59.0",
  "tokio",
 ]
 
 [[package]]
 name = "noodles-bed"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d114cc62a405cc763e0e0607a037e5bb9298e281690f9e10bc2ffc2312f92b3"
+checksum = "4c781b824d10b621df17d26fb5cd9d3cc8188aeabda7de7e36cde51f6015b31d"
 dependencies = [
  "noodles-core",
 ]
@@ -2930,6 +2896,18 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "noodles-bgzf"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754f4d28655c5d486e2a62814c5dcc46ad2cee5a2b6cbe91fd765a5ec997f91a"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "crossbeam-channel",
+ "flate2",
 ]
 
 [[package]]
@@ -2975,9 +2953,22 @@ dependencies = [
  "bit-vec",
  "byteorder",
  "indexmap",
- "noodles-bgzf",
+ "noodles-bgzf 0.30.0",
  "noodles-core",
  "tokio",
+]
+
+[[package]]
+name = "noodles-csi"
+version = "0.36.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89ac24bac459ae99c046086d771f5a79f632ab27a9280406f2fbb7a3238d79cc"
+dependencies = [
+ "bit-vec",
+ "byteorder",
+ "indexmap",
+ "noodles-bgzf 0.31.0",
+ "noodles-core",
 ]
 
 [[package]]
@@ -2988,7 +2979,7 @@ checksum = "c3f35c5b39977f95efacb67c3ae4ca00b5229249327bb0e9a980f386cad36d93"
 dependencies = [
  "bytes",
  "memchr",
- "noodles-bgzf",
+ "noodles-bgzf 0.30.0",
  "noodles-core",
  "tokio",
 ]
@@ -3012,11 +3003,24 @@ checksum = "578b6efaf5c3f029720af4c8590e34fd38e214666971d665a52e3566830170d0"
 dependencies = [
  "futures",
  "indexmap",
- "noodles-bgzf",
+ "noodles-bgzf 0.30.0",
  "noodles-core",
- "noodles-csi",
+ "noodles-csi 0.35.0",
  "percent-encoding",
  "tokio",
+]
+
+[[package]]
+name = "noodles-gff"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1461ade66be950a9c4ad10839f960a50b41c4174471ff904350d203e57a052b1"
+dependencies = [
+ "indexmap",
+ "noodles-bgzf 0.31.0",
+ "noodles-core",
+ "noodles-csi 0.36.0",
+ "percent-encoding",
 ]
 
 [[package]]
@@ -3031,9 +3035,9 @@ dependencies = [
  "indexmap",
  "lexical-core",
  "memchr",
- "noodles-bgzf",
+ "noodles-bgzf 0.30.0",
  "noodles-core",
- "noodles-csi",
+ "noodles-csi 0.35.0",
  "tokio",
 ]
 
@@ -3046,10 +3050,24 @@ dependencies = [
  "bit-vec",
  "byteorder",
  "indexmap",
- "noodles-bgzf",
+ "noodles-bgzf 0.30.0",
  "noodles-core",
- "noodles-csi",
+ "noodles-csi 0.35.0",
  "tokio",
+]
+
+[[package]]
+name = "noodles-tabix"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ddf20eb2a380e00bbe6ec3105f1ef5c62307381f4bcf4175b31d582d43a7e59"
+dependencies = [
+ "bit-vec",
+ "byteorder",
+ "indexmap",
+ "noodles-bgzf 0.31.0",
+ "noodles-core",
+ "noodles-csi 0.36.0",
 ]
 
 [[package]]
@@ -3061,13 +3079,28 @@ dependencies = [
  "futures",
  "indexmap",
  "memchr",
- "noodles-bgzf",
+ "noodles-bgzf 0.30.0",
  "noodles-core",
- "noodles-csi",
- "noodles-tabix",
+ "noodles-csi 0.35.0",
+ "noodles-tabix 0.41.0",
  "percent-encoding",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "noodles-vcf"
+version = "0.60.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "adb37ce398cc0132b5855ac720c2e9efe14270b38be57ee576d79bc918754e2a"
+dependencies = [
+ "indexmap",
+ "memchr",
+ "noodles-bgzf 0.31.0",
+ "noodles-core",
+ "noodles-csi 0.36.0",
+ "noodles-tabix 0.42.0",
+ "percent-encoding",
 ]
 
 [[package]]
@@ -3173,15 +3206,6 @@ checksum = "0ab1bc2a289d34bd04a330323ac98a1b4bc82c9d9fcb1e66b63caa84da26b575"
 
 [[package]]
 name = "ordered-float"
-version = "3.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1e1c390732d15f1d48471625cd92d154e66db2c56645e29a9cd26f4699f72dc"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
-name = "ordered-float"
 version = "4.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19ff2cf528c6c03d9ed653d6c4ce1dc0582dc4af309790ad92f07c1cd551b0be"
@@ -3257,34 +3281,12 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pbjson"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1030c719b0ec2a2d25a5df729d6cff1acf3cc230bf766f4f97833591f7577b90"
-dependencies = [
- "base64 0.21.7",
- "serde",
-]
-
-[[package]]
-name = "pbjson"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7e6349fa080353f4a597daffd05cb81572a9c031a6d4fff7e504947496fcc68"
 dependencies = [
  "base64 0.21.7",
  "serde",
-]
-
-[[package]]
-name = "pbjson-build"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2580e33f2292d34be285c5bc3dba5259542b083cfad6037b6d70345f24dcb735"
-dependencies = [
- "heck 0.4.1",
- "itertools 0.11.0",
- "prost 0.12.6",
- "prost-types 0.12.6",
 ]
 
 [[package]]
@@ -3296,22 +3298,7 @@ dependencies = [
  "heck 0.5.0",
  "itertools 0.13.0",
  "prost 0.13.1",
- "prost-types 0.13.1",
-]
-
-[[package]]
-name = "pbjson-types"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18f596653ba4ac51bdecbb4ef6773bc7f56042dc13927910de1684ad3d32aa12"
-dependencies = [
- "bytes",
- "chrono",
- "pbjson 0.6.0",
- "pbjson-build 0.6.2",
- "prost 0.12.6",
- "prost-build 0.12.6",
- "serde",
+ "prost-types",
 ]
 
 [[package]]
@@ -3322,10 +3309,10 @@ checksum = "e54e5e7bfb1652f95bc361d76f3c780d8e526b134b85417e774166ee941f0887"
 dependencies = [
  "bytes",
  "chrono",
- "pbjson 0.7.0",
- "pbjson-build 0.7.0",
+ "pbjson",
+ "pbjson-build",
  "prost 0.13.1",
- "prost-build 0.13.1",
+ "prost-build",
  "serde",
 ]
 
@@ -3643,27 +3630,6 @@ dependencies = [
 
 [[package]]
 name = "prost-build"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
-dependencies = [
- "bytes",
- "heck 0.5.0",
- "itertools 0.11.0",
- "log",
- "multimap 0.10.0",
- "once_cell",
- "petgraph",
- "prettyplease",
- "prost 0.12.6",
- "prost-types 0.12.6",
- "regex",
- "syn 2.0.66",
- "tempfile",
-]
-
-[[package]]
-name = "prost-build"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5bb182580f71dd070f88d01ce3de9f4da5021db7115d2e1c3605a754153b77c1"
@@ -3672,12 +3638,12 @@ dependencies = [
  "heck 0.5.0",
  "itertools 0.13.0",
  "log",
- "multimap 0.10.0",
+ "multimap",
  "once_cell",
  "petgraph",
  "prettyplease",
  "prost 0.13.1",
- "prost-types 0.13.1",
+ "prost-types",
  "regex",
  "syn 2.0.66",
  "tempfile",
@@ -3707,15 +3673,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.66",
-]
-
-[[package]]
-name = "prost-types"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9091c90b0a32608e984ff2fa4091273cbdd755d54935c51d520887f4a1dbd5b0"
-dependencies = [
- "prost 0.12.6",
 ]
 
 [[package]]
@@ -3754,18 +3711,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f50b1c63b38611e7d4d7f68b82d3ad0cc71a2ad2e7f61fc10f1328d917c93cd"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "quick_cache"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "347e1a588d1de074eeb3c00eadff93db4db65aeb62aee852b1efd0949fe65b6c"
-dependencies = [
- "ahash 0.8.11",
- "equivalent",
- "hashbrown 0.14.5",
- "parking_lot",
 ]
 
 [[package]]
@@ -4076,6 +4021,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
+name = "rustc-hash"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "583034fd73374156e66797ed8e5b0d5690409c9226b22d87cb7f19821c05d152"
+
+[[package]]
 name = "rustc_version"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4181,7 +4132,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9bad563692d6dc960f5a22a77b8efd212fdf38d2c09645246426c96ea615541"
 dependencies = [
  "chrono",
- "noodles",
+ "noodles 0.76.0",
  "rusqlite",
  "thiserror",
  "tracing",

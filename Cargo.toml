@@ -27,7 +27,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = "4.8"
-annonars = "0.39"
+annonars = "0.40"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bgzip = "0.3"
@@ -44,7 +44,7 @@ derive_builder = { version = "0.20", features = ["clippy"] }
 env_logger = "0.11"
 flate2 = "1.0"
 futures = "0.3"
-hgvs = "0.16.1"
+hgvs = "0.16.3"
 indexmap = { version = "2.2", features = ["serde"] }
 indicatif = "0.17"
 itertools = "0.13"
