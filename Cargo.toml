@@ -68,7 +68,7 @@ serde_yaml = "0.9"
 strum = { version = "0.26", features = ["derive"] }
 tempfile = "3"
 thousands = "0.2"
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.38", features = ["full"] }
 tracing-subscriber = "0.3"
 tracing = { version = "0.1", features = ["log"] }
 uuid = { version = "1.9", features = ["fast-rng", "serde"] }
