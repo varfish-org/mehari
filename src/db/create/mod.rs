@@ -1288,35 +1288,33 @@ impl TranscriptLoader {
             .collect();
 
         // Now, just obtain the basic properties and create a new `data::Transcript`.
-        let Gene {
+        let Gene { gene_symbol, .. } =
+            self.hgnc_id_to_gene
+                .get(hgnc_id)
+                .cloned()
+                .unwrap_or_else(|| Gene {
+                    aliases: None,
+                    biotype: None,
+                    description: None,
+                    gene_symbol: None,
+                    hgnc: Some(hgnc_id.to_string()),
+                    map_location: None,
+                    summary: None,
+                    url: "".to_string(),
+                });
+
+        let Transcript {
+            protein,
+            start_codon,
+            stop_codon,
             biotype,
-            gene_symbol,
             ..
-        } = self
-            .hgnc_id_to_gene
-            .get(hgnc_id)
-            .cloned()
-            .unwrap_or_else(|| Gene {
-                aliases: None,
-                biotype: None,
-                description: None,
-                gene_symbol: None,
-                hgnc: Some(hgnc_id.to_string()),
-                map_location: None,
-                summary: None,
-                url: "".to_string(),
-            });
+        } = tx.clone();
         let biotype = if biotype.unwrap_or(vec![]).contains(&BioType::ProteinCoding) {
             crate::pbs::txs::TranscriptBiotype::Coding.into()
         } else {
             crate::pbs::txs::TranscriptBiotype::NonCoding.into()
         };
-        let Transcript {
-            protein,
-            start_codon,
-            stop_codon,
-            ..
-        } = tx.clone();
 
         crate::pbs::txs::Transcript {
             id: (*tx_id).to_string(),

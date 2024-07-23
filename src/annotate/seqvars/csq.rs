@@ -337,7 +337,7 @@ impl ConsequencePredictor {
                 is_exonic = true;
                 distance = Some(0);
             } else if let Some(intron_start) = intron_start {
-                // We have are in an intron (the first exon does not have an intron left of it
+                // We are in an intron (the first exon does not have an intron left of it
                 // which is expressed by `intron_start` being an `Option<i32>` rather than `i32`.
                 if var_start >= intron_start && var_end <= intron_end {
                     // Contained within intron: cannot be in next exon.
