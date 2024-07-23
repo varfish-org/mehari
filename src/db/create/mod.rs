@@ -1307,10 +1307,9 @@ impl TranscriptLoader {
             protein,
             start_codon,
             stop_codon,
-            biotype,
             ..
         } = tx.clone();
-        let biotype = if biotype.unwrap_or(vec![]).contains(&BioType::ProteinCoding) {
+        let biotype = if tx.protein_coding() {
             crate::pbs::txs::TranscriptBiotype::Coding.into()
         } else {
             crate::pbs::txs::TranscriptBiotype::NonCoding.into()
