@@ -154,7 +154,7 @@ impl ConsequencePredictor {
         let chrom_acc = if let Some(chrom_acc) = chrom_acc {
             chrom_acc
         } else {
-            tracing::debug!(
+            tracing::warn!(
                 "Could not determine chromosome accession for {:?}; giving up on annotation",
                 &norm_var
             );
@@ -564,7 +564,10 @@ impl ConsequencePredictor {
             // TODO: do not include such transcripts when building the tx database.
             let var_n = self.mapper.g_to_n(&var_g, &tx.id).map_or_else(
                 |e| match e {
-                    Error::NonAdjacentExons(_, _, _, _) => Ok(None),
+                    Error::NonAdjacentExons(_, _, _, _) => {
+                        tracing::warn!("{}, {}: NonAdjacentExons, skipping", &tx.id, &var_g);
+                        Ok(None)
+                    }
                     _ => Err(e),
                 },
                 |v| Ok(Some(v)),
