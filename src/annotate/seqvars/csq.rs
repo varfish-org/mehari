@@ -1071,7 +1071,6 @@ mod test {
     }
 
     // Compare to SnpEff annotated ClinVar variants for OPA1 (slow).
-    #[ignore]
     #[test]
     fn annotate_opa1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
         annotate_opa1_vars(
@@ -1081,7 +1080,6 @@ mod test {
     }
 
     // Compare to SnpEff annotated ClinVar variants for OPA1 (slow).
-    #[ignore]
     #[test]
     fn annotate_opa1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
         annotate_opa1_vars(
@@ -1110,7 +1108,6 @@ mod test {
     }
 
     // Compare to SnpEff annotated ClinVar variants for BRCA1 (slow).
-    #[ignore]
     #[test]
     fn annotate_brca1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
         annotate_brca1_vars(
@@ -1120,7 +1117,6 @@ mod test {
     }
 
     // Compare to SnpEff annotated ClinVar variants for BRCA1 (slow).
-    #[ignore]
     #[test]
     fn annotate_brca1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
         annotate_brca1_vars(
