@@ -1,6 +1,7 @@
 //! Code for annotating variants based on molecular consequence.
 use std::str::FromStr;
 
+use enumflags2::bitflags;
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -38,6 +39,8 @@ pub enum PutativeImpact {
 }
 
 /// Putative impact.
+#[bitflags]
+#[repr(u64)]
 #[derive(
     Debug,
     PartialEq,
@@ -89,6 +92,8 @@ pub enum Consequence {
     #[serde(rename = "5_prime_UTR_premature_start_codon_gain_variant")]
     FivePrimeUtrPrematureStartCodonGainVariant,
     InitiatorCodonVariant,
+    SpliceDonorRegionVariant,
+    SplicePolypyrimidineTractVariant,
     StartRetained,
     StopRetainedVariant,
     SynonymousVariant,
@@ -135,56 +140,59 @@ pub enum Consequence {
 
 impl From<Consequence> for PutativeImpact {
     fn from(val: Consequence) -> Self {
+        use Consequence::*;
         match val {
-            Consequence::ChromosomeNumberVariation
-            | Consequence::ExonLossVariant
-            | Consequence::FrameshiftVariant
-            | Consequence::RareAminoAcidVariant
-            | Consequence::SpliceAcceptorVariant
-            | Consequence::SpliceDonorVariant
-            | Consequence::StartLost
-            | Consequence::StopGained
-            | Consequence::StopLost
-            | Consequence::TranscriptAblation => PutativeImpact::High,
-            Consequence::ThreePrimeUtrTruncation
-            | Consequence::FivePrimeUtrTruncaction
-            | Consequence::ConservativeInframeDeletion
-            | Consequence::ConservativeInframeInsertion
-            | Consequence::DisruptiveInframeDeletion
-            | Consequence::DisruptiveInframeInsertion
-            | Consequence::MissenseVariant
-            | Consequence::RegulatoryRegionAblation
-            | Consequence::SpliceRegionVariant
-            | Consequence::TbfsAblation => PutativeImpact::Moderate,
-            Consequence::FivePrimeUtrPrematureStartCodonGainVariant
-            | Consequence::InitiatorCodonVariant
-            | Consequence::StartRetained
-            | Consequence::StopRetainedVariant
-            | Consequence::SynonymousVariant => PutativeImpact::Low,
-            Consequence::ThreePrimeUtrVariant
-            | Consequence::FivePrimeUtrVariant
-            | Consequence::CodingSequenceVariant
-            | Consequence::ConservedIntergenicVariant
-            | Consequence::ConservedIntronVariant
-            | Consequence::DownstreamGeneVariant
-            | Consequence::ExonVariant
-            | Consequence::FeatureElongation
-            | Consequence::FeatureTruncation
-            | Consequence::GeneVariant
-            | Consequence::IntergenicVariant
-            | Consequence::IntronVariant
-            | Consequence::MatureMirnaVariant
-            | Consequence::Mirna
-            | Consequence::NmdTranscriptVariant
-            | Consequence::NonCodingTranscriptExonVariant
-            | Consequence::NonCodingTranscriptIntronVariant
-            | Consequence::RegulatoryRegionAmplification
-            | Consequence::RegulatoryRegionVariant
-            | Consequence::TfBindingSiteVariant
-            | Consequence::TfbsAmplification
-            | Consequence::TranscriptAmplification
-            | Consequence::TranscriptVariant
-            | Consequence::UpstreamGeneVariant => PutativeImpact::Modifier,
+            ChromosomeNumberVariation
+            | ExonLossVariant
+            | FrameshiftVariant
+            | RareAminoAcidVariant
+            | SpliceAcceptorVariant
+            | SpliceDonorVariant
+            | StartLost
+            | StopGained
+            | StopLost
+            | TranscriptAblation => PutativeImpact::High,
+            ThreePrimeUtrTruncation
+            | FivePrimeUtrTruncaction
+            | ConservativeInframeDeletion
+            | ConservativeInframeInsertion
+            | DisruptiveInframeDeletion
+            | DisruptiveInframeInsertion
+            | MissenseVariant
+            | RegulatoryRegionAblation
+            | SpliceRegionVariant
+            | TbfsAblation => PutativeImpact::Moderate,
+            FivePrimeUtrPrematureStartCodonGainVariant
+            | InitiatorCodonVariant
+            | StartRetained
+            | StopRetainedVariant
+            | SynonymousVariant
+            | SpliceDonorRegionVariant
+            | SplicePolypyrimidineTractVariant => PutativeImpact::Low,
+            ThreePrimeUtrVariant
+            | FivePrimeUtrVariant
+            | CodingSequenceVariant
+            | ConservedIntergenicVariant
+            | ConservedIntronVariant
+            | DownstreamGeneVariant
+            | ExonVariant
+            | FeatureElongation
+            | FeatureTruncation
+            | GeneVariant
+            | IntergenicVariant
+            | IntronVariant
+            | MatureMirnaVariant
+            | Mirna
+            | NmdTranscriptVariant
+            | NonCodingTranscriptExonVariant
+            | NonCodingTranscriptIntronVariant
+            | RegulatoryRegionAmplification
+            | RegulatoryRegionVariant
+            | TfBindingSiteVariant
+            | TfbsAmplification
+            | TranscriptAmplification
+            | TranscriptVariant
+            | UpstreamGeneVariant => PutativeImpact::Modifier,
         }
     }
 }
@@ -396,6 +404,18 @@ impl FeatureBiotype {
 pub struct Rank {
     pub ord: i32,
     pub total: i32,
+}
+
+impl Rank {
+    #[inline]
+    pub fn is_first(&self) -> bool {
+        self.ord == 1
+    }
+
+    #[inline]
+    pub fn is_last(&self) -> bool {
+        self.ord == self.total
+    }
 }
 
 /// Position, optionally with total length.

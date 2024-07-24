@@ -2,6 +2,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use biocommons_bioutils::assemblies::Assembly;
+use enumflags2::BitFlags;
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
     mapper::{assembly, Error},
@@ -9,6 +10,7 @@ use hgvs::{
         Accession, CdsFrom, GenomeInterval, GenomeLocEdit, HgvsVariant, Mu, NaEdit, ProtLocEdit,
     },
 };
+use itertools::Itertools;
 use rustc_hash::FxHashMap;
 
 use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
@@ -302,9 +304,14 @@ impl ConsequencePredictor {
             return Ok(None);
         };
 
-        let mut consequences: Vec<Consequence> = Vec::new();
-
+        assert_eq!(
+            tx.genome_alignments.len(),
+            1,
+            "At this point, only one genome alignment is expected"
+        );
         let alignment = tx.genome_alignments.first().unwrap();
+
+        let mut consequences: BitFlags<Consequence> = BitFlags::empty();
 
         let mut min_start = None;
         let mut max_end = None;
@@ -368,29 +375,29 @@ impl ConsequencePredictor {
 
             // Check the cases where the variant overlaps with whole exon.
             if var_start <= exon_start && var_end >= exon_end {
-                consequences.push(Consequence::ExonLossVariant);
+                consequences |= Consequence::ExonLossVariant;
                 if var_start < exon_start {
                     if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus
-                        && rank.ord != 1
+                        && !rank.is_first()
                     {
-                        consequences.push(Consequence::SpliceAcceptorVariant);
+                        consequences |= Consequence::SpliceAcceptorVariant;
                     } else if Strand::try_from(alignment.strand).expect("invalid strand")
                         == Strand::Minus
-                        && rank.ord != rank.total
+                        && !rank.is_last()
                     {
-                        consequences.push(Consequence::SpliceDonorVariant);
+                        consequences |= Consequence::SpliceDonorVariant;
                     }
                 }
                 if var_end > exon_end {
                     if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus
-                        && rank.ord != rank.total
+                        && !rank.is_last()
                     {
-                        consequences.push(Consequence::SpliceDonorVariant);
+                        consequences |= Consequence::SpliceDonorVariant;
                     } else if Strand::try_from(alignment.strand).expect("invalid strand")
                         == Strand::Minus
-                        && rank.ord != rank.total
+                        && !rank.is_last()
                     {
-                        consequences.push(Consequence::SpliceAcceptorVariant);
+                        consequences |= Consequence::SpliceAcceptorVariant;
                     }
                 }
             }
@@ -404,8 +411,8 @@ impl ConsequencePredictor {
                 if var_start < intron_start + 2 && var_end > intron_start - ins_shift {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match Strand::try_from(alignment.strand).expect("invalid strand") {
-                        Strand::Plus => consequences.push(Consequence::SpliceDonorVariant),
-                        Strand::Minus => consequences.push(Consequence::SpliceAcceptorVariant),
+                        Strand::Plus => consequences.insert(Consequence::SpliceDonorVariant),
+                        Strand::Minus => consequences.insert(Consequence::SpliceAcceptorVariant),
                         _ => unreachable!("invalid strand: {}", alignment.strand),
                     }
                 }
@@ -413,10 +420,14 @@ impl ConsequencePredictor {
                 if var_start < intron_end + ins_shift && var_end > intron_end - 2 {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match Strand::try_from(alignment.strand).expect("invalid strand") {
-                        Strand::Plus => consequences.push(Consequence::SpliceAcceptorVariant),
-                        Strand::Minus => consequences.push(Consequence::SpliceDonorVariant),
+                        Strand::Plus => consequences.insert(Consequence::SpliceAcceptorVariant),
+                        Strand::Minus => consequences.insert(Consequence::SpliceDonorVariant),
                         _ => unreachable!("invalid strand: {}", alignment.strand),
                     }
+                }
+                // Check the case where the variant overlaps with the polypyrimidine tract.
+                if var_start > intron_end + ins_shift - 17 && var_end < intron_end + ins_shift - 3 {
+                    consequences |= Consequence::SplicePolypyrimidineTractVariant;
                 }
             }
             // Check the case where the variant overlaps with the splice region (1-3 bases in exon
@@ -426,29 +437,29 @@ impl ConsequencePredictor {
                 if (var_start < intron_start + 8 && var_end > intron_start + 2)
                     || (var_start < intron_end - 8 && var_end > intron_end - 2)
                 {
-                    consequences.push(Consequence::SpliceRegionVariant);
+                    consequences |= Consequence::SpliceRegionVariant;
                 }
                 if var_start < exon_end && var_end > exon_end - 3 {
                     if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus {
-                        if rank.ord != rank.total {
-                            consequences.push(Consequence::SpliceRegionVariant);
+                        if !rank.is_last() {
+                            consequences |= Consequence::SpliceRegionVariant;
                         }
                     } else {
                         // alignment.strand == Strand::Minus
-                        if rank.ord != 1 {
-                            consequences.push(Consequence::SpliceRegionVariant);
+                        if !rank.is_first() {
+                            consequences |= Consequence::SpliceRegionVariant;
                         }
                     }
                 }
                 if var_start < exon_start + 3 && var_end > exon_start {
                     if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus {
-                        if rank.ord != 1 {
-                            consequences.push(Consequence::SpliceRegionVariant);
+                        if !rank.is_first() {
+                            consequences |= Consequence::SpliceRegionVariant;
                         }
                     } else {
                         // alignment.strand == Strand::Minus
-                        if rank.ord != rank.total {
-                            consequences.push(Consequence::SpliceRegionVariant);
+                        if !rank.is_last() {
+                            consequences |= Consequence::SpliceRegionVariant;
                         }
                     }
                 }
@@ -485,20 +496,20 @@ impl ConsequencePredictor {
         let is_downstream = var_start >= max_end;
         if is_exonic {
             if transcript_biotype == TranscriptBiotype::NonCoding {
-                consequences.push(Consequence::NonCodingTranscriptExonVariant);
+                consequences |= Consequence::NonCodingTranscriptExonVariant;
             }
         } else if is_intronic {
             if transcript_biotype == TranscriptBiotype::NonCoding {
-                consequences.push(Consequence::NonCodingTranscriptIntronVariant);
+                consequences |= Consequence::NonCodingTranscriptIntronVariant;
             } else {
-                consequences.push(Consequence::IntronVariant);
+                consequences |= Consequence::IntronVariant;
             }
         } else if is_upstream {
             let val = -(min_start + 1 - var_end);
             if val.abs() <= PADDING {
                 match Strand::try_from(alignment.strand).expect("invalid strand") {
-                    Strand::Plus => consequences.push(Consequence::UpstreamGeneVariant),
-                    Strand::Minus => consequences.push(Consequence::DownstreamGeneVariant),
+                    Strand::Plus => consequences |= Consequence::UpstreamGeneVariant,
+                    Strand::Minus => consequences |= Consequence::DownstreamGeneVariant,
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
             }
@@ -509,8 +520,8 @@ impl ConsequencePredictor {
             let val = var_start + 1 - max_end;
             if val.abs() <= PADDING {
                 match Strand::try_from(alignment.strand).expect("invalid strand") {
-                    Strand::Plus => consequences.push(Consequence::DownstreamGeneVariant),
-                    Strand::Minus => consequences.push(Consequence::UpstreamGeneVariant),
+                    Strand::Plus => consequences |= Consequence::DownstreamGeneVariant,
+                    Strand::Minus => consequences |= Consequence::UpstreamGeneVariant,
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
             }
@@ -519,45 +530,7 @@ impl ConsequencePredictor {
             }
         }
 
-        let var_g = HgvsVariant::GenomeVariant {
-            accession: Accession { value: chrom_acc },
-            gene_symbol: None,
-            loc_edit: if var.reference.is_empty() {
-                // insertion
-                GenomeLocEdit {
-                    loc: Mu::Certain(GenomeInterval {
-                        start: Some(var.position - 1),
-                        end: Some(var.position),
-                    }),
-                    edit: Mu::Certain(NaEdit::Ins {
-                        alternative: var.alternative.clone(),
-                    }),
-                }
-            } else if var.alternative.is_empty() {
-                // deletion
-                GenomeLocEdit {
-                    loc: Mu::Certain(GenomeInterval {
-                        start: Some(var.position),
-                        end: Some(var.position + var.reference.len() as i32 - 1),
-                    }),
-                    edit: Mu::Certain(NaEdit::DelRef {
-                        reference: var.reference.clone(),
-                    }),
-                }
-            } else {
-                // substitution
-                GenomeLocEdit {
-                    loc: Mu::Certain(GenomeInterval {
-                        start: Some(var.position),
-                        end: Some(var.position + var.reference.len() as i32 - 1),
-                    }),
-                    edit: Mu::Certain(NaEdit::RefAlt {
-                        reference: var.reference.clone(),
-                        alternative: var.alternative.clone(),
-                    }),
-                }
-            },
-        };
+        let var_g = Self::get_var_g(var, &chrom_acc);
 
         let (rank, hgvs_t, hgvs_p, tx_pos, cds_pos, protein_pos) = if !is_upstream && !is_downstream
         {
@@ -653,22 +626,22 @@ impl ConsequencePredictor {
                             let ends_right_of_start =
                                 start_cds_from != CdsFrom::Start || start_base > 0;
                             if starts_left_of_start && ends_right_of_start {
-                                consequences.push(Consequence::StartLost)
+                                consequences |= Consequence::StartLost;
                             }
                             // stop codon
                             let starts_left_of_stop = start_cds_from == CdsFrom::Start;
                             let ends_right_of_stop = end_cds_from == CdsFrom::End;
                             if starts_left_of_stop && ends_right_of_stop {
-                                consequences.push(Consequence::StopLost)
+                                consequences |= Consequence::StopLost;
                             }
 
                             // Detect variants affecting the 5'/3' UTRs.
                             if start_cds_from == CdsFrom::Start {
                                 if start_base < 0 {
-                                    consequences.push(Consequence::FivePrimeUtrVariant);
+                                    consequences |= Consequence::FivePrimeUtrVariant;
                                 }
                             } else if end_cds_from == CdsFrom::End {
-                                consequences.push(Consequence::ThreePrimeUtrVariant);
+                                consequences |= Consequence::ThreePrimeUtrVariant;
                             }
 
                             // The range is "conservative" (regarding deletions and insertions) if
@@ -692,71 +665,67 @@ impl ConsequencePredictor {
                                 let loc = loc.inner();
                                 match edit.inner() {
                                     hgvs::parser::ProteinEdit::Fs { .. } => {
-                                        consequences.push(Consequence::FrameshiftVariant);
+                                        consequences |= Consequence::FrameshiftVariant;
                                     }
                                     hgvs::parser::ProteinEdit::Ext { .. } => {
-                                        consequences.push(Consequence::StopLost);
-                                        consequences.push(Consequence::FeatureElongation);
+                                        consequences |= Consequence::StopLost;
+                                        consequences |= Consequence::FeatureElongation;
                                     }
                                     hgvs::parser::ProteinEdit::Subst { alternative } => {
                                         if alternative.is_empty() {
-                                            consequences.push(Consequence::SynonymousVariant);
+                                            consequences |= Consequence::SynonymousVariant;
                                         } else if is_stop(alternative) {
                                             if loc.start == loc.end && is_stop(&loc.start.aa) {
-                                                consequences.push(Consequence::StopRetainedVariant);
+                                                consequences |= Consequence::StopRetainedVariant;
                                             } else {
-                                                consequences.push(Consequence::StopGained);
+                                                consequences |= Consequence::StopGained;
                                             }
                                         } else {
-                                            consequences.push(Consequence::MissenseVariant);
+                                            consequences |= Consequence::MissenseVariant;
                                         }
                                     }
                                     hgvs::parser::ProteinEdit::DelIns { alternative } => {
                                         if conservative {
-                                            consequences
-                                                .push(Consequence::ConservativeInframeDeletion);
+                                            consequences |=
+                                                Consequence::ConservativeInframeDeletion;
                                         } else {
-                                            consequences
-                                                .push(Consequence::DisruptiveInframeDeletion);
+                                            consequences |= Consequence::DisruptiveInframeDeletion;
                                         }
                                         if alternative.contains('*')
                                             || alternative.contains('X')
                                             || alternative.contains("Ter")
                                         {
-                                            consequences.push(Consequence::StopGained);
+                                            consequences |= Consequence::StopGained;
                                         }
                                     }
                                     hgvs::parser::ProteinEdit::Ins { .. }
                                     | hgvs::parser::ProteinEdit::Dup => {
                                         if conservative {
-                                            consequences
-                                                .push(Consequence::ConservativeInframeInsertion);
+                                            consequences |=
+                                                Consequence::ConservativeInframeInsertion;
                                         } else {
-                                            consequences
-                                                .push(Consequence::DisruptiveInframeInsertion);
+                                            consequences |= Consequence::DisruptiveInframeInsertion;
                                         }
-                                        consequences
-                                            .push(Consequence::ConservativeInframeInsertion);
+                                        consequences |= Consequence::ConservativeInframeInsertion;
                                     }
                                     hgvs::parser::ProteinEdit::Del => {
                                         if conservative {
-                                            consequences
-                                                .push(Consequence::ConservativeInframeDeletion);
+                                            consequences |=
+                                                Consequence::ConservativeInframeDeletion;
                                         } else {
-                                            consequences
-                                                .push(Consequence::DisruptiveInframeDeletion);
+                                            consequences |= Consequence::DisruptiveInframeDeletion;
                                         }
                                     }
                                     hgvs::parser::ProteinEdit::Ident => {
-                                        consequences.push(Consequence::SynonymousVariant)
+                                        consequences |= Consequence::SynonymousVariant;
                                     }
                                 };
                             }
                             ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain => {
-                                consequences.push(Consequence::SynonymousVariant)
+                                consequences |= Consequence::SynonymousVariant;
                             }
                             ProtLocEdit::InitiationUncertain => {
-                                consequences.push(Consequence::StartLost)
+                                consequences |= Consequence::StartLost;
                             }
                             ProtLocEdit::NoProtein
                             | ProtLocEdit::NoProteinUncertain
@@ -786,8 +755,6 @@ impl ConsequencePredictor {
         };
 
         // Take a highest-ranking consequence and derive putative impact from it.
-        consequences.sort();
-        consequences.dedup();
         if consequences.is_empty() {
             tracing::debug!(
                 "No consequences for {:?} on {} (hgvs_p={}) - adding `gene_variant`;\
@@ -800,8 +767,9 @@ impl ConsequencePredictor {
                     .map(|s| (&s).to_string())
                     .unwrap_or(String::from("None"))
             );
-            consequences.push(Consequence::GeneVariant);
+            consequences |= Consequence::GeneVariant;
         }
+        let consequences = consequences.iter().collect_vec();
         let putative_impact = (*consequences.first().unwrap()).into();
 
         // Build and return ANN field from the information derived above.
@@ -827,6 +795,49 @@ impl ConsequencePredictor {
             distance,
             messages: None,
         }))
+    }
+
+    fn get_var_g(var: &VcfVariant, chrom_acc: &str) -> HgvsVariant {
+        let chrom_acc = chrom_acc.to_string();
+        HgvsVariant::GenomeVariant {
+            accession: Accession { value: chrom_acc },
+            gene_symbol: None,
+            loc_edit: if var.reference.is_empty() {
+                // insertion
+                GenomeLocEdit {
+                    loc: Mu::Certain(GenomeInterval {
+                        start: Some(var.position - 1),
+                        end: Some(var.position),
+                    }),
+                    edit: Mu::Certain(NaEdit::Ins {
+                        alternative: var.alternative.clone(),
+                    }),
+                }
+            } else if var.alternative.is_empty() {
+                // deletion
+                GenomeLocEdit {
+                    loc: Mu::Certain(GenomeInterval {
+                        start: Some(var.position),
+                        end: Some(var.position + var.reference.len() as i32 - 1),
+                    }),
+                    edit: Mu::Certain(NaEdit::DelRef {
+                        reference: var.reference.clone(),
+                    }),
+                }
+            } else {
+                // substitution
+                GenomeLocEdit {
+                    loc: Mu::Certain(GenomeInterval {
+                        start: Some(var.position),
+                        end: Some(var.position + var.reference.len() as i32 - 1),
+                    }),
+                    edit: Mu::Certain(NaEdit::RefAlt {
+                        reference: var.reference.clone(),
+                        alternative: var.alternative.clone(),
+                    }),
+                }
+            },
+        }
     }
 
     // Normalize variant by stripping common suffixes and prefixes.
