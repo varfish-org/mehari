@@ -326,6 +326,13 @@ impl ConsequencePredictor {
         let mut is_intronic = false;
         let mut distance: Option<i32> = None;
         let mut tx_len = 0;
+
+        fn overlap(f1_start: i32, f1_end: i32, f2_start: i32, f2_end: i32) -> bool {
+            (f1_end >= f2_start) && (f1_start <= f2_end)
+        }
+        let var_overlap =
+            |start: i32, end: i32| -> bool { overlap(var_start, var_end, start, end) };
+
         for exon_alignment in &alignment.exons {
             tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i;
 
@@ -416,10 +423,6 @@ impl ConsequencePredictor {
                         _ => unreachable!("invalid strand: {}", alignment.strand),
                     }
                 }
-                // Check the case where the variant overlaps with the polypyrimidine tract.
-                if var_start > intron_end + ins_shift - 17 && var_end < intron_end + ins_shift - 3 {
-                    consequences |= Consequence::SplicePolypyrimidineTractVariant;
-                }
             }
             // Check the case where the variant overlaps with the splice region (1-3 bases in exon
             // or 3-8 bases in intron).  We have to check all cases independently and not with `else`
@@ -453,6 +456,16 @@ impl ConsequencePredictor {
                             consequences |= Consequence::SpliceRegionVariant;
                         }
                     }
+                }
+            }
+
+            // Check the case where the variant overlaps with the polypyrimidine tract.
+            if let Some(intron_start) = intron_start {
+                if strand == Strand::Plus && var_overlap(intron_end - 16, intron_end - 2) {
+                    consequences |= Consequence::SplicePolypyrimidineTractVariant;
+                }
+                if strand == Strand::Minus && var_overlap(intron_start + 2, intron_start + 16) {
+                    consequences |= Consequence::SplicePolypyrimidineTractVariant;
                 }
             }
 
