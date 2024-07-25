@@ -741,6 +741,8 @@ impl std::fmt::Display for AnnField {
             write!(f, "{}", distance)?;
         }
         write!(f, "|")?;
+        write!(f, "{}", self.strand)?;
+        write!(f, "|")?;
         if let Some(messages) = &self.messages {
             for (i, csq) in messages.iter().enumerate() {
                 if i > 0 {
