@@ -30,6 +30,7 @@ expression: res
     total: 5592
   protein_pos: ~
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -58,6 +59,7 @@ expression: res
     total: 5451
   protein_pos: ~
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -86,6 +88,7 @@ expression: res
     total: 2280
   protein_pos: ~
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -114,6 +117,7 @@ expression: res
     total: 2100
   protein_pos: ~
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -142,5 +146,5 @@ expression: res
     total: 5655
   protein_pos: ~
   distance: 0
+  strand: -1
   messages: ~
-

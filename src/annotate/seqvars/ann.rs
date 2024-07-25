@@ -1,6 +1,4 @@
 //! Code for annotating variants based on molecular consequence.
-use std::str::FromStr;
-
 use enumflags2::bitflags;
 use nom::{
     branch::alt,
@@ -11,6 +9,7 @@ use nom::{
     IResult,
 };
 use parse_display::{Display, FromStr};
+use std::str::FromStr;
 use strum::IntoEnumIterator;
 
 /// Putative impact level.
@@ -547,6 +546,8 @@ pub struct AnnField {
     pub protein_pos: Option<Pos>,
     /// Distance to feature.
     pub distance: Option<i32>,
+    /// Strand of the alignment
+    pub strand: i32,
     /// Optional list of warnings and error messages.
     pub messages: Option<Vec<Message>>,
 }
@@ -573,6 +574,7 @@ impl Default for AnnField {
             cds_pos: Default::default(),
             protein_pos: Default::default(),
             distance: Default::default(),
+            strand: Default::default(),
             messages: Default::default(),
         }
     }
@@ -644,6 +646,8 @@ impl FromStr for AnnField {
         } else {
             Some(distance.parse()?)
         };
+        let strand = fields.next().unwrap();
+        let strand = strand.parse()?;
         let messages = fields.next().unwrap();
         let messages = if messages.is_empty() {
             None
@@ -671,6 +675,7 @@ impl FromStr for AnnField {
             cds_pos,
             protein_pos,
             distance,
+            strand,
             messages,
         })
     }
@@ -1136,20 +1141,21 @@ mod test {
                 total: None,
             }),
             distance: Some(1),
+            strand: 0,
             messages: Some(vec![Message::ErrorChromosomeNotFound]),
         };
 
         assert_eq!(
             format!("{}", &value),
             "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|Coding|1/2|HGVS.c\
-            |HGVS.p|1|1/2|1|1|ERROR_CHROMOSOME_NOT_FOUND"
+            |HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
         );
     }
 
     #[test]
     fn ann_field_from_str() -> Result<(), anyhow::Error> {
         let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
-        Coding|1/2|HGVS.c|HGVS.p|1|1/2|1|1|ERROR_CHROMOSOME_NOT_FOUND";
+        Coding|1/2|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
 
         let field = AnnField::from_str(value)?;
         assert_eq!(format!("{}", &field), value);

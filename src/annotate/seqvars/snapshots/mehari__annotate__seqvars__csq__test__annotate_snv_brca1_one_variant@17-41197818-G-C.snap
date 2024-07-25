@@ -32,6 +32,7 @@ expression: res
     ord: 1823
     total: 1864
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -62,6 +63,7 @@ expression: res
     ord: 1776
     total: 1817
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -92,6 +94,7 @@ expression: res
     ord: 719
     total: 760
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -122,6 +125,7 @@ expression: res
     ord: 695
     total: 700
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -152,5 +156,5 @@ expression: res
     ord: 1844
     total: 1885
   distance: 0
+  strand: -1
   messages: ~
-

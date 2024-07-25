@@ -31,6 +31,7 @@ expression: res
     ord: 3189
     total: 34351
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -62,6 +63,7 @@ expression: res
     ord: 3189
     total: 35992
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -92,6 +94,7 @@ expression: res
     ord: 3143
     total: 26927
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -122,6 +125,7 @@ expression: res
     ord: 3189
     total: 33424
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -152,6 +156,7 @@ expression: res
     ord: 3189
     total: 5605
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -182,6 +187,7 @@ expression: res
     ord: 3143
     total: 27052
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -212,5 +218,5 @@ expression: res
     ord: 3143
     total: 27119
   distance: 0
+  strand: -1
   messages: ~
-

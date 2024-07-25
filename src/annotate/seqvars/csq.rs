@@ -310,6 +310,7 @@ impl ConsequencePredictor {
             "At this point, only one genome alignment is expected"
         );
         let alignment = tx.genome_alignments.first().unwrap();
+        let strand = Strand::try_from(alignment.strand).expect("invalid strand");
 
         let mut consequences: BitFlags<Consequence> = BitFlags::empty();
 
@@ -377,26 +378,16 @@ impl ConsequencePredictor {
             if var_start <= exon_start && var_end >= exon_end {
                 consequences |= Consequence::ExonLossVariant;
                 if var_start < exon_start {
-                    if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus
-                        && !rank.is_first()
-                    {
+                    if strand == Strand::Plus && !rank.is_first() {
                         consequences |= Consequence::SpliceAcceptorVariant;
-                    } else if Strand::try_from(alignment.strand).expect("invalid strand")
-                        == Strand::Minus
-                        && !rank.is_last()
-                    {
+                    } else if strand == Strand::Minus && !rank.is_last() {
                         consequences |= Consequence::SpliceDonorVariant;
                     }
                 }
                 if var_end > exon_end {
-                    if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus
-                        && !rank.is_last()
-                    {
+                    if strand == Strand::Plus && !rank.is_last() {
                         consequences |= Consequence::SpliceDonorVariant;
-                    } else if Strand::try_from(alignment.strand).expect("invalid strand")
-                        == Strand::Minus
-                        && !rank.is_last()
-                    {
+                    } else if strand == Strand::Minus && !rank.is_last() {
                         consequences |= Consequence::SpliceAcceptorVariant;
                     }
                 }
@@ -410,7 +401,7 @@ impl ConsequencePredictor {
                 // Check the cases where the variant overlaps with the splice acceptor/donor site.
                 if var_start < intron_start + 2 && var_end > intron_start - ins_shift {
                     // Left side, is acceptor/donor depending on transcript's strand.
-                    match Strand::try_from(alignment.strand).expect("invalid strand") {
+                    match strand {
                         Strand::Plus => consequences.insert(Consequence::SpliceDonorVariant),
                         Strand::Minus => consequences.insert(Consequence::SpliceAcceptorVariant),
                         _ => unreachable!("invalid strand: {}", alignment.strand),
@@ -419,7 +410,7 @@ impl ConsequencePredictor {
                 // Check the case where the variant overlaps with the splice donor site.
                 if var_start < intron_end + ins_shift && var_end > intron_end - 2 {
                     // Left side, is acceptor/donor depending on transcript's strand.
-                    match Strand::try_from(alignment.strand).expect("invalid strand") {
+                    match strand {
                         Strand::Plus => consequences.insert(Consequence::SpliceAcceptorVariant),
                         Strand::Minus => consequences.insert(Consequence::SpliceDonorVariant),
                         _ => unreachable!("invalid strand: {}", alignment.strand),
@@ -440,7 +431,7 @@ impl ConsequencePredictor {
                     consequences |= Consequence::SpliceRegionVariant;
                 }
                 if var_start < exon_end && var_end > exon_end - 3 {
-                    if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus {
+                    if strand == Strand::Plus {
                         if !rank.is_last() {
                             consequences |= Consequence::SpliceRegionVariant;
                         }
@@ -452,7 +443,7 @@ impl ConsequencePredictor {
                     }
                 }
                 if var_start < exon_start + 3 && var_end > exon_start {
-                    if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus {
+                    if strand == Strand::Plus {
                         if !rank.is_first() {
                             consequences |= Consequence::SpliceRegionVariant;
                         }
@@ -507,7 +498,7 @@ impl ConsequencePredictor {
         } else if is_upstream {
             let val = -(min_start + 1 - var_end);
             if val.abs() <= PADDING {
-                match Strand::try_from(alignment.strand).expect("invalid strand") {
+                match strand {
                     Strand::Plus => consequences |= Consequence::UpstreamGeneVariant,
                     Strand::Minus => consequences |= Consequence::DownstreamGeneVariant,
                     _ => unreachable!("invalid strand: {}", alignment.strand),
@@ -519,7 +510,7 @@ impl ConsequencePredictor {
         } else if is_downstream {
             let val = var_start + 1 - max_end;
             if val.abs() <= PADDING {
-                match Strand::try_from(alignment.strand).expect("invalid strand") {
+                match strand {
                     Strand::Plus => consequences |= Consequence::DownstreamGeneVariant,
                     Strand::Minus => consequences |= Consequence::UpstreamGeneVariant,
                     _ => unreachable!("invalid strand: {}", alignment.strand),
@@ -772,6 +763,12 @@ impl ConsequencePredictor {
         let consequences = consequences.iter().collect_vec();
         let putative_impact = (*consequences.first().unwrap()).into();
 
+        let strand = match strand {
+            Strand::Unknown => 0,
+            Strand::Plus => 1,
+            Strand::Minus => -1,
+        };
+
         // Build and return ANN field from the information derived above.
         Ok(Some(AnnField {
             allele: Allele::Alt {
@@ -792,6 +789,7 @@ impl ConsequencePredictor {
             tx_pos,
             cds_pos,
             protein_pos,
+            strand,
             distance,
             messages: None,
         }))

@@ -32,6 +32,7 @@ expression: res
     ord: 1862
     total: 1864
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -62,6 +63,7 @@ expression: res
     ord: 1815
     total: 1817
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -92,6 +94,7 @@ expression: res
     ord: 758
     total: 760
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -120,6 +123,7 @@ expression: res
     total: 2100
   protein_pos: ~
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -150,5 +154,5 @@ expression: res
     ord: 1883
     total: 1885
   distance: 0
+  strand: -1
   messages: ~
-
