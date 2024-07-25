@@ -8,7 +8,7 @@ expression: res
   consequences:
     - splice_region_variant
     - intron_variant
-  putative_impact: MODERATE
+  putative_impact: LOW
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
@@ -39,7 +39,7 @@ expression: res
   consequences:
     - splice_region_variant
     - intron_variant
-  putative_impact: MODERATE
+  putative_impact: LOW
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
@@ -69,7 +69,7 @@ expression: res
   consequences:
     - splice_region_variant
     - intron_variant
-  putative_impact: MODERATE
+  putative_impact: LOW
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
@@ -99,7 +99,7 @@ expression: res
   consequences:
     - splice_region_variant
     - intron_variant
-  putative_impact: MODERATE
+  putative_impact: LOW
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
@@ -129,7 +129,7 @@ expression: res
   consequences:
     - splice_region_variant
     - intron_variant
-  putative_impact: MODERATE
+  putative_impact: LOW
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
