@@ -1319,6 +1319,12 @@ mod test {
                     let found_one = found_one
                         || expected_one_of.contains(&String::from("splice_region_variant"))
                             && (record_csqs.contains(&String::from("5_prime_UTR_variant")));
+                    // SnpEff does not predict `splice_polypyrimidine_tract_variant`
+                    let found_one = found_one
+                        || expected_one_of
+                            .contains(&String::from("splice_polypyrimidine_tract_variant"))
+                            && (record_csqs.contains(&String::from("splice_region_variant"))
+                                || record_csqs.contains(&String::from("intron_variant")));
                     // For `GRCh37:3:193366573:A:ATATTGCCTAGAATGAACT`, SnpEff predicts
                     // `stop_gained` while this rather is a intron variant.  We skip this variant.
                     let found_one = found_one
