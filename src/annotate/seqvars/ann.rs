@@ -94,7 +94,7 @@ pub enum Consequence {
     InitiatorCodonVariant,
     SpliceDonorRegionVariant,
     SplicePolypyrimidineTractVariant,
-    StartRetained,
+    StartRetainedVariant,
     StopRetainedVariant,
     SynonymousVariant,
     // modifier
@@ -151,7 +151,10 @@ impl From<Consequence> for PutativeImpact {
             | StartLost
             | StopGained
             | StopLost
-            | TranscriptAblation => PutativeImpact::High,
+            | TranscriptAblation
+            | TranscriptAmplification
+            | FeatureElongation
+            | FeatureTruncation => PutativeImpact::High,
             ThreePrimeUtrTruncation
             | FivePrimeUtrTruncaction
             | ConservativeInframeDeletion
@@ -160,14 +163,14 @@ impl From<Consequence> for PutativeImpact {
             | DisruptiveInframeInsertion
             | MissenseVariant
             | RegulatoryRegionAblation
-            | SpliceRegionVariant
             | TbfsAblation => PutativeImpact::Moderate,
             FivePrimeUtrPrematureStartCodonGainVariant
             | InitiatorCodonVariant
-            | StartRetained
+            | StartRetainedVariant
             | StopRetainedVariant
             | SynonymousVariant
             | SpliceDonorRegionVariant
+            | SpliceRegionVariant
             | SplicePolypyrimidineTractVariant => PutativeImpact::Low,
             ThreePrimeUtrVariant
             | FivePrimeUtrVariant
@@ -176,8 +179,6 @@ impl From<Consequence> for PutativeImpact {
             | ConservedIntronVariant
             | DownstreamGeneVariant
             | ExonVariant
-            | FeatureElongation
-            | FeatureTruncation
             | GeneVariant
             | IntergenicVariant
             | IntronVariant
@@ -190,7 +191,6 @@ impl From<Consequence> for PutativeImpact {
             | RegulatoryRegionVariant
             | TfBindingSiteVariant
             | TfbsAmplification
-            | TranscriptAmplification
             | TranscriptVariant
             | UpstreamGeneVariant => PutativeImpact::Modifier,
         }
