@@ -1280,9 +1280,17 @@ impl TranscriptLoader {
                 Self::protobuf_genome_alignment(genome_build, alignment)
             })
             .unzip();
+
+        let seleno_tag = tx
+            .biotype
+            .as_ref()
+            .map_or(false, |bt| bt.contains(&BioType::Selenoprotein))
+            .then(|| crate::pbs::txs::TranscriptTag::Selenoprotein.into());
+
         let tags = tags
             .into_iter()
             .flatten()
+            .chain(seleno_tag)
             .sorted_unstable()
             .dedup()
             .collect();
