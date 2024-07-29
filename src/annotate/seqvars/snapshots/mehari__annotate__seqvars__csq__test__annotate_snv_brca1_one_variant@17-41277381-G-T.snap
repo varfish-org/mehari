@@ -6,7 +6,7 @@ expression: res
     Alt:
       alternative: T
   consequences:
-    - 5_prime_UTR_variant
+    - 5_prime_UTR_exon_variant
   putative_impact: MODIFIER
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -36,7 +36,7 @@ expression: res
     Alt:
       alternative: T
   consequences:
-    - 5_prime_UTR_variant
+    - 5_prime_UTR_exon_variant
   putative_impact: MODIFIER
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -88,7 +88,7 @@ expression: res
     Alt:
       alternative: T
   consequences:
-    - 5_prime_UTR_variant
+    - 5_prime_UTR_exon_variant
   putative_impact: MODIFIER
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -117,7 +117,7 @@ expression: res
     Alt:
       alternative: T
   consequences:
-    - 5_prime_UTR_variant
+    - 5_prime_UTR_exon_variant
   putative_impact: MODIFIER
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
