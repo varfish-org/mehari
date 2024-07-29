@@ -818,12 +818,12 @@ mod test {
             "5_prime_UTR_premature_start_codon_gain_variant"
         );
         assert_eq!(
-            format!("{}", Consequence::ThreePrimeUtrVariant),
-            "3_prime_UTR_variant"
+            format!("{}", Consequence::ThreePrimeUtrExonVariant),
+            "3_prime_UTR_exon_variant"
         );
         assert_eq!(
-            format!("{}", Consequence::FivePrimeUtrVariant),
-            "5_prime_UTR_variant"
+            format!("{}", Consequence::FivePrimeUtrIntronVariant),
+            "5_prime_UTR_intron_variant"
         );
         assert_eq!(
             format!("{}", Consequence::MatureMirnaVariant),
