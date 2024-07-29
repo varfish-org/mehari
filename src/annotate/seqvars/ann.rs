@@ -75,11 +75,12 @@ pub enum Consequence {
     ThreePrimeUtrTruncation,
     #[display("5_prime_UTR_truncation")]
     #[serde(rename = "5_prime_UTR_truncation")]
-    FivePrimeUtrTruncaction,
+    FivePrimeUtrTruncation,
     ConservativeInframeDeletion,
     ConservativeInframeInsertion,
     DisruptiveInframeDeletion,
     DisruptiveInframeInsertion,
+    InframeIndel,
     MissenseVariant,
     RegulatoryRegionAblation,
     SpliceRegionVariant,
@@ -99,10 +100,12 @@ pub enum Consequence {
     // modifier
     #[display("3_prime_UTR_variant")]
     #[serde(rename = "3_prime_UTR_variant")]
-    ThreePrimeUtrVariant,
+    ThreePrimeUtrExonVariant,
+    ThreePrimeUtrIntronVariant,
     #[display("5_prime_UTR_variant")]
     #[serde(rename = "5_prime_UTR_variant")]
-    FivePrimeUtrVariant,
+    FivePrimeUtrExonVariant,
+    FivePrimeUtrIntronVariant,
     CodingSequenceVariant,
     ConservedIntergenicVariant,
     ConservedIntronVariant,
@@ -155,7 +158,7 @@ impl From<Consequence> for PutativeImpact {
             | FeatureElongation
             | FeatureTruncation => PutativeImpact::High,
             ThreePrimeUtrTruncation
-            | FivePrimeUtrTruncaction
+            | FivePrimeUtrTruncation
             | ConservativeInframeDeletion
             | ConservativeInframeInsertion
             | DisruptiveInframeDeletion
@@ -800,7 +803,7 @@ mod test {
             "3_prime_UTR_truncation"
         );
         assert_eq!(
-            format!("{}", Consequence::FivePrimeUtrTruncaction),
+            format!("{}", Consequence::FivePrimeUtrTruncation),
             "5_prime_UTR_truncation"
         );
         assert_eq!(format!("{}", Consequence::TbfsAblation), "TFBS_ablation");
@@ -850,7 +853,7 @@ mod test {
         );
         assert_eq!(
             Consequence::from_str("5_prime_UTR_truncation")?,
-            Consequence::FivePrimeUtrTruncaction,
+            Consequence::FivePrimeUtrTruncation,
         );
         assert_eq!(
             Consequence::from_str("TFBS_ablation")?,

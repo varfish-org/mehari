@@ -1,6 +1,8 @@
 //! Compute molecular consequence of variants.
 use std::{collections::HashMap, sync::Arc};
 
+use crate::annotate::seqvars::ann::PutativeImpact;
+use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
 use biocommons_bioutils::assemblies::Assembly;
 use enumflags2::BitFlags;
 use hgvs::{
@@ -12,8 +14,6 @@ use hgvs::{
 };
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
-
-use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
@@ -183,6 +183,29 @@ impl ConsequencePredictor {
             // transcript source.
             self.filter_picked_sourced_txs(txs)
         };
+
+        // Handle case of no overlapping transcripts -> intergenic.
+        if txs.is_empty() {
+            return Ok(Some(vec![AnnField {
+                allele: norm_var.alternative.parse()?,
+                gene_id: "".to_string(),
+                consequences: vec![Consequence::IntergenicVariant],
+                putative_impact: PutativeImpact::Modifier,
+                feature_type: FeatureType::SoTerm,
+                feature_id: "".to_string(),
+                feature_biotype: vec![],
+                rank: None,
+                distance: None,
+                strand: 0,
+                hgvs_t: None,
+                hgvs_p: None,
+                tx_pos: None,
+                cds_pos: None,
+                protein_pos: None,
+                gene_symbol: "".to_string(),
+                messages: None,
+            }]));
+        }
 
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
         let anns_all_txs = txs
@@ -516,6 +539,8 @@ impl ConsequencePredictor {
                     Strand::Minus => consequences |= Consequence::DownstreamGeneVariant,
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
+            } else {
+                consequences |= Consequence::IntergenicVariant;
             }
             if distance.is_none() {
                 distance = Some(val);
@@ -528,6 +553,8 @@ impl ConsequencePredictor {
                     Strand::Minus => consequences |= Consequence::UpstreamGeneVariant,
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
+            } else {
+                consequences |= Consequence::IntergenicVariant;
             }
             if distance.is_none() {
                 distance = Some(val);
@@ -642,10 +669,20 @@ impl ConsequencePredictor {
                             // Detect variants affecting the 5'/3' UTRs.
                             if start_cds_from == CdsFrom::Start {
                                 if start_base < 0 {
-                                    consequences |= Consequence::FivePrimeUtrVariant;
+                                    if is_intronic {
+                                        consequences |= Consequence::FivePrimeUtrIntronVariant;
+                                    }
+                                    if is_exonic {
+                                        consequences |= Consequence::FivePrimeUtrExonVariant;
+                                    }
                                 }
                             } else if end_cds_from == CdsFrom::End {
-                                consequences |= Consequence::ThreePrimeUtrVariant;
+                                if is_intronic {
+                                    consequences |= Consequence::ThreePrimeUtrIntronVariant;
+                                }
+                                if is_exonic {
+                                    consequences |= Consequence::ThreePrimeUtrExonVariant;
+                                }
                             }
 
                             // The range is "conservative" (regarding deletions and insertions) if
@@ -689,12 +726,7 @@ impl ConsequencePredictor {
                                         }
                                     }
                                     hgvs::parser::ProteinEdit::DelIns { alternative } => {
-                                        if conservative {
-                                            consequences |=
-                                                Consequence::ConservativeInframeDeletion;
-                                        } else {
-                                            consequences |= Consequence::DisruptiveInframeDeletion;
-                                        }
+                                        consequences |= Consequence::InframeIndel;
                                         if alternative.contains('*')
                                             || alternative.contains('X')
                                             || alternative.contains("Ter")
@@ -760,7 +792,7 @@ impl ConsequencePredictor {
 
         // Take a highest-ranking consequence and derive putative impact from it.
         if consequences.is_empty() {
-            tracing::debug!(
+            tracing::error!(
                 "No consequences for {:?} on {} (hgvs_p={}) - adding `gene_variant`;\
                 most likely the transcript has multiple stop codons and the variant \
                 lies behind the first.",
