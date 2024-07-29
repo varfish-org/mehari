@@ -163,6 +163,7 @@ impl From<Consequence> for PutativeImpact {
             | ConservativeInframeInsertion
             | DisruptiveInframeDeletion
             | DisruptiveInframeInsertion
+            | InframeIndel
             | MissenseVariant
             | RegulatoryRegionAblation
             | TbfsAblation => PutativeImpact::Moderate,
@@ -174,8 +175,10 @@ impl From<Consequence> for PutativeImpact {
             | SpliceDonorRegionVariant
             | SpliceRegionVariant
             | SplicePolypyrimidineTractVariant => PutativeImpact::Low,
-            ThreePrimeUtrVariant
-            | FivePrimeUtrVariant
+            ThreePrimeUtrExonVariant
+            | ThreePrimeUtrIntronVariant
+            | FivePrimeUtrExonVariant
+            | FivePrimeUtrIntronVariant
             | CodingSequenceVariant
             | ConservedIntergenicVariant
             | ConservedIntronVariant

@@ -191,7 +191,9 @@ impl ConsequencePredictor {
                 gene_id: "".to_string(),
                 consequences: vec![Consequence::IntergenicVariant],
                 putative_impact: PutativeImpact::Modifier,
-                feature_type: FeatureType::SoTerm,
+                feature_type: FeatureType::SoTerm {
+                    term: SoFeature::Transcript,
+                },
                 feature_id: "".to_string(),
                 feature_biotype: vec![],
                 rank: None,
