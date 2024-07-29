@@ -98,13 +98,17 @@ pub enum Consequence {
     StopRetainedVariant,
     SynonymousVariant,
     // modifier
-    #[display("3_prime_UTR_variant")]
-    #[serde(rename = "3_prime_UTR_variant")]
+    #[display("3_prime_UTR_exon_variant")]
+    #[serde(rename = "3_prime_UTR_exon_variant")]
     ThreePrimeUtrExonVariant,
+    #[display("3_prime_UTR_intron_variant")]
+    #[serde(rename = "3_prime_UTR_intron_variant")]
     ThreePrimeUtrIntronVariant,
-    #[display("5_prime_UTR_variant")]
-    #[serde(rename = "5_prime_UTR_variant")]
+    #[display("5_prime_UTR_exon_variant")]
+    #[serde(rename = "5_prime_UTR_exon_variant")]
     FivePrimeUtrExonVariant,
+    #[display("5_prime_UTR_intron_variant")]
+    #[serde(rename = "5_prime_UTR_intron_variant")]
     FivePrimeUtrIntronVariant,
     CodingSequenceVariant,
     ConservedIntergenicVariant,
@@ -867,12 +871,12 @@ mod test {
             Consequence::FivePrimeUtrPrematureStartCodonGainVariant,
         );
         assert_eq!(
-            Consequence::from_str("3_prime_UTR_variant")?,
-            Consequence::ThreePrimeUtrVariant,
+            Consequence::from_str("3_prime_UTR_exon_variant")?,
+            Consequence::ThreePrimeUtrExonVariant,
         );
         assert_eq!(
-            Consequence::from_str("5_prime_UTR_variant")?,
-            Consequence::FivePrimeUtrVariant,
+            Consequence::from_str("5_prime_UTR_intron_variant")?,
+            Consequence::FivePrimeUtrIntronVariant,
         );
         assert_eq!(
             Consequence::from_str("mature_miRNA_variant")?,
