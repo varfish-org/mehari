@@ -59,7 +59,7 @@ quick_cache = "0.6"
 rand = "0.8"
 rand_core = "0.6"
 rocksdb = { version = "0.22", features = ["multi-threaded-cf"] }
-rustc-hash = "1.1"
+rustc-hash = "2.0"
 seqrepo = { version = "0.10.2", features = ["cached"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
