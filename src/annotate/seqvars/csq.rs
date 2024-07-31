@@ -1304,7 +1304,9 @@ mod test {
                     // NB: We cannot predict 5_prime_UTR_premature_start_codon_gain_variant yet. For now, we
                     // also accept 5_prime_UTR_variant.
                     let found_one = found_one
-                        || (expected_one_of.contains(&String::from("5_prime_UTR_variant"))
+                        || ((expected_one_of.contains(&String::from("5_prime_UTR_exon_variant"))
+                            || expected_one_of
+                                .contains(&String::from("5_prime_UTR_intron_variant")))
                             && (record_csqs.contains(&String::from(
                                 "5_prime_UTR_premature_start_codon_gain_variant",
                             ))));
@@ -1336,7 +1338,8 @@ mod test {
                     // On BRCA1, there is a case where VEP predicts `protein_altering_variant` rather than
                     // `disruptive_inframe_deletion`.  We accept this as well.
                     let found_one = found_one
-                        || expected_one_of.contains(&String::from("disruptive_inframe_deletion"))
+                        || (expected_one_of.contains(&String::from("disruptive_inframe_deletion"))
+                            || expected_one_of.contains(&String::from("inframe_indel")))
                             && (record_csqs.contains(&String::from("protein_altering_variant")));
                     // In the case of `GRCh37:17:41258543:T:TA`, the `hgvs` prediction is `c.-1_1insT` and
                     // `p.Met1?` which leads to `start_lost` while VEP predicts `5_prime_UTR_variant`.
@@ -1345,6 +1348,37 @@ mod test {
                     let found_one = found_one
                         || expected_one_of.contains(&String::from("start_lost"))
                             && (record_csqs.contains(&String::from("5_prime_UTR_variant")));
+                    // We have specialized {5,3}_prime_UTR_{exon,intron}_variant handling, while
+                    // vep and snpEff do not
+                    let found_one = found_one
+                        || record_csqs.contains(&String::from("5_prime_UTR_variant"))
+                            && (expected_one_of
+                                .contains(&String::from("5_prime_UTR_exon_variant"))
+                                || expected_one_of
+                                    .contains(&String::from("5_prime_UTR_intron_variant")));
+                    let found_one = found_one
+                        || record_csqs.contains(&String::from("3_prime_UTR_variant"))
+                            && (expected_one_of
+                                .contains(&String::from("3_prime_UTR_exon_variant"))
+                                || expected_one_of
+                                    .contains(&String::from("3_prime_UTR_intron_variant")));
+                    // an inframe_indel can be a missense_variant if it is an MNV (which we do not explicitly check here)
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("inframe_indel"))
+                            && (record_csqs.contains(&String::from("missense_variant")));
+                    // inframe_indel also is a superclass of *_inframe_{deletion, insertion}
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("inframe_indel"))
+                            && [
+                                "disruptive_inframe_deletion",
+                                "conservative_inframe_deletion",
+                                "inframe_deletion",
+                                "disruptive_inframe_insertion",
+                                "conservative_inframe_insertion",
+                                "inframe_insertion",
+                            ]
+                            .iter()
+                            .any(|c| record_csqs.contains(&String::from(*c)));
                     // SnpEff has a different interpretation of disruptive/conservative inframe deletions.
                     // We thus allow both.
                     let found_one = found_one
