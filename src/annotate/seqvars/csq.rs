@@ -186,16 +186,18 @@ impl ConsequencePredictor {
 
         // Handle case of no overlapping transcripts -> intergenic.
         if txs.is_empty() {
-            return Ok(Some(vec![AnnField {
-                allele: norm_var.alternative.parse()?,
-                gene_id: "".to_string(),
+            return Ok(Some(self.filter_ann_fields(vec![AnnField {
+                allele: Allele::Alt {
+                    alternative: var.alternative.clone(),
+                },
+                gene_id: ".".to_string(),
                 consequences: vec![Consequence::IntergenicVariant],
                 putative_impact: PutativeImpact::Modifier,
-                feature_type: FeatureType::SoTerm {
-                    term: SoFeature::Transcript,
+                feature_type: FeatureType::Custom {
+                    value: "Intergenic".to_string(),
                 },
-                feature_id: "".to_string(),
-                feature_biotype: vec![],
+                feature_id: ".".to_string(),
+                feature_biotype: vec![FeatureBiotype::Noncoding],
                 rank: None,
                 distance: None,
                 strand: 0,
@@ -204,9 +206,9 @@ impl ConsequencePredictor {
                 tx_pos: None,
                 cds_pos: None,
                 protein_pos: None,
-                gene_symbol: "".to_string(),
+                gene_symbol: ".".to_string(),
                 messages: None,
-            }]));
+            }])));
         }
 
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
@@ -618,10 +620,7 @@ impl ConsequencePredictor {
                     let var_p = var_p.unwrap();
 
                     let hgvs_p = format!("{}", &var_p);
-                    let mut hgvs_p = hgvs_p.split(':').nth(1).unwrap().to_owned();
-                    for (aa3, aa1) in hgvs::sequences::AA3_TO_AA1_VEC.iter() {
-                        hgvs_p = hgvs_p.replace(aa3, aa1);
-                    }
+                    let hgvs_p = hgvs_p.split(':').nth(1).unwrap().to_owned();
                     let hgvs_p = Some(hgvs_p);
                     let cds_pos = match &var_c {
                         HgvsVariant::CdsVariant { loc_edit, .. } => Some(Pos {
