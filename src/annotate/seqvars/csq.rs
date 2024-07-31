@@ -415,7 +415,6 @@ impl ConsequencePredictor {
             // Check the cases where the variant overlaps with whole exon.
             if var_start <= exon_start && var_end >= exon_end {
                 consequences |= Consequence::ExonLossVariant;
-                consequences |= Consequence::TranscriptAblation;
                 if var_start < exon_start {
                     if strand == Strand::Plus && !rank.is_first() {
                         consequences |= Consequence::SpliceAcceptorVariant;
