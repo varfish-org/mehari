@@ -336,6 +336,10 @@ impl ConsequencePredictor {
             1,
             "At this point, only one genome alignment is expected"
         );
+
+        // TODO: Report selenocysteine modifications
+        // let is_seleno = tx.tags.contains(&(TranscriptTag::Selenoprotein as i32));
+
         let alignment = tx.genome_alignments.first().unwrap();
         let strand = Strand::try_from(alignment.strand).expect("invalid strand");
 
