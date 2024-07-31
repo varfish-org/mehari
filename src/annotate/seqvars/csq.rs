@@ -184,32 +184,32 @@ impl ConsequencePredictor {
             self.filter_picked_sourced_txs(txs)
         };
 
-        // Handle case of no overlapping transcripts -> intergenic.
-        if txs.is_empty() {
-            return Ok(Some(self.filter_ann_fields(vec![AnnField {
-                allele: Allele::Alt {
-                    alternative: var.alternative.clone(),
-                },
-                gene_id: ".".to_string(),
-                consequences: vec![Consequence::IntergenicVariant],
-                putative_impact: PutativeImpact::Modifier,
-                feature_type: FeatureType::Custom {
-                    value: "Intergenic".to_string(),
-                },
-                feature_id: ".".to_string(),
-                feature_biotype: vec![FeatureBiotype::Noncoding],
-                rank: None,
-                distance: None,
-                strand: 0,
-                hgvs_t: None,
-                hgvs_p: None,
-                tx_pos: None,
-                cds_pos: None,
-                protein_pos: None,
-                gene_symbol: ".".to_string(),
-                messages: None,
-            }])));
-        }
+        // // Handle case of no overlapping transcripts -> intergenic.
+        // if txs.is_empty() {
+        //     return Ok(Some(self.filter_ann_fields(vec![AnnField {
+        //         allele: Allele::Alt {
+        //             alternative: var.alternative.clone(),
+        //         },
+        //         gene_id: ".".to_string(),
+        //         consequences: vec![Consequence::IntergenicVariant],
+        //         putative_impact: PutativeImpact::Modifier,
+        //         feature_type: FeatureType::Custom {
+        //             value: "Intergenic".to_string(),
+        //         },
+        //         feature_id: ".".to_string(),
+        //         feature_biotype: vec![FeatureBiotype::Noncoding],
+        //         rank: None,
+        //         distance: None,
+        //         strand: 0,
+        //         hgvs_t: None,
+        //         hgvs_p: None,
+        //         tx_pos: None,
+        //         cds_pos: None,
+        //         protein_pos: None,
+        //         gene_symbol: ".".to_string(),
+        //         messages: None,
+        //     }])));
+        // }
 
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
         let anns_all_txs = txs
