@@ -556,7 +556,7 @@ impl ConsequencePredictor {
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
             } else {
-                consequences |= Consequence::IntergenicVariant;
+                unreachable!("variant is intergenic but this cannot happen here");
             }
             if distance.is_none() {
                 distance = Some(val);
@@ -570,7 +570,7 @@ impl ConsequencePredictor {
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
             } else {
-                consequences |= Consequence::IntergenicVariant;
+                unreachable!("variant is intergenic but this cannot happen here");
             }
             if distance.is_none() {
                 distance = Some(val);
