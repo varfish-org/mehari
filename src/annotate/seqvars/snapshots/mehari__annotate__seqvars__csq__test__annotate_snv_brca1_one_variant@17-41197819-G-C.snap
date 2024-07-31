@@ -21,7 +21,7 @@ expression: res
     ord: 23
     total: 23
   hgvs_t: c.5468C>G
-  hgvs_p: p.A1823G
+  hgvs_p: p.Ala1823Gly
   tx_pos:
     ord: 5581
     total: 7088
@@ -52,7 +52,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_t: c.5327C>G
-  hgvs_p: p.A1776G
+  hgvs_p: p.Ala1776Gly
   tx_pos:
     ord: 5521
     total: 7028
@@ -83,7 +83,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_t: c.2156C>G
-  hgvs_p: p.A719G
+  hgvs_p: p.Ala719Gly
   tx_pos:
     ord: 2175
     total: 3682
@@ -114,7 +114,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_t: c.2082C>G
-  hgvs_p: p.C694W
+  hgvs_p: p.Cys694Trp
   tx_pos:
     ord: 2189
     total: 3696
@@ -145,7 +145,7 @@ expression: res
     ord: 24
     total: 24
   hgvs_t: c.5531C>G
-  hgvs_p: p.A1844G
+  hgvs_p: p.Ala1844Gly
   tx_pos:
     ord: 5644
     total: 7151

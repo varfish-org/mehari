@@ -21,7 +21,7 @@ expression: res
     ord: 23
     total: 23
   hgvs_t: c.5586C>G
-  hgvs_p: p.H1862Q
+  hgvs_p: p.His1862Gln
   tx_pos:
     ord: 5699
     total: 7088
