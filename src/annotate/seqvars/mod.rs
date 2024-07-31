@@ -1210,11 +1210,8 @@ impl VarFishSeqvarTsvWriter {
                                     .collect::<Vec<_>>(),
                             );
                         }
-                        if ann.consequences.contains(&Consequence::ExonVariant) {
-                            tsv_record.refseq_exon_dist = Some(0);
-                        } else {
-                            tsv_record.refseq_exon_dist = ann.distance;
-                        }
+
+                        tsv_record.refseq_exon_dist = ann.distance;
 
                         written_refseq = true;
                     }
