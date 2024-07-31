@@ -62,7 +62,6 @@ pub enum Consequence {
     ChromosomeNumberVariation,
     ExonLossVariant,
     FrameshiftVariant,
-    RareAminoAcidVariant,
     SpliceAcceptorVariant,
     SpliceDonorVariant,
     StartLost,
@@ -70,12 +69,6 @@ pub enum Consequence {
     StopLost,
     TranscriptAblation,
     // moderate impact
-    #[display("3_prime_UTR_truncation")]
-    #[serde(rename = "3_prime_UTR_truncation")]
-    ThreePrimeUtrTruncation,
-    #[display("5_prime_UTR_truncation")]
-    #[serde(rename = "5_prime_UTR_truncation")]
-    FivePrimeUtrTruncation,
     ConservativeInframeDeletion,
     ConservativeInframeInsertion,
     DisruptiveInframeDeletion,
@@ -88,10 +81,6 @@ pub enum Consequence {
     #[serde(rename = "TFBS_ablation")]
     TbfsAblation,
     // low impact
-    #[display("5_prime_UTR_premature_start_codon_gain_variant")]
-    #[serde(rename = "5_prime_UTR_premature_start_codon_gain_variant")]
-    FivePrimeUtrPrematureStartCodonGainVariant,
-    InitiatorCodonVariant,
     SpliceDonorRegionVariant,
     SplicePolypyrimidineTractVariant,
     StartRetainedVariant,
@@ -151,7 +140,6 @@ impl From<Consequence> for PutativeImpact {
             ChromosomeNumberVariation
             | ExonLossVariant
             | FrameshiftVariant
-            | RareAminoAcidVariant
             | SpliceAcceptorVariant
             | SpliceDonorVariant
             | StartLost
@@ -161,9 +149,7 @@ impl From<Consequence> for PutativeImpact {
             | TranscriptAmplification
             | FeatureElongation
             | FeatureTruncation => PutativeImpact::High,
-            ThreePrimeUtrTruncation
-            | FivePrimeUtrTruncation
-            | ConservativeInframeDeletion
+            ConservativeInframeDeletion
             | ConservativeInframeInsertion
             | DisruptiveInframeDeletion
             | DisruptiveInframeInsertion
@@ -171,9 +157,7 @@ impl From<Consequence> for PutativeImpact {
             | MissenseVariant
             | RegulatoryRegionAblation
             | TbfsAblation => PutativeImpact::Moderate,
-            FivePrimeUtrPrematureStartCodonGainVariant
-            | InitiatorCodonVariant
-            | StartRetainedVariant
+            StartRetainedVariant
             | StopRetainedVariant
             | SynonymousVariant
             | SpliceDonorRegionVariant
@@ -805,22 +789,7 @@ mod test {
             format!("{}", Consequence::ChromosomeNumberVariation),
             "chromosome_number_variation"
         );
-        assert_eq!(
-            format!("{}", Consequence::ThreePrimeUtrTruncation),
-            "3_prime_UTR_truncation"
-        );
-        assert_eq!(
-            format!("{}", Consequence::FivePrimeUtrTruncation),
-            "5_prime_UTR_truncation"
-        );
         assert_eq!(format!("{}", Consequence::TbfsAblation), "TFBS_ablation");
-        assert_eq!(
-            format!(
-                "{}",
-                Consequence::FivePrimeUtrPrematureStartCodonGainVariant
-            ),
-            "5_prime_UTR_premature_start_codon_gain_variant"
-        );
         assert_eq!(
             format!("{}", Consequence::ThreePrimeUtrExonVariant),
             "3_prime_UTR_exon_variant"
@@ -855,20 +824,8 @@ mod test {
             Consequence::ChromosomeNumberVariation
         );
         assert_eq!(
-            Consequence::from_str("3_prime_UTR_truncation")?,
-            Consequence::ThreePrimeUtrTruncation,
-        );
-        assert_eq!(
-            Consequence::from_str("5_prime_UTR_truncation")?,
-            Consequence::FivePrimeUtrTruncation,
-        );
-        assert_eq!(
             Consequence::from_str("TFBS_ablation")?,
             Consequence::TbfsAblation,
-        );
-        assert_eq!(
-            Consequence::from_str("5_prime_UTR_premature_start_codon_gain_variant")?,
-            Consequence::FivePrimeUtrPrematureStartCodonGainVariant,
         );
         assert_eq!(
             Consequence::from_str("3_prime_UTR_exon_variant")?,

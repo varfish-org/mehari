@@ -1,7 +1,6 @@
 //! Compute molecular consequence of variants.
 use std::{collections::HashMap, sync::Arc};
 
-use crate::annotate::seqvars::ann::PutativeImpact;
 use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
 use biocommons_bioutils::assemblies::Assembly;
 use enumflags2::BitFlags;
