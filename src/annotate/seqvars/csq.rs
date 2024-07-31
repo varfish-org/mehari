@@ -490,13 +490,21 @@ impl ConsequencePredictor {
                 }
             }
 
-            // Check the case where the variant overlaps with the polypyrimidine tract.
             if let Some(intron_start) = intron_start {
+                // Check the case where the variant overlaps with the polypyrimidine tract.
                 if strand == Strand::Plus && var_overlap(intron_end - 16, intron_end - 2) {
                     consequences |= Consequence::SplicePolypyrimidineTractVariant;
                 }
                 if strand == Strand::Minus && var_overlap(intron_start + 2, intron_start + 16) {
                     consequences |= Consequence::SplicePolypyrimidineTractVariant;
+                }
+                // Check conditions for splice_donor_region_variant
+                // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
+                if strand == Strand::Plus && var_overlap(intron_end - 6, intron_end - 3) {
+                    consequences |= Consequence::SpliceDonorRegionVariant;
+                }
+                if strand == Strand::Minus && var_overlap(intron_start + 3, intron_start + 6) {
+                    consequences |= Consequence::SpliceDonorRegionVariant;
                 }
             }
 
