@@ -5,6 +5,7 @@ use crate::annotate::seqvars::ann::PutativeImpact;
 use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
 use biocommons_bioutils::assemblies::Assembly;
 use enumflags2::BitFlags;
+use hgvs::parser::NoRef;
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
     mapper::{assembly, Error},
@@ -787,7 +788,7 @@ impl ConsequencePredictor {
                 TranscriptBiotype::NonCoding => (var_n, None, None, None, None),
                 _ => unreachable!("invalid transcript biotype: {:?}", transcript_biotype),
             };
-            let hgvs_t = format!("{}", &var_t);
+            let hgvs_t = format!("{}", &NoRef(&var_t));
             let hgvs_t = hgvs_t.split(':').nth(1).unwrap().to_owned();
 
             (
