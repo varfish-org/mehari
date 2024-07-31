@@ -506,6 +506,14 @@ impl ConsequencePredictor {
                 if strand == Strand::Minus && var_overlap(intron_start + 3, intron_start + 6) {
                     consequences |= Consequence::SpliceDonorRegionVariant;
                 }
+                // Check conditions for splice_donor_5th_base_variant
+                // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
+                if strand == Strand::Plus && var_overlap(intron_start + 5, intron_start + 5) {
+                    consequences |= Consequence::SpliceDonorFifthBaseVariant;
+                }
+                if strand == Strand::Minus && var_overlap(intron_end - 5, intron_end - 5) {
+                    consequences |= Consequence::SpliceDonorFifthBaseVariant;
+                }
             }
 
             min_start = Some(std::cmp::min(min_start.unwrap_or(exon_start), exon_start));

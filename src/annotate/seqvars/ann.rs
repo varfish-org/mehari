@@ -135,10 +135,12 @@ pub enum Consequence {
     // ProteinAlteringVariant,
 
     // low impact
+    /// "A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript."
+    /// SO:splice_donor_5th_base_variant, VEP:splice_donor_5th_base_variant
+    #[display("splice_donor_5th_base_variant")]
+    #[serde(rename = "splice_donor_5th_base_variant")]
+    SpliceDonorFifthBaseVariant,
 
-    // /// "A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript."
-    // /// SO:splice_donor_5th_base_variant, VEP:splice_donor_5th_base_variant
-    // SpliceDonorFifthBaseVariant
     /// "A sequence variant in which a change has occurred within the region of the splice site, either within 1-3 bases of the exon or 3-8 bases of the intron."
     /// SO:splice_region_variant, VEP:splice_region_variant
     SpliceRegionVariant,
@@ -289,7 +291,8 @@ impl From<Consequence> for PutativeImpact {
             | ConservativeInframeDeletion
             | InframeIndel
             | MissenseVariant => PutativeImpact::Moderate,
-            SpliceRegionVariant
+            SpliceDonorFifthBaseVariant
+            | SpliceRegionVariant
             | SpliceDonorRegionVariant
             | SplicePolypyrimidineTractVariant
             | StartRetainedVariant
