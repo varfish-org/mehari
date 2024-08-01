@@ -748,7 +748,6 @@ impl ConsequencePredictor {
                                         }
                                     }
                                     hgvs::parser::ProteinEdit::DelIns { alternative } => {
-                                        consequences |= Consequence::InframeIndel;
                                         if conservative {
                                             consequences |=
                                                 Consequence::ConservativeInframeDeletion;

@@ -121,10 +121,6 @@ pub enum Consequence {
     /// SO:conservative_inframe_deletion, VEP:inframe_deletion
     ConservativeInframeDeletion,
 
-    /// "A coding sequence variant where the change does not alter the frame of the transcript."
-    /// SO:inframe_indel, VEP:inframe_insertion,inframe_deletion,missense_variant
-    InframeIndel,
-
     /// "A sequence variant, that changes one or more bases, resulting in a different amino acid sequence but where the length is preserved."
     /// SO:missense_variant, VEP:missense_variant
     MissenseVariant,
