@@ -1173,13 +1173,10 @@ impl VarFishSeqvarTsvWriter {
                             Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
                         tsv_record.ensembl_hgvs_c.clone_from(&ann.hgvs_t);
                         tsv_record.ensembl_hgvs_p.clone_from(&ann.hgvs_p);
-                        if !ann.consequences.is_empty() {
-                            tsv_record.ensembl_effect = Some(
-                                ann.consequences
-                                    .iter()
-                                    .map(|c| format!("\"{}\"", &c))
-                                    .collect::<Vec<_>>(),
-                            );
+                        assert!(!ann.consequences.is_empty());
+                        if ann.consequences.contains(&Consequence::IntergenicVariant) {
+                            assert_eq!(ann.consequences.len(), 1);
+                            tsv_record.ensembl_effect = Some(vec![Consequence::IntergenicVariant.to_string()]);
                         }
                         if !ann.consequences.contains(&Consequence::IntronVariant)
                             && !ann.consequences.contains(&Consequence::UpstreamGeneVariant)

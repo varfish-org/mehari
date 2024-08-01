@@ -372,11 +372,16 @@ impl ConsequencePredictor {
         let mut distance: Option<i32> = None;
         let mut tx_len = 0;
 
-        fn overlap(f1_start: i32, f1_end: i32, f2_start: i32, f2_end: i32) -> bool {
-            (f1_end >= f2_start) && (f1_start <= f2_end)
+        fn overlaps(
+            var_start: i32,
+            var_end: i32,
+            exon_intron_start: i32,
+            exon_intron_end: i32,
+        ) -> bool {
+            (var_start < exon_intron_end) && (var_end > exon_intron_start)
         }
-        let var_overlap =
-            |start: i32, end: i32| -> bool { overlap(var_start, var_end, start, end) };
+        let var_overlaps =
+            |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
 
         for exon_alignment in &alignment.exons {
             tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i;
@@ -388,7 +393,7 @@ impl ConsequencePredictor {
 
             // Check the cases where the variant overlaps with the exon or is contained within an
             // intron.
-            if var_start < exon_end && exon_start < var_end {
+            if var_overlaps(exon_start, exon_end) {
                 // overlaps with exon
                 rank = Rank {
                     ord: exon_alignment.ord + 1,
@@ -451,7 +456,7 @@ impl ConsequencePredictor {
                 let ins_shift = if var.reference.is_empty() { 1 } else { 0 };
 
                 // Check the cases where the variant overlaps with the splice acceptor/donor site.
-                if var_start < intron_start + 2 && var_end > intron_start - ins_shift {
+                if var_overlaps(intron_start + 2, intron_start - ins_shift) {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match strand {
                         Strand::Plus => consequences.insert(Consequence::SpliceDonorVariant),
@@ -460,7 +465,7 @@ impl ConsequencePredictor {
                     }
                 }
                 // Check the case where the variant overlaps with the splice donor site.
-                if var_start < intron_end + ins_shift && var_end > intron_end - 2 {
+                if var_overlaps(intron_end + ins_shift, intron_end - 2) {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match strand {
                         Strand::Plus => consequences.insert(Consequence::SpliceAcceptorVariant),
@@ -473,12 +478,12 @@ impl ConsequencePredictor {
             // or 3-8 bases in intron).  We have to check all cases independently and not with `else`
             // because the variant may be larger.
             if let Some(intron_start) = intron_start {
-                if (var_start < intron_start + 8 && var_end > intron_start + 2)
-                    || (var_start < intron_end - 8 && var_end > intron_end - 2)
+                if var_overlaps(intron_start + 8, intron_start + 2)
+                    || var_overlaps(intron_end - 8, intron_end - 2)
                 {
                     consequences |= Consequence::SpliceRegionVariant;
                 }
-                if var_start < exon_end && var_end > exon_end - 3 {
+                if var_overlaps(exon_end, exon_end - 3) {
                     if strand == Strand::Plus {
                         if !rank.is_last() {
                             consequences |= Consequence::SpliceRegionVariant;
@@ -490,7 +495,7 @@ impl ConsequencePredictor {
                         }
                     }
                 }
-                if var_start < exon_start + 3 && var_end > exon_start {
+                if var_overlaps(exon_start + 3, exon_start) {
                     if strand == Strand::Plus {
                         if !rank.is_first() {
                             consequences |= Consequence::SpliceRegionVariant;
@@ -507,26 +512,26 @@ impl ConsequencePredictor {
             if let Some(intron_start) = intron_start {
                 // Check the case where the variant overlaps with the polypyrimidine tract.
                 // (A sequence variant that falls in the polypyrimidine tract at 3' end of intron between 17 and 3 bases from the end (acceptor -3 to acceptor -17))
-                if strand == Strand::Plus && var_overlap(intron_end - 17, intron_end - 3) {
+                if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
                     consequences |= Consequence::SplicePolypyrimidineTractVariant;
                 }
-                if strand == Strand::Minus && var_overlap(intron_start + 3, intron_start + 17) {
+                if strand == Strand::Minus && var_overlaps(intron_start + 3, intron_start + 18) {
                     consequences |= Consequence::SplicePolypyrimidineTractVariant;
                 }
                 // Check conditions for splice_donor_region_variant
                 // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
-                if strand == Strand::Plus && var_overlap(intron_end - 6, intron_end - 3) {
+                if strand == Strand::Plus && var_overlaps(intron_start + 3, intron_start + 7) {
                     consequences |= Consequence::SpliceDonorRegionVariant;
                 }
-                if strand == Strand::Minus && var_overlap(intron_start + 3, intron_start + 6) {
+                if strand == Strand::Minus && var_overlaps(intron_end - 6, intron_end - 2) {
                     consequences |= Consequence::SpliceDonorRegionVariant;
                 }
                 // Check conditions for splice_donor_5th_base_variant
                 // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
-                if strand == Strand::Plus && var_overlap(intron_start + 5, intron_start + 5) {
+                if strand == Strand::Plus && var_overlaps(intron_start + 5, intron_start + 6) {
                     consequences |= Consequence::SpliceDonorFifthBaseVariant;
                 }
-                if strand == Strand::Minus && var_overlap(intron_end - 5, intron_end - 5) {
+                if strand == Strand::Minus && var_overlaps(intron_end - 5, intron_end - 4) {
                     consequences |= Consequence::SpliceDonorFifthBaseVariant;
                 }
             }
@@ -1038,6 +1043,78 @@ mod test {
             "spdi = {}",
             spdi.join(":")
         );
+
+        Ok(())
+    }
+
+    /// Test some intron specific variants, via the annotated consequences.
+    /// The order of the consequences is important: ordered by severity, descending.
+    /// cf Consequences enum ordering.
+    #[rstest::rstest]
+    #[case("17:41197820:G:T", 1, vec![Consequence::IntronVariant])] // 1bp intronic
+    #[case("17:41197821:A:C", 2, vec![Consequence::IntronVariant])] // 2bp intronic
+    #[case("17:41197822:C:A", 3, vec![Consequence::SpliceDonorRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 3bp intronic
+    #[case("17:41197823:C:A", 4, vec![Consequence::SpliceDonorRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 4bp intronic
+    #[case("17:41197824:T:G", 5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceDonorRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 5bp intronic
+    #[case("17:41197825:C:A", 6, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 6bp intronic
+    #[case("17:41197835:T:G", 16, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 16bp intronic
+    #[case("17:41197836:G:A", 17, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 17bp intronic
+    #[case("17:41197837:G:A", 18, vec![Consequence::IntronVariant])] // 18bp intronic
+    #[case("17:41199660:G:T", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant])] // exonic
+    #[case("17:41199659:G:T", -1, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant])] // -1bp intronic
+    #[case("17:41199658:T:G", -2, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant])] // -2bp intronic
+    #[case("17:41199657:G:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -3bp intronic
+    #[case("17:41199656:A:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -4bp intronic
+    #[case("17:41199655:G:T", -5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -5bp intronic
+    #[case("17:41199654:G:T", -6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -6bp intronic
+    #[case("17:41199653:T:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])] // -7bp intronic
+    #[case("17:41199652:G:T", -8, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])] // -8bp intronic
+    #[case("17:41199651:C:A", -9, vec![Consequence::IntronVariant])] // -9bp intronic
+    fn annotate_snv_brca1_csq(
+        #[case] spdi: &str,
+        #[case] expected_dist: i32,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        crate::common::set_snapshot_suffix!("{}", spdi.replace(':', "-"));
+
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
+        let tx_db = load_tx_db(tx_path)?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Assembly::Grch37p10,
+            MehariProviderConfigBuilder::default()
+                .transcript_picking(true)
+                .build()?,
+        ));
+
+        let predictor =
+            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+
+        assert_eq!(res.len(), 1);
+        assert_eq!(
+            res[0].distance,
+            Some(expected_dist),
+            "spdi = {}",
+            spdi.join(":")
+        );
+        assert_eq!(
+            res[0].consequences,
+            expected_csqs,
+            "spdi = {}",
+            spdi.join(":")
+        );
+        insta::assert_yaml_snapshot!(res);
 
         Ok(())
     }
