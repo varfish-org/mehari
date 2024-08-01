@@ -62,9 +62,14 @@ pub struct Config {
     /// The transcript source to use.
     #[builder(default = "TranscriptSource::Both")]
     pub transcript_source: TranscriptSource,
+
     /// Whether to report consequences for all picked transcripts.
     #[builder(default = "true")]
     pub report_all_transcripts: bool,
+
+    /// Whether to discard intergenic variants.
+    #[builder(default = "true")]
+    pub discard_intergenic: bool,
 }
 
 impl Default for Config {
@@ -184,32 +189,32 @@ impl ConsequencePredictor {
             self.filter_picked_sourced_txs(txs)
         };
 
-        // // Handle case of no overlapping transcripts -> intergenic.
-        // if txs.is_empty() {
-        //     return Ok(Some(self.filter_ann_fields(vec![AnnField {
-        //         allele: Allele::Alt {
-        //             alternative: var.alternative.clone(),
-        //         },
-        //         gene_id: ".".to_string(),
-        //         consequences: vec![Consequence::IntergenicVariant],
-        //         putative_impact: PutativeImpact::Modifier,
-        //         feature_type: FeatureType::Custom {
-        //             value: "Intergenic".to_string(),
-        //         },
-        //         feature_id: ".".to_string(),
-        //         feature_biotype: vec![FeatureBiotype::Noncoding],
-        //         rank: None,
-        //         distance: None,
-        //         strand: 0,
-        //         hgvs_t: None,
-        //         hgvs_p: None,
-        //         tx_pos: None,
-        //         cds_pos: None,
-        //         protein_pos: None,
-        //         gene_symbol: ".".to_string(),
-        //         messages: None,
-        //     }])));
-        // }
+        // Handle case of no overlapping transcripts -> intergenic.
+        if txs.is_empty() {
+            return Ok(Some(self.filter_ann_fields(vec![AnnField {
+                allele: Allele::Alt {
+                    alternative: var.alternative.clone(),
+                },
+                gene_id: "".to_string(),
+                consequences: vec![Consequence::IntergenicVariant],
+                putative_impact: crate::annotate::seqvars::ann::PutativeImpact::Modifier,
+                feature_type: FeatureType::Custom {
+                    value: "Intergenic".to_string(),
+                },
+                feature_id: "".to_string(),
+                feature_biotype: vec![FeatureBiotype::Noncoding],
+                rank: None,
+                distance: None,
+                strand: 0,
+                hgvs_t: None,
+                hgvs_p: None,
+                tx_pos: None,
+                cds_pos: None,
+                protein_pos: None,
+                gene_symbol: "".to_string(),
+                messages: None,
+            }])));
+        }
 
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
         let anns_all_txs = txs
@@ -265,6 +270,15 @@ impl ConsequencePredictor {
     /// If all transcripts are to be reported then return `ann_fields` as is, otherwise
     /// select one worst consequence per gene.
     fn filter_ann_fields(&self, ann_fields: Vec<AnnField>) -> Vec<AnnField> {
+        let ann_fields = if self.config.discard_intergenic {
+            ann_fields
+                .into_iter()
+                .filter(|field| field.consequences != [Consequence::IntergenicVariant])
+                .collect()
+        } else {
+            ann_fields
+        };
+
         // Short-circuit if to report all transcript results.
         if self.config.report_all_transcripts {
             return ann_fields;
