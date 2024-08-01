@@ -285,7 +285,6 @@ impl From<Consequence> for PutativeImpact {
             | DisruptiveInframeDeletion
             | ConservativeInframeInsertion
             | ConservativeInframeDeletion
-            | InframeIndel
             | MissenseVariant => PutativeImpact::Moderate,
             SpliceDonorFifthBaseVariant
             | SpliceRegionVariant
