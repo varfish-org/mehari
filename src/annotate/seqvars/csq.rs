@@ -512,7 +512,7 @@ impl ConsequencePredictor {
             if let Some(intron_start) = intron_start {
                 // Check the case where the variant overlaps with the polypyrimidine tract.
                 // (A sequence variant that falls in the polypyrimidine tract at 3' end of intron between 17 and 3 bases from the end (acceptor -3 to acceptor -17))
-                if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 3) {
+                if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
                     consequences |= Consequence::SplicePolypyrimidineTractVariant;
                 }
                 if strand == Strand::Minus && var_overlaps(intron_start + 2, intron_start + 17) {
@@ -520,7 +520,7 @@ impl ConsequencePredictor {
                 }
                 // Check conditions for splice_donor_region_variant
                 // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
-                if strand == Strand::Plus && var_overlaps(intron_start + 3, intron_start + 7) {
+                if strand == Strand::Plus && var_overlaps(intron_start + 2, intron_start + 6) {
                     consequences |= Consequence::SpliceDonorRegionVariant;
                 }
                 if strand == Strand::Minus && var_overlaps(intron_end - 6, intron_end - 2) {
@@ -528,7 +528,7 @@ impl ConsequencePredictor {
                 }
                 // Check conditions for splice_donor_5th_base_variant
                 // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
-                if strand == Strand::Plus && var_overlaps(intron_start + 5, intron_start + 6) {
+                if strand == Strand::Plus && var_overlaps(intron_start + 4, intron_start + 5) {
                     consequences |= Consequence::SpliceDonorFifthBaseVariant;
                 }
                 if strand == Strand::Minus && var_overlaps(intron_end - 5, intron_end - 4) {
