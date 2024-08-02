@@ -643,7 +643,7 @@ impl TranscriptLoader {
             .partition_map(|(tx_id, tx)| {
                 if let Some(d) = self.discards.get(&Identifier::TxId(tx_id.clone())) {
                     if !d.is_empty() {
-                        return Either::Left((Identifier::TxId(tx_id.clone()), d.clone()));
+                        return Either::Left((Identifier::TxId(tx_id.clone()), *d));
                     }
                 }
                 let has_invalid_cds_length = invalid_cds_length(tx);
@@ -712,7 +712,7 @@ impl TranscriptLoader {
             });
 
         for (id, reason) in discards {
-            self.mark_discarded(&id, reason.into())?;
+            self.mark_discarded(&id, reason)?;
         }
         // self.discard()?;
 

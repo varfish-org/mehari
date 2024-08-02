@@ -464,7 +464,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
     // Check for missing entries in the transcript database,
     // i.e. those where cdot has information but the transcript database does not
     for id in &cdot_keys - &(&all_tx_db_keys | &all_tx_db_values) {
-        let info = hgnc_ids.get(&id);
+        let info = hgnc_ids.get(id);
 
         if let Some(r) = known_issues.get(id) {
             report.push(Entry::new(
@@ -482,9 +482,9 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
             info.iter()
                 .any(|a| matches!(a, Id::NcbiTranscript(_) | Id::EnsemblTranscript(_)))
         });
-        let is_filtered = filtered_ids.contains(&id);
+        let is_filtered = filtered_ids.contains(id);
         let reason = if is_filtered {
-            filter_reasons[&id]
+            filter_reasons[id]
         } else {
             BitFlags::empty()
         };
@@ -532,7 +532,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
             continue;
         }
 
-        let info = hgnc_ids.get(&id);
+        let info = hgnc_ids.get(id);
 
         let has_transcripts = info.map_or(false, |info| {
             info.iter()
