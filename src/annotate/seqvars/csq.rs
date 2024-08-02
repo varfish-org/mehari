@@ -1051,12 +1051,12 @@ mod test {
     /// The order of the consequences is important: ordered by severity, descending.
     /// cf Consequences enum ordering.
     #[rstest::rstest]
-    #[case("17:41197820:G:T", 1, vec![Consequence::IntronVariant])] // 1bp intronic
-    #[case("17:41197821:A:C", 2, vec![Consequence::IntronVariant])] // 2bp intronic
-    #[case("17:41197822:C:A", 3, vec![Consequence::SpliceDonorRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 3bp intronic
-    #[case("17:41197823:C:A", 4, vec![Consequence::SpliceDonorRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 4bp intronic
-    #[case("17:41197824:T:G", 5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceDonorRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 5bp intronic
-    #[case("17:41197825:C:A", 6, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 6bp intronic
+    #[case("17:41197820:G:T", 1, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant])] // 1bp intronic
+    #[case("17:41197821:A:C", 2, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant])] // 2bp intronic
+    #[case("17:41197822:C:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 3bp intronic
+    #[case("17:41197823:C:A", 4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 4bp intronic
+    #[case("17:41197824:T:G", 5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 5bp intronic
+    #[case("17:41197825:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 6bp intronic
     #[case("17:41197835:T:G", 16, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 16bp intronic
     #[case("17:41197836:G:A", 17, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 17bp intronic
     #[case("17:41197837:G:A", 18, vec![Consequence::IntronVariant])] // 18bp intronic
