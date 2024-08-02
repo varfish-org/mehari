@@ -123,6 +123,7 @@ struct Db {
 #[derive(Debug, Subcommand)]
 enum DbCommands {
     Create(db::create::Args),
+    Check(db::check::Args),
     Dump(db::dump::Args),
     Subset(db::subset::Args),
 }
@@ -189,6 +190,7 @@ async fn main() -> Result<(), anyhow::Error> {
     match &cli.command {
         Commands::Db(db) => match &db.command {
             DbCommands::Create(args) => db::create::run(&cli.common, args)?,
+            DbCommands::Check(args) => db::check::run(&cli.common, args)?,
             DbCommands::Dump(args) => db::dump::run(&cli.common, args)?,
             DbCommands::Subset(args) => db::subset::run(&cli.common, args)?,
         },

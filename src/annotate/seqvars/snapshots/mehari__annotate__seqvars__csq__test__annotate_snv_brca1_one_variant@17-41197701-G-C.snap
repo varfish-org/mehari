@@ -21,7 +21,7 @@ expression: res
     ord: 23
     total: 23
   hgvs_t: c.5586C>G
-  hgvs_p: p.H1862Q
+  hgvs_p: p.His1862Gln
   tx_pos:
     ord: 5699
     total: 7088
@@ -32,6 +32,7 @@ expression: res
     ord: 1862
     total: 1864
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -51,7 +52,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_t: c.5445C>G
-  hgvs_p: p.H1815Q
+  hgvs_p: p.His1815Gln
   tx_pos:
     ord: 5639
     total: 7028
@@ -62,6 +63,7 @@ expression: res
     ord: 1815
     total: 1817
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -81,7 +83,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_t: c.2274C>G
-  hgvs_p: p.H758Q
+  hgvs_p: p.His758Gln
   tx_pos:
     ord: 2293
     total: 3682
@@ -92,12 +94,13 @@ expression: res
     ord: 758
     total: 760
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
       alternative: C
   consequences:
-    - 3_prime_UTR_variant
+    - 3_prime_UTR_exon_variant
   putative_impact: MODIFIER
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -120,6 +123,7 @@ expression: res
     total: 2100
   protein_pos: ~
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -139,7 +143,7 @@ expression: res
     ord: 24
     total: 24
   hgvs_t: c.5649C>G
-  hgvs_p: p.H1883Q
+  hgvs_p: p.His1883Gln
   tx_pos:
     ord: 5762
     total: 7151
@@ -150,5 +154,5 @@ expression: res
     ord: 1883
     total: 1885
   distance: 0
+  strand: -1
   messages: ~
-

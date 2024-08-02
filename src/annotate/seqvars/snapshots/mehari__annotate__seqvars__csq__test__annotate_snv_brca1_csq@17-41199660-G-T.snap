@@ -1,0 +1,37 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: T
+  consequences:
+    - missense_variant
+    - splice_region_variant
+  putative_impact: MODERATE
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007294.4
+  feature_biotype:
+    - Coding
+    - ManeSelect
+  rank:
+    ord: 22
+    total: 23
+  hgvs_t: c.5467G>A
+  hgvs_p: p.Ala1823Thr
+  tx_pos:
+    ord: 5580
+    total: 7088
+  cds_pos:
+    ord: 5467
+    total: 5592
+  protein_pos:
+    ord: 1823
+    total: 1864
+  distance: 0
+  strand: -1
+  messages: ~

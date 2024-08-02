@@ -6,7 +6,7 @@ expression: res
     Alt:
       alternative: C
   consequences:
-    - 5_prime_UTR_variant
+    - 5_prime_UTR_exon_variant
   putative_impact: MODIFIER
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -30,12 +30,13 @@ expression: res
     total: 5592
   protein_pos: ~
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
       alternative: C
   consequences:
-    - 5_prime_UTR_variant
+    - 5_prime_UTR_exon_variant
   putative_impact: MODIFIER
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -58,6 +59,7 @@ expression: res
     total: 5451
   protein_pos: ~
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -80,12 +82,13 @@ expression: res
   cds_pos: ~
   protein_pos: ~
   distance: 1247
+  strand: -1
   messages: ~
 - allele:
     Alt:
       alternative: C
   consequences:
-    - 5_prime_UTR_variant
+    - 5_prime_UTR_exon_variant
   putative_impact: MODIFIER
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -108,12 +111,13 @@ expression: res
     total: 2100
   protein_pos: ~
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
       alternative: C
   consequences:
-    - 5_prime_UTR_variant
+    - 5_prime_UTR_exon_variant
   putative_impact: MODIFIER
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -136,5 +140,5 @@ expression: res
     total: 5655
   protein_pos: ~
   distance: 0
+  strand: -1
   messages: ~
-

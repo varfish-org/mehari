@@ -21,7 +21,7 @@ expression: res
     ord: 41
     total: 363
   hgvs_t: c.9565C>T
-  hgvs_p: p.Q3189*
+  hgvs_p: p.Gln3189Ter
   tx_pos:
     ord: 9790
     total: 109224
@@ -32,5 +32,5 @@ expression: res
     ord: 3189
     total: 35992
   distance: 0
+  strand: -1
   messages: ~
-

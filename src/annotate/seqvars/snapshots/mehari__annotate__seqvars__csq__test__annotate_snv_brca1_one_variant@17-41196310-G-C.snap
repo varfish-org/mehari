@@ -24,6 +24,7 @@ expression: res
   cds_pos: ~
   protein_pos: ~
   distance: -2
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -46,6 +47,7 @@ expression: res
   cds_pos: ~
   protein_pos: ~
   distance: -2
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -68,6 +70,7 @@ expression: res
   cds_pos: ~
   protein_pos: ~
   distance: -2
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -90,6 +93,7 @@ expression: res
   cds_pos: ~
   protein_pos: ~
   distance: -2
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -112,5 +116,5 @@ expression: res
   cds_pos: ~
   protein_pos: ~
   distance: -2
+  strand: -1
   messages: ~
-

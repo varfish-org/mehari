@@ -36,10 +36,20 @@ pub fn trace_rss_now() {
 
 /// Select the genome release to use.
 #[derive(
-    clap::ValueEnum, serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash,
+    clap::ValueEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Default,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum GenomeRelease {
+    #[default]
     Grch37,
     Grch38,
 }

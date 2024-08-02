@@ -1,7 +1,10 @@
 //! Compute molecular consequence of variants.
 use std::{collections::HashMap, sync::Arc};
 
+use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
 use biocommons_bioutils::assemblies::Assembly;
+use enumflags2::BitFlags;
+use hgvs::parser::NoRef;
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
     mapper::{assembly, Error},
@@ -9,9 +12,8 @@ use hgvs::{
         Accession, CdsFrom, GenomeInterval, GenomeLocEdit, HgvsVariant, Mu, NaEdit, ProtLocEdit,
     },
 };
+use itertools::Itertools;
 use rustc_hash::FxHashMap;
-
-use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
@@ -60,9 +62,14 @@ pub struct Config {
     /// The transcript source to use.
     #[builder(default = "TranscriptSource::Both")]
     pub transcript_source: TranscriptSource,
+
     /// Whether to report consequences for all picked transcripts.
     #[builder(default = "true")]
     pub report_all_transcripts: bool,
+
+    /// Whether to discard intergenic variants.
+    #[builder(default = "true")]
+    pub discard_intergenic: bool,
 }
 
 impl Default for Config {
@@ -154,7 +161,7 @@ impl ConsequencePredictor {
         let chrom_acc = if let Some(chrom_acc) = chrom_acc {
             chrom_acc
         } else {
-            tracing::debug!(
+            tracing::warn!(
                 "Could not determine chromosome accession for {:?}; giving up on annotation",
                 &norm_var
             );
@@ -181,6 +188,33 @@ impl ConsequencePredictor {
             // transcript source.
             self.filter_picked_sourced_txs(txs)
         };
+
+        // Handle case of no overlapping transcripts -> intergenic.
+        if txs.is_empty() {
+            return Ok(Some(self.filter_ann_fields(vec![AnnField {
+                allele: Allele::Alt {
+                    alternative: var.alternative.clone(),
+                },
+                gene_id: "".to_string(),
+                consequences: vec![Consequence::IntergenicVariant],
+                putative_impact: crate::annotate::seqvars::ann::PutativeImpact::Modifier,
+                feature_type: FeatureType::Custom {
+                    value: "Intergenic".to_string(),
+                },
+                feature_id: "".to_string(),
+                feature_biotype: vec![FeatureBiotype::Noncoding],
+                rank: None,
+                distance: None,
+                strand: 0,
+                hgvs_t: None,
+                hgvs_p: None,
+                tx_pos: None,
+                cds_pos: None,
+                protein_pos: None,
+                gene_symbol: "".to_string(),
+                messages: None,
+            }])));
+        }
 
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
         let anns_all_txs = txs
@@ -236,6 +270,15 @@ impl ConsequencePredictor {
     /// If all transcripts are to be reported then return `ann_fields` as is, otherwise
     /// select one worst consequence per gene.
     fn filter_ann_fields(&self, ann_fields: Vec<AnnField>) -> Vec<AnnField> {
+        let ann_fields = if self.config.discard_intergenic {
+            ann_fields
+                .into_iter()
+                .filter(|field| field.consequences != [Consequence::IntergenicVariant])
+                .collect()
+        } else {
+            ann_fields
+        };
+
         // Short-circuit if to report all transcript results.
         if self.config.report_all_transcripts {
             return ann_fields;
@@ -283,20 +326,38 @@ impl ConsequencePredictor {
         // NB: The coordinates of var_start, var_end, as well as the exon boundaries
         // are 0-based.
 
-        let tx = self.provider.get_tx(&tx_record.tx_ac).unwrap();
-
-        // Skip transcripts that are protein coding but do not have a CDS.
-        // TODO: do not include such transcripts when building the database.
-        if TranscriptBiotype::try_from(tx.biotype).expect("invalid tx biotype")
-            == TranscriptBiotype::Coding
-            && tx.start_codon.is_none()
-        {
+        let tx = self.provider.get_tx(&tx_record.tx_ac);
+        let tx = if let Some(tx) = tx {
+            // Skip transcripts that are protein coding but do not have a CDS.
+            // TODO: do not include such transcripts when building the database.
+            if TranscriptBiotype::try_from(tx.biotype).expect("invalid tx biotype")
+                == TranscriptBiotype::Coding
+                && tx.start_codon.is_none()
+            {
+                return Ok(None);
+            }
+            tx
+        } else {
+            tracing::warn!(
+                "Requested transcript accession {}, got None (potentially filtered)",
+                &tx_record.tx_ac
+            );
             return Ok(None);
-        }
+        };
 
-        let mut consequences: Vec<Consequence> = Vec::new();
+        assert_eq!(
+            tx.genome_alignments.len(),
+            1,
+            "At this point, only one genome alignment is expected"
+        );
+
+        // TODO: Report selenocysteine modifications
+        // let is_seleno = tx.tags.contains(&(TranscriptTag::Selenoprotein as i32));
 
         let alignment = tx.genome_alignments.first().unwrap();
+        let strand = Strand::try_from(alignment.strand).expect("invalid strand");
+
+        let mut consequences: BitFlags<Consequence> = BitFlags::empty();
 
         let mut min_start = None;
         let mut max_end = None;
@@ -310,6 +371,18 @@ impl ConsequencePredictor {
         let mut is_intronic = false;
         let mut distance: Option<i32> = None;
         let mut tx_len = 0;
+
+        fn overlaps(
+            var_start: i32,
+            var_end: i32,
+            exon_intron_start: i32,
+            exon_intron_end: i32,
+        ) -> bool {
+            (var_start < exon_intron_end) && (var_end > exon_intron_start)
+        }
+        let var_overlaps =
+            |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
+
         for exon_alignment in &alignment.exons {
             tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i;
 
@@ -320,7 +393,7 @@ impl ConsequencePredictor {
 
             // Check the cases where the variant overlaps with the exon or is contained within an
             // intron.
-            if var_start < exon_end && exon_start < var_end {
+            if var_overlaps(exon_start, exon_end) {
                 // overlaps with exon
                 rank = Rank {
                     ord: exon_alignment.ord + 1,
@@ -329,7 +402,7 @@ impl ConsequencePredictor {
                 is_exonic = true;
                 distance = Some(0);
             } else if let Some(intron_start) = intron_start {
-                // We have are in an intron (the first exon does not have an intron left of it
+                // We are in an intron (the first exon does not have an intron left of it
                 // which is expressed by `intron_start` being an `Option<i32>` rather than `i32`.
                 if var_start >= intron_start && var_end <= intron_end {
                     // Contained within intron: cannot be in next exon.
@@ -360,53 +433,43 @@ impl ConsequencePredictor {
 
             // Check the cases where the variant overlaps with whole exon.
             if var_start <= exon_start && var_end >= exon_end {
-                consequences.push(Consequence::ExonLossVariant);
+                consequences |= Consequence::ExonLossVariant;
                 if var_start < exon_start {
-                    if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus
-                        && rank.ord != 1
-                    {
-                        consequences.push(Consequence::SpliceAcceptorVariant);
-                    } else if Strand::try_from(alignment.strand).expect("invalid strand")
-                        == Strand::Minus
-                        && rank.ord != rank.total
-                    {
-                        consequences.push(Consequence::SpliceDonorVariant);
+                    if strand == Strand::Plus && !rank.is_first() {
+                        consequences |= Consequence::SpliceAcceptorVariant;
+                    } else if strand == Strand::Minus && !rank.is_last() {
+                        consequences |= Consequence::SpliceDonorVariant;
                     }
                 }
                 if var_end > exon_end {
-                    if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus
-                        && rank.ord != rank.total
-                    {
-                        consequences.push(Consequence::SpliceDonorVariant);
-                    } else if Strand::try_from(alignment.strand).expect("invalid strand")
-                        == Strand::Minus
-                        && rank.ord != rank.total
-                    {
-                        consequences.push(Consequence::SpliceAcceptorVariant);
+                    if strand == Strand::Plus && !rank.is_last() {
+                        consequences |= Consequence::SpliceDonorVariant;
+                    } else if strand == Strand::Minus && !rank.is_last() {
+                        consequences |= Consequence::SpliceAcceptorVariant;
                     }
                 }
             }
             if let Some(intron_start) = intron_start {
                 // For insertions, we need to consider the case of the insertion being right at
                 // the exon/intron junction.  We can express this with a shift of 1 for using
-                // "</>" X +/- shift and meaning <=/>= X.
+                // "< / >" X +/- shift and meaning <= / >= X.
                 let ins_shift = if var.reference.is_empty() { 1 } else { 0 };
 
                 // Check the cases where the variant overlaps with the splice acceptor/donor site.
-                if var_start < intron_start + 2 && var_end > intron_start - ins_shift {
+                if var_overlaps(intron_start - ins_shift, intron_start + 2) {
                     // Left side, is acceptor/donor depending on transcript's strand.
-                    match Strand::try_from(alignment.strand).expect("invalid strand") {
-                        Strand::Plus => consequences.push(Consequence::SpliceDonorVariant),
-                        Strand::Minus => consequences.push(Consequence::SpliceAcceptorVariant),
+                    match strand {
+                        Strand::Plus => consequences.insert(Consequence::SpliceDonorVariant),
+                        Strand::Minus => consequences.insert(Consequence::SpliceAcceptorVariant),
                         _ => unreachable!("invalid strand: {}", alignment.strand),
                     }
                 }
                 // Check the case where the variant overlaps with the splice donor site.
-                if var_start < intron_end + ins_shift && var_end > intron_end - 2 {
+                if var_overlaps(intron_end - 2, intron_end + ins_shift) {
                     // Left side, is acceptor/donor depending on transcript's strand.
-                    match Strand::try_from(alignment.strand).expect("invalid strand") {
-                        Strand::Plus => consequences.push(Consequence::SpliceAcceptorVariant),
-                        Strand::Minus => consequences.push(Consequence::SpliceDonorVariant),
+                    match strand {
+                        Strand::Plus => consequences.insert(Consequence::SpliceAcceptorVariant),
+                        Strand::Minus => consequences.insert(Consequence::SpliceDonorVariant),
                         _ => unreachable!("invalid strand: {}", alignment.strand),
                     }
                 }
@@ -415,34 +478,61 @@ impl ConsequencePredictor {
             // or 3-8 bases in intron).  We have to check all cases independently and not with `else`
             // because the variant may be larger.
             if let Some(intron_start) = intron_start {
-                if (var_start < intron_start + 8 && var_end > intron_start + 2)
-                    || (var_start < intron_end - 8 && var_end > intron_end - 2)
+                if var_overlaps(intron_start + 2, intron_start + 8)
+                    || var_overlaps(intron_end - 8, intron_end - 2)
                 {
-                    consequences.push(Consequence::SpliceRegionVariant);
+                    consequences |= Consequence::SpliceRegionVariant;
                 }
-                if var_start < exon_end && var_end > exon_end - 3 {
-                    if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus {
-                        if rank.ord != rank.total {
-                            consequences.push(Consequence::SpliceRegionVariant);
+                if var_overlaps(exon_end - 3, exon_end) {
+                    if strand == Strand::Plus {
+                        if !rank.is_last() {
+                            consequences |= Consequence::SpliceRegionVariant;
                         }
                     } else {
                         // alignment.strand == Strand::Minus
-                        if rank.ord != 1 {
-                            consequences.push(Consequence::SpliceRegionVariant);
+                        if !rank.is_first() {
+                            consequences |= Consequence::SpliceRegionVariant;
                         }
                     }
                 }
-                if var_start < exon_start + 3 && var_end > exon_start {
-                    if Strand::try_from(alignment.strand).expect("invalid strand") == Strand::Plus {
-                        if rank.ord != 1 {
-                            consequences.push(Consequence::SpliceRegionVariant);
+                if var_overlaps(exon_start, exon_start + 3) {
+                    if strand == Strand::Plus {
+                        if !rank.is_first() {
+                            consequences |= Consequence::SpliceRegionVariant;
                         }
                     } else {
                         // alignment.strand == Strand::Minus
-                        if rank.ord != rank.total {
-                            consequences.push(Consequence::SpliceRegionVariant);
+                        if !rank.is_last() {
+                            consequences |= Consequence::SpliceRegionVariant;
                         }
                     }
+                }
+            }
+
+            if let Some(intron_start) = intron_start {
+                // Check the case where the variant overlaps with the polypyrimidine tract.
+                // (A sequence variant that falls in the polypyrimidine tract at 3' end of intron between 17 and 3 bases from the end (acceptor -3 to acceptor -17))
+                if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
+                    consequences |= Consequence::SplicePolypyrimidineTractVariant;
+                }
+                if strand == Strand::Minus && var_overlaps(intron_start + 2, intron_start + 17) {
+                    consequences |= Consequence::SplicePolypyrimidineTractVariant;
+                }
+                // Check conditions for splice_donor_region_variant
+                // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
+                if strand == Strand::Plus && var_overlaps(intron_start + 2, intron_start + 6) {
+                    consequences |= Consequence::SpliceDonorRegionVariant;
+                }
+                if strand == Strand::Minus && var_overlaps(intron_end - 6, intron_end - 2) {
+                    consequences |= Consequence::SpliceDonorRegionVariant;
+                }
+                // Check conditions for splice_donor_5th_base_variant
+                // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
+                if strand == Strand::Plus && var_overlaps(intron_start + 4, intron_start + 5) {
+                    consequences |= Consequence::SpliceDonorFifthBaseVariant;
+                }
+                if strand == Strand::Minus && var_overlaps(intron_end - 5, intron_end - 4) {
+                    consequences |= Consequence::SpliceDonorFifthBaseVariant;
                 }
             }
 
@@ -477,86 +567,55 @@ impl ConsequencePredictor {
         let is_downstream = var_start >= max_end;
         if is_exonic {
             if transcript_biotype == TranscriptBiotype::NonCoding {
-                consequences.push(Consequence::NonCodingTranscriptExonVariant);
+                consequences |= Consequence::NonCodingTranscriptExonVariant;
             }
         } else if is_intronic {
             if transcript_biotype == TranscriptBiotype::NonCoding {
-                consequences.push(Consequence::NonCodingTranscriptIntronVariant);
+                consequences |= Consequence::NonCodingTranscriptIntronVariant;
             } else {
-                consequences.push(Consequence::IntronVariant);
+                consequences |= Consequence::IntronVariant;
             }
         } else if is_upstream {
             let val = -(min_start + 1 - var_end);
-            if val.abs() <= 5_000 {
-                match Strand::try_from(alignment.strand).expect("invalid strand") {
-                    Strand::Plus => consequences.push(Consequence::UpstreamGeneVariant),
-                    Strand::Minus => consequences.push(Consequence::DownstreamGeneVariant),
+            if val.abs() <= PADDING {
+                match strand {
+                    Strand::Plus => consequences |= Consequence::UpstreamGeneVariant,
+                    Strand::Minus => consequences |= Consequence::DownstreamGeneVariant,
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
+            } else {
+                unreachable!("variant is intergenic but this cannot happen here");
             }
             if distance.is_none() {
                 distance = Some(val);
             }
         } else if is_downstream {
             let val = var_start + 1 - max_end;
-            if val.abs() <= 5_000 {
-                match Strand::try_from(alignment.strand).expect("invalid strand") {
-                    Strand::Plus => consequences.push(Consequence::DownstreamGeneVariant),
-                    Strand::Minus => consequences.push(Consequence::UpstreamGeneVariant),
+            if val.abs() <= PADDING {
+                match strand {
+                    Strand::Plus => consequences |= Consequence::DownstreamGeneVariant,
+                    Strand::Minus => consequences |= Consequence::UpstreamGeneVariant,
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
+            } else {
+                unreachable!("variant is intergenic but this cannot happen here");
             }
             if distance.is_none() {
                 distance = Some(val);
             }
         }
 
-        let var_g = HgvsVariant::GenomeVariant {
-            accession: Accession { value: chrom_acc },
-            gene_symbol: None,
-            loc_edit: if var.reference.is_empty() {
-                // insertion
-                GenomeLocEdit {
-                    loc: Mu::Certain(GenomeInterval {
-                        start: Some(var.position - 1),
-                        end: Some(var.position),
-                    }),
-                    edit: Mu::Certain(NaEdit::Ins {
-                        alternative: var.alternative.clone(),
-                    }),
-                }
-            } else if var.alternative.is_empty() {
-                // deletion
-                GenomeLocEdit {
-                    loc: Mu::Certain(GenomeInterval {
-                        start: Some(var.position),
-                        end: Some(var.position + var.reference.len() as i32 - 1),
-                    }),
-                    edit: Mu::Certain(NaEdit::DelRef {
-                        reference: var.reference.clone(),
-                    }),
-                }
-            } else {
-                // substitution
-                GenomeLocEdit {
-                    loc: Mu::Certain(GenomeInterval {
-                        start: Some(var.position),
-                        end: Some(var.position + var.reference.len() as i32 - 1),
-                    }),
-                    edit: Mu::Certain(NaEdit::RefAlt {
-                        reference: var.reference.clone(),
-                        alternative: var.alternative.clone(),
-                    }),
-                }
-            },
-        };
+        let var_g = Self::get_var_g(var, &chrom_acc);
 
         let (rank, hgvs_t, hgvs_p, tx_pos, cds_pos, protein_pos) = if !is_upstream && !is_downstream
         {
             // TODO: do not include such transcripts when building the tx database.
             let var_n = self.mapper.g_to_n(&var_g, &tx.id).map_or_else(
                 |e| match e {
-                    Error::NonAdjacentExons(_, _, _, _) => Ok(None),
+                    Error::NonAdjacentExons(_, _, _, _) => {
+                        tracing::warn!("{}, {}: NonAdjacentExons, skipping", &tx.id, &var_g);
+                        Ok(None)
+                    }
                     _ => Err(e),
                 },
                 |v| Ok(Some(v)),
@@ -601,10 +660,7 @@ impl ConsequencePredictor {
                     let var_p = var_p.unwrap();
 
                     let hgvs_p = format!("{}", &var_p);
-                    let mut hgvs_p = hgvs_p.split(':').nth(1).unwrap().to_owned();
-                    for (aa3, aa1) in hgvs::sequences::AA3_TO_AA1_VEC.iter() {
-                        hgvs_p = hgvs_p.replace(aa3, aa1);
-                    }
+                    let hgvs_p = hgvs_p.split(':').nth(1).unwrap().to_owned();
                     let hgvs_p = Some(hgvs_p);
                     let cds_pos = match &var_c {
                         HgvsVariant::CdsVariant { loc_edit, .. } => Some(Pos {
@@ -642,22 +698,32 @@ impl ConsequencePredictor {
                             let ends_right_of_start =
                                 start_cds_from != CdsFrom::Start || start_base > 0;
                             if starts_left_of_start && ends_right_of_start {
-                                consequences.push(Consequence::StartLost)
+                                consequences |= Consequence::StartLost;
                             }
                             // stop codon
                             let starts_left_of_stop = start_cds_from == CdsFrom::Start;
                             let ends_right_of_stop = end_cds_from == CdsFrom::End;
                             if starts_left_of_stop && ends_right_of_stop {
-                                consequences.push(Consequence::StopLost)
+                                consequences |= Consequence::StopLost;
                             }
 
                             // Detect variants affecting the 5'/3' UTRs.
                             if start_cds_from == CdsFrom::Start {
                                 if start_base < 0 {
-                                    consequences.push(Consequence::FivePrimeUtrVariant);
+                                    if is_intronic {
+                                        consequences |= Consequence::FivePrimeUtrIntronVariant;
+                                    }
+                                    if is_exonic {
+                                        consequences |= Consequence::FivePrimeUtrExonVariant;
+                                    }
                                 }
                             } else if end_cds_from == CdsFrom::End {
-                                consequences.push(Consequence::ThreePrimeUtrVariant);
+                                if is_intronic {
+                                    consequences |= Consequence::ThreePrimeUtrIntronVariant;
+                                }
+                                if is_exonic {
+                                    consequences |= Consequence::ThreePrimeUtrExonVariant;
+                                }
                             }
 
                             // The range is "conservative" (regarding deletions and insertions) if
@@ -681,71 +747,67 @@ impl ConsequencePredictor {
                                 let loc = loc.inner();
                                 match edit.inner() {
                                     hgvs::parser::ProteinEdit::Fs { .. } => {
-                                        consequences.push(Consequence::FrameshiftVariant);
+                                        consequences |= Consequence::FrameshiftVariant;
                                     }
                                     hgvs::parser::ProteinEdit::Ext { .. } => {
-                                        consequences.push(Consequence::StopLost);
-                                        consequences.push(Consequence::FeatureElongation);
+                                        consequences |= Consequence::StopLost;
+                                        consequences |= Consequence::FeatureElongation;
                                     }
                                     hgvs::parser::ProteinEdit::Subst { alternative } => {
                                         if alternative.is_empty() {
-                                            consequences.push(Consequence::SynonymousVariant);
+                                            consequences |= Consequence::SynonymousVariant;
                                         } else if is_stop(alternative) {
                                             if loc.start == loc.end && is_stop(&loc.start.aa) {
-                                                consequences.push(Consequence::StopRetainedVariant);
+                                                consequences |= Consequence::StopRetainedVariant;
                                             } else {
-                                                consequences.push(Consequence::StopGained);
+                                                consequences |= Consequence::StopGained;
                                             }
                                         } else {
-                                            consequences.push(Consequence::MissenseVariant);
+                                            consequences |= Consequence::MissenseVariant;
                                         }
                                     }
                                     hgvs::parser::ProteinEdit::DelIns { alternative } => {
                                         if conservative {
-                                            consequences
-                                                .push(Consequence::ConservativeInframeDeletion);
+                                            consequences |=
+                                                Consequence::ConservativeInframeDeletion;
                                         } else {
-                                            consequences
-                                                .push(Consequence::DisruptiveInframeDeletion);
+                                            consequences |= Consequence::DisruptiveInframeDeletion;
                                         }
                                         if alternative.contains('*')
                                             || alternative.contains('X')
                                             || alternative.contains("Ter")
                                         {
-                                            consequences.push(Consequence::StopGained);
+                                            consequences |= Consequence::StopGained;
                                         }
                                     }
                                     hgvs::parser::ProteinEdit::Ins { .. }
                                     | hgvs::parser::ProteinEdit::Dup => {
                                         if conservative {
-                                            consequences
-                                                .push(Consequence::ConservativeInframeInsertion);
+                                            consequences |=
+                                                Consequence::ConservativeInframeInsertion;
                                         } else {
-                                            consequences
-                                                .push(Consequence::DisruptiveInframeInsertion);
+                                            consequences |= Consequence::DisruptiveInframeInsertion;
                                         }
-                                        consequences
-                                            .push(Consequence::ConservativeInframeInsertion);
+                                        consequences |= Consequence::ConservativeInframeInsertion;
                                     }
                                     hgvs::parser::ProteinEdit::Del => {
                                         if conservative {
-                                            consequences
-                                                .push(Consequence::ConservativeInframeDeletion);
+                                            consequences |=
+                                                Consequence::ConservativeInframeDeletion;
                                         } else {
-                                            consequences
-                                                .push(Consequence::DisruptiveInframeDeletion);
+                                            consequences |= Consequence::DisruptiveInframeDeletion;
                                         }
                                     }
                                     hgvs::parser::ProteinEdit::Ident => {
-                                        consequences.push(Consequence::SynonymousVariant)
+                                        consequences |= Consequence::SynonymousVariant;
                                     }
                                 };
                             }
                             ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain => {
-                                consequences.push(Consequence::SynonymousVariant)
+                                consequences |= Consequence::SynonymousVariant;
                             }
                             ProtLocEdit::InitiationUncertain => {
-                                consequences.push(Consequence::StartLost)
+                                consequences |= Consequence::StartLost;
                             }
                             ProtLocEdit::NoProtein
                             | ProtLocEdit::NoProteinUncertain
@@ -759,7 +821,7 @@ impl ConsequencePredictor {
                 TranscriptBiotype::NonCoding => (var_n, None, None, None, None),
                 _ => unreachable!("invalid transcript biotype: {:?}", transcript_biotype),
             };
-            let hgvs_t = format!("{}", &var_t);
+            let hgvs_t = format!("{}", &NoRef(&var_t));
             let hgvs_t = hgvs_t.split(':').nth(1).unwrap().to_owned();
 
             (
@@ -775,10 +837,8 @@ impl ConsequencePredictor {
         };
 
         // Take a highest-ranking consequence and derive putative impact from it.
-        consequences.sort();
-        consequences.dedup();
         if consequences.is_empty() {
-            tracing::debug!(
+            tracing::error!(
                 "No consequences for {:?} on {} (hgvs_p={}) - adding `gene_variant`;\
                 most likely the transcript has multiple stop codons and the variant \
                 lies behind the first.",
@@ -789,9 +849,16 @@ impl ConsequencePredictor {
                     .map(|s| (&s).to_string())
                     .unwrap_or(String::from("None"))
             );
-            consequences.push(Consequence::GeneVariant);
+            consequences |= Consequence::GeneVariant;
         }
+        let consequences = consequences.iter().collect_vec();
         let putative_impact = (*consequences.first().unwrap()).into();
+
+        let strand = match strand {
+            Strand::Unknown => 0,
+            Strand::Plus => 1,
+            Strand::Minus => -1,
+        };
 
         // Build and return ANN field from the information derived above.
         Ok(Some(AnnField {
@@ -813,9 +880,53 @@ impl ConsequencePredictor {
             tx_pos,
             cds_pos,
             protein_pos,
+            strand,
             distance,
             messages: None,
         }))
+    }
+
+    fn get_var_g(var: &VcfVariant, chrom_acc: &str) -> HgvsVariant {
+        let chrom_acc = chrom_acc.to_string();
+        HgvsVariant::GenomeVariant {
+            accession: Accession { value: chrom_acc },
+            gene_symbol: None,
+            loc_edit: if var.reference.is_empty() {
+                // insertion
+                GenomeLocEdit {
+                    loc: Mu::Certain(GenomeInterval {
+                        start: Some(var.position - 1),
+                        end: Some(var.position),
+                    }),
+                    edit: Mu::Certain(NaEdit::Ins {
+                        alternative: var.alternative.clone(),
+                    }),
+                }
+            } else if var.alternative.is_empty() {
+                // deletion
+                GenomeLocEdit {
+                    loc: Mu::Certain(GenomeInterval {
+                        start: Some(var.position),
+                        end: Some(var.position + var.reference.len() as i32 - 1),
+                    }),
+                    edit: Mu::Certain(NaEdit::DelRef {
+                        reference: var.reference.clone(),
+                    }),
+                }
+            } else {
+                // substitution
+                GenomeLocEdit {
+                    loc: Mu::Certain(GenomeInterval {
+                        start: Some(var.position),
+                        end: Some(var.position + var.reference.len() as i32 - 1),
+                    }),
+                    edit: Mu::Certain(NaEdit::RefAlt {
+                        reference: var.reference.clone(),
+                        alternative: var.alternative.clone(),
+                    }),
+                }
+            },
+        }
     }
 
     // Normalize variant by stripping common suffixes and prefixes.
@@ -932,6 +1043,157 @@ mod test {
             "spdi = {}",
             spdi.join(":")
         );
+
+        Ok(())
+    }
+
+    /// Test some intron specific variants, via the annotated consequences.
+    /// GRCh37, BRCA1, NM_007294.4 (MANE, reverse).
+    /// The order of the consequences is important: ordered by severity, descending.
+    /// cf Consequences enum ordering.
+    #[rstest::rstest]
+    #[case("17:41197820:G:T", 1, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant])] // 1bp intronic
+    #[case("17:41197821:A:C", 2, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant])] // 2bp intronic
+    #[case("17:41197822:C:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 3bp intronic
+    #[case("17:41197823:C:A", 4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 4bp intronic
+    #[case("17:41197824:T:G", 5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 5bp intronic
+    #[case("17:41197825:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 6bp intronic
+    #[case("17:41197835:T:G", 16, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 16bp intronic
+    #[case("17:41197836:G:A", 17, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 17bp intronic
+    #[case("17:41197837:G:A", 18, vec![Consequence::IntronVariant])] // 18bp intronic
+    #[case("17:41199660:G:T", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant])] // exonic
+    #[case("17:41199659:G:T", -1, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant])] // -1bp intronic
+    #[case("17:41199658:T:G", -2, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant])] // -2bp intronic
+    #[case("17:41199657:G:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -3bp intronic
+    #[case("17:41199656:A:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -4bp intronic
+    #[case("17:41199655:G:T", -5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -5bp intronic
+    #[case("17:41199654:G:T", -6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -6bp intronic
+    #[case("17:41199653:T:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])] // -7bp intronic
+    #[case("17:41199652:G:T", -8, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])] // -8bp intronic
+    #[case("17:41199651:C:A", -9, vec![Consequence::IntronVariant])] // -9bp intronic
+    fn annotate_snv_brca1_csq(
+        #[case] spdi: &str,
+        #[case] expected_dist: i32,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        crate::common::set_snapshot_suffix!("{}", spdi.replace(':', "-"));
+
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
+        let tx_db = load_tx_db(tx_path)?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Assembly::Grch37p10,
+            MehariProviderConfigBuilder::default()
+                .transcript_picking(true)
+                .build()?,
+        ));
+
+        let predictor =
+            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].feature_id, "NM_007294.4");
+        assert_eq!(
+            res[0].distance,
+            Some(expected_dist),
+            "spdi = {}",
+            spdi.join(":")
+        );
+        assert_eq!(
+            res[0].consequences,
+            expected_csqs,
+            "spdi = {}",
+            spdi.join(":")
+        );
+        insta::assert_yaml_snapshot!(res);
+
+        Ok(())
+    }
+
+    /// Test some intron specific variants, via the annotated consequences.
+    /// GRCh37, OPA1, NM_130837.3 (MANE, forward).
+    /// The order of the consequences is important: ordered by severity, descending.
+    /// cf Consequences enum ordering.
+    #[rstest::rstest]
+    #[case("3:193332512:T:G", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant])] // exonic
+    #[case("3:193332511:G:T", -1, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant])] // -1bp intronic
+    #[case("3:193332510:A:G", -2, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant])] // -2bp intronic
+    #[case("3:193332509:C:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant])] // -3bp intronic
+    #[case("3:193332508:T:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant])] // -4bp intronic
+    #[case("3:193332507:T:C", -5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant])] // -5bp intronic
+    #[case("3:193332506:T:C", -6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // -6bp intronic
+    #[case("3:193332505:C:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // -7bp intronic
+    #[case("3:193332504:T:C", -8, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // -8bp intronic
+    #[case("3:193332503:T:A", -9, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // -9bp intronic
+    #[case("3:193332831:G:T", 1, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant])] // 1bp intronic
+    #[case("3:193332832:T:C", 2, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant])] // 2bp intronic
+    #[case("3:193332833:G:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // 3bp intronic
+    #[case("3:193332834:A:C", 4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // 4bp intronic
+    #[case("3:193332835:A:T", 5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // 5bp intronic
+    #[case("3:193332836:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // 6bp intronic
+    #[case("3:193332837:T:G", 7, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])] // 7bp intronic
+    #[case("3:193332838:T:G", 8, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])] // 8bp intronic
+    #[case("3:193332839:G:A", 9, vec![Consequence::IntronVariant])] // 9bp intronic
+    #[case("3:193332846:A:G", 16, vec![Consequence::IntronVariant])] // 16bp intronic
+    #[case("3:193332847:G:A", 17, vec![Consequence::IntronVariant])] // 17bp intronic
+    #[case("3:193332848:T:A", 18, vec![Consequence::IntronVariant])] // 18bp intronic
+    fn annotate_snv_opa1_csq(
+        #[case] spdi: &str,
+        #[case] expected_dist: i32,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        crate::common::set_snapshot_suffix!("{}", spdi.replace(':', "-"));
+
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
+        let tx_db = load_tx_db(tx_path)?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Assembly::Grch37p10,
+            MehariProviderConfigBuilder::default()
+                .transcript_picking(true)
+                .build()?,
+        ));
+
+        let predictor =
+            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].feature_id, "NM_130837.3");
+        assert_eq!(
+            res[0].distance,
+            Some(expected_dist),
+            "spdi = {}",
+            spdi.join(":")
+        );
+        assert_eq!(
+            res[0].consequences,
+            expected_csqs,
+            "spdi = {}",
+            spdi.join(":")
+        );
+        insta::assert_yaml_snapshot!(res);
 
         Ok(())
     }
@@ -1060,7 +1322,6 @@ mod test {
     }
 
     // Compare to SnpEff annotated ClinVar variants for OPA1 (slow).
-    #[ignore]
     #[test]
     fn annotate_opa1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
         annotate_opa1_vars(
@@ -1070,7 +1331,6 @@ mod test {
     }
 
     // Compare to SnpEff annotated ClinVar variants for OPA1 (slow).
-    #[ignore]
     #[test]
     fn annotate_opa1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
         annotate_opa1_vars(
@@ -1099,7 +1359,6 @@ mod test {
     }
 
     // Compare to SnpEff annotated ClinVar variants for BRCA1 (slow).
-    #[ignore]
     #[test]
     fn annotate_brca1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
         annotate_brca1_vars(
@@ -1109,7 +1368,6 @@ mod test {
     }
 
     // Compare to SnpEff annotated ClinVar variants for BRCA1 (slow).
-    #[ignore]
     #[test]
     fn annotate_brca1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
         annotate_brca1_vars(
@@ -1235,7 +1493,9 @@ mod test {
                     // NB: We cannot predict 5_prime_UTR_premature_start_codon_gain_variant yet. For now, we
                     // also accept 5_prime_UTR_variant.
                     let found_one = found_one
-                        || (expected_one_of.contains(&String::from("5_prime_UTR_variant"))
+                        || ((expected_one_of.contains(&String::from("5_prime_UTR_exon_variant"))
+                            || expected_one_of
+                                .contains(&String::from("5_prime_UTR_intron_variant")))
                             && (record_csqs.contains(&String::from(
                                 "5_prime_UTR_premature_start_codon_gain_variant",
                             ))));
@@ -1267,7 +1527,8 @@ mod test {
                     // On BRCA1, there is a case where VEP predicts `protein_altering_variant` rather than
                     // `disruptive_inframe_deletion`.  We accept this as well.
                     let found_one = found_one
-                        || expected_one_of.contains(&String::from("disruptive_inframe_deletion"))
+                        || (expected_one_of.contains(&String::from("disruptive_inframe_deletion"))
+                            || expected_one_of.contains(&String::from("inframe_indel")))
                             && (record_csqs.contains(&String::from("protein_altering_variant")));
                     // In the case of `GRCh37:17:41258543:T:TA`, the `hgvs` prediction is `c.-1_1insT` and
                     // `p.Met1?` which leads to `start_lost` while VEP predicts `5_prime_UTR_variant`.
@@ -1276,6 +1537,37 @@ mod test {
                     let found_one = found_one
                         || expected_one_of.contains(&String::from("start_lost"))
                             && (record_csqs.contains(&String::from("5_prime_UTR_variant")));
+                    // We have specialized {5,3}_prime_UTR_{exon,intron}_variant handling, while
+                    // vep and snpEff do not
+                    let found_one = found_one
+                        || record_csqs.contains(&String::from("5_prime_UTR_variant"))
+                            && (expected_one_of
+                                .contains(&String::from("5_prime_UTR_exon_variant"))
+                                || expected_one_of
+                                    .contains(&String::from("5_prime_UTR_intron_variant")));
+                    let found_one = found_one
+                        || record_csqs.contains(&String::from("3_prime_UTR_variant"))
+                            && (expected_one_of
+                                .contains(&String::from("3_prime_UTR_exon_variant"))
+                                || expected_one_of
+                                    .contains(&String::from("3_prime_UTR_intron_variant")));
+                    // an inframe_indel can be a missense_variant if it is an MNV (which we do not explicitly check here)
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("inframe_indel"))
+                            && (record_csqs.contains(&String::from("missense_variant")));
+                    // inframe_indel also is a superclass of *_inframe_{deletion, insertion}
+                    let found_one = found_one
+                        || expected_one_of.contains(&String::from("inframe_indel"))
+                            && [
+                                "disruptive_inframe_deletion",
+                                "conservative_inframe_deletion",
+                                "inframe_deletion",
+                                "disruptive_inframe_insertion",
+                                "conservative_inframe_insertion",
+                                "inframe_insertion",
+                            ]
+                            .iter()
+                            .any(|c| record_csqs.contains(&String::from(*c)));
                     // SnpEff has a different interpretation of disruptive/conservative inframe deletions.
                     // We thus allow both.
                     let found_one = found_one
@@ -1290,6 +1582,12 @@ mod test {
                     let found_one = found_one
                         || expected_one_of.contains(&String::from("splice_region_variant"))
                             && (record_csqs.contains(&String::from("5_prime_UTR_variant")));
+                    // SnpEff does not predict `splice_polypyrimidine_tract_variant`
+                    let found_one = found_one
+                        || expected_one_of
+                            .contains(&String::from("splice_polypyrimidine_tract_variant"))
+                            && (record_csqs.contains(&String::from("splice_region_variant"))
+                                || record_csqs.contains(&String::from("intron_variant")));
                     // For `GRCh37:3:193366573:A:ATATTGCCTAGAATGAACT`, SnpEff predicts
                     // `stop_gained` while this rather is a intron variant.  We skip this variant.
                     let found_one = found_one

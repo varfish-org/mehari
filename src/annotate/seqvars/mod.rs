@@ -35,6 +35,7 @@ use noodles::vcf::variant::record::AlternateBases;
 use noodles::vcf::variant::record_buf::info::field;
 use noodles::vcf::variant::RecordBuf as VcfRecord;
 use noodles::vcf::{header::record::value::map::Map, Header as VcfHeader};
+use once_cell::sync::Lazy;
 use prost::Message;
 use rocksdb::{BoundColumnFamily, DBWithThreadMode, ThreadMode};
 use rustc_hash::FxHashMap;
@@ -219,7 +220,7 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
             InfoType::String,
             "Functional annotations: 'Allele | Annotation | Annotation_Impact | Gene_Name | \
             Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | \
-            cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | Distance | \
+            cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | Distance | Strand | \
             ERRORS / WARNINGS / INFO'",
         ),
     );
@@ -432,10 +433,7 @@ where
         vcf_record.info_mut().insert(
             "clinvar_vcv".into(),
             Some(field::Value::Array(field::value::Array::String(
-                clinvar_vcvs
-                    .into_iter()
-                    .map(|s| Some(s))
-                    .collect::<Vec<_>>(),
+                clinvar_vcvs.into_iter().map(Some).collect::<Vec<_>>(),
             ))),
         );
         vcf_record.info_mut().insert(
@@ -443,7 +441,7 @@ where
             Some(field::Value::Array(field::value::Array::String(
                 clinvar_germline_classifications
                     .into_iter()
-                    .map(|s| Some(s))
+                    .map(Some)
                     .collect::<Vec<_>>(),
             ))),
         );
@@ -452,52 +450,55 @@ where
     Ok(())
 }
 
-lazy_static::lazy_static! {
-    pub static ref CHROM_MT: HashSet<&'static str> = HashSet::from_iter(["M", "MT", "chrM", "chrMT"].into_iter());
-    pub static ref CHROM_XY: HashSet<&'static str> = HashSet::from_iter(["X", "Y", "chrX", "chrY"].into_iter());
-    pub static ref CHROM_AUTO: HashSet<&'static str> = HashSet::from_iter([
-        "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18",
-        "19", "20", "21", "22", "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9",
-        "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20",
-        "chr21", "chr22"
-    ].into_iter());
+pub static CHROM_MT: Lazy<HashSet<&'static str>> =
+    Lazy::new(|| HashSet::from_iter(["M", "MT", "chrM", "chrMT"]));
+pub static CHROM_XY: Lazy<HashSet<&'static str>> =
+    Lazy::new(|| HashSet::from_iter(["X", "Y", "chrX", "chrY"]));
 
-    /// Mapping from chromosome name to chromsome number.
-    pub static ref CHROM_TO_CHROM_NO: HashMap<String, u32> = {
-        let mut m = HashMap::new();
+pub static CHROM_AUTO: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    HashSet::from_iter([
+        "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
+        "17", "18", "19", "20", "21", "22", "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7",
+        "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17",
+        "chr18", "chr19", "chr20", "chr21", "chr22",
+    ])
+});
 
-        for i in 1..=22 {
-            m.insert(format!("chr{}", i), i);
-            m.insert(format!("{}", i), i);
-        }
-        m.insert(String::from("X"), 23);
-        m.insert(String::from("chrX"), 23);
-        m.insert(String::from("Y"), 24);
-        m.insert(String::from("chrY"), 24);
-        m.insert(String::from("M"), 25);
-        m.insert(String::from("chrM"), 25);
-        m.insert(String::from("MT"), 25);
-        m.insert(String::from("chrMT"), 25);
+/// Mapping from chromosome name to chromsome number.
+pub static CHROM_TO_CHROM_NO: Lazy<HashMap<String, u32>> = Lazy::new(|| {
+    let mut m = HashMap::new();
 
-        m
-    };
+    for i in 1..=22 {
+        m.insert(format!("chr{}", i), i);
+        m.insert(format!("{}", i), i);
+    }
+    m.insert(String::from("X"), 23);
+    m.insert(String::from("chrX"), 23);
+    m.insert(String::from("Y"), 24);
+    m.insert(String::from("chrY"), 24);
+    m.insert(String::from("M"), 25);
+    m.insert(String::from("chrM"), 25);
+    m.insert(String::from("MT"), 25);
+    m.insert(String::from("chrMT"), 25);
 
-    /// Mapping from chromosome number to canonical chromosome name.
-    ///
-    /// We use the names without `"chr"` prefix for the canonical name.  In the case of GRCh38,
-    /// the the prefix must be prepended.
-    pub static ref CHROM_NO_TO_NAME: Vec<String> = {
-        let mut v = Vec::new();
-        v.push(String::from("")); // 0
-        for i in 1..=22 {
-            v.push(format!("{}", i));
-        }
-        v.push(String::from("X"));
-        v.push(String::from("Y"));
-        v.push(String::from("MT"));
-        v
-    };
-}
+    m
+});
+
+/// Mapping from chromosome number to canonical chromosome name.
+///
+/// We use the names without `"chr"` prefix for the canonical name.  In the case of GRCh38,
+/// the the prefix must be prepended.
+pub static CHROM_NO_TO_NAME: Lazy<Vec<String>> = Lazy::new(|| {
+    let mut v = Vec::new();
+    v.push(String::from("")); // 0
+    for i in 1..=22 {
+        v.push(format!("{}", i));
+    }
+    v.push(String::from("X"));
+    v.push(String::from("Y"));
+    v.push(String::from("MT"));
+    v
+});
 
 /// Return path component for the assembly.
 pub fn path_component(assembly: Assembly) -> &'static str {
@@ -548,7 +549,7 @@ pub trait AsyncAnnotatedVariantWriter {
     ) -> Result<(), anyhow::Error>;
 
     #[allow(async_fn_in_trait)]
-    async fn flush(&mut self) -> Result<(), anyhow::Error>;
+    async fn shutdown(&mut self) -> Result<(), anyhow::Error>;
 
     fn set_hgnc_map(&mut self, _hgnc_map: FxHashMap<String, HgncRecord>) {
         // nop
@@ -577,7 +578,7 @@ impl<Inner: Write> AsyncAnnotatedVariantWriter for VcfWriter<Inner> {
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), Error> {
         Ok(<VcfWriter<Inner>>::get_mut(self).flush()?)
     }
 }
@@ -602,7 +603,7 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), Error> {
         Ok(<noodles::vcf::AsyncWriter<Inner>>::get_mut(self)
             .flush()
             .await?)
@@ -629,7 +630,7 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), Error> {
         Ok(<noodles::bcf::AsyncWriter<Inner>>::get_mut(self)
             .flush()
             .await?)
@@ -1172,13 +1173,11 @@ impl VarFishSeqvarTsvWriter {
                             Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
                         tsv_record.ensembl_hgvs_c.clone_from(&ann.hgvs_t);
                         tsv_record.ensembl_hgvs_p.clone_from(&ann.hgvs_p);
-                        if !ann.consequences.is_empty() {
-                            tsv_record.ensembl_effect = Some(
-                                ann.consequences
-                                    .iter()
-                                    .map(|c| format!("\"{}\"", &c))
-                                    .collect::<Vec<_>>(),
-                            );
+                        assert!(!ann.consequences.is_empty());
+                        if ann.consequences.contains(&Consequence::IntergenicVariant) {
+                            assert_eq!(ann.consequences.len(), 1);
+                            tsv_record.ensembl_effect =
+                                Some(vec![Consequence::IntergenicVariant.to_string()]);
                         }
                         if !ann.consequences.contains(&Consequence::IntronVariant)
                             && !ann.consequences.contains(&Consequence::UpstreamGeneVariant)
@@ -1209,11 +1208,8 @@ impl VarFishSeqvarTsvWriter {
                                     .collect::<Vec<_>>(),
                             );
                         }
-                        if ann.consequences.contains(&Consequence::ExonVariant) {
-                            tsv_record.refseq_exon_dist = Some(0);
-                        } else {
-                            tsv_record.refseq_exon_dist = ann.distance;
-                        }
+
+                        tsv_record.refseq_exon_dist = ann.distance;
 
                         written_refseq = true;
                     }
@@ -1503,7 +1499,7 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
         self.expand_refseq_ensembl_and_write(record, &mut tsv_record)
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), Error> {
         Ok(self.inner.flush()?)
     }
 
@@ -1622,7 +1618,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
         let mut writer = open_variant_writer(path_output_vcf).await?;
         run_with_writer(&mut writer, args).await?;
-        writer.flush().await?;
+        writer.shutdown().await?;
     } else {
         // Load the HGNC xlink map.
         let hgnc_map = {
@@ -1757,7 +1753,7 @@ async fn run_with_writer(
         total_written.separate_with_commas(),
         start.elapsed()
     );
-    writer.flush().await?;
+    writer.shutdown().await?;
     Ok(())
 }
 

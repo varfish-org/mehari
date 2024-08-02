@@ -10,7 +10,7 @@ use noodles::bcf;
 use noodles::vcf;
 use noodles::vcf::variant::RecordBuf;
 use noodles::vcf::Header;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::annotate::seqvars::AsyncAnnotatedVariantWriter;
 use crate::common::io::tokio::open_read_maybe_bgzf;
@@ -43,6 +43,7 @@ pub async fn open_bcf_reader(path: impl AsRef<Path>) -> Result<AsyncBcfReader, E
 pub async fn open_variant_reader(path: impl AsRef<Path>) -> anyhow::Result<VariantReader> {
     match path.as_ref().extension().and_then(|s| s.to_str()) {
         Some("bcf") => open_bcf_reader(path).await.map(VariantReader::Bcf),
+        #[allow(clippy::wildcard_in_or_patterns)]
         Some("gz") | Some("vcf") | _ => open_vcf_reader(path).await.map(VariantReader::Vcf),
     }
 }
@@ -126,6 +127,7 @@ pub async fn open_bcf_writer(path: impl AsRef<Path>) -> Result<AsyncBcfWriter, E
 pub async fn open_variant_writer(path: impl AsRef<Path>) -> anyhow::Result<VariantWriter> {
     match path.as_ref().extension().and_then(|s| s.to_str()) {
         Some("bcf") => open_bcf_writer(path).await.map(VariantWriter::Bcf),
+        #[allow(clippy::wildcard_in_or_patterns)]
         Some("gz") | Some("vcf") | _ => open_vcf_writer(path).await.map(VariantWriter::Vcf),
     }
 }
@@ -177,10 +179,10 @@ impl AsyncAnnotatedVariantWriter for VariantWriter {
         self.write_record(header, record).await.map_err(Into::into)
     }
 
-    async fn flush(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), Error> {
         match self {
-            VariantWriter::Vcf(r) => r.flush().await,
-            VariantWriter::Bcf(r) => r.flush().await,
+            VariantWriter::Vcf(r) => r.get_mut().shutdown().await.map_err(Into::into),
+            VariantWriter::Bcf(r) => r.get_mut().shutdown().await.map_err(Into::into),
         }
     }
 }

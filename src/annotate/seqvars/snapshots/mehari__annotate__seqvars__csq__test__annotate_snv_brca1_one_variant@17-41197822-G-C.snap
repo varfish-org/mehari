@@ -7,8 +7,9 @@ expression: res
       alternative: C
   consequences:
     - splice_region_variant
+    - splice_polypyrimidine_tract_variant
     - intron_variant
-  putative_impact: MODERATE
+  putative_impact: LOW
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
@@ -31,14 +32,16 @@ expression: res
     total: 5592
   protein_pos: ~
   distance: 3
+  strand: -1
   messages: ~
 - allele:
     Alt:
       alternative: C
   consequences:
     - splice_region_variant
+    - splice_polypyrimidine_tract_variant
     - intron_variant
-  putative_impact: MODERATE
+  putative_impact: LOW
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
@@ -60,14 +63,16 @@ expression: res
     total: 5451
   protein_pos: ~
   distance: 3
+  strand: -1
   messages: ~
 - allele:
     Alt:
       alternative: C
   consequences:
     - splice_region_variant
+    - splice_polypyrimidine_tract_variant
     - intron_variant
-  putative_impact: MODERATE
+  putative_impact: LOW
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
@@ -89,14 +94,16 @@ expression: res
     total: 2280
   protein_pos: ~
   distance: 3
+  strand: -1
   messages: ~
 - allele:
     Alt:
       alternative: C
   consequences:
     - splice_region_variant
+    - splice_polypyrimidine_tract_variant
     - intron_variant
-  putative_impact: MODERATE
+  putative_impact: LOW
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
@@ -118,14 +125,16 @@ expression: res
     total: 2100
   protein_pos: ~
   distance: 3
+  strand: -1
   messages: ~
 - allele:
     Alt:
       alternative: C
   consequences:
     - splice_region_variant
+    - splice_polypyrimidine_tract_variant
     - intron_variant
-  putative_impact: MODERATE
+  putative_impact: LOW
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
@@ -147,5 +156,5 @@ expression: res
     total: 5655
   protein_pos: ~
   distance: 3
+  strand: -1
   messages: ~
-

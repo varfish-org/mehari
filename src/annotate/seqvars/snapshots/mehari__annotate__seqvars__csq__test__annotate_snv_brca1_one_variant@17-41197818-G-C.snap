@@ -21,7 +21,7 @@ expression: res
     ord: 23
     total: 23
   hgvs_t: c.5469A>G
-  hgvs_p: p.A1823=
+  hgvs_p: p.Ala1823=
   tx_pos:
     ord: 5582
     total: 7088
@@ -32,6 +32,7 @@ expression: res
     ord: 1823
     total: 1864
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -51,7 +52,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_t: c.5328A>G
-  hgvs_p: p.A1776=
+  hgvs_p: p.Ala1776=
   tx_pos:
     ord: 5522
     total: 7028
@@ -62,6 +63,7 @@ expression: res
     ord: 1776
     total: 1817
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -81,7 +83,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_t: c.2157A>G
-  hgvs_p: p.A719=
+  hgvs_p: p.Ala719=
   tx_pos:
     ord: 2176
     total: 3682
@@ -92,6 +94,7 @@ expression: res
     ord: 719
     total: 760
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -111,7 +114,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_t: c.2083A>G
-  hgvs_p: p.N695D
+  hgvs_p: p.Asn695Asp
   tx_pos:
     ord: 2190
     total: 3696
@@ -122,6 +125,7 @@ expression: res
     ord: 695
     total: 700
   distance: 0
+  strand: -1
   messages: ~
 - allele:
     Alt:
@@ -141,7 +145,7 @@ expression: res
     ord: 24
     total: 24
   hgvs_t: c.5532A>G
-  hgvs_p: p.A1844=
+  hgvs_p: p.Ala1844=
   tx_pos:
     ord: 5645
     total: 7151
@@ -152,5 +156,5 @@ expression: res
     ord: 1844
     total: 1885
   distance: 0
+  strand: -1
   messages: ~
-

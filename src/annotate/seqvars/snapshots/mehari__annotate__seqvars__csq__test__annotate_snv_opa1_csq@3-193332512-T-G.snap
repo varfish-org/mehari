@@ -1,0 +1,37 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: G
+  consequences:
+    - missense_variant
+    - splice_region_variant
+  putative_impact: MODERATE
+  gene_symbol: OPA1
+  gene_id: "HGNC:8140"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_130837.3
+  feature_biotype:
+    - Coding
+    - ManeSelect
+  rank:
+    ord: 2
+    total: 31
+  hgvs_t: c.33T>G
+  hgvs_p: p.Cys11Trp
+  tx_pos:
+    ord: 203
+    total: 6429
+  cds_pos:
+    ord: 33
+    total: 3048
+  protein_pos:
+    ord: 11
+    total: 1016
+  distance: 0
+  strand: 1
+  messages: ~

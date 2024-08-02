@@ -1,0 +1,36 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - splice_region_variant
+    - splice_polypyrimidine_tract_variant
+    - intron_variant
+  putative_impact: LOW
+  gene_symbol: OPA1
+  gene_id: "HGNC:8140"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_130837.3
+  feature_biotype:
+    - Coding
+    - ManeSelect
+  rank:
+    ord: 2
+    total: 30
+  hgvs_t: c.33-6T>C
+  hgvs_p: p.?
+  tx_pos:
+    ord: 203
+    total: 6429
+  cds_pos:
+    ord: 33
+    total: 3048
+  protein_pos: ~
+  distance: -6
+  strand: 1
+  messages: ~
