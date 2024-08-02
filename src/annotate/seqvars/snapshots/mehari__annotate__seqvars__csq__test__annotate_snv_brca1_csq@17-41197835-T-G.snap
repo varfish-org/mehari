@@ -1,0 +1,35 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: G
+  consequences:
+    - splice_polypyrimidine_tract_variant
+    - intron_variant
+  putative_impact: LOW
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_007294.4
+  feature_biotype:
+    - Coding
+    - ManeSelect
+  rank:
+    ord: 22
+    total: 22
+  hgvs_t: c.5468-16A>C
+  hgvs_p: p.?
+  tx_pos:
+    ord: 5581
+    total: 7088
+  cds_pos:
+    ord: 5468
+    total: 5592
+  protein_pos: ~
+  distance: 16
+  strand: -1
+  messages: ~
