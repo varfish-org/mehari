@@ -452,11 +452,11 @@ impl ConsequencePredictor {
             if let Some(intron_start) = intron_start {
                 // For insertions, we need to consider the case of the insertion being right at
                 // the exon/intron junction.  We can express this with a shift of 1 for using
-                // "</>" X +/- shift and meaning <=/>= X.
+                // "< / >" X +/- shift and meaning <= / >= X.
                 let ins_shift = if var.reference.is_empty() { 1 } else { 0 };
 
                 // Check the cases where the variant overlaps with the splice acceptor/donor site.
-                if var_overlaps(intron_start + 2, intron_start - ins_shift) {
+                if var_overlaps(intron_start - ins_shift, intron_start + 2) {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match strand {
                         Strand::Plus => consequences.insert(Consequence::SpliceDonorVariant),
@@ -465,7 +465,7 @@ impl ConsequencePredictor {
                     }
                 }
                 // Check the case where the variant overlaps with the splice donor site.
-                if var_overlaps(intron_end + ins_shift, intron_end - 2) {
+                if var_overlaps(intron_end - 2, intron_end + ins_shift) {
                     // Left side, is acceptor/donor depending on transcript's strand.
                     match strand {
                         Strand::Plus => consequences.insert(Consequence::SpliceAcceptorVariant),
@@ -478,12 +478,12 @@ impl ConsequencePredictor {
             // or 3-8 bases in intron).  We have to check all cases independently and not with `else`
             // because the variant may be larger.
             if let Some(intron_start) = intron_start {
-                if var_overlaps(intron_start + 8, intron_start + 2)
+                if var_overlaps(intron_start + 2, intron_start + 8)
                     || var_overlaps(intron_end - 8, intron_end - 2)
                 {
                     consequences |= Consequence::SpliceRegionVariant;
                 }
-                if var_overlaps(exon_end, exon_end - 3) {
+                if var_overlaps(exon_end - 3, exon_end) {
                     if strand == Strand::Plus {
                         if !rank.is_last() {
                             consequences |= Consequence::SpliceRegionVariant;
@@ -495,7 +495,7 @@ impl ConsequencePredictor {
                         }
                     }
                 }
-                if var_overlaps(exon_start + 3, exon_start) {
+                if var_overlaps(exon_start, exon_start + 3) {
                     if strand == Strand::Plus {
                         if !rank.is_first() {
                             consequences |= Consequence::SpliceRegionVariant;
@@ -512,10 +512,10 @@ impl ConsequencePredictor {
             if let Some(intron_start) = intron_start {
                 // Check the case where the variant overlaps with the polypyrimidine tract.
                 // (A sequence variant that falls in the polypyrimidine tract at 3' end of intron between 17 and 3 bases from the end (acceptor -3 to acceptor -17))
-                if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
+                if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 3) {
                     consequences |= Consequence::SplicePolypyrimidineTractVariant;
                 }
-                if strand == Strand::Minus && var_overlaps(intron_start + 3, intron_start + 18) {
+                if strand == Strand::Minus && var_overlaps(intron_start + 2, intron_start + 17) {
                     consequences |= Consequence::SplicePolypyrimidineTractVariant;
                 }
                 // Check conditions for splice_donor_region_variant
