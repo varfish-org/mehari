@@ -1176,7 +1176,8 @@ impl VarFishSeqvarTsvWriter {
                         assert!(!ann.consequences.is_empty());
                         if ann.consequences.contains(&Consequence::IntergenicVariant) {
                             assert_eq!(ann.consequences.len(), 1);
-                            tsv_record.ensembl_effect = Some(vec![Consequence::IntergenicVariant.to_string()]);
+                            tsv_record.ensembl_effect =
+                                Some(vec![Consequence::IntergenicVariant.to_string()]);
                         }
                         if !ann.consequences.contains(&Consequence::IntronVariant)
                             && !ann.consequences.contains(&Consequence::UpstreamGeneVariant)
