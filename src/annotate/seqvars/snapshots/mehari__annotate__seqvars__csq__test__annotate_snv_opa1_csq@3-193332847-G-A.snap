@@ -1,0 +1,34 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: A
+  consequences:
+    - intron_variant
+  putative_impact: MODIFIER
+  gene_symbol: OPA1
+  gene_id: "HGNC:8140"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_130837.3
+  feature_biotype:
+    - Coding
+    - ManeSelect
+  rank:
+    ord: 3
+    total: 30
+  hgvs_t: c.351+17G>A
+  hgvs_p: p.?
+  tx_pos:
+    ord: 521
+    total: 6429
+  cds_pos:
+    ord: 351
+    total: 3048
+  protein_pos: ~
+  distance: 17
+  strand: 1
+  messages: ~
