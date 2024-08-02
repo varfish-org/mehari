@@ -7,7 +7,6 @@ expression: res
       alternative: C
   consequences:
     - splice_acceptor_variant
-    - splice_polypyrimidine_tract_variant
     - intron_variant
   putative_impact: HIGH
   gene_symbol: BRCA1
@@ -39,7 +38,6 @@ expression: res
       alternative: C
   consequences:
     - splice_acceptor_variant
-    - splice_polypyrimidine_tract_variant
     - intron_variant
   putative_impact: HIGH
   gene_symbol: BRCA1
@@ -70,7 +68,6 @@ expression: res
       alternative: C
   consequences:
     - splice_acceptor_variant
-    - splice_polypyrimidine_tract_variant
     - intron_variant
   putative_impact: HIGH
   gene_symbol: BRCA1
@@ -101,7 +98,6 @@ expression: res
       alternative: C
   consequences:
     - splice_acceptor_variant
-    - splice_polypyrimidine_tract_variant
     - intron_variant
   putative_impact: HIGH
   gene_symbol: BRCA1
@@ -132,7 +128,6 @@ expression: res
       alternative: C
   consequences:
     - splice_acceptor_variant
-    - splice_polypyrimidine_tract_variant
     - intron_variant
   putative_impact: HIGH
   gene_symbol: BRCA1
