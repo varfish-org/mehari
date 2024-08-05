@@ -97,7 +97,7 @@ csv = "1.3"
 hxdmp = "0.2"
 insta = { version = "1.36", features = ["yaml"] }
 pretty_assertions = "1.4"
-rstest = "0.21"
+rstest = "0.22"
 temp_testdir = "0.2"
 tracing-test = "0.2"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
