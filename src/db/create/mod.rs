@@ -271,7 +271,7 @@ impl TranscriptLoader {
         let cdot_transcripts = cdot_transcripts
             .into_iter()
             .map(|(txid, mut tx)| {
-                let txid = if txid.starts_with("fake-rna-") {
+                let txid = if txid.starts_with("fake-rna-") && !txid.contains('.') {
                     format!("{txid}.0")
                 } else {
                     txid
