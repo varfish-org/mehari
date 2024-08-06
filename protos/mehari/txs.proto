@@ -63,6 +63,8 @@ enum TranscriptTag {
     TRANSCRIPT_TAG_REF_SEQ_SELECT = 5;
     // Flagged as being a selenoprotein (UGA => selenon).
     TRANSCRIPT_TAG_SELENOPROTEIN = 6;
+    // Member of GENCODE Primary
+    TRANSCRIPT_TAG_GENCODE_PRIMARY = 7;
 }
 
 // Store information about a transcript.
