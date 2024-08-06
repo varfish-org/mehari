@@ -120,9 +120,9 @@ impl TranscriptId {
     }
 
     fn split_version(&self) -> (&str, u32) {
-        let (ac, version) = self
-            .rsplit_once('.')
-            .expect("Invalid accession, expected format 'ac.version'.");
+        let (ac, version) = self.rsplit_once('.').unwrap_or_else(|| {
+            panic!("Invalid accession, expected format 'ac.version', got {self}")
+        });
         (ac, version.parse::<u32>().expect("invalid version"))
     }
 }
@@ -270,7 +270,15 @@ impl TranscriptLoader {
         let cdot_genes = cdot_genes.into_iter().collect::<HashMap<_, _>>();
         let cdot_transcripts = cdot_transcripts
             .into_iter()
-            .map(|(txid, tx)| TranscriptId::try_new(txid).map(|t| (t, tx)))
+            .map(|(txid, mut tx)| {
+                let txid = if txid.starts_with("fake-rna-") {
+                    format!("{txid}.0")
+                } else {
+                    txid
+                };
+                tx.id = txid.clone();
+                TranscriptId::try_new(txid).map(|t| (t, tx))
+            })
             .collect::<Result<HashMap<_, _>, _>>()?;
         self.cdot_version = cdot_version;
 
