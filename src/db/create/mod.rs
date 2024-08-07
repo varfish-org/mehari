@@ -1379,6 +1379,7 @@ impl TranscriptLoader {
                         crate::pbs::txs::TranscriptTag::ManePlusClinical.into()
                     }
                     Tag::RefSeqSelect => crate::pbs::txs::TranscriptTag::RefSeqSelect.into(),
+                    Tag::GencodePrimary => crate::pbs::txs::TranscriptTag::GencodePrimary.into(),
                 };
                 tags.insert(elem);
             }
