@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.26.1](https://github.com/varfish-org/mehari/compare/v0.26.0...v0.26.1) (2024-08-07)
+
+
+### Bug Fixes
+
+* Add gencode primary tag ([#509](https://github.com/varfish-org/mehari/issues/509)) ([a6c8566](https://github.com/varfish-org/mehari/commit/a6c856680f28b6b6f9ef08d685e6aeba9a25320b))
+* for fake-rna-* transcripts for refseq MT, add fake version as well ([#507](https://github.com/varfish-org/mehari/issues/507)) ([f296e5d](https://github.com/varfish-org/mehari/commit/f296e5dbbf089614411659e08e2dac363478a1b5))
+
 ## [0.26.0](https://github.com/varfish-org/mehari/compare/v0.25.7...v0.26.0) (2024-08-02)
 
 
