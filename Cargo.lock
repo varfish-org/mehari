@@ -1969,9 +1969,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hgvs"
-version = "0.17.1"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc11f5c31ad6f61ff160ed587ed67a6cdc677acc22e316ab6451c01e1bf17fb3"
+checksum = "1771430925306344f6ac0832924beb54dd719824dc56a04c4797b4950938f148"
 dependencies = [
  "ahash 0.8.11",
  "base16ct",
