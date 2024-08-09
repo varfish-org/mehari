@@ -75,10 +75,6 @@ pub struct HgncRecord {
 #[derive(Parser, Debug)]
 #[command(about = "Annotate sequence variant VCF files", long_about = None)]
 pub struct Args {
-    /// Path to the mehari database folder.
-    #[arg(long)]
-    pub path_db: String,
-
     /// Genome release to use, default is to auto-detect.
     #[arg(long, value_enum)]
     pub genome_release: Option<GenomeRelease>,
@@ -111,18 +107,28 @@ pub struct Args {
     #[arg(long)]
     pub max_var_count: Option<usize>,
 
-    /// What to annotate
-    #[arg(long,
-        required = true,
-        ignore_case = true,
-        default_values_t = vec![AnnotationOption::Frequencies, AnnotationOption::ClinVar, AnnotationOption::Consequence]
-    )]
-    pub annotate: Vec<AnnotationOption>,
+    #[arg(long, required_unless_present = "path_output_vcf")]
+    pub hgnc: Option<String>,
+
+    /// What to annotate and which source to use.
+    #[command(flatten)]
+    pub sources: Sources,
 }
 
-#[derive(Debug, Display, Copy, Clone, clap::ValueEnum, PartialEq, Eq)]
+#[derive(Debug, ClapArgs)]
+#[group(required = true, multiple = true)]
+pub struct Sources {
+    #[arg(long)]
+    transcripts: Option<Vec<String>>,
+    #[arg(long)]
+    frequencies: Option<String>,
+    #[arg(long)]
+    clinvar: Option<String>,
+}
+
+#[derive(Debug, Display, Copy, Clone, clap::ValueEnum, PartialEq, Eq, parse_display::FromStr)]
 pub enum AnnotationOption {
-    Consequence,
+    Transcripts,
     Frequencies,
     ClinVar,
 }
@@ -136,7 +142,7 @@ pub struct PathOutput {
     pub path_output_vcf: Option<String>,
 
     /// Path to the output TSV file (for import into VarFish).
-    #[arg(long)]
+    #[arg(long, requires = "hgnc")]
     pub path_output_tsv: Option<String>,
 }
 
@@ -1646,12 +1652,11 @@ impl ConsequenceAnnotator {
         Self { predictor }
     }
 
-    fn from_path_and_args(
-        path: impl AsRef<Path> + Display,
+    fn from_db_and_args(
+        tx_db: TxSeqDatabase,
         args: &Args,
         assembly: Assembly,
     ) -> anyhow::Result<Self> {
-        let tx_db = load_tx_db(path)?;
         tracing::info!("Building transcript interval trees ...");
         let provider = Arc::new(MehariProvider::new(
             tx_db,
@@ -1738,7 +1743,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             tracing::info!("Loading HGNC map ...");
             let mut result = FxHashMap::default();
 
-            let tsv_file = File::open(format!("{}/hgnc.tsv", &args.path_db,))?;
+            let tsv_file = File::open(args.hgnc.as_ref().unwrap())?;
             let mut tsv_reader = csv::ReaderBuilder::new()
                 .comment(Some(b'#'))
                 .delimiter(b'\t')
@@ -1870,38 +1875,91 @@ async fn run_with_writer(
 }
 
 fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> {
-    let annotators = args
-        .annotate
-        .iter()
-        .map(|a| match a {
-            AnnotationOption::Frequencies => {
-                let rocksdb_path = format!(
-                    "{}/{}/seqvars/freqs",
-                    &args.path_db,
-                    path_component(assembly)
-                );
-                FrequencyAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Frequency)
-            }
-            AnnotationOption::ClinVar => {
-                // Open the ClinVar RocksDB database in read only mode.
-                let rocksdb_path = format!(
-                    "{}/{}/seqvars/clinvar",
-                    &args.path_db,
-                    path_component(assembly)
-                );
-                ClinvarAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Clinvar)
-            }
-            AnnotationOption::Consequence => {
-                // Open the serialized transcripts.
-                tracing::info!("Opening transcript database");
-                let tx_db_path =
-                    format!("{}/{}/txs.bin.zst", &args.path_db, path_component(assembly));
+    let mut annotators = vec![];
+    if let Some(tx_sources) = &args.sources.transcripts {
+        tracing::info!("Opening transcript database(s)");
 
-                ConsequenceAnnotator::from_path_and_args(&tx_db_path, args, assembly)
-                    .map(AnnotatorEnum::Consequence)
+        fn merge_transcript_databases(
+            mut databases: Vec<TxSeqDatabase>,
+        ) -> anyhow::Result<TxSeqDatabase> {
+            if let Some((first, others)) = databases.split_first_mut() {
+                if !others.is_empty() {
+                    tracing::info!("Merging multiple transcript databases into one");
+                }
+                assert!(others
+                    .iter()
+                    .all(|db| first.genome_release == db.genome_release));
+
+                let seq_db = first.seq_db.as_mut().unwrap();
+                let tx_db = first.tx_db.as_mut().unwrap();
+
+                let mut prev_max_idx = *seq_db.aliases_idx.iter().max().unwrap();
+                for other in others.iter_mut() {
+                    let mut other_seq_db = other.seq_db.take().unwrap();
+                    // Merge the sequence database.
+                    seq_db.seqs.extend(other_seq_db.seqs.drain(..));
+                    // Merge the aliases.
+                    seq_db.aliases.extend(other_seq_db.aliases.drain(..));
+                    // Merge the alias index, ensuring that they are unique by adding the max index.
+                    seq_db.aliases_idx.extend(
+                        other_seq_db
+                            .aliases_idx
+                            .drain(..)
+                            .map(|idx| idx + prev_max_idx + 1),
+                    );
+                    prev_max_idx = *seq_db.aliases_idx.iter().max().unwrap();
+
+                    let mut other_tx_db = other.tx_db.take().unwrap();
+                    // Merge the transcript database.
+                    tx_db.transcripts.extend(other_tx_db.transcripts.drain(..));
+
+                    // Merge the gene to transcript mapping:
+                    // 1. Create a map from gene ID to gene to transcript mapping.
+                    // 2. Iterate over the gene to transcript mappings of the first transcript database (target db).
+                    //    For each gene to transcript mapping, check if there is a corresponding mapping in the other database.
+                    //    If so, merge the transcript IDs.
+                    let mut other_gene_to_tx: HashMap<_, _> = other_tx_db
+                        .gene_to_tx
+                        .into_iter()
+                        .map(|g2t| (g2t.gene_id.clone(), g2t))
+                        .collect();
+                    for g2tx in tx_db.gene_to_tx.iter_mut() {
+                        if let Some(other_tx_ids) = other_gene_to_tx.remove(&g2tx.gene_id) {
+                            g2tx.tx_ids.extend(other_tx_ids.tx_ids);
+                            // TODO check g2tx.filter_reason and g2tx.filtered as well
+                        }
+                    }
+                    // Add the remaining gene to transcript mappings from the other database.
+                    for other_g2tx in other_gene_to_tx.into_values() {
+                        tx_db.gene_to_tx.push(other_g2tx);
+                    }
+                }
+
+                let result = std::mem::take(first);
+                Ok(result)
+            } else {
+                anyhow::bail!("No transcript databases provided");
             }
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
+        }
+
+        let tx_db = merge_transcript_databases(
+            tx_sources
+                .iter()
+                .map(|p| load_tx_db(p))
+                .collect::<anyhow::Result<Vec<_>>>()?,
+        )?;
+
+        annotators.push(
+            ConsequenceAnnotator::from_db_and_args(tx_db, args, assembly)
+                .map(AnnotatorEnum::Consequence)?,
+        );
+    }
+    if let Some(rocksdb_path) = &args.sources.frequencies {
+        annotators.push(FrequencyAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Frequency)?)
+    }
+    if let Some(rocksdb_path) = &args.sources.clinvar {
+        annotators.push(ClinvarAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Clinvar)?)
+    }
     let annotator = Annotator::new(annotators);
     Ok(annotator)
 }
@@ -1930,7 +1988,8 @@ mod test {
     use temp_testdir::TempDir;
 
     use super::binning::bin_from_range;
-    use super::{csq::TranscriptSource, run, AnnotationOption, Args, PathOutput};
+    use super::{csq::TranscriptSource, run, Args, PathOutput};
+    use crate::annotate::seqvars::Sources;
 
     #[tokio::test]
     async fn smoke_test_output_vcf() -> Result<(), anyhow::Error> {
@@ -1940,12 +1999,13 @@ mod test {
         let args_common = crate::common::Args {
             verbose: Verbosity::new(0, 1),
         };
+        let prefix = "tests/data/annotate/db";
+        let assembly = "grch37";
         let args = Args {
             genome_release: None,
             report_all_transcripts: false,
             transcript_source: TranscriptSource::Both,
             transcript_picking: false,
-            path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: Some(path_out.into_os_string().into_string().unwrap()),
@@ -1955,11 +2015,12 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/brca1.examples.ped",
             )),
-            annotate: vec![
-                AnnotationOption::Frequencies,
-                AnnotationOption::ClinVar,
-                AnnotationOption::Consequence,
-            ],
+            sources: Sources {
+                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
+                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
+            },
+            hgnc: None,
         };
 
         run(&args_common, &args).await?;
@@ -1978,12 +2039,13 @@ mod test {
         let args_common = crate::common::Args {
             verbose: Verbosity::new(0, 1),
         };
+        let prefix = "tests/data/annotate/db";
+        let assembly = "grch37";
         let args = Args {
             genome_release: None,
             report_all_transcripts: true,
             transcript_source: TranscriptSource::Both,
             transcript_picking: false,
-            path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -1993,11 +2055,12 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/brca1.examples.ped",
             )),
-            annotate: vec![
-                AnnotationOption::Frequencies,
-                AnnotationOption::ClinVar,
-                AnnotationOption::Consequence,
-            ],
+            sources: Sources {
+                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
+                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
+            },
+            hgnc: Some(format!("{prefix}/hgnc.tsv")),
         };
 
         run(&args_common, &args).await?;
@@ -2028,12 +2091,13 @@ mod test {
         let args_common = crate::common::Args {
             verbose: Verbosity::new(0, 1),
         };
+        let prefix = "tests/data/annotate/db";
+        let assembly = "grch37";
         let args = Args {
             genome_release: None,
             report_all_transcripts: true,
             transcript_source: TranscriptSource::Both,
             transcript_picking: false,
-            path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2043,11 +2107,12 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/badly_formed_vcf_entry.ped",
             )),
-            annotate: vec![
-                AnnotationOption::Frequencies,
-                AnnotationOption::ClinVar,
-                AnnotationOption::Consequence,
-            ],
+            sources: Sources {
+                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
+                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
+            },
+            hgnc: Some(format!("{prefix}/hgnc.tsv")),
         };
 
         run(&args_common, &args).await?;
@@ -2072,12 +2137,13 @@ mod test {
         let args_common = crate::common::Args {
             verbose: Verbosity::new(0, 1),
         };
+        let prefix = "tests/data/annotate/db";
+        let assembly = "grch37";
         let args = Args {
             genome_release: None,
             report_all_transcripts: true,
             transcript_source: TranscriptSource::Both,
             transcript_picking: false,
-            path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2087,11 +2153,12 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/mitochondrial_variants.ped",
             )),
-            annotate: vec![
-                AnnotationOption::Frequencies,
-                AnnotationOption::ClinVar,
-                AnnotationOption::Consequence,
-            ],
+            sources: Sources {
+                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
+                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
+            },
+            hgnc: Some(format!("{prefix}/hgnc.tsv")),
         };
 
         run(&args_common, &args).await?;
@@ -2118,12 +2185,13 @@ mod test {
         let args_common = crate::common::Args {
             verbose: Verbosity::new(0, 1),
         };
+        let prefix = "tests/data/annotate/db";
+        let assembly = "grch37";
         let args = Args {
             genome_release: None,
             report_all_transcripts: true,
             transcript_source: TranscriptSource::Both,
             transcript_picking: false,
-            path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2133,11 +2201,12 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/clair3-glnexus-min.ped",
             )),
-            annotate: vec![
-                AnnotationOption::Frequencies,
-                AnnotationOption::ClinVar,
-                AnnotationOption::Consequence,
-            ],
+            sources: Sources {
+                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
+                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
+            },
+            hgnc: Some(format!("{prefix}/hgnc.tsv")),
         };
 
         run(&args_common, &args).await?;
@@ -2164,12 +2233,13 @@ mod test {
         let args_common = crate::common::Args {
             verbose: Verbosity::new(0, 1),
         };
+        let prefix = "tests/data/annotate/db";
+        let assembly = "grch37";
         let args = Args {
             genome_release: None,
             report_all_transcripts: true,
             transcript_source: TranscriptSource::Both,
             transcript_picking: false,
-            path_db: String::from("tests/data/annotate/db"),
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2179,11 +2249,12 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped",
             )),
-            annotate: vec![
-                AnnotationOption::Frequencies,
-                AnnotationOption::ClinVar,
-                AnnotationOption::Consequence,
-            ],
+            sources: Sources {
+                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
+                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
+            },
+            hgnc: Some(format!("{prefix}/hgnc.tsv")),
         };
 
         run(&args_common, &args).await?;
