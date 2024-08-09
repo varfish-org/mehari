@@ -1,10 +1,6 @@
 //! Annotation of sequence variants.
-pub mod ann;
-pub mod binning;
-pub mod csq;
-pub mod provider;
-
 use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
@@ -12,7 +8,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::annotate::genotype_string;
 use annonars::common::cli::is_canonical;
 use annonars::common::keys;
 use annonars::freqs::serialized::{auto, mt, xy};
@@ -37,12 +32,14 @@ use noodles::vcf::variant::RecordBuf as VcfRecord;
 use noodles::vcf::{header::record::value::map::Map, Header as VcfHeader};
 use once_cell::sync::Lazy;
 use prost::Message;
-use rocksdb::{BoundColumnFamily, DBWithThreadMode, ThreadMode};
+use rocksdb::{DBWithThreadMode, MultiThreaded, ThreadMode};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
+use strum::Display;
 use thousands::Separable;
 use tokio::io::AsyncWriteExt;
 
+use crate::annotate::genotype_string;
 use crate::annotate::seqvars::csq::{
     ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
 };
@@ -51,11 +48,15 @@ use crate::annotate::seqvars::provider::{
 };
 use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
 use crate::common::{guess_assembly, GenomeRelease};
-
 use crate::pbs::txs::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
 
 use self::ann::{AnnField, Consequence, FeatureBiotype};
+
+pub mod ann;
+pub mod binning;
+pub mod csq;
+pub mod provider;
 
 /// Parsing of HGNC xlink records.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,21 +82,26 @@ pub struct Args {
     /// Genome release to use, default is to auto-detect.
     #[arg(long, value_enum)]
     pub genome_release: Option<GenomeRelease>,
+
     /// Path to the input PED file.
     #[arg(long)]
     pub path_input_ped: Option<String>,
     /// Path to the input VCF file.
+    ///
     #[arg(long)]
     pub path_input_vcf: String,
+
     #[command(flatten)]
     pub output: PathOutput,
 
     /// The transcript source.
     #[arg(long, value_enum, default_value_t = csq::TranscriptSource::Both)]
     pub transcript_source: csq::TranscriptSource,
+
     /// Whether to report for all picked transcripts.
     #[arg(long, default_value_t = true)]
     pub report_all_transcripts: bool,
+
     /// Limit transcripts to (a) ManeSelect+ManePlusClinical, (b) ManeSelect,
     /// (c) longest transcript for the gene - the first available.
     #[arg(long, default_value_t = false)]
@@ -104,6 +110,21 @@ pub struct Args {
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
     pub max_var_count: Option<usize>,
+
+    /// What to annotate
+    #[arg(long,
+        required = true,
+        ignore_case = true,
+        default_values_t = vec![AnnotationOption::Frequencies, AnnotationOption::ClinVar, AnnotationOption::Consequence]
+    )]
+    pub annotate: Vec<AnnotationOption>,
+}
+
+#[derive(Debug, Display, Copy, Clone, clap::ValueEnum, PartialEq, Eq)]
+pub enum AnnotationOption {
+    Consequence,
+    Frequencies,
+    ClinVar,
 }
 
 /// Command line arguments to enforce either `--path-output-vcf` or `--path-output-tsv`.
@@ -241,215 +262,6 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
     header_out
 }
 
-/// Annotate record on autosomal chromosome with gnomAD exomes/genomes.
-pub fn annotate_record_auto<T>(
-    db: &rocksdb::DBWithThreadMode<T>,
-    cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &[u8],
-    vcf_record: &mut noodles::vcf::variant::RecordBuf,
-) -> Result<(), anyhow::Error>
-where
-    T: ThreadMode,
-{
-    if let Some(freq) = db.get_cf(cf, key)? {
-        let auto_record = auto::Record::from_buf(&freq);
-
-        vcf_record.info_mut().insert(
-            "gnomad_exomes_an".into(),
-            Some(field::Value::Integer(auto_record.gnomad_exomes.an as i32)),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_exomes_hom".into(),
-            Some(field::Value::Integer(
-                auto_record.gnomad_exomes.ac_hom as i32,
-            )),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_exomes_het".into(),
-            Some(field::Value::Integer(
-                auto_record.gnomad_exomes.ac_het as i32,
-            )),
-        );
-
-        vcf_record.info_mut().insert(
-            "gnomad_genomes_an".into(),
-            Some(field::Value::Integer(auto_record.gnomad_genomes.an as i32)),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_genomes_hom".into(),
-            Some(field::Value::Integer(
-                auto_record.gnomad_genomes.ac_hom as i32,
-            )),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_genomes_het".into(),
-            Some(field::Value::Integer(
-                auto_record.gnomad_genomes.ac_het as i32,
-            )),
-        );
-    };
-    Ok(())
-}
-
-/// Annotate record on gonomosomal chromosome with gnomAD exomes/genomes.
-pub fn annotate_record_xy<T>(
-    db: &rocksdb::DBWithThreadMode<T>,
-    cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &[u8],
-    vcf_record: &mut noodles::vcf::variant::RecordBuf,
-) -> Result<(), anyhow::Error>
-where
-    T: ThreadMode,
-{
-    if let Some(freq) = db.get_cf(cf, key)? {
-        let auto_record = xy::Record::from_buf(&freq);
-
-        vcf_record.info_mut().insert(
-            "gnomad_exomes_an".into(),
-            Some(field::Value::Integer(auto_record.gnomad_exomes.an as i32)),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_exomes_hom".into(),
-            Some(field::Value::Integer(
-                auto_record.gnomad_exomes.ac_hom as i32,
-            )),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_exomes_het".into(),
-            Some(field::Value::Integer(
-                auto_record.gnomad_exomes.ac_het as i32,
-            )),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_exomes_hemi".into(),
-            Some(field::Value::Integer(
-                auto_record.gnomad_exomes.ac_hemi as i32,
-            )),
-        );
-
-        vcf_record.info_mut().insert(
-            "gnomad_genomes_an".into(),
-            Some(field::Value::Integer(auto_record.gnomad_genomes.an as i32)),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_genomes_hom".into(),
-            Some(field::Value::Integer(
-                auto_record.gnomad_genomes.ac_hom as i32,
-            )),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_genomes_het".into(),
-            Some(field::Value::Integer(
-                auto_record.gnomad_genomes.ac_het as i32,
-            )),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_genomes_hemi".into(),
-            Some(field::Value::Integer(
-                auto_record.gnomad_genomes.ac_hemi as i32,
-            )),
-        );
-    };
-    Ok(())
-}
-
-/// Annotate record on mitochondrial genome with gnomAD mtDNA and HelixMtDb.
-pub fn annotate_record_mt<T>(
-    db: &rocksdb::DBWithThreadMode<T>,
-    cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &[u8],
-    vcf_record: &mut noodles::vcf::variant::RecordBuf,
-) -> Result<(), anyhow::Error>
-where
-    T: ThreadMode,
-{
-    if let Some(freq) = db.get_cf(cf, key)? {
-        let mt_record = mt::Record::from_buf(&freq);
-
-        vcf_record.info_mut().insert(
-            "helix_an".into(),
-            Some(field::Value::Integer(mt_record.helixmtdb.an as i32)),
-        );
-        vcf_record.info_mut().insert(
-            "helix_hom".into(),
-            Some(field::Value::Integer(mt_record.helixmtdb.ac_hom as i32)),
-        );
-        vcf_record.info_mut().insert(
-            "helix_het".into(),
-            Some(field::Value::Integer(mt_record.helixmtdb.ac_het as i32)),
-        );
-
-        vcf_record.info_mut().insert(
-            "gnomad_genomes_an".into(),
-            Some(field::Value::Integer(mt_record.gnomad_mtdna.an as i32)),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_genomes_hom".into(),
-            Some(field::Value::Integer(mt_record.gnomad_mtdna.ac_hom as i32)),
-        );
-        vcf_record.info_mut().insert(
-            "gnomad_genomes_het".into(),
-            Some(field::Value::Integer(mt_record.gnomad_mtdna.ac_het as i32)),
-        );
-    };
-    Ok(())
-}
-
-/// Annotate record with ClinVar information.
-pub fn annotate_record_clinvar<T>(
-    db: &rocksdb::DBWithThreadMode<T>,
-    cf: &Arc<rocksdb::BoundColumnFamily>,
-    key: &[u8],
-    vcf_record: &mut noodles::vcf::variant::RecordBuf,
-) -> Result<(), anyhow::Error>
-where
-    T: ThreadMode,
-{
-    if let Some(raw_value) = db.get_cf(cf, key)? {
-        let record_list = annonars::pbs::clinvar::minimal::ExtractedVcvRecordList::decode(
-            &mut std::io::Cursor::new(&raw_value),
-        )?;
-
-        let mut clinvar_vcvs = Vec::new();
-        let mut clinvar_germline_classifications = Vec::new();
-        for clinvar_record in record_list.records.iter() {
-            let accession = clinvar_record.accession.as_ref().expect("must have VCV");
-            let vcv = format!("{}.{}", accession.accession, accession.version);
-            let classifications = clinvar_record
-                .classifications
-                .as_ref()
-                .expect("must have classifications");
-            if let Some(germline_classification) = &classifications.germline_classification {
-                let description = germline_classification
-                    .description
-                    .as_ref()
-                    .expect("description missing")
-                    .to_string();
-                clinvar_vcvs.push(vcv);
-                clinvar_germline_classifications.push(description);
-            }
-        }
-
-        vcf_record.info_mut().insert(
-            "clinvar_vcv".into(),
-            Some(field::Value::Array(field::value::Array::String(
-                clinvar_vcvs.into_iter().map(Some).collect::<Vec<_>>(),
-            ))),
-        );
-        vcf_record.info_mut().insert(
-            "clinvar_germline_classification".into(),
-            Some(field::Value::Array(field::value::Array::String(
-                clinvar_germline_classifications
-                    .into_iter()
-                    .map(Some)
-                    .collect::<Vec<_>>(),
-            ))),
-        );
-    }
-
-    Ok(())
-}
-
 pub static CHROM_MT: Lazy<HashSet<&'static str>> =
     Lazy::new(|| HashSet::from_iter(["M", "MT", "chrM", "chrMT"]));
 pub static CHROM_XY: Lazy<HashSet<&'static str>> =
@@ -509,19 +321,17 @@ pub fn path_component(assembly: Assembly) -> &'static str {
 }
 
 /// Load protobuf transcripts.
-pub fn load_tx_db(tx_path: &str) -> Result<TxSeqDatabase, anyhow::Error> {
+pub fn load_tx_db(tx_path: impl AsRef<Path> + Display) -> anyhow::Result<TxSeqDatabase> {
     // Open file and if necessary, wrap in a decompressor.
-    let file = std::fs::File::open(tx_path)
+    let file = File::open(tx_path.as_ref())
         .map_err(|e| anyhow!("failed to open file {}: {}", tx_path, e))?;
-    let mut reader: Box<dyn Read> = if tx_path.ends_with(".gz") {
-        Box::new(flate2::read::MultiGzDecoder::new(file))
-    } else if tx_path.ends_with(".zst") {
-        Box::new(
+    let mut reader: Box<dyn Read> = match tx_path.as_ref().extension().and_then(|s| s.to_str()) {
+        Some("gz") => Box::new(flate2::read::MultiGzDecoder::new(file)),
+        Some("zst") => Box::new(
             zstd::Decoder::new(file)
                 .map_err(|e| anyhow!("failed to open zstd decoder for {}: {}", tx_path, e))?,
-        )
-    } else {
-        Box::new(file)
+        ),
+        _ => Box::new(file),
     };
 
     // Now read the whole file into a byte buffer.
@@ -1516,52 +1326,209 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
     }
 }
 
-type DbCol<'a> = Arc<BoundColumnFamily<'a>>;
-#[derive(Clone)]
-struct Handles<'a>(DbCol<'a>, DbCol<'a>, DbCol<'a>, DbCol<'a>);
+enum AnnotatorEnum {
+    Frequency(FrequencyAnnotator),
+    Clinvar(ClinvarAnnotator),
+    Consequence(ConsequenceAnnotator),
+}
+
+impl AnnotatorEnum {
+    fn annotate(&self, var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
+        match self {
+            AnnotatorEnum::Frequency(a) => a.annotate(var, record),
+            AnnotatorEnum::Clinvar(a) => a.annotate(var, record),
+            AnnotatorEnum::Consequence(a) => a.annotate(var, record),
+        }
+    }
+}
 
 struct Annotator {
-    db_freq: DBWithThreadMode<rocksdb::MultiThreaded>,
-    db_clinvar: DBWithThreadMode<rocksdb::MultiThreaded>,
-    predictor: ConsequencePredictor,
-}
-impl Annotator {
-    fn new(
-        db_freq: DBWithThreadMode<rocksdb::MultiThreaded>,
-        db_clinvar: DBWithThreadMode<rocksdb::MultiThreaded>,
-        predictor: ConsequencePredictor,
-    ) -> Self {
-        Self {
-            db_freq,
-            db_clinvar,
-            predictor,
-        }
-    }
-
-    fn db_handles(&self) -> Handles {
-        Handles(
-            self.db_freq.cf_handle("autosomal").unwrap(),
-            self.db_freq.cf_handle("gonosomal").unwrap(),
-            self.db_freq.cf_handle("mitochondrial").unwrap(),
-            self.db_clinvar.cf_handle("clinvar").unwrap(),
-        )
-    }
+    annotators: Vec<AnnotatorEnum>,
 }
 
-impl Annotator {
-    fn annotate(
+struct FrequencyAnnotator {
+    db: DBWithThreadMode<MultiThreaded>,
+}
+impl FrequencyAnnotator {
+    fn new(db: DBWithThreadMode<MultiThreaded>) -> Self {
+        Self { db }
+    }
+
+    fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
+        // Open the frequency RocksDB database in read only mode.
+        tracing::info!("Opening frequency database");
+        tracing::debug!("RocksDB path = {}", &path);
+        let options = rocksdb::Options::default();
+        let db_freq = rocksdb::DB::open_cf_for_read_only(
+            &options,
+            &path,
+            ["meta", "autosomal", "gonosomal", "mitochondrial"],
+            false,
+        )?;
+        Ok(Self::new(db_freq))
+    }
+
+    /// Annotate record on autosomal chromosome with gnomAD exomes/genomes.
+    pub fn annotate_record_auto<T>(
         &self,
-        vcf_record: &mut VcfRecord,
-        Handles(cf_autosomal, cf_gonosomal, cf_mtdna, cf_clinvar): &Handles,
-    ) -> anyhow::Result<()> {
-        // Get first alternate allele record.
-        let vcf_var = from_vcf_allele(vcf_record, 0);
+        key: &[u8],
+        vcf_record: &mut noodles::vcf::variant::RecordBuf,
+    ) -> Result<(), Error>
+    where
+        T: ThreadMode,
+    {
+        if let Some(freq) = self
+            .db
+            .get_cf(self.db.cf_handle("autosomal").as_ref().unwrap(), key)?
+        {
+            let auto_record = auto::Record::from_buf(&freq);
 
-        // Skip records with a deletion as alternative allele.
-        if vcf_var.alternative == "*" {
-            return Ok(());
-        }
+            vcf_record.info_mut().insert(
+                "gnomad_exomes_an".into(),
+                Some(field::Value::Integer(auto_record.gnomad_exomes.an as i32)),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_exomes_hom".into(),
+                Some(field::Value::Integer(
+                    auto_record.gnomad_exomes.ac_hom as i32,
+                )),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_exomes_het".into(),
+                Some(field::Value::Integer(
+                    auto_record.gnomad_exomes.ac_het as i32,
+                )),
+            );
 
+            vcf_record.info_mut().insert(
+                "gnomad_genomes_an".into(),
+                Some(field::Value::Integer(auto_record.gnomad_genomes.an as i32)),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_genomes_hom".into(),
+                Some(field::Value::Integer(
+                    auto_record.gnomad_genomes.ac_hom as i32,
+                )),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_genomes_het".into(),
+                Some(field::Value::Integer(
+                    auto_record.gnomad_genomes.ac_het as i32,
+                )),
+            );
+        };
+        Ok(())
+    }
+
+    /// Annotate record on gonomosomal chromosome with gnomAD exomes/genomes.
+    pub fn annotate_record_xy<T>(
+        &self,
+        key: &[u8],
+        vcf_record: &mut noodles::vcf::variant::RecordBuf,
+    ) -> Result<(), Error>
+    where
+        T: ThreadMode,
+    {
+        if let Some(freq) = self
+            .db
+            .get_cf(self.db.cf_handle("gonosomal").as_ref().unwrap(), key)?
+        {
+            let auto_record = xy::Record::from_buf(&freq);
+
+            vcf_record.info_mut().insert(
+                "gnomad_exomes_an".into(),
+                Some(field::Value::Integer(auto_record.gnomad_exomes.an as i32)),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_exomes_hom".into(),
+                Some(field::Value::Integer(
+                    auto_record.gnomad_exomes.ac_hom as i32,
+                )),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_exomes_het".into(),
+                Some(field::Value::Integer(
+                    auto_record.gnomad_exomes.ac_het as i32,
+                )),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_exomes_hemi".into(),
+                Some(field::Value::Integer(
+                    auto_record.gnomad_exomes.ac_hemi as i32,
+                )),
+            );
+
+            vcf_record.info_mut().insert(
+                "gnomad_genomes_an".into(),
+                Some(field::Value::Integer(auto_record.gnomad_genomes.an as i32)),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_genomes_hom".into(),
+                Some(field::Value::Integer(
+                    auto_record.gnomad_genomes.ac_hom as i32,
+                )),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_genomes_het".into(),
+                Some(field::Value::Integer(
+                    auto_record.gnomad_genomes.ac_het as i32,
+                )),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_genomes_hemi".into(),
+                Some(field::Value::Integer(
+                    auto_record.gnomad_genomes.ac_hemi as i32,
+                )),
+            );
+        };
+        Ok(())
+    }
+
+    /// Annotate record on mitochondrial genome with gnomAD mtDNA and HelixMtDb.
+    pub fn annotate_record_mt<T>(
+        &self,
+        key: &[u8],
+        vcf_record: &mut noodles::vcf::variant::RecordBuf,
+    ) -> Result<(), Error>
+    where
+        T: ThreadMode,
+    {
+        if let Some(freq) = self
+            .db
+            .get_cf(self.db.cf_handle("mitochondrial").as_ref().unwrap(), key)?
+        {
+            let mt_record = mt::Record::from_buf(&freq);
+
+            vcf_record.info_mut().insert(
+                "helix_an".into(),
+                Some(field::Value::Integer(mt_record.helixmtdb.an as i32)),
+            );
+            vcf_record.info_mut().insert(
+                "helix_hom".into(),
+                Some(field::Value::Integer(mt_record.helixmtdb.ac_hom as i32)),
+            );
+            vcf_record.info_mut().insert(
+                "helix_het".into(),
+                Some(field::Value::Integer(mt_record.helixmtdb.ac_het as i32)),
+            );
+
+            vcf_record.info_mut().insert(
+                "gnomad_genomes_an".into(),
+                Some(field::Value::Integer(mt_record.gnomad_mtdna.an as i32)),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_genomes_hom".into(),
+                Some(field::Value::Integer(mt_record.gnomad_mtdna.ac_hom as i32)),
+            );
+            vcf_record.info_mut().insert(
+                "gnomad_genomes_het".into(),
+                Some(field::Value::Integer(mt_record.gnomad_mtdna.ac_het as i32)),
+            );
+        };
+        Ok(())
+    }
+
+    fn annotate(&self, vcf_var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
         // Only attempt lookups into RocksDB for canonical contigs.
         if is_canonical(vcf_var.chrom.as_str()) {
             // Build key for RocksDB database from `vcf_var`.
@@ -1569,28 +1536,151 @@ impl Annotator {
 
             // Annotate with frequency.
             if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
-                annotate_record_auto(&self.db_freq, cf_autosomal, &key, vcf_record)?;
+                self.annotate_record_auto::<MultiThreaded>(&key, record)?;
             } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
-                annotate_record_xy(&self.db_freq, cf_gonosomal, &key, vcf_record)?;
+                self.annotate_record_xy::<MultiThreaded>(&key, record)?;
             } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
-                annotate_record_mt(&self.db_freq, cf_mtdna, &key, vcf_record)?;
+                self.annotate_record_mt::<MultiThreaded>(&key, record)?;
             } else {
                 tracing::trace!(
                     "Record @{:?} on non-canonical chromosome, skipping.",
                     &vcf_var
                 );
             }
+        }
+        Ok(())
+    }
+}
 
-            // Annotate with ClinVar information.
-            annotate_record_clinvar(&self.db_clinvar, cf_clinvar, &key, vcf_record)?;
+struct ClinvarAnnotator {
+    db: DBWithThreadMode<rocksdb::MultiThreaded>,
+}
+
+impl ClinvarAnnotator {
+    fn new(db: DBWithThreadMode<rocksdb::MultiThreaded>) -> Self {
+        Self { db }
+    }
+
+    fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
+        tracing::info!("Opening ClinVar database");
+        tracing::debug!("RocksDB path = {}", &path);
+        let options = rocksdb::Options::default();
+        let db_clinvar =
+            rocksdb::DB::open_cf_for_read_only(&options, &path, ["meta", "clinvar"], false)?;
+        Ok(Self::new(db_clinvar))
+    }
+
+    /// Annotate record with ClinVar information
+    pub fn annotate_record_clinvar<T>(
+        &self,
+        key: &[u8],
+        vcf_record: &mut noodles::vcf::variant::RecordBuf,
+    ) -> Result<(), Error> {
+        if let Some(raw_value) = self
+            .db
+            .get_cf(self.db.cf_handle("clinvar").as_ref().unwrap(), key)?
+        {
+            let record_list = annonars::pbs::clinvar::minimal::ExtractedVcvRecordList::decode(
+                &mut Cursor::new(&raw_value),
+            )?;
+
+            let mut clinvar_vcvs = Vec::new();
+            let mut clinvar_germline_classifications = Vec::new();
+            for clinvar_record in record_list.records.iter() {
+                let accession = clinvar_record.accession.as_ref().expect("must have VCV");
+                let vcv = format!("{}.{}", accession.accession, accession.version);
+                let classifications = clinvar_record
+                    .classifications
+                    .as_ref()
+                    .expect("must have classifications");
+                if let Some(germline_classification) = &classifications.germline_classification {
+                    let description = germline_classification
+                        .description
+                        .as_ref()
+                        .expect("description missing")
+                        .to_string();
+                    clinvar_vcvs.push(vcv);
+                    clinvar_germline_classifications.push(description);
+                }
+            }
+
+            vcf_record.info_mut().insert(
+                "clinvar_vcv".into(),
+                Some(field::Value::Array(field::value::Array::String(
+                    clinvar_vcvs.into_iter().map(Some).collect::<Vec<_>>(),
+                ))),
+            );
+            vcf_record.info_mut().insert(
+                "clinvar_germline_classification".into(),
+                Some(field::Value::Array(field::value::Array::String(
+                    clinvar_germline_classifications
+                        .into_iter()
+                        .map(Some)
+                        .collect::<Vec<_>>(),
+                ))),
+            );
         }
 
+        Ok(())
+    }
+
+    fn annotate(&self, vcf_var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
+        // Only attempt lookups into RocksDB for canonical contigs.
+        if is_canonical(vcf_var.chrom.as_str()) {
+            // Build key for RocksDB database from `vcf_var`.
+            let key: Vec<u8> = vcf_var.clone().into();
+
+            // Annotate with ClinVar information.
+            self.annotate_record_clinvar::<MultiThreaded>(&key, record)?;
+        }
+        Ok(())
+    }
+}
+
+struct ConsequenceAnnotator {
+    predictor: ConsequencePredictor,
+}
+
+impl ConsequenceAnnotator {
+    fn new(predictor: ConsequencePredictor) -> Self {
+        Self { predictor }
+    }
+
+    fn from_path_and_args(
+        path: impl AsRef<Path> + Display,
+        args: &Args,
+        assembly: Assembly,
+    ) -> anyhow::Result<Self> {
+        let tx_db = load_tx_db(path)?;
+        tracing::info!("Building transcript interval trees ...");
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            assembly,
+            MehariProviderConfigBuilder::default()
+                .transcript_picking(args.transcript_picking)
+                .build()
+                .unwrap(),
+        ));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            assembly,
+            ConsequencePredictorConfigBuilder::default()
+                .report_all_transcripts(args.report_all_transcripts)
+                .transcript_source(args.transcript_source)
+                .build()
+                .unwrap(),
+        );
+        tracing::info!("... done building transcript interval trees");
+        Ok(Self::new(predictor))
+    }
+
+    fn annotate(&self, vcf_var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
         let keys::Var {
             chrom,
             pos,
             reference,
             alternative,
-        } = vcf_var;
+        } = vcf_var.clone();
 
         // Annotate with variant effect.
         if let Some(ann_fields) = self.predictor.predict(&VcfVariant {
@@ -1600,7 +1690,7 @@ impl Annotator {
             alternative,
         })? {
             if !ann_fields.is_empty() {
-                vcf_record.info_mut().insert(
+                record.info_mut().insert(
                     "ANN".into(),
                     Some(field::Value::Array(field::value::Array::String(
                         ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
@@ -1608,6 +1698,29 @@ impl Annotator {
                 );
             }
         }
+
+        Ok(())
+    }
+}
+
+impl Annotator {
+    fn new(annotators: Vec<AnnotatorEnum>) -> Self {
+        Self { annotators }
+    }
+
+    fn annotate(&self, vcf_record: &mut VcfRecord) -> anyhow::Result<()> {
+        // Get first alternate allele record.
+        let vcf_var = from_vcf_allele(vcf_record, 0);
+
+        // Skip records with a deletion as alternative allele.
+        if vcf_var.alternative == "*" {
+            return Ok(());
+        }
+
+        for annotator in &self.annotators {
+            annotator.annotate(&vcf_var, vcf_record)?;
+        }
+
         Ok(())
     }
 }
@@ -1698,7 +1811,6 @@ async fn run_with_writer(
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
     let annotator = setup_annotator(args, assembly)?;
-    let handles = annotator.db_handles();
 
     // Perform the VCF annotation.
     tracing::info!("Annotating VCF ...");
@@ -1722,7 +1834,7 @@ async fn run_with_writer(
                 anyhow::bail!("multi-allelic records not supported");
             }
 
-            annotator.annotate(&mut vcf_record, &handles)?;
+            annotator.annotate(&mut vcf_record)?;
 
             if prev.elapsed().as_secs() >= 60 {
                 tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
@@ -1758,62 +1870,39 @@ async fn run_with_writer(
 }
 
 fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> {
-    // Open the frequency RocksDB database in read only mode.
-    tracing::info!("Opening frequency database");
-    let rocksdb_path = format!(
-        "{}/{}/seqvars/freqs",
-        &args.path_db,
-        path_component(assembly)
-    );
-    tracing::debug!("RocksDB path = {}", &rocksdb_path);
-    let options = rocksdb::Options::default();
-    let db_freq = rocksdb::DB::open_cf_for_read_only(
-        &options,
-        &rocksdb_path,
-        ["meta", "autosomal", "gonosomal", "mitochondrial"],
-        false,
-    )?;
+    let annotators = args
+        .annotate
+        .iter()
+        .map(|a| match a {
+            AnnotationOption::Frequencies => {
+                let rocksdb_path = format!(
+                    "{}/{}/seqvars/freqs",
+                    &args.path_db,
+                    path_component(assembly)
+                );
+                FrequencyAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Frequency)
+            }
+            AnnotationOption::ClinVar => {
+                // Open the ClinVar RocksDB database in read only mode.
+                let rocksdb_path = format!(
+                    "{}/{}/seqvars/clinvar",
+                    &args.path_db,
+                    path_component(assembly)
+                );
+                ClinvarAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Clinvar)
+            }
+            AnnotationOption::Consequence => {
+                // Open the serialized transcripts.
+                tracing::info!("Opening transcript database");
+                let tx_db_path =
+                    format!("{}/{}/txs.bin.zst", &args.path_db, path_component(assembly));
 
-    // Open the ClinVar RocksDB database in read only mode.
-    tracing::info!("Opening ClinVar database");
-    let rocksdb_path = format!(
-        "{}/{}/seqvars/clinvar",
-        &args.path_db,
-        path_component(assembly)
-    );
-    tracing::debug!("RocksDB path = {}", &rocksdb_path);
-    let options = rocksdb::Options::default();
-    let db_clinvar =
-        rocksdb::DB::open_cf_for_read_only(&options, &rocksdb_path, ["meta", "clinvar"], false)?;
-
-    // Open the serialized transcripts.
-    tracing::info!("Opening transcript database");
-    let tx_db = load_tx_db(&format!(
-        "{}/{}/txs.bin.zst",
-        &args.path_db,
-        path_component(assembly)
-    ))?;
-    tracing::info!("Building transcript interval trees ...");
-    let provider = Arc::new(MehariProvider::new(
-        tx_db,
-        assembly,
-        MehariProviderConfigBuilder::default()
-            .transcript_picking(args.transcript_picking)
-            .build()
-            .unwrap(),
-    ));
-    let predictor = ConsequencePredictor::new(
-        provider,
-        assembly,
-        ConsequencePredictorConfigBuilder::default()
-            .report_all_transcripts(args.report_all_transcripts)
-            .transcript_source(args.transcript_source)
-            .build()
-            .unwrap(),
-    );
-    tracing::info!("... done building transcript interval trees");
-
-    let annotator = Annotator::new(db_freq, db_clinvar, predictor);
+                ConsequenceAnnotator::from_path_and_args(&tx_db_path, args, assembly)
+                    .map(AnnotatorEnum::Consequence)
+            }
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let annotator = Annotator::new(annotators);
     Ok(annotator)
 }
 
@@ -1841,7 +1930,7 @@ mod test {
     use temp_testdir::TempDir;
 
     use super::binning::bin_from_range;
-    use super::{csq::TranscriptSource, run, Args, PathOutput};
+    use super::{csq::TranscriptSource, run, AnnotationOption, Args, PathOutput};
 
     #[tokio::test]
     async fn smoke_test_output_vcf() -> Result<(), anyhow::Error> {
@@ -1866,6 +1955,11 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/brca1.examples.ped",
             )),
+            annotate: vec![
+                AnnotationOption::Frequencies,
+                AnnotationOption::ClinVar,
+                AnnotationOption::Consequence,
+            ],
         };
 
         run(&args_common, &args).await?;
@@ -1899,6 +1993,11 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/brca1.examples.ped",
             )),
+            annotate: vec![
+                AnnotationOption::Frequencies,
+                AnnotationOption::ClinVar,
+                AnnotationOption::Consequence,
+            ],
         };
 
         run(&args_common, &args).await?;
@@ -1944,6 +2043,11 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/badly_formed_vcf_entry.ped",
             )),
+            annotate: vec![
+                AnnotationOption::Frequencies,
+                AnnotationOption::ClinVar,
+                AnnotationOption::Consequence,
+            ],
         };
 
         run(&args_common, &args).await?;
@@ -1983,6 +2087,11 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/mitochondrial_variants.ped",
             )),
+            annotate: vec![
+                AnnotationOption::Frequencies,
+                AnnotationOption::ClinVar,
+                AnnotationOption::Consequence,
+            ],
         };
 
         run(&args_common, &args).await?;
@@ -2024,6 +2133,11 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/clair3-glnexus-min.ped",
             )),
+            annotate: vec![
+                AnnotationOption::Frequencies,
+                AnnotationOption::ClinVar,
+                AnnotationOption::Consequence,
+            ],
         };
 
         run(&args_common, &args).await?;
@@ -2065,6 +2179,11 @@ mod test {
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped",
             )),
+            annotate: vec![
+                AnnotationOption::Frequencies,
+                AnnotationOption::ClinVar,
+                AnnotationOption::Consequence,
+            ],
         };
 
         run(&args_common, &args).await?;
