@@ -448,7 +448,7 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
 
     async fn shutdown(&mut self) -> Result<(), Error> {
         Ok(<noodles::bcf::AsyncWriter<Inner>>::get_mut(self)
-            .flush()
+            .shutdown()
             .await?)
     }
 }
