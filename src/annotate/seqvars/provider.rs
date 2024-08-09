@@ -216,7 +216,7 @@ impl Provider {
                         }
                     } else {
                         // Otherwise, determine the longest transcript's length.
-                        let (_, tx_id) = entry
+                        if let Some((_, tx_id)) = entry
                             .tx_ids
                             .iter()
                             .map(|tx_id| {
@@ -243,13 +243,21 @@ impl Provider {
                                     .unwrap_or_default()
                             })
                             .max()
-                            .unwrap_or_else(|| panic!("no length for gene {}", &entry.gene_id));
-
-                        GeneToTxId {
-                            gene_id: entry.gene_id.clone(),
-                            tx_ids: vec![tx_id],
-                            filtered: Some(false),
-                            filter_reason: None,
+                        {
+                            GeneToTxId {
+                                gene_id: entry.gene_id.clone(),
+                                tx_ids: vec![tx_id],
+                                filtered: Some(false),
+                                filter_reason: None,
+                            }
+                        } else {
+                            // No transcripts for this gene.
+                            GeneToTxId {
+                                gene_id: entry.gene_id.clone(),
+                                tx_ids: Vec::new(),
+                                filtered: Some(true),
+                                filter_reason: Some(crate::db::create::Reason::NoTranscripts as u32),
+                            }
                         }
                     };
 
