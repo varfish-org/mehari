@@ -1924,9 +1924,14 @@ fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> 
                         .map(|g2t| (g2t.gene_id.clone(), g2t))
                         .collect();
                     for g2tx in tx_db.gene_to_tx.iter_mut() {
-                        if let Some(other_tx_ids) = other_gene_to_tx.remove(&g2tx.gene_id) {
-                            g2tx.tx_ids.extend(other_tx_ids.tx_ids);
-                            // TODO check g2tx.filter_reason and g2tx.filtered as well
+                        if let Some(other_g2tx) = other_gene_to_tx.remove(&g2tx.gene_id) {
+                            g2tx.tx_ids.extend(other_g2tx.tx_ids);
+                            g2tx.filtered
+                                .as_mut()
+                                .map(|f| *f &= other_g2tx.filtered.unwrap_or(false));
+                            g2tx.filter_reason
+                                .as_mut()
+                                .map(|r| *r |= other_g2tx.filter_reason.unwrap_or(0));
                         }
                     }
                     // Add the remaining gene to transcript mappings from the other database.
