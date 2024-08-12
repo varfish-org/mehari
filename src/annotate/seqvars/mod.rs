@@ -1370,6 +1370,7 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum AnnotatorEnum {
     Frequency(FrequencyAnnotator),
     Clinvar(ClinvarAnnotator),
