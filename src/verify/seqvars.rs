@@ -7,16 +7,16 @@ use std::{
     time::Instant,
 };
 
-use biocommons_bioutils::assemblies::Assembly;
-use clap::Parser;
-use noodles::core::{Position, Region};
-use quick_cache::unsync::Cache;
-
 use crate::annotate::seqvars::{
     csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
     load_tx_db, path_component,
     provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
+    TranscriptPickType,
 };
+use biocommons_bioutils::assemblies::Assembly;
+use clap::Parser;
+use noodles::core::{Position, Region};
+use quick_cache::unsync::Cache;
 
 /// Command line arguments for `verify seqvars` sub command.
 #[derive(Parser, Debug)]
@@ -30,19 +30,21 @@ pub struct Args {
     #[arg(long)]
     pub path_input_tsv: String,
     /// Path to the reference FASTA file.
+
     #[arg(long)]
     pub path_reference_fasta: String,
     /// Path to output TSV file.
+
     #[arg(long)]
     pub path_output_tsv: String,
 
-    /// Whether to report for all picked transcripts.
-    #[arg(long, default_value_t = true)]
-    pub report_all_transcripts: bool,
-    /// Limit transcripts to (a) ManeSelect+ManePlusClinical, (b) ManeSelect,
-    /// (c) longest transcript for the gene - the first available.
+    /// Whether to report consequences for all picked transcripts.
     #[arg(long, default_value_t = false)]
-    pub transcript_picking: bool,
+    pub report_worst_consequence_only: bool,
+
+    /// Which kind of transcripts to pick / restrict to. Default is to keep all.
+    #[arg(long, short = 'p')]
+    pub pick_transcript: Vec<TranscriptPickType>,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
@@ -132,24 +134,22 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         &args.path_db,
         path_component(assembly)
     ))?;
-    tracing::info!("Building transcript interval trees ...");
+
     let provider = Arc::new(MehariProvider::new(
         tx_db,
         assembly,
         MehariProviderConfigBuilder::default()
-            .transcript_picking(args.transcript_picking)
-            .build()
-            .unwrap(),
+            .transcript_picking(args.pick_transcript.clone())
+            .build()?,
     ));
+
     let predictor = ConsequencePredictor::new(
         provider,
         assembly,
         ConsequencePredictorConfigBuilder::default()
-            .report_all_transcripts(args.report_all_transcripts)
-            .build()
-            .unwrap(),
+            .report_worst_consequence_only(args.report_worst_consequence_only)
+            .build()?,
     );
-    tracing::info!("... done building transcript interval trees");
 
     // LRU caches used below to avoid re-reading from FAI and prediction.
     let mut ref_cache = Cache::new(100);

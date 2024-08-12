@@ -35,7 +35,7 @@ use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded, ThreadMode};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use strum::Display;
+use strum::{Display, VariantArray};
 use thousands::Separable;
 use tokio::io::AsyncWriteExt;
 
@@ -94,14 +94,14 @@ pub struct Args {
     #[arg(long, value_enum, default_value_t = csq::TranscriptSource::Both)]
     pub transcript_source: csq::TranscriptSource,
 
-    /// Whether to report for all picked transcripts.
-    #[arg(long, default_value_t = true)]
-    pub report_all_transcripts: bool,
-
-    /// Limit transcripts to (a) ManeSelect+ManePlusClinical, (b) ManeSelect,
-    /// (c) longest transcript for the gene - the first available.
+    /// Whether to report consequences for all picked transcripts.
     #[arg(long, default_value_t = false)]
-    pub transcript_picking: bool,
+    pub report_worst_consequence_only: bool,
+
+    /// Which kind of transcript to pick / restrict to. Default is to keep all.
+    /// If multiple are given, the first one that is found is kept.
+    #[arg(long, short = 'p')]
+    pub pick_transcript: Vec<TranscriptPickType>,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
@@ -113,6 +113,29 @@ pub struct Args {
     /// What to annotate and which source to use.
     #[command(flatten)]
     pub sources: Sources,
+}
+
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    clap::ValueEnum,
+    VariantArray,
+    parse_display::FromStr,
+)]
+pub enum TranscriptPickType {
+    ManePlusClinical,
+    ManeSelect,
+    Length,
+    EnsemblCanonical,
+    RefSeqSelect,
+    GencodePrimary,
+    Basic,
 }
 
 #[derive(Debug, ClapArgs)]
@@ -1657,25 +1680,21 @@ impl ConsequenceAnnotator {
         args: &Args,
         assembly: Assembly,
     ) -> anyhow::Result<Self> {
-        tracing::info!("Building transcript interval trees ...");
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             assembly,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(args.transcript_picking)
-                .build()
-                .unwrap(),
+                .transcript_picking(args.pick_transcript.clone())
+                .build()?,
         ));
         let predictor = ConsequencePredictor::new(
             provider,
             assembly,
             ConsequencePredictorConfigBuilder::default()
-                .report_all_transcripts(args.report_all_transcripts)
+                .report_worst_consequence_only(args.report_worst_consequence_only)
                 .transcript_source(args.transcript_source)
-                .build()
-                .unwrap(),
+                .build()?,
         );
-        tracing::info!("... done building transcript interval trees");
         Ok(Self::new(predictor))
     }
 
@@ -1876,9 +1895,22 @@ async fn run_with_writer(
 
 fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> {
     let mut annotators = vec![];
+
+    // Add the frequency annotator if requested.
+    if let Some(rocksdb_path) = &args.sources.frequencies {
+        annotators.push(FrequencyAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Frequency)?)
+    }
+
+    // Add the ClinVar annotator if requested.
+    if let Some(rocksdb_path) = &args.sources.clinvar {
+        annotators.push(ClinvarAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Clinvar)?)
+    }
+
+    // Add the consequence annotator if requested.
     if let Some(tx_sources) = &args.sources.transcripts {
         tracing::info!("Opening transcript database(s)");
 
+        // TODO: extract method and provide subcommand for merging transcript databases.
         fn merge_transcript_databases(
             mut databases: Vec<TxSeqDatabase>,
         ) -> anyhow::Result<TxSeqDatabase> {
@@ -1959,12 +1991,7 @@ fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> 
                 .map(AnnotatorEnum::Consequence)?,
         );
     }
-    if let Some(rocksdb_path) = &args.sources.frequencies {
-        annotators.push(FrequencyAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Frequency)?)
-    }
-    if let Some(rocksdb_path) = &args.sources.clinvar {
-        annotators.push(ClinvarAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Clinvar)?)
-    }
+
     let annotator = Annotator::new(annotators);
     Ok(annotator)
 }
@@ -2008,9 +2035,9 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_all_transcripts: false,
+            report_worst_consequence_only: true,
             transcript_source: TranscriptSource::Both,
-            transcript_picking: false,
+            pick_transcript: vec![],
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: Some(path_out.into_os_string().into_string().unwrap()),
@@ -2048,9 +2075,9 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_all_transcripts: true,
+            report_worst_consequence_only: false,
             transcript_source: TranscriptSource::Both,
-            transcript_picking: false,
+            pick_transcript: vec![],
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2100,9 +2127,9 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_all_transcripts: true,
+            report_worst_consequence_only: false,
             transcript_source: TranscriptSource::Both,
-            transcript_picking: false,
+            pick_transcript: vec![],
             path_input_vcf: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2146,9 +2173,9 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_all_transcripts: true,
+            report_worst_consequence_only: false,
             transcript_source: TranscriptSource::Both,
-            transcript_picking: false,
+            pick_transcript: vec![],
             path_input_vcf: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2194,9 +2221,9 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_all_transcripts: true,
+            report_worst_consequence_only: false,
             transcript_source: TranscriptSource::Both,
-            transcript_picking: false,
+            pick_transcript: vec![],
             path_input_vcf: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2239,12 +2266,12 @@ mod test {
             verbose: Verbosity::new(0, 1),
         };
         let prefix = "tests/data/annotate/db";
-        let assembly = "grch37";
+        let assembly = "grch38";
         let args = Args {
             genome_release: None,
-            report_all_transcripts: true,
+            report_worst_consequence_only: false,
             transcript_source: TranscriptSource::Both,
-            transcript_picking: false,
+            pick_transcript: vec![],
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
             output: PathOutput {
                 path_output_vcf: None,

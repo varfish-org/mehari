@@ -64,8 +64,8 @@ pub struct Config {
     pub transcript_source: TranscriptSource,
 
     /// Whether to report consequences for all picked transcripts.
-    #[builder(default = "true")]
-    pub report_all_transcripts: bool,
+    #[builder(default = "false")]
+    pub report_worst_consequence_only: bool,
 
     /// Whether to discard intergenic variants.
     #[builder(default = "true")]
@@ -103,6 +103,7 @@ pub const ALT_ALN_METHOD: &str = "splign";
 
 impl ConsequencePredictor {
     pub fn new(provider: Arc<MehariProvider>, assembly: Assembly, config: Config) -> Self {
+        tracing::info!("Building transcript interval trees ...");
         let acc_to_chrom: indexmap::IndexMap<String, String> = provider.get_assembly_map(assembly);
         let mut chrom_to_acc = HashMap::new();
         for (acc, chrom) in &acc_to_chrom {
@@ -123,6 +124,7 @@ impl ConsequencePredictor {
             ..Default::default()
         };
         let mapper = assembly::Mapper::new(mapper_config, provider.clone());
+        tracing::info!("... done building transcript interval trees");
 
         ConsequencePredictor {
             provider,
@@ -280,7 +282,7 @@ impl ConsequencePredictor {
         };
 
         // Short-circuit if to report all transcript results.
-        if self.config.report_all_transcripts {
+        if !self.config.report_worst_consequence_only {
             return ann_fields;
         }
 
@@ -977,8 +979,8 @@ mod test {
     use pretty_assertions::assert_eq;
     use serde::Deserialize;
 
-    use crate::annotate::seqvars::load_tx_db;
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
+    use crate::annotate::seqvars::{load_tx_db, TranscriptPickType};
 
     use super::*;
 
@@ -1052,24 +1054,41 @@ mod test {
     /// The order of the consequences is important: ordered by severity, descending.
     /// cf Consequences enum ordering.
     #[rstest::rstest]
-    #[case("17:41197820:G:T", 1, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant])] // 1bp intronic
-    #[case("17:41197821:A:C", 2, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant])] // 2bp intronic
-    #[case("17:41197822:C:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 3bp intronic
-    #[case("17:41197823:C:A", 4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 4bp intronic
-    #[case("17:41197824:T:G", 5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 5bp intronic
-    #[case("17:41197825:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 6bp intronic
-    #[case("17:41197835:T:G", 16, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 16bp intronic
-    #[case("17:41197836:G:A", 17, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // 17bp intronic
+    #[case("17:41197820:G:T", 1, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    )] // 1bp intronic
+    #[case("17:41197821:A:C", 2, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    )] // 2bp intronic
+    #[case("17:41197822:C:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    )] // 3bp intronic
+    #[case("17:41197823:C:A", 4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    )] // 4bp intronic
+    #[case("17:41197824:T:G", 5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    )] // 5bp intronic
+    #[case("17:41197825:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    )] // 6bp intronic
+    #[case("17:41197835:T:G", 16, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    )] // 16bp intronic
+    #[case("17:41197836:G:A", 17, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    )] // 17bp intronic
     #[case("17:41197837:G:A", 18, vec![Consequence::IntronVariant])] // 18bp intronic
-    #[case("17:41199660:G:T", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant])] // exonic
-    #[case("17:41199659:G:T", -1, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant])] // -1bp intronic
-    #[case("17:41199658:T:G", -2, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant])] // -2bp intronic
-    #[case("17:41199657:G:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -3bp intronic
-    #[case("17:41199656:A:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -4bp intronic
-    #[case("17:41199655:G:T", -5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -5bp intronic
-    #[case("17:41199654:G:T", -6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // -6bp intronic
-    #[case("17:41199653:T:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])] // -7bp intronic
-    #[case("17:41199652:G:T", -8, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])] // -8bp intronic
+    #[case("17:41199660:G:T", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant]
+    )] // exonic
+    #[case("17:41199659:G:T", -1, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    )] // -1bp intronic
+    #[case("17:41199658:T:G", -2, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    )] // -2bp intronic
+    #[case("17:41199657:G:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    )] // -3bp intronic
+    #[case("17:41199656:A:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    )] // -4bp intronic
+    #[case("17:41199655:G:T", -5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    )] // -5bp intronic
+    #[case("17:41199654:G:T", -6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    )] // -6bp intronic
+    #[case("17:41199653:T:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    )] // -7bp intronic
+    #[case("17:41199652:G:T", -8, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    )] // -8bp intronic
     #[case("17:41199651:C:A", -9, vec![Consequence::IntronVariant])] // -9bp intronic
     fn annotate_snv_brca1_csq(
         #[case] spdi: &str,
@@ -1086,12 +1105,22 @@ mod test {
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(true)
+                .transcript_picking(vec![
+                    TranscriptPickType::ManePlusClinical,
+                    TranscriptPickType::ManeSelect,
+                    TranscriptPickType::Length,
+                ])
                 .build()?,
         ));
 
-        let predictor =
-            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+        use crate::annotate::seqvars::ConsequencePredictorConfigBuilder;
+        let predictor = ConsequencePredictor::new(
+            provider,
+            Assembly::Grch37p10,
+            ConsequencePredictorConfigBuilder::default()
+                .report_worst_consequence_only(true)
+                .build()?,
+        );
 
         let res = predictor
             .predict(&VcfVariant {
@@ -1126,24 +1155,42 @@ mod test {
     /// The order of the consequences is important: ordered by severity, descending.
     /// cf Consequences enum ordering.
     #[rstest::rstest]
-    #[case("3:193332512:T:G", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant])] // exonic
-    #[case("3:193332511:G:T", -1, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant])] // -1bp intronic
-    #[case("3:193332510:A:G", -2, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant])] // -2bp intronic
-    #[case("3:193332509:C:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant])] // -3bp intronic
-    #[case("3:193332508:T:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant])] // -4bp intronic
-    #[case("3:193332507:T:C", -5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant])] // -5bp intronic
-    #[case("3:193332506:T:C", -6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // -6bp intronic
-    #[case("3:193332505:C:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // -7bp intronic
-    #[case("3:193332504:T:C", -8, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // -8bp intronic
-    #[case("3:193332503:T:A", -9, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant])] // -9bp intronic
-    #[case("3:193332831:G:T", 1, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant])] // 1bp intronic
-    #[case("3:193332832:T:C", 2, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant])] // 2bp intronic
-    #[case("3:193332833:G:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // 3bp intronic
-    #[case("3:193332834:A:C", 4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // 4bp intronic
-    #[case("3:193332835:A:T", 5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // 5bp intronic
-    #[case("3:193332836:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])] // 6bp intronic
-    #[case("3:193332837:T:G", 7, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])] // 7bp intronic
-    #[case("3:193332838:T:G", 8, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])] // 8bp intronic
+    #[case("3:193332512:T:G", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant]
+    )] // exonic
+    #[case("3:193332511:G:T", -1, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    )] // -1bp intronic
+    #[case("3:193332510:A:G", -2, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    )] // -2bp intronic
+    #[case("3:193332509:C:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant]
+    )] // -3bp intronic
+    #[case("3:193332508:T:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant]
+    )] // -4bp intronic
+    #[case("3:193332507:T:C", -5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant]
+    )] // -5bp intronic
+    #[case("3:193332506:T:C", -6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    )] // -6bp intronic
+    #[case("3:193332505:C:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    )] // -7bp intronic
+    #[case("3:193332504:T:C", -8, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    )] // -8bp intronic
+    #[case("3:193332503:T:A", -9, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    )] // -9bp intronic
+    #[case("3:193332831:G:T", 1, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    )] // 1bp intronic
+    #[case("3:193332832:T:C", 2, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    )] // 2bp intronic
+    #[case("3:193332833:G:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    )] // 3bp intronic
+    #[case("3:193332834:A:C", 4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    )] // 4bp intronic
+    #[case("3:193332835:A:T", 5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    )] // 5bp intronic
+    #[case("3:193332836:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    )] // 6bp intronic
+    #[case("3:193332837:T:G", 7, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    )] // 7bp intronic
+    #[case("3:193332838:T:G", 8, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    )] // 8bp intronic
     #[case("3:193332839:G:A", 9, vec![Consequence::IntronVariant])] // 9bp intronic
     #[case("3:193332846:A:G", 16, vec![Consequence::IntronVariant])] // 16bp intronic
     #[case("3:193332847:G:A", 17, vec![Consequence::IntronVariant])] // 17bp intronic
@@ -1163,7 +1210,11 @@ mod test {
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(true)
+                .transcript_picking(vec![
+                    TranscriptPickType::ManePlusClinical,
+                    TranscriptPickType::ManeSelect,
+                    TranscriptPickType::Length,
+                ])
                 .build()?,
         ));
 
@@ -1200,31 +1251,40 @@ mod test {
 
     #[tracing_test::traced_test]
     #[rstest::rstest]
-    #[case("17:41197701:G:C", false, false)] // don't pick transcripts, report worst
-    #[case("17:41197701:G:C", false, true)] // don't pick transcripts, report all
-    #[case("17:41197701:G:C", true, false)] // pick transcripts, report worst
-    #[case("17:41197701:G:C", true, true)] // pick transcripts, report all
+    #[case("17:41197701:G:C", false, true)] // don't pick transcripts, report worst
+    #[case("17:41197701:G:C", false, false)] // don't pick transcripts, report all
+    #[case("17:41197701:G:C", true, true)] // pick transcripts, report worst
+    #[case("17:41197701:G:C", true, false)] // pick transcripts, report all
     fn annotate_snv_brca1_transcript_picking_reporting(
         #[case] spdi: &str,
         #[case] pick_transcripts: bool,
-        #[case] report_all_transcripts: bool,
+        #[case] report_worst_consequence_only: bool,
     ) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!(
             "{}-{}-{}",
             spdi.replace(':', "-"),
             pick_transcripts,
-            report_all_transcripts
+            !report_worst_consequence_only
         );
 
         let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
+        let picks = if pick_transcripts {
+            vec![
+                TranscriptPickType::ManePlusClinical,
+                TranscriptPickType::ManeSelect,
+                TranscriptPickType::Length,
+            ]
+        } else {
+            vec![]
+        };
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(pick_transcripts)
+                .transcript_picking(picks)
                 .build()
                 .unwrap(),
         ));
@@ -1233,7 +1293,7 @@ mod test {
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_all_transcripts(report_all_transcripts)
+                .report_worst_consequence_only(report_worst_consequence_only)
                 .build()
                 .unwrap(),
         );
@@ -1256,31 +1316,42 @@ mod test {
     // transcript.
     #[tracing_test::traced_test]
     #[rstest::rstest]
-    #[case("2:179631246:G:A", false, false)] // don't pick transcripts, report worst
-    #[case("2:179631246:G:A", false, true)] // don't pick transcripts, report all
-    #[case("2:179631246:G:A", true, false)] // pick transcripts, report worst
-    #[case("2:179631246:G:A", true, true)] // pick transcripts, report all
+    #[case("2:179631246:G:A", false, true)] // don't pick transcripts, report worst
+    #[case("2:179631246:G:A", false, false)] // don't pick transcripts, report all
+    #[case("2:179631246:G:A", true, true)] // pick transcripts, report worst
+    #[case("2:179631246:G:A", true, false)] // pick transcripts, report all
     fn annotate_snv_ttn_transcript_picking_reporting(
         #[case] spdi: &str,
         #[case] pick_transcripts: bool,
-        #[case] report_all_transcripts: bool,
+        #[case] report_worst_consequence_only: bool,
     ) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!(
             "{}-{}-{}",
             spdi.replace(':', "-"),
             pick_transcripts,
-            report_all_transcripts
+            !report_worst_consequence_only
         );
 
         let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
+
+        let picks = if pick_transcripts {
+            vec![
+                TranscriptPickType::ManePlusClinical,
+                TranscriptPickType::ManeSelect,
+                TranscriptPickType::Length,
+            ]
+        } else {
+            vec![]
+        };
+
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(pick_transcripts)
+                .transcript_picking(picks)
                 .build()
                 .unwrap(),
         ));
@@ -1289,7 +1360,7 @@ mod test {
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_all_transcripts(report_all_transcripts)
+                .report_worst_consequence_only(report_worst_consequence_only)
                 .build()
                 .unwrap(),
         );
@@ -1318,7 +1389,7 @@ mod test {
     // Compare to SnpEff annotated variants for OPA1, touching special cases.
     #[test]
     fn annotate_opa1_hand_picked_vars() -> Result<(), anyhow::Error> {
-        annotate_opa1_vars("tests/data/annotate/seqvars/opa1.hand_picked.tsv", true)
+        annotate_opa1_vars("tests/data/annotate/seqvars/opa1.hand_picked.tsv", false)
     }
 
     // Compare to SnpEff annotated ClinVar variants for OPA1 (slow).
@@ -1326,7 +1397,7 @@ mod test {
     fn annotate_opa1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
         annotate_opa1_vars(
             "tests/data/annotate/seqvars/clinvar.excerpt.snpeff.opa1.tsv",
-            true,
+            false,
         )
     }
 
@@ -1335,11 +1406,14 @@ mod test {
     fn annotate_opa1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
         annotate_opa1_vars(
             "tests/data/annotate/seqvars/clinvar.excerpt.vep.opa1.tsv",
-            true,
+            false,
         )
     }
 
-    fn annotate_opa1_vars(path_tsv: &str, all_transcripts: bool) -> Result<(), anyhow::Error> {
+    fn annotate_opa1_vars(
+        path_tsv: &str,
+        report_worst_consequence_only: bool,
+    ) -> Result<(), anyhow::Error> {
         let txs = vec![
             String::from("NM_001354663.2"),
             String::from("NM_001354664.2"),
@@ -1349,13 +1423,13 @@ mod test {
             String::from("NM_130837.3"),
         ];
 
-        annotate_vars(path_tsv, &txs, all_transcripts)
+        annotate_vars(path_tsv, &txs, report_worst_consequence_only)
     }
 
     // Compare to SnpEff annotated variants for BRCA1, touching special cases.
     #[test]
     fn annotate_brca1_hand_picked_vars() -> Result<(), anyhow::Error> {
-        annotate_brca1_vars("tests/data/annotate/seqvars/brca1.hand_picked.tsv", true)
+        annotate_brca1_vars("tests/data/annotate/seqvars/brca1.hand_picked.tsv", false)
     }
 
     // Compare to SnpEff annotated ClinVar variants for BRCA1 (slow).
@@ -1363,7 +1437,7 @@ mod test {
     fn annotate_brca1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
         annotate_brca1_vars(
             "tests/data/annotate/seqvars/clinvar.excerpt.snpeff.brca1.tsv",
-            true,
+            false,
         )
     }
 
@@ -1372,11 +1446,14 @@ mod test {
     fn annotate_brca1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
         annotate_brca1_vars(
             "tests/data/annotate/seqvars/clinvar.excerpt.vep.brca1.tsv",
-            true,
+            false,
         )
     }
 
-    fn annotate_brca1_vars(path_tsv: &str, all_transcripts: bool) -> Result<(), anyhow::Error> {
+    fn annotate_brca1_vars(
+        path_tsv: &str,
+        report_worst_consequence_only: bool,
+    ) -> Result<(), anyhow::Error> {
         let txs = vec![
             String::from("NM_007294.4"),
             String::from("NM_007297.4"),
@@ -1385,13 +1462,13 @@ mod test {
             String::from("NM_007300.4"),
         ];
 
-        annotate_vars(path_tsv, &txs, all_transcripts)
+        annotate_vars(path_tsv, &txs, report_worst_consequence_only)
     }
 
     fn annotate_vars(
         path_tsv: &str,
         txs: &[String],
-        all_transcripts: bool,
+        report_worst_consequence_only: bool,
     ) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
@@ -1404,7 +1481,7 @@ mod test {
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_all_transcripts(all_transcripts)
+                .report_worst_consequence_only(report_worst_consequence_only)
                 .build()
                 .unwrap(),
         );
