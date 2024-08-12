@@ -51,7 +51,7 @@ pub struct Args {
     /// When transcript picking is enabled via `--pick-transcript`,
     /// determines how to handle multiple transcripts:
     /// Either keep the first one found or keep all that match.
-    #[arg(long, default_value_t = TranscriptPickMode::First)]
+    #[arg(long, default_value = "first")]
     pub pick_transcript_mode: TranscriptPickMode,
 
     /// For debug purposes, maximal number of variants to annotate.
