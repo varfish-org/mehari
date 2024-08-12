@@ -1417,10 +1417,7 @@ impl FrequencyAnnotator {
         &self,
         key: &[u8],
         vcf_record: &mut noodles::vcf::variant::RecordBuf,
-    ) -> Result<(), Error>
-    where
-        T: ThreadMode,
-    {
+    ) -> Result<(), Error> {
         if let Some(freq) = self
             .db
             .get_cf(self.db.cf_handle("autosomal").as_ref().unwrap(), key)?
@@ -1469,10 +1466,7 @@ impl FrequencyAnnotator {
         &self,
         key: &[u8],
         vcf_record: &mut noodles::vcf::variant::RecordBuf,
-    ) -> Result<(), Error>
-    where
-        T: ThreadMode,
-    {
+    ) -> Result<(), Error> {
         if let Some(freq) = self
             .db
             .get_cf(self.db.cf_handle("gonosomal").as_ref().unwrap(), key)?
@@ -1533,10 +1527,7 @@ impl FrequencyAnnotator {
         &self,
         key: &[u8],
         vcf_record: &mut noodles::vcf::variant::RecordBuf,
-    ) -> Result<(), Error>
-    where
-        T: ThreadMode,
-    {
+    ) -> Result<(), Error> {
         if let Some(freq) = self
             .db
             .get_cf(self.db.cf_handle("mitochondrial").as_ref().unwrap(), key)?
