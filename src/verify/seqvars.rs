@@ -11,7 +11,7 @@ use crate::annotate::seqvars::{
     csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
     load_tx_db, path_component,
     provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
-    TranscriptPickType,
+    TranscriptPickMode, TranscriptPickType,
 };
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
@@ -42,9 +42,17 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub report_worst_consequence_only: bool,
 
-    /// Which kind of transcripts to pick / restrict to. Default is to keep all.
-    #[arg(long, short = 'p')]
+    /// Which kind of transcript to pick / restrict to. Default is to keep all.
+    /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
+    /// either the first one is kept or all are kept.
+    #[arg(long)]
     pub pick_transcript: Vec<TranscriptPickType>,
+
+    /// When transcript picking is enabled via `--pick-transcript`,
+    /// determines how to handle multiple transcripts:
+    /// Either keep the first one found or keep all that match.
+    #[arg(long, default_value_t = TranscriptPickMode::First)]
+    pub pick_transcript_mode: TranscriptPickMode,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
@@ -140,6 +148,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         assembly,
         MehariProviderConfigBuilder::default()
             .transcript_picking(args.pick_transcript.clone())
+            .transcript_pick_mode(args.pick_transcript_mode)
             .build()?,
     ));
 

@@ -99,14 +99,22 @@ pub struct Args {
     pub report_worst_consequence_only: bool,
 
     /// Which kind of transcript to pick / restrict to. Default is to keep all.
-    /// If multiple are given, the first one that is found is kept.
-    #[arg(long, short = 'p')]
+    /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
+    /// either the first one is kept or all are kept.
+    #[arg(long)]
     pub pick_transcript: Vec<TranscriptPickType>,
+
+    /// When transcript picking is enabled via `--pick-transcript`,
+    /// determines how to handle multiple transcripts:
+    /// Either keep the first one found or keep all that match.
+    #[arg(long, default_value_t = TranscriptPickMode::First)]
+    pub pick_transcript_mode: TranscriptPickMode,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
     pub max_var_count: Option<usize>,
 
+    /// Path to HGNC TSV file.
     #[arg(long, required_unless_present = "path_output_vcf")]
     pub hgnc: Option<String>,
 
@@ -136,6 +144,13 @@ pub enum TranscriptPickType {
     RefSeqSelect,
     GencodePrimary,
     Basic,
+}
+
+#[derive(Debug, Copy, Clone, Display, clap::ValueEnum, Default)]
+pub enum TranscriptPickMode {
+    #[default]
+    First,
+    All,
 }
 
 #[derive(Debug, ClapArgs)]
@@ -1685,6 +1700,7 @@ impl ConsequenceAnnotator {
             assembly,
             MehariProviderConfigBuilder::default()
                 .transcript_picking(args.pick_transcript.clone())
+                .transcript_pick_mode(args.pick_transcript_mode)
                 .build()?,
         ));
         let predictor = ConsequencePredictor::new(
@@ -2038,6 +2054,7 @@ mod test {
             report_worst_consequence_only: true,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
+            pick_transcript_mode: Default::default(),
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: Some(path_out.into_os_string().into_string().unwrap()),
@@ -2078,6 +2095,7 @@ mod test {
             report_worst_consequence_only: false,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
+            pick_transcript_mode: Default::default(),
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2130,6 +2148,7 @@ mod test {
             report_worst_consequence_only: false,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
+            pick_transcript_mode: Default::default(),
             path_input_vcf: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2176,6 +2195,7 @@ mod test {
             report_worst_consequence_only: false,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
+            pick_transcript_mode: Default::default(),
             path_input_vcf: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2224,6 +2244,7 @@ mod test {
             report_worst_consequence_only: false,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
+            pick_transcript_mode: Default::default(),
             path_input_vcf: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2272,6 +2293,7 @@ mod test {
             report_worst_consequence_only: false,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
+            pick_transcript_mode: Default::default(),
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
             output: PathOutput {
                 path_output_vcf: None,

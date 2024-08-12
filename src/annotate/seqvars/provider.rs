@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::annotate::seqvars::TranscriptPickType;
+use crate::annotate::seqvars::{TranscriptPickMode, TranscriptPickType};
 use crate::db::create::Reason;
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
@@ -104,11 +104,17 @@ impl TxIntervalTrees {
 #[derive(Debug, Clone, Default, derive_builder::Builder)]
 #[builder(pattern = "immutable")]
 pub struct Config {
-    /// Whether to use transcript picking.  When enabled, only use (a)
-    /// ManeSelect+ManePlusClinical, (b) ManeSelect, (c) longest transcript
-    /// (the first available).
+    /// Which kind of transcript to pick / restrict to. Default is to keep all.
+    /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
+    /// either the first one is kept or all are kept.
     #[builder(default)]
     pub transcript_picking: Vec<TranscriptPickType>,
+
+    /// When transcript picking is enabled via `--pick-transcript`,
+    /// determines how to handle multiple transcripts:
+    /// Either keep the first one found or keep all that match.
+    #[builder(default)]
+    pub transcript_pick_mode: TranscriptPickMode,
 }
 
 /// Provider based on the protobuf `TxSeqDatabase`.
@@ -258,23 +264,43 @@ impl Provider {
                         tx_tags[i].1.push(TranscriptPickType::Length);
                     }
 
-                    // only keep the first transcript that fulfills the transcript picking strategy,
-                    // if any
-                    let tx_id = config
-                        .transcript_picking
-                        .iter()
-                        .filter_map(|pick| {
+                    let tx_ids = match config.transcript_pick_mode {
+                        TranscriptPickMode::First => {
+                            // only keep the first transcript that fulfills the transcript picking strategy,
+                            // if any
+                            let tx_id = config
+                                .transcript_picking
+                                .iter()
+                                .filter_map(|pick| {
+                                    tx_tags
+                                        .iter()
+                                        .find(|(_, tags, _)| tags.contains(pick))
+                                        .map(|(tx_id, _, _)| tx_id)
+                                })
+                                .next();
+                            if let Some(tx_id) = tx_id {
+                                vec![tx_id.to_string()]
+                            } else {
+                                vec![]
+                            }
+                        }
+                        TranscriptPickMode::All => {
+                            // keep all transcripts that fulfill the transcript picking strategy
                             tx_tags
                                 .iter()
-                                .find(|(_, tags, _)| tags.contains(pick))
-                                .map(|(tx_id, _, _)| tx_id)
-                        })
-                        .next();
+                                .filter_map(|(tx_id, tags, _)| {
+                                    tags.iter()
+                                        .any(|tag| config.transcript_picking.contains(tag))
+                                        .then_some(tx_id.to_string())
+                                })
+                                .collect()
+                        }
+                    };
 
-                    let new_entry = if let Some(tx_id) = tx_id {
+                    let new_entry = if !tx_ids.is_empty() {
                         GeneToTxId {
                             gene_id: entry.gene_id.clone(),
-                            tx_ids: vec![tx_id.to_string()],
+                            tx_ids,
                             filtered: Some(false),
                             filter_reason: None,
                         }
