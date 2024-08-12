@@ -137,7 +137,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     // Read the serialized transcripts.
     tracing::info!("Opening transcript database");
-    let tx_db = load_tx_db(&format!(
+    let tx_db = load_tx_db(format!(
         "{}/{}/txs.bin.zst",
         &args.path_db,
         path_component(assembly)

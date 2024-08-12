@@ -123,7 +123,7 @@ fn subset_tx_db(
 /// Main entry point.
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("Opening transcript database");
-    let tx_db = load_tx_db(&format!("{}", args.path_in.display()))?;
+    let tx_db = load_tx_db(format!("{}", args.path_in.display()))?;
 
     tracing::info!("Subsetting ...");
     let tx_db = subset_tx_db(&tx_db, &args.gene_symbols)?;

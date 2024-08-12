@@ -32,7 +32,7 @@ use noodles::vcf::variant::RecordBuf as VcfRecord;
 use noodles::vcf::{header::record::value::map::Map, Header as VcfHeader};
 use once_cell::sync::Lazy;
 use prost::Message;
-use rocksdb::{DBWithThreadMode, MultiThreaded, ThreadMode};
+use rocksdb::{DBWithThreadMode, MultiThreaded};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use strum::{Display, VariantArray};
@@ -1936,9 +1936,9 @@ fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> 
                 for other in others.iter_mut() {
                     let mut other_seq_db = other.seq_db.take().unwrap();
                     // Merge the sequence database.
-                    seq_db.seqs.extend(other_seq_db.seqs.drain(..));
+                    seq_db.seqs.append(&mut other_seq_db.seqs);
                     // Merge the aliases.
-                    seq_db.aliases.extend(other_seq_db.aliases.drain(..));
+                    seq_db.aliases.append(&mut other_seq_db.aliases);
                     // Merge the alias index, ensuring that they are unique by adding the max index.
                     seq_db.aliases_idx.extend(
                         other_seq_db
@@ -1950,7 +1950,7 @@ fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> 
 
                     let mut other_tx_db = other.tx_db.take().unwrap();
                     // Merge the transcript database.
-                    tx_db.transcripts.extend(other_tx_db.transcripts.drain(..));
+                    tx_db.transcripts.append(&mut other_tx_db.transcripts);
 
                     // Merge the gene to transcript mapping:
                     // 1. Create a map from gene ID to gene to transcript mapping.
@@ -1989,7 +1989,7 @@ fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> 
         let tx_db = merge_transcript_databases(
             tx_sources
                 .iter()
-                .map(|p| load_tx_db(p))
+                .map(load_tx_db)
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )?;
 

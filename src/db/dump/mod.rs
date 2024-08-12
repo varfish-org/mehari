@@ -22,7 +22,7 @@ pub fn run_with_write<W: Write>(
     writer: &mut W,
 ) -> Result<(), anyhow::Error> {
     tracing::info!("Opening transcript database");
-    let tx_db = load_tx_db(&format!("{}", args.path_db.display()))?;
+    let tx_db = load_tx_db(format!("{}", args.path_db.display()))?;
     tracing::info!("Dumping ...");
     serde_yaml::to_writer(writer, &tx_db)?;
     tracing::info!("... done");
