@@ -1413,7 +1413,7 @@ impl FrequencyAnnotator {
     }
 
     /// Annotate record on autosomal chromosome with gnomAD exomes/genomes.
-    pub fn annotate_record_auto<T>(
+    pub fn annotate_record_auto(
         &self,
         key: &[u8],
         vcf_record: &mut noodles::vcf::variant::RecordBuf,
@@ -1465,7 +1465,7 @@ impl FrequencyAnnotator {
     }
 
     /// Annotate record on gonomosomal chromosome with gnomAD exomes/genomes.
-    pub fn annotate_record_xy<T>(
+    pub fn annotate_record_xy(
         &self,
         key: &[u8],
         vcf_record: &mut noodles::vcf::variant::RecordBuf,
@@ -1529,7 +1529,7 @@ impl FrequencyAnnotator {
     }
 
     /// Annotate record on mitochondrial genome with gnomAD mtDNA and HelixMtDb.
-    pub fn annotate_record_mt<T>(
+    pub fn annotate_record_mt(
         &self,
         key: &[u8],
         vcf_record: &mut noodles::vcf::variant::RecordBuf,
@@ -1580,11 +1580,11 @@ impl FrequencyAnnotator {
 
             // Annotate with frequency.
             if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
-                self.annotate_record_auto::<MultiThreaded>(&key, record)?;
+                self.annotate_record_auto(&key, record)?;
             } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
-                self.annotate_record_xy::<MultiThreaded>(&key, record)?;
+                self.annotate_record_xy(&key, record)?;
             } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
-                self.annotate_record_mt::<MultiThreaded>(&key, record)?;
+                self.annotate_record_mt(&key, record)?;
             } else {
                 tracing::trace!(
                     "Record @{:?} on non-canonical chromosome, skipping.",
@@ -1615,7 +1615,7 @@ impl ClinvarAnnotator {
     }
 
     /// Annotate record with ClinVar information
-    pub fn annotate_record_clinvar<T>(
+    pub fn annotate_record_clinvar(
         &self,
         key: &[u8],
         vcf_record: &mut noodles::vcf::variant::RecordBuf,
@@ -1675,7 +1675,7 @@ impl ClinvarAnnotator {
             let key: Vec<u8> = vcf_var.clone().into();
 
             // Annotate with ClinVar information.
-            self.annotate_record_clinvar::<MultiThreaded>(&key, record)?;
+            self.annotate_record_clinvar(&key, record)?;
         }
         Ok(())
     }
