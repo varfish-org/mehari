@@ -1965,12 +1965,12 @@ fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> 
                     for g2tx in tx_db.gene_to_tx.iter_mut() {
                         if let Some(other_g2tx) = other_gene_to_tx.remove(&g2tx.gene_id) {
                             g2tx.tx_ids.extend(other_g2tx.tx_ids);
-                            g2tx.filtered
-                                .as_mut()
-                                .map(|f| *f &= other_g2tx.filtered.unwrap_or(false));
-                            g2tx.filter_reason
-                                .as_mut()
-                                .map(|r| *r |= other_g2tx.filter_reason.unwrap_or(0));
+                            if let Some(f) = g2tx.filtered.as_mut() {
+                                *f &= other_g2tx.filtered.unwrap_or(false);
+                            }
+                            if let Some(r) = g2tx.filter_reason.as_mut() {
+                                *r |= other_g2tx.filter_reason.unwrap_or(0);
+                            }
                         }
                     }
                     // Add the remaining gene to transcript mappings from the other database.

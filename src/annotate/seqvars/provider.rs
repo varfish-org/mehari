@@ -80,7 +80,7 @@ impl TxIntervalTrees {
             for genome_alignment in &tx.genome_alignments {
                 let contig = &genome_alignment.contig;
                 if let Some(contig_idx) = contig_to_idx.get(contig) {
-                    let mut start = std::i32::MAX;
+                    let mut start = i32::MAX;
                     let mut stop = std::i32::MIN;
                     for exon in &genome_alignment.exons {
                         start = std::cmp::min(start, exon.alt_start_i);
@@ -542,11 +542,11 @@ impl ProviderInterface for Provider {
                         cigar: exon.cigar.clone(),
                         tx_aseq: None,
                         alt_aseq: None,
-                        tx_exon_set_id: std::i32::MAX,
-                        alt_exon_set_id: std::i32::MAX,
-                        tx_exon_id: std::i32::MAX,
-                        alt_exon_id: std::i32::MAX,
-                        exon_aln_id: std::i32::MAX,
+                        tx_exon_set_id: i32::MAX,
+                        alt_exon_set_id: i32::MAX,
+                        tx_exon_id: i32::MAX,
+                        alt_exon_id: i32::MAX,
+                        exon_aln_id: i32::MAX,
                     })
                     .collect());
             }
