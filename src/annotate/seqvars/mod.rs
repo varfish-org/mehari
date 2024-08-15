@@ -94,7 +94,7 @@ pub struct Args {
     #[arg(long, value_enum, default_value_t = csq::TranscriptSource::Both)]
     pub transcript_source: csq::TranscriptSource,
 
-    /// Whether to report consequences for all picked transcripts.
+    /// Whether to report only the worst consequence for each picked transcript.
     #[arg(long, default_value_t = false)]
     pub report_worst_consequence_only: bool,
 
@@ -107,7 +107,7 @@ pub struct Args {
     /// When transcript picking is enabled via `--pick-transcript`,
     /// determines how to handle multiple transcripts:
     /// Either keep the first one found or keep all that match.
-    #[arg(long, default_value = "first")]
+    #[arg(long, default_value = "all")]
     pub pick_transcript_mode: TranscriptPickMode,
 
     /// For debug purposes, maximal number of variants to annotate.
@@ -137,8 +137,8 @@ pub struct Args {
     parse_display::FromStr,
 )]
 pub enum TranscriptPickType {
-    ManePlusClinical,
     ManeSelect,
+    ManePlusClinical,
     Length,
     EnsemblCanonical,
     RefSeqSelect,

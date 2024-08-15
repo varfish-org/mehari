@@ -63,7 +63,7 @@ pub struct Config {
     #[builder(default = "TranscriptSource::Both")]
     pub transcript_source: TranscriptSource,
 
-    /// Whether to report consequences for all picked transcripts.
+    /// Whether to report only the worst consequence for each picked transcript.
     #[builder(default = "false")]
     pub report_worst_consequence_only: bool,
 
