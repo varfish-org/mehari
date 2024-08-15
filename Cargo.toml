@@ -26,7 +26,7 @@ name = "mehari"
 path = "src/main.rs"
 
 [dependencies]
-actix-web = "4.8"
+actix-web = "4.9"
 annonars = "0.40.0"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
@@ -54,7 +54,7 @@ jsonl = "4.0"
 log = "0.4"
 nom = "7.1"
 nutype = { version = "0.4.2", features = ["serde"] }
-parse-display = "0.9"
+parse-display = "0.10"
 procfs = "0.16"
 prost = "0.13.1"
 quick_cache = "0.6.0"
