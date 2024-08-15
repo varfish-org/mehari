@@ -731,7 +731,7 @@ impl ConsequencePredictor {
                             start_cds_from == CdsFrom::Start
                                 && end_cds_from == CdsFrom::Start
                                 && start_base % 3 == 1
-                                && end_base % 3 == 1
+                                && (end_base + 1) % 3 == 1
                         }
                         _ => panic!("Must be CDS variant: {}", &var_c),
                     };
@@ -761,6 +761,18 @@ impl ConsequencePredictor {
                                                 consequences |= Consequence::StopRetainedVariant;
                                             } else {
                                                 consequences |= Consequence::StopGained;
+                                                // if the substitution happens right before the stop codon
+                                                // and if it is a conservative change
+                                                // then it is not a stop gained
+                                                // cf. 1:43450470:GCCT:G, ENST00000634258.3:c.10294_10296del/p.Leu3432Ter
+                                                if let Some(ref p) = protein_pos {
+                                                    if p.total.is_some_and(|t| p.ord == t - 1)
+                                                        && conservative
+                                                    {
+                                                        consequences &= !Consequence::StopGained;
+                                                        consequences |= Consequence::ConservativeInframeDeletion;
+                                                    }
+                                                }
                                             }
                                         } else {
                                             consequences |= Consequence::MissenseVariant;
