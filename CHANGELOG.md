@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.27.0](https://github.com/varfish-org/mehari/compare/v0.26.1...v0.27.0) (2024-08-16)
+
+
+### Features
+
+* refactor annotate seqvars cli ([#510](https://github.com/varfish-org/mehari/issues/510)) ([915b30a](https://github.com/varfish-org/mehari/commit/915b30a6ba202998870ebe7395572df159ab72cc))
+
+
+### Bug Fixes
+
+* codon deletion right in front of stop codon is not a stop_gained ([#515](https://github.com/varfish-org/mehari/issues/515)) ([48fd896](https://github.com/varfish-org/mehari/commit/48fd896966d9dc4769a64a123131c66f0a1052c6))
+
 ## [0.26.1](https://github.com/varfish-org/mehari/compare/v0.26.0...v0.26.1) (2024-08-07)
 
 
