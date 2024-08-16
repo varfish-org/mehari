@@ -11,7 +11,7 @@ use crate::annotate::seqvars::{
     csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
     load_tx_db, path_component,
     provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
-    TranscriptPickMode, TranscriptPickType,
+    ConsequenceBy, TranscriptPickMode, TranscriptPickType,
 };
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
@@ -39,8 +39,8 @@ pub struct Args {
     pub path_output_tsv: String,
 
     /// Whether to report only the worst consequence for each picked transcript.
-    #[arg(long, default_value_t = false)]
-    pub report_most_severe_consequence_only: bool,
+    #[arg(long)]
+    pub report_most_severe_consequence_by: Option<ConsequenceBy>,
 
     /// Which kind of transcript to pick / restrict to. Default is not to pick at all.
     ///
@@ -158,7 +158,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         provider,
         assembly,
         ConsequencePredictorConfigBuilder::default()
-            .report_most_severe_consequence_only(args.report_most_severe_consequence_only)
+            .report_most_severe_consequence_by(args.report_most_severe_consequence_by)
             .build()?,
     );
 

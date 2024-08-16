@@ -95,8 +95,8 @@ pub struct Args {
     pub transcript_source: csq::TranscriptSource,
 
     /// Whether to report only the worst consequence for each picked transcript.
-    #[arg(long, default_value_t = false)]
-    pub report_most_severe_consequence_only: bool,
+    #[arg(long)]
+    pub report_most_severe_consequence_by: Option<ConsequenceBy>,
 
     /// Which kind of transcript to pick / restrict to. Default is not to pick at all.
     ///
@@ -123,6 +123,26 @@ pub struct Args {
     /// What to annotate and which source to use.
     #[command(flatten)]
     pub sources: Sources,
+}
+
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    clap::ValueEnum,
+    VariantArray,
+    parse_display::FromStr,
+)]
+pub enum ConsequenceBy {
+    Gene,
+    Transcript,
+    // or "Variant"?
+    Allele,
 }
 
 #[derive(
@@ -1701,7 +1721,7 @@ impl ConsequenceAnnotator {
             provider,
             assembly,
             ConsequencePredictorConfigBuilder::default()
-                .report_most_severe_consequence_only(args.report_most_severe_consequence_only)
+                .report_most_severe_consequence_by(args.report_most_severe_consequence_by)
                 .transcript_source(args.transcript_source)
                 .build()?,
         );
@@ -2030,7 +2050,7 @@ mod test {
     use temp_testdir::TempDir;
 
     use super::binning::bin_from_range;
-    use super::{csq::TranscriptSource, run, Args, PathOutput};
+    use super::{csq::TranscriptSource, run, Args, ConsequenceBy, PathOutput};
     use crate::annotate::seqvars::Sources;
 
     #[tokio::test]
@@ -2045,7 +2065,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_only: true,
+            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),
@@ -2086,7 +2106,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_only: false,
+            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),
@@ -2139,7 +2159,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_only: false,
+            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),
@@ -2186,7 +2206,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_only: false,
+            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),
@@ -2235,7 +2255,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_only: false,
+            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),
@@ -2284,7 +2304,7 @@ mod test {
         let assembly = "grch38";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_only: false,
+            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),

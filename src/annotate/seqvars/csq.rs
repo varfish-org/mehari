@@ -13,11 +13,11 @@ use hgvs::{
     },
 };
 use itertools::Itertools;
-use rustc_hash::FxHashMap;
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
     provider::Provider as MehariProvider,
+    ConsequenceBy,
 };
 
 /// A variant description how VCF would do it.
@@ -64,8 +64,8 @@ pub struct Config {
     pub transcript_source: TranscriptSource,
 
     /// Whether to report only the worst consequence for each picked transcript.
-    #[builder(default = "false")]
-    pub report_most_severe_consequence_only: bool,
+    #[builder(default)]
+    pub report_most_severe_consequence_by: Option<ConsequenceBy>,
 
     /// Whether to discard intergenic variants.
     #[builder(default = "true")]
@@ -281,18 +281,6 @@ impl ConsequencePredictor {
             ann_fields
         };
 
-        // Short-circuit if to report all transcript results.
-        if !self.config.report_most_severe_consequence_only {
-            return ann_fields;
-        }
-
-        // First, split annotations by gene.
-        let mut anns_by_gene: FxHashMap<String, Vec<AnnField>> = FxHashMap::default();
-        for ann in ann_fields {
-            let gene_id = ann.gene_id.clone();
-            anns_by_gene.entry(gene_id).or_default().push(ann);
-        }
-
         /// Return sort order for ANN biotype, gives priority to ManeSelect and ManePlusClinical.
         fn biotype_order(biotypes: &[FeatureBiotype]) -> i32 {
             if biotypes.contains(&FeatureBiotype::ManeSelect) {
@@ -304,16 +292,43 @@ impl ConsequencePredictor {
             }
         }
 
-        // Now, sort by consequence, giving priority to ManeSelect and ManePlusClinical.
-        //
-        // This uses the invariant that the consequences in the ANN fields are sorted already
-        // and there is at least one consequence.
-        let mut result = Vec::new();
-        for anns in anns_by_gene.values_mut() {
-            anns.sort_by_key(|ann| (ann.consequences[0], biotype_order(&ann.feature_biotype)));
-            result.push(anns.remove(0));
+        /// Extract the first (i.e. most severe) consequence per group.
+        fn first_csq_per_group(grouping: HashMap<String, Vec<AnnField>>) -> Vec<AnnField> {
+            // Sort by `Consequence` and `FeatureBiotype`
+            //
+            // This uses the invariant that the consequences in the ANN fields are sorted already
+            // and there is at least one consequence.
+            grouping
+                .into_values()
+                .map(|mut anns| {
+                    anns.sort_by_key(|ann| {
+                        (ann.consequences[0], biotype_order(&ann.feature_biotype))
+                    });
+                    anns.into_iter().next().unwrap()
+                })
+                .collect()
         }
-        result
+
+        /// Group ANN fields by a key function.
+        fn group_annotations_by<F: Fn(&AnnField) -> String>(
+            ann_fields: Vec<AnnField>,
+            key_fn: F,
+        ) -> HashMap<String, Vec<AnnField>> {
+            ann_fields.into_iter().into_group_map_by(key_fn)
+        }
+
+        match self.config.report_most_severe_consequence_by {
+            // Short-circuit if to report all transcript results.
+            None => ann_fields,
+            Some(group) => {
+                let key = match group {
+                    ConsequenceBy::Gene => |ann: &AnnField| ann.gene_id.clone(),
+                    ConsequenceBy::Transcript => |ann: &AnnField| ann.feature_id.clone(),
+                    ConsequenceBy::Allele => |ann: &AnnField| ann.allele.to_string(),
+                };
+                first_csq_per_group(group_annotations_by(ann_fields, key))
+            }
+        }
     }
 
     fn build_ann_field(
@@ -1130,7 +1145,7 @@ mod test {
             provider,
             Assembly::Grch37p10,
             ConsequencePredictorConfigBuilder::default()
-                .report_most_severe_consequence_only(true)
+                .report_most_severe_consequence_by(Some(ConsequenceBy::Gene))
                 .build()?,
         );
 
@@ -1354,12 +1369,17 @@ mod test {
                 .build()
                 .unwrap(),
         ));
+        let report_most_severe_consequence_by = if report_most_severe_consequence_only {
+            Some(ConsequenceBy::Gene)
+        } else {
+            None
+        };
 
         let predictor = ConsequencePredictor::new(
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_most_severe_consequence_only(report_most_severe_consequence_only)
+                .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()
                 .unwrap(),
         );
@@ -1422,11 +1442,17 @@ mod test {
                 .unwrap(),
         ));
 
+        let report_most_severe_consequence_by = if report_most_severe_consequence_only {
+            Some(ConsequenceBy::Gene)
+        } else {
+            None
+        };
+
         let predictor = ConsequencePredictor::new(
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_most_severe_consequence_only(report_most_severe_consequence_only)
+                .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()
                 .unwrap(),
         );
@@ -1543,11 +1569,18 @@ mod test {
             Assembly::Grch37p10,
             Default::default(),
         ));
+
+        let report_most_severe_consequence_by = if report_most_severe_consequence_only {
+            Some(ConsequenceBy::Gene)
+        } else {
+            None
+        };
+
         let predictor = ConsequencePredictor::new(
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_most_severe_consequence_only(report_most_severe_consequence_only)
+                .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()
                 .unwrap(),
         );
