@@ -1210,6 +1210,56 @@ mod test {
         Ok(())
     }
 
+    #[rstest::rstest]
+    #[case("3:193311167:ATGT:T", vec![Consequence::StartLost])]
+    #[case("3:193311170:TGGC:C", vec![Consequence::ConservativeInframeDeletion])]
+    #[case("3:193311170:TGGCG:G", vec![Consequence::FrameshiftVariant])]
+    #[case("3:193311180:GTCG:G", vec![Consequence::DisruptiveInframeDeletion])]
+    #[case("3:193409910:GAAA:G", vec![Consequence::ConservativeInframeDeletion])]
+    #[case("3:193409913:ATAA:A", vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    fn annotate_del_opa1_csqs(
+        #[case] spdi: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        crate::common::set_snapshot_suffix!("{}", spdi.replace(':', "-"));
+
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
+        let tx_db = load_tx_db(tx_path)?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Assembly::Grch37p10,
+            MehariProviderConfigBuilder::default()
+                .transcript_picking(true)
+                .build()?,
+        ));
+
+        let predictor =
+            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].feature_id, "NM_130837.3");
+        assert_eq!(
+            res[0].consequences,
+            expected_csqs,
+            "spdi = {}",
+            spdi.join(":")
+        );
+        insta::assert_yaml_snapshot!(res);
+
+        Ok(())
+    }
+
     #[tracing_test::traced_test]
     #[rstest::rstest]
     #[case("17:41197701:G:C", false, false)] // don't pick transcripts, report worst
