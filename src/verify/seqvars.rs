@@ -40,7 +40,7 @@ pub struct Args {
 
     /// Whether to report only the worst consequence for each picked transcript.
     #[arg(long, default_value_t = false)]
-    pub report_worst_consequence_only: bool,
+    pub report_most_severe_consequence_only: bool,
 
     /// Which kind of transcript to pick / restrict to. Default is to keep all.
     /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
@@ -156,7 +156,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         provider,
         assembly,
         ConsequencePredictorConfigBuilder::default()
-            .report_worst_consequence_only(args.report_worst_consequence_only)
+            .report_most_severe_consequence_only(args.report_most_severe_consequence_only)
             .build()?,
     );
 

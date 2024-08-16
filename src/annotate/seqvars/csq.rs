@@ -65,7 +65,7 @@ pub struct Config {
 
     /// Whether to report only the worst consequence for each picked transcript.
     #[builder(default = "false")]
-    pub report_worst_consequence_only: bool,
+    pub report_most_severe_consequence_only: bool,
 
     /// Whether to discard intergenic variants.
     #[builder(default = "true")]
@@ -282,7 +282,7 @@ impl ConsequencePredictor {
         };
 
         // Short-circuit if to report all transcript results.
-        if !self.config.report_worst_consequence_only {
+        if !self.config.report_most_severe_consequence_only {
             return ann_fields;
         }
 
@@ -1130,7 +1130,7 @@ mod test {
             provider,
             Assembly::Grch37p10,
             ConsequencePredictorConfigBuilder::default()
-                .report_worst_consequence_only(true)
+                .report_most_severe_consequence_only(true)
                 .build()?,
         );
 
@@ -1324,13 +1324,13 @@ mod test {
     fn annotate_snv_brca1_transcript_picking_reporting(
         #[case] spdi: &str,
         #[case] pick_transcripts: bool,
-        #[case] report_worst_consequence_only: bool,
+        #[case] report_most_severe_consequence_only: bool,
     ) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!(
             "{}-{}-{}",
             spdi.replace(':', "-"),
             pick_transcripts,
-            !report_worst_consequence_only
+            !report_most_severe_consequence_only
         );
 
         let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
@@ -1359,7 +1359,7 @@ mod test {
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_worst_consequence_only(report_worst_consequence_only)
+                .report_most_severe_consequence_only(report_most_severe_consequence_only)
                 .build()
                 .unwrap(),
         );
@@ -1389,13 +1389,13 @@ mod test {
     fn annotate_snv_ttn_transcript_picking_reporting(
         #[case] spdi: &str,
         #[case] pick_transcripts: bool,
-        #[case] report_worst_consequence_only: bool,
+        #[case] report_most_severe_consequence_only: bool,
     ) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!(
             "{}-{}-{}",
             spdi.replace(':', "-"),
             pick_transcripts,
-            !report_worst_consequence_only
+            !report_most_severe_consequence_only
         );
 
         let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
@@ -1426,7 +1426,7 @@ mod test {
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_worst_consequence_only(report_worst_consequence_only)
+                .report_most_severe_consequence_only(report_most_severe_consequence_only)
                 .build()
                 .unwrap(),
         );
@@ -1478,7 +1478,7 @@ mod test {
 
     fn annotate_opa1_vars(
         path_tsv: &str,
-        report_worst_consequence_only: bool,
+        report_most_severe_consequence_only: bool,
     ) -> Result<(), anyhow::Error> {
         let txs = vec![
             String::from("NM_001354663.2"),
@@ -1489,7 +1489,7 @@ mod test {
             String::from("NM_130837.3"),
         ];
 
-        annotate_vars(path_tsv, &txs, report_worst_consequence_only)
+        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only)
     }
 
     // Compare to SnpEff annotated variants for BRCA1, touching special cases.
@@ -1518,7 +1518,7 @@ mod test {
 
     fn annotate_brca1_vars(
         path_tsv: &str,
-        report_worst_consequence_only: bool,
+        report_most_severe_consequence_only: bool,
     ) -> Result<(), anyhow::Error> {
         let txs = vec![
             String::from("NM_007294.4"),
@@ -1528,13 +1528,13 @@ mod test {
             String::from("NM_007300.4"),
         ];
 
-        annotate_vars(path_tsv, &txs, report_worst_consequence_only)
+        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only)
     }
 
     fn annotate_vars(
         path_tsv: &str,
         txs: &[String],
-        report_worst_consequence_only: bool,
+        report_most_severe_consequence_only: bool,
     ) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
@@ -1547,7 +1547,7 @@ mod test {
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_worst_consequence_only(report_worst_consequence_only)
+                .report_most_severe_consequence_only(report_most_severe_consequence_only)
                 .build()
                 .unwrap(),
         );

@@ -96,7 +96,7 @@ pub struct Args {
 
     /// Whether to report only the worst consequence for each picked transcript.
     #[arg(long, default_value_t = false)]
-    pub report_worst_consequence_only: bool,
+    pub report_most_severe_consequence_only: bool,
 
     /// Which kind of transcript to pick / restrict to. Default is to keep all.
     /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
@@ -1699,7 +1699,7 @@ impl ConsequenceAnnotator {
             provider,
             assembly,
             ConsequencePredictorConfigBuilder::default()
-                .report_worst_consequence_only(args.report_worst_consequence_only)
+                .report_most_severe_consequence_only(args.report_most_severe_consequence_only)
                 .transcript_source(args.transcript_source)
                 .build()?,
         );
@@ -2043,7 +2043,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_worst_consequence_only: true,
+            report_most_severe_consequence_only: true,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),
@@ -2084,7 +2084,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_worst_consequence_only: false,
+            report_most_severe_consequence_only: false,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),
@@ -2137,7 +2137,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_worst_consequence_only: false,
+            report_most_severe_consequence_only: false,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),
@@ -2184,7 +2184,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_worst_consequence_only: false,
+            report_most_severe_consequence_only: false,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),
@@ -2233,7 +2233,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_worst_consequence_only: false,
+            report_most_severe_consequence_only: false,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),
@@ -2282,7 +2282,7 @@ mod test {
         let assembly = "grch38";
         let args = Args {
             genome_release: None,
-            report_worst_consequence_only: false,
+            report_most_severe_consequence_only: false,
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
             pick_transcript_mode: Default::default(),
