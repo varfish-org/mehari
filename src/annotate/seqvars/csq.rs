@@ -733,7 +733,7 @@ impl ConsequencePredictor {
                             start_cds_from == CdsFrom::Start
                                 && end_cds_from == CdsFrom::Start
                                 && start_base % 3 == 1
-                                && end_base % 3 == 1
+                                && (end_base + 1) % 3 == 1
                         }
                         _ => panic!("Must be CDS variant: {}", &var_c),
                     };
@@ -763,6 +763,18 @@ impl ConsequencePredictor {
                                                 consequences |= Consequence::StopRetainedVariant;
                                             } else {
                                                 consequences |= Consequence::StopGained;
+                                                // if the substitution happens right before the stop codon
+                                                // and if it is a conservative change
+                                                // then it is not a stop gained
+                                                // cf. 1:43450470:GCCT:G, ENST00000634258.3:c.10294_10296del/p.Leu3432Ter
+                                                if let Some(ref p) = protein_pos {
+                                                    if p.total.is_some_and(|t| p.ord == t - 1)
+                                                        && conservative
+                                                    {
+                                                        consequences &= !Consequence::StopGained;
+                                                        consequences |= Consequence::ConservativeInframeDeletion;
+                                                    }
+                                                }
                                             }
                                         } else {
                                             consequences |= Consequence::MissenseVariant;
@@ -1238,6 +1250,56 @@ mod test {
             "spdi = {}",
             spdi.join(":")
         );
+        assert_eq!(
+            res[0].consequences,
+            expected_csqs,
+            "spdi = {}",
+            spdi.join(":")
+        );
+        insta::assert_yaml_snapshot!(res);
+
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case("3:193311167:ATGT:T", vec![Consequence::StartLost])]
+    #[case("3:193311170:TGGC:C", vec![Consequence::ConservativeInframeDeletion])]
+    #[case("3:193311170:TGGCG:G", vec![Consequence::FrameshiftVariant])]
+    #[case("3:193311180:GTCG:G", vec![Consequence::DisruptiveInframeDeletion])]
+    #[case("3:193409910:GAAA:G", vec![Consequence::ConservativeInframeDeletion])]
+    #[case("3:193409913:ATAA:A", vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    fn annotate_del_opa1_csqs(
+        #[case] spdi: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        crate::common::set_snapshot_suffix!("{}", spdi.replace(':', "-"));
+
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
+        let tx_db = load_tx_db(tx_path)?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Assembly::Grch37p10,
+            MehariProviderConfigBuilder::default()
+                .transcript_picking(true)
+                .build()?,
+        ));
+
+        let predictor =
+            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].feature_id, "NM_130837.3");
         assert_eq!(
             res[0].consequences,
             expected_csqs,

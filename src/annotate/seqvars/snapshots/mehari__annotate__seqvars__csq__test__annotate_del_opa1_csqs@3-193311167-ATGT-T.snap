@@ -1,0 +1,34 @@
+---
+source: src/annotate/seqvars/csq.rs
+expression: res
+---
+- allele:
+    Alt:
+      alternative: T
+  consequences:
+    - start_lost
+  putative_impact: HIGH
+  gene_symbol: OPA1
+  gene_id: "HGNC:8140"
+  feature_type:
+    SoTerm:
+      term: Transcript
+  feature_id: NM_130837.3
+  feature_biotype:
+    - Coding
+    - ManeSelect
+  rank:
+    ord: 1
+    total: 31
+  hgvs_t: c.1_3del
+  hgvs_p: p.Met1?
+  tx_pos:
+    ord: 171
+    total: 6429
+  cds_pos:
+    ord: 1
+    total: 3048
+  protein_pos: ~
+  distance: 0
+  strand: 1
+  messages: ~
