@@ -1282,7 +1282,11 @@ mod test {
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(true)
+                .transcript_picking(vec![
+                    TranscriptPickType::ManePlusClinical,
+                    TranscriptPickType::ManeSelect,
+                    TranscriptPickType::Length,
+                ])
                 .build()?,
         ));
 
