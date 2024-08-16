@@ -2,6 +2,12 @@
 
 use std::collections::HashMap;
 
+use crate::annotate::seqvars::{TranscriptPickMode, TranscriptPickType};
+use crate::db::create::Reason;
+use crate::{
+    annotate::seqvars::csq::ALT_ALN_METHOD,
+    pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
+};
 use annonars::common::cli::CANONICAL;
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
@@ -16,11 +22,7 @@ use hgvs::{
     },
     sequences::{seq_md5, TranslationTable},
 };
-
-use crate::{
-    annotate::seqvars::csq::ALT_ALN_METHOD,
-    pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
-};
+use itertools::Itertools;
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &[
@@ -78,8 +80,8 @@ impl TxIntervalTrees {
             for genome_alignment in &tx.genome_alignments {
                 let contig = &genome_alignment.contig;
                 if let Some(contig_idx) = contig_to_idx.get(contig) {
-                    let mut start = std::i32::MAX;
-                    let mut stop = std::i32::MIN;
+                    let mut start = i32::MAX;
+                    let mut stop = i32::MIN;
                     for exon in &genome_alignment.exons {
                         start = std::cmp::min(start, exon.alt_start_i);
                         stop = std::cmp::max(stop, exon.alt_end_i);
@@ -102,11 +104,19 @@ impl TxIntervalTrees {
 #[derive(Debug, Clone, Default, derive_builder::Builder)]
 #[builder(pattern = "immutable")]
 pub struct Config {
-    /// Whether to use transcript picking.  When enabled, only use (a)
-    /// ManeSelect+ManePlusClinical, (b) ManeSelect, (c) longest transcript
-    /// (the first available).
-    #[builder(default = "false")]
-    pub transcript_picking: bool,
+    /// Which kind of transcript to pick / restrict to. Default is not to pick at all.
+    ///
+    /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
+    /// either the first one is kept or all are kept.
+    #[builder(default)]
+    pub pick_transcript: Vec<TranscriptPickType>,
+
+    /// Determines how to handle multiple transcripts. Default is to keep all.
+    ///
+    /// When transcript picking is enabled via `--pick-transcript`,
+    /// either keep the first one found or keep all that match.
+    #[builder(default)]
+    pub pick_transcript_mode: TranscriptPickMode,
 }
 
 /// Provider based on the protobuf `TxSeqDatabase`.
@@ -128,6 +138,22 @@ pub struct Provider {
     assembly: Assembly,
     data_version: String,
     schema_version: String,
+}
+
+fn transcript_length(tx: &Transcript) -> i32 {
+    let mut max_tx_length = 0;
+    for genome_alignment in tx.genome_alignments.iter() {
+        // We just count length in reference so we don't have to look
+        // into the CIGAR string.
+        let mut tx_length = 0;
+        for exon_alignment in genome_alignment.exons.iter() {
+            tx_length += exon_alignment.alt_cds_end_i() - exon_alignment.alt_cds_start_i();
+        }
+        if tx_length > max_tx_length {
+            max_tx_length = tx_length;
+        }
+    }
+    max_tx_length
 }
 
 impl Provider {
@@ -181,7 +207,7 @@ impl Provider {
 
         // When transcript picking is enabled, restrict to ManeSelect and ManePlusClinical if
         // we have any such transcript.  Otherwise, fall back to the longest transcript.
-        let picked_gene_to_tx_id = if config.transcript_picking {
+        let picked_gene_to_tx_id = if !config.pick_transcript.is_empty() {
             if let Some(tx_db) = tx_seq_db.tx_db.as_mut() {
                 // The new gene-to-txid mapping we will build.
                 let mut new_gene_to_tx = Vec::new();
@@ -189,67 +215,104 @@ impl Provider {
                 // Process each gene.
                 for entry in tx_db.gene_to_tx.iter() {
                     // First, determine whether we have any MANE transcripts.
-                    let mane_tx_ids = entry
+                    let mut longest_tx_id = None;
+                    let mut tx_tags = entry
                         .tx_ids
                         .iter()
-                        .filter(|tx_id| {
-                            tx_map
-                                .get(*tx_id)
-                                .map(|tx_idx| {
-                                    let tx = &tx_db.transcripts[*tx_idx as usize];
-                                    tx.tags.contains(&TranscriptTag::ManePlusClinical.into())
-                                        || tx.tags.contains(&TranscriptTag::ManeSelect.into())
-                                })
-                                .unwrap_or_default()
+                        .enumerate()
+                        .filter_map(|(i, tx_id)| {
+                            tx_map.get(tx_id).map(|tx_idx| {
+                                let tx = &tx_db.transcripts[*tx_idx as usize];
+                                let tags = tx
+                                    .tags
+                                    .iter()
+                                    .filter_map(|tag| {
+                                        match TranscriptTag::try_from(*tag).unwrap() {
+                                            TranscriptTag::Unknown => None,
+                                            TranscriptTag::Basic => Some(TranscriptPickType::Basic),
+                                            TranscriptTag::EnsemblCanonical => {
+                                                Some(TranscriptPickType::EnsemblCanonical)
+                                            }
+                                            TranscriptTag::ManeSelect => {
+                                                Some(TranscriptPickType::ManeSelect)
+                                            }
+                                            TranscriptTag::ManePlusClinical => {
+                                                Some(TranscriptPickType::ManePlusClinical)
+                                            }
+                                            TranscriptTag::RefSeqSelect => {
+                                                Some(TranscriptPickType::RefSeqSelect)
+                                            }
+                                            TranscriptTag::Selenoprotein => None,
+                                            TranscriptTag::GencodePrimary => {
+                                                Some(TranscriptPickType::GencodePrimary)
+                                            }
+                                        }
+                                    })
+                                    .collect_vec();
+                                let length = transcript_length(tx);
+                                if let Some((prev_i, prev_length)) = longest_tx_id.as_mut() {
+                                    if length > *prev_length {
+                                        *prev_i = i;
+                                        *prev_length = length;
+                                    }
+                                } else {
+                                    longest_tx_id = Some((i, length));
+                                }
+                                (tx_id, tags, length)
+                            })
                         })
-                        .cloned()
-                        .collect::<Vec<_>>();
+                        .collect_vec();
+                    if let Some((i, _)) = longest_tx_id {
+                        tx_tags[i].1.push(TranscriptPickType::Length);
+                    }
 
-                    // Now, construct gene-to-txid mapping entry.
-                    let new_entry = if !mane_tx_ids.is_empty() {
-                        // For the case that we have MANE transcripts.
+                    let tx_ids = match config.pick_transcript_mode {
+                        TranscriptPickMode::First => {
+                            // only keep the first transcript that fulfills the transcript picking strategy,
+                            // if any
+                            let tx_id = config
+                                .pick_transcript
+                                .iter()
+                                .filter_map(|pick| {
+                                    tx_tags
+                                        .iter()
+                                        .find(|(_, tags, _)| tags.contains(pick))
+                                        .map(|(tx_id, _, _)| tx_id)
+                                })
+                                .next();
+                            if let Some(tx_id) = tx_id {
+                                vec![tx_id.to_string()]
+                            } else {
+                                vec![]
+                            }
+                        }
+                        TranscriptPickMode::All => {
+                            // keep all transcripts that fulfill the transcript picking strategy
+                            tx_tags
+                                .iter()
+                                .filter_map(|(tx_id, tags, _)| {
+                                    tags.iter()
+                                        .any(|tag| config.pick_transcript.contains(tag))
+                                        .then_some(tx_id.to_string())
+                                })
+                                .collect()
+                        }
+                    };
+
+                    let new_entry = if !tx_ids.is_empty() {
                         GeneToTxId {
                             gene_id: entry.gene_id.clone(),
-                            tx_ids: mane_tx_ids,
+                            tx_ids,
                             filtered: Some(false),
                             filter_reason: None,
                         }
                     } else {
-                        // Otherwise, determine the longest transcript's length.
-                        let (_, tx_id) = entry
-                            .tx_ids
-                            .iter()
-                            .map(|tx_id| {
-                                tx_map
-                                    .get(tx_id)
-                                    .map(|tx_idx| {
-                                        // A slight complication, we need to look at all genome alignments...
-                                        let tx = &tx_db.transcripts[*tx_idx as usize];
-                                        let mut max_tx_length = 0;
-                                        for genome_alignment in tx.genome_alignments.iter() {
-                                            // We just count length in reference so we don't have to look
-                                            // into the CIGAR string.
-                                            let mut tx_length = 0;
-                                            for exon_alignment in genome_alignment.exons.iter() {
-                                                tx_length += exon_alignment.alt_cds_end_i()
-                                                    - exon_alignment.alt_cds_start_i();
-                                            }
-                                            if tx_length > max_tx_length {
-                                                max_tx_length = tx_length;
-                                            }
-                                        }
-                                        (max_tx_length, tx_id.clone())
-                                    })
-                                    .unwrap_or_default()
-                            })
-                            .max()
-                            .unwrap_or_else(|| panic!("no length for gene {}", &entry.gene_id));
-
+                        tracing::trace!("no transcript found for gene {} with the chosen transcript picking strategy: {:?}", &entry.gene_id, &config.pick_transcript);
                         GeneToTxId {
                             gene_id: entry.gene_id.clone(),
-                            tx_ids: vec![tx_id],
-                            filtered: Some(false),
-                            filter_reason: None,
+                            tx_ids: vec![],
+                            filtered: Some(true),
+                            filter_reason: Some(Reason::NoTranscriptLeft as u32),
                         }
                     };
 
@@ -481,11 +544,11 @@ impl ProviderInterface for Provider {
                         cigar: exon.cigar.clone(),
                         tx_aseq: None,
                         alt_aseq: None,
-                        tx_exon_set_id: std::i32::MAX,
-                        alt_exon_set_id: std::i32::MAX,
-                        tx_exon_id: std::i32::MAX,
-                        alt_exon_id: std::i32::MAX,
-                        exon_aln_id: std::i32::MAX,
+                        tx_exon_set_id: i32::MAX,
+                        alt_exon_set_id: i32::MAX,
+                        tx_exon_id: i32::MAX,
+                        alt_exon_id: i32::MAX,
+                        exon_aln_id: i32::MAX,
                     })
                     .collect());
             }

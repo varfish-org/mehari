@@ -13,11 +13,11 @@ use hgvs::{
     },
 };
 use itertools::Itertools;
-use rustc_hash::FxHashMap;
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
     provider::Provider as MehariProvider,
+    ConsequenceBy,
 };
 
 /// A variant description how VCF would do it.
@@ -63,9 +63,9 @@ pub struct Config {
     #[builder(default = "TranscriptSource::Both")]
     pub transcript_source: TranscriptSource,
 
-    /// Whether to report consequences for all picked transcripts.
-    #[builder(default = "true")]
-    pub report_all_transcripts: bool,
+    /// Whether to report only the worst consequence for each picked transcript.
+    #[builder(default)]
+    pub report_most_severe_consequence_by: Option<ConsequenceBy>,
 
     /// Whether to discard intergenic variants.
     #[builder(default = "true")]
@@ -103,6 +103,7 @@ pub const ALT_ALN_METHOD: &str = "splign";
 
 impl ConsequencePredictor {
     pub fn new(provider: Arc<MehariProvider>, assembly: Assembly, config: Config) -> Self {
+        tracing::info!("Building transcript interval trees ...");
         let acc_to_chrom: indexmap::IndexMap<String, String> = provider.get_assembly_map(assembly);
         let mut chrom_to_acc = HashMap::new();
         for (acc, chrom) in &acc_to_chrom {
@@ -123,6 +124,7 @@ impl ConsequencePredictor {
             ..Default::default()
         };
         let mapper = assembly::Mapper::new(mapper_config, provider.clone());
+        tracing::info!("... done building transcript interval trees");
 
         ConsequencePredictor {
             provider,
@@ -279,18 +281,6 @@ impl ConsequencePredictor {
             ann_fields
         };
 
-        // Short-circuit if to report all transcript results.
-        if self.config.report_all_transcripts {
-            return ann_fields;
-        }
-
-        // First, split annotations by gene.
-        let mut anns_by_gene: FxHashMap<String, Vec<AnnField>> = FxHashMap::default();
-        for ann in ann_fields {
-            let gene_id = ann.gene_id.clone();
-            anns_by_gene.entry(gene_id).or_default().push(ann);
-        }
-
         /// Return sort order for ANN biotype, gives priority to ManeSelect and ManePlusClinical.
         fn biotype_order(biotypes: &[FeatureBiotype]) -> i32 {
             if biotypes.contains(&FeatureBiotype::ManeSelect) {
@@ -302,16 +292,43 @@ impl ConsequencePredictor {
             }
         }
 
-        // Now, sort by consequence, giving priority to ManeSelect and ManePlusClinical.
-        //
-        // This uses the invariant that the consequences in the ANN fields are sorted already
-        // and there is at least one consequence.
-        let mut result = Vec::new();
-        for anns in anns_by_gene.values_mut() {
-            anns.sort_by_key(|ann| (ann.consequences[0], biotype_order(&ann.feature_biotype)));
-            result.push(anns.remove(0));
+        /// Extract the first (i.e. most severe) consequence per group.
+        fn first_csq_per_group(grouping: HashMap<String, Vec<AnnField>>) -> Vec<AnnField> {
+            // Sort by `Consequence` and `FeatureBiotype`
+            //
+            // This uses the invariant that the consequences in the ANN fields are sorted already
+            // and there is at least one consequence.
+            grouping
+                .into_values()
+                .map(|mut anns| {
+                    anns.sort_by_key(|ann| {
+                        (ann.consequences[0], biotype_order(&ann.feature_biotype))
+                    });
+                    anns.into_iter().next().unwrap()
+                })
+                .collect()
         }
-        result
+
+        /// Group ANN fields by a key function.
+        fn group_annotations_by<F: Fn(&AnnField) -> String>(
+            ann_fields: Vec<AnnField>,
+            key_fn: F,
+        ) -> HashMap<String, Vec<AnnField>> {
+            ann_fields.into_iter().into_group_map_by(key_fn)
+        }
+
+        match self.config.report_most_severe_consequence_by {
+            // Short-circuit if to report all transcript results.
+            None => ann_fields,
+            Some(group) => {
+                let key = match group {
+                    ConsequenceBy::Gene => |ann: &AnnField| ann.gene_id.clone(),
+                    ConsequenceBy::Transcript => |ann: &AnnField| ann.feature_id.clone(),
+                    ConsequenceBy::Allele => |ann: &AnnField| ann.allele.to_string(),
+                };
+                first_csq_per_group(group_annotations_by(ann_fields, key))
+            }
+        }
     }
 
     fn build_ann_field(
@@ -989,8 +1006,8 @@ mod test {
     use pretty_assertions::assert_eq;
     use serde::Deserialize;
 
-    use crate::annotate::seqvars::load_tx_db;
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
+    use crate::annotate::seqvars::{load_tx_db, TranscriptPickType};
 
     use super::*;
 
@@ -1115,12 +1132,22 @@ mod test {
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(true)
+                .pick_transcript(vec![
+                    TranscriptPickType::ManePlusClinical,
+                    TranscriptPickType::ManeSelect,
+                    TranscriptPickType::Length,
+                ])
                 .build()?,
         ));
 
-        let predictor =
-            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+        use crate::annotate::seqvars::ConsequencePredictorConfigBuilder;
+        let predictor = ConsequencePredictor::new(
+            provider,
+            Assembly::Grch37p10,
+            ConsequencePredictorConfigBuilder::default()
+                .report_most_severe_consequence_by(Some(ConsequenceBy::Gene))
+                .build()?,
+        );
 
         let res = predictor
             .predict(&VcfVariant {
@@ -1210,7 +1237,11 @@ mod test {
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(true)
+                .pick_transcript(vec![
+                    TranscriptPickType::ManePlusClinical,
+                    TranscriptPickType::ManeSelect,
+                    TranscriptPickType::Length,
+                ])
                 .build()?,
         ));
 
@@ -1266,7 +1297,11 @@ mod test {
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(true)
+                .pick_transcript(vec![
+                    TranscriptPickType::ManePlusClinical,
+                    TranscriptPickType::ManeSelect,
+                    TranscriptPickType::Length,
+                ])
                 .build()?,
         ));
 
@@ -1297,40 +1332,54 @@ mod test {
 
     #[tracing_test::traced_test]
     #[rstest::rstest]
-    #[case("17:41197701:G:C", false, false)] // don't pick transcripts, report worst
-    #[case("17:41197701:G:C", false, true)] // don't pick transcripts, report all
-    #[case("17:41197701:G:C", true, false)] // pick transcripts, report worst
-    #[case("17:41197701:G:C", true, true)] // pick transcripts, report all
+    #[case("17:41197701:G:C", false, true)] // don't pick transcripts, report worst
+    #[case("17:41197701:G:C", false, false)] // don't pick transcripts, report all
+    #[case("17:41197701:G:C", true, true)] // pick transcripts, report worst
+    #[case("17:41197701:G:C", true, false)] // pick transcripts, report all
     fn annotate_snv_brca1_transcript_picking_reporting(
         #[case] spdi: &str,
         #[case] pick_transcripts: bool,
-        #[case] report_all_transcripts: bool,
+        #[case] report_most_severe_consequence_only: bool,
     ) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!(
             "{}-{}-{}",
             spdi.replace(':', "-"),
             pick_transcripts,
-            report_all_transcripts
+            !report_most_severe_consequence_only
         );
 
         let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
+        let picks = if pick_transcripts {
+            vec![
+                TranscriptPickType::ManePlusClinical,
+                TranscriptPickType::ManeSelect,
+                TranscriptPickType::Length,
+            ]
+        } else {
+            vec![]
+        };
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(pick_transcripts)
+                .pick_transcript(picks)
                 .build()
                 .unwrap(),
         ));
+        let report_most_severe_consequence_by = if report_most_severe_consequence_only {
+            Some(ConsequenceBy::Gene)
+        } else {
+            None
+        };
 
         let predictor = ConsequencePredictor::new(
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_all_transcripts(report_all_transcripts)
+                .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()
                 .unwrap(),
         );
@@ -1353,40 +1402,57 @@ mod test {
     // transcript.
     #[tracing_test::traced_test]
     #[rstest::rstest]
-    #[case("2:179631246:G:A", false, false)] // don't pick transcripts, report worst
-    #[case("2:179631246:G:A", false, true)] // don't pick transcripts, report all
-    #[case("2:179631246:G:A", true, false)] // pick transcripts, report worst
-    #[case("2:179631246:G:A", true, true)] // pick transcripts, report all
+    #[case("2:179631246:G:A", false, true)] // don't pick transcripts, report worst
+    #[case("2:179631246:G:A", false, false)] // don't pick transcripts, report all
+    #[case("2:179631246:G:A", true, true)] // pick transcripts, report worst
+    #[case("2:179631246:G:A", true, false)] // pick transcripts, report all
     fn annotate_snv_ttn_transcript_picking_reporting(
         #[case] spdi: &str,
         #[case] pick_transcripts: bool,
-        #[case] report_all_transcripts: bool,
+        #[case] report_most_severe_consequence_only: bool,
     ) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!(
             "{}-{}-{}",
             spdi.replace(':', "-"),
             pick_transcripts,
-            report_all_transcripts
+            !report_most_severe_consequence_only
         );
 
         let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
+
+        let picks = if pick_transcripts {
+            vec![
+                TranscriptPickType::ManePlusClinical,
+                TranscriptPickType::ManeSelect,
+                TranscriptPickType::Length,
+            ]
+        } else {
+            vec![]
+        };
+
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(pick_transcripts)
+                .pick_transcript(picks)
                 .build()
                 .unwrap(),
         ));
+
+        let report_most_severe_consequence_by = if report_most_severe_consequence_only {
+            Some(ConsequenceBy::Gene)
+        } else {
+            None
+        };
 
         let predictor = ConsequencePredictor::new(
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_all_transcripts(report_all_transcripts)
+                .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()
                 .unwrap(),
         );
@@ -1415,7 +1481,7 @@ mod test {
     // Compare to SnpEff annotated variants for OPA1, touching special cases.
     #[test]
     fn annotate_opa1_hand_picked_vars() -> Result<(), anyhow::Error> {
-        annotate_opa1_vars("tests/data/annotate/seqvars/opa1.hand_picked.tsv", true)
+        annotate_opa1_vars("tests/data/annotate/seqvars/opa1.hand_picked.tsv", false)
     }
 
     // Compare to SnpEff annotated ClinVar variants for OPA1 (slow).
@@ -1423,7 +1489,7 @@ mod test {
     fn annotate_opa1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
         annotate_opa1_vars(
             "tests/data/annotate/seqvars/clinvar.excerpt.snpeff.opa1.tsv",
-            true,
+            false,
         )
     }
 
@@ -1432,11 +1498,14 @@ mod test {
     fn annotate_opa1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
         annotate_opa1_vars(
             "tests/data/annotate/seqvars/clinvar.excerpt.vep.opa1.tsv",
-            true,
+            false,
         )
     }
 
-    fn annotate_opa1_vars(path_tsv: &str, all_transcripts: bool) -> Result<(), anyhow::Error> {
+    fn annotate_opa1_vars(
+        path_tsv: &str,
+        report_most_severe_consequence_only: bool,
+    ) -> Result<(), anyhow::Error> {
         let txs = vec![
             String::from("NM_001354663.2"),
             String::from("NM_001354664.2"),
@@ -1446,13 +1515,13 @@ mod test {
             String::from("NM_130837.3"),
         ];
 
-        annotate_vars(path_tsv, &txs, all_transcripts)
+        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only)
     }
 
     // Compare to SnpEff annotated variants for BRCA1, touching special cases.
     #[test]
     fn annotate_brca1_hand_picked_vars() -> Result<(), anyhow::Error> {
-        annotate_brca1_vars("tests/data/annotate/seqvars/brca1.hand_picked.tsv", true)
+        annotate_brca1_vars("tests/data/annotate/seqvars/brca1.hand_picked.tsv", false)
     }
 
     // Compare to SnpEff annotated ClinVar variants for BRCA1 (slow).
@@ -1460,7 +1529,7 @@ mod test {
     fn annotate_brca1_clinvar_vars_snpeff() -> Result<(), anyhow::Error> {
         annotate_brca1_vars(
             "tests/data/annotate/seqvars/clinvar.excerpt.snpeff.brca1.tsv",
-            true,
+            false,
         )
     }
 
@@ -1469,11 +1538,14 @@ mod test {
     fn annotate_brca1_clinvar_vars_vep() -> Result<(), anyhow::Error> {
         annotate_brca1_vars(
             "tests/data/annotate/seqvars/clinvar.excerpt.vep.brca1.tsv",
-            true,
+            false,
         )
     }
 
-    fn annotate_brca1_vars(path_tsv: &str, all_transcripts: bool) -> Result<(), anyhow::Error> {
+    fn annotate_brca1_vars(
+        path_tsv: &str,
+        report_most_severe_consequence_only: bool,
+    ) -> Result<(), anyhow::Error> {
         let txs = vec![
             String::from("NM_007294.4"),
             String::from("NM_007297.4"),
@@ -1482,13 +1554,13 @@ mod test {
             String::from("NM_007300.4"),
         ];
 
-        annotate_vars(path_tsv, &txs, all_transcripts)
+        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only)
     }
 
     fn annotate_vars(
         path_tsv: &str,
         txs: &[String],
-        all_transcripts: bool,
+        report_most_severe_consequence_only: bool,
     ) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
@@ -1497,11 +1569,18 @@ mod test {
             Assembly::Grch37p10,
             Default::default(),
         ));
+
+        let report_most_severe_consequence_by = if report_most_severe_consequence_only {
+            Some(ConsequenceBy::Gene)
+        } else {
+            None
+        };
+
         let predictor = ConsequencePredictor::new(
             provider,
             Assembly::Grch37p10,
             ConfigBuilder::default()
-                .report_all_transcripts(all_transcripts)
+                .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()
                 .unwrap(),
         );

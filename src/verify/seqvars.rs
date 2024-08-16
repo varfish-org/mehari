@@ -7,16 +7,16 @@ use std::{
     time::Instant,
 };
 
-use biocommons_bioutils::assemblies::Assembly;
-use clap::Parser;
-use noodles::core::{Position, Region};
-use quick_cache::unsync::Cache;
-
 use crate::annotate::seqvars::{
     csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
     load_tx_db, path_component,
     provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
+    ConsequenceBy, TranscriptPickMode, TranscriptPickType,
 };
+use biocommons_bioutils::assemblies::Assembly;
+use clap::Parser;
+use noodles::core::{Position, Region};
+use quick_cache::unsync::Cache;
 
 /// Command line arguments for `verify seqvars` sub command.
 #[derive(Parser, Debug)]
@@ -30,19 +30,31 @@ pub struct Args {
     #[arg(long)]
     pub path_input_tsv: String,
     /// Path to the reference FASTA file.
+
     #[arg(long)]
     pub path_reference_fasta: String,
     /// Path to output TSV file.
+
     #[arg(long)]
     pub path_output_tsv: String,
 
-    /// Whether to report for all picked transcripts.
-    #[arg(long, default_value_t = true)]
-    pub report_all_transcripts: bool,
-    /// Limit transcripts to (a) ManeSelect+ManePlusClinical, (b) ManeSelect,
-    /// (c) longest transcript for the gene - the first available.
-    #[arg(long, default_value_t = false)]
-    pub transcript_picking: bool,
+    /// Whether to report only the worst consequence for each picked transcript.
+    #[arg(long)]
+    pub report_most_severe_consequence_by: Option<ConsequenceBy>,
+
+    /// Which kind of transcript to pick / restrict to. Default is not to pick at all.
+    ///
+    /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
+    /// either the first one is kept or all are kept.
+    #[arg(long)]
+    pub pick_transcript: Vec<TranscriptPickType>,
+
+    /// Determines how to handle multiple transcripts. Default is to keep all.
+    ///
+    /// When transcript picking is enabled via `--pick-transcript`,
+    /// either keep the first one found or keep all that match.
+    #[arg(long, default_value = "all")]
+    pub pick_transcript_mode: TranscriptPickMode,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
@@ -127,29 +139,28 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     // Read the serialized transcripts.
     tracing::info!("Opening transcript database");
-    let tx_db = load_tx_db(&format!(
+    let tx_db = load_tx_db(format!(
         "{}/{}/txs.bin.zst",
         &args.path_db,
         path_component(assembly)
     ))?;
-    tracing::info!("Building transcript interval trees ...");
+
     let provider = Arc::new(MehariProvider::new(
         tx_db,
         assembly,
         MehariProviderConfigBuilder::default()
-            .transcript_picking(args.transcript_picking)
-            .build()
-            .unwrap(),
+            .pick_transcript(args.pick_transcript.clone())
+            .pick_transcript_mode(args.pick_transcript_mode)
+            .build()?,
     ));
+
     let predictor = ConsequencePredictor::new(
         provider,
         assembly,
         ConsequencePredictorConfigBuilder::default()
-            .report_all_transcripts(args.report_all_transcripts)
-            .build()
-            .unwrap(),
+            .report_most_severe_consequence_by(args.report_most_severe_consequence_by)
+            .build()?,
     );
-    tracing::info!("... done building transcript interval trees");
 
     // LRU caches used below to avoid re-reading from FAI and prediction.
     let mut ref_cache = Cache::new(100);

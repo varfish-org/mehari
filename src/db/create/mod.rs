@@ -155,7 +155,7 @@ impl TranscriptExt for Transcript {
     }
 
     fn is_on_contig(&self, contig: &str) -> bool {
-        self.genome_builds.values().any(|gb| &gb.contig == contig)
+        self.genome_builds.values().any(|gb| gb.contig == contig)
     }
 }
 
@@ -276,7 +276,7 @@ impl TranscriptLoader {
                 } else {
                     txid
                 };
-                tx.id = txid.clone();
+                tx.id.clone_from(&txid);
                 TranscriptId::try_new(txid).map(|t| (t, tx))
             })
             .collect::<Result<HashMap<_, _>, _>>()?;

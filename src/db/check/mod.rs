@@ -321,9 +321,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
     let mut report = Vec::new();
 
     // Load the transcript database
-    let tx_db = load_tx_db(&format!("{}", args.db.display()))?
-        .tx_db
-        .unwrap();
+    let tx_db = load_tx_db(format!("{}", args.db.display()))?.tx_db.unwrap();
     // … and determine all Ids that have been filtered out
     let filtered_ids: HashSet<Id> = tx_db
         .gene_to_tx
