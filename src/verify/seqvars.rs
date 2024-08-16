@@ -42,15 +42,17 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub report_most_severe_consequence_only: bool,
 
-    /// Which kind of transcript to pick / restrict to. Default is to keep all.
+    /// Which kind of transcript to pick / restrict to. Default is not to pick at all.
+    ///
     /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
     /// either the first one is kept or all are kept.
     #[arg(long)]
     pub pick_transcript: Vec<TranscriptPickType>,
 
+    /// Determines how to handle multiple transcripts. Default is to keep all.
+    ///
     /// When transcript picking is enabled via `--pick-transcript`,
-    /// determines how to handle multiple transcripts:
-    /// Either keep the first one found or keep all that match.
+    /// either keep the first one found or keep all that match.
     #[arg(long, default_value = "all")]
     pub pick_transcript_mode: TranscriptPickMode,
 
@@ -147,8 +149,8 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         tx_db,
         assembly,
         MehariProviderConfigBuilder::default()
-            .transcript_picking(args.pick_transcript.clone())
-            .transcript_pick_mode(args.pick_transcript_mode)
+            .pick_transcript(args.pick_transcript.clone())
+            .pick_transcript_mode(args.pick_transcript_mode)
             .build()?,
     ));
 

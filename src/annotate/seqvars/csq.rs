@@ -1117,7 +1117,7 @@ mod test {
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(vec![
+                .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
                     TranscriptPickType::ManeSelect,
                     TranscriptPickType::Length,
@@ -1222,7 +1222,7 @@ mod test {
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(vec![
+                .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
                     TranscriptPickType::ManeSelect,
                     TranscriptPickType::Length,
@@ -1282,7 +1282,7 @@ mod test {
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(vec![
+                .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
                     TranscriptPickType::ManeSelect,
                     TranscriptPickType::Length,
@@ -1350,7 +1350,7 @@ mod test {
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(picks)
+                .pick_transcript(picks)
                 .build()
                 .unwrap(),
         ));
@@ -1417,7 +1417,7 @@ mod test {
             tx_db,
             Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
-                .transcript_picking(picks)
+                .pick_transcript(picks)
                 .build()
                 .unwrap(),
         ));

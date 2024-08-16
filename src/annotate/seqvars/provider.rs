@@ -104,17 +104,19 @@ impl TxIntervalTrees {
 #[derive(Debug, Clone, Default, derive_builder::Builder)]
 #[builder(pattern = "immutable")]
 pub struct Config {
-    /// Which kind of transcript to pick / restrict to. Default is to keep all.
+    /// Which kind of transcript to pick / restrict to. Default is not to pick at all.
+    ///
     /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
     /// either the first one is kept or all are kept.
     #[builder(default)]
-    pub transcript_picking: Vec<TranscriptPickType>,
+    pub pick_transcript: Vec<TranscriptPickType>,
 
+    /// Determines how to handle multiple transcripts. Default is to keep all.
+    ///
     /// When transcript picking is enabled via `--pick-transcript`,
-    /// determines how to handle multiple transcripts:
-    /// Either keep the first one found or keep all that match.
+    /// either keep the first one found or keep all that match.
     #[builder(default)]
-    pub transcript_pick_mode: TranscriptPickMode,
+    pub pick_transcript_mode: TranscriptPickMode,
 }
 
 /// Provider based on the protobuf `TxSeqDatabase`.
@@ -205,7 +207,7 @@ impl Provider {
 
         // When transcript picking is enabled, restrict to ManeSelect and ManePlusClinical if
         // we have any such transcript.  Otherwise, fall back to the longest transcript.
-        let picked_gene_to_tx_id = if !config.transcript_picking.is_empty() {
+        let picked_gene_to_tx_id = if !config.pick_transcript.is_empty() {
             if let Some(tx_db) = tx_seq_db.tx_db.as_mut() {
                 // The new gene-to-txid mapping we will build.
                 let mut new_gene_to_tx = Vec::new();
@@ -264,12 +266,12 @@ impl Provider {
                         tx_tags[i].1.push(TranscriptPickType::Length);
                     }
 
-                    let tx_ids = match config.transcript_pick_mode {
+                    let tx_ids = match config.pick_transcript_mode {
                         TranscriptPickMode::First => {
                             // only keep the first transcript that fulfills the transcript picking strategy,
                             // if any
                             let tx_id = config
-                                .transcript_picking
+                                .pick_transcript
                                 .iter()
                                 .filter_map(|pick| {
                                     tx_tags
@@ -290,7 +292,7 @@ impl Provider {
                                 .iter()
                                 .filter_map(|(tx_id, tags, _)| {
                                     tags.iter()
-                                        .any(|tag| config.transcript_picking.contains(tag))
+                                        .any(|tag| config.pick_transcript.contains(tag))
                                         .then_some(tx_id.to_string())
                                 })
                                 .collect()
@@ -305,7 +307,7 @@ impl Provider {
                             filter_reason: None,
                         }
                     } else {
-                        tracing::trace!("no transcript found for gene {} with the chosen transcript picking strategy: {:?}", &entry.gene_id, &config.transcript_picking);
+                        tracing::trace!("no transcript found for gene {} with the chosen transcript picking strategy: {:?}", &entry.gene_id, &config.pick_transcript);
                         GeneToTxId {
                             gene_id: entry.gene_id.clone(),
                             tx_ids: vec![],
