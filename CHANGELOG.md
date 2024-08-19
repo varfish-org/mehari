@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.0](https://github.com/varfish-org/mehari/compare/v0.27.0...v0.28.0) (2024-08-19)
+
+
+### Features
+
+* add "db merge" subcommand ([#517](https://github.com/varfish-org/mehari/issues/517)) ([3c7b514](https://github.com/varfish-org/mehari/commit/3c7b5148803cc95568a709e548ffd98d95256e55))
+
 ## [0.27.0](https://github.com/varfish-org/mehari/compare/v0.26.1...v0.27.0) (2024-08-16)
 
 
