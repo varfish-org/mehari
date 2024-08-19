@@ -125,6 +125,7 @@ enum DbCommands {
     Create(db::create::Args),
     Check(db::check::Args),
     Dump(db::dump::Args),
+    Merge(db::merge::Args),
     Subset(db::subset::Args),
 }
 
@@ -193,6 +194,7 @@ async fn main() -> Result<(), anyhow::Error> {
             DbCommands::Check(args) => db::check::run(&cli.common, args)?,
             DbCommands::Dump(args) => db::dump::run(&cli.common, args)?,
             DbCommands::Subset(args) => db::subset::run(&cli.common, args)?,
+            DbCommands::Merge(args) => db::merge::run(&cli.common, args)?,
         },
         Commands::Annotate(annotate) => match &annotate.command {
             AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args).await?,

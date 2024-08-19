@@ -1733,7 +1733,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
     threadpool.install(|| _run(common, args))
 }
 
-fn write_tx_db(tx_db: TxSeqDatabase, path: impl AsRef<Path>) -> Result<(), Error> {
+pub(crate) fn write_tx_db(tx_db: TxSeqDatabase, path: impl AsRef<Path>) -> Result<(), Error> {
     tracing::info!("Writing out final database …");
     let path = path.as_ref();
     let mut buf = prost::bytes::BytesMut::with_capacity(tx_db.encoded_len());
