@@ -95,7 +95,6 @@ pub enum Consequence {
     /// SO:transcript_amplification, VEP:transcript_amplification
     TranscriptAmplification,
 
-    // Currently never written out (because hgvs::parser::ProteinEdit::Ext not produced)
     /// "A sequence variant that causes the extension of a genomic feature, with regard to the reference sequence."
     /// SO:feature_elongation, VEP:feature_elongation
     FeatureElongation,

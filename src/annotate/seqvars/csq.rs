@@ -1,6 +1,7 @@
 //! Compute molecular consequence of variants.
 use std::{collections::HashMap, sync::Arc};
 
+use crate::annotate::seqvars::reference::Reference;
 use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
 use biocommons_bioutils::assemblies::Assembly;
 use enumflags2::BitFlags;
@@ -102,8 +103,12 @@ pub const PADDING: i32 = 5_000;
 pub const ALT_ALN_METHOD: &str = "splign";
 
 impl ConsequencePredictor {
-    pub fn new(provider: Arc<MehariProvider>, assembly: Assembly, config: Config) -> Self {
+    pub fn new(provider: Arc<MehariProvider>, config: Config) -> Self {
         tracing::info!("Building transcript interval trees ...");
+        let assembly = provider
+            .reference
+            .guess_assembly()
+            .expect("could not guess assembly");
         let acc_to_chrom: indexmap::IndexMap<String, String> = provider.get_assembly_map(assembly);
         let mut chrom_to_acc = HashMap::new();
         for (acc, chrom) in &acc_to_chrom {
@@ -1003,6 +1008,7 @@ mod test {
     use std::{fs::File, io::BufReader};
 
     use csv::ReaderBuilder;
+    use once_cell::sync::Lazy;
     use pretty_assertions::assert_eq;
     use serde::Deserialize;
 
@@ -1048,12 +1054,11 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
+            Reference::from_path("tests/data/references/refseq.grch37.p13.chr2_3_17.fasta.bgz")?,
             Default::default(),
         ));
 
-        let predictor =
-            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+        let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let res = predictor
             .predict(&VcfVariant {
@@ -1130,7 +1135,7 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
+            Reference::from_path("tests/data/references/refseq.grch37.p13.chr2_3_17.fasta.bgz")?,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1143,7 +1148,6 @@ mod test {
         use crate::annotate::seqvars::ConsequencePredictorConfigBuilder;
         let predictor = ConsequencePredictor::new(
             provider,
-            Assembly::Grch37p10,
             ConsequencePredictorConfigBuilder::default()
                 .report_most_severe_consequence_by(Some(ConsequenceBy::Gene))
                 .build()?,
@@ -1235,7 +1239,7 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
+            Reference::from_path("tests/data/references/refseq.grch37.p13.chr2_3_17.fasta.bgz")?,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1245,8 +1249,7 @@ mod test {
                 .build()?,
         ));
 
-        let predictor =
-            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+        let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let res = predictor
             .predict(&VcfVariant {
@@ -1295,7 +1298,7 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
+            Reference::from_path("tests/data/references/refseq.grch37.p13.chr2_3_17.fasta.bgz")?,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1305,8 +1308,7 @@ mod test {
                 .build()?,
         ));
 
-        let predictor =
-            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+        let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let res = predictor
             .predict(&VcfVariant {
@@ -1363,7 +1365,7 @@ mod test {
         };
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
+            Reference::from_path("tests/data/references/refseq.grch37.p13.chr2_3_17.fasta.bgz")?,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
                 .build()
@@ -1377,7 +1379,6 @@ mod test {
 
         let predictor = ConsequencePredictor::new(
             provider,
-            Assembly::Grch37p10,
             ConfigBuilder::default()
                 .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()
@@ -1435,7 +1436,7 @@ mod test {
 
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
+            Reference::from_path("tests/data/references/refseq.grch37.p13.chr2_3_17.fasta.bgz")?,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
                 .build()
@@ -1450,7 +1451,6 @@ mod test {
 
         let predictor = ConsequencePredictor::new(
             provider,
-            Assembly::Grch37p10,
             ConfigBuilder::default()
                 .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()
@@ -1566,7 +1566,7 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
+            Reference::from_path("tests/data/references/refseq.grch37.p13.chr2_3_17.fasta.bgz")?,
             Default::default(),
         ));
 
@@ -1578,7 +1578,6 @@ mod test {
 
         let predictor = ConsequencePredictor::new(
             provider,
-            Assembly::Grch37p10,
             ConfigBuilder::default()
                 .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()

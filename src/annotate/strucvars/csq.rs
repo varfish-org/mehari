@@ -421,7 +421,11 @@ pub struct ConsequencePredictor {
 }
 
 impl ConsequencePredictor {
-    pub fn new(provider: Arc<MehariProvider>, assembly: Assembly) -> Self {
+    pub fn new(provider: Arc<MehariProvider>) -> Self {
+        let assembly = provider
+            .reference
+            .guess_assembly()
+            .expect("could not guess assembly");
         let acc_to_chrom = provider.get_assembly_map(assembly);
         let mut chrom_to_acc = HashMap::new();
         for (acc, chrom) in &acc_to_chrom {

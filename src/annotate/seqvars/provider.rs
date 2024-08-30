@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use crate::annotate::seqvars::reference::Reference;
 use crate::annotate::seqvars::{TranscriptPickMode, TranscriptPickType};
 use crate::db::create::Reason;
 use crate::{
@@ -23,6 +24,7 @@ use hgvs::{
     sequences::{seq_md5, TranslationTable},
 };
 use itertools::Itertools;
+use noodles::fasta::Repository;
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &[
@@ -93,7 +95,7 @@ impl TxIntervalTrees {
             txs += 1;
         }
 
-        tracing::debug!("Loaded {} transcript", txs);
+        tracing::debug!("Loaded {} transcripts", txs);
         trees.iter_mut().for_each(|t| t.index());
 
         (contig_to_idx, trees)
@@ -125,6 +127,8 @@ pub struct Provider {
     pub tx_seq_db: TxSeqDatabase,
     /// Interval trees for the tanscripts.
     pub tx_trees: TxIntervalTrees,
+    /// Reference genome.
+    pub reference: Reference,
     /// Mapping from gene identifier to index in `TxSeqDatabase::tx_db::gene_to_tx`.
     gene_map: HashMap<String, u32>,
     /// Mapping from transcript accession to index in `TxSeqDatabase::tx_db::transcripts`.
@@ -162,8 +166,10 @@ impl Provider {
     /// # Arguments
     ///
     /// * `tx_seq_db` - The `TxSeqDatabase` to use.
-    /// * `assembly` - The assembly to use.
-    pub fn new(mut tx_seq_db: TxSeqDatabase, assembly: Assembly, config: Config) -> Self {
+    pub fn new(mut tx_seq_db: TxSeqDatabase, reference: Reference, config: Config) -> Self {
+        let assembly = reference.guess_assembly().unwrap_or_else(|| {
+            panic!("Could not guess assembly for reference");
+        });
         let tx_trees = TxIntervalTrees::new(&tx_seq_db, assembly);
         let gene_map = HashMap::from_iter(
             tx_seq_db
@@ -338,7 +344,11 @@ impl Provider {
         // caching.
         let data_version = format!(
             "{:?}{}{}{:?}",
-            assembly,
+            reference
+                .contigs()
+                .iter()
+                .map(|c| c.name())
+                .collect::<Vec<_>>(),
             tx_seq_db.version.as_ref().unwrap_or(&"".to_string()),
             tx_seq_db.genome_release.as_ref().unwrap_or(&"".to_string()),
             config
@@ -347,6 +357,7 @@ impl Provider {
         Self {
             tx_seq_db,
             tx_trees,
+            reference,
             gene_map,
             tx_map,
             seq_map,
@@ -431,10 +442,7 @@ impl ProviderInterface for Provider {
         &self.schema_version
     }
 
-    fn get_assembly_map(
-        &self,
-        assembly: biocommons_bioutils::assemblies::Assembly,
-    ) -> indexmap::IndexMap<String, String> {
+    fn get_assembly_map(&self, assembly: Assembly) -> indexmap::IndexMap<String, String> {
         indexmap::IndexMap::from_iter(
             ASSEMBLY_INFOS[assembly]
                 .sequences

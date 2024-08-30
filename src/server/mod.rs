@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{
     annotate::{
         seqvars::{
@@ -10,6 +8,9 @@ use crate::{
     },
     common::GenomeRelease,
 };
+use clap::ValueEnum;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Implementation of Actix server.
 pub mod actix_server;
@@ -18,9 +19,13 @@ pub mod actix_server;
 #[derive(clap::Parser, Debug)]
 #[command(about = "Run Mehari REST API server", long_about = None)]
 pub struct Args {
-    /// Path to the mehari database folder.
+    /// Paths to genome fasta files.
     #[arg(long)]
-    pub path_db: String,
+    pub reference: Vec<PathBuf>,
+
+    /// Paths to transcript databases.
+    #[arg(long)]
+    pub transcripts: Vec<PathBuf>,
 
     /// Whether to suppress printing hints.
     #[arg(long, default_value_t = false)]
@@ -107,27 +112,49 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     tracing::info!("Loading database...");
     let before_loading = std::time::Instant::now();
     let mut data = actix_server::WebServerData::default();
-    for genome_release in [GenomeRelease::Grch37, GenomeRelease::Grch38] {
-        let assembly = genome_release.into();
-        let path = format!("{}/{}/txs.bin.zst", &args.path_db, path_component(assembly));
-        if !std::path::Path::new(&path).exists() {
-            tracing::warn!("No transcript database found at {}", &path);
+    for (reference_path, txdb_path) in args.reference.iter().zip(args.transcripts.iter()) {
+        let reference = crate::annotate::seqvars::reference::genome_reference(reference_path)?;
+        let assembly = reference.guess_assembly().unwrap_or_else(|| {
+            panic!("Could not guess assembly for {}", &reference_path.display());
+        });
+        let genome_release = GenomeRelease::from(assembly);
+
+        if !reference_path.exists() {
+            tracing::warn!("No reference fasta found at {}", reference_path.display());
             continue;
         }
-        tracing::info!("  - loading {}", &path);
-        let tx_db = load_tx_db(&path)?;
+        if !txdb_path.exists() {
+            tracing::warn!("No transcript database found at {}", txdb_path.display());
+            continue;
+        }
+
+        tracing::info!("  - loading {}", txdb_path.display());
+        let tx_db = load_tx_db(&txdb_path)?;
+        assert_eq!(
+            GenomeRelease::from_str(&tx_db.genome_release.as_ref().unwrap(), true).unwrap(),
+            assembly.into(),
+            "Genome release mismatch between reference fasta and txdb"
+        );
+
         tracing::info!("  - building interval trees");
-        let provider = Arc::new(MehariProvider::new(tx_db, assembly, Default::default()));
+
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            reference.clone(),
+            Default::default(),
+        ));
         data.provider.insert(genome_release, provider.clone());
+
         tracing::info!("  - building seqvars predictors");
         data.seqvars_predictors.insert(
             genome_release,
-            SeqvarConsequencePredictor::new(provider.clone(), assembly, Default::default()),
+            SeqvarConsequencePredictor::new(provider.clone(), Default::default()),
         );
+
         tracing::info!("  - building strucvars predictors");
         data.strucvars_predictors.insert(
             genome_release,
-            StrucvarConsequencePredictor::new(provider.clone(), assembly),
+            StrucvarConsequencePredictor::new(provider.clone()),
         );
     }
     let data = actix_web::web::Data::new(data);

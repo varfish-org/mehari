@@ -1,12 +1,6 @@
 //! Verification of the sequence variant consequence prediction.
 
-use std::{
-    fs::File,
-    io::{BufRead, BufReader, Write},
-    sync::Arc,
-    time::Instant,
-};
-
+use crate::annotate::seqvars::reference::genome_reference;
 use crate::annotate::seqvars::{
     csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
     load_tx_db, path_component,
@@ -17,6 +11,13 @@ use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use noodles::core::{Position, Region};
 use quick_cache::unsync::Cache;
+use std::path::{Path, PathBuf};
+use std::{
+    fs::File,
+    io::{BufRead, BufReader, Write},
+    sync::Arc,
+    time::Instant,
+};
 
 /// Command line arguments for `verify seqvars` sub command.
 #[derive(Parser, Debug)]
@@ -24,19 +25,19 @@ use quick_cache::unsync::Cache;
 pub struct Args {
     /// Path to the mehari database folder.
     #[arg(long)]
-    pub path_db: String,
+    pub path_db: PathBuf,
 
     /// Path to the input TSV file.
     #[arg(long)]
-    pub path_input_tsv: String,
+    pub path_input_tsv: PathBuf,
     /// Path to the reference FASTA file.
 
     #[arg(long)]
-    pub path_reference_fasta: String,
+    pub path_reference_fasta: PathBuf,
     /// Path to output TSV file.
 
     #[arg(long)]
-    pub path_output_tsv: String,
+    pub path_output_tsv: PathBuf,
 
     /// Whether to report only the worst consequence for each picked transcript.
     #[arg(long)]
@@ -62,8 +63,11 @@ pub struct Args {
 }
 
 /// Guess genome release from VEP TSV file.
-fn guess_assembly(path_input_tsv: &str) -> Result<Assembly, anyhow::Error> {
-    tracing::info!("Guessing assembly from {}...", &path_input_tsv);
+fn guess_assembly_from_vep_tsv(
+    path_input_tsv: impl AsRef<Path>,
+) -> Result<Assembly, anyhow::Error> {
+    let path_input_tsv = path_input_tsv.as_ref();
+    tracing::info!("Guessing assembly from {}...", path_input_tsv.display());
     let mut result = None;
     let lines = BufReader::new(File::open(path_input_tsv)?).lines();
     for line in lines {
@@ -91,7 +95,7 @@ fn guess_assembly(path_input_tsv: &str) -> Result<Assembly, anyhow::Error> {
         tracing::info!("... guessed assembly to be: {:?}", assembly);
         Ok(assembly)
     } else {
-        anyhow::bail!("could not guess assembly {}", path_input_tsv);
+        anyhow::bail!("could not guess assembly {}", path_input_tsv.display());
     }
 }
 
@@ -122,7 +126,7 @@ pub mod vep_tsv {
 /// Run the verification command.
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     // Guess assembly from VEP TSV file.
-    let assembly = guess_assembly(&args.path_input_tsv)?;
+    let assembly = guess_assembly_from_vep_tsv(&args.path_input_tsv)?;
 
     // Output TSV file.
     let mut output_tsv = std::fs::File::create(&args.path_output_tsv)?;
@@ -130,9 +134,15 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
     // Open the reference FASTA through a noodles FAI reader.
     tracing::info!(
         "Opening reference FASTA file: {}",
-        &args.path_reference_fasta
+        <PathBuf as AsRef<Path>>::as_ref(&args.path_reference_fasta).display()
     );
-    let fai_index = noodles::fasta::fai::read(format!("{}.fai", args.path_reference_fasta))?;
+
+    let reference = genome_reference(&args.path_reference_fasta)?;
+
+    let fai_index = noodles::fasta::fai::read(format!(
+        "{}.fai",
+        <PathBuf as AsRef<Path>>::as_ref(&args.path_reference_fasta).display()
+    ))?;
     let mut fai_reader = noodles::fasta::indexed_reader::Builder::default()
         .set_index(fai_index)
         .build_from_path(&args.path_reference_fasta)?;
@@ -141,13 +151,13 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
     tracing::info!("Opening transcript database");
     let tx_db = load_tx_db(format!(
         "{}/{}/txs.bin.zst",
-        &args.path_db,
+        <PathBuf as AsRef<Path>>::as_ref(&args.path_db).display(),
         path_component(assembly)
     ))?;
 
     let provider = Arc::new(MehariProvider::new(
         tx_db,
-        assembly,
+        reference,
         MehariProviderConfigBuilder::default()
             .pick_transcript(args.pick_transcript.clone())
             .pick_transcript_mode(args.pick_transcript_mode)
@@ -156,7 +166,6 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     let predictor = ConsequencePredictor::new(
         provider,
-        assembly,
         ConsequencePredictorConfigBuilder::default()
             .report_most_severe_consequence_by(args.report_most_severe_consequence_by)
             .build()?,
