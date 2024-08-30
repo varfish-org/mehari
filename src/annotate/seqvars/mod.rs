@@ -45,7 +45,7 @@ use crate::annotate::seqvars::csq::{
 use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
-use crate::annotate::seqvars::reference::genome_reference;
+use crate::annotate::seqvars::reference::{genome_reference, Reference};
 use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
 use crate::db::merge::merge_transcript_databases;
 use crate::pbs::txs::TxSeqDatabase;
@@ -1716,8 +1716,11 @@ impl ConsequenceAnnotator {
         Self { predictor }
     }
 
-    fn from_db_and_args(tx_db: TxSeqDatabase, args: &Args) -> anyhow::Result<Self> {
-        let reference = genome_reference(&args.reference)?;
+    fn from_db_and_args(
+        tx_db: TxSeqDatabase,
+        reference: Reference,
+        args: &Args,
+    ) -> anyhow::Result<Self> {
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             reference,
@@ -1863,7 +1866,12 @@ async fn run_with_writer(
         *format.type_mut() = FormatType::String;
     }
 
-    let annotator = setup_annotator(args)?;
+    let reference = genome_reference(&args.reference)?;
+    let assembly = reference.guess_assembly();
+    writer.set_assembly(assembly.expect("Unable to guess assembly from reference"));
+    tracing::info!("Guessed assembly: {:?}", assembly);
+
+    let annotator = setup_annotator(args, reference)?;
 
     // Perform the VCF annotation.
     tracing::info!("Annotating VCF ...");
@@ -1922,7 +1930,7 @@ async fn run_with_writer(
     Ok(())
 }
 
-fn setup_annotator(args: &Args) -> Result<Annotator, Error> {
+fn setup_annotator(args: &Args, reference: Reference) -> Result<Annotator, Error> {
     let mut annotators = vec![];
 
     // Add the frequency annotator if requested.
@@ -1947,7 +1955,8 @@ fn setup_annotator(args: &Args) -> Result<Annotator, Error> {
         )?;
 
         annotators.push(
-            ConsequenceAnnotator::from_db_and_args(tx_db, args).map(AnnotatorEnum::Consequence)?,
+            ConsequenceAnnotator::from_db_and_args(tx_db, reference, args)
+                .map(AnnotatorEnum::Consequence)?,
         );
     }
 
@@ -1994,7 +2003,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
-            reference: format!("{prefix}/{assembly}/reference.fasta").into(),
+            reference: format!("{prefix}/{assembly}/reference.fasta.bgz").into(),
             report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
@@ -2033,7 +2042,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
-            reference: format!("{prefix}/{assembly}/reference.fasta").into(),
+            reference: format!("{prefix}/{assembly}/reference.fasta.bgz").into(),
             report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
@@ -2084,7 +2093,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
-            reference: format!("{prefix}/{assembly}/reference.fasta").into(),
+            reference: format!("{prefix}/{assembly}/reference.fasta.bgz").into(),
             report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
@@ -2129,7 +2138,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
-            reference: format!("{prefix}/{assembly}/reference.fasta").into(),
+            reference: format!("{prefix}/{assembly}/reference.fasta.bgz").into(),
             report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
@@ -2176,7 +2185,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
-            reference: format!("{prefix}/{assembly}/reference.fasta").into(),
+            reference: format!("{prefix}/{assembly}/reference.fasta.bgz").into(),
             report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
@@ -2223,7 +2232,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch38";
         let args = Args {
-            reference: format!("{prefix}/{assembly}/reference.fasta").into(),
+            reference: format!("{prefix}/{assembly}/reference.fasta.bgz").into(),
             report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
             transcript_source: TranscriptSource::Both,
             pick_transcript: vec![],
