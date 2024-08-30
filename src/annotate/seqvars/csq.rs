@@ -1,9 +1,7 @@
 //! Compute molecular consequence of variants.
 use std::{collections::HashMap, sync::Arc};
 
-use crate::annotate::seqvars::reference::Reference;
 use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
-use biocommons_bioutils::assemblies::Assembly;
 use enumflags2::BitFlags;
 use hgvs::parser::NoRef;
 use hgvs::{
@@ -1008,12 +1006,14 @@ mod test {
     use std::{fs::File, io::BufReader};
 
     use csv::ReaderBuilder;
-    use once_cell::sync::Lazy;
+
     use pretty_assertions::assert_eq;
     use serde::Deserialize;
 
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{load_tx_db, TranscriptPickType};
+
+    use crate::annotate::seqvars::reference::Reference;
 
     use super::*;
 

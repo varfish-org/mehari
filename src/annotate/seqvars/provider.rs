@@ -24,7 +24,6 @@ use hgvs::{
     sequences::{seq_md5, TranslationTable},
 };
 use itertools::Itertools;
-use noodles::fasta::Repository;
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &[

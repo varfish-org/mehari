@@ -1,9 +1,7 @@
 //! Annotation of sequence variants.
 use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -17,9 +15,6 @@ use biocommons_bioutils::assemblies::Assembly;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use noodles::fasta::fai::{Index, Record};
-use noodles::fasta::record::Definition;
-use noodles::fasta::Repository;
 use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
 use noodles::vcf::header::record::value::map::format::Type as FormatType;
 use noodles::vcf::header::record::value::map::info::Number;
@@ -52,7 +47,6 @@ use crate::annotate::seqvars::provider::{
 };
 use crate::annotate::seqvars::reference::genome_reference;
 use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
-use crate::common::{guess_assembly, GenomeRelease};
 use crate::db::merge::merge_transcript_databases;
 use crate::pbs::txs::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
@@ -1982,7 +1976,7 @@ pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usiz
 mod test {
     use clap_verbosity_flag::Verbosity;
     use pretty_assertions::assert_eq;
-    use std::path::PathBuf;
+
     use temp_testdir::TempDir;
 
     use super::binning::bin_from_range;

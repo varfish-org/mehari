@@ -2,7 +2,6 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use biocommons_bioutils::assemblies::Assembly;
 use hgvs::data::interface::Provider;
 
 use crate::{

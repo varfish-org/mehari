@@ -18,7 +18,6 @@ impl Contig {
     pub fn length(&self) -> u64 {
         self.length
     }
-
 }
 
 #[derive(Clone)]

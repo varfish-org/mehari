@@ -1,7 +1,7 @@
 use crate::{
     annotate::{
         seqvars::{
-            csq::ConsequencePredictor as SeqvarConsequencePredictor, load_tx_db, path_component,
+            csq::ConsequencePredictor as SeqvarConsequencePredictor, load_tx_db,
             provider::Provider as MehariProvider,
         },
         strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor,
@@ -129,9 +129,9 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         }
 
         tracing::info!("  - loading {}", txdb_path.display());
-        let tx_db = load_tx_db(&txdb_path)?;
+        let tx_db = load_tx_db(txdb_path)?;
         assert_eq!(
-            GenomeRelease::from_str(&tx_db.genome_release.as_ref().unwrap(), true).unwrap(),
+            GenomeRelease::from_str(tx_db.genome_release.as_ref().unwrap(), true).unwrap(),
             assembly.into(),
             "Genome release mismatch between reference fasta and txdb"
         );
