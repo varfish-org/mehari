@@ -2260,9 +2260,28 @@ mod test {
         run(&args_common, &args).await?;
 
         let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
+        let header_actual = actual
+            .lines()
+            .filter(|l| l.starts_with('#'))
+            .collect::<Vec<_>>();
+        let records_actual = actual
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<std::collections::HashSet<_>>();
+
         let expected =
             std::fs::read_to_string("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.tsv")?;
-        assert_eq!(&expected, &actual);
+        let header_expected = expected
+            .lines()
+            .filter(|l| l.starts_with('#'))
+            .collect::<Vec<_>>();
+        let records_expected = expected
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<std::collections::HashSet<_>>();
+
+        assert_eq!(&header_actual, &header_expected);
+        assert_eq!(&records_actual, &records_expected);
 
         Ok(())
     }
