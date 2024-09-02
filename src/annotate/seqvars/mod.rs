@@ -1414,11 +1414,11 @@ struct Annotator {
     annotators: Vec<AnnotatorEnum>,
 }
 
-struct FrequencyAnnotator {
+pub struct FrequencyAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
 }
 impl FrequencyAnnotator {
-    fn new(db: DBWithThreadMode<MultiThreaded>) -> Self {
+    pub fn new(db: DBWithThreadMode<MultiThreaded>) -> Self {
         Self { db }
     }
 
@@ -1611,12 +1611,12 @@ impl FrequencyAnnotator {
     }
 }
 
-struct ClinvarAnnotator {
+pub struct ClinvarAnnotator {
     db: DBWithThreadMode<rocksdb::MultiThreaded>,
 }
 
 impl ClinvarAnnotator {
-    fn new(db: DBWithThreadMode<rocksdb::MultiThreaded>) -> Self {
+    pub fn new(db: DBWithThreadMode<rocksdb::MultiThreaded>) -> Self {
         Self { db }
     }
 
