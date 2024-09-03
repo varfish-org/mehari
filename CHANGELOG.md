@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.28.1](https://github.com/varfish-org/mehari/compare/v0.28.0...v0.28.1) (2024-09-02)
+
+
+### Bug Fixes
+
+* disregard tsv output order in brca2_zar1l test ([#529](https://github.com/varfish-org/mehari/issues/529)) ([d5e1066](https://github.com/varfish-org/mehari/commit/d5e10662d1a9ab89bdabca845d9b5976a9e7be81))
+* make seqvar annotators public for varfish-server-worker ([#528](https://github.com/varfish-org/mehari/issues/528)) ([22610d1](https://github.com/varfish-org/mehari/commit/22610d1cb017620d82826f1554c58d3b928e8ad9))
+
 ## [0.28.0](https://github.com/varfish-org/mehari/compare/v0.27.0...v0.28.0) (2024-08-19)
 
 
