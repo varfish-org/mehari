@@ -31,7 +31,7 @@ annonars = "0.41.0"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bgzip = "0.3"
-bio = "2.0.0"
+bio = "2.0.3"
 biocommons-bioutils = "0.1.4"
 byteorder = "1.4"
 byte-unit = "5.1"
