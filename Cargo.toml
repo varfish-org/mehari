@@ -57,7 +57,7 @@ nutype = { version = "0.5.0", features = ["serde"] }
 parse-display = "0.10"
 procfs = "0.16"
 prost = "0.13.3"
-quick_cache = "0.6.6"
+quick_cache = "0.6.9"
 rand = "0.8"
 rand_core = "0.6"
 rayon = "1.10.0"
