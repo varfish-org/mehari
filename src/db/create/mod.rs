@@ -1380,6 +1380,7 @@ impl TranscriptLoader {
                     }
                     Tag::RefSeqSelect => crate::pbs::txs::TranscriptTag::RefSeqSelect.into(),
                     Tag::GencodePrimary => crate::pbs::txs::TranscriptTag::GencodePrimary.into(),
+                    Tag::Other => crate::pbs::txs::TranscriptTag::Other.into(),
                 };
                 tags.insert(elem);
             }
