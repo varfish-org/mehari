@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/varfish-org/mehari/compare/v0.28.1...v0.29.0) (2024-10-07)
+
+
+### Features
+
+* Add catch all tag "Other" ([#558](https://github.com/varfish-org/mehari/issues/558)) ([c709a36](https://github.com/varfish-org/mehari/commit/c709a3693b12d93151898b1aa1335bb6cf85d839))
+
 ## [0.28.1](https://github.com/varfish-org/mehari/compare/v0.28.0...v0.28.1) (2024-09-02)
 
 
