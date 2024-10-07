@@ -80,7 +80,7 @@ pbjson = "0.7"
 pbjson-types = "0.7"
 coz = "0.1.3"
 dhat = "0.3.3"
-once_cell = "1.19.0"
+once_cell = "1.20.1"
 
 [dependencies.noodles]
 version = "0.77.0"
@@ -97,7 +97,7 @@ csv = "1.3"
 hxdmp = "0.2"
 insta = { version = "1.40", features = ["yaml"] }
 pretty_assertions = "1.4"
-rstest = "0.22"
+rstest = "0.23"
 temp_testdir = "0.2"
 tracing-test = "0.2"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
