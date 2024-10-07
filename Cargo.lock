@@ -283,9 +283,9 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "annonars"
-version = "0.41.0"
+version = "0.41.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae50f95dfae0271f0f1b51f621a94996b4c9426686582557c64cefa0d3059a1d"
+checksum = "b0542294339cfff9475cc1b31decbf6fc41d518ebb06f4acf50f220174ad62b5"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -1968,9 +1968,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hgvs"
-version = "0.17.2"
+version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1771430925306344f6ac0832924beb54dd719824dc56a04c4797b4950938f148"
+checksum = "e25a808a912191336fdfde6230ddaf4d154aaf49cbcc35d673544ba0fb2a3c93"
 dependencies = [
  "ahash 0.8.11",
  "base16ct",
