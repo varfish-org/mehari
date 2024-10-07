@@ -228,7 +228,7 @@ impl Provider {
                                     .iter()
                                     .filter_map(|tag| {
                                         match TranscriptTag::try_from(*tag).unwrap() {
-                                            TranscriptTag::Unknown => None,
+                                            TranscriptTag::Unknown | TranscriptTag::Other => None,
                                             TranscriptTag::Basic => Some(TranscriptPickType::Basic),
                                             TranscriptTag::EnsemblCanonical => {
                                                 Some(TranscriptPickType::EnsemblCanonical)
