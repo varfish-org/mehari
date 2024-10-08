@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.5](https://github.com/varfish-org/mehari/compare/v0.29.4...v0.29.5) (2024-10-08)
+
+
+### Continuous Integration
+
+* adding dependency libsqlite3-dev ([#574](https://github.com/varfish-org/mehari/issues/574)) ([08bdc10](https://github.com/varfish-org/mehari/commit/08bdc1020de37acb9dd3c02f614cbac441cea379))
+
 ## [0.29.4](https://github.com/varfish-org/mehari/compare/v0.29.3...v0.29.4) (2024-10-08)
 
 
