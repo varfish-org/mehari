@@ -10,7 +10,7 @@ on:
 
 jobs:
   Formatting:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,7 +27,7 @@ jobs:
           cargo fmt -- --check
 
   Linting:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -63,7 +63,7 @@ jobs:
 
   Testing:
     needs: Formatting
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     services:
       # The tests need a postgres server;  the data will be loaded later

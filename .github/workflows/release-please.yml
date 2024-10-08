@@ -17,7 +17,7 @@ env:
 jobs:
   release-please:
     if: github.repository_owner == 'varfish-org'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       release_name: ${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}
@@ -31,7 +31,7 @@ jobs:
 
   cargo-release:
     needs: release-please
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: ${{ needs.release-please.outputs.release_created }}
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +69,7 @@ jobs:
 
   container-release:
     needs: release-please
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: ${{ needs.release-please.outputs.release_created }}
     steps:
       - name: Checkout repository
