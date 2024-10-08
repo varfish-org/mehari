@@ -40,7 +40,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y librocksdb-dev libsnappy-dev
+          sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
