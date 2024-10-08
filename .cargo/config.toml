@@ -1,3 +1,7 @@
 [target.thumbv7em-none-eabi]
 linker = "utils/alpine-linker-script.sh"
 #ar = "arm-none-eabi-ar"
+
+[env]
+ROCKSDB_LIB_DIR = "/usr/lib/"
+SNAPPY_LIB_DIR = "/usr/lib/"
