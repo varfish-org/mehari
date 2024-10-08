@@ -37,6 +37,11 @@ jobs:
       - uses: actions/checkout@v4
         if: ${{ needs.release-please.outputs.release_created }}
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y librocksdb-dev
+
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
         if: ${{ needs.release-please.outputs.release_created }}
