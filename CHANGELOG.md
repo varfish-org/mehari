@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.2](https://github.com/varfish-org/mehari/compare/v0.29.1...v0.29.2) (2024-10-08)
+
+
+### Continuous Integration
+
+* install rocksdb dependencies in CI ([#568](https://github.com/varfish-org/mehari/issues/568)) ([c1dfe6f](https://github.com/varfish-org/mehari/commit/c1dfe6f9f3891a5a490af564d20102f675a0b73b))
+
 ## [0.29.1](https://github.com/varfish-org/mehari/compare/v0.29.0...v0.29.1) (2024-10-08)
 
 
