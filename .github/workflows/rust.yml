@@ -34,6 +34,9 @@ jobs:
         with:
           lfs: true
 
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y librocksdb-dev libsqlite3-dev
+
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
         with:
