@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.4](https://github.com/varfish-org/mehari/compare/v0.29.3...v0.29.4) (2024-10-08)
+
+
+### Continuous Integration
+
+* bump ubuntu to 24.04 ([#572](https://github.com/varfish-org/mehari/issues/572)) ([0ef8f7d](https://github.com/varfish-org/mehari/commit/0ef8f7dd6d78eeb980c8cf66eb1ade09bb82dc41))
+
 ## [0.29.3](https://github.com/varfish-org/mehari/compare/v0.29.2...v0.29.3) (2024-10-08)
 
 
