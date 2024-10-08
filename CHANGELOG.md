@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.3](https://github.com/varfish-org/mehari/compare/v0.29.2...v0.29.3) (2024-10-08)
+
+
+### Bug Fixes
+
+* install libsnappy-dev in CI ([#570](https://github.com/varfish-org/mehari/issues/570)) ([1169479](https://github.com/varfish-org/mehari/commit/11694798a295096b29503eddc513ec6446f9a0b8))
+
 ## [0.29.2](https://github.com/varfish-org/mehari/compare/v0.29.1...v0.29.2) (2024-10-08)
 
 
