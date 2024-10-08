@@ -16,7 +16,7 @@ FROM ubuntu:noble AS builder
 
 # Install Rust toolchain and dependencies for compilation of C code (e.g., rocksdb)
 RUN apt-get update && \
-    apt-get install -y wget curl build-essential clang librocksdb-dev && \
+    apt-get install -y unzip wget curl build-essential clang librocksdb-dev && \
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
     rustup component add rustfmt
