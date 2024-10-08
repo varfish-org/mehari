@@ -2653,6 +2653,7 @@ dependencies = [
  "pbjson",
  "pbjson-build",
  "pbjson-types",
+ "percent-encoding",
  "pprof",
  "pretty_assertions",
  "procfs",
