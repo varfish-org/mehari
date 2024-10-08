@@ -38,7 +38,9 @@ jobs:
         if: ${{ needs.release-please.outputs.release_created }}
 
       - name: Install dependencies
-        run: apt-get update && apt-get install -y librocksdb-dev libsqlite3-dev
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y librocksdb-dev
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
