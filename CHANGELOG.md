@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.1](https://github.com/varfish-org/mehari/compare/v0.29.0...v0.29.1) (2024-10-08)
+
+
+### Bug Fixes
+
+* percent encoding clinvar annotation ([#553](https://github.com/varfish-org/mehari/issues/553)) ([#566](https://github.com/varfish-org/mehari/issues/566)) ([6540520](https://github.com/varfish-org/mehari/commit/6540520f16daf8094772673a5d89ec8ca42ab0f4))
+
 ## [0.29.0](https://github.com/varfish-org/mehari/compare/v0.28.1...v0.29.0) (2024-10-07)
 
 
