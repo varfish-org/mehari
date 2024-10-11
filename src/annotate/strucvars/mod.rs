@@ -1889,7 +1889,7 @@ pub trait VcfRecordConverter {
         let mut end: Option<i32> = None;
         let alleles = vcf_record.alternate_bases().as_ref();
         if alleles.len() != 1 {
-            panic!("Only one alternative allele is supported for SVs");
+            panic!("Only one alternative allele is supported for SVs, got {} alternative alleles ({:?})", alleles.len(), alleles);
         }
         let allele = &alleles[0];
         // TODO find out how to handle this properly (via noodles?)
@@ -2959,6 +2959,13 @@ pub async fn run_vcf_to_jsonl(
         rng.fill_bytes(&mut uuid_buf);
         let uuid = Uuid::from_bytes(uuid_buf);
 
+        if record.alternate_bases().is_empty()
+            || record.alternate_bases().as_ref() == ["<*>".to_string()]
+        {
+            // REF-only, skip
+            tracing::warn!("skipping REF-only / empty ALT record {:?}", record);
+            continue;
+        }
         let mut record = converter.convert(pedigree, &record, uuid, GenomeRelease::Grch37)?;
         annotate_cov_mq(&mut record, cov_readers)?;
         if let Some(chromosome_no) = mapping.get(&record.chromosome) {
