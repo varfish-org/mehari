@@ -2960,7 +2960,7 @@ pub async fn run_vcf_to_jsonl(
         let uuid = Uuid::from_bytes(uuid_buf);
 
         if record.alternate_bases().is_empty()
-            || record.alternate_bases().as_ref() == &["<*>".to_string()]
+            || record.alternate_bases().as_ref() == ["<*>".to_string()]
         {
             // REF-only, skip
             tracing::warn!("skipping REF-only / empty ALT record {:?}", record);
