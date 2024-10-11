@@ -2963,7 +2963,7 @@ pub async fn run_vcf_to_jsonl(
             || record.alternate_bases().as_ref() == &["<*>".to_string()]
         {
             // REF-only, skip
-            tracing::warn!("skipping REF-only record {:?}", record);
+            tracing::warn!("skipping REF-only / empty ALT record {:?}", record);
             continue;
         }
         let mut record = converter.convert(pedigree, &record, uuid, GenomeRelease::Grch37)?;
