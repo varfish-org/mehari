@@ -2959,9 +2959,11 @@ pub async fn run_vcf_to_jsonl(
         rng.fill_bytes(&mut uuid_buf);
         let uuid = Uuid::from_bytes(uuid_buf);
 
-        if record.alternate_bases().is_empty() {
+        if record.alternate_bases().is_empty()
+            || record.alternate_bases().as_ref() == &["<*>".to_string()]
+        {
             // REF-only, skip
-            tracing::warn!("skipping REF-only record {:?}", record,);
+            tracing::warn!("skipping REF-only record {:?}", record);
             continue;
         }
         let mut record = converter.convert(pedigree, &record, uuid, GenomeRelease::Grch37)?;
