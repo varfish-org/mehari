@@ -104,6 +104,12 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: cargo build
+        run: cargo build --verbose
+
+      - name: cargo test
+        run: cargo test --verbose
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: "covtest"
