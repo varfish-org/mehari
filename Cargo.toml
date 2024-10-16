@@ -1,6 +1,6 @@
 [package]
 name = "mehari"
-version = "0.29.5"
+version = "0.29.6"
 edition = "2021"
 authors = ["Manuel Holtgrewe <manuel.holtgrewe@bih-charite.de>"]
 description = "Variant effect prediction all in Rust"
