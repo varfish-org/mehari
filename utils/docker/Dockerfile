@@ -50,7 +50,7 @@ FROM ubuntu:noble AS runtime
 
 # Install dependencies (and cleanup afterward)
 RUN apt-get update && \
-    apt-get install -y libsqlite3-0 && \
+    apt-get install -y librocksdb8.9 libsqlite3-0 && \
     apt-get clean autoclean && \
     apt-get autoremove --yes && \
     rm -rf /var/lib/{apt,dpkg,cache,log}
