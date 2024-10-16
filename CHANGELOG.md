@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.29.6](https://github.com/varfish-org/mehari/compare/v0.29.5...v0.29.6) (2024-10-16)
+
+
+### Bug Fixes
+
+* add missing librocksdb8.9 to Dockerfile ([#584](https://github.com/varfish-org/mehari/issues/584)) ([f9bd018](https://github.com/varfish-org/mehari/commit/f9bd018067ee0ad794115b5e90c16e909735652d))
+* skip REF-only records ([#576](https://github.com/varfish-org/mehari/issues/576)) ([688b968](https://github.com/varfish-org/mehari/commit/688b968e0a947c0eec7a918b60a77bca26c164f5))
+
 ## [0.29.5](https://github.com/varfish-org/mehari/compare/v0.29.4...v0.29.5) (2024-10-08)
 
 
