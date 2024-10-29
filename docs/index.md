@@ -10,7 +10,8 @@ Why another software package?
   library.
   The latter serves as the basis for [VariantValidator.org](https://variantvalidator.org/) which is the gold standard for HGVS variant description generation and validation.
 - Mehari is written in the Rust programming language which allows it to work fast, with low memory consumption (as a C++ program would) and being memory safe at the same time (as a Java/Python/Perl program would).
-- As a Rust program, it can be embedded into the backend of the [VarFish](https://github.com/varfish-org/varfish-server) variant analysis platform.
+- It can be used as a rust library, as is the case for e.g. the backend of the [VarFish](https://github.com/varfish-org/varfish-server) variant analysis platform 
+- Provides a REST API for sequence variant annotation (see `mehari run-server --help`)
 
 ## What's Next?
 
@@ -27,4 +28,4 @@ We recommend to read the Mehari end-user documentation in the following order:
 Since Mehari is written in the Rust programming language, we host the documentation on `docs.rs` written as Rust online documentation.
 This has the advantage that the documentation is bundle with the program source code (and thus always up to date) and the latest documentation is always available at <https://docs.rs/mehari>.
 
-The drawback is that the formatting of this may not be as end-user friendly as it could be but you will manage.
+The drawback is that the formatting of this may not be as end-user friendly as it could be, but you will manage.
