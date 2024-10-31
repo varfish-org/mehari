@@ -18,6 +18,10 @@ The `mehari` executable is now available from within the activated `mehari` cond
   mehari --help
 ```
 
+## via docker
+Docker images of mehari are available from ghcr.io, see [ghcr.io/varfish-org/mehari](https://github.com/varfish-org/mehari/pkgs/container/mehari).
+
+
 # Downloading Prebuilt Databases
 
 - transcript database releases: https://github.com/varfish-org/mehari-data-tx/releases
