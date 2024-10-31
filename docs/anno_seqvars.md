@@ -22,6 +22,7 @@ Currently, Mehari will annotate variants using:
 
 - The predicted impact on gene transcripts and the corresponding protein sequence (in the case of coding genes).
 - Their frequency in the gnomAD exomes and genomes databases as well as the HelixMtDb database in the case of mitochondrial databases.
+- Variant information from ClinVar, if any
 
 ## Command Line Invocation
 

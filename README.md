@@ -7,7 +7,7 @@
 
 # Mehari
 
-<img align="right" width="200" height="200" src="misc/camel.jpeg">
+<img style="float: right" width="200" height="200" src="misc/camel.jpeg" alt="a camel">
 
 Mehari is a software package for annotating VCF files with variant effect/consequence.
 The program uses [hgvs-rs](https://crates.io/crates/hgvs) for projecting genomic variants to transcripts and proteins and thus has high prediction quality.
