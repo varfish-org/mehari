@@ -1,7 +1,7 @@
 //! Compute molecular consequence of variants.
 use std::{collections::HashMap, sync::Arc};
 
-use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
+use crate::pbs::txs::{GenomeAlignment, Strand, TranscriptBiotype, TranscriptTag};
 use biocommons_bioutils::assemblies::Assembly;
 use enumflags2::BitFlags;
 use hgvs::parser::NoRef;
@@ -389,14 +389,6 @@ impl ConsequencePredictor {
         let mut distance: Option<i32> = None;
         let mut tx_len = 0;
 
-        fn overlaps(
-            var_start: i32,
-            var_end: i32,
-            exon_intron_start: i32,
-            exon_intron_end: i32,
-        ) -> bool {
-            (var_start < exon_intron_end) && (var_end > exon_intron_start)
-        }
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
 
@@ -466,92 +458,21 @@ impl ConsequencePredictor {
                     }
                 }
             }
-            if let Some(intron_start) = intron_start {
-                // For insertions, we need to consider the case of the insertion being right at
-                // the exon/intron junction.  We can express this with a shift of 1 for using
-                // "< / >" X +/- shift and meaning <= / >= X.
-                let ins_shift = if var.reference.is_empty() { 1 } else { 0 };
 
-                // Check the cases where the variant overlaps with the splice acceptor/donor site.
-                if var_overlaps(intron_start - ins_shift, intron_start + 2) {
-                    // Left side, is acceptor/donor depending on transcript's strand.
-                    match strand {
-                        Strand::Plus => consequences.insert(Consequence::SpliceDonorVariant),
-                        Strand::Minus => consequences.insert(Consequence::SpliceAcceptorVariant),
-                        _ => unreachable!("invalid strand: {}", alignment.strand),
-                    }
-                }
-                // Check the case where the variant overlaps with the splice donor site.
-                if var_overlaps(intron_end - 2, intron_end + ins_shift) {
-                    // Left side, is acceptor/donor depending on transcript's strand.
-                    match strand {
-                        Strand::Plus => consequences.insert(Consequence::SpliceAcceptorVariant),
-                        Strand::Minus => consequences.insert(Consequence::SpliceDonorVariant),
-                        _ => unreachable!("invalid strand: {}", alignment.strand),
-                    }
-                }
-            }
-            // Check the case where the variant overlaps with the splice region (1-3 bases in exon
-            // or 3-8 bases in intron).  We have to check all cases independently and not with `else`
-            // because the variant may be larger.
-            if let Some(intron_start) = intron_start {
-                if var_overlaps(intron_start + 2, intron_start + 8)
-                    || var_overlaps(intron_end - 8, intron_end - 2)
-                {
-                    consequences |= Consequence::SpliceRegionVariant;
-                }
-                if var_overlaps(exon_end - 3, exon_end) {
-                    if strand == Strand::Plus {
-                        if !rank.is_last() {
-                            consequences |= Consequence::SpliceRegionVariant;
-                        }
-                    } else {
-                        // alignment.strand == Strand::Minus
-                        if !rank.is_first() {
-                            consequences |= Consequence::SpliceRegionVariant;
-                        }
-                    }
-                }
-                if var_overlaps(exon_start, exon_start + 3) {
-                    if strand == Strand::Plus {
-                        if !rank.is_first() {
-                            consequences |= Consequence::SpliceRegionVariant;
-                        }
-                    } else {
-                        // alignment.strand == Strand::Minus
-                        if !rank.is_last() {
-                            consequences |= Consequence::SpliceRegionVariant;
-                        }
-                    }
-                }
-            }
+            let consequences_intronic = Self::analyze_intronic_variant(
+                var,
+                alignment,
+                strand,
+                &rank,
+                var_start,
+                var_end,
+                exon_start,
+                exon_end,
+                intron_start,
+                intron_end,
+            );
 
-            if let Some(intron_start) = intron_start {
-                // Check the case where the variant overlaps with the polypyrimidine tract.
-                // (A sequence variant that falls in the polypyrimidine tract at 3' end of intron between 17 and 3 bases from the end (acceptor -3 to acceptor -17))
-                if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
-                    consequences |= Consequence::SplicePolypyrimidineTractVariant;
-                }
-                if strand == Strand::Minus && var_overlaps(intron_start + 2, intron_start + 17) {
-                    consequences |= Consequence::SplicePolypyrimidineTractVariant;
-                }
-                // Check conditions for splice_donor_region_variant
-                // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
-                if strand == Strand::Plus && var_overlaps(intron_start + 2, intron_start + 6) {
-                    consequences |= Consequence::SpliceDonorRegionVariant;
-                }
-                if strand == Strand::Minus && var_overlaps(intron_end - 6, intron_end - 2) {
-                    consequences |= Consequence::SpliceDonorRegionVariant;
-                }
-                // Check conditions for splice_donor_5th_base_variant
-                // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
-                if strand == Strand::Plus && var_overlaps(intron_start + 4, intron_start + 5) {
-                    consequences |= Consequence::SpliceDonorFifthBaseVariant;
-                }
-                if strand == Strand::Minus && var_overlaps(intron_end - 5, intron_end - 4) {
-                    consequences |= Consequence::SpliceDonorFifthBaseVariant;
-                }
-            }
+            consequences |= consequences_intronic;
 
             min_start = Some(std::cmp::min(min_start.unwrap_or(exon_start), exon_start));
             max_end = Some(std::cmp::max(max_end.unwrap_or(exon_end), exon_end));
@@ -697,14 +618,28 @@ impl ConsequencePredictor {
                         _ => panic!("Not a protein position: {:?}", &var_n),
                     };
 
-                    let mut consequences =
-                        Self::analyze_cds_variant(&var_c, is_exonic, is_intronic);
-
                     let conservative = is_conservative_cds_variant(&var_c);
 
+                    let consequences_cds =
+                        Self::analyze_cds_variant(&var_c, is_exonic, is_intronic, conservative);
+
                     // Analyze `var_p` for changes in the protein sequence.
-                    consequences |=
+                    let consequences_protein =
                         Self::analyze_protein_variant(&var_p, &protein_pos, conservative);
+
+                    consequences = consequences_cds | consequences_protein;
+
+                    // In some cases, we predict a stop lost based on the cds variant
+                    // but the protein translation does not confirm this.
+                    //
+                    // e.g.:
+                    // 20:35511609:CAAGCCGCCTCCAGGTAGCAGCCACAGCCAGGAGCACACAGACAGAAGACTGTGTCATGGGTCATGGCCCCTCCGCACACCTACAGGTTTGCCAAAGGAA:C
+                    if consequences_cds.contains(Consequence::StopLost)
+                        && !consequences_protein.contains(Consequence::StopGained)
+                    {
+                        consequences &= !Consequence::StopLost;
+                        consequences |= Consequence::StopRetainedVariant;
+                    }
 
                     (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
                 }
@@ -776,10 +711,116 @@ impl ConsequencePredictor {
         }))
     }
 
+    fn analyze_intronic_variant(
+        var: &VcfVariant,
+        alignment: &GenomeAlignment,
+        strand: Strand,
+        rank: &Rank,
+        var_start: i32,
+        var_end: i32,
+        exon_start: i32,
+        exon_end: i32,
+        intron_start: Option<i32>,
+        intron_end: i32,
+    ) -> BitFlags<Consequence> {
+        let mut consequences: BitFlags<Consequence> = BitFlags::empty();
+        let var_overlaps =
+            |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
+
+        if let Some(intron_start) = intron_start {
+            // For insertions, we need to consider the case of the insertion being right at
+            // the exon/intron junction.  We can express this with a shift of 1 for using
+            // "< / >" X +/- shift and meaning <= / >= X.
+            let ins_shift = if var.reference.is_empty() { 1 } else { 0 };
+
+            // Check the cases where the variant overlaps with the splice acceptor/donor site.
+            if var_overlaps(intron_start - ins_shift, intron_start + 2) {
+                // Left side, is acceptor/donor depending on transcript's strand.
+                match strand {
+                    Strand::Plus => consequences.insert(Consequence::SpliceDonorVariant),
+                    Strand::Minus => consequences.insert(Consequence::SpliceAcceptorVariant),
+                    _ => unreachable!("invalid strand: {}", alignment.strand),
+                }
+            }
+            // Check the case where the variant overlaps with the splice donor site.
+            if var_overlaps(intron_end - 2, intron_end + ins_shift) {
+                // Left side, is acceptor/donor depending on transcript's strand.
+                match strand {
+                    Strand::Plus => consequences.insert(Consequence::SpliceAcceptorVariant),
+                    Strand::Minus => consequences.insert(Consequence::SpliceDonorVariant),
+                    _ => unreachable!("invalid strand: {}", alignment.strand),
+                }
+            }
+        }
+        // Check the case where the variant overlaps with the splice region (1-3 bases in exon
+        // or 3-8 bases in intron).  We have to check all cases independently and not with `else`
+        // because the variant may be larger.
+        if let Some(intron_start) = intron_start {
+            if var_overlaps(intron_start + 2, intron_start + 8)
+                || var_overlaps(intron_end - 8, intron_end - 2)
+            {
+                consequences |= Consequence::SpliceRegionVariant;
+            }
+            if var_overlaps(exon_end - 3, exon_end) {
+                if strand == Strand::Plus {
+                    if !rank.is_last() {
+                        consequences |= Consequence::SpliceRegionVariant;
+                    }
+                } else {
+                    // alignment.strand == Strand::Minus
+                    if !rank.is_first() {
+                        consequences |= Consequence::SpliceRegionVariant;
+                    }
+                }
+            }
+            if var_overlaps(exon_start, exon_start + 3) {
+                if strand == Strand::Plus {
+                    if !rank.is_first() {
+                        consequences |= Consequence::SpliceRegionVariant;
+                    }
+                } else {
+                    // alignment.strand == Strand::Minus
+                    if !rank.is_last() {
+                        consequences |= Consequence::SpliceRegionVariant;
+                    }
+                }
+            }
+        }
+
+        if let Some(intron_start) = intron_start {
+            // Check the case where the variant overlaps with the polypyrimidine tract.
+            // (A sequence variant that falls in the polypyrimidine tract at 3' end of intron between 17 and 3 bases from the end (acceptor -3 to acceptor -17))
+            if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
+                consequences |= Consequence::SplicePolypyrimidineTractVariant;
+            }
+            if strand == Strand::Minus && var_overlaps(intron_start + 2, intron_start + 17) {
+                consequences |= Consequence::SplicePolypyrimidineTractVariant;
+            }
+            // Check conditions for splice_donor_region_variant
+            // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
+            if strand == Strand::Plus && var_overlaps(intron_start + 2, intron_start + 6) {
+                consequences |= Consequence::SpliceDonorRegionVariant;
+            }
+            if strand == Strand::Minus && var_overlaps(intron_end - 6, intron_end - 2) {
+                consequences |= Consequence::SpliceDonorRegionVariant;
+            }
+            // Check conditions for splice_donor_5th_base_variant
+            // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
+            if strand == Strand::Plus && var_overlaps(intron_start + 4, intron_start + 5) {
+                consequences |= Consequence::SpliceDonorFifthBaseVariant;
+            }
+            if strand == Strand::Minus && var_overlaps(intron_end - 5, intron_end - 4) {
+                consequences |= Consequence::SpliceDonorFifthBaseVariant;
+            }
+        }
+        consequences
+    }
+
     fn analyze_cds_variant(
         var_c: &HgvsVariant,
         is_exonic: bool,
         is_intronic: bool,
+        conservative: bool,
     ) -> BitFlags<Consequence> {
         let mut consequences: BitFlags<Consequence> = BitFlags::empty();
 
@@ -789,6 +830,7 @@ impl ConsequencePredictor {
                 // coordinates.  The cases where the start/stop codon is touched by the variant
                 // directly is handled above based on the `var_p` prediction.
                 let loc = loc_edit.loc.inner();
+                let edit = loc_edit.edit.inner();
                 let start_base = loc.start.base;
                 let start_cds_from = loc.start.cds_from;
                 // let end_base = loc.end.base;
@@ -807,6 +849,41 @@ impl ConsequencePredictor {
                 let ends_right_of_stop = end_cds_from == CdsFrom::End;
                 if starts_left_of_stop && ends_right_of_stop {
                     consequences |= Consequence::StopLost;
+                }
+
+                match edit {
+                    NaEdit::RefAlt {
+                        reference,
+                        alternative,
+                    } => {
+                        let diff = reference.len().abs_diff(alternative.len());
+                        if alternative.len() < reference.len() && diff % 3 == 0 {
+                            if conservative {
+                                consequences |= Consequence::ConservativeInframeDeletion;
+                            } else {
+                                consequences |= Consequence::DisruptiveInframeDeletion;
+                            }
+                        }
+                    }
+                    NaEdit::DelRef { reference } => {
+                        if reference.len() % 3 == 0 {
+                            if conservative {
+                                consequences |= Consequence::ConservativeInframeDeletion;
+                            } else {
+                                consequences |= Consequence::DisruptiveInframeDeletion;
+                            }
+                        }
+                    }
+                    NaEdit::DelNum { count } => {
+                        if count % 3 == 0 {
+                            if conservative {
+                                consequences |= Consequence::ConservativeInframeDeletion;
+                            } else {
+                                consequences |= Consequence::DisruptiveInframeDeletion;
+                            }
+                        }
+                    }
+                    _ => (),
                 }
 
                 // Detect variants affecting the 5'/3' UTRs.
@@ -882,11 +959,6 @@ impl ConsequencePredictor {
                             }
                         }
                         hgvs::parser::ProteinEdit::DelIns { alternative } => {
-                            if conservative {
-                                consequences |= Consequence::ConservativeInframeDeletion;
-                            } else {
-                                consequences |= Consequence::DisruptiveInframeDeletion;
-                            }
                             if alternative.contains('*')
                                 || alternative.contains('X')
                                 || alternative.contains("Ter")
@@ -1009,15 +1081,15 @@ fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
     match var_c {
         HgvsVariant::CdsVariant { loc_edit, .. } => {
             // Handle the cases where the variant touches the start or stop codon based on `var_c`
-            // coordinates.  The cases where the start/stop codon is touched by the variant
-            // directly is handled above based on the `var_p` prediction.
+            // coordinates. The cases where the start/stop codon is touched by the variant
+            // directly is handled elsewhere based on the `var_p` prediction.
             let loc = loc_edit.loc.inner();
             let start_base = loc.start.base;
             let start_cds_from = loc.start.cds_from;
             let end_base = loc.end.base;
             let end_cds_from = loc.end.cds_from;
             // The range is "conservative" (regarding deletions and insertions) if
-            // it does not start or end within exons.
+            // it does not start or end within codons.
             start_cds_from == CdsFrom::Start
                 && end_cds_from == CdsFrom::Start
                 && start_base % 3 == 1
@@ -1025,6 +1097,10 @@ fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
         }
         _ => panic!("Expected CdsVariant, got {:#?}", var_c),
     }
+}
+
+fn overlaps(var_start: i32, var_end: i32, exon_intron_start: i32, exon_intron_end: i32) -> bool {
+    (var_start < exon_intron_end) && (var_end > exon_intron_start)
 }
 
 impl ConsequencePredictor {
