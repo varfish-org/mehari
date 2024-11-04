@@ -697,153 +697,14 @@ impl ConsequencePredictor {
                         _ => panic!("Not a protein position: {:?}", &var_n),
                     };
 
-                    let conservative = match &var_c {
-                        HgvsVariant::CdsVariant { loc_edit, .. } => {
-                            // Handle the cases where the variant touches the start or stop codon based on `var_c`
-                            // coordinates.  The cases where the start/stop codon is touched by the variant
-                            // directly is handled above based on the `var_p` prediction.
-                            let loc = loc_edit.loc.inner();
-                            let start_base = loc.start.base;
-                            let start_cds_from = loc.start.cds_from;
-                            let end_base = loc.end.base;
-                            let end_cds_from = loc.end.cds_from;
-                            // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
-                            //
-                            // start codon
-                            let starts_left_of_start =
-                                start_cds_from == CdsFrom::Start && start_base < 0;
-                            let ends_right_of_start =
-                                start_cds_from != CdsFrom::Start || start_base > 0;
-                            if starts_left_of_start && ends_right_of_start {
-                                consequences |= Consequence::StartLost;
-                            }
-                            // stop codon
-                            let starts_left_of_stop = start_cds_from == CdsFrom::Start;
-                            let ends_right_of_stop = end_cds_from == CdsFrom::End;
-                            if starts_left_of_stop && ends_right_of_stop {
-                                consequences |= Consequence::StopLost;
-                            }
+                    let mut consequences =
+                        Self::analyze_cds_variant(&var_c, is_exonic, is_intronic);
 
-                            // Detect variants affecting the 5'/3' UTRs.
-                            if start_cds_from == CdsFrom::Start {
-                                if start_base < 0 {
-                                    if is_intronic {
-                                        consequences |= Consequence::FivePrimeUtrIntronVariant;
-                                    }
-                                    if is_exonic {
-                                        consequences |= Consequence::FivePrimeUtrExonVariant;
-                                    }
-                                }
-                            } else if end_cds_from == CdsFrom::End {
-                                if is_intronic {
-                                    consequences |= Consequence::ThreePrimeUtrIntronVariant;
-                                }
-                                if is_exonic {
-                                    consequences |= Consequence::ThreePrimeUtrExonVariant;
-                                }
-                            }
-
-                            // The range is "conservative" (regarding deletions and insertions) if
-                            // it does not start or end within exons.
-                            start_cds_from == CdsFrom::Start
-                                && end_cds_from == CdsFrom::Start
-                                && start_base % 3 == 1
-                                && (end_base + 1) % 3 == 1
-                        }
-                        _ => panic!("Must be CDS variant: {}", &var_c),
-                    };
-
-                    fn is_stop(s: &str) -> bool {
-                        s == "X" || s == "Ter" || s == "*"
-                    }
+                    let conservative = is_conservative_cds_variant(&var_c);
 
                     // Analyze `var_p` for changes in the protein sequence.
-                    match &var_p {
-                        HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
-                            ProtLocEdit::Ordinary { loc, edit } => {
-                                let loc = loc.inner();
-                                match edit.inner() {
-                                    hgvs::parser::ProteinEdit::Fs { .. } => {
-                                        consequences |= Consequence::FrameshiftVariant;
-                                    }
-                                    hgvs::parser::ProteinEdit::Ext { .. } => {
-                                        consequences |= Consequence::StopLost;
-                                        consequences |= Consequence::FeatureElongation;
-                                    }
-                                    hgvs::parser::ProteinEdit::Subst { alternative } => {
-                                        if alternative.is_empty() {
-                                            consequences |= Consequence::SynonymousVariant;
-                                        } else if is_stop(alternative) {
-                                            if loc.start == loc.end && is_stop(&loc.start.aa) {
-                                                consequences |= Consequence::StopRetainedVariant;
-                                            } else {
-                                                consequences |= Consequence::StopGained;
-                                                // if the substitution happens right before the stop codon
-                                                // and if it is a conservative change
-                                                // then it is not a stop gained
-                                                // cf. 1:43450470:GCCT:G, ENST00000634258.3:c.10294_10296del/p.Leu3432Ter
-                                                if let Some(ref p) = protein_pos {
-                                                    if p.total.is_some_and(|t| p.ord == t - 1)
-                                                        && conservative
-                                                    {
-                                                        consequences &= !Consequence::StopGained;
-                                                        consequences |= Consequence::ConservativeInframeDeletion;
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            consequences |= Consequence::MissenseVariant;
-                                        }
-                                    }
-                                    hgvs::parser::ProteinEdit::DelIns { alternative } => {
-                                        if conservative {
-                                            consequences |=
-                                                Consequence::ConservativeInframeDeletion;
-                                        } else {
-                                            consequences |= Consequence::DisruptiveInframeDeletion;
-                                        }
-                                        if alternative.contains('*')
-                                            || alternative.contains('X')
-                                            || alternative.contains("Ter")
-                                        {
-                                            consequences |= Consequence::StopGained;
-                                        }
-                                    }
-                                    hgvs::parser::ProteinEdit::Ins { .. }
-                                    | hgvs::parser::ProteinEdit::Dup => {
-                                        if conservative {
-                                            consequences |=
-                                                Consequence::ConservativeInframeInsertion;
-                                        } else {
-                                            consequences |= Consequence::DisruptiveInframeInsertion;
-                                        }
-                                        consequences |= Consequence::ConservativeInframeInsertion;
-                                    }
-                                    hgvs::parser::ProteinEdit::Del => {
-                                        if conservative {
-                                            consequences |=
-                                                Consequence::ConservativeInframeDeletion;
-                                        } else {
-                                            consequences |= Consequence::DisruptiveInframeDeletion;
-                                        }
-                                    }
-                                    hgvs::parser::ProteinEdit::Ident => {
-                                        consequences |= Consequence::SynonymousVariant;
-                                    }
-                                };
-                            }
-                            ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain => {
-                                consequences |= Consequence::SynonymousVariant;
-                            }
-                            ProtLocEdit::InitiationUncertain => {
-                                consequences |= Consequence::StartLost;
-                            }
-                            ProtLocEdit::NoProtein
-                            | ProtLocEdit::NoProteinUncertain
-                            | ProtLocEdit::Unknown => (),
-                        },
-                        _ => panic!("Must be protein variant: {}", &var_p),
-                    }
+                    consequences |=
+                        Self::analyze_protein_variant(&var_p, &protein_pos, conservative);
 
                     (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
                 }
@@ -913,6 +774,159 @@ impl ConsequencePredictor {
             distance,
             messages: None,
         }))
+    }
+
+    fn analyze_cds_variant(
+        var_c: &HgvsVariant,
+        is_exonic: bool,
+        is_intronic: bool,
+    ) -> BitFlags<Consequence> {
+        let mut consequences: BitFlags<Consequence> = BitFlags::empty();
+
+        match &var_c {
+            HgvsVariant::CdsVariant { loc_edit, .. } => {
+                // Handle the cases where the variant touches the start or stop codon based on `var_c`
+                // coordinates.  The cases where the start/stop codon is touched by the variant
+                // directly is handled above based on the `var_p` prediction.
+                let loc = loc_edit.loc.inner();
+                let start_base = loc.start.base;
+                let start_cds_from = loc.start.cds_from;
+                // let end_base = loc.end.base;
+                let end_cds_from = loc.end.cds_from;
+
+                // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
+                //
+                // start codon
+                let starts_left_of_start = start_cds_from == CdsFrom::Start && start_base < 0;
+                let ends_right_of_start = start_cds_from != CdsFrom::Start || start_base > 0;
+                if starts_left_of_start && ends_right_of_start {
+                    consequences |= Consequence::StartLost;
+                }
+                // stop codon
+                let starts_left_of_stop = start_cds_from == CdsFrom::Start;
+                let ends_right_of_stop = end_cds_from == CdsFrom::End;
+                if starts_left_of_stop && ends_right_of_stop {
+                    consequences |= Consequence::StopLost;
+                }
+
+                // Detect variants affecting the 5'/3' UTRs.
+                if start_cds_from == CdsFrom::Start {
+                    if start_base < 0 {
+                        if is_intronic {
+                            consequences |= Consequence::FivePrimeUtrIntronVariant;
+                        }
+                        if is_exonic {
+                            consequences |= Consequence::FivePrimeUtrExonVariant;
+                        }
+                    }
+                } else if end_cds_from == CdsFrom::End {
+                    if is_intronic {
+                        consequences |= Consequence::ThreePrimeUtrIntronVariant;
+                    }
+                    if is_exonic {
+                        consequences |= Consequence::ThreePrimeUtrExonVariant;
+                    }
+                }
+            }
+            _ => panic!("Must be CDS variant: {}", &var_c),
+        };
+        consequences
+    }
+
+    fn analyze_protein_variant(
+        var_p: &HgvsVariant,
+        protein_pos: &Option<Pos>,
+        conservative: bool,
+    ) -> BitFlags<Consequence> {
+        let mut consequences: BitFlags<Consequence> = BitFlags::empty();
+
+        // TODO move to hgvs-rs library as method of `ProtPos` or similar
+        fn is_stop(s: &str) -> bool {
+            s == "X" || s == "Ter" || s == "*"
+        }
+
+        match var_p {
+            HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
+                ProtLocEdit::Ordinary { loc, edit } => {
+                    let loc = loc.inner();
+                    match edit.inner() {
+                        hgvs::parser::ProteinEdit::Fs { .. } => {
+                            consequences |= Consequence::FrameshiftVariant;
+                        }
+                        hgvs::parser::ProteinEdit::Ext { .. } => {
+                            consequences |= Consequence::StopLost;
+                            consequences |= Consequence::FeatureElongation;
+                        }
+                        hgvs::parser::ProteinEdit::Subst { alternative } => {
+                            if alternative.is_empty() {
+                                consequences |= Consequence::SynonymousVariant;
+                            } else if is_stop(alternative) {
+                                if loc.start == loc.end && is_stop(&loc.start.aa) {
+                                    consequences |= Consequence::StopRetainedVariant;
+                                } else {
+                                    consequences |= Consequence::StopGained;
+                                    // if the substitution happens right before the stop codon
+                                    // and if it is a conservative change
+                                    // then it is not a stop gained
+                                    // cf. 1:43450470:GCCT:G, ENST00000634258.3:c.10294_10296del/p.Leu3432Ter
+                                    if let Some(ref p) = protein_pos {
+                                        if p.total.is_some_and(|t| p.ord == t - 1) && conservative {
+                                            consequences &= !Consequence::StopGained;
+                                            consequences |=
+                                                Consequence::ConservativeInframeDeletion;
+                                        }
+                                    }
+                                }
+                            } else {
+                                consequences |= Consequence::MissenseVariant;
+                            }
+                        }
+                        hgvs::parser::ProteinEdit::DelIns { alternative } => {
+                            if conservative {
+                                consequences |= Consequence::ConservativeInframeDeletion;
+                            } else {
+                                consequences |= Consequence::DisruptiveInframeDeletion;
+                            }
+                            if alternative.contains('*')
+                                || alternative.contains('X')
+                                || alternative.contains("Ter")
+                            {
+                                consequences |= Consequence::StopGained;
+                            }
+                        }
+                        hgvs::parser::ProteinEdit::Ins { .. } | hgvs::parser::ProteinEdit::Dup => {
+                            if conservative {
+                                consequences |= Consequence::ConservativeInframeInsertion;
+                            } else {
+                                consequences |= Consequence::DisruptiveInframeInsertion;
+                            }
+                            consequences |= Consequence::ConservativeInframeInsertion;
+                        }
+                        hgvs::parser::ProteinEdit::Del => {
+                            if conservative {
+                                consequences |= Consequence::ConservativeInframeDeletion;
+                            } else {
+                                consequences |= Consequence::DisruptiveInframeDeletion;
+                            }
+                        }
+                        hgvs::parser::ProteinEdit::Ident => {
+                            consequences |= Consequence::SynonymousVariant;
+                        }
+                    };
+                }
+                ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain => {
+                    consequences |= Consequence::SynonymousVariant;
+                }
+                ProtLocEdit::InitiationUncertain => {
+                    consequences |= Consequence::StartLost;
+                }
+                ProtLocEdit::NoProtein | ProtLocEdit::NoProteinUncertain | ProtLocEdit::Unknown => {
+                    ()
+                }
+            },
+            _ => panic!("Must be protein variant: {}", &var_p),
+        }
+        consequences
     }
 
     fn get_var_g(var: &VcfVariant, chrom_acc: &str) -> HgvsVariant {
@@ -988,6 +1002,28 @@ impl ConsequencePredictor {
         }
 
         result
+    }
+}
+
+fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
+    match var_c {
+        HgvsVariant::CdsVariant { loc_edit, .. } => {
+            // Handle the cases where the variant touches the start or stop codon based on `var_c`
+            // coordinates.  The cases where the start/stop codon is touched by the variant
+            // directly is handled above based on the `var_p` prediction.
+            let loc = loc_edit.loc.inner();
+            let start_base = loc.start.base;
+            let start_cds_from = loc.start.cds_from;
+            let end_base = loc.end.base;
+            let end_cds_from = loc.end.cds_from;
+            // The range is "conservative" (regarding deletions and insertions) if
+            // it does not start or end within exons.
+            start_cds_from == CdsFrom::Start
+                && end_cds_from == CdsFrom::Start
+                && start_base % 3 == 1
+                && (end_base + 1) % 3 == 1
+        }
+        _ => panic!("Expected CdsVariant, got {:#?}", var_c),
     }
 }
 
