@@ -750,95 +750,108 @@ impl ConsequencePredictor {
         intron_end: i32,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
+        let intron_start = match intron_start {
+            None => return consequences,
+            Some(x) => x,
+        };
+
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
 
-        if let Some(intron_start) = intron_start {
-            // For insertions, we need to consider the case of the insertion being right at
-            // the exon/intron junction.  We can express this with a shift of 1 for using
-            // "< / >" X +/- shift and meaning <= / >= X.
-            let ins_shift = if var.reference.is_empty() { 1 } else { 0 };
+        // For insertions, we need to consider the case of the insertion being right at
+        // the exon/intron junction.  We can express this with a shift of 1 for using
+        // "< / >" X +/- shift and meaning <= / >= X.
+        let ins_shift = if var.reference.is_empty() { 1 } else { 0 };
 
-            // Check the cases where the variant overlaps with the splice acceptor/donor site.
-            if var_overlaps(intron_start - ins_shift, intron_start + 2) {
-                // Left side, is acceptor/donor depending on transcript's strand.
-                match strand {
-                    Strand::Plus => consequences.insert(Consequence::SpliceDonorVariant),
-                    Strand::Minus => consequences.insert(Consequence::SpliceAcceptorVariant),
-                    _ => unreachable!("invalid strand: {}", alignment.strand),
+        // Check the cases where the variant overlaps with the splice acceptor/donor site.
+        if var_overlaps(intron_start - ins_shift, intron_start + 2) {
+            // Left side, is acceptor/donor depending on transcript's strand.
+            match strand {
+                Strand::Plus => {
+                    consequences |= Consequence::SpliceDonorVariant;
                 }
-            }
-            // Check the case where the variant overlaps with the splice donor site.
-            if var_overlaps(intron_end - 2, intron_end + ins_shift) {
-                // Left side, is acceptor/donor depending on transcript's strand.
-                match strand {
-                    Strand::Plus => consequences.insert(Consequence::SpliceAcceptorVariant),
-                    Strand::Minus => consequences.insert(Consequence::SpliceDonorVariant),
-                    _ => unreachable!("invalid strand: {}", alignment.strand),
+                Strand::Minus => {
+                    consequences |= Consequence::SpliceAcceptorVariant;
                 }
+                _ => unreachable!("invalid strand: {}", alignment.strand),
             }
         }
+
+        // Check the case where the variant overlaps with the splice donor site.
+        if var_overlaps(intron_end - 2, intron_end + ins_shift) {
+            // Left side, is acceptor/donor depending on transcript's strand.
+            match strand {
+                Strand::Plus => {
+                    consequences |= Consequence::SpliceAcceptorVariant;
+                }
+                Strand::Minus => {
+                    consequences |= Consequence::SpliceDonorVariant;
+                }
+                _ => unreachable!("invalid strand: {}", alignment.strand),
+            }
+        }
+
         // Check the case where the variant overlaps with the splice region (1-3 bases in exon
-        // or 3-8 bases in intron).  We have to check all cases independently and not with `else`
+        // or 3-8 bases in intron).
+        // We have to check all cases independently and not with `else`
         // because the variant may be larger.
-        if let Some(intron_start) = intron_start {
-            if var_overlaps(intron_start + 2, intron_start + 8)
-                || var_overlaps(intron_end - 8, intron_end - 2)
-            {
-                consequences |= Consequence::SpliceRegionVariant;
-            }
-            if var_overlaps(exon_end - 3, exon_end) {
-                if strand == Strand::Plus {
-                    if !rank.is_last() {
-                        consequences |= Consequence::SpliceRegionVariant;
-                    }
-                } else {
-                    // alignment.strand == Strand::Minus
-                    if !rank.is_first() {
-                        consequences |= Consequence::SpliceRegionVariant;
-                    }
+        if var_overlaps(intron_start + 2, intron_start + 8)
+            || var_overlaps(intron_end - 8, intron_end - 2)
+        {
+            consequences |= Consequence::SpliceRegionVariant;
+        }
+        if var_overlaps(exon_end - 3, exon_end) {
+            if strand == Strand::Plus {
+                if !rank.is_last() {
+                    consequences |= Consequence::SpliceRegionVariant;
+                }
+            } else {
+                // alignment.strand == Strand::Minus
+                if !rank.is_first() {
+                    consequences |= Consequence::SpliceRegionVariant;
                 }
             }
-            if var_overlaps(exon_start, exon_start + 3) {
-                if strand == Strand::Plus {
-                    if !rank.is_first() {
-                        consequences |= Consequence::SpliceRegionVariant;
-                    }
-                } else {
-                    // alignment.strand == Strand::Minus
-                    if !rank.is_last() {
-                        consequences |= Consequence::SpliceRegionVariant;
-                    }
+        }
+        if var_overlaps(exon_start, exon_start + 3) {
+            if strand == Strand::Plus {
+                if !rank.is_first() {
+                    consequences |= Consequence::SpliceRegionVariant;
+                }
+            } else {
+                // alignment.strand == Strand::Minus
+                if !rank.is_last() {
+                    consequences |= Consequence::SpliceRegionVariant;
                 }
             }
         }
 
-        if let Some(intron_start) = intron_start {
-            // Check the case where the variant overlaps with the polypyrimidine tract.
-            // (A sequence variant that falls in the polypyrimidine tract at 3' end of intron between 17 and 3 bases from the end (acceptor -3 to acceptor -17))
-            if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
-                consequences |= Consequence::SplicePolypyrimidineTractVariant;
-            }
-            if strand == Strand::Minus && var_overlaps(intron_start + 2, intron_start + 17) {
-                consequences |= Consequence::SplicePolypyrimidineTractVariant;
-            }
-            // Check conditions for splice_donor_region_variant
-            // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
-            if strand == Strand::Plus && var_overlaps(intron_start + 2, intron_start + 6) {
-                consequences |= Consequence::SpliceDonorRegionVariant;
-            }
-            if strand == Strand::Minus && var_overlaps(intron_end - 6, intron_end - 2) {
-                consequences |= Consequence::SpliceDonorRegionVariant;
-            }
-            // Check conditions for splice_donor_5th_base_variant
-            // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
-            if strand == Strand::Plus && var_overlaps(intron_start + 4, intron_start + 5) {
-                consequences |= Consequence::SpliceDonorFifthBaseVariant;
-            }
-            if strand == Strand::Minus && var_overlaps(intron_end - 5, intron_end - 4) {
-                consequences |= Consequence::SpliceDonorFifthBaseVariant;
-            }
+        // Check the case where the variant overlaps with the polypyrimidine tract.
+        // (A sequence variant that falls in the polypyrimidine tract at 3' end of intron between 17 and 3 bases from the end (acceptor -3 to acceptor -17))
+        if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
+            consequences |= Consequence::SplicePolypyrimidineTractVariant;
         }
+        if strand == Strand::Minus && var_overlaps(intron_start + 2, intron_start + 17) {
+            consequences |= Consequence::SplicePolypyrimidineTractVariant;
+        }
+
+        // Check conditions for splice_donor_region_variant
+        // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
+        if strand == Strand::Plus && var_overlaps(intron_start + 2, intron_start + 6) {
+            consequences |= Consequence::SpliceDonorRegionVariant;
+        }
+        if strand == Strand::Minus && var_overlaps(intron_end - 6, intron_end - 2) {
+            consequences |= Consequence::SpliceDonorRegionVariant;
+        }
+
+        // Check conditions for splice_donor_5th_base_variant
+        // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
+        if strand == Strand::Plus && var_overlaps(intron_start + 4, intron_start + 5) {
+            consequences |= Consequence::SpliceDonorFifthBaseVariant;
+        }
+        if strand == Strand::Minus && var_overlaps(intron_end - 5, intron_end - 4) {
+            consequences |= Consequence::SpliceDonorFifthBaseVariant;
+        }
+
         consequences
     }
 
