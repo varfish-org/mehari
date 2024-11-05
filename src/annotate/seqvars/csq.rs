@@ -729,7 +729,9 @@ impl ConsequencePredictor {
         // e.g.:
         // 13:32316456:TA:T
         // (This case just shortens a poly-A from which the start codon starts)
-        if consequences_cds.contains(Consequence::StartLost) && !consequences_protein.contains(Consequence::StartLost) {
+        if consequences_cds.contains(Consequence::StartLost)
+            && !consequences_protein.contains(Consequence::StartLost)
+        {
             *consequences &= !Consequence::StartLost;
         }
     }
@@ -872,41 +874,6 @@ impl ConsequencePredictor {
                 let ends_right_of_stop = end_cds_from == CdsFrom::End;
                 if starts_left_of_stop && ends_right_of_stop {
                     consequences |= Consequence::StopLost;
-                }
-
-                match edit {
-                    NaEdit::RefAlt {
-                        reference,
-                        alternative,
-                    } => {
-                        let diff = reference.len().abs_diff(alternative.len());
-                        if alternative.len() < reference.len() && diff % 3 == 0 {
-                            if conservative {
-                                consequences |= Consequence::ConservativeInframeDeletion;
-                            } else {
-                                consequences |= Consequence::DisruptiveInframeDeletion;
-                            }
-                        }
-                    }
-                    NaEdit::DelRef { reference } => {
-                        if reference.len() % 3 == 0 {
-                            if conservative {
-                                consequences |= Consequence::ConservativeInframeDeletion;
-                            } else {
-                                consequences |= Consequence::DisruptiveInframeDeletion;
-                            }
-                        }
-                    }
-                    NaEdit::DelNum { count } => {
-                        if count % 3 == 0 {
-                            if conservative {
-                                consequences |= Consequence::ConservativeInframeDeletion;
-                            } else {
-                                consequences |= Consequence::DisruptiveInframeDeletion;
-                            }
-                        }
-                    }
-                    _ => (),
                 }
 
                 // Detect variants affecting the 5'/3' UTRs.
