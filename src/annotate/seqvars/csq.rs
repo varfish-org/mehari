@@ -850,53 +850,52 @@ impl ConsequencePredictor {
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
-        match &var_c {
-            HgvsVariant::CdsVariant { loc_edit, .. } => {
-                // Handle the cases where the variant touches the start or stop codon based on `var_c`
-                // coordinates.  The cases where the start/stop codon is touched by the variant
-                // directly is handled above based on the `var_p` prediction.
-                let loc = loc_edit.loc.inner();
-                let _edit = loc_edit.edit.inner();
-                let start_base = loc.start.base;
-                let start_cds_from = loc.start.cds_from;
-                // let end_base = loc.end.base;
-                let end_cds_from = loc.end.cds_from;
+        if let HgvsVariant::CdsVariant { loc_edit, .. } = &var_c {
+            // Handle the cases where the variant touches the start or stop codon based on `var_c`
+            // coordinates.  The cases where the start/stop codon is touched by the variant
+            // directly is handled above based on the `var_p` prediction.
+            let loc = loc_edit.loc.inner();
+            let _edit = loc_edit.edit.inner();
+            let start_base = loc.start.base;
+            let start_cds_from = loc.start.cds_from;
+            // let end_base = loc.end.base;
+            let end_cds_from = loc.end.cds_from;
 
-                // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
-                //
-                // start codon
-                let starts_left_of_start = start_cds_from == CdsFrom::Start && start_base < 0;
-                let ends_right_of_start = start_cds_from != CdsFrom::Start || start_base > 0;
-                if starts_left_of_start && ends_right_of_start {
-                    consequences |= Consequence::StartLost;
-                }
-                // stop codon
-                let starts_left_of_stop = start_cds_from == CdsFrom::Start;
-                let ends_right_of_stop = end_cds_from == CdsFrom::End;
-                if starts_left_of_stop && ends_right_of_stop {
-                    consequences |= Consequence::StopLost;
-                }
+            // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
+            //
+            // start codon
+            let starts_left_of_start = start_cds_from == CdsFrom::Start && start_base < 0;
+            let ends_right_of_start = start_cds_from != CdsFrom::Start || start_base > 0;
+            if starts_left_of_start && ends_right_of_start {
+                consequences |= Consequence::StartLost;
+            }
+            // stop codon
+            let starts_left_of_stop = start_cds_from == CdsFrom::Start;
+            let ends_right_of_stop = end_cds_from == CdsFrom::End;
+            if starts_left_of_stop && ends_right_of_stop {
+                consequences |= Consequence::StopLost;
+            }
 
-                // Detect variants affecting the 5'/3' UTRs.
-                if start_cds_from == CdsFrom::Start {
-                    if start_base < 0 {
-                        if is_intronic {
-                            consequences |= Consequence::FivePrimeUtrIntronVariant;
-                        }
-                        if is_exonic {
-                            consequences |= Consequence::FivePrimeUtrExonVariant;
-                        }
-                    }
-                } else if end_cds_from == CdsFrom::End {
+            // Detect variants affecting the 5'/3' UTRs.
+            if start_cds_from == CdsFrom::Start {
+                if start_base < 0 {
                     if is_intronic {
-                        consequences |= Consequence::ThreePrimeUtrIntronVariant;
+                        consequences |= Consequence::FivePrimeUtrIntronVariant;
                     }
                     if is_exonic {
-                        consequences |= Consequence::ThreePrimeUtrExonVariant;
+                        consequences |= Consequence::FivePrimeUtrExonVariant;
                     }
                 }
+            } else if end_cds_from == CdsFrom::End {
+                if is_intronic {
+                    consequences |= Consequence::ThreePrimeUtrIntronVariant;
+                }
+                if is_exonic {
+                    consequences |= Consequence::ThreePrimeUtrExonVariant;
+                }
             }
-            _ => panic!("Must be CDS variant: {}", &var_c),
+        } else {
+            panic!("Must be CDS variant: {}", &var_c)
         };
         consequences
     }
@@ -984,7 +983,6 @@ impl ConsequencePredictor {
                     consequences |= Consequence::StartLost;
                 }
                 ProtLocEdit::NoProtein | ProtLocEdit::NoProteinUncertain | ProtLocEdit::Unknown => {
-                    
                 }
             },
             _ => panic!("Must be protein variant: {}", &var_p),
