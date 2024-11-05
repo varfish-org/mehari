@@ -116,7 +116,7 @@ mod test {
         // Note that the 14kb.txt file contains about 14 KB of data so bgz will have multiple 4KB
         // blocks.
 
-        let mut reader = super::open_read_maybe_gz(&format!("tests/common/io/{}", path))?;
+        let mut reader = super::open_read_maybe_gz(format!("tests/common/io/{}", path))?;
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf)?;
 

@@ -736,6 +736,7 @@ impl ConsequencePredictor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn analyze_intronic_variant(
         var: &VcfVariant,
         alignment: &GenomeAlignment,
@@ -845,7 +846,7 @@ impl ConsequencePredictor {
         var_c: &HgvsVariant,
         is_exonic: bool,
         is_intronic: bool,
-        conservative: bool,
+        _conservative: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -855,7 +856,7 @@ impl ConsequencePredictor {
                 // coordinates.  The cases where the start/stop codon is touched by the variant
                 // directly is handled above based on the `var_p` prediction.
                 let loc = loc_edit.loc.inner();
-                let edit = loc_edit.edit.inner();
+                let _edit = loc_edit.edit.inner();
                 let start_base = loc.start.base;
                 let start_cds_from = loc.start.cds_from;
                 // let end_base = loc.end.base;
@@ -983,7 +984,7 @@ impl ConsequencePredictor {
                     consequences |= Consequence::StartLost;
                 }
                 ProtLocEdit::NoProtein | ProtLocEdit::NoProteinUncertain | ProtLocEdit::Unknown => {
-                    ()
+                    
                 }
             },
             _ => panic!("Must be protein variant: {}", &var_p),
