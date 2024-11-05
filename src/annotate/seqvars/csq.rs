@@ -630,7 +630,7 @@ impl ConsequencePredictor {
                     let consequences_protein =
                         Self::analyze_protein_variant(&var_p, &protein_pos, conservative);
 
-                    consequences = consequences_cds | consequences_protein;
+                    consequences |= consequences_cds | consequences_protein;
 
                     Self::consequences_fix_special_cases(
                         &mut consequences,
