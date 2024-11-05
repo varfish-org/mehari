@@ -93,11 +93,9 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     tracing::info!("args_common = {:?}", &args_common);
     tracing::info!("args = {:?}", &args);
 
-    if let Some(level) = args_common.verbose.log_level() {
-        if let log::Level::Trace | log::Level::Debug = level {
-            std::env::set_var("RUST_LOG", "debug");
-            env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-        }
+    if let Some(log::Level::Trace | log::Level::Debug) = args_common.verbose.log_level() {
+        std::env::set_var("RUST_LOG", "debug");
+        env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     }
 
     // Load data that we need for running the server.
