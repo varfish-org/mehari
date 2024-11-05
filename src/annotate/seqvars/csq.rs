@@ -461,20 +461,21 @@ impl ConsequencePredictor {
                 }
             }
 
-            let consequences_intronic = Self::analyze_intronic_variant(
-                var,
-                alignment,
-                strand,
-                &rank,
-                var_start,
-                var_end,
-                exon_start,
-                exon_end,
-                intron_start,
-                intron_end,
-            );
-
-            consequences |= consequences_intronic;
+            if let Some(intron_start) = intron_start {
+                let consequences_intronic = Self::analyze_intronic_variant(
+                    var,
+                    alignment,
+                    strand,
+                    &rank,
+                    var_start,
+                    var_end,
+                    exon_start,
+                    exon_end,
+                    intron_start,
+                    intron_end,
+                );
+                consequences |= consequences_intronic;
+            }
 
             min_start = Some(std::cmp::min(min_start.unwrap_or(exon_start), exon_start));
             max_end = Some(std::cmp::max(max_end.unwrap_or(exon_end), exon_end));
@@ -746,14 +747,10 @@ impl ConsequencePredictor {
         var_end: i32,
         exon_start: i32,
         exon_end: i32,
-        intron_start: Option<i32>,
+        intron_start: i32,
         intron_end: i32,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
-        let intron_start = match intron_start {
-            None => return consequences,
-            Some(x) => x,
-        };
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
