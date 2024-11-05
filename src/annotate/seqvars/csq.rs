@@ -101,6 +101,8 @@ pub const PADDING: i32 = 5_000;
 /// Generally used alternative alignment method.
 pub const ALT_ALN_METHOD: &str = "splign";
 
+pub type Consequences = BitFlags<Consequence>;
+
 impl ConsequencePredictor {
     pub fn new(provider: Arc<MehariProvider>, assembly: Assembly, config: Config) -> Self {
         tracing::info!("Building transcript interval trees ...");
@@ -374,7 +376,7 @@ impl ConsequencePredictor {
         let alignment = tx.genome_alignments.first().unwrap();
         let strand = Strand::try_from(alignment.strand).expect("invalid strand");
 
-        let mut consequences: BitFlags<Consequence> = BitFlags::empty();
+        let mut consequences = Consequences::empty();
 
         let mut min_start = None;
         let mut max_end = None;
@@ -629,17 +631,11 @@ impl ConsequencePredictor {
 
                     consequences = consequences_cds | consequences_protein;
 
-                    // In some cases, we predict a stop lost based on the cds variant
-                    // but the protein translation does not confirm this.
-                    //
-                    // e.g.:
-                    // 20:35511609:CAAGCCGCCTCCAGGTAGCAGCCACAGCCAGGAGCACACAGACAGAAGACTGTGTCATGGGTCATGGCCCCTCCGCACACCTACAGGTTTGCCAAAGGAA:C
-                    if consequences_cds.contains(Consequence::StopLost)
-                        && !consequences_protein.contains(Consequence::StopGained)
-                    {
-                        consequences &= !Consequence::StopLost;
-                        consequences |= Consequence::StopRetainedVariant;
-                    }
+                    Self::consequences_fix_special_cases(
+                        &mut consequences,
+                        consequences_cds,
+                        consequences_protein,
+                    );
 
                     (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
                 }
@@ -711,6 +707,33 @@ impl ConsequencePredictor {
         }))
     }
 
+    fn consequences_fix_special_cases(
+        consequences: &mut Consequences,
+        consequences_cds: Consequences,
+        consequences_protein: Consequences,
+    ) {
+        // In some cases, we predict a stop lost based on the cds variant
+        // but the protein translation does not confirm this.
+        //
+        // e.g.:
+        // 20:35511609:CAAGCCGCCTCCAGGTAGCAGCCACAGCCAGGAGCACACAGACAGAAGACTGTGTCATGGGTCATGGCCCCTCCGCACACCTACAGGTTTGCCAAAGGAA:C
+        if consequences_cds.contains(Consequence::StopLost)
+            && !consequences_protein.contains(Consequence::StopGained)
+        {
+            *consequences &= !Consequence::StopLost;
+            *consequences |= Consequence::StopRetainedVariant;
+        }
+
+        // Similarly, for the start lost case
+        //
+        // e.g.:
+        // 13:32316456:TA:T
+        // (This case just shortens a poly-A from which the start codon starts)
+        if consequences_cds.contains(Consequence::StartLost) && !consequences_protein.contains(Consequence::StartLost) {
+            *consequences &= !Consequence::StartLost;
+        }
+    }
+
     fn analyze_intronic_variant(
         var: &VcfVariant,
         alignment: &GenomeAlignment,
@@ -722,8 +745,8 @@ impl ConsequencePredictor {
         exon_end: i32,
         intron_start: Option<i32>,
         intron_end: i32,
-    ) -> BitFlags<Consequence> {
-        let mut consequences: BitFlags<Consequence> = BitFlags::empty();
+    ) -> Consequences {
+        let mut consequences: Consequences = Consequences::empty();
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
 
@@ -821,8 +844,8 @@ impl ConsequencePredictor {
         is_exonic: bool,
         is_intronic: bool,
         conservative: bool,
-    ) -> BitFlags<Consequence> {
-        let mut consequences: BitFlags<Consequence> = BitFlags::empty();
+    ) -> Consequences {
+        let mut consequences: Consequences = Consequences::empty();
 
         match &var_c {
             HgvsVariant::CdsVariant { loc_edit, .. } => {
@@ -914,8 +937,8 @@ impl ConsequencePredictor {
         var_p: &HgvsVariant,
         protein_pos: &Option<Pos>,
         conservative: bool,
-    ) -> BitFlags<Consequence> {
-        let mut consequences: BitFlags<Consequence> = BitFlags::empty();
+    ) -> Consequences {
+        let mut consequences: Consequences = Consequences::empty();
 
         // TODO move to hgvs-rs library as method of `ProtPos` or similar
         fn is_stop(s: &str) -> bool {
