@@ -1,10 +1,8 @@
 //! Compute molecular consequence of variants.
-use std::{collections::HashMap, sync::Arc};
-
 use crate::pbs::txs::{GenomeAlignment, Strand, TranscriptBiotype, TranscriptTag};
 use biocommons_bioutils::assemblies::Assembly;
 use enumflags2::BitFlags;
-use hgvs::parser::NoRef;
+use hgvs::parser::{NoRef, ProteinEdit};
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
     mapper::{assembly, Error},
@@ -13,6 +11,8 @@ use hgvs::{
     },
 };
 use itertools::Itertools;
+use std::ops::Range;
+use std::{collections::HashMap, sync::Arc};
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
@@ -632,10 +632,14 @@ impl ConsequencePredictor {
 
                     consequences |= consequences_cds | consequences_protein;
 
-                    Self::consequences_fix_special_cases(
+                    self.consequences_fix_special_cases(
                         &mut consequences,
                         consequences_cds,
                         consequences_protein,
+                        &var_g,
+                        &var_n,
+                        &var_c,
+                        &var_p,
                     );
 
                     (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
@@ -708,10 +712,16 @@ impl ConsequencePredictor {
         }))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn consequences_fix_special_cases(
+        &self,
         consequences: &mut Consequences,
         consequences_cds: Consequences,
         consequences_protein: Consequences,
+        var_g: &HgvsVariant,
+        var_n: &HgvsVariant,
+        var_c: &HgvsVariant,
+        var_p: &HgvsVariant,
     ) {
         // In some cases, we predict a stop lost based on the cds variant
         // but the protein translation does not confirm this.
@@ -722,7 +732,21 @@ impl ConsequencePredictor {
             && !consequences_protein.contains(Consequence::StopLost)
         {
             *consequences &= !Consequence::StopLost;
-            *consequences |= Consequence::StopRetainedVariant;
+
+            if let HgvsVariant::ProtVariant {
+                loc_edit: ProtLocEdit::Ordinary { loc, edit },
+                ..
+            } = var_p
+            {
+                let loc_length = Range::<i32>::from(loc.inner().clone()).len();
+                if let ProteinEdit::DelIns { alternative } = edit.inner() {
+                    if alternative.len() == loc_length {
+                        *consequences |= Consequence::StopRetainedVariant;
+                    }
+                }
+            }
+            // TODO check for feature elongation (which is a specialized StopLost)
+            // *consequences |= Consequence::FeatureElongation;
         }
 
         // Similarly, for the start lost case
