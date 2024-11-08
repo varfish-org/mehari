@@ -125,3 +125,38 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
+
+  Schema:
+    needs: Formatting
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write schema
+        run: cargo run -- server schema --output-file /tmp/openapi.schema.yaml
+
+      - name: Compare YAML in git to the one just generated
+        run: diff openapi.schema.yml /tmp/openapi.schema.yml
+
+      - name: Validate OpenAPI schema
+        uses: thiyagu06/openapi-validator-action@v1
+        with:
+          filepath: /tmp/openapi.schema.yml
