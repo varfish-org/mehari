@@ -32,16 +32,18 @@ enum Source {
 }
 
 message SourceVersion {
+    // Version of mehari used to build the database
+    string mehari_version = 1;
     // Assembly used, either GRCh37 or GRCh38 (or Unknown)
-    Assembly assembly = 1;
+    Assembly assembly = 2;
     // Version of the assembly, optional
-    optional string assembly_version = 2;
+    optional string assembly_version = 3;
     // Source, either RefSeq or Ensembl (or Unknown)
-    Source source = 3;
+    Source source = 4;
     // Version of the source, e.g. 112 for Ensembl
-    string source_version = 4;
+    string source_version = 5;
     // Version of cdot
-    string cdot_version = 5;
+    string cdot_version = 6;
 }
 
 // Mapping from gene to transcript ID.
