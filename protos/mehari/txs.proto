@@ -15,7 +15,7 @@ message SequenceDb {
     repeated uint32 aliases_idx = 2;
     // The corresponding sequences.
     repeated string seqs = 3;
-    // Version information
+    // Version information; allow repeated here to be able to keep track of information when merging databases
     repeated SourceVersion source_version = 4;
 }
 
