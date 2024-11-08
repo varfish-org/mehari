@@ -26,3 +26,8 @@ pub mod pbs;
 pub mod ped;
 pub mod server;
 pub mod verify;
+
+/// Information about the build.
+pub mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}

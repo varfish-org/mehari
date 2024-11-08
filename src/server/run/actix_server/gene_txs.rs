@@ -6,7 +6,6 @@ use crate::pbs::txs::GenomeBuild;
 use actix_web::{
     get,
     web::{self, Data, Json, Path},
-    Responder,
 };
 use hgvs::data::interface::Provider as _;
 
@@ -15,14 +14,13 @@ static PAGE_SIZE_MAX: i32 = 1000;
 /// Default page size.
 static PAGE_SIZE_DEFAULT: i32 = 100;
 
-/// Query for consequence of a variant.
 #[allow(clippy::unused_async)]
 #[get("/genes/txs")]
 async fn handle(
     data: Data<super::WebServerData>,
     _path: Path<()>,
     query: web::Query<GeneTranscriptsQuery>,
-) -> actix_web::Result<impl Responder, super::CustomError> {
+) -> actix_web::Result<Json<GeneTranscriptsResponse>, super::CustomError> {
     let GeneTranscriptsQuery {
         genome_build,
         hgnc_id,
