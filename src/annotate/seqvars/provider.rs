@@ -136,7 +136,9 @@ pub struct Provider {
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
     /// The assembly of the provider.
     assembly: Assembly,
+    /// The data version.
     data_version: String,
+    /// The schema version.
     schema_version: String,
 }
 
@@ -355,6 +357,15 @@ impl Provider {
             data_version,
             schema_version,
         }
+    }
+
+    /// Return the assembly of the provider.
+    ///
+    /// # Returns
+    ///
+    /// The assembly of the provider.
+    pub fn assembly(&self) -> Assembly {
+        self.assembly
     }
 
     /// Return whether transcript picking is enabled.
