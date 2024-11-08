@@ -154,9 +154,9 @@ jobs:
         run: cargo run -- server schema --output-file /tmp/openapi.schema.yaml
 
       - name: Compare YAML in git to the one just generated
-        run: diff openapi.schema.yml /tmp/openapi.schema.yml
+        run: diff openapi.schema.yaml /tmp/openapi.schema.yaml
 
       - name: Validate OpenAPI schema
         uses: thiyagu06/openapi-validator-action@v1
         with:
-          filepath: /tmp/openapi.schema.yml
+          filepath: /tmp/openapi.schema.yaml
