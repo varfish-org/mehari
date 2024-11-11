@@ -10,19 +10,22 @@ pub mod dump;
 pub mod merge;
 pub mod subset;
 
+/// Trait for transcript databases.
 pub trait TranscriptDatabase {
+    /// Get the assembly of the transcript database.
     fn assembly(&self) -> Assembly;
 }
 
 impl TranscriptDatabase for TxSeqDatabase {
     fn assembly(&self) -> Assembly {
-        match self
+        let assembly = self
             .source_version
             .iter()
             .map(|v| pbs::txs::Assembly::try_from(v.assembly).unwrap())
             .next()
-            .unwrap()
-        {
+            .expect("At least one source_version entry expected");
+
+        match assembly {
             pbs::txs::Assembly::Grch37 => Assembly::Grch37p10, // has MT
             pbs::txs::Assembly::Grch38 => Assembly::Grch38,
             _ => panic!("Unsupported assembly"),
