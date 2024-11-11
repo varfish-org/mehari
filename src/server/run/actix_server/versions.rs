@@ -94,16 +94,32 @@ pub struct DataVersionEntry {
     pub version_refseq: Option<String>,
     /// Version of the Ensembl database, if any.
     pub version_ensembl: Option<String>,
+    /// Version of cdot used.
+    pub version_cdot: String,
 }
 
 impl DataVersionEntry {
     /// Create a new `DataVersionEntry` instance from `Provider`.`
     pub fn from_provider(provider: &Provider) -> Self {
         let genome_build = Assembly::from(provider.assembly());
+        let versions = &provider.tx_seq_db.source_version;
+        let version_for = |source_name: i32| {
+            let version = versions
+                .iter()
+                .filter_map(|v| (v.source_name == source_name).then(|| v.source_version.clone()))
+                .collect::<Vec<_>>()
+                .join(",");
+            (!version.is_empty()).then_some(version)
+        };
+        let version_refseq = version_for(i32::from(Source::Refseq));
+        let version_ensembl = version_for(i32::from(Source::Ensembl));
+        let version_cdot = versions.iter().map(|v| v.cdot_version.clone()).join(",");
+
         Self {
             genome_build,
-            version_refseq: None,
-            version_ensembl: None,
+            version_refseq,
+            version_ensembl,
+            version_cdot,
         }
     }
 }
