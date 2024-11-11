@@ -83,8 +83,8 @@ pub struct Args {
     /// Path to the input PED file.
     #[arg(long)]
     pub path_input_ped: Option<String>,
+
     /// Path to the input VCF file.
-    ///
     #[arg(long)]
     pub path_input_vcf: String,
 
@@ -641,10 +641,10 @@ impl VarFishSeqvarTsvWriter {
     /// chrX, chrY, chrM/chrMT).
     fn fill_coords(
         &self,
-        assembly: Assembly,
         record: &VcfRecord,
         tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<bool, anyhow::Error> {
+        let assembly = self.assembly.expect("assembly must have been set");
         tsv_record.release = match assembly {
             Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
             Assembly::Grch38 => String::from("GRCh38"),
@@ -1362,11 +1362,7 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
     ) -> Result<(), anyhow::Error> {
         let mut tsv_record = VarFishSeqvarTsvRecord::default();
 
-        if !self.fill_coords(
-            self.assembly.expect("assembly must have been set"),
-            record,
-            &mut tsv_record,
-        )? {
+        if !self.fill_coords(record, &mut tsv_record)? {
             // Record was not on canonical chromosome and should not be written out.
             return Ok(());
         }
@@ -1732,14 +1728,9 @@ impl ConsequenceAnnotator {
         Self { predictor }
     }
 
-    fn from_db_and_args(
-        tx_db: TxSeqDatabase,
-        args: &Args,
-        assembly: Assembly,
-    ) -> anyhow::Result<Self> {
+    fn from_db_and_args(tx_db: TxSeqDatabase, args: &Args) -> anyhow::Result<Self> {
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            assembly,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(args.pick_transcript.clone())
                 .pick_transcript_mode(args.pick_transcript_mode)
@@ -1747,7 +1738,6 @@ impl ConsequenceAnnotator {
         ));
         let predictor = ConsequencePredictor::new(
             provider,
-            assembly,
             ConsequencePredictorConfigBuilder::default()
                 .report_most_severe_consequence_by(args.report_most_severe_consequence_by)
                 .transcript_source(args.transcript_source)
@@ -1892,7 +1882,7 @@ async fn run_with_writer(
     writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
-    let annotator = setup_annotator(args, assembly)?;
+    let annotator = setup_annotator(args)?;
 
     // Perform the VCF annotation.
     tracing::info!("Annotating VCF ...");
@@ -1951,7 +1941,7 @@ async fn run_with_writer(
     Ok(())
 }
 
-fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> {
+fn setup_annotator(args: &Args) -> Result<Annotator, Error> {
     let mut annotators = vec![];
 
     // Add the frequency annotator if requested.
@@ -1976,8 +1966,7 @@ fn setup_annotator(args: &Args, assembly: Assembly) -> Result<Annotator, Error> 
         )?;
 
         annotators.push(
-            ConsequenceAnnotator::from_db_and_args(tx_db, args, assembly)
-                .map(AnnotatorEnum::Consequence)?,
+            ConsequenceAnnotator::from_db_and_args(tx_db, args).map(AnnotatorEnum::Consequence)?,
         );
     }
 

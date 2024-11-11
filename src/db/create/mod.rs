@@ -9,7 +9,7 @@ use std::path::Path;
 use std::{io::Write, path::PathBuf, time::Instant};
 
 use anyhow::{anyhow, Error};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use derive_new::new;
 use enumflags2::{bitflags, BitFlag, BitFlags};
 use hgvs::data::cdot::json::models;
@@ -31,7 +31,7 @@ use strum::Display;
 use thousands::Separable;
 
 use crate::common::{trace_rss_now, GenomeRelease};
-use crate::pbs::txs::TxSeqDatabase;
+use crate::pbs::txs::{Assembly, Source, SourceVersion, TxSeqDatabase};
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1"];
@@ -41,9 +41,25 @@ const MITOCHONDRIAL_ACCESSION: &str = "NC_012920.1";
 #[derive(Parser, Debug)]
 #[command(about = "Construct mehari transcripts and sequence database", long_about = None)]
 pub struct Args {
-    /// Genome release to extract transcripts for.
+    /// Targeted genome assembly to extract transcripts for.
     #[arg(long)]
-    pub genome_release: GenomeRelease,
+    pub assembly: GenomeRelease,
+
+    /// Version of the genome assembly, e.g. "GRCh37.p13".
+    #[arg(long)]
+    pub assembly_version: Option<String>,
+
+    /// Source of the transcripts. RefSeq, Ensembl, or Other.
+    #[arg(long)]
+    pub transcript_source: TxSource,
+
+    /// Version of the transcript source. E.g. "112" for Ensembl.
+    #[arg(long, required_if_eq("transcript_source", "ensembl"))]
+    pub transcript_source_version: Option<String>,
+
+    /// Version of cdot data.
+    #[arg(long)]
+    pub cdot_version: String,
 
     /// Path to output protobuf file to write to.
     #[arg(long)]
@@ -74,6 +90,17 @@ pub struct Args {
     /// Number of threads to use for steps supporting parallel processing.
     #[arg(long, default_value = "1")]
     pub threads: usize,
+}
+
+/// Source of the transcripts.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum TxSource {
+    /// RefSeq.
+    RefSeq,
+    /// Ensembl.
+    Ensembl,
+    /// Other.
+    Other,
 }
 
 /// Helper struct for parsing the label TSV file.
@@ -1140,7 +1167,7 @@ impl TranscriptLoader {
     fn build_protobuf(
         &mut self,
         sequence_map: &mut HashMap<TranscriptId, String>,
-        genome_release: GenomeRelease,
+        source_version: SourceVersion,
     ) -> Result<TxSeqDatabase, Error> {
         tracing::info!("Constructing protobuf data structures …");
         let start = Instant::now();
@@ -1253,7 +1280,7 @@ impl TranscriptLoader {
             tx_db: Some(tx_db),
             seq_db: Some(seq_db),
             version: Some(crate::common::version().to_string()),
-            genome_release: Some(genome_release.name()),
+            source_version: vec![source_version],
         };
 
         tracing::info!(" … done composing transcript seq database");
@@ -1588,7 +1615,7 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
         .path_cdot_json
         .iter()
         .map(|cdot_path| {
-            let mut loader = TranscriptLoader::new(args.genome_release);
+            let mut loader = TranscriptLoader::new(args.assembly);
             loader.load_cdot(cdot_path).map(|_| loader)
         })
         .collect::<Result<Vec<_>, Error>>()?;
@@ -1706,8 +1733,10 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
             "n_mane_plus_clinical": n_mane_plus_clinical
         })))?;
 
-        // … and finally build protobuf file.
-        let tx_db = tx_data.build_protobuf(&mut sequence_map, args.genome_release)?;
+        let source_version = bundle_source_version_information(args);
+
+        // … and finally construct protobuf txdb data structures.
+        let tx_db = tx_data.build_protobuf(&mut sequence_map, source_version)?;
 
         // List all discarded transcripts and genes.
         for (id, reason) in tx_data.discards.into_iter().sorted_unstable() {
@@ -1725,6 +1754,33 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
 
         tracing::info!("Done building transcript and sequence database file");
         Ok(())
+    }
+
+    fn bundle_source_version_information(args: &Args) -> SourceVersion {
+        let assembly = match args.assembly {
+            GenomeRelease::Grch37 => Assembly::Grch37,
+            GenomeRelease::Grch38 => Assembly::Grch38,
+        };
+
+        let assembly_version = args.assembly_version.clone();
+
+        let source_name = match args.transcript_source {
+            TxSource::RefSeq => Source::Refseq,
+            TxSource::Ensembl => Source::Ensembl,
+            TxSource::Other => Source::Unknown,
+        };
+
+        let source_version = args.transcript_source_version.clone().unwrap_or("".into());
+        let cdot_version = args.cdot_version.clone();
+
+        SourceVersion {
+            mehari_version: crate::common::version().to_string(),
+            assembly: i32::from(assembly),
+            assembly_version,
+            source_name: i32::from(source_name),
+            source_version,
+            cdot_version,
+        }
     }
 
     let threadpool = rayon::ThreadPoolBuilder::default()
@@ -1780,7 +1836,7 @@ pub mod test {
     use temp_testdir::TempDir;
 
     use crate::common::{Args as CommonArgs, GenomeRelease};
-    use crate::db::create::TranscriptLoader;
+    use crate::db::create::{TranscriptLoader, TxSource};
     use crate::db::dump;
 
     use super::{run, Args};
@@ -1834,10 +1890,14 @@ pub mod test {
             )],
             path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
-            genome_release: GenomeRelease::Grch38,
+            assembly: GenomeRelease::Grch38,
+            assembly_version: None,
+            transcript_source: TxSource::RefSeq,
+            transcript_source_version: None,
             max_txs: None,
             gene_symbols: None,
             threads: 1,
+            cdot_version: "0.2.22".to_string(),
         };
 
         run(&common_args, &args)?;
@@ -1869,10 +1929,14 @@ pub mod test {
             )],
             path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/seleonoproteins/latest"),
-            genome_release: GenomeRelease::Grch38,
+            assembly: GenomeRelease::Grch38,
+            assembly_version: None,
+            transcript_source: TxSource::RefSeq,
+            transcript_source_version: None,
             max_txs: None,
             gene_symbols: None,
             threads: 1,
+            cdot_version: "0.2.22".to_string(),
         };
 
         run(&common_args, &args)?;
@@ -1905,10 +1969,14 @@ pub mod test {
             )],
             path_mane_txs_tsv: None,
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/mitochondrial/latest"),
-            genome_release: GenomeRelease::Grch37,
+            assembly: GenomeRelease::Grch37,
+            assembly_version: None,
+            transcript_source: TxSource::Ensembl,
+            transcript_source_version: Some("98".into()),
             max_txs: None,
             gene_symbols: None,
             threads: 1,
+            cdot_version: "0.2.23".to_string(),
         };
 
         run(&common_args, &args)?;

@@ -170,12 +170,12 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         tracing::info!("  - loading {}", &path);
         let tx_db = load_tx_db(&path)?;
         tracing::info!("  - building interval trees");
-        let provider = Arc::new(MehariProvider::new(tx_db, assembly, Default::default()));
+        let provider = Arc::new(MehariProvider::new(tx_db, Default::default()));
         data.provider.insert(genome_release, provider.clone());
         tracing::info!("  - building seqvars predictors");
         data.seqvars_predictors.insert(
             genome_release,
-            SeqvarConsequencePredictor::new(provider.clone(), assembly, Default::default()),
+            SeqvarConsequencePredictor::new(provider.clone(), Default::default()),
         );
         tracing::info!("  - building strucvars predictors");
         data.strucvars_predictors.insert(

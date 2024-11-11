@@ -3,6 +3,7 @@ use crate::common;
 use crate::db::create::write_tx_db;
 use crate::pbs::txs::TxSeqDatabase;
 use clap::Parser;
+use itertools::Itertools;
 use std::collections::HashMap;
 
 /// Merge two or more mehari transcript databases.
@@ -25,9 +26,27 @@ pub fn merge_transcript_databases(
         if !others.is_empty() {
             tracing::info!("Merging multiple transcript databases into one");
         }
-        assert!(others
+
+        // Ensure that all databases use the same assembly.
+        if !first.source_version.iter().map(|v| v.assembly).all_equal() {
+            return Err(anyhow::anyhow!(
+                "Inconsistent assembly versions in first database"
+            ));
+        }
+        let assembly = first
+            .source_version
+            .first()
+            .expect("At least one source_version entry expected")
+            .assembly;
+
+        if !others
             .iter()
-            .all(|db| first.genome_release == db.genome_release));
+            .all(|db| db.source_version.iter().all(|v| v.assembly == assembly))
+        {
+            return Err(anyhow::anyhow!(
+                "All databases must use the same assembly version"
+            ));
+        }
 
         let seq_db = first.seq_db.as_mut().unwrap();
         let tx_db = first.tx_db.as_mut().unwrap();
