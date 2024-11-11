@@ -27,6 +27,7 @@ use strum::IntoEnumIterator;
     serde::Deserialize,
     serde::Serialize,
     strum::EnumIter,
+    utoipa::ToSchema,
 )]
 #[display(style = "UPPERCASE")]
 #[serde(rename_all = "UPPERCASE")]
@@ -54,6 +55,7 @@ pub enum PutativeImpact {
     serde::Deserialize,
     serde::Serialize,
     strum::EnumIter,
+    utoipa::ToSchema,
 )]
 #[display(style = "snake_case")]
 #[serde(rename_all = "snake_case")]
@@ -440,6 +442,7 @@ impl FromStr for Allele {
     FromStr,
     serde::Deserialize,
     serde::Serialize,
+    utoipa::ToSchema,
 )]
 #[display(style = "snake_case")]
 pub enum SoFeature {
@@ -448,7 +451,16 @@ pub enum SoFeature {
 
 /// Enum for `AnnField::feature_type`.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Display, serde::Deserialize, serde::Serialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    serde::Deserialize,
+    serde::Serialize,
+    utoipa::ToSchema,
 )]
 pub enum FeatureType {
     #[display("{term}")]
@@ -486,7 +498,9 @@ impl FromStr for FeatureType {
     serde::Deserialize,
     serde::Serialize,
     strum::EnumIter,
+    utoipa::ToSchema,
 )]
+#[serde(rename_all = "snake_case")]
 pub enum FeatureBiotype {
     /// Is coding transcript.
     Coding,
@@ -518,6 +532,7 @@ impl FeatureBiotype {
     Default,
     serde::Deserialize,
     serde::Serialize,
+    utoipa::ToSchema,
 )]
 #[display("{ord}/{total}")]
 pub struct Rank {
@@ -539,7 +554,16 @@ impl Rank {
 
 /// Position, optionally with total length.
 #[derive(
-    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default, serde::Deserialize, serde::Serialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Default,
+    serde::Deserialize,
+    serde::Serialize,
+    utoipa::ToSchema,
 )]
 pub struct Pos {
     pub ord: i32,
@@ -618,8 +642,10 @@ impl FromStr for Pos {
     FromStr,
     serde::Deserialize,
     serde::Serialize,
+    utoipa::ToSchema,
 )]
 #[display(style = "SNAKE_CASE")]
+#[serde(rename_all = "snake_case")]
 pub enum Message {
     ErrorChromosomeNotFound,
     ErrorOutOfChromosomeRange,
