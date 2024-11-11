@@ -1825,7 +1825,7 @@ pub mod test {
     use temp_testdir::TempDir;
 
     use crate::common::{Args as CommonArgs, GenomeRelease};
-    use crate::db::create::TranscriptLoader;
+    use crate::db::create::{TranscriptLoader, TxSource};
     use crate::db::dump;
 
     use super::{run, Args};
@@ -1880,9 +1880,12 @@ pub mod test {
             path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
             assembly: GenomeRelease::Grch38,
+            transcript_source: TxSource::RefSeq,
+            transcript_source_version: None,
             max_txs: None,
             gene_symbols: None,
             threads: 1,
+            cdot_version: "0.2.22".to_string(),
         };
 
         run(&common_args, &args)?;
@@ -1915,9 +1918,12 @@ pub mod test {
             path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/seleonoproteins/latest"),
             assembly: GenomeRelease::Grch38,
+            transcript_source: TxSource::RefSeq,
+            transcript_source_version: None,
             max_txs: None,
             gene_symbols: None,
             threads: 1,
+            cdot_version: "0.2.22".to_string(),
         };
 
         run(&common_args, &args)?;
@@ -1951,9 +1957,12 @@ pub mod test {
             path_mane_txs_tsv: None,
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/mitochondrial/latest"),
             assembly: GenomeRelease::Grch37,
+            transcript_source: TxSource::Ensembl,
+            transcript_source_version: Some("98".into()),
             max_txs: None,
             gene_symbols: None,
             threads: 1,
+            cdot_version: "0.2.23".to_string(),
         };
 
         run(&common_args, &args)?;
