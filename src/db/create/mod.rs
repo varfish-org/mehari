@@ -54,7 +54,7 @@ pub struct Args {
     pub transcript_source: TxSource,
 
     /// Version of the transcript source. E.g. "112" for Ensembl.
-    #[arg(long, required_if_eq("transcript_source", "Ensembl"))]
+    #[arg(long, required_if_eq("transcript_source", "ensembl"))]
     pub transcript_source_version: Option<String>,
 
     /// Version of cdot data.
