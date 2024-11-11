@@ -83,8 +83,8 @@ pub struct Args {
     /// Path to the input PED file.
     #[arg(long)]
     pub path_input_ped: Option<String>,
+
     /// Path to the input VCF file.
-    ///
     #[arg(long)]
     pub path_input_vcf: String,
 
