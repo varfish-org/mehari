@@ -156,7 +156,7 @@ jobs:
       - name: Copy repo schema and strip versions
         run: |
           cp openapi.schema.yaml /tmp/openapi.schema.yaml-repo
-          perl -p -i -e 's/^  version: .*/  version: STRIPPED/' /tmp/*.yaml-*
+          perl -p -i -e 's/^  version: .*/  version: 0.0.0/' /tmp/*.yaml-*
 
       - name: Compare YAML in git to the one just generated
         run: diff /tmp/openapi.schema.yaml-repo /tmp/openapi.schema.yaml-gen
