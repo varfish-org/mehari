@@ -2,7 +2,6 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::pbs::txs::{Strand, TranscriptBiotype, TranscriptTag};
-use biocommons_bioutils::assemblies::Assembly;
 use enumflags2::BitFlags;
 use hgvs::parser::NoRef;
 use hgvs::{
@@ -102,9 +101,10 @@ pub const PADDING: i32 = 5_000;
 pub const ALT_ALN_METHOD: &str = "splign";
 
 impl ConsequencePredictor {
-    pub fn new(provider: Arc<MehariProvider>, assembly: Assembly, config: Config) -> Self {
+    pub fn new(provider: Arc<MehariProvider>, config: Config) -> Self {
         tracing::info!("Building transcript interval trees ...");
-        let acc_to_chrom: indexmap::IndexMap<String, String> = provider.get_assembly_map(assembly);
+        let acc_to_chrom: indexmap::IndexMap<String, String> =
+            provider.get_assembly_map(provider.assembly());
         let mut chrom_to_acc = HashMap::new();
         for (acc, chrom) in &acc_to_chrom {
             let chrom = if chrom.starts_with("chr") {
@@ -1046,14 +1046,9 @@ mod test {
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            Assembly::Grch37p10,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, Default::default()));
 
-        let predictor =
-            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+        let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let res = predictor
             .predict(&VcfVariant {
@@ -1130,7 +1125,6 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1143,7 +1137,6 @@ mod test {
         use crate::annotate::seqvars::ConsequencePredictorConfigBuilder;
         let predictor = ConsequencePredictor::new(
             provider,
-            Assembly::Grch37p10,
             ConsequencePredictorConfigBuilder::default()
                 .report_most_severe_consequence_by(Some(ConsequenceBy::Gene))
                 .build()?,
@@ -1235,7 +1228,6 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1245,8 +1237,7 @@ mod test {
                 .build()?,
         ));
 
-        let predictor =
-            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+        let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let res = predictor
             .predict(&VcfVariant {
@@ -1295,7 +1286,6 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1305,8 +1295,7 @@ mod test {
                 .build()?,
         ));
 
-        let predictor =
-            ConsequencePredictor::new(provider, Assembly::Grch37p10, Default::default());
+        let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let res = predictor
             .predict(&VcfVariant {
@@ -1363,7 +1352,6 @@ mod test {
         };
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
                 .build()
@@ -1377,7 +1365,6 @@ mod test {
 
         let predictor = ConsequencePredictor::new(
             provider,
-            Assembly::Grch37p10,
             ConfigBuilder::default()
                 .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()
@@ -1435,7 +1422,6 @@ mod test {
 
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            Assembly::Grch37p10,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
                 .build()
@@ -1450,7 +1436,6 @@ mod test {
 
         let predictor = ConsequencePredictor::new(
             provider,
-            Assembly::Grch37p10,
             ConfigBuilder::default()
                 .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()
@@ -1564,11 +1549,7 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            Assembly::Grch37p10,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, Default::default()));
 
         let report_most_severe_consequence_by = if report_most_severe_consequence_only {
             Some(ConsequenceBy::Gene)
@@ -1578,7 +1559,6 @@ mod test {
 
         let predictor = ConsequencePredictor::new(
             provider,
-            Assembly::Grch37p10,
             ConfigBuilder::default()
                 .report_most_severe_consequence_by(report_most_severe_consequence_by)
                 .build()

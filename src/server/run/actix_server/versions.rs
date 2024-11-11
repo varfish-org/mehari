@@ -1,11 +1,11 @@
+use super::CustomError;
+use crate::pbs::txs::Source;
+use crate::{annotate::seqvars::provider::Provider, pbs};
 use actix_web::{
     get,
     web::{self, Data, Json, Path},
 };
-
-use crate::{annotate::seqvars::provider::Provider, pbs};
-
-use super::CustomError;
+use itertools::Itertools;
 
 /// Assembly to be passed on the command line.
 ///

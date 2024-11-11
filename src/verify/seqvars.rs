@@ -147,7 +147,6 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     let provider = Arc::new(MehariProvider::new(
         tx_db,
-        assembly,
         MehariProviderConfigBuilder::default()
             .pick_transcript(args.pick_transcript.clone())
             .pick_transcript_mode(args.pick_transcript_mode)
@@ -156,7 +155,6 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     let predictor = ConsequencePredictor::new(
         provider,
-        assembly,
         ConsequencePredictorConfigBuilder::default()
             .report_most_severe_consequence_by(args.report_most_severe_consequence_by)
             .build()?,
