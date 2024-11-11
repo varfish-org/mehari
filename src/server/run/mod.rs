@@ -17,7 +17,7 @@ pub mod actix_server;
 /// Module with OpenAPI documentation.
 pub mod openapi {
     use crate::annotate::seqvars::ann::{
-        Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank,
+        Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank, SoFeature,
     };
     use crate::annotate::strucvars::csq::interface::StrucvarsSvType;
     use crate::annotate::strucvars::csq::{
@@ -65,7 +65,8 @@ pub mod openapi {
             FeatureBiotype,
             Rank,
             Pos,
-            Message
+            Message,
+            SoFeature,
         ))
     )]
     pub struct ApiDoc;

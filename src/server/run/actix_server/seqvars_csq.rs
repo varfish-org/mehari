@@ -42,7 +42,6 @@ pub(crate) struct SeqvarsCsqQuery {
 
 /// One entry in `SeqvarsCsqResponse`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "snake_case")]
 pub(crate) struct SeqvarsCsqResultEntry {
     /// The consequences of the allele.
     pub consequences: Vec<Consequence>,

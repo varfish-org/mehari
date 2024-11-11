@@ -462,6 +462,7 @@ pub enum SoFeature {
     serde::Serialize,
     utoipa::ToSchema,
 )]
+#[serde(rename_all = "snake_case")]
 pub enum FeatureType {
     #[display("{term}")]
     SoTerm { term: SoFeature },
