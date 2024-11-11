@@ -9800,5 +9800,5 @@ version: 0.25.7
 sourceVersion:
 - mehariVersion: 0.29.6
   assembly: ASSEMBLY_GRCH37
-  source: SOURCE_REFSEQ
+  sourceName: SOURCE_REFSEQ
   cdotVersion: 0.2.23
