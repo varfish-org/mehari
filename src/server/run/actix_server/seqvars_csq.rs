@@ -1,9 +1,10 @@
-//! Implementation of `/seqvars/csq` endpoint.
+//! Implementation of endpoint `/api/v1/seqvars/csq`.
+//!
+//! Also includes the implementation of the `/seqvars/csq` endpoint (deprecated).
 
 use actix_web::{
     get,
     web::{self, Data, Json, Path},
-    Responder,
 };
 
 use crate::{
@@ -16,12 +17,15 @@ use crate::{
     common::GenomeRelease,
 };
 
-/// Parameters for `/seqvars/csq`.
-///
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+use super::{versions::VersionsInfoResponse, CustomError};
+
+/// Query parameters of the `/api/v1/seqvars/csq` endpoint.
+#[derive(
+    Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::IntoParams, utoipa::ToSchema,
+)]
 #[serde(rename_all = "snake_case")]
 #[serde_with::skip_serializing_none]
-struct Query {
+pub(crate) struct SeqvarsCsqQuery {
     /// The assembly.
     pub genome_release: GenomeRelease,
     /// SPDI sequence.
@@ -36,10 +40,9 @@ struct Query {
     pub hgnc_id: Option<String>,
 }
 
-/// Result entry for the API.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-struct ResultEntry {
+/// One entry in `SeqvarsCsqResponse`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub(crate) struct SeqvarsCsqResultEntry {
     /// The consequences of the allele.
     pub consequences: Vec<Consequence>,
     /// The putative impact.
@@ -74,26 +77,24 @@ struct ResultEntry {
     pub messages: Option<Vec<Message>>,
 }
 
-/// Container for the result.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct Container {
+/// Response of the `/api/v1/seqvars/csq` endpoint.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub(crate) struct SeqvarsCsqResponse {
     /// Version information.
-    pub version: crate::common::Version,
+    pub version: VersionsInfoResponse,
     /// The original query records.
-    pub query: Query,
+    pub query: SeqvarsCsqQuery,
     /// The resulting records for the scored genes.
-    pub result: Vec<ResultEntry>,
+    pub result: Vec<SeqvarsCsqResultEntry>,
 }
 
-/// Query for consequence of a variant.
-#[allow(clippy::unused_async)]
-#[get("/seqvars/csq")]
-async fn handle(
+/// Implementation of endpoints.
+async fn handle_impl(
     data: Data<super::WebServerData>,
     _path: Path<()>,
-    query: web::Query<Query>,
-) -> actix_web::Result<impl Responder, super::CustomError> {
-    let Query {
+    query: web::Query<SeqvarsCsqQuery>,
+) -> actix_web::Result<Json<SeqvarsCsqResponse>, super::CustomError> {
+    let SeqvarsCsqQuery {
         genome_release,
         chromosome,
         position,
@@ -148,7 +149,7 @@ async fn handle(
                 messages,
                 ..
             } = ann_field;
-            let entry = ResultEntry {
+            let entry = SeqvarsCsqResultEntry {
                 consequences,
                 putative_impact,
                 gene_symbol,
@@ -180,11 +181,45 @@ async fn handle(
 
     result.sort_by_key(|e| e.putative_impact);
 
-    let result = Container {
-        version: crate::common::Version::new(predictor.data_version()),
+    let result = SeqvarsCsqResponse {
+        version: VersionsInfoResponse::from_web_server_data(data.into_inner().as_ref())
+            .map_err(|e| CustomError::new(anyhow::anyhow!("Problem determining version: {}", e)))?,
         query: query.into_inner(),
         result,
     };
 
     Ok(Json(result))
+}
+
+/// Query for consequence of a variant.
+#[allow(clippy::unused_async)]
+#[get("/seqvars/csq")]
+async fn handle(
+    data: Data<super::WebServerData>,
+    _path: Path<()>,
+    query: web::Query<SeqvarsCsqQuery>,
+) -> actix_web::Result<Json<SeqvarsCsqResponse>, super::CustomError> {
+    handle_impl(data, _path, query).await
+}
+
+/// Query for consequence of a variant.
+#[allow(clippy::unused_async)]
+#[utoipa::path(
+    get,
+    operation_id = "seqvarsCsq",
+    params(
+        SeqvarsCsqQuery
+    ),
+    responses(
+        (status = 200, description = "Seqvars consequence information.", body = SeqvarsCsqResponse),
+        (status = 500, description = "Internal server error.", body = CustomError)
+    )
+)]
+#[get("/api/v1/seqvars/csq")]
+async fn handle_with_openapi(
+    data: Data<super::WebServerData>,
+    _path: Path<()>,
+    query: web::Query<SeqvarsCsqQuery>,
+) -> actix_web::Result<Json<SeqvarsCsqResponse>, super::CustomError> {
+    handle_impl(data, _path, query).await
 }
