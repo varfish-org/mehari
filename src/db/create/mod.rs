@@ -96,7 +96,7 @@ pub struct Args {
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum TxSource {
     /// RefSeq.
-    RefSeq,
+    Refseq,
     /// Ensembl.
     Ensembl,
     /// Other.
@@ -1765,7 +1765,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         let assembly_version = args.assembly_version.clone();
 
         let source_name = match args.transcript_source {
-            TxSource::RefSeq => Source::Refseq,
+            TxSource::Refseq => Source::Refseq,
             TxSource::Ensembl => Source::Ensembl,
             TxSource::Other => Source::Unknown,
         };
@@ -1892,7 +1892,7 @@ pub mod test {
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
             assembly: GenomeRelease::Grch38,
             assembly_version: None,
-            transcript_source: TxSource::RefSeq,
+            transcript_source: TxSource::Refseq,
             transcript_source_version: None,
             max_txs: None,
             gene_symbols: None,
@@ -1931,7 +1931,7 @@ pub mod test {
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/seleonoproteins/latest"),
             assembly: GenomeRelease::Grch38,
             assembly_version: None,
-            transcript_source: TxSource::RefSeq,
+            transcript_source: TxSource::Refseq,
             transcript_source_version: None,
             max_txs: None,
             gene_symbols: None,
