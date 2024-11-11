@@ -1,0 +1,91 @@
+openapi: 3.0.3
+info:
+  title: mehari
+  description: Variant effect prediction all in Rust
+  contact:
+    name: Manuel Holtgrewe
+    email: manuel.holtgrewe@bih-charite.de
+  license:
+    name: MIT
+  version: 0.29.6
+paths:
+  /api/v1/versionsInfo:
+    get:
+      tags:
+      - versions
+      summary: Query for consequence of a variant.
+      operationId: versionsInfo
+      responses:
+        '200':
+          description: Version information.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionsInfoResponse'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomError'
+components:
+  schemas:
+    Assembly:
+      type: string
+      description: |-
+        Assembly to be passed on the command line.
+
+        Copy from annonars with extension to derive `utoipa::ToSchema`.
+      enum:
+      - grch37
+      - grch38
+    CustomError:
+      type: object
+      required:
+      - err
+      properties:
+        err:
+          type: string
+    DataVersionEntry:
+      type: object
+      description: Specification of data version for a given genome build.
+      required:
+      - genome_build
+      properties:
+        genome_build:
+          $ref: '#/components/schemas/Assembly'
+        version_refseq:
+          type: string
+          description: Version of the RefSeq database, if any.
+          nullable: true
+        version_ensembl:
+          type: string
+          description: Version of the Ensembl database, if any.
+          nullable: true
+    SoftwareVersions:
+      type: object
+      description: Software version specification.
+      required:
+      - mehari
+      - hgvs_rs
+      properties:
+        mehari:
+          type: string
+          description: Version of `mehari`.
+        hgvs_rs:
+          type: string
+          description: Version of the `hgvs` crate.
+    VersionsInfoResponse:
+      type: object
+      description: Response of the `/api/v1/version` endpoint.
+      required:
+      - software
+      - data
+      properties:
+        software:
+          $ref: '#/components/schemas/SoftwareVersions'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataVersionEntry'
+          description: Data versions specification.

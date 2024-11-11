@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use actix_web::ResponseError;
+use utoipa::OpenApi as _;
 
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::annotate::strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor;
@@ -11,10 +12,11 @@ use crate::{annotate::seqvars::csq::ConsequencePredictor, common::GenomeRelease}
 pub mod gene_txs;
 pub mod seqvars_csq;
 pub mod strucvars_csq;
+pub mod versions;
 
-#[derive(Debug)]
-struct CustomError {
-    err: anyhow::Error,
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct CustomError {
+    err: String,
 }
 
 impl std::fmt::Display for CustomError {
@@ -25,7 +27,9 @@ impl std::fmt::Display for CustomError {
 
 impl CustomError {
     fn new(err: anyhow::Error) -> Self {
-        CustomError { err }
+        CustomError {
+            err: err.to_string(),
+        }
     }
 }
 
@@ -55,8 +59,14 @@ pub async fn main(
         actix_web::App::new()
             .app_data(data.clone())
             .service(gene_txs::handle)
+            .service(gene_txs::handle_with_openapi)
             .service(seqvars_csq::handle)
             .service(strucvars_csq::handle)
+            .service(versions::handle)
+            .service(
+                utoipa_swagger_ui::SwaggerUi::new("/swagger-ui/{_:.*}")
+                    .url("/api-docs/openapi.json", super::openapi::ApiDoc::openapi()),
+            )
             .wrap(actix_web::middleware::Logger::default())
     })
     .bind((args.listen_host.as_str(), args.listen_port))?
