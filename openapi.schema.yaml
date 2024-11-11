@@ -51,6 +51,7 @@ components:
       description: Specification of data version for a given genome build.
       required:
       - genome_build
+      - version_cdot
       properties:
         genome_build:
           $ref: '#/components/schemas/Assembly'
@@ -62,6 +63,9 @@ components:
           type: string
           description: Version of the Ensembl database, if any.
           nullable: true
+        version_cdot:
+          type: string
+          description: Version of cdot used.
     SoftwareVersions:
       type: object
       description: Software version specification.
