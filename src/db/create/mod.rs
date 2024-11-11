@@ -58,6 +58,7 @@ pub struct Args {
     pub transcript_source_version: Option<String>,
 
     /// Version of cdot data.
+    #[arg(long)]
     pub cdot_version: String,
 
     /// Path to output protobuf file to write to.
@@ -91,10 +92,14 @@ pub struct Args {
     pub threads: usize,
 }
 
+/// Source of the transcripts.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum TxSource {
+    /// RefSeq.
     RefSeq,
+    /// Ensembl.
     Ensembl,
+    /// Other.
     Other,
 }
 
@@ -1759,7 +1764,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
 
         let assembly_version = args.assembly_version.clone();
 
-        let source = match args.transcript_source {
+        let source_name = match args.transcript_source {
             TxSource::RefSeq => Source::Refseq,
             TxSource::Ensembl => Source::Ensembl,
             TxSource::Other => Source::Unknown,
@@ -1772,7 +1777,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
             mehari_version: crate::common::version().to_string(),
             assembly: i32::from(assembly),
             assembly_version,
-            source: i32::from(source),
+            source_name: i32::from(source_name),
             source_version,
             cdot_version,
         }

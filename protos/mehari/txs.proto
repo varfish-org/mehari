@@ -17,30 +17,38 @@ message SequenceDb {
     repeated string seqs = 3;
 }
 
+// Indicates the reference assembly of the transcript database.
 enum Assembly {
+    // Unknown.
     ASSEMBLY_UNKNOWN = 0;
+    // GRCh37.
     ASSEMBLY_GRCH37 = 1;
+    // GRCh38.
     ASSEMBLY_GRCH38 = 2;
 }
 
+// Indicates the transcript source.
 enum Source {
+    // Unknown.
     SOURCE_UNKNOWN = 0;
+    // RefSeq.
     SOURCE_REFSEQ = 1;
+    // Ensembl.
     SOURCE_ENSEMBL = 2;
 }
 
 message SourceVersion {
-    // Version of mehari used to build the database
+    // Version of mehari used to build the database.
     string mehari_version = 1;
-    // Assembly used, either GRCh37 or GRCh38 (or Unknown)
+    // Assembly used, either GRCh37 or GRCh38 (or Unknown).
     Assembly assembly = 2;
-    // Version of the assembly, optional
+    // Version of the assembly, optional.
     optional string assembly_version = 3;
-    // Source, either RefSeq or Ensembl (or Unknown)
-    Source source = 4;
-    // Version of the source, e.g. 112 for Ensembl
+    // Source, either RefSeq or Ensembl (or Unknown).
+    Source source_name = 4;
+    // Version of the source, e.g. 112 for Ensembl.
     string source_version = 5;
-    // Version of cdot
+    // Version of cdot.
     string cdot_version = 6;
 }
 
@@ -182,8 +190,6 @@ message TxSeqDatabase {
     SequenceDb seq_db = 2;
     // The version of the database.
     optional string version = 3;
-//    // The reference assembly that this database refers to. Removed in favour of source_version
-//    optional string genome_release = 4;
     // Version information; allow repeated here to be able to keep track of information when merging databases
     repeated SourceVersion source_version = 5;
 }

@@ -31,8 +31,7 @@ pub fn merge_transcript_databases(
         assert!(first.source_version.iter().map(|v| v.assembly).all_equal());
         let assembly = first
             .source_version
-            .iter()
-            .next()
+            .first()
             .expect("At least one source_version entry expected")
             .assembly;
         assert!(others
