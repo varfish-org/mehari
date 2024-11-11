@@ -151,10 +151,15 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Write schema
-        run: cargo run -- server schema --output-file /tmp/openapi.schema.yaml
+        run: cargo run -- server schema --output-file /tmp/openapi.schema.yaml-gen
+
+      - name: Copy repo schema and strip versions
+        run: |
+          cp openapi.schema.yml /tmp/openapi.schema.yaml-repo
+          perl -p -i -e 's/^  version: .*/  version: STRIPPED' /tmp/*.yaml-*
 
       - name: Compare YAML in git to the one just generated
-        run: diff openapi.schema.yaml /tmp/openapi.schema.yaml
+        run: diff /tmp/openapi.schema.yaml-repo /tmp/openapi.schema.yaml-gen
 
       - name: Validate OpenAPI schema
         uses: thiyagu06/openapi-validator-action@v1
