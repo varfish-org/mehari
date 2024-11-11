@@ -61,7 +61,9 @@ pub async fn main(
             .service(gene_txs::handle)
             .service(gene_txs::handle_with_openapi)
             .service(seqvars_csq::handle)
+            .service(seqvars_csq::handle_with_openapi)
             .service(strucvars_csq::handle)
+            .service(strucvars_csq::handle_with_openapi)
             .service(versions::handle)
             .service(
                 utoipa_swagger_ui::SwaggerUi::new("/swagger-ui/{_:.*}")

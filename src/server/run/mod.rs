@@ -16,22 +16,57 @@ pub mod actix_server;
 
 /// Module with OpenAPI documentation.
 pub mod openapi {
+    use crate::annotate::seqvars::ann::{
+        Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank, SoFeature,
+    };
+    use crate::annotate::strucvars::csq::interface::StrucvarsSvType;
+    use crate::annotate::strucvars::csq::{
+        StrucvarsGeneTranscriptEffects, StrucvarsTranscriptEffect,
+    };
+    use crate::common::GenomeRelease;
+    use crate::server::run::actix_server::seqvars_csq::{
+        SeqvarsCsqQuery, SeqvarsCsqResponse, SeqvarsCsqResultEntry,
+    };
+    use crate::server::run::actix_server::strucvars_csq::{
+        StrucvarsCsqQuery, StrucvarsCsqResponse,
+    };
     use crate::server::run::actix_server::versions::{
         Assembly, DataVersionEntry, SoftwareVersions, VersionsInfoResponse,
     };
 
-    use super::actix_server::{versions, CustomError};
+    use super::actix_server::{seqvars_csq, strucvars_csq, versions, CustomError};
 
     /// Utoipa-based `OpenAPI` generation helper.
     #[derive(utoipa::OpenApi)]
     #[openapi(
-        paths(versions::handle),
+        paths(
+            versions::handle,
+            seqvars_csq::handle_with_openapi,
+            strucvars_csq::handle_with_openapi
+        ),
         components(schemas(
             Assembly,
             CustomError,
             VersionsInfoResponse,
             SoftwareVersions,
-            DataVersionEntry
+            DataVersionEntry,
+            StrucvarsCsqResponse,
+            StrucvarsCsqQuery,
+            StrucvarsGeneTranscriptEffects,
+            StrucvarsSvType,
+            GenomeRelease,
+            StrucvarsTranscriptEffect,
+            SeqvarsCsqQuery,
+            SeqvarsCsqResponse,
+            SeqvarsCsqResultEntry,
+            Consequence,
+            PutativeImpact,
+            FeatureType,
+            FeatureBiotype,
+            Rank,
+            Pos,
+            Message,
+            SoFeature,
         ))
     )]
     pub struct ApiDoc;

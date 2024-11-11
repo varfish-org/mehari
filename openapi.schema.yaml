@@ -9,6 +9,118 @@ info:
     name: MIT
   version: 0.29.6
 paths:
+  /api/v1/seqvars/csq:
+    get:
+      tags:
+      - seqvars_csq
+      summary: Query for consequence of a variant.
+      operationId: seqvarsCsq
+      parameters:
+      - name: genome_release
+        in: query
+        description: The assembly.
+        required: true
+        schema:
+          $ref: '#/components/schemas/GenomeRelease'
+      - name: chromosome
+        in: query
+        description: SPDI sequence.
+        required: true
+        schema:
+          type: string
+      - name: position
+        in: query
+        description: SPDI position.
+        required: true
+        schema:
+          type: integer
+          format: int32
+          minimum: 0
+      - name: reference
+        in: query
+        description: SPDI deletion.
+        required: true
+        schema:
+          type: string
+      - name: alternative
+        in: query
+        description: SPDI insertion.
+        required: true
+        schema:
+          type: string
+      - name: hgnc_id
+        in: query
+        description: Optionally, the HGNC ID of the gene to limit to.
+        required: false
+        schema:
+          type: string
+          nullable: true
+      responses:
+        '200':
+          description: Seqvars consequence information.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeqvarsCsqResponse'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomError'
+  /api/v1/strucvars/csq:
+    get:
+      tags:
+      - strucvars_csq
+      summary: Query for consequence of a variant.
+      operationId: strucvarsCsq
+      parameters:
+      - name: genome_release
+        in: query
+        description: The assembly.
+        required: true
+        schema:
+          $ref: '#/components/schemas/GenomeRelease'
+      - name: chromosome
+        in: query
+        description: Chromosome.
+        required: true
+        schema:
+          type: string
+      - name: start
+        in: query
+        description: 1-based start position.
+        required: true
+        schema:
+          type: integer
+          format: int32
+      - name: stop
+        in: query
+        description: 1-based stop position, ignored for INS.
+        required: false
+        schema:
+          type: integer
+          format: int32
+          nullable: true
+      - name: sv_type
+        in: query
+        description: The variant type to use for annotation.
+        required: true
+        schema:
+          $ref: '#/components/schemas/StrucvarsSvType'
+      responses:
+        '200':
+          description: Strucvars consequence information.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StrucvarsCsqResponse'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomError'
   /api/v1/versionsInfo:
     get:
       tags:
@@ -39,6 +151,52 @@ components:
       enum:
       - grch37
       - grch38
+    Consequence:
+      type: string
+      description: Putative impact.
+      enum:
+      - transcript_ablation
+      - exon_loss_variant
+      - splice_acceptor_variant
+      - splice_donor_variant
+      - stop_gained
+      - frameshift_variant
+      - stop_lost
+      - start_lost
+      - transcript_amplification
+      - feature_elongation
+      - feature_truncation
+      - disruptive_inframe_insertion
+      - disruptive_inframe_deletion
+      - conservative_inframe_insertion
+      - conservative_inframe_deletion
+      - missense_variant
+      - splice_donor_5th_base_variant
+      - splice_region_variant
+      - splice_donor_region_variant
+      - splice_polypyrimidine_tract_variant
+      - start_retained_variant
+      - stop_retained_variant
+      - synonymous_variant
+      - coding_sequence_variant
+      - mature_miRNA_variant
+      - 5_prime_UTR_exon_variant
+      - 5_prime_UTR_intron_variant
+      - 3_prime_UTR_exon_variant
+      - 3_prime_UTR_intron_variant
+      - non_coding_transcript_exon_variant
+      - non_coding_transcript_intron_variant
+      - upstream_gene_variant
+      - downstream_gene_variant
+      - TFBS_ablation
+      - TFBS_amplification
+      - TF_binding_site_variant
+      - regulatory_region_ablation
+      - regulatory_region_amplification
+      - regulatory_region_variant
+      - intergenic_variant
+      - intron_variant
+      - gene_variant
     CustomError:
       type: object
       required:
@@ -66,6 +224,218 @@ components:
         version_cdot:
           type: string
           description: Version of cdot used.
+    FeatureBiotype:
+      type: string
+      description: Encode feature biotype.
+      enum:
+      - coding
+      - noncoding
+      - mane_select
+      - mane_plus_clinical
+    FeatureType:
+      oneOf:
+      - type: object
+        required:
+        - so_term
+        properties:
+          so_term:
+            type: object
+            required:
+            - term
+            properties:
+              term:
+                $ref: '#/components/schemas/SoFeature'
+      - type: object
+        required:
+        - custom
+        properties:
+          custom:
+            type: object
+            required:
+            - value
+            properties:
+              value:
+                type: string
+      description: Enum for `AnnField::feature_type`.
+    GenomeRelease:
+      type: string
+      description: Select the genome release to use.
+      enum:
+      - grch37
+      - grch38
+    Message:
+      type: string
+      description: A message to be used in `AnnField::messages`.
+      enum:
+      - error_chromosome_not_found
+      - error_out_of_chromosome_range
+      - warning_ref_does_not_match_genome
+      - warning_sequence_not_available
+      - warning_transcript_incomplete
+      - warning_transcript_multiple_stop_codons
+      - warning_transcripts_no_start_codon
+      - info_realign_three_prime
+      - info_compound_annotation
+      - info_non_reference_annotation
+    Pos:
+      type: object
+      description: Position, optionally with total length.
+      required:
+      - ord
+      properties:
+        ord:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int32
+          nullable: true
+    PutativeImpact:
+      type: string
+      description: Putative impact level.
+      enum:
+      - high
+      - moderate
+      - low
+      - modifier
+    Rank:
+      type: object
+      description: Encode exon/intron rank.
+      required:
+      - ord
+      - total
+      properties:
+        ord:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int32
+    SeqvarsCsqQuery:
+      type: object
+      description: Query parameters of the `/api/v1/seqvars/csq` endpoint.
+      required:
+      - genome_release
+      - chromosome
+      - position
+      - reference
+      - alternative
+      properties:
+        genome_release:
+          $ref: '#/components/schemas/GenomeRelease'
+        chromosome:
+          type: string
+          description: SPDI sequence.
+        position:
+          type: integer
+          format: int32
+          description: SPDI position.
+          minimum: 0
+        reference:
+          type: string
+          description: SPDI deletion.
+        alternative:
+          type: string
+          description: SPDI insertion.
+        hgnc_id:
+          type: string
+          description: Optionally, the HGNC ID of the gene to limit to.
+          nullable: true
+    SeqvarsCsqResponse:
+      type: object
+      description: Response of the `/api/v1/seqvars/csq` endpoint.
+      required:
+      - version
+      - query
+      - result
+      properties:
+        version:
+          $ref: '#/components/schemas/VersionsInfoResponse'
+        query:
+          $ref: '#/components/schemas/SeqvarsCsqQuery'
+        result:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeqvarsCsqResultEntry'
+          description: The resulting records for the scored genes.
+    SeqvarsCsqResultEntry:
+      type: object
+      description: One entry in `SeqvarsCsqResponse`.
+      required:
+      - consequences
+      - putative_impact
+      - gene_symbol
+      - gene_id
+      - feature_type
+      - feature_id
+      - feature_biotype
+      - feature_tag
+      properties:
+        consequences:
+          type: array
+          items:
+            $ref: '#/components/schemas/Consequence'
+          description: The consequences of the allele.
+        putative_impact:
+          $ref: '#/components/schemas/PutativeImpact'
+        gene_symbol:
+          type: string
+          description: The gene symbol.
+        gene_id:
+          type: string
+          description: The gene identifier.
+        feature_type:
+          $ref: '#/components/schemas/FeatureType'
+        feature_id:
+          type: string
+          description: The feature identifier.
+        feature_biotype:
+          $ref: '#/components/schemas/FeatureBiotype'
+        feature_tag:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeatureBiotype'
+          description: The feature tags.
+        rank:
+          allOf:
+          - $ref: '#/components/schemas/Rank'
+          nullable: true
+        hgvs_t:
+          type: string
+          description: HGVS c. notation.
+          nullable: true
+        hgvs_p:
+          type: string
+          description: HGVS p. notation.
+          nullable: true
+        tx_pos:
+          allOf:
+          - $ref: '#/components/schemas/Pos'
+          nullable: true
+        cds_pos:
+          allOf:
+          - $ref: '#/components/schemas/Pos'
+          nullable: true
+        protein_pos:
+          allOf:
+          - $ref: '#/components/schemas/Pos'
+          nullable: true
+        distance:
+          type: integer
+          format: int32
+          description: Distance to feature.
+          nullable: true
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+          description: Optional list of warnings and error messages.
+          nullable: true
+    SoFeature:
+      type: string
+      description: Sequence ontology feature.
+      enum:
+      - Transcript
     SoftwareVersions:
       type: object
       description: Software version specification.
@@ -79,6 +449,83 @@ components:
         hgvs_rs:
           type: string
           description: Version of the `hgvs` crate.
+    StrucvarsCsqQuery:
+      type: object
+      description: Query parameters of the `/api/v1/strucvars/csq` endpoint.
+      required:
+      - genome_release
+      - chromosome
+      - start
+      - sv_type
+      properties:
+        genome_release:
+          $ref: '#/components/schemas/GenomeRelease'
+        chromosome:
+          type: string
+          description: Chromosome.
+        start:
+          type: integer
+          format: int32
+          description: 1-based start position.
+        stop:
+          type: integer
+          format: int32
+          description: 1-based stop position, ignored for INS.
+          nullable: true
+        sv_type:
+          $ref: '#/components/schemas/StrucvarsSvType'
+    StrucvarsCsqResponse:
+      type: object
+      description: Response of the `/api/v1/strucvars/csq` endpoint.
+      required:
+      - version
+      - query
+      - result
+      properties:
+        version:
+          $ref: '#/components/schemas/VersionsInfoResponse'
+        query:
+          $ref: '#/components/schemas/StrucvarsCsqQuery'
+        result:
+          type: array
+          items:
+            $ref: '#/components/schemas/StrucvarsGeneTranscriptEffects'
+          description: The resulting records for the affected genes.
+    StrucvarsGeneTranscriptEffects:
+      type: object
+      description: Explanation of transcript effect per individual gene.
+      required:
+      - hgnc_id
+      - transcript_effects
+      properties:
+        hgnc_id:
+          type: string
+          description: HGNC identifier
+        transcript_effects:
+          type: array
+          items:
+            $ref: '#/components/schemas/StrucvarsTranscriptEffect'
+          description: Transcript effects for the gene.
+    StrucvarsSvType:
+      type: string
+      description: Structural Variant type.
+      enum:
+      - DEL
+      - DUP
+      - INS
+      - INV
+      - BND
+    StrucvarsTranscriptEffect:
+      type: string
+      description: Enumeration for effect on transcript.
+      enum:
+      - transcript_variant
+      - exon_variant
+      - splice_region_variant
+      - intron_variant
+      - upstream_variant
+      - downstream_variant
+      - intergenic_variant
     VersionsInfoResponse:
       type: object
       description: Response of the `/api/v1/version` endpoint.
