@@ -46,6 +46,7 @@ pub fn trace_rss_now() {
     Eq,
     Hash,
     Default,
+    utoipa::ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum GenomeRelease {
