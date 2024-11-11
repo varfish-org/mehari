@@ -12,10 +12,20 @@ use crate::{
 
 /// Enumeration for effect on transcript.
 #[derive(
-    serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Debug,
+    Clone,
+    Copy,
+    utoipa::ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
-pub enum TranscriptEffect {
+// #[schema(as=StrucvarsTranscriptEffect)] // TODO: rename back to TranscriptEffect once utoipa's as= is fixed.
+pub enum StrucvarsTranscriptEffect {
     /// Affects the full transcript.
     TranscriptVariant,
     /// An exon is affected by the SV.
@@ -32,17 +42,17 @@ pub enum TranscriptEffect {
     IntergenicVariant,
 }
 
-impl TranscriptEffect {
+impl StrucvarsTranscriptEffect {
     /// Return vector with all transcript effects.
-    pub fn vec_all() -> Vec<TranscriptEffect> {
+    pub fn vec_all() -> Vec<StrucvarsTranscriptEffect> {
         vec![
-            TranscriptEffect::TranscriptVariant,
-            TranscriptEffect::ExonVariant,
-            TranscriptEffect::SpliceRegionVariant,
-            TranscriptEffect::IntronVariant,
-            TranscriptEffect::UpstreamVariant,
-            TranscriptEffect::DownstreamVariant,
-            TranscriptEffect::IntergenicVariant,
+            StrucvarsTranscriptEffect::TranscriptVariant,
+            StrucvarsTranscriptEffect::ExonVariant,
+            StrucvarsTranscriptEffect::SpliceRegionVariant,
+            StrucvarsTranscriptEffect::IntronVariant,
+            StrucvarsTranscriptEffect::UpstreamVariant,
+            StrucvarsTranscriptEffect::DownstreamVariant,
+            StrucvarsTranscriptEffect::IntergenicVariant,
         ]
     }
 }
@@ -51,9 +61,20 @@ impl TranscriptEffect {
 pub mod interface {
     /// Structural Variant type.
     #[derive(
-        serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
+        serde::Serialize,
+        serde::Deserialize,
+        Debug,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        Hash,
+        utoipa::ToSchema,
     )]
-    pub enum StrucVarType {
+    // #[schema(as=StrucvarsSvType)] // TODO: rename back to StrucVarType once utoipa's as= is fixed.
+    pub enum StrucvarsSvType {
         #[serde(rename = "DEL")]
         Del,
         #[serde(rename = "DUP")]
@@ -109,7 +130,7 @@ pub mod interface {
         fn stop(&self) -> i32;
 
         /// Type of the structural variant
-        fn sv_type(&self) -> StrucVarType;
+        fn sv_type(&self) -> StrucvarsSvType;
         /// The strand orientation of the structural variant, if applicable.
         fn strand_orientation(&self) -> StrandOrientation;
     }
@@ -125,16 +146,17 @@ struct TxRegion {
     // "arbitrary" number
     no: usize,
     // effect of the transcript (encodes region type)
-    effect: TranscriptEffect,
+    effect: StrucvarsTranscriptEffect,
 }
 
 /// Explanation of transcript effect per individual gene.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct GeneTranscriptEffects {
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, utoipa::ToSchema)]
+// #[schema(as=StrucvarsGeneTranscriptEffects)] // TODO: rename back to GeneTranscriptEffects once utoipa's as= is fixed.
+pub struct StrucvarsGeneTranscriptEffects {
     /// HGNC identifier
     hgnc_id: String,
     /// Transcript effects for the gene.
-    transcript_effects: Vec<TranscriptEffect>,
+    transcript_effects: Vec<StrucvarsTranscriptEffect>,
 }
 
 /// Length of the upstream/downstream region.
@@ -188,9 +210,9 @@ fn tx_regions(tx: &Transcript) -> Vec<TxRegion> {
                 end: exon_alignment.alt_start_i - 1,
                 no,
                 effect: if genome_alignment.strand == Strand::Plus as i32 {
-                    TranscriptEffect::UpstreamVariant
+                    StrucvarsTranscriptEffect::UpstreamVariant
                 } else {
-                    TranscriptEffect::DownstreamVariant
+                    StrucvarsTranscriptEffect::DownstreamVariant
                 },
             });
         } else {
@@ -199,7 +221,7 @@ fn tx_regions(tx: &Transcript) -> Vec<TxRegion> {
                 begin: (exon_alignment.alt_start_i - 1) - 8,
                 end: (exon_alignment.alt_start_i - 1) + 3,
                 no,
-                effect: TranscriptEffect::SpliceRegionVariant,
+                effect: StrucvarsTranscriptEffect::SpliceRegionVariant,
             })
         }
 
@@ -210,9 +232,9 @@ fn tx_regions(tx: &Transcript) -> Vec<TxRegion> {
                 end: exon_alignment.alt_end_i + X_STREAM,
                 no,
                 effect: if genome_alignment.strand == Strand::Plus as i32 {
-                    TranscriptEffect::DownstreamVariant
+                    StrucvarsTranscriptEffect::DownstreamVariant
                 } else {
-                    TranscriptEffect::UpstreamVariant
+                    StrucvarsTranscriptEffect::UpstreamVariant
                 },
             });
         } else {
@@ -221,7 +243,7 @@ fn tx_regions(tx: &Transcript) -> Vec<TxRegion> {
                 begin: exon_alignment.alt_end_i - 3,
                 end: exon_alignment.alt_end_i + 8,
                 no,
-                effect: TranscriptEffect::SpliceRegionVariant,
+                effect: StrucvarsTranscriptEffect::SpliceRegionVariant,
             })
         }
 
@@ -230,7 +252,7 @@ fn tx_regions(tx: &Transcript) -> Vec<TxRegion> {
             begin: exon_alignment.alt_start_i - 1,
             end: exon_alignment.alt_end_i,
             no,
-            effect: TranscriptEffect::ExonVariant,
+            effect: StrucvarsTranscriptEffect::ExonVariant,
         });
 
         if exon_alignment.alt_start_i != tx_start {
@@ -239,7 +261,7 @@ fn tx_regions(tx: &Transcript) -> Vec<TxRegion> {
                 begin: prev_alt_end_i,
                 end: exon_alignment.alt_start_i - 1,
                 no,
-                effect: TranscriptEffect::IntronVariant,
+                effect: StrucvarsTranscriptEffect::IntronVariant,
             });
         }
 
@@ -251,7 +273,7 @@ fn tx_regions(tx: &Transcript) -> Vec<TxRegion> {
 }
 
 /// Return the transcript region / effect for the given breakpoint.
-fn gene_tx_effects_for_bp(tx: &Transcript, pos: i32) -> Vec<TranscriptEffect> {
+fn gene_tx_effects_for_bp(tx: &Transcript, pos: i32) -> Vec<StrucvarsTranscriptEffect> {
     // Obtain list of regions for transcript.
     let regions = tx_regions(tx);
 
@@ -263,7 +285,7 @@ fn gene_tx_effects_for_bp(tx: &Transcript, pos: i32) -> Vec<TranscriptEffect> {
         .map(|r| r.effect)
         .collect::<Vec<_>>();
     if result.is_empty() {
-        result.push(TranscriptEffect::IntergenicVariant);
+        result.push(StrucvarsTranscriptEffect::IntergenicVariant);
     } else {
         result.sort();
         result.dedup();
@@ -272,7 +294,11 @@ fn gene_tx_effects_for_bp(tx: &Transcript, pos: i32) -> Vec<TranscriptEffect> {
 }
 
 /// Return the transcript region / effect for the given range.
-fn gene_tx_effect_for_range(tx: &Transcript, start: i32, stop: i32) -> Vec<TranscriptEffect> {
+fn gene_tx_effect_for_range(
+    tx: &Transcript,
+    start: i32,
+    stop: i32,
+) -> Vec<StrucvarsTranscriptEffect> {
     // Obtain list of regions for transcript.
     let regions = tx_regions(tx);
 
@@ -289,10 +315,10 @@ fn gene_tx_effect_for_range(tx: &Transcript, start: i32, stop: i32) -> Vec<Trans
     result.dedup();
 
     // If we have both upstream and downstream then the full transcript is affected.
-    if result.contains(&TranscriptEffect::UpstreamVariant)
-        && result.contains(&TranscriptEffect::DownstreamVariant)
+    if result.contains(&StrucvarsTranscriptEffect::UpstreamVariant)
+        && result.contains(&StrucvarsTranscriptEffect::DownstreamVariant)
     {
-        result.push(TranscriptEffect::TranscriptVariant);
+        result.push(StrucvarsTranscriptEffect::TranscriptVariant);
     }
 
     result
@@ -304,7 +330,7 @@ fn compute_tx_effects_for_breakpoint(
     mehari_tx_db: &TxSeqDatabase,
     mehari_tx_idx: &TxIntervalTrees,
     chrom_to_acc: &HashMap<String, String>,
-) -> Vec<GeneTranscriptEffects> {
+) -> Vec<StrucvarsGeneTranscriptEffects> {
     // Shortcut to the `TranscriptDb`.
     let tx_db = mehari_tx_db
         .tx_db
@@ -342,10 +368,12 @@ fn compute_tx_effects_for_breakpoint(
         // Convert the results into the final format.
         effects_by_gene
             .into_iter()
-            .map(|(hgnc_id, transcript_effects)| GeneTranscriptEffects {
-                hgnc_id,
-                transcript_effects,
-            })
+            .map(
+                |(hgnc_id, transcript_effects)| StrucvarsGeneTranscriptEffects {
+                    hgnc_id,
+                    transcript_effects,
+                },
+            )
             .collect()
     } else {
         // We do not have any transcripts for this chromosome.
@@ -359,7 +387,7 @@ fn compute_tx_effects_for_linear(
     mehari_tx_db: &TxSeqDatabase,
     mehari_tx_idx: &TxIntervalTrees,
     chrom_to_acc: &HashMap<String, String>,
-) -> Vec<GeneTranscriptEffects> {
+) -> Vec<StrucvarsGeneTranscriptEffects> {
     // Shortcut to the `TranscriptDb`.
     let tx_db = mehari_tx_db
         .tx_db
@@ -397,10 +425,12 @@ fn compute_tx_effects_for_linear(
         // Convert the results into the final format.
         effects_by_gene
             .into_iter()
-            .map(|(hgnc_id, transcript_effects)| GeneTranscriptEffects {
-                hgnc_id,
-                transcript_effects,
-            })
+            .map(
+                |(hgnc_id, transcript_effects)| StrucvarsGeneTranscriptEffects {
+                    hgnc_id,
+                    transcript_effects,
+                },
+            )
             .collect()
     } else {
         // We do not have any transcripts for this chromosome.
@@ -447,9 +477,9 @@ impl ConsequencePredictor {
         // mehari_tx_db: &TxSeqDatabase,
         // mehari_tx_idx: &TxIntervalTrees,
         // chrom_to_acc: &HashMap<String, String>,
-    ) -> Vec<GeneTranscriptEffects> {
+    ) -> Vec<StrucvarsGeneTranscriptEffects> {
         match sv.sv_type() {
-            interface::StrucVarType::Ins | interface::StrucVarType::Bnd => {
+            interface::StrucvarsSvType::Ins | interface::StrucvarsSvType::Bnd => {
                 compute_tx_effects_for_breakpoint(
                     sv,
                     &self.provider.tx_seq_db,
@@ -457,9 +487,9 @@ impl ConsequencePredictor {
                     &self.chrom_to_acc,
                 )
             }
-            interface::StrucVarType::Del
-            | interface::StrucVarType::Dup
-            | interface::StrucVarType::Inv => compute_tx_effects_for_linear(
+            interface::StrucvarsSvType::Del
+            | interface::StrucvarsSvType::Dup
+            | interface::StrucvarsSvType::Inv => compute_tx_effects_for_linear(
                 sv,
                 &self.provider.tx_seq_db,
                 &self.provider.tx_trees,

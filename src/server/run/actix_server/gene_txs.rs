@@ -1,4 +1,6 @@
-//! Implementation of `/seqvars/csq` endpoint.
+//! Implementation of endpoint `/api/v1/genes/transcripts`.
+//!
+//! Also includes the implementation of the `/genes/txs` endpoint (deprecated).
 
 use crate::common::GenomeRelease;
 use crate::pbs;
@@ -73,7 +75,7 @@ fn genes_tx_impl(
     })
 }
 
-/// Implementation of the `/genes/txs` endpoint.
+/// Query for transcripts of a gene.
 #[allow(clippy::unused_async)]
 #[get("/genes/txs")]
 async fn handle(
@@ -337,7 +339,7 @@ impl TryFrom<pbs::server::GeneTranscriptsResponse> for GenesTranscriptsListRespo
     }
 }
 
-/// Query for consequence of a variant.
+/// Query for transcripts of a gene.
 #[allow(clippy::unused_async)]
 #[utoipa::path(
     get,
