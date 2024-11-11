@@ -37,6 +37,7 @@ enum Source {
     SOURCE_ENSEMBL = 2;
 }
 
+// Version information for the database.
 message SourceVersion {
     // Version of mehari used to build the database.
     string mehari_version = 1;
