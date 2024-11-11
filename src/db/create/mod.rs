@@ -45,6 +45,10 @@ pub struct Args {
     #[arg(long)]
     pub assembly: GenomeRelease,
 
+    /// Version of the genome assembly, e.g. "GRCh37.p13".
+    #[arg(long)]
+    pub assembly_version: Option<String>,
+
     /// Source of the transcripts. RefSeq, Ensembl, or Other.
     #[arg(long)]
     pub transcript_source: TxSource,
@@ -1753,6 +1757,8 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
             GenomeRelease::Grch38 => Assembly::Grch38,
         };
 
+        let assembly_version = args.assembly_version.clone();
+
         let source = match args.transcript_source {
             TxSource::RefSeq => Source::Refseq,
             TxSource::Ensembl => Source::Ensembl,
@@ -1765,7 +1771,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         SourceVersion {
             mehari_version: crate::common::version().to_string(),
             assembly: i32::from(assembly),
-            assembly_version: None,
+            assembly_version,
             source: i32::from(source),
             source_version,
             cdot_version,
@@ -1880,6 +1886,7 @@ pub mod test {
             path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
             assembly: GenomeRelease::Grch38,
+            assembly_version: None,
             transcript_source: TxSource::RefSeq,
             transcript_source_version: None,
             max_txs: None,
@@ -1918,6 +1925,7 @@ pub mod test {
             path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/seleonoproteins/latest"),
             assembly: GenomeRelease::Grch38,
+            assembly_version: None,
             transcript_source: TxSource::RefSeq,
             transcript_source_version: None,
             max_txs: None,
@@ -1957,6 +1965,7 @@ pub mod test {
             path_mane_txs_tsv: None,
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/mitochondrial/latest"),
             assembly: GenomeRelease::Grch37,
+            assembly_version: None,
             transcript_source: TxSource::Ensembl,
             transcript_source_version: Some("98".into()),
             max_txs: None,

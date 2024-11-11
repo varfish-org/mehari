@@ -182,6 +182,8 @@ message TxSeqDatabase {
     SequenceDb seq_db = 2;
     // The version of the database.
     optional string version = 3;
+//    // The reference assembly that this database refers to. Removed in favour of source_version
+//    optional string genome_release = 4;
     // Version information; allow repeated here to be able to keep track of information when merging databases
-    repeated SourceVersion source_version = 4;
+    repeated SourceVersion source_version = 5;
 }
