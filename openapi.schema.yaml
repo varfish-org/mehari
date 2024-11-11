@@ -77,7 +77,7 @@ components:
           description: Version of the `hgvs` crate.
     VersionsInfoResponse:
       type: object
-      description: Response of the `/v1/version` endpoint.
+      description: Response of the `/api/v1/version` endpoint.
       required:
       - software
       - data
