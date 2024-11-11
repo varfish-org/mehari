@@ -7,16 +7,16 @@ expression: res
       alternative: C
   consequences:
     - missense_variant
-  putative_impact: MODERATE
+  putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007294.4
   feature_biotype:
-    - Coding
-    - ManeSelect
+    - coding
+    - mane_select
   rank:
     ord: 23
     total: 23
@@ -39,15 +39,15 @@ expression: res
       alternative: C
   consequences:
     - missense_variant
-  putative_impact: MODERATE
+  putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007297.4
   feature_biotype:
-    - Coding
+    - coding
   rank:
     ord: 22
     total: 22
@@ -70,15 +70,15 @@ expression: res
       alternative: C
   consequences:
     - missense_variant
-  putative_impact: MODERATE
+  putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007298.3
   feature_biotype:
-    - Coding
+    - coding
   rank:
     ord: 22
     total: 22
@@ -101,15 +101,15 @@ expression: res
       alternative: C
   consequences:
     - 3_prime_UTR_exon_variant
-  putative_impact: MODIFIER
+  putative_impact: modifier
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007299.4
   feature_biotype:
-    - Coding
+    - coding
   rank:
     ord: 22
     total: 22
@@ -130,15 +130,15 @@ expression: res
       alternative: C
   consequences:
     - missense_variant
-  putative_impact: MODERATE
+  putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007300.4
   feature_biotype:
-    - Coding
+    - coding
   rank:
     ord: 24
     total: 24
