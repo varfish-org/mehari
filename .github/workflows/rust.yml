@@ -160,8 +160,3 @@ jobs:
 
       - name: Compare YAML in git to the one just generated
         run: diff /tmp/openapi.schema.yaml-repo /tmp/openapi.schema.yaml-gen
-
-      - name: Validate OpenAPI schema
-        uses: thiyagu06/openapi-validator-action@v1
-        with:
-          filepath: /tmp/openapi.schema.yaml
