@@ -116,7 +116,7 @@ fn subset_tx_db(
         tx_db,
         seq_db,
         version: container.version.clone(),
-        genome_release: container.genome_release.clone(),
+        source_version: container.source_version.clone(),
     })
 }
 

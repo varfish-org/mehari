@@ -342,7 +342,11 @@ impl Provider {
             "{:?}{}{}{:?}",
             assembly,
             tx_seq_db.version.as_ref().unwrap_or(&"".to_string()),
-            tx_seq_db.genome_release.as_ref().unwrap_or(&"".to_string()),
+            tx_seq_db
+                .source_version
+                .iter()
+                .map(|v| format!("{:#?}", v))
+                .join(","),
             config
         );
         let schema_version = data_version.clone();
