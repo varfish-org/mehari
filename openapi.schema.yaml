@@ -232,9 +232,9 @@ components:
       oneOf:
       - type: object
         required:
-        - SoTerm
+        - so_term
         properties:
-          SoTerm:
+          so_term:
             type: object
             required:
             - term
@@ -243,9 +243,9 @@ components:
                 $ref: '#/components/schemas/SoFeature'
       - type: object
         required:
-        - Custom
+        - custom
         properties:
-          Custom:
+          custom:
             type: object
             required:
             - value
@@ -290,10 +290,10 @@ components:
       type: string
       description: Putative impact level.
       enum:
-      - HIGH
-      - MODERATE
-      - LOW
-      - MODIFIER
+      - high
+      - moderate
+      - low
+      - modifier
     Rank:
       type: object
       description: Encode exon/intron rank.

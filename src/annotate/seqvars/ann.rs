@@ -30,7 +30,7 @@ use strum::IntoEnumIterator;
     utoipa::ToSchema,
 )]
 #[display(style = "UPPERCASE")]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "snake_case")]
 pub enum PutativeImpact {
     High,
     Moderate,
