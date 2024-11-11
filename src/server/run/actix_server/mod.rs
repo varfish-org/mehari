@@ -59,6 +59,7 @@ pub async fn main(
         actix_web::App::new()
             .app_data(data.clone())
             .service(gene_txs::handle)
+            .service(gene_txs::handle_with_openapi)
             .service(seqvars_csq::handle)
             .service(strucvars_csq::handle)
             .service(versions::handle)
