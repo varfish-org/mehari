@@ -35,6 +35,7 @@ pub mod openapi {
     };
 
     use super::actix_server::{seqvars_csq, strucvars_csq, versions, CustomError};
+    use super::actix_server::{strucvars_csq, versions, CustomError};
 
     /// Utoipa-based `OpenAPI` generation helper.
     #[derive(utoipa::OpenApi)]
