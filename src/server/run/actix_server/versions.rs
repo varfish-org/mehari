@@ -3,7 +3,7 @@ use actix_web::{
     web::{self, Data, Json, Path},
 };
 
-use crate::annotate::seqvars::provider::Provider;
+use crate::{annotate::seqvars::provider::Provider, pbs};
 
 use super::CustomError;
 
@@ -37,6 +37,27 @@ impl From<biocommons_bioutils::assemblies::Assembly> for Assembly {
             biocommons_bioutils::assemblies::Assembly::Grch37
             | biocommons_bioutils::assemblies::Assembly::Grch37p10 => Assembly::Grch37,
             biocommons_bioutils::assemblies::Assembly::Grch38 => Assembly::Grch38,
+        }
+    }
+}
+
+impl From<Assembly> for pbs::txs::GenomeBuild {
+    fn from(val: Assembly) -> Self {
+        match val {
+            Assembly::Grch37 => pbs::txs::GenomeBuild::Grch37,
+            Assembly::Grch38 => pbs::txs::GenomeBuild::Grch38,
+        }
+    }
+}
+
+impl TryFrom<pbs::txs::GenomeBuild> for Assembly {
+    type Error = anyhow::Error;
+
+    fn try_from(value: pbs::txs::GenomeBuild) -> Result<Self, Self::Error> {
+        match value {
+            pbs::txs::GenomeBuild::Grch37 => Ok(Self::Grch37),
+            pbs::txs::GenomeBuild::Grch38 => Ok(Self::Grch38),
+            _ => Err(anyhow::anyhow!("Unsupported assembly")),
         }
     }
 }
@@ -87,7 +108,7 @@ impl DataVersionEntry {
     }
 }
 
-/// Response of the `/v1/version` endpoint.
+/// Response of the `/api/v1/version` endpoint.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize, utoipa::ToSchema)]
 pub struct VersionsInfoResponse {
     /// Software versions specification.
