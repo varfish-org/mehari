@@ -1836,14 +1836,14 @@ mod test {
                     let found_one = found_one
                         || (record_csqs.contains(&String::from("inframe_deletion"))
                             && (expected_one_of
-                                .contains(&String::from("disruptive_inframe_deletion")))
-                            || expected_one_of
-                                .contains(&String::from("conservative_inframe_deletion")))
+                                .contains(&String::from("disruptive_inframe_deletion"))
+                                || expected_one_of
+                                    .contains(&String::from("conservative_inframe_deletion"))))
                         || (record_csqs.contains(&String::from("inframe_insertion"))
                             && (expected_one_of
-                                .contains(&String::from("disruptive_inframe_insertion")))
-                            || expected_one_of
-                                .contains(&String::from("conservative_inframe_insertion")));
+                                .contains(&String::from("disruptive_inframe_insertion"))
+                                || expected_one_of
+                                    .contains(&String::from("conservative_inframe_insertion"))));
                     // NB: We cannot predict 5_prime_UTR_premature_start_codon_gain_variant yet. For now, we
                     // also accept 5_prime_UTR_variant.
                     let found_one = found_one
