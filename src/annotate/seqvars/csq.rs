@@ -1,6 +1,4 @@
 //! Compute molecular consequence of variants.
-use std::{collections::HashMap, sync::Arc};
-
 use crate::pbs::txs::{GenomeAlignment, Strand, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
 use hgvs::parser::{NoRef, ProteinEdit};
@@ -12,7 +10,9 @@ use hgvs::{
     },
 };
 use itertools::Itertools;
+use std::cmp::Ordering;
 use std::ops::Range;
+use std::{collections::HashMap, sync::Arc};
 
 use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
@@ -741,10 +741,14 @@ impl ConsequencePredictor {
             {
                 let loc_length = Range::<i32>::from(loc.inner().clone()).len();
                 if let ProteinEdit::DelIns { alternative } = edit.inner() {
-                    if alternative.len() == loc_length {
-                        *consequences |= Consequence::StopRetainedVariant;
-                    } else if alternative.len() > loc_length {
-                        *consequences |= Consequence::FeatureElongation;
+                    match alternative.len().cmp(&loc_length) {
+                        Ordering::Equal => {
+                            *consequences |= Consequence::StopRetainedVariant;
+                        }
+                        Ordering::Greater => {
+                            *consequences |= Consequence::FeatureElongation;
+                        }
+                        _ => {}
                     }
                 }
             }
