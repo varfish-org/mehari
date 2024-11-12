@@ -732,8 +732,6 @@ impl ConsequencePredictor {
         if consequences_cds.contains(Consequence::StopLost)
             && !consequences_protein.contains(Consequence::StopLost)
         {
-            *consequences &= !Consequence::StopLost;
-
             if let HgvsVariant::ProtVariant {
                 loc_edit: ProtLocEdit::Ordinary { loc, edit },
                 ..
@@ -743,6 +741,7 @@ impl ConsequencePredictor {
                 if let ProteinEdit::DelIns { alternative } = edit.inner() {
                     match alternative.len().cmp(&loc_length) {
                         Ordering::Equal => {
+                            *consequences &= !Consequence::StopLost;
                             *consequences |= Consequence::StopRetainedVariant;
                         }
                         Ordering::Greater => {
