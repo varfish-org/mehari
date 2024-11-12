@@ -1037,7 +1037,13 @@ impl ConsequencePredictor {
                                 consequences |= Consequence::MissenseVariant;
                             }
                         }
-                        hgvs::parser::ProteinEdit::DelIns { alternative } => {
+                        ProteinEdit::DelIns { alternative } => {
+                            if conservative {
+                                consequences |= Consequence::ConservativeInframeDeletion;
+                            } else {
+                                consequences |= Consequence::DisruptiveInframeDeletion;
+                            }
+
                             if alternative.contains('*')
                                 || alternative.contains('X')
                                 || alternative.contains("Ter")
