@@ -788,17 +788,20 @@ impl ConsequencePredictor {
                     && c_loc.start.cds_from == CdsFrom::Start
                     && c_loc.end.cds_from == CdsFrom::Start
                 {
-                    let (start, end) = (start as usize, end as usize);
-
                     // … then we need to check whether this is a start lost or a start retained.
                     // To that end, extract the first 3 bases plus/minus 3 bases …
                     if let Ok(first_codon_pm1) = self.provider.get_seq_part(
                         &accession.value,
-                        Some(usize::try_from(n_loc.start.base).unwrap().saturating_sub(4)),
-                        Some(usize::try_from(n_loc.end.base).unwrap() + 5),
+                        Some(
+                            usize::try_from(n_loc.start.base - start + 1)
+                                .unwrap()
+                                .saturating_sub(4),
+                        ),
+                        Some(usize::try_from(n_loc.end.base - start + 1).unwrap() + 5),
                     ) {
                         // … and introduce the change into the sequence.
                         let mut first_codon = first_codon_pm1.clone();
+                        let (start, end) = (start as usize, end as usize);
                         let start_retained = match c_edit {
                             NaEdit::DelRef { .. } => {
                                 first_codon.replace_range(3 + start - 1..=3 + end - 1, "");
