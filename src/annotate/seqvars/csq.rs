@@ -1006,14 +1006,14 @@ impl ConsequencePredictor {
                 ProtLocEdit::Ordinary { loc, edit } => {
                     let loc = loc.inner();
                     match edit.inner() {
-                        hgvs::parser::ProteinEdit::Fs { .. } => {
+                        ProteinEdit::Fs { .. } => {
                             consequences |= Consequence::FrameshiftVariant;
                         }
-                        hgvs::parser::ProteinEdit::Ext { .. } => {
+                        ProteinEdit::Ext { .. } => {
                             consequences |= Consequence::StopLost;
                             consequences |= Consequence::FeatureElongation;
                         }
-                        hgvs::parser::ProteinEdit::Subst { alternative } => {
+                        ProteinEdit::Subst { alternative } => {
                             if alternative.is_empty() {
                                 consequences |= Consequence::SynonymousVariant;
                             } else if is_stop(alternative) {
@@ -1051,22 +1051,21 @@ impl ConsequencePredictor {
                                 consequences |= Consequence::StopGained;
                             }
                         }
-                        hgvs::parser::ProteinEdit::Ins { .. } | hgvs::parser::ProteinEdit::Dup => {
+                        ProteinEdit::Ins { .. } | ProteinEdit::Dup => {
                             if conservative {
                                 consequences |= Consequence::ConservativeInframeInsertion;
                             } else {
                                 consequences |= Consequence::DisruptiveInframeInsertion;
                             }
-                            consequences |= Consequence::ConservativeInframeInsertion;
                         }
-                        hgvs::parser::ProteinEdit::Del => {
+                        ProteinEdit::Del => {
                             if conservative {
                                 consequences |= Consequence::ConservativeInframeDeletion;
                             } else {
                                 consequences |= Consequence::DisruptiveInframeDeletion;
                             }
                         }
-                        hgvs::parser::ProteinEdit::Ident => {
+                        ProteinEdit::Ident => {
                             consequences |= Consequence::SynonymousVariant;
                         }
                     };
