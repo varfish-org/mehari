@@ -7,16 +7,16 @@ expression: res
       alternative: G
   consequences:
     - frameshift_variant
-  putative_impact: HIGH
+  putative_impact: high
   gene_symbol: OPA1
   gene_id: "HGNC:8140"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_130837.3
   feature_biotype:
-    - Coding
-    - ManeSelect
+    - coding
+    - mane_select
   rank:
     ord: 1
     total: 31

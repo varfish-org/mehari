@@ -8,16 +8,16 @@ expression: res
   consequences:
     - splice_polypyrimidine_tract_variant
     - intron_variant
-  putative_impact: LOW
+  putative_impact: low
   gene_symbol: OPA1
   gene_id: "HGNC:8140"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_130837.3
   feature_biotype:
-    - Coding
-    - ManeSelect
+    - coding
+    - mane_select
   rank:
     ord: 2
     total: 30

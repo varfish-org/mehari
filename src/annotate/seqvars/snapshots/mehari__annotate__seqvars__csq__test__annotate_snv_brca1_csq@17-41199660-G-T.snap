@@ -8,16 +8,16 @@ expression: res
   consequences:
     - missense_variant
     - splice_region_variant
-  putative_impact: MODERATE
+  putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007294.4
   feature_biotype:
-    - Coding
-    - ManeSelect
+    - coding
+    - mane_select
   rank:
     ord: 22
     total: 23

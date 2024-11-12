@@ -7,16 +7,16 @@ expression: res
       alternative: T
   consequences:
     - 5_prime_UTR_exon_variant
-  putative_impact: MODIFIER
+  putative_impact: modifier
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007294.4
   feature_biotype:
-    - Coding
-    - ManeSelect
+    - coding
+    - mane_select
   rank:
     ord: 1
     total: 23
@@ -37,15 +37,15 @@ expression: res
       alternative: T
   consequences:
     - 5_prime_UTR_exon_variant
-  putative_impact: MODIFIER
+  putative_impact: modifier
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007297.4
   feature_biotype:
-    - Coding
+    - coding
   rank:
     ord: 1
     total: 22
@@ -66,15 +66,15 @@ expression: res
       alternative: T
   consequences:
     - upstream_gene_variant
-  putative_impact: MODIFIER
+  putative_impact: modifier
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007298.3
   feature_biotype:
-    - Coding
+    - coding
   rank: ~
   hgvs_t: ~
   hgvs_p: ~
@@ -89,15 +89,15 @@ expression: res
       alternative: T
   consequences:
     - 5_prime_UTR_exon_variant
-  putative_impact: MODIFIER
+  putative_impact: modifier
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007299.4
   feature_biotype:
-    - Coding
+    - coding
   rank:
     ord: 1
     total: 22
@@ -118,15 +118,15 @@ expression: res
       alternative: T
   consequences:
     - 5_prime_UTR_exon_variant
-  putative_impact: MODIFIER
+  putative_impact: modifier
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007300.4
   feature_biotype:
-    - Coding
+    - coding
   rank:
     ord: 1
     total: 24

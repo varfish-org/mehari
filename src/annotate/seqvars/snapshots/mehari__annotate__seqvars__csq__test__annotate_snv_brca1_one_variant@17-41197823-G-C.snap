@@ -9,16 +9,16 @@ expression: res
     - splice_region_variant
     - splice_polypyrimidine_tract_variant
     - intron_variant
-  putative_impact: LOW
+  putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007294.4
   feature_biotype:
-    - Coding
-    - ManeSelect
+    - coding
+    - mane_select
   rank:
     ord: 22
     total: 22
@@ -41,15 +41,15 @@ expression: res
     - splice_region_variant
     - splice_polypyrimidine_tract_variant
     - intron_variant
-  putative_impact: LOW
+  putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007297.4
   feature_biotype:
-    - Coding
+    - coding
   rank:
     ord: 21
     total: 21
@@ -72,15 +72,15 @@ expression: res
     - splice_region_variant
     - splice_polypyrimidine_tract_variant
     - intron_variant
-  putative_impact: LOW
+  putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007298.3
   feature_biotype:
-    - Coding
+    - coding
   rank:
     ord: 21
     total: 21
@@ -103,15 +103,15 @@ expression: res
     - splice_region_variant
     - splice_polypyrimidine_tract_variant
     - intron_variant
-  putative_impact: LOW
+  putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007299.4
   feature_biotype:
-    - Coding
+    - coding
   rank:
     ord: 21
     total: 21
@@ -134,15 +134,15 @@ expression: res
     - splice_region_variant
     - splice_polypyrimidine_tract_variant
     - intron_variant
-  putative_impact: LOW
+  putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_007300.4
   feature_biotype:
-    - Coding
+    - coding
   rank:
     ord: 23
     total: 23
