@@ -713,7 +713,7 @@ impl ConsequencePredictor {
         }))
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, unused_variables)]
     fn consequences_fix_special_cases(
         &self,
         consequences: &mut Consequences,
@@ -743,11 +743,11 @@ impl ConsequencePredictor {
                 if let ProteinEdit::DelIns { alternative } = edit.inner() {
                     if alternative.len() == loc_length {
                         *consequences |= Consequence::StopRetainedVariant;
+                    } else if alternative.len() > loc_length {
+                        *consequences |= Consequence::FeatureElongation;
                     }
                 }
             }
-            // TODO check for feature elongation (which is a specialized StopLost)
-            // *consequences |= Consequence::FeatureElongation;
         }
 
         // Similarly, for the start lost case
