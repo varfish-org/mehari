@@ -1826,6 +1826,12 @@ mod test {
                     // Try to find a direct match.
                     let found_one = record_csqs.iter().any(|csq| expected_one_of.contains(csq));
 
+                    // vep sometimes only reports a coding_sequence_variant, so we accept anything
+                    let found_one = found_one
+                        || path_tsv.contains(".vep")
+                            && (record_csqs == &["coding_sequence_variant"]
+                                && !expected_one_of.is_empty());
+
                     // It is common that the other tool predicts a frameshift variant while the actual prediction
                     // is stop_gained or stop_lost.  We thus also check for this case and allow it.
                     let found_one = found_one
