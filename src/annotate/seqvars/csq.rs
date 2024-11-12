@@ -1004,6 +1004,10 @@ impl ConsequencePredictor {
             s == "X" || s == "Ter" || s == "*"
         }
 
+        fn has_stop(s: &str) -> bool {
+            s.contains('*') || s.contains('X') || s.contains("Ter")
+        }
+
         match var_p {
             HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
                 ProtLocEdit::Ordinary { loc, edit } => {
@@ -1047,10 +1051,7 @@ impl ConsequencePredictor {
                                 consequences |= Consequence::DisruptiveInframeDeletion;
                             }
 
-                            if alternative.contains('*')
-                                || alternative.contains('X')
-                                || alternative.contains("Ter")
-                            {
+                            if has_stop(alternative) {
                                 consequences |= Consequence::StopGained;
                             }
                         }
