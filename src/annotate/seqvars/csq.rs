@@ -760,6 +760,56 @@ impl ConsequencePredictor {
         {
             *consequences &= !Consequence::StartLost;
         }
+        if consequences.contains(Consequence::StartLost) {
+            if let (
+                HgvsVariant::TxVariant {
+                    loc_edit: n_loc_edit,
+                    accession,
+                    ..
+                },
+                HgvsVariant::CdsVariant {
+                    loc_edit: c_loc_edit,
+                    ..
+                },
+            ) = (var_n, var_c)
+            {
+                let n_loc = n_loc_edit.loc.inner();
+                let c_edit = c_loc_edit.edit.inner();
+                let c_loc = c_loc_edit.loc.inner();
+
+                // If edit occurs within the first 3 bases of the CDS,
+                let (start, end) = (c_loc.start.base, c_loc.end.base);
+                if start >= 1
+                    && end <= 3
+                    && c_loc.start.cds_from == CdsFrom::Start
+                    && c_loc.end.cds_from == CdsFrom::Start
+                {
+                    let (start, end) = (start as usize, end as usize);
+
+                    // … then we need to check whether this is a start lost or a start retained.
+                    // To that end, extract the first 3 bases plus/minus 3 bases …
+                    if let Ok(first_codon_pm1) = self.provider.get_seq_part(
+                        &accession.value,
+                        Some(usize::try_from(n_loc.start.base).unwrap().saturating_sub(4)),
+                        Some(usize::try_from(n_loc.end.base).unwrap() + 5),
+                    ) {
+                        // … and introduce the change into the sequence.
+                        let mut first_codon = first_codon_pm1.clone();
+                        let start_retained = match c_edit {
+                            NaEdit::DelRef { .. } => {
+                                first_codon.replace_range(3 + start - 1..=3 + end - 1, "");
+                                first_codon.contains("ATG")
+                            }
+                            _ => false,
+                        };
+                        if start_retained {
+                            *consequences &= !Consequence::StartLost;
+                            *consequences |= Consequence::StartRetainedVariant;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
