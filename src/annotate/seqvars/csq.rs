@@ -443,25 +443,6 @@ impl ConsequencePredictor {
                 }
             }
 
-            // Check the cases where the variant overlaps with whole exon.
-            if var_start <= exon_start && var_end >= exon_end {
-                consequences |= Consequence::ExonLossVariant;
-                if var_start < exon_start {
-                    if strand == Strand::Plus && !rank.is_first() {
-                        consequences |= Consequence::SpliceAcceptorVariant;
-                    } else if strand == Strand::Minus && !rank.is_last() {
-                        consequences |= Consequence::SpliceDonorVariant;
-                    }
-                }
-                if var_end > exon_end {
-                    if strand == Strand::Plus && !rank.is_last() {
-                        consequences |= Consequence::SpliceDonorVariant;
-                    } else if strand == Strand::Minus && !rank.is_last() {
-                        consequences |= Consequence::SpliceAcceptorVariant;
-                    }
-                }
-            }
-
             let consequences_exonic = Self::analyze_exonic_variant(
                 var, strand, var_start, var_end, exon_start, exon_end, &rank,
             );
@@ -835,6 +816,26 @@ impl ConsequencePredictor {
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
 
+        // Check the cases where the variant overlaps with whole exon.
+        if var_start <= exon_start && var_end >= exon_end {
+            consequences |= Consequence::ExonLossVariant;
+            if var_start < exon_start {
+                if strand == Strand::Plus && !rank.is_first() {
+                    consequences |= Consequence::SpliceAcceptorVariant;
+                } else if strand == Strand::Minus && !rank.is_last() {
+                    consequences |= Consequence::SpliceDonorVariant;
+                }
+            }
+            if var_end > exon_end {
+                if strand == Strand::Plus && !rank.is_last() {
+                    consequences |= Consequence::SpliceDonorVariant;
+                } else if strand == Strand::Minus && !rank.is_last() {
+                    consequences |= Consequence::SpliceAcceptorVariant;
+                }
+            }
+        }
+
+        // Check splice region variants
         if var_overlaps(exon_end - 3, exon_end) {
             if strand == Strand::Plus {
                 if !rank.is_last() {
