@@ -6,6 +6,7 @@ expression: res
     Alt:
       alternative: C
   consequences:
+    - splice_region_variant
     - synonymous_variant
   putative_impact: low
   gene_symbol: BRCA1
@@ -38,6 +39,7 @@ expression: res
     Alt:
       alternative: C
   consequences:
+    - splice_region_variant
     - synonymous_variant
   putative_impact: low
   gene_symbol: BRCA1
@@ -69,6 +71,7 @@ expression: res
     Alt:
       alternative: C
   consequences:
+    - splice_region_variant
     - synonymous_variant
   putative_impact: low
   gene_symbol: BRCA1
@@ -101,6 +104,7 @@ expression: res
       alternative: C
   consequences:
     - missense_variant
+    - splice_region_variant
   putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -131,6 +135,7 @@ expression: res
     Alt:
       alternative: C
   consequences:
+    - splice_region_variant
     - synonymous_variant
   putative_impact: low
   gene_symbol: BRCA1
