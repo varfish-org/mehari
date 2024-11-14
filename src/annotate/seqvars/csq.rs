@@ -462,16 +462,18 @@ impl ConsequencePredictor {
                 }
             }
 
+            let consequences_exonic = Self::analyze_exonic_variant(
+                var, strand, var_start, var_end, exon_start, exon_end, &rank,
+            );
+            consequences |= consequences_exonic;
+
             if let Some(intron_start) = intron_start {
                 let consequences_intronic = Self::analyze_intronic_variant(
                     var,
                     alignment,
                     strand,
-                    &rank,
                     var_start,
                     var_end,
-                    exon_start,
-                    exon_end,
                     intron_start,
                     intron_end,
                 );
@@ -818,16 +820,55 @@ impl ConsequencePredictor {
         }
     }
 
+    #[allow(clippy::too_many_arguments, unused_variables)]
+    fn analyze_exonic_variant(
+        var: &VcfVariant,
+        strand: Strand,
+        var_start: i32,
+        var_end: i32,
+        exon_start: i32,
+        exon_end: i32,
+        rank: &Rank,
+    ) -> Consequences {
+        let mut consequences: Consequences = Consequences::empty();
+
+        let var_overlaps =
+            |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
+
+        if var_overlaps(exon_end - 3, exon_end) {
+            if strand == Strand::Plus {
+                if !rank.is_last() {
+                    consequences |= Consequence::SpliceRegionVariant;
+                }
+            } else {
+                // alignment.strand == Strand::Minus
+                if !rank.is_first() {
+                    consequences |= Consequence::SpliceRegionVariant;
+                }
+            }
+        }
+        if var_overlaps(exon_start, exon_start + 3) {
+            if strand == Strand::Plus {
+                if !rank.is_first() {
+                    consequences |= Consequence::SpliceRegionVariant;
+                }
+            } else {
+                // alignment.strand == Strand::Minus
+                if !rank.is_last() {
+                    consequences |= Consequence::SpliceRegionVariant;
+                }
+            }
+        }
+        consequences
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn analyze_intronic_variant(
         var: &VcfVariant,
         alignment: &GenomeAlignment,
         strand: Strand,
-        rank: &Rank,
         var_start: i32,
         var_end: i32,
-        exon_start: i32,
-        exon_end: i32,
         intron_start: i32,
         intron_end: i32,
     ) -> Consequences {
@@ -877,30 +918,6 @@ impl ConsequencePredictor {
             || var_overlaps(intron_end - 8, intron_end - 2)
         {
             consequences |= Consequence::SpliceRegionVariant;
-        }
-        if var_overlaps(exon_end - 3, exon_end) {
-            if strand == Strand::Plus {
-                if !rank.is_last() {
-                    consequences |= Consequence::SpliceRegionVariant;
-                }
-            } else {
-                // alignment.strand == Strand::Minus
-                if !rank.is_first() {
-                    consequences |= Consequence::SpliceRegionVariant;
-                }
-            }
-        }
-        if var_overlaps(exon_start, exon_start + 3) {
-            if strand == Strand::Plus {
-                if !rank.is_first() {
-                    consequences |= Consequence::SpliceRegionVariant;
-                }
-            } else {
-                // alignment.strand == Strand::Minus
-                if !rank.is_last() {
-                    consequences |= Consequence::SpliceRegionVariant;
-                }
-            }
         }
 
         // Check the case where the variant overlaps with the polypyrimidine tract.
