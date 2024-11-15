@@ -1,7 +1,7 @@
 //! Compute molecular consequence of variants.
 use crate::pbs::txs::{GenomeAlignment, Strand, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
-use hgvs::parser::{NoRef, ProteinEdit};
+use hgvs::parser::{NoRef, ProteinEdit, UncertainLengthChange};
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
     mapper::{assembly, Error},
@@ -1030,8 +1030,36 @@ impl ConsequencePredictor {
                 ProtLocEdit::Ordinary { loc, edit } => {
                     let loc = loc.inner();
                     match edit.inner() {
-                        ProteinEdit::Fs { .. } => {
+                        ProteinEdit::Fs {
+                            alternative,
+                            terminal,
+                            length,
+                        } => {
                             consequences |= Consequence::FrameshiftVariant;
+
+                            // Detect cases where the frameshift resolves into
+                            // a missense + stop retained due to the bases in the 3 prime region
+                            // basically shifting into frame again.
+                            if let (Some(alt), Some(terminal), UncertainLengthChange::Known(_)) =
+                                (alternative, terminal, length)
+                            {
+                                let loc_length = loc.end.number - loc.start.number + 1;
+                                // TODO calculate proper change positions.
+                                //   Right now will only work if the last AA is changed.
+                                if let Some(ref p) = protein_pos {
+                                    if p.total.is_some_and(|t| p.ord == t - 1)
+                                        && alt.len() as i32 == loc_length
+                                        && is_stop(terminal)
+                                    {
+                                        // TODO get the protein sequence and compare
+                                        //   old and alternative sequences (to toggle missense)
+                                        consequences |= Consequence::MissenseVariant;
+                                        consequences |= Consequence::StopRetainedVariant;
+                                        // FIXME remove StopLost or keep either way?
+                                        consequences &= !Consequence::FrameshiftVariant;
+                                    }
+                                }
+                            }
                         }
                         ProteinEdit::Ext { .. } => {
                             consequences |= Consequence::StopLost;
