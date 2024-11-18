@@ -707,6 +707,10 @@ impl ConsequencePredictor {
         var_c: &HgvsVariant,
         var_p: &HgvsVariant,
     ) {
+        fn is_stop(s: &str) -> bool {
+            s == "X" || s == "Ter" || s == "*"
+        }
+
         // In some cases, we predict a stop lost based on the cds variant
         // but the protein translation does not confirm this.
         //
@@ -720,18 +724,43 @@ impl ConsequencePredictor {
                 ..
             } = var_p
             {
-                let loc_length = Range::<i32>::from(loc.inner().clone()).len();
-                if let ProteinEdit::DelIns { alternative } = edit.inner() {
-                    match alternative.len().cmp(&loc_length) {
-                        Ordering::Equal => {
-                            *consequences &= !Consequence::StopLost;
-                            *consequences |= Consequence::StopRetainedVariant;
+                match edit.inner() {
+                    // Stop lost due to a deletion in the CDS, but the resulting protein translation
+                    // continues to have a stop codon at the same position.
+                    ProteinEdit::DelIns { alternative } => {
+                        let loc_length = Range::<i32>::from(loc.inner().clone()).len();
+                        match alternative.len().cmp(&loc_length) {
+                            Ordering::Equal => {
+                                *consequences &= !Consequence::StopLost;
+                                *consequences |= Consequence::StopRetainedVariant;
+                            }
+                            Ordering::Greater => {
+                                *consequences |= Consequence::FeatureElongation;
+                            }
+                            _ => {}
                         }
-                        Ordering::Greater => {
-                            *consequences |= Consequence::FeatureElongation;
-                        }
-                        _ => {}
                     }
+                    // Detect cases where the frameshift resolves into
+                    // a missense + stop retained due to the bases in the 3 prime region
+                    // basically shifting into frame again.
+                    // This is the shortest possible frameshift in hgvsp (fs*2).
+                    ProteinEdit::Fs {
+                        alternative,
+                        terminal,
+                        length,
+                    } => {
+                        if let (Some(alt), Some(terminal), UncertainLengthChange::Known(2)) =
+                            (alternative, terminal, length)
+                        {
+                            if is_stop(terminal) && alt.len() == 1 {
+                                *consequences |= Consequence::MissenseVariant;
+                                *consequences |= Consequence::StopRetainedVariant;
+                                *consequences &= !Consequence::StopLost;
+                                *consequences &= !Consequence::FrameshiftVariant;
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1030,36 +1059,8 @@ impl ConsequencePredictor {
                 ProtLocEdit::Ordinary { loc, edit } => {
                     let loc = loc.inner();
                     match edit.inner() {
-                        ProteinEdit::Fs {
-                            alternative,
-                            terminal,
-                            length,
-                        } => {
+                        ProteinEdit::Fs { .. } => {
                             consequences |= Consequence::FrameshiftVariant;
-
-                            // // Detect cases where the frameshift resolves into
-                            // // a missense + stop retained due to the bases in the 3 prime region
-                            // // basically shifting into frame again.
-                            // if let (Some(alt), Some(terminal), UncertainLengthChange::Known(_)) =
-                            //     (alternative, terminal, length)
-                            // {
-                            //     let loc_length = loc.end.number - loc.start.number + 1;
-                            //     // TODO calculate proper change positions.
-                            //     //   Right now will only work if the last AA is changed.
-                            //     if let Some(ref p) = protein_pos {
-                            //         if p.total.is_some_and(|t| p.ord == t - 1)
-                            //             && alt.len() as i32 == loc_length
-                            //             && is_stop(terminal)
-                            //         {
-                            //             // TODO get the protein sequence and compare
-                            //             //   old and alternative sequences (to toggle missense)
-                            //             consequences |= Consequence::MissenseVariant;
-                            //             consequences |= Consequence::StopRetainedVariant;
-                            //             // FIXME remove StopLost or keep either way?
-                            //             consequences &= !Consequence::FrameshiftVariant;
-                            //         }
-                            //     }
-                            // }
                         }
                         ProteinEdit::Ext { .. } => {
                             consequences |= Consequence::StopLost;
