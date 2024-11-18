@@ -1246,16 +1246,20 @@ impl ConsequencePredictor {
 
 #[cfg(test)]
 mod test {
-    use std::{fs::File, io::BufReader};
-
+    use super::*;
+    use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
+    use crate::annotate::seqvars::{
+        load_tx_db, run_with_writer, Args, AsyncAnnotatedVariantWriter, PathOutput,
+        TranscriptPickType,
+    };
+    use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
     use csv::ReaderBuilder;
+    use futures::TryStreamExt;
     use pretty_assertions::assert_eq;
     use serde::Deserialize;
-
-    use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
-    use crate::annotate::seqvars::{load_tx_db, TranscriptPickType};
-
-    use super::*;
+    use std::path::Path;
+    use std::{fs::File, io::BufReader};
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_sync() {
@@ -1700,6 +1704,65 @@ mod test {
         insta::assert_yaml_snapshot!(res);
 
         Ok(())
+    }
+
+    /// This is a set of variants where VEP and mehari to disagree,
+    /// i.e. interesting/edge cases that are not as clear-cut as others.
+    ///
+    /// This test ensures we do not regress on these cases.
+    #[tokio::test]
+    async fn annotate_vep_disagreement_cases() -> Result<(), anyhow::Error> {
+        let tx_path =
+            "tests/data/annotate/db/grch38/GRCh38-ensembl.disagreement-subset.txs.bin.zst";
+
+        let path_input_vcf = "tests/data/annotate/seqvars/vep.disagreement-cases.vcf";
+        let expected_vcf = "tests/data/annotate/seqvars/vep.disagreement-cases.expected.vcf";
+        let output = NamedTempFile::new()?;
+        let mut writer = open_variant_writer(output.as_ref()).await?;
+        run_with_writer(
+            &mut writer,
+            &Args {
+                genome_release: None,
+                path_input_ped: None,
+                path_input_vcf: path_input_vcf.into(),
+                output: PathOutput {
+                    path_output_vcf: Some(output.as_ref().to_str().unwrap().into()),
+                    path_output_tsv: None,
+                },
+                transcript_source: Default::default(),
+                report_most_severe_consequence_by: Some(ConsequenceBy::Allele),
+                pick_transcript: vec![TranscriptPickType::ManeSelect],
+                pick_transcript_mode: Default::default(),
+                max_var_count: None,
+                hgnc: None,
+                sources: crate::annotate::seqvars::Sources {
+                    transcripts: Some(vec![tx_path.into()]),
+                    frequencies: None,
+                    clinvar: None,
+                },
+            },
+        )
+        .await?;
+        writer.shutdown().await?;
+
+        let records_written = read_vcf(output).await?;
+        let records_expected = read_vcf(expected_vcf).await?;
+        assert_eq!(records_written, records_expected);
+
+        Ok(())
+    }
+
+    async fn read_vcf(
+        path: impl AsRef<Path>,
+    ) -> Result<Vec<noodles::vcf::variant::RecordBuf>, anyhow::Error> {
+        let mut output_reader = open_variant_reader(path.as_ref()).await?;
+        let header = output_reader.read_header().await?;
+        let mut record_iter = output_reader.records(&header).await;
+        let mut records = Vec::new();
+        while let Some(record) = record_iter.try_next().await? {
+            records.push(record);
+        }
+        Ok(records)
     }
 
     #[derive(Debug, Deserialize)]
