@@ -815,7 +815,8 @@ impl ConsequencePredictor {
                         let start_retained = match c_edit {
                             NaEdit::DelRef { .. } => {
                                 first_codon.replace_range(3 + start - 1..=3 + end - 1, "");
-                                first_codon.contains("ATG")
+                                // If the first codon is still a start codon, then it is a start retained.
+                                first_codon[2..5].contains("ATG")
                             }
                             _ => false,
                         };
