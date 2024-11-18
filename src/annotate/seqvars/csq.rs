@@ -741,8 +741,7 @@ impl ConsequencePredictor {
                         }
                     }
                     // Detect cases where the frameshift resolves into
-                    // a missense + stop retained due to the bases in the 3 prime region
-                    // basically shifting into frame again.
+                    // a missense + stop retained variant.
                     // This is the shortest possible frameshift in hgvsp (fs*2).
                     ProteinEdit::Fs {
                         alternative,
