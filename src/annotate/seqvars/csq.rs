@@ -1876,7 +1876,7 @@ mod test {
                     // vep sometimes only reports a coding_sequence_variant, so we accept anything
                     let found_one = found_one
                         || path_tsv.contains(".vep")
-                            && (record_csqs == &["coding_sequence_variant"]
+                            && (record_csqs == ["coding_sequence_variant"]
                                 && !expected_one_of.is_empty());
 
                     // It is common that the other tool predicts a frameshift variant while the actual prediction
