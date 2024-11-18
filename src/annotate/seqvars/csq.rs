@@ -818,6 +818,7 @@ impl ConsequencePredictor {
                                 // If the first codon is still a start codon, then it is a start retained.
                                 first_codon[2..5].contains("ATG")
                             }
+                            // TODO: handle other cases
                             _ => false,
                         };
                         if start_retained {
