@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.30.0](https://github.com/varfish-org/mehari/compare/v0.29.6...v0.30.0) (2024-11-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* include source information in transcript database ([#615](https://github.com/varfish-org/mehari/issues/615))
+* provide sub command "server run" ([#600](https://github.com/varfish-org/mehari/issues/600)) (#602)
+
+### Features
+
+* /api/v1/seqvars/csq endpoint with OpenAPI ([#606](https://github.com/varfish-org/mehari/issues/606)) ([#614](https://github.com/varfish-org/mehari/issues/614)) ([2fdf76e](https://github.com/varfish-org/mehari/commit/2fdf76e6fe7a928f14ba96fe8b5a8c85cfc29fe3))
+* /api/v1/strucvars/csq endpoint with OpenAPI ([#607](https://github.com/varfish-org/mehari/issues/607)) ([#612](https://github.com/varfish-org/mehari/issues/612)) ([cce8a6d](https://github.com/varfish-org/mehari/commit/cce8a6dcf65b2d5d0f3debe9351698efd0c8af86))
+* include source information in transcript database ([#615](https://github.com/varfish-org/mehari/issues/615)) ([111ffcc](https://github.com/varfish-org/mehari/commit/111ffcca83c5847647da36ea11b91dc736f7cf2e))
+* provide genes/transcripts endpoint with openapi ([#605](https://github.com/varfish-org/mehari/issues/605)) ([#610](https://github.com/varfish-org/mehari/issues/610)) ([9132312](https://github.com/varfish-org/mehari/commit/91323124dcb872719a07b4aeec309667e91b540a))
+* provide sub command "server run" ([#600](https://github.com/varfish-org/mehari/issues/600)) ([#602](https://github.com/varfish-org/mehari/issues/602)) ([48382b6](https://github.com/varfish-org/mehari/commit/48382b668a8354d78763fd495403b56f1c04d114))
+
+
+### Bug Fixes
+
+* refactor csq analysis code ([#599](https://github.com/varfish-org/mehari/issues/599)) ([faffad6](https://github.com/varfish-org/mehari/commit/faffad63b57e42eba76b75d886745ef45cfc2ef0))
+
 ## [0.29.6](https://github.com/varfish-org/mehari/compare/v0.29.5...v0.29.6) (2024-10-16)
 
 
