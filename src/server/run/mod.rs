@@ -72,7 +72,7 @@ pub mod openapi {
     pub struct ApiDoc;
 }
 
-/// Command line arguments for "run-server` command.
+/// Command line arguments for "server run` command.
 #[derive(clap::Parser, Debug)]
 #[command(about = "Run Mehari REST API server", long_about = None)]
 pub struct Args {
@@ -142,7 +142,7 @@ pub fn print_hints(args: &Args) {
     );
 }
 
-/// Main entry point for `run-server` sub command.
+/// Main entry point for `server run` sub command.
 ///
 /// # Errors
 ///
