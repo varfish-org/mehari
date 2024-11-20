@@ -15,7 +15,7 @@ conda activate mehari
 The `mehari` executable is now available from within the activated `mehari` conda environment:
 
 ```sh
-  mehari --help
+mehari --help
 ```
 
 ## via docker
