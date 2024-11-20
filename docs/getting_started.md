@@ -2,42 +2,47 @@ Getting Started.
 
 # Installation
 
-You most likely want to install via bioconda.
+## via bioconda
 As a prerequisite, [follow the bioconda getting started guide](http://bioconda.github.io/#usage).
 
-Then, create a new environment (use the `mamba` if you are as impatient as us).
+Then, create a new environment;
 
-```text
-$ mamba create -y mehari mehari
-$ conda activate mehari
+```sh
+conda create -n mehari -y mehari
+conda activate mehari
 ```
 
-The `mehari` executable is now available:
+The `mehari` executable is now available from within the activated `mehari` conda environment:
 
+```sh
+mehari --help
 ```
-$ mehari --help
-```
+
+## via docker
+Docker images of mehari are available from ghcr.io, see [ghcr.io/varfish-org/mehari](https://github.com/varfish-org/mehari/pkgs/container/mehari).
+
 
 # Downloading Prebuilt Databases
 
-TODO: not yet available
+- transcript database releases: https://github.com/varfish-org/mehari-data-tx/releases
+- gnomAD frequency database releases: TODO
+- clinVar database releases: https://github.com/varfish-org/annonars-data-clinvar/releases
 
 # Annotating Example VCF Files
 
 You can obtain an example file like this:
 
-```text
-$ wget https://raw.githubusercontent.com/varfish-org/mehari/main/tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf \
-    -O example.vcf
+```sh
+wget https://raw.githubusercontent.com/varfish-org/mehari/main/tests/data/db/create/seqvar_freqs/db-rs1263393206/input.vcf -O example.vcf
 ```
 
 Now, annotate it using Mehari:
 
-```text
-$ mehari annotate seqvars \
-    --path-db path/to/mehari-db/b37 \
+```sh
+mehari annotate seqvars \
+    --transcripts path/to/mehari-transcript-db \
+    --frequencies path/to/mehari-frequency-db \
+    --clinvar path/to/mehari-clinvar-db \
     --path-input-vcf example.vcf \
     --path-output-vcf example.out.vcf
-$ grep -v ^# example.out.vcf
-TODO: output line
 ```

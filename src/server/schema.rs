@@ -28,7 +28,7 @@ impl Args {
     }
 }
 
-/// Main entry point for `run-server` sub command.
+/// Main entry point for `server run` sub command.
 ///
 /// # Errors
 ///

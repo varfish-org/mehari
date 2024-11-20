@@ -22,16 +22,17 @@ Currently, Mehari will annotate variants using:
 
 - The predicted impact on gene transcripts and the corresponding protein sequence (in the case of coding genes).
 - Their frequency in the gnomAD exomes and genomes databases as well as the HelixMtDb database in the case of mitochondrial databases.
+- Variant information from ClinVar, if any
 
 ## Command Line Invocation
 
-You can invoke Mehari like this to annotate a VCF file `IN.vcf` to an output file `OUT.vcf` using the built (or downloaded) database as `path/to/db`.
+You can invoke Mehari to annotate a VCF file `IN.vcf` creating an output file `OUT.vcf` using the built (or downloaded) databases – for example the transcript database – as follows:
 
 ```text
 $ mehari annotate seqvars \
-    --path-db path/to/db \
-    --input-vcf IN.vcf \
-    --output-vcf OUT.vcf
+    --transcripts path/to/transcripts-db \
+    --path-input-vcf IN.vcf \
+    --path-output-vcf OUT.vcf
 ```
 
 Note that the input and output files can optionally be gzip/bgzip compressed VCF files with suffixes (`.gz` or `.bgz`) or BCF files with suffix `.bcf`.
