@@ -4,6 +4,7 @@
 use std::{env, path::PathBuf};
 
 fn main() -> Result<(), anyhow::Error> {
+    // Integration of `prost-build` and `pbjson-build`.
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("protos");
     let proto_files = ["mehari/txs.proto", "mehari/server.proto"]
         .iter()
@@ -31,6 +32,9 @@ fn main() -> Result<(), anyhow::Error> {
     pbjson_build::Builder::new()
         .register_descriptors(&descriptor_set)?
         .build(&[".mehari"])?;
+
+    // Integration of `built`.
+    built::write_built_file().map_err(|e| anyhow::anyhow!("Failed to write built file: {}", e))?;
 
     Ok(())
 }

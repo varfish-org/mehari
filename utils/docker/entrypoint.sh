@@ -25,7 +25,7 @@ if [ "$first" == exec ]; then
 else
   exec \
     mehari \
-    run-server \
+    server run \
       --path-db "$PATH_DB" \
       --listen-host "$HTTP_HOST" \
       --listen-port "$HTTP_PORT"

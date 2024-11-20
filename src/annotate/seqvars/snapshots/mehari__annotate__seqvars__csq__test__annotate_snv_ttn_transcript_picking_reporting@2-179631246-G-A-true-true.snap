@@ -7,16 +7,16 @@ expression: res
       alternative: A
   consequences:
     - stop_gained
-  putative_impact: HIGH
+  putative_impact: high
   gene_symbol: TTN
   gene_id: "HGNC:12403"
   feature_type:
-    SoTerm:
+    so_term:
       term: Transcript
   feature_id: NM_001267550.2
   feature_biotype:
-    - Coding
-    - ManeSelect
+    - coding
+    - mane_select
   rank:
     ord: 41
     total: 363

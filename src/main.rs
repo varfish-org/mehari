@@ -104,10 +104,10 @@ enum Commands {
     Db(Db),
     /// Annotation related commands.
     Annotate(Annotate),
+    /// Server related commands.
+    Server(Server),
     /// Verification related commands.
     Verify(Verify),
-    /// Server related commands.
-    RunServer(server::Args),
 }
 
 /// Parsing of "db *" sub commands.
@@ -143,6 +143,22 @@ struct Annotate {
 enum AnnotateCommands {
     Seqvars(annotate::seqvars::Args),
     Strucvars(annotate::strucvars::Args),
+}
+
+/// Parsing of "server *" sub commands.
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
+struct Server {
+    /// The sub command to run
+    #[command(subcommand)]
+    command: ServerCommands,
+}
+
+/// Enum supporting the parsing of "server *" sub commands.
+#[derive(Debug, Subcommand)]
+enum ServerCommands {
+    Run(server::run::Args),
+    Schema(server::schema::Args),
 }
 
 /// Parsing of "verify *" sub commands.
@@ -202,10 +218,13 @@ async fn main() -> Result<(), anyhow::Error> {
                 annotate::strucvars::run(&cli.common, args).await?
             }
         },
+        Commands::Server(server) => match &server.command {
+            ServerCommands::Run(args) => server::run::run(&cli.common, args).await?,
+            ServerCommands::Schema(args) => server::schema::run(&cli.common, args)?,
+        },
         Commands::Verify(verify) => match &verify.command {
             VerifyCommands::Seqvars(args) => verify::seqvars::run(&cli.common, args)?,
         },
-        Commands::RunServer(args) => server::run(&cli.common, args).await?,
     }
 
     tracing::info!("... the dromedary is back in the stable.");

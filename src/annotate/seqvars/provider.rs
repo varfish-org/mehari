@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::annotate::seqvars::{TranscriptPickMode, TranscriptPickType};
 use crate::db::create::Reason;
+use crate::db::TranscriptDatabase;
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
     pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
@@ -40,18 +41,16 @@ pub struct TxIntervalTrees {
 }
 
 impl TxIntervalTrees {
-    pub fn new(db: &TxSeqDatabase, assembly: Assembly) -> Self {
-        let (contig_to_idx, trees) = Self::build_indices(db, assembly);
+    pub fn new(db: &TxSeqDatabase) -> Self {
+        let (contig_to_idx, trees) = Self::build_indices(db);
         Self {
             contig_to_idx,
             trees,
         }
     }
 
-    fn build_indices(
-        db: &TxSeqDatabase,
-        assembly: Assembly,
-    ) -> (HashMap<String, usize>, Vec<IntervalTree>) {
+    fn build_indices(db: &TxSeqDatabase) -> (HashMap<String, usize>, Vec<IntervalTree>) {
+        let assembly = db.assembly();
         let mut contig_to_idx = HashMap::new();
         let mut trees: Vec<IntervalTree> = Vec::new();
 
@@ -134,9 +133,9 @@ pub struct Provider {
     /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
-    /// The assembly of the provider.
-    assembly: Assembly,
+    /// The data version.
     data_version: String,
+    /// The schema version.
     schema_version: String,
 }
 
@@ -162,9 +161,8 @@ impl Provider {
     /// # Arguments
     ///
     /// * `tx_seq_db` - The `TxSeqDatabase` to use.
-    /// * `assembly` - The assembly to use.
-    pub fn new(mut tx_seq_db: TxSeqDatabase, assembly: Assembly, config: Config) -> Self {
-        let tx_trees = TxIntervalTrees::new(&tx_seq_db, assembly);
+    pub fn new(mut tx_seq_db: TxSeqDatabase, config: Config) -> Self {
+        let tx_trees = TxIntervalTrees::new(&tx_seq_db);
         let gene_map = HashMap::from_iter(
             tx_seq_db
                 .tx_db
@@ -337,10 +335,13 @@ impl Provider {
         // unique, such that `data_version` and `schema_version` can be used as keys for
         // caching.
         let data_version = format!(
-            "{:?}{}{}{:?}",
-            assembly,
+            "{}{}{:?}",
             tx_seq_db.version.as_ref().unwrap_or(&"".to_string()),
-            tx_seq_db.genome_release.as_ref().unwrap_or(&"".to_string()),
+            tx_seq_db
+                .source_version
+                .iter()
+                .map(|v| format!("{:#?}", v))
+                .join(","),
             config
         );
         let schema_version = data_version.clone();
@@ -351,10 +352,18 @@ impl Provider {
             tx_map,
             seq_map,
             picked_gene_to_tx_id,
-            assembly,
             data_version,
             schema_version,
         }
+    }
+
+    /// Return the assembly of the provider.
+    ///
+    /// # Returns
+    ///
+    /// The assembly of the provider.
+    pub fn assembly(&self) -> Assembly {
+        self.tx_seq_db.assembly()
     }
 
     /// Return whether transcript picking is enabled.
@@ -592,7 +601,7 @@ impl ProviderInterface for Provider {
                     } else {
                         Some(Err(Error::NoAlignmentFound(
                             tx_ac.to_string(),
-                            format!("{:?}", self.assembly),
+                            format!("{:?}", self.assembly()),
                         )))
                     }
                 } else {
