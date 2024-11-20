@@ -31,8 +31,8 @@ To annotate variant consequences, gnomAD frequencies and clinVar information for
       --path-output-vcf output.vcf
 ```
 The corresponding database builds can be obtained from:
- - transcripts: https://github.com/varfish-org/mehari-data-tx/releases
+ - transcripts: [github.com/varfish-org/mehari-data-tx/releases](https://github.com/varfish-org/mehari-data-tx/releases)
  - gnomAD frequencies: TODO
- - clinVar: https://github.com/varfish-org/annonars-data-clinvar/releases
+ - clinVar: [github.com/varfish-org/annonars-data-clinvar/releases](https://github.com/varfish-org/annonars-data-clinvar/releases)
 
 See [Getting Started](docs/getting_started.md) for more information on usage, and [Development Setup](docs/development.md) for more information on how to build mehari and its databases from scratch.
