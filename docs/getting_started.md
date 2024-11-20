@@ -8,7 +8,7 @@ As a prerequisite, [follow the bioconda getting started guide](http://bioconda.g
 Then, create a new environment;
 
 ```sh
-conda create -y mehari mehari
+conda create -n mehari -y mehari
 conda activate mehari
 ```
 
