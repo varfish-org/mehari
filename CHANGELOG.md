@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.1](https://github.com/varfish-org/mehari/compare/v0.30.0...v0.30.1) (2024-11-21)
+
+
+### Bug Fixes
+
+* OpenAPI for /api/v1/genes/transcripts ([#628](https://github.com/varfish-org/mehari/issues/628)) ([#629](https://github.com/varfish-org/mehari/issues/629)) ([d155620](https://github.com/varfish-org/mehari/commit/d1556200b712f5751680d45c947d68e0ebf29e41))
+
 ## [0.30.0](https://github.com/varfish-org/mehari/compare/v0.29.6...v0.30.0) (2024-11-20)
 
 
