@@ -24,6 +24,10 @@ pub mod openapi {
         StrucvarsGeneTranscriptEffects, StrucvarsTranscriptEffect,
     };
     use crate::common::GenomeRelease;
+    use crate::server::run::actix_server::gene_txs::{
+        ExonAlignment, GenesTranscriptsListQuery, GenesTranscriptsListResponse, GenomeAlignment,
+        Strand, Transcript, TranscriptBiotype, TranscriptTag,
+    };
     use crate::server::run::actix_server::seqvars_csq::{
         SeqvarsCsqQuery, SeqvarsCsqResponse, SeqvarsCsqResultEntry,
     };
@@ -34,14 +38,16 @@ pub mod openapi {
         Assembly, DataVersionEntry, SoftwareVersions, VersionsInfoResponse,
     };
 
-    use super::actix_server::{seqvars_csq, strucvars_csq, versions, CustomError};
+    use super::actix_server::{gene_txs, seqvars_csq, strucvars_csq, versions, CustomError};
 
     /// Utoipa-based `OpenAPI` generation helper.
     #[derive(utoipa::OpenApi)]
     #[openapi(
         paths(
             versions::handle,
+            gene_txs::handle_with_openapi,
             seqvars_csq::handle_with_openapi,
+            strucvars_csq::handle_with_openapi,
             strucvars_csq::handle_with_openapi
         ),
         components(schemas(
@@ -67,6 +73,14 @@ pub mod openapi {
             Pos,
             Message,
             SoFeature,
+            ExonAlignment,
+            GenesTranscriptsListQuery,
+            GenesTranscriptsListResponse,
+            GenomeAlignment,
+            Strand,
+            Transcript,
+            TranscriptBiotype,
+            TranscriptTag,
         ))
     )]
     pub struct ApiDoc;
