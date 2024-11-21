@@ -7,8 +7,55 @@ info:
     email: manuel.holtgrewe@bih-charite.de
   license:
     name: MIT
-  version: 0.29.6
+  version: 0.30.0
 paths:
+  /api/v1/genes/transcripts:
+    get:
+      tags:
+      - gene_txs
+      summary: Query for transcripts of a gene.
+      operationId: genesTranscriptsList
+      parameters:
+      - name: hgnc_id
+        in: query
+        description: HGNC gene ID.
+        required: true
+        schema:
+          type: string
+      - name: genome_build
+        in: query
+        description: Genome build.
+        required: true
+        schema:
+          $ref: '#/components/schemas/Assembly'
+      - name: page_size
+        in: query
+        description: Page size.
+        required: false
+        schema:
+          type: integer
+          format: int32
+          nullable: true
+      - name: next_page_token
+        in: query
+        description: Next page token.
+        required: false
+        schema:
+          type: string
+          nullable: true
+      responses:
+        '200':
+          description: Transcripts for the selected gene.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenesTranscriptsListResponse'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomError'
   /api/v1/seqvars/csq:
     get:
       tags:
@@ -224,6 +271,40 @@ components:
         version_cdot:
           type: string
           description: Version of cdot used.
+    ExonAlignment:
+      type: object
+      description: Store the alignment of one exon to the reference.
+      required:
+      - alt_start_i
+      - alt_end_i
+      - ord
+      - cigar
+      properties:
+        alt_start_i:
+          type: integer
+          format: int32
+          description: Start position on reference.
+        alt_end_i:
+          type: integer
+          format: int32
+          description: End position on reference.
+        ord:
+          type: integer
+          format: int32
+          description: Exon number.
+        alt_cds_start_i:
+          type: integer
+          format: int32
+          description: CDS start coordinate.
+          nullable: true
+        alt_cds_end_i:
+          type: integer
+          format: int32
+          description: CDS end coordinate.
+          nullable: true
+        cigar:
+          type: string
+          description: CIGAR string of alignment, empty indicates full matches.
     FeatureBiotype:
       type: string
       description: Encode feature biotype.
@@ -257,6 +338,73 @@ components:
               value:
                 type: string
       description: Enum for `AnnField::feature_type`.
+    GenesTranscriptsListQuery:
+      type: object
+      description: Query arguments for the `/api/v1/genes/transcripts` endpoint.
+      required:
+      - hgnc_id
+      - genome_build
+      properties:
+        hgnc_id:
+          type: string
+          description: HGNC gene ID.
+        genome_build:
+          $ref: '#/components/schemas/Assembly'
+        page_size:
+          type: integer
+          format: int32
+          description: Page size.
+          nullable: true
+        next_page_token:
+          type: string
+          description: Next page token.
+          nullable: true
+    GenesTranscriptsListResponse:
+      type: object
+      description: Response of the `/api/v1/genes/transcripts` endpoint.
+      required:
+      - transcripts
+      properties:
+        transcripts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transcript'
+          description: The transcripts for the gene.
+        next_page_token:
+          type: string
+          description: The token to continue from a previous query.
+          nullable: true
+    GenomeAlignment:
+      type: object
+      description: Store information about a transcript aligning to a genome.
+      required:
+      - genome_build
+      - contig
+      - strand
+      - exons
+      properties:
+        genome_build:
+          $ref: '#/components/schemas/Assembly'
+        contig:
+          type: string
+          description: Accession of the contig sequence.
+        cds_start:
+          type: integer
+          format: int32
+          description: CDS end position, `-1` to indicate `None`.
+          nullable: true
+        cds_end:
+          type: integer
+          format: int32
+          description: CDS end position, `-1` to indicate `None`.
+          nullable: true
+        strand:
+          $ref: '#/components/schemas/Strand'
+        exons:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExonAlignment'
+          description: Exons of the alignment.
     GenomeRelease:
       type: string
       description: Select the genome release to use.
@@ -449,6 +597,13 @@ components:
         hgvs_rs:
           type: string
           description: Version of the `hgvs` crate.
+    Strand:
+      type: string
+      description: Enumeration for the two strands of the genome.
+      enum:
+      - unknown
+      - plus
+      - minus
     StrucvarsCsqQuery:
       type: object
       description: Query parameters of the `/api/v1/strucvars/csq` endpoint.
@@ -526,6 +681,79 @@ components:
       - upstream_variant
       - downstream_variant
       - intergenic_variant
+    Transcript:
+      type: object
+      description: Transcript information.
+      required:
+      - id
+      - gene_symbol
+      - gene_id
+      - biotype
+      - tags
+      - genome_alignments
+      properties:
+        id:
+          type: string
+          description: Transcript accession with version, e.g., `"NM_007294.3"` or `"ENST00000461574.1"` for BRCA1.
+        gene_symbol:
+          type: string
+          description: HGNC symbol, e.g., `"BRCA1"`
+        gene_id:
+          type: string
+          description: HGNC gene identifier, e.g., `"1100"` for BRCA1.
+        biotype:
+          $ref: '#/components/schemas/TranscriptBiotype'
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/TranscriptTag'
+          description: Transcript flags.
+        protein:
+          type: string
+          description: Identifier of the corresponding protein.
+          nullable: true
+        start_codon:
+          type: integer
+          format: int32
+          description: CDS start codon.
+          nullable: true
+        stop_codon:
+          type: integer
+          format: int32
+          description: CDS stop codon.
+          nullable: true
+        genome_alignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/GenomeAlignment'
+          description: Alignments on the different genome builds.
+        filtered:
+          type: boolean
+          description: Whether this transcript has an issue (e.g. MissingStopCodon), cf. `mehari::db::create::mod::Reason`.
+          nullable: true
+        filter_reason:
+          type: integer
+          format: int32
+          description: Reason for filtering.
+          nullable: true
+          minimum: 0
+    TranscriptBiotype:
+      type: string
+      description: Enumeration for `Transcript::biotype`.
+      enum:
+      - coding
+      - non_coding
+    TranscriptTag:
+      type: string
+      enum:
+      - basic
+      - ensembl_canonical
+      - mane_select
+      - mane_plus_clinical
+      - ref_seq_select
+      - selenoprotein
+      - gencode_primary
+      - other
     VersionsInfoResponse:
       type: object
       description: Response of the `/api/v1/version` endpoint.

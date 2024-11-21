@@ -87,8 +87,8 @@ async fn handle(
 }
 
 /// Query arguments for the `/api/v1/genes/transcripts` endpoint.
-#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema)]
-struct GenesTranscriptsListQuery {
+#[derive(Debug, Clone, serde::Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+pub(crate) struct GenesTranscriptsListQuery {
     /// HGNC gene ID.
     pub hgnc_id: String,
     /// Genome build.
@@ -113,7 +113,7 @@ impl From<GenesTranscriptsListQuery> for pbs::server::GeneTranscriptsQuery {
 /// Enumeration for `Transcript::biotype`.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
-enum TranscriptBiotype {
+pub(crate) enum TranscriptBiotype {
     /// Coding transcript.
     Coding,
     /// Non-coding transcript.
@@ -135,7 +135,7 @@ impl TryFrom<pbs::txs::TranscriptBiotype> for TranscriptBiotype {
 // Bit values for the transcript tags.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
-enum TranscriptTag {
+pub(crate) enum TranscriptTag {
     /// Member of Ensembl basic.
     Basic,
     /// Member of Ensembl canonical.
@@ -175,7 +175,7 @@ impl TryFrom<pbs::txs::TranscriptTag> for TranscriptTag {
 /// Enumeration for the two strands of the genome.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
-enum Strand {
+pub(crate) enum Strand {
     /// unknown
     Unknown,
     /// Forward / plus
@@ -196,7 +196,7 @@ impl From<pbs::txs::Strand> for Strand {
 
 /// Store the alignment of one exon to the reference.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-struct ExonAlignment {
+pub(crate) struct ExonAlignment {
     /// Start position on reference.
     pub alt_start_i: i32,
     /// End position on reference.
@@ -226,7 +226,7 @@ impl From<pbs::txs::ExonAlignment> for ExonAlignment {
 
 /// Store information about a transcript aligning to a genome.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-struct GenomeAlignment {
+pub(crate) struct GenomeAlignment {
     /// The genome build identifier.
     pub genome_build: Assembly,
     /// Accession of the contig sequence.
@@ -258,7 +258,7 @@ impl TryFrom<pbs::txs::GenomeAlignment> for GenomeAlignment {
 
 /// Transcript information.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-struct Transcript {
+pub(crate) struct Transcript {
     /// Transcript accession with version, e.g., `"NM_007294.3"` or `"ENST00000461574.1"` for BRCA1.
     pub id: String,
     /// HGNC symbol, e.g., `"BRCA1"`
@@ -317,7 +317,7 @@ impl TryFrom<pbs::txs::Transcript> for Transcript {
 
 /// Response of the `/api/v1/genes/transcripts` endpoint.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
-struct GenesTranscriptsListResponse {
+pub(crate) struct GenesTranscriptsListResponse {
     /// The transcripts for the gene.
     pub transcripts: Vec<Transcript>,
     /// The token to continue from a previous query.
@@ -344,6 +344,7 @@ impl TryFrom<pbs::server::GeneTranscriptsResponse> for GenesTranscriptsListRespo
 #[utoipa::path(
     get,
     operation_id = "genesTranscriptsList",
+    params(GenesTranscriptsListQuery),
     responses(
         (status = 200, description = "Transcripts for the selected gene.", body = GenesTranscriptsListResponse),
         (status = 500, description = "Internal server error.", body = CustomError)
