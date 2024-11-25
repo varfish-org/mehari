@@ -27,7 +27,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = "4.9"
-annonars = "0.41.3"
+annonars = "0.42.3"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bgzip = "0.3"
