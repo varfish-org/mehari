@@ -2626,7 +2626,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-test",
- "utoipa 4.2.3",
+ "utoipa 5.2.0",
  "utoipa-swagger-ui 7.1.0",
  "uuid",
  "zstd",
@@ -5071,7 +5071,6 @@ dependencies = [
  "indexmap",
  "serde",
  "serde_json",
- "serde_yaml",
  "utoipa-gen 4.3.1",
 ]
 
@@ -5097,7 +5096,6 @@ dependencies = [
  "proc-macro-error",
  "proc-macro2",
  "quote",
- "regex",
  "syn 2.0.89",
 ]
 

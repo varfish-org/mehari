@@ -77,7 +77,7 @@ tracing-subscriber = "0.3"
 tracing = { version = "0.1", features = ["log"] }
 uuid = { version = "1.11", features = ["fast-rng", "serde"] }
 zstd = "0.13"
-utoipa = { version = "4.2.3", features = ["actix_extras", "chrono", "indexmap", "openapi_extensions", "preserve_order", "yaml"] }
+utoipa = { version = "5.2.0", features = ["actix_extras", "chrono", "indexmap", "openapi_extensions", "preserve_order", "yaml"] }
 utoipa-swagger-ui = { version = "7.0.1", features = ["actix-web"] }
 
 [dependencies.dhat]
