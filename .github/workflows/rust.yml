@@ -104,6 +104,11 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-directories: |
+            ~/.cargo/registry/src/**/librocksdb-sys-*
+
       - name: cargo build
         run: cargo build --verbose
 
@@ -111,8 +116,8 @@ jobs:
         run: cargo test --verbose
 
       - uses: Swatinem/rust-cache@v2
+        if: ${{ needs.release-please.outputs.release_created }}
         with:
-          key: "covtest"
           cache-directories: |
             ~/.cargo/registry/src/**/librocksdb-sys-*
 
