@@ -110,7 +110,7 @@ pub struct Args {
     ///
     /// When transcript picking is enabled via `--pick-transcript`,
     /// either keep the first one found or keep all that match.
-    #[arg(long, default_value = "all")]
+    #[arg(long, default_value = "all", requires = "pick_transcript")]
     pub pick_transcript_mode: TranscriptPickMode,
 
     /// For debug purposes, maximal number of variants to annotate.
