@@ -1,5 +1,6 @@
-use std::sync::Arc;
-
+use crate::annotate::cli::{Sources, TranscriptSettings};
+use crate::annotate::seqvars::{setup_seqvars_annotator, ClinvarAnnotator, FrequencyAnnotator};
+use crate::db::merge::merge_transcript_databases;
 use crate::{
     annotate::{
         seqvars::{
@@ -10,6 +11,8 @@ use crate::{
     },
     common::GenomeRelease,
 };
+use anyhow::Error;
+use std::sync::Arc;
 
 /// Implementation of Actix server.
 pub mod actix_server;
@@ -90,9 +93,13 @@ pub mod openapi {
 #[derive(clap::Parser, Debug)]
 #[command(about = "Run Mehari REST API server", long_about = None)]
 pub struct Args {
-    /// Path to the mehari database folder.
-    #[arg(long)]
-    pub path_db: String,
+    /// What to annotate and which source to use.
+    #[command(flatten)]
+    pub sources: Sources,
+
+    /// Transcript related settings.
+    #[command(flatten)]
+    pub transcript_settings: TranscriptSettings,
 
     /// Whether to suppress printing hints.
     #[arg(long, default_value_t = false)]
@@ -101,6 +108,7 @@ pub struct Args {
     /// IP to listen on.
     #[arg(long, default_value = "127.0.0.1")]
     pub listen_host: String,
+
     /// Port to listen on.
     #[arg(long, default_value_t = 8080)]
     pub listen_port: u16,
@@ -176,15 +184,10 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     let mut data = actix_server::WebServerData::default();
     for genome_release in [GenomeRelease::Grch37, GenomeRelease::Grch38] {
         let assembly = genome_release.into();
-        let path = format!("{}/{}/txs.bin.zst", &args.path_db, path_component(assembly));
-        if !std::path::Path::new(&path).exists() {
-            tracing::warn!("No transcript database found at {}", &path);
-            continue;
-        }
-        tracing::info!("  - loading {}", &path);
-        let tx_db = load_tx_db(&path)?;
-        tracing::info!("  - building interval trees");
-        let provider = Arc::new(MehariProvider::new(tx_db, Default::default()));
+
+        let annotator = setup_seqvars_annotator(&args.sources, &args.transcript_settings)?;
+        let seqvars_csq_predictor = &annotator.seqvars().unwrap().predictor;
+        let provider = seqvars_csq_predictor.provider.clone();
         data.provider.insert(genome_release, provider.clone());
         tracing::info!("  - building seqvars predictors");
         data.seqvars_predictors.insert(

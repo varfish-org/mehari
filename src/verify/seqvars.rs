@@ -11,12 +11,12 @@ use crate::annotate::seqvars::{
     csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
     load_tx_db, path_component,
     provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
-    ConsequenceBy, TranscriptPickMode, TranscriptPickType,
 };
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use noodles::core::{Position, Region};
 use quick_cache::unsync::Cache;
+use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
 
 /// Command line arguments for `verify seqvars` sub command.
 #[derive(Parser, Debug)]

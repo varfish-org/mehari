@@ -8,6 +8,19 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::annotate::cli::{Sources, TranscriptSettings};
+use crate::annotate::genotype_string;
+use crate::annotate::seqvars::csq::{
+    ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
+};
+use crate::annotate::seqvars::provider::{
+    ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
+};
+use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
+use crate::common::{guess_assembly, GenomeRelease};
+use crate::db::merge::merge_transcript_databases;
+use crate::pbs::txs::TxSeqDatabase;
+use crate::ped::{PedigreeByName, Sex};
 use annonars::common::cli::is_canonical;
 use annonars::common::keys;
 use annonars::freqs::serialized::{auto, mt, xy};
@@ -38,19 +51,6 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, VariantArray};
 use thousands::Separable;
 use tokio::io::AsyncWriteExt;
-
-use crate::annotate::genotype_string;
-use crate::annotate::seqvars::csq::{
-    ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
-};
-use crate::annotate::seqvars::provider::{
-    ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
-};
-use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
-use crate::common::{guess_assembly, GenomeRelease};
-use crate::db::merge::merge_transcript_databases;
-use crate::pbs::txs::TxSeqDatabase;
-use crate::ped::{PedigreeByName, Sex};
 
 use self::ann::{AnnField, Consequence, FeatureBiotype};
 
@@ -91,28 +91,6 @@ pub struct Args {
     #[command(flatten)]
     pub output: PathOutput,
 
-    /// The transcript source.
-    #[arg(long, value_enum, default_value_t = csq::TranscriptSource::Both)]
-    pub transcript_source: csq::TranscriptSource,
-
-    /// Whether to report only the worst consequence for each picked transcript.
-    #[arg(long)]
-    pub report_most_severe_consequence_by: Option<ConsequenceBy>,
-
-    /// Which kind of transcript to pick / restrict to. Default is not to pick at all.
-    ///
-    /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
-    /// either the first one is kept or all are kept.
-    #[arg(long)]
-    pub pick_transcript: Vec<TranscriptPickType>,
-
-    /// Determines how to handle multiple transcripts. Default is to keep all.
-    ///
-    /// When transcript picking is enabled via `--pick-transcript`,
-    /// either keep the first one found or keep all that match.
-    #[arg(long, default_value = "all")]
-    pub pick_transcript_mode: TranscriptPickMode,
-
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
     pub max_var_count: Option<usize>,
@@ -124,67 +102,10 @@ pub struct Args {
     /// What to annotate and which source to use.
     #[command(flatten)]
     pub sources: Sources,
-}
 
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Display,
-    clap::ValueEnum,
-    VariantArray,
-    parse_display::FromStr,
-)]
-pub enum ConsequenceBy {
-    Gene,
-    Transcript,
-    // or "Variant"?
-    Allele,
-}
-
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Display,
-    clap::ValueEnum,
-    VariantArray,
-    parse_display::FromStr,
-)]
-pub enum TranscriptPickType {
-    ManeSelect,
-    ManePlusClinical,
-    Length,
-    EnsemblCanonical,
-    RefSeqSelect,
-    GencodePrimary,
-    Basic,
-}
-
-#[derive(Debug, Copy, Clone, Display, clap::ValueEnum, Default)]
-pub enum TranscriptPickMode {
-    #[default]
-    First,
-    All,
-}
-
-#[derive(Debug, ClapArgs)]
-#[group(required = true, multiple = true)]
-pub struct Sources {
-    #[arg(long)]
-    transcripts: Option<Vec<String>>,
-    #[arg(long)]
-    frequencies: Option<String>,
-    #[arg(long)]
-    clinvar: Option<String>,
+    /// Transcript annotation related settings
+    #[command(flatten)]
+    pub transcript_settings: TranscriptSettings,
 }
 
 #[derive(Debug, Display, Copy, Clone, clap::ValueEnum, PartialEq, Eq, parse_display::FromStr)]
@@ -1390,7 +1311,7 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
 }
 
 #[allow(clippy::large_enum_variant)]
-enum AnnotatorEnum {
+pub(crate) enum AnnotatorEnum {
     Frequency(FrequencyAnnotator),
     Clinvar(ClinvarAnnotator),
     Consequence(ConsequenceAnnotator),
@@ -1406,8 +1327,20 @@ impl AnnotatorEnum {
     }
 }
 
-struct Annotator {
+pub(crate) struct Annotator {
     annotators: Vec<AnnotatorEnum>,
+}
+
+impl Annotator {
+    pub(crate) fn seqvars(&self) -> Option<&ConsequenceAnnotator> {
+        for annotator in &self.annotators {
+            match annotator {
+                AnnotatorEnum::Consequence(a) => return Some(a.clone()),
+                _ => (),
+            }
+        }
+        None
+    }
 }
 
 pub struct FrequencyAnnotator {
@@ -1418,7 +1351,7 @@ impl FrequencyAnnotator {
         Self { db }
     }
 
-    fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
+    pub(crate) fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
         // Open the frequency RocksDB database in read only mode.
         tracing::info!("Opening frequency database");
         tracing::debug!("RocksDB path = {}", &path);
@@ -1638,7 +1571,7 @@ impl ClinvarAnnotator {
         Self { db }
     }
 
-    fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
+    pub(crate) fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
         tracing::info!("Opening ClinVar database");
         tracing::debug!("RocksDB path = {}", &path);
         let options = rocksdb::Options::default();
@@ -1719,8 +1652,8 @@ impl ClinvarAnnotator {
     }
 }
 
-struct ConsequenceAnnotator {
-    predictor: ConsequencePredictor,
+pub(crate) struct ConsequenceAnnotator {
+    pub(crate) predictor: ConsequencePredictor,
 }
 
 impl ConsequenceAnnotator {
@@ -1728,7 +1661,11 @@ impl ConsequenceAnnotator {
         Self { predictor }
     }
 
-    fn from_db_and_args(tx_db: TxSeqDatabase, args: &Args) -> anyhow::Result<Self> {
+    pub(crate) fn from_db_and_settings(
+        tx_db: TxSeqDatabase,
+        transcript_settings: &TranscriptSettings,
+    ) -> anyhow::Result<Self> {
+        let args = transcript_settings;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             MehariProviderConfigBuilder::default()
@@ -1776,7 +1713,7 @@ impl ConsequenceAnnotator {
 }
 
 impl Annotator {
-    fn new(annotators: Vec<AnnotatorEnum>) -> Self {
+    pub(crate) fn new(annotators: Vec<AnnotatorEnum>) -> Self {
         Self { annotators }
     }
 
@@ -1882,7 +1819,7 @@ async fn run_with_writer(
     writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
-    let annotator = setup_annotator(args)?;
+    let annotator = setup_seqvars_annotator(&args.sources, &args.transcript_settings)?;
 
     // Perform the VCF annotation.
     tracing::info!("Annotating VCF ...");
@@ -1941,21 +1878,24 @@ async fn run_with_writer(
     Ok(())
 }
 
-fn setup_annotator(args: &Args) -> Result<Annotator, Error> {
+pub(crate) fn setup_seqvars_annotator(
+    sources: &Sources,
+    transcript_settings: &TranscriptSettings,
+) -> Result<Annotator, Error> {
     let mut annotators = vec![];
 
     // Add the frequency annotator if requested.
-    if let Some(rocksdb_path) = &args.sources.frequencies {
+    if let Some(rocksdb_path) = &sources.frequencies {
         annotators.push(FrequencyAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Frequency)?)
     }
 
     // Add the ClinVar annotator if requested.
-    if let Some(rocksdb_path) = &args.sources.clinvar {
+    if let Some(rocksdb_path) = &sources.clinvar {
         annotators.push(ClinvarAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Clinvar)?)
     }
 
     // Add the consequence annotator if requested.
-    if let Some(tx_sources) = &args.sources.transcripts {
+    if let Some(tx_sources) = &sources.transcripts {
         tracing::info!("Opening transcript database(s)");
 
         let tx_db = merge_transcript_databases(
@@ -1966,7 +1906,8 @@ fn setup_annotator(args: &Args) -> Result<Annotator, Error> {
         )?;
 
         annotators.push(
-            ConsequenceAnnotator::from_db_and_args(tx_db, args).map(AnnotatorEnum::Consequence)?,
+            ConsequenceAnnotator::from_db_and_settings(tx_db, transcript_settings)
+                .map(AnnotatorEnum::Consequence)?,
         );
     }
 
@@ -1993,13 +1934,13 @@ pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usiz
 
 #[cfg(test)]
 mod test {
+    use super::binning::bin_from_range;
+    use super::{run, Args, PathOutput};
+    use crate::annotate::cli::Sources;
+    use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
     use clap_verbosity_flag::Verbosity;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
-
-    use super::binning::bin_from_range;
-    use super::{csq::TranscriptSource, run, Args, ConsequenceBy, PathOutput};
-    use crate::annotate::seqvars::Sources;
 
     #[tokio::test]
     async fn smoke_test_output_vcf() -> Result<(), anyhow::Error> {
