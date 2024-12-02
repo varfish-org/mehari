@@ -127,6 +127,10 @@ pub enum Consequence {
     /// SO:missense_variant, VEP:missense_variant
     MissenseVariant,
 
+    /// "A sequence variant whereby at least one base of a codon encoding selenocysteine is changed, resulting in a different encoded amino acid."
+    /// SO:selenocysteine_loss
+    SelenocysteineLoss,
+
     // Not used by mehari, but by VEP (we're usually more specific)
     // /// "A sequence_variant which is predicted to change the protein encoded in the coding sequence."
     // /// SO:protein_altering_variant, VEP:missense_variant
@@ -266,6 +270,15 @@ pub enum Consequence {
     /// "A sequence variant where the structure of the gene is changed."
     /// SO:gene_variant
     GeneVariant,
+
+    // other
+
+    // In contrast to the other consequences here, this is a descendant of the
+    // "sequence_feature" branch of SO, not the "sequence_variant" branch.
+    // We will make use of it anyway, as it is a useful distinction.
+    /// "A stop codon redefined to be the new amino acid, selenocysteine."
+    /// SO:stop_codon_redefined_as_selenocysteine
+    StopCodonRedefinedAsSelenocysteine,
 }
 
 impl From<Consequence> for PutativeImpact {
@@ -282,12 +295,14 @@ impl From<Consequence> for PutativeImpact {
             | StartLost
             | TranscriptAmplification
             | FeatureElongation
-            | FeatureTruncation => PutativeImpact::High,
+            | FeatureTruncation
+            | StopCodonRedefinedAsSelenocysteine => PutativeImpact::High,
             DisruptiveInframeInsertion
             | DisruptiveInframeDeletion
             | ConservativeInframeInsertion
             | ConservativeInframeDeletion
-            | MissenseVariant => PutativeImpact::Moderate,
+            | MissenseVariant
+            | SelenocysteineLoss => PutativeImpact::Moderate,
             SpliceDonorFifthBaseVariant
             | SpliceRegionVariant
             | SpliceDonorRegionVariant
