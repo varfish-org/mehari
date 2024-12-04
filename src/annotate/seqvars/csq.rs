@@ -829,6 +829,27 @@ impl ConsequencePredictor {
                 }
             }
         }
+
+        // Handle cases where a singular U/Sec is substituted by something else.
+        // This is a selenocysteine loss.
+        if consequences.contains(Consequence::MissenseVariant) {
+            if let HgvsVariant::ProtVariant {
+                loc_edit: ProtLocEdit::Ordinary { loc, edit, .. },
+                ..
+            } = var_p
+            {
+                let p_edit = edit.inner();
+                let p_loc = loc.inner();
+                if let ProteinEdit::Subst { alternative } = p_edit {
+                    if p_loc.start.number == p_loc.end.number
+                        && p_loc.start.aa == "U"
+                        && alternative != "U"
+                    {
+                        *consequences |= Consequence::SelenocysteineLoss;
+                    }
+                }
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments, unused_variables)]
