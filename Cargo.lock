@@ -802,9 +802,9 @@ dependencies = [
 
 [[package]]
 name = "cached"
-version = "0.53.1"
+version = "0.54.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4d73155ae6b28cf5de4cfc29aeb02b8a1c6dab883cb015d15cd514e42766846"
+checksum = "9718806c4a2fe9e8a56fd736f97b340dd10ed1be8ed733ed50449f351dc33cae"
 dependencies = [
  "ahash 0.8.11",
  "cached_proc_macro",
@@ -1833,9 +1833,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hgvs"
-version = "0.17.3"
+version = "0.17.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e25a808a912191336fdfde6230ddaf4d154aaf49cbcc35d673544ba0fb2a3c93"
+checksum = "049d7b9c42a2b7a2e814669e58e1c34a6825f64a7f2bc8863976ae60704d27ed"
 dependencies = [
  "ahash 0.8.11",
  "base16ct",
@@ -1857,7 +1857,7 @@ dependencies = [
  "seqrepo",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
 ]
 
 [[package]]
