@@ -830,8 +830,7 @@ impl ConsequencePredictor {
             }
         }
 
-        // Handle cases where a singular U/Sec is substituted by something else.
-        // This is a selenocysteine loss.
+        // Handle cases where a singular U/Sec is affected.
         if consequences.contains(Consequence::MissenseVariant) {
             if let HgvsVariant::ProtVariant {
                 loc_edit: ProtLocEdit::Ordinary { loc, edit, .. },
@@ -841,11 +840,21 @@ impl ConsequencePredictor {
                 let p_edit = edit.inner();
                 let p_loc = loc.inner();
                 if let ProteinEdit::Subst { alternative } = p_edit {
-                    if p_loc.start.number == p_loc.end.number
-                        && p_loc.start.aa == "U"
-                        && alternative != "U"
-                    {
-                        *consequences |= Consequence::SelenocysteineLoss;
+                    if p_loc.start.number == p_loc.end.number {
+                        match (p_loc.start.aa == "U", alternative == "U") {
+                            (true, false) => {
+                                *consequences |= Consequence::SelenocysteineLoss;
+                            }
+                            (false, true) => {
+                                *consequences |= Consequence::SelenocysteineGain;
+                            }
+                            (false, false) => {
+                                // Regular missense
+                            }
+                            (true, true) => {
+                                unreachable!("U -> U substitution will not be reported");
+                            }
+                        }
                     }
                 }
             }

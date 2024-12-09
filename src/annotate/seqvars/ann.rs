@@ -273,12 +273,11 @@ pub enum Consequence {
 
     // other
 
-    // In contrast to the other consequences here, this is a descendant of the
-    // "sequence_feature" branch of SO, not the "sequence_variant" branch.
-    // We will make use of it anyway, as it is a useful distinction.
-    /// "A stop codon redefined to be the new amino acid, selenocysteine."
-    /// SO:stop_codon_redefined_as_selenocysteine
-    StopCodonRedefinedAsSelenocysteine,
+    /// Not an official SO term.
+    /// In selenoproteins, it is highly dependent on the context whether
+    /// a missense which introduces a Sec is actually a missense_variant or a stop_gained.
+    /// Therefore, we use this term to enable downstream analyses to spot such cases.
+    SelenocysteineGain,
 }
 
 impl From<Consequence> for PutativeImpact {
@@ -296,7 +295,7 @@ impl From<Consequence> for PutativeImpact {
             | TranscriptAmplification
             | FeatureElongation
             | FeatureTruncation
-            | StopCodonRedefinedAsSelenocysteine => PutativeImpact::High,
+            | SelenocysteineGain => PutativeImpact::High,
             DisruptiveInframeInsertion
             | DisruptiveInframeDeletion
             | ConservativeInframeInsertion
