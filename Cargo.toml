@@ -46,7 +46,7 @@ env_logger = "0.11"
 flate2 = "1.0"
 futures = "0.3"
 hgvs = "0.17.4"
-indexmap = { version = "2.6", features = ["serde"] }
+indexmap = { version = "2.7", features = ["serde"] }
 itertools = "0.13"
 jsonl = "4.0"
 log = "0.4"
@@ -103,7 +103,7 @@ rstest = "0.23"
 temp_testdir = "0.2"
 tracing-test = "0.2"
 criterion = { version = "0.5.1", features = ["async_tokio"] }
-pprof = { version = "0.13.0", features = ["flamegraph"] }
+pprof = { version = "0.14.0", features = ["flamegraph"] }
 
 # Compile insta with full optimization.
 [profile.dev.package.insta]
