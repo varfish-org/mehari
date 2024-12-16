@@ -1819,7 +1819,8 @@ async fn run_with_writer(
     writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
-    let annotator = setup_seqvars_annotator(&args.sources, &args.transcript_settings)?;
+    let annotator =
+        setup_seqvars_annotator(&args.sources, &args.transcript_settings, Some(assembly))?;
 
     // Perform the VCF annotation.
     tracing::info!("Annotating VCF ...");
@@ -1878,11 +1879,23 @@ async fn run_with_writer(
     Ok(())
 }
 
+pub(crate) fn proto_assembly_from(assembly: &Assembly) -> Option<crate::pbs::txs::Assembly> {
+    crate::pbs::txs::Assembly::from_str_name(&format!(
+        "ASSEMBLY_{}",
+        match assembly {
+            Assembly::Grch38 => "GRCH38",
+            _ => "GRCH37",
+        }
+    ))
+}
+
 pub(crate) fn setup_seqvars_annotator(
     sources: &Sources,
     transcript_settings: &TranscriptSettings,
+    assembly: Option<Assembly>,
 ) -> Result<Annotator, Error> {
     let mut annotators = vec![];
+    let pb_assembly = assembly.as_ref().and_then(proto_assembly_from);
 
     // Add the frequency annotator if requested.
     if let Some(rocksdb_path) = &sources.frequencies {
@@ -1898,17 +1911,39 @@ pub(crate) fn setup_seqvars_annotator(
     if let Some(tx_sources) = &sources.transcripts {
         tracing::info!("Opening transcript database(s)");
 
-        let tx_db = merge_transcript_databases(
-            tx_sources
+        // Filter out any transcript databases that do not match the requested assembly.
+        let check_assembly = |db: &TxSeqDatabase, assembly: crate::pbs::txs::Assembly| {
+            db.source_version
                 .iter()
-                .map(load_tx_db)
-                .collect::<anyhow::Result<Vec<_>>>()?,
-        )?;
+                .map(|s| s.assembly)
+                .any(|a| a == i32::from(assembly))
+        };
+        let databases = tx_sources
+            .iter()
+            .enumerate()
+            .map(|(i, path)| (i, load_tx_db(path)))
+            .filter_map(|(i, txdb)| match txdb {
+                Ok(db) => match pb_assembly {
+                    Some(assembly) if check_assembly(&db, assembly) => Some(Ok(db)),
+                    Some(_) => {
+                        tracing::info!("Skipping transcript database {} as its assembly {:?} does not match the requested one ({:?})", &tx_sources[i], &db.source_version, &assembly);
+                        None
+                    },
+                    None => Some(Ok(db)),
+                },
+                Err(_) => Some(txdb),
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
-        annotators.push(
-            ConsequenceAnnotator::from_db_and_settings(tx_db, transcript_settings)
-                .map(AnnotatorEnum::Consequence)?,
-        );
+        if databases.is_empty() {
+            tracing::warn!("No suitable transcript databases found for requested assembly {:?}, therefore no consequence prediction will occur.", &assembly);
+        } else {
+            let tx_db = merge_transcript_databases(databases)?;
+            annotators.push(
+                ConsequenceAnnotator::from_db_and_settings(tx_db, transcript_settings)
+                    .map(AnnotatorEnum::Consequence)?,
+            );
+        }
     }
 
     let annotator = Annotator::new(annotators);
