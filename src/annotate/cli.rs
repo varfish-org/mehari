@@ -12,7 +12,7 @@ pub struct Sources {
     pub clinvar: Option<String>,
 }
 
-#[derive(Debug, ClapArgs, Default)]
+#[derive(Debug, ClapArgs, Default, Clone)]
 pub struct TranscriptSettings {
     /// The transcript source.
     #[arg(long, value_enum, default_value_t = TranscriptSource::Both)]

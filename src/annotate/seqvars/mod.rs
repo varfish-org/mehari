@@ -48,7 +48,7 @@ use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use strum::{Display, VariantArray};
+use strum::Display;
 use thousands::Separable;
 use tokio::io::AsyncWriteExt;
 
@@ -1335,7 +1335,7 @@ impl Annotator {
     pub(crate) fn seqvars(&self) -> Option<&ConsequenceAnnotator> {
         for annotator in &self.annotators {
             match annotator {
-                AnnotatorEnum::Consequence(a) => return Some(a.clone()),
+                AnnotatorEnum::Consequence(a) => return Some(a),
                 _ => (),
             }
         }
