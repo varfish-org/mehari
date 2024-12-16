@@ -1224,7 +1224,7 @@ impl ConsequencePredictor {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::annotate::cli::TranscriptPickType;
+    use crate::annotate::cli::{TranscriptPickType, TranscriptSettings};
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
         load_tx_db, run_with_writer, Args, AsyncAnnotatedVariantWriter, PathOutput,
@@ -1706,10 +1706,11 @@ mod test {
                     path_output_vcf: Some(output.as_ref().to_str().unwrap().into()),
                     path_output_tsv: None,
                 },
-                transcript_source: Default::default(),
-                report_most_severe_consequence_by: Some(ConsequenceBy::Allele),
-                pick_transcript: vec![TranscriptPickType::ManeSelect],
-                pick_transcript_mode: Default::default(),
+                transcript_settings: TranscriptSettings {
+                    report_most_severe_consequence_by: Some(ConsequenceBy::Allele),
+                    pick_transcript: vec![TranscriptPickType::ManeSelect],
+                    ..Default::default()
+                },
                 max_var_count: None,
                 hgnc: None,
                 sources: crate::annotate::seqvars::Sources {

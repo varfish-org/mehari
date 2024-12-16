@@ -1936,7 +1936,7 @@ pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usiz
 mod test {
     use super::binning::bin_from_range;
     use super::{run, Args, PathOutput};
-    use crate::annotate::cli::Sources;
+    use crate::annotate::cli::{Sources, TranscriptPickType, TranscriptSettings};
     use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
     use clap_verbosity_flag::Verbosity;
     use pretty_assertions::assert_eq;
@@ -1954,10 +1954,10 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: Some(path_out.into_os_string().into_string().unwrap()),
@@ -1995,10 +1995,10 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2048,10 +2048,10 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2095,10 +2095,10 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2144,10 +2144,10 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2193,10 +2193,10 @@ mod test {
         let assembly = "grch38";
         let args = Args {
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
