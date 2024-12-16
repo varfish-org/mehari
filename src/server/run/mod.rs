@@ -1,18 +1,13 @@
 use crate::annotate::cli::{Sources, TranscriptSettings};
-use crate::annotate::seqvars::{setup_seqvars_annotator, ClinvarAnnotator, FrequencyAnnotator};
-use crate::db::merge::merge_transcript_databases;
+use crate::annotate::seqvars::setup_seqvars_annotator;
 use crate::{
     annotate::{
-        seqvars::{
-            csq::ConsequencePredictor as SeqvarConsequencePredictor, load_tx_db, path_component,
-            provider::Provider as MehariProvider,
-        },
+        seqvars::csq::ConsequencePredictor as SeqvarConsequencePredictor,
         strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor,
     },
     common::GenomeRelease,
 };
-use anyhow::Error;
-use std::sync::Arc;
+use clap::ValueEnum;
 
 /// Implementation of Actix server.
 pub mod actix_server;
@@ -182,10 +177,12 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     tracing::info!("Loading database...");
     let before_loading = std::time::Instant::now();
     let mut data = actix_server::WebServerData::default();
-    for genome_release in [GenomeRelease::Grch37, GenomeRelease::Grch38] {
+    for genome_release in GenomeRelease::value_variants().iter().copied() {
+        tracing::info!("  - loading genome release {:?}", genome_release);
         let assembly = genome_release.into();
 
-        let annotator = setup_seqvars_annotator(&args.sources, &args.transcript_settings)?;
+        let annotator =
+            setup_seqvars_annotator(&args.sources, &args.transcript_settings, Some(assembly))?;
         let seqvars_csq_predictor = &annotator.seqvars().unwrap().predictor;
         let provider = seqvars_csq_predictor.provider.clone();
         data.provider.insert(genome_release, provider.clone());

@@ -22,6 +22,7 @@ pub struct Args {
 pub fn merge_transcript_databases(
     mut databases: Vec<TxSeqDatabase>,
 ) -> anyhow::Result<TxSeqDatabase> {
+    assert!(!databases.is_empty());
     if let Some((first, others)) = databases.split_first_mut() {
         if !others.is_empty() {
             tracing::info!("Merging multiple transcript databases into one");

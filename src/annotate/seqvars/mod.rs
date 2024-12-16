@@ -1971,8 +1971,8 @@ pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usiz
 mod test {
     use super::binning::bin_from_range;
     use super::{run, Args, PathOutput};
-    use crate::annotate::cli::{Sources, TranscriptPickType, TranscriptSettings};
-    use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
+    use crate::annotate::cli::ConsequenceBy;
+    use crate::annotate::cli::{Sources, TranscriptSettings};
     use clap_verbosity_flag::Verbosity;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
