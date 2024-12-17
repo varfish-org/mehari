@@ -1899,12 +1899,36 @@ pub(crate) fn setup_seqvars_annotator(
 
     // Add the frequency annotator if requested.
     if let Some(rocksdb_path) = &sources.frequencies {
-        annotators.push(FrequencyAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Frequency)?)
+        let skip = assembly.map_or(false, |a| !rocksdb_path.contains(path_component(a)));
+        if !skip {
+            tracing::info!(
+                "Loading frequency database for assembly {:?} from {}",
+                &assembly,
+                &rocksdb_path
+            );
+            annotators
+                .push(FrequencyAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Frequency)?)
+        } else {
+            tracing::warn!("Skipping frequency database as its assembly does not match the requested one ({:?})", &assembly);
+        }
     }
 
     // Add the ClinVar annotator if requested.
     if let Some(rocksdb_path) = &sources.clinvar {
-        annotators.push(ClinvarAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Clinvar)?)
+        let skip = assembly.map_or(false, |a| !rocksdb_path.contains(path_component(a)));
+        if !skip {
+            tracing::info!(
+                "Loading ClinVar database for assembly {:?} from {}",
+                &assembly,
+                &rocksdb_path
+            );
+            annotators.push(ClinvarAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Clinvar)?)
+        } else {
+            tracing::warn!(
+                "Skipping ClinVar database as its assembly does not match the requested one ({:?})",
+                &assembly
+            );
+        }
     }
 
     // Add the consequence annotator if requested.
@@ -1939,6 +1963,10 @@ pub(crate) fn setup_seqvars_annotator(
             tracing::warn!("No suitable transcript databases found for requested assembly {:?}, therefore no consequence prediction will occur.", &assembly);
         } else {
             let tx_db = merge_transcript_databases(databases)?;
+            tracing::info!(
+                "Loaded transcript database(s) from {}",
+                &tx_sources.join(", ")
+            );
             annotators.push(
                 ConsequenceAnnotator::from_db_and_settings(tx_db, transcript_settings)
                     .map(AnnotatorEnum::Consequence)?,
