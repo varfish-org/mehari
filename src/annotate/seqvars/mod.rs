@@ -1950,7 +1950,7 @@ pub(crate) fn setup_seqvars_annotator(
                 Ok(db) => match pb_assembly {
                     Some(assembly) if check_assembly(&db, assembly) => Some(Ok(db)),
                     Some(_) => {
-                        tracing::info!("Skipping transcript database {} as its assembly {:?} does not match the requested one ({:?})", &tx_sources[i], &db.source_version, &assembly);
+                        tracing::info!("Skipping transcript database {} as its version {:?} does not support the requested assembly ({:?})", &tx_sources[i], &db.source_version, &assembly);
                         None
                     },
                     None => Some(Ok(db)),
