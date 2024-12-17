@@ -60,7 +60,7 @@ pub trait NoodlesVariantReader {
     async fn records<'a>(
         &'a mut self,
         header: &'a Header,
-    ) -> LocalBoxStream<std::io::Result<RecordBuf>>;
+    ) -> LocalBoxStream<'a, std::io::Result<RecordBuf>>;
 }
 
 impl NoodlesVariantReader for VariantReader {
@@ -76,7 +76,7 @@ impl NoodlesVariantReader for VariantReader {
     async fn records<'a>(
         &'a mut self,
         header: &'a Header,
-    ) -> LocalBoxStream<std::io::Result<RecordBuf>> {
+    ) -> LocalBoxStream<'a, std::io::Result<RecordBuf>> {
         match self {
             VariantReader::Vcf(r) => r.record_bufs(header).boxed_local(),
             VariantReader::Bcf(r) => r
