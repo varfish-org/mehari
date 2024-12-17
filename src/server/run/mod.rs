@@ -1,4 +1,5 @@
 use crate::annotate::cli::{Sources, TranscriptSettings};
+use crate::annotate::seqvars::csq::ConfigBuilder;
 use crate::annotate::seqvars::setup_seqvars_annotator;
 use crate::{
     annotate::{
@@ -183,22 +184,35 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
 
         let annotator =
             setup_seqvars_annotator(&args.sources, &args.transcript_settings, Some(assembly))?;
-        let seqvars_csq_predictor = &annotator.seqvars().unwrap().predictor;
-        let provider = seqvars_csq_predictor.provider.clone();
-        data.provider.insert(genome_release, provider.clone());
-        tracing::info!("  - building seqvars predictors");
-        data.seqvars_predictors.insert(
-            genome_release,
-            SeqvarConsequencePredictor::new(provider.clone(), Default::default()),
-        );
-        tracing::info!("  - building strucvars predictors");
-        data.strucvars_predictors.insert(
-            genome_release,
-            StrucvarConsequencePredictor::new(provider.clone(), assembly),
-        );
+        if let Some(seqvars_csq_predictor) = annotator.seqvars().map(|a| &a.predictor) {
+            let config = ConfigBuilder::default()
+                .report_most_severe_consequence_by(
+                    args.transcript_settings.report_most_severe_consequence_by,
+                )
+                .transcript_source(args.transcript_settings.transcript_source)
+                .build()?;
+
+            let provider = seqvars_csq_predictor.provider.clone();
+            data.provider.insert(genome_release, provider.clone());
+            tracing::info!("  - building seqvars predictors");
+            data.seqvars_predictors.insert(
+                genome_release,
+                SeqvarConsequencePredictor::new(provider.clone(), config),
+            );
+            tracing::info!("  - building strucvars predictors");
+            data.strucvars_predictors.insert(
+                genome_release,
+                StrucvarConsequencePredictor::new(provider.clone(), assembly),
+            );
+        } else {
+            tracing::warn!(
+                "No predictors for genome release {:?}, respective endpoint will be unavailable.",
+                genome_release
+            );
+        }
     }
     let data = actix_web::web::Data::new(data);
-    tracing::info!("...done loading data {:?}", before_loading.elapsed());
+    tracing::info!("... done loading data {:?}", before_loading.elapsed());
 
     // Print the server URL and some hints (the latter: unless suppressed).
     print_hints(args);
