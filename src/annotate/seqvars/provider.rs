@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType};
 use crate::db::create::Reason;
 use crate::db::TranscriptDatabase;
 use crate::{
@@ -23,7 +24,6 @@ use hgvs::{
     sequences::{seq_md5, TranslationTable},
 };
 use itertools::Itertools;
-use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType};
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &[

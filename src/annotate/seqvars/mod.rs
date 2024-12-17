@@ -1332,11 +1332,10 @@ pub(crate) struct Annotator {
 }
 
 impl Annotator {
-    pub(crate) fn seqvars(&self) -> Option<&ConsequenceAnnotator> {
+    pub(crate) fn consequence(&self) -> Option<&ConsequenceAnnotator> {
         for annotator in &self.annotators {
-            match annotator {
-                AnnotatorEnum::Consequence(a) => return Some(a),
-                _ => (),
+            if let AnnotatorEnum::Consequence(a) = annotator {
+                return Some(a);
             }
         }
         None

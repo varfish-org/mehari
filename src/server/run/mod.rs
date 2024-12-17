@@ -184,7 +184,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
 
         let annotator =
             setup_seqvars_annotator(&args.sources, &args.transcript_settings, Some(assembly))?;
-        if let Some(seqvars_csq_predictor) = annotator.seqvars().map(|a| &a.predictor) {
+        if let Some(seqvars_csq_predictor) = annotator.consequence().map(|a| &a.predictor) {
             let config = ConfigBuilder::default()
                 .report_most_severe_consequence_by(
                     args.transcript_settings.report_most_severe_consequence_by,
