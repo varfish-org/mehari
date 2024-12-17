@@ -130,7 +130,7 @@ pub fn print_hints(args: &Args) {
         args.listen_host.as_str(),
         args.listen_port
     );
-    // The endpoint `/tx/csq` to comput ethe consequence of a variant; without and with filtering
+    // The endpoint `/tx/csq` to compute the consequence of a variant; without and with filtering
     // for HGNC gene ID.
     tracing::info!(
         "  try: http://{}:{}/seqvars/csq?genome_release=grch37\
