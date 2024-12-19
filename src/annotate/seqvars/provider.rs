@@ -454,7 +454,7 @@ impl Provider {
     /// # Returns
     ///
     /// The `Transcript` for the given accession, or None if the accession was not found.
-    pub fn get_tx(&self, tx_id: &str) -> Option<Transcript> {
+    pub fn get_tx(&self, tx_id: &str) -> Option<&Transcript> {
         self.tx_map.get(tx_id).and_then(|idx| {
             let tx = &self
                 .tx_seq_db
@@ -465,7 +465,7 @@ impl Provider {
             if let Some(true) = tx.filtered {
                 None
             } else {
-                Some(tx.clone())
+                Some(tx)
             }
         })
     }
