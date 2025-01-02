@@ -4,7 +4,6 @@ use strum::{Display, VariantArray};
 #[derive(Debug, ClapArgs)]
 #[group(required = true, multiple = true)]
 pub struct Sources {
-
     /// Transcript database containing the transcript information.
     ///
     /// Pre-built databases are available at https://github.com/varfish-org/mehari-data-tx/releases
