@@ -6,15 +6,15 @@ use actix_web::ResponseError;
 use utoipa::OpenApi as _;
 
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
+use crate::annotate::seqvars::FrequencyAnnotator;
 use crate::annotate::strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor;
 use crate::{annotate::seqvars::csq::ConsequencePredictor, common::GenomeRelease};
-use crate::annotate::seqvars::FrequencyAnnotator;
 
+pub mod frequencies;
 pub mod gene_txs;
 pub mod seqvars_csq;
 pub mod strucvars_csq;
 pub mod versions;
-pub mod frequencies;
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct CustomError {

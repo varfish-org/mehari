@@ -1562,7 +1562,7 @@ impl FrequencyAnnotator {
         if !is_canonical(&vcf_var.chromosome) {
             return Ok(None);
         }
-        
+
         // Build key for RocksDB database
         let vcf_var = keys::Var::from(
             &vcf_var.chromosome,

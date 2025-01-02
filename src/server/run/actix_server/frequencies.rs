@@ -1,6 +1,6 @@
-//! Implementation of endpoint `/api/v1/seqvars/csq`.
+//! Implementation of endpoint `/api/v1/frequency`.
 //!
-//! Also includes the implementation of the `/seqvars/csq` endpoint (deprecated).
+//! Also includes the implementation of the `/frequency` endpoint (deprecated).
 
 use actix_web::{
     get,
@@ -149,7 +149,7 @@ async fn handle_impl(
     Ok(Json(result))
 }
 
-/// Query for consequence of a variant.
+/// Query for gnomAD frequencies of a variant.
 #[allow(clippy::unused_async)]
 #[get("/frequency")]
 async fn handle(
@@ -160,7 +160,7 @@ async fn handle(
     handle_impl(data, _path, query).await
 }
 
-/// Query for consequence of a variant.
+/// Query for gnomAD frequencies of a variant.
 #[allow(clippy::unused_async)]
 #[utoipa::path(
     get,

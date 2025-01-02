@@ -125,7 +125,7 @@ pub fn print_hints(args: &Args) {
 
     // The endpoint `/genes/txs` provides transcript information.
     tracing::info!(
-        "  try: http://{}:{}/genes/txs?hgncId=HGNC:1100&\
+        "  try: http://{}:{}/api/v1/genes/transcripts?hgnc_id=HGNC:1100&genome_build=grch37&\
         genomeBuild=GENOME_BUILD_GRCH37",
         args.listen_host.as_str(),
         args.listen_port
@@ -133,27 +133,27 @@ pub fn print_hints(args: &Args) {
     // The endpoint `/tx/csq` to compute the consequence of a variant; without and with filtering
     // for HGNC gene ID.
     tracing::info!(
-        "  try: http://{}:{}/seqvars/csq?genome_release=grch37\
+        "  try: http://{}:{}/api/v1/seqvars/csq?genome_release=grch37\
         &chromosome=17&position=48275363&reference=C&alternative=A",
         args.listen_host.as_str(),
         args.listen_port
     );
     tracing::info!(
-        "  try: http://{}:{}/seqvars/csq?genome_release=grch37\
+        "  try: http://{}:{}/api/v1/seqvars/csq?genome_release=grch37\
         &chromosome=17&position=48275363&reference=C&alternative=A&hgnc_id=HGNC:2197",
         args.listen_host.as_str(),
         args.listen_port
     );
     // The endpoint `/strucvars/csq` computes the consequence of an SV.
     tracing::info!(
-        "  try: http://{}:{}/strucvars/csq?genome_release=grch37\
+        "  try: http://{}:{}/api/v1/strucvars/csq?genome_release=grch37\
         &chromosome=17&start=48275360&&stop=48275370&sv_type=DEL",
         args.listen_host.as_str(),
         args.listen_port
     );
     // The endpoint `/structvars/csq` computes the consequence of an SV.
     tracing::info!(
-        "  try: http://{}:{}/strucvars/csq?genome_release=grch37\
+        "  try: http://{}:{}/api/v1/strucvars/csq?genome_release=grch37\
         &chromosome=17&start=48275360&&stop=48275370&sv_type=DEL",
         args.listen_host.as_str(),
         args.listen_port
