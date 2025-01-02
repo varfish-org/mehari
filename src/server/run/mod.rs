@@ -1,6 +1,6 @@
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::seqvars::csq::ConfigBuilder;
-use crate::annotate::seqvars::setup_seqvars_annotator;
+use crate::annotate::seqvars::{setup_seqvars_annotator, FrequencyAnnotator};
 use crate::{
     annotate::{
         seqvars::csq::ConsequencePredictor as SeqvarConsequencePredictor,
@@ -207,6 +207,32 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         } else {
             tracing::warn!(
                 "No predictors for genome release {:?}, respective endpoint will be unavailable.",
+                genome_release
+            );
+        }
+
+        if let Some(path) = args.sources.frequencies.as_ref() {
+            if path
+                .to_ascii_lowercase()
+                .contains(&genome_release.name().to_ascii_lowercase())
+            {
+                if let Ok(freq) = FrequencyAnnotator::from_path(path) {
+                    data.frequency_annotators.insert(genome_release, freq);
+                } else {
+                    tracing::warn!(
+                        "Failed to load frequencies predictor for genome release {:?}, respective endpoint will be unavailable.",
+                        genome_release
+                    );
+                }
+            } else {
+                tracing::warn!(
+                    "No frequencies predictor for genome release {:?}, respective endpoint will be unavailable.",
+                    genome_release
+                );
+            }
+        } else {
+            tracing::warn!(
+                "No frequencies predictor for genome release {:?}, respective endpoint will be unavailable.",
                 genome_release
             );
         }

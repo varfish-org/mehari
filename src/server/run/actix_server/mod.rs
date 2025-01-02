@@ -8,11 +8,13 @@ use utoipa::OpenApi as _;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::annotate::strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor;
 use crate::{annotate::seqvars::csq::ConsequencePredictor, common::GenomeRelease};
+use crate::annotate::seqvars::FrequencyAnnotator;
 
 pub mod gene_txs;
 pub mod seqvars_csq;
 pub mod strucvars_csq;
 pub mod versions;
+pub mod frequencies;
 
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct CustomError {
@@ -47,6 +49,7 @@ pub struct WebServerData {
     /// The structural variant consequence predictors for eacha ssembly.
     pub strucvars_predictors:
         std::collections::HashMap<GenomeRelease, StrucvarConsequencePredictor>,
+    pub frequency_annotators: std::collections::HashMap<GenomeRelease, FrequencyAnnotator>,
 }
 
 /// Main entry point for running the REST server.
@@ -64,6 +67,8 @@ pub async fn main(
             .service(seqvars_csq::handle_with_openapi)
             .service(strucvars_csq::handle)
             .service(strucvars_csq::handle_with_openapi)
+            .service(frequencies::handle)
+            .service(frequencies::handle_with_openapi)
             .service(versions::handle)
             .service(
                 utoipa_swagger_ui::SwaggerUi::new("/swagger-ui/{_:.*}")

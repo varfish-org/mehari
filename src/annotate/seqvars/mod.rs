@@ -1340,8 +1340,27 @@ impl Annotator {
         }
         None
     }
+
+    pub(crate) fn frequencies(&self) -> Option<&FrequencyAnnotator> {
+        for annotator in &self.annotators {
+            if let AnnotatorEnum::Frequency(a) = annotator {
+                return Some(a);
+            }
+        }
+        None
+    }
+
+    pub(crate) fn clinvar(&self) -> Option<&ClinvarAnnotator> {
+        for annotator in &self.annotators {
+            if let AnnotatorEnum::Clinvar(a) = annotator {
+                return Some(a);
+            }
+        }
+        None
+    }
 }
 
+#[derive(Debug)]
 pub struct FrequencyAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
 }
@@ -1413,7 +1432,7 @@ impl FrequencyAnnotator {
         Ok(())
     }
 
-    /// Annotate record on gonomosomal chromosome with gnomAD exomes/genomes.
+    /// Annotate record on gonosomal chromosome with gnomAD exomes/genomes.
     pub fn annotate_record_xy(
         &self,
         key: &[u8],
@@ -1423,51 +1442,47 @@ impl FrequencyAnnotator {
             .db
             .get_cf(self.db.cf_handle("gonosomal").as_ref().unwrap(), key)?
         {
-            let auto_record = xy::Record::from_buf(&freq);
+            let xy_record = xy::Record::from_buf(&freq);
 
             vcf_record.info_mut().insert(
                 "gnomad_exomes_an".into(),
-                Some(field::Value::Integer(auto_record.gnomad_exomes.an as i32)),
+                Some(field::Value::Integer(xy_record.gnomad_exomes.an as i32)),
             );
             vcf_record.info_mut().insert(
                 "gnomad_exomes_hom".into(),
-                Some(field::Value::Integer(
-                    auto_record.gnomad_exomes.ac_hom as i32,
-                )),
+                Some(field::Value::Integer(xy_record.gnomad_exomes.ac_hom as i32)),
             );
             vcf_record.info_mut().insert(
                 "gnomad_exomes_het".into(),
-                Some(field::Value::Integer(
-                    auto_record.gnomad_exomes.ac_het as i32,
-                )),
+                Some(field::Value::Integer(xy_record.gnomad_exomes.ac_het as i32)),
             );
             vcf_record.info_mut().insert(
                 "gnomad_exomes_hemi".into(),
                 Some(field::Value::Integer(
-                    auto_record.gnomad_exomes.ac_hemi as i32,
+                    xy_record.gnomad_exomes.ac_hemi as i32,
                 )),
             );
 
             vcf_record.info_mut().insert(
                 "gnomad_genomes_an".into(),
-                Some(field::Value::Integer(auto_record.gnomad_genomes.an as i32)),
+                Some(field::Value::Integer(xy_record.gnomad_genomes.an as i32)),
             );
             vcf_record.info_mut().insert(
                 "gnomad_genomes_hom".into(),
                 Some(field::Value::Integer(
-                    auto_record.gnomad_genomes.ac_hom as i32,
+                    xy_record.gnomad_genomes.ac_hom as i32,
                 )),
             );
             vcf_record.info_mut().insert(
                 "gnomad_genomes_het".into(),
                 Some(field::Value::Integer(
-                    auto_record.gnomad_genomes.ac_het as i32,
+                    xy_record.gnomad_genomes.ac_het as i32,
                 )),
             );
             vcf_record.info_mut().insert(
                 "gnomad_genomes_hemi".into(),
                 Some(field::Value::Integer(
-                    auto_record.gnomad_genomes.ac_hemi as i32,
+                    xy_record.gnomad_genomes.ac_hemi as i32,
                 )),
             );
         };
@@ -1536,6 +1551,94 @@ impl FrequencyAnnotator {
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn annotate_variant(
+        &self,
+        vcf_var: &VcfVariant,
+    ) -> anyhow::Result<Option<crate::server::run::actix_server::frequencies::FrequencyResultEntry>>
+    {
+        // Only attempt lookups into RocksDB for canonical contigs.
+        if !is_canonical(&vcf_var.chromosome) {
+            return Ok(None);
+        }
+        
+        // Build key for RocksDB database
+        let vcf_var = keys::Var::from(
+            &vcf_var.chromosome,
+            vcf_var.position,
+            &vcf_var.reference,
+            &vcf_var.alternative,
+        );
+        let key: Vec<u8> = vcf_var.clone().into();
+        use crate::server::run::actix_server::frequencies::*;
+        // Annotate with frequency.
+        if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
+            if let Some(freq) = self
+                .db
+                .get_cf(self.db.cf_handle("autosomal").as_ref().unwrap(), key)?
+            {
+                let val = auto::Record::from_buf(&freq);
+                Ok(Some(FrequencyResultEntry::Autosomal(
+                    AutosomalResultEntry {
+                        gnomad_exomes_an: val.gnomad_exomes.an,
+                        gnomad_exomes_hom: val.gnomad_exomes.ac_hom,
+                        gnomad_exomes_het: val.gnomad_exomes.ac_het,
+                        gnomad_genomes_an: val.gnomad_genomes.an,
+                        gnomad_genomes_hom: val.gnomad_genomes.ac_hom,
+                        gnomad_genomes_het: val.gnomad_genomes.ac_het,
+                    },
+                )))
+            } else {
+                Err(anyhow!("No frequency data found for variant {:?}", vcf_var))
+            }
+        } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
+            if let Some(freq) = self
+                .db
+                .get_cf(self.db.cf_handle("gonosomal").as_ref().unwrap(), key)?
+            {
+                let val = xy::Record::from_buf(&freq);
+                Ok(Some(FrequencyResultEntry::Gonosomal(
+                    GonosomalResultEntry {
+                        gnomad_exomes_an: val.gnomad_exomes.an,
+                        gnomad_exomes_hom: val.gnomad_exomes.ac_hom,
+                        gnomad_exomes_het: val.gnomad_exomes.ac_het,
+                        gnomad_exomes_hemi: val.gnomad_exomes.ac_hemi,
+                        gnomad_genomes_an: val.gnomad_genomes.an,
+                        gnomad_genomes_hom: val.gnomad_genomes.ac_hom,
+                        gnomad_genomes_het: val.gnomad_genomes.ac_het,
+                        gnomad_genomes_hemi: val.gnomad_genomes.ac_hemi,
+                    },
+                )))
+            } else {
+                Err(anyhow!("No frequency data found for variant {:?}", vcf_var))
+            }
+        } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
+            if let Some(freq) = self
+                .db
+                .get_cf(self.db.cf_handle("mitochondrial").as_ref().unwrap(), key)?
+            {
+                let val = mt::Record::from_buf(&freq);
+                Ok(Some(FrequencyResultEntry::Mitochondrial(
+                    MitochondrialResultEntry {
+                        helix_an: val.helixmtdb.an,
+                        helix_hom: val.helixmtdb.ac_hom,
+                        helix_het: val.helixmtdb.ac_het,
+                        gnomad_genomes_an: val.gnomad_mtdna.an,
+                        gnomad_genomes_hom: val.gnomad_mtdna.ac_hom,
+                        gnomad_genomes_het: val.gnomad_mtdna.ac_het,
+                    },
+                )))
+            } else {
+                Err(anyhow!("No frequency data found for variant {:?}", vcf_var))
+            }
+        } else {
+            tracing::trace!(
+                "Record @{:?} on non-canonical chromosome, skipping.",
+                &vcf_var
+            );
+            Ok(None)
+        }
     }
 }
 
