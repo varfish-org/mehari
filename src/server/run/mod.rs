@@ -26,6 +26,10 @@ pub mod openapi {
         StrucvarsGeneTranscriptEffects, StrucvarsTranscriptEffect,
     };
     use crate::common::GenomeRelease;
+    use crate::server::run::actix_server::frequencies::{
+        AutosomalResultEntry, FrequencyQuery, FrequencyResponse, FrequencyResultEntry,
+        GonosomalResultEntry, MitochondrialResultEntry,
+    };
     use crate::server::run::actix_server::gene_txs::{
         ExonAlignment, GenesTranscriptsListQuery, GenesTranscriptsListResponse, GenomeAlignment,
         Strand, Transcript, TranscriptBiotype, TranscriptTag,
@@ -40,7 +44,9 @@ pub mod openapi {
         Assembly, DataVersionEntry, SoftwareVersions, VersionsInfoResponse,
     };
 
-    use super::actix_server::{gene_txs, seqvars_csq, strucvars_csq, versions, CustomError};
+    use super::actix_server::{
+        frequencies, gene_txs, seqvars_csq, strucvars_csq, versions, CustomError,
+    };
 
     /// Utoipa-based `OpenAPI` generation helper.
     #[derive(utoipa::OpenApi)]
@@ -50,7 +56,8 @@ pub mod openapi {
             gene_txs::handle_with_openapi,
             seqvars_csq::handle_with_openapi,
             strucvars_csq::handle_with_openapi,
-            strucvars_csq::handle_with_openapi
+            strucvars_csq::handle_with_openapi,
+            frequencies::handle_with_openapi,
         ),
         components(schemas(
             Assembly,
@@ -83,6 +90,12 @@ pub mod openapi {
             Transcript,
             TranscriptBiotype,
             TranscriptTag,
+            FrequencyQuery,
+            FrequencyResponse,
+            FrequencyResultEntry,
+            AutosomalResultEntry,
+            GonosomalResultEntry,
+            MitochondrialResultEntry,
         ))
     )]
     pub struct ApiDoc;
