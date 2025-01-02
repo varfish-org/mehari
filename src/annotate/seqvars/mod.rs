@@ -8,6 +8,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use self::ann::{AnnField, Consequence, FeatureBiotype};
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::genotype_string;
 use crate::annotate::seqvars::csq::{
@@ -51,8 +52,6 @@ use serde::{Deserialize, Serialize};
 use strum::Display;
 use thousands::Separable;
 use tokio::io::AsyncWriteExt;
-
-use self::ann::{AnnField, Consequence, FeatureBiotype};
 
 pub mod ann;
 pub mod binning;
@@ -1527,8 +1526,9 @@ impl FrequencyAnnotator {
     pub(crate) fn annotate_variant(
         &self,
         vcf_var: &VcfVariant,
-    ) -> anyhow::Result<Option<crate::server::run::actix_server::frequencies::FrequencyResultEntry>>
-    {
+    ) -> anyhow::Result<
+        Option<crate::server::run::actix_server::seqvars_frequencies::FrequencyResultEntry>,
+    > {
         // Only attempt lookups into RocksDB for canonical contigs.
         if !is_canonical(&vcf_var.chromosome) {
             return Ok(None);
@@ -1542,7 +1542,7 @@ impl FrequencyAnnotator {
             &vcf_var.alternative,
         );
         let key: Vec<u8> = vcf_var.clone().into();
-        use crate::server::run::actix_server::frequencies::*;
+        use crate::server::run::actix_server::seqvars_frequencies::*;
         // Annotate with frequency.
         if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
             if let Some(freq) = self
@@ -1613,6 +1613,7 @@ impl FrequencyAnnotator {
     }
 }
 
+#[derive(Debug)]
 pub struct ClinvarAnnotator {
     db: DBWithThreadMode<rocksdb::MultiThreaded>,
 }
@@ -1722,6 +1723,64 @@ impl ClinvarAnnotator {
             self.annotate_record_clinvar(&key, record)?;
         }
         Ok(())
+    }
+
+    pub(crate) fn annotate_variant(
+        &self,
+        vcf_var: &VcfVariant,
+    ) -> anyhow::Result<Option<crate::server::run::actix_server::seqvars_clinvar::ClinvarResultEntry>>
+    {
+        // Only attempt lookups into RocksDB for canonical contigs.
+        if !is_canonical(&vcf_var.chromosome) {
+            return Ok(None);
+        }
+
+        // Build key for RocksDB database
+        let vcf_var = keys::Var::from(
+            &vcf_var.chromosome,
+            vcf_var.position,
+            &vcf_var.reference,
+            &vcf_var.alternative,
+        );
+        let key: Vec<u8> = vcf_var.clone().into();
+
+        if let Some(raw_value) = self
+            .db
+            .get_cf(self.db.cf_handle("clinvar").as_ref().unwrap(), key)?
+        {
+            let record_list = annonars::pbs::clinvar::minimal::ExtractedVcvRecordList::decode(
+                &mut Cursor::new(&raw_value),
+            )?;
+
+            let mut clinvar_vcvs = Vec::new();
+            let mut clinvar_germline_classifications = Vec::new();
+            for clinvar_record in record_list.records.iter() {
+                let accession = clinvar_record.accession.as_ref().expect("must have VCV");
+                let vcv = format!("{}.{}", accession.accession, accession.version);
+                let classifications = clinvar_record
+                    .classifications
+                    .as_ref()
+                    .expect("must have classifications");
+                if let Some(germline_classification) = &classifications.germline_classification {
+                    let description = germline_classification
+                        .description
+                        .as_ref()
+                        .expect("description missing")
+                        .to_string();
+                    clinvar_vcvs.push(vcv);
+                    clinvar_germline_classifications.push(description);
+                }
+            }
+
+            Ok(Some(
+                crate::server::run::actix_server::seqvars_clinvar::ClinvarResultEntry {
+                    clinvar_vcv: clinvar_vcvs,
+                    clinvar_germline_classification: clinvar_germline_classifications,
+                },
+            ))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -1971,7 +2030,7 @@ pub(crate) fn setup_seqvars_annotator(
 
     // Add the frequency annotator if requested.
     if let Some(rocksdb_paths) = &sources.frequencies {
-        let freq_dbs = load_frequency_dbs_for_assembly(rocksdb_paths, assembly)?;
+        let freq_dbs = initialize_frequency_annotators_for_assembly(rocksdb_paths, assembly)?;
         for freq_db in freq_dbs {
             annotators.push(AnnotatorEnum::Frequency(freq_db))
         }
@@ -1979,7 +2038,7 @@ pub(crate) fn setup_seqvars_annotator(
 
     // Add the ClinVar annotator if requested.
     if let Some(rocksdb_paths) = &sources.clinvar {
-        let clinvar_dbs = load_clinvar_dbs_for_assembly(rocksdb_paths, assembly)?;
+        let clinvar_dbs = intialize_clinvar_annotators_for_assembly(rocksdb_paths, assembly)?;
         for clinvar_db in clinvar_dbs {
             annotators.push(AnnotatorEnum::Clinvar(clinvar_db))
         }
@@ -2010,7 +2069,7 @@ pub(crate) fn setup_seqvars_annotator(
     Ok(annotator)
 }
 
-pub(crate) fn load_clinvar_dbs_for_assembly(
+pub(crate) fn intialize_clinvar_annotators_for_assembly(
     rocksdb_paths: &[String],
     assembly: Option<Assembly>,
 ) -> Result<Vec<ClinvarAnnotator>, Error> {
@@ -2036,7 +2095,7 @@ pub(crate) fn load_clinvar_dbs_for_assembly(
         .collect()
 }
 
-pub(crate) fn load_frequency_dbs_for_assembly(
+pub(crate) fn initialize_frequency_annotators_for_assembly(
     rocksdb_paths: &[String],
     assembly: Option<Assembly>,
 ) -> Result<Vec<FrequencyAnnotator>, Error> {

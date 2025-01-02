@@ -1,7 +1,8 @@
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::seqvars::csq::ConfigBuilder;
 use crate::annotate::seqvars::{
-    load_frequency_dbs_for_assembly, load_transcript_dbs_for_assembly, ConsequenceAnnotator,
+    initialize_frequency_annotators_for_assembly, intialize_clinvar_annotators_for_assembly,
+    load_transcript_dbs_for_assembly, ConsequenceAnnotator,
 };
 use crate::db::merge::merge_transcript_databases;
 use crate::{
@@ -26,16 +27,19 @@ pub mod openapi {
         StrucvarsGeneTranscriptEffects, StrucvarsTranscriptEffect,
     };
     use crate::common::GenomeRelease;
-    use crate::server::run::actix_server::frequencies::{
-        AutosomalResultEntry, FrequencyQuery, FrequencyResponse, FrequencyResultEntry,
-        GonosomalResultEntry, MitochondrialResultEntry,
-    };
     use crate::server::run::actix_server::gene_txs::{
         ExonAlignment, GenesTranscriptsListQuery, GenesTranscriptsListResponse, GenomeAlignment,
         Strand, Transcript, TranscriptBiotype, TranscriptTag,
     };
+    use crate::server::run::actix_server::seqvars_clinvar::{
+        ClinvarQuery, ClinvarResponse, ClinvarResultEntry,
+    };
     use crate::server::run::actix_server::seqvars_csq::{
         SeqvarsCsqQuery, SeqvarsCsqResponse, SeqvarsCsqResultEntry,
+    };
+    use crate::server::run::actix_server::seqvars_frequencies::{
+        AutosomalResultEntry, FrequencyQuery, FrequencyResponse, FrequencyResultEntry,
+        GonosomalResultEntry, MitochondrialResultEntry,
     };
     use crate::server::run::actix_server::strucvars_csq::{
         StrucvarsCsqQuery, StrucvarsCsqResponse,
@@ -45,7 +49,8 @@ pub mod openapi {
     };
 
     use super::actix_server::{
-        frequencies, gene_txs, seqvars_csq, strucvars_csq, versions, CustomError,
+        gene_txs, seqvars_clinvar, seqvars_csq, seqvars_frequencies, strucvars_csq, versions,
+        CustomError,
     };
 
     /// Utoipa-based `OpenAPI` generation helper.
@@ -57,7 +62,8 @@ pub mod openapi {
             seqvars_csq::handle_with_openapi,
             strucvars_csq::handle_with_openapi,
             strucvars_csq::handle_with_openapi,
-            frequencies::handle_with_openapi,
+            seqvars_frequencies::handle_with_openapi,
+            seqvars_clinvar::handle_with_openapi,
         ),
         components(schemas(
             Assembly,
@@ -96,6 +102,9 @@ pub mod openapi {
             AutosomalResultEntry,
             GonosomalResultEntry,
             MitochondrialResultEntry,
+            ClinvarQuery,
+            ClinvarResponse,
+            ClinvarResultEntry,
         ))
     )]
     pub struct ApiDoc;
@@ -238,18 +247,36 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         }
 
         if let Some(paths) = args.sources.frequencies.as_ref() {
-            let freqs = load_frequency_dbs_for_assembly(paths, Some(assembly))?;
+            let annotators = initialize_frequency_annotators_for_assembly(paths, Some(assembly))?;
 
-            match freqs.len() {
+            match annotators.len() {
                 0 => tracing::warn!(
                     "No frequency databases loaded, respective endpoint will be unavailable."
                 ),
                 1 => {
-                    let freq = freqs.into_iter().next().unwrap();
-                    data.frequency_annotators.insert(genome_release, freq);
+                    let frequency_db = annotators.into_iter().next().unwrap();
+                    data.frequency_annotators
+                        .insert(genome_release, frequency_db);
                 }
                 _ => tracing::warn!(
                     "Multiple frequency databases loaded, only the first one will be used."
+                ),
+            }
+        }
+
+        if let Some(paths) = args.sources.clinvar.as_ref() {
+            let annotators = intialize_clinvar_annotators_for_assembly(paths, Some(assembly))?;
+
+            match annotators.len() {
+                0 => tracing::warn!(
+                    "No clinvar databases loaded, respective endpoint will be unavailable."
+                ),
+                1 => {
+                    let annotator = annotators.into_iter().next().unwrap();
+                    data.clinvar_annotators.insert(genome_release, annotator);
+                }
+                _ => tracing::warn!(
+                    "Multiple clinvar databases loaded, only the first one will be used."
                 ),
             }
         }

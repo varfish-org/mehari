@@ -1,6 +1,6 @@
-//! Implementation of endpoint `/api/v1/frequency`.
+//! Implementation of endpoint `/api/v1/seqvars/clinvar`.
 //!
-//! Also includes the implementation of the `/frequency` endpoint (deprecated).
+//! Also includes the implementation of the `/seqvars/clinvar` endpoint (deprecated).
 
 use actix_web::{
     get,
@@ -11,13 +11,13 @@ use crate::{annotate::seqvars::csq::VcfVariant, common::GenomeRelease};
 
 use super::{versions::VersionsInfoResponse, CustomError};
 
-/// Query parameters of the `/api/v1/seqvars/csq` endpoint.
+/// Query parameters of the `/api/v1/seqvars/clinvar` endpoint.
 #[derive(
     Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::IntoParams, utoipa::ToSchema,
 )]
 #[serde(rename_all = "snake_case")]
 #[serde_with::skip_serializing_none]
-pub(crate) struct FrequencyQuery {
+pub(crate) struct ClinvarQuery {
     /// The assembly.
     pub genome_release: GenomeRelease,
     /// SPDI sequence.
@@ -30,81 +30,33 @@ pub(crate) struct FrequencyQuery {
     pub alternative: String,
 }
 
-/// One entry in `FrequencyResponse`.
+/// One entry in `ClinvarResponse`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub(crate) enum FrequencyResultEntry {
-    Autosomal(AutosomalResultEntry),
-    Gonosomal(GonosomalResultEntry),
-    Mitochondrial(MitochondrialResultEntry),
+pub(crate) struct ClinvarResultEntry {
+    pub clinvar_vcv: Vec<String>,
+    pub clinvar_germline_classification: Vec<String>,
 }
 
+/// Response of the `/api/v1/seqvars/clinvar` endpoint.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub(crate) struct AutosomalResultEntry {
-    pub gnomad_exomes_an: u32,
-
-    pub gnomad_exomes_hom: u32,
-
-    pub gnomad_exomes_het: u32,
-
-    pub gnomad_genomes_an: u32,
-
-    pub gnomad_genomes_hom: u32,
-
-    pub gnomad_genomes_het: u32,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub(crate) struct GonosomalResultEntry {
-    pub gnomad_exomes_an: u32,
-
-    pub gnomad_exomes_hom: u32,
-
-    pub gnomad_exomes_het: u32,
-
-    pub gnomad_exomes_hemi: u32,
-
-    pub gnomad_genomes_an: u32,
-
-    pub gnomad_genomes_hom: u32,
-
-    pub gnomad_genomes_het: u32,
-
-    pub gnomad_genomes_hemi: u32,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub(crate) struct MitochondrialResultEntry {
-    pub helix_an: u32,
-
-    pub helix_hom: u32,
-
-    pub helix_het: u32,
-
-    pub gnomad_genomes_an: u32,
-
-    pub gnomad_genomes_hom: u32,
-
-    pub gnomad_genomes_het: u32,
-}
-
-/// Response of the `/api/v1/frequency` endpoint.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub(crate) struct FrequencyResponse {
+pub(crate) struct ClinvarResponse {
     /// Version information.
     pub version: VersionsInfoResponse,
+
     /// The original query records.
-    pub query: FrequencyQuery,
+    pub query: ClinvarQuery,
+
     /// The resulting records for the scored genes.
-    pub result: Vec<FrequencyResultEntry>,
+    pub result: Vec<ClinvarResultEntry>,
 }
 
 /// Implementation of endpoints.
 async fn handle_impl(
     data: Data<super::WebServerData>,
     _path: Path<()>,
-    query: web::Query<FrequencyQuery>,
-) -> actix_web::Result<Json<FrequencyResponse>, super::CustomError> {
-    let FrequencyQuery {
+    query: web::Query<ClinvarQuery>,
+) -> actix_web::Result<Json<ClinvarResponse>, super::CustomError> {
+    let ClinvarQuery {
         genome_release,
         chromosome,
         position,
@@ -113,7 +65,7 @@ async fn handle_impl(
     } = query.clone().into_inner();
 
     let annotator = data
-        .frequency_annotators
+        .clinvar_annotators
         .get(&genome_release)
         .ok_or_else(|| {
             super::CustomError::new(anyhow::anyhow!(
@@ -129,14 +81,14 @@ async fn handle_impl(
         reference,
         alternative,
     };
-    let frequencies = annotator
+    let annotations = annotator
         .annotate_variant(&g_var)
         .map_err(|e| super::CustomError::new(anyhow::anyhow!("annotation failed: {}", &e)))?;
-    if let Some(frequencies) = frequencies {
-        result.push(frequencies);
+    if let Some(annotations) = annotations {
+        result.push(annotations);
     }
 
-    let result = FrequencyResponse {
+    let result = ClinvarResponse {
         version: VersionsInfoResponse::from_web_server_data(data.into_inner().as_ref())
             .map_err(|e| CustomError::new(anyhow::anyhow!("Problem determining version: {}", e)))?,
         query: query.into_inner(),
@@ -148,12 +100,12 @@ async fn handle_impl(
 
 /// Query for gnomAD frequencies of a variant.
 #[allow(clippy::unused_async)]
-#[get("/frequency")]
+#[get("/seqvars/clinvar")]
 async fn handle(
     data: Data<super::WebServerData>,
     _path: Path<()>,
-    query: web::Query<FrequencyQuery>,
-) -> actix_web::Result<Json<FrequencyResponse>, super::CustomError> {
+    query: web::Query<ClinvarQuery>,
+) -> actix_web::Result<Json<ClinvarResponse>, super::CustomError> {
     handle_impl(data, _path, query).await
 }
 
@@ -161,20 +113,20 @@ async fn handle(
 #[allow(clippy::unused_async)]
 #[utoipa::path(
     get,
-    operation_id = "frequency",
+    operation_id = "seqvarsClinvar",
     params(
-        FrequencyQuery
+        ClinvarQuery
     ),
     responses(
-        (status = 200, description = "Frequency information.", body = FrequencyResponse),
+        (status = 200, description = "Clinvar information.", body = ClinvarResponse),
         (status = 500, description = "Internal server error.", body = CustomError)
     )
 )]
-#[get("/api/v1/frequency")]
+#[get("/api/v1/seqvars/clinvar")]
 async fn handle_with_openapi(
     data: Data<super::WebServerData>,
     _path: Path<()>,
-    query: web::Query<FrequencyQuery>,
-) -> actix_web::Result<Json<FrequencyResponse>, super::CustomError> {
+    query: web::Query<ClinvarQuery>,
+) -> actix_web::Result<Json<ClinvarResponse>, super::CustomError> {
     handle_impl(data, _path, query).await
 }
