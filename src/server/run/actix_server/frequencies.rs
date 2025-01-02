@@ -28,8 +28,6 @@ pub(crate) struct FrequencyQuery {
     pub reference: String,
     /// SPDI insertion.
     pub alternative: String,
-    /// Optionally, the HGNC ID of the gene to limit to.
-    pub hgnc_id: Option<String>,
 }
 
 /// One entry in `FrequencyResponse`.
@@ -112,7 +110,6 @@ async fn handle_impl(
         position,
         reference,
         alternative,
-        hgnc_id,
     } = query.clone().into_inner();
 
     let annotator = data

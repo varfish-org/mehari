@@ -1331,35 +1331,6 @@ pub(crate) struct Annotator {
     annotators: Vec<AnnotatorEnum>,
 }
 
-impl Annotator {
-    pub(crate) fn consequence(&self) -> Option<&ConsequenceAnnotator> {
-        for annotator in &self.annotators {
-            if let AnnotatorEnum::Consequence(a) = annotator {
-                return Some(a);
-            }
-        }
-        None
-    }
-
-    pub(crate) fn frequencies(&self) -> Option<&FrequencyAnnotator> {
-        for annotator in &self.annotators {
-            if let AnnotatorEnum::Frequency(a) = annotator {
-                return Some(a);
-            }
-        }
-        None
-    }
-
-    pub(crate) fn clinvar(&self) -> Option<&ClinvarAnnotator> {
-        for annotator in &self.annotators {
-            if let AnnotatorEnum::Clinvar(a) = annotator {
-                return Some(a);
-            }
-        }
-        None
-    }
-}
-
 #[derive(Debug)]
 pub struct FrequencyAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
@@ -1997,7 +1968,6 @@ pub(crate) fn setup_seqvars_annotator(
     assembly: Option<Assembly>,
 ) -> Result<Annotator, Error> {
     let mut annotators = vec![];
-    let pb_assembly = assembly.as_ref().and_then(proto_assembly_from);
 
     // Add the frequency annotator if requested.
     if let Some(rocksdb_path) = &sources.frequencies {
@@ -2037,29 +2007,7 @@ pub(crate) fn setup_seqvars_annotator(
     if let Some(tx_sources) = &sources.transcripts {
         tracing::info!("Opening transcript database(s)");
 
-        // Filter out any transcript databases that do not match the requested assembly.
-        let check_assembly = |db: &TxSeqDatabase, assembly: crate::pbs::txs::Assembly| {
-            db.source_version
-                .iter()
-                .map(|s| s.assembly)
-                .any(|a| a == i32::from(assembly))
-        };
-        let databases = tx_sources
-            .iter()
-            .enumerate()
-            .map(|(i, path)| (i, load_tx_db(path)))
-            .filter_map(|(i, txdb)| match txdb {
-                Ok(db) => match pb_assembly {
-                    Some(assembly) if check_assembly(&db, assembly) => Some(Ok(db)),
-                    Some(_) => {
-                        tracing::info!("Skipping transcript database {} as its version {:?} does not support the requested assembly ({:?})", &tx_sources[i], &db.source_version, &assembly);
-                        None
-                    },
-                    None => Some(Ok(db)),
-                },
-                Err(_) => Some(txdb),
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let databases = load_transcript_dbs_for_assembly(tx_sources, assembly)?;
 
         if databases.is_empty() {
             tracing::warn!("No suitable transcript databases found for requested assembly {:?}, therefore no consequence prediction will occur.", &assembly);
@@ -2078,6 +2026,38 @@ pub(crate) fn setup_seqvars_annotator(
 
     let annotator = Annotator::new(annotators);
     Ok(annotator)
+}
+
+pub(crate) fn load_transcript_dbs_for_assembly(
+    tx_sources: &Vec<String>,
+    assembly: Option<Assembly>,
+) -> Result<Vec<TxSeqDatabase>, Error> {
+    let pb_assembly = assembly.as_ref().and_then(proto_assembly_from);
+
+    // Filter out any transcript databases that do not match the requested assembly.
+    let check_assembly = |db: &TxSeqDatabase, assembly: crate::pbs::txs::Assembly| {
+        db.source_version
+            .iter()
+            .map(|s| s.assembly)
+            .any(|a| a == i32::from(assembly))
+    };
+    let databases = tx_sources
+        .iter()
+        .enumerate()
+        .map(|(i, path)| (i, load_tx_db(path)))
+        .filter_map(|(i, txdb)| match txdb {
+            Ok(db) => match pb_assembly {
+                Some(assembly) if check_assembly(&db, assembly) => Some(Ok(db)),
+                Some(_) => {
+                    tracing::info!("Skipping transcript database {} as its version {:?} does not support the requested assembly ({:?})", &tx_sources[i], &db.source_version, &assembly);
+                    None
+                },
+                None => Some(Ok(db)),
+            },
+            Err(_) => Some(txdb),
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(databases)
 }
 
 /// Create for all alternate alleles from the given VCF record.

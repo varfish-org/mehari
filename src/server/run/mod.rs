@@ -1,6 +1,9 @@
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::seqvars::csq::ConfigBuilder;
-use crate::annotate::seqvars::{setup_seqvars_annotator, FrequencyAnnotator};
+use crate::annotate::seqvars::{
+    load_transcript_dbs_for_assembly, ConsequenceAnnotator, FrequencyAnnotator,
+};
+use crate::db::merge::merge_transcript_databases;
 use crate::{
     annotate::{
         seqvars::csq::ConsequencePredictor as SeqvarConsequencePredictor,
@@ -182,28 +185,37 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         tracing::info!("  - loading genome release {:?}", genome_release);
         let assembly = genome_release.into();
 
-        let annotator =
-            setup_seqvars_annotator(&args.sources, &args.transcript_settings, Some(assembly))?;
-        if let Some(seqvars_csq_predictor) = annotator.consequence().map(|a| &a.predictor) {
-            let config = ConfigBuilder::default()
-                .report_most_severe_consequence_by(
-                    args.transcript_settings.report_most_severe_consequence_by,
-                )
-                .transcript_source(args.transcript_settings.transcript_source)
-                .build()?;
-
-            let provider = seqvars_csq_predictor.provider.clone();
-            data.provider.insert(genome_release, provider.clone());
+        if let Some(tx_db_paths) = args.sources.transcripts.as_ref() {
             tracing::info!("  - building seqvars predictors");
-            data.seqvars_predictors.insert(
-                genome_release,
-                SeqvarConsequencePredictor::new(provider.clone(), config),
-            );
-            tracing::info!("  - building strucvars predictors");
-            data.strucvars_predictors.insert(
-                genome_release,
-                StrucvarConsequencePredictor::new(provider.clone(), assembly),
-            );
+            let tx_dbs = load_transcript_dbs_for_assembly(tx_db_paths, Some(assembly))?;
+            if tx_dbs.is_empty() {
+                tracing::warn!(
+                    "No transcript databases loaded, respective endpoint will be unavailable."
+                );
+            } else {
+                let tx_db = merge_transcript_databases(tx_dbs)?;
+                let annotator =
+                    ConsequenceAnnotator::from_db_and_settings(tx_db, &args.transcript_settings)?;
+                let config = ConfigBuilder::default()
+                    .report_most_severe_consequence_by(
+                        args.transcript_settings.report_most_severe_consequence_by,
+                    )
+                    .transcript_source(args.transcript_settings.transcript_source)
+                    .build()?;
+
+                let provider = annotator.predictor.provider.clone();
+                data.provider.insert(genome_release, provider.clone());
+                data.seqvars_predictors.insert(
+                    genome_release,
+                    SeqvarConsequencePredictor::new(provider.clone(), config),
+                );
+
+                tracing::info!("  - building strucvars predictors");
+                data.strucvars_predictors.insert(
+                    genome_release,
+                    StrucvarConsequencePredictor::new(provider.clone(), assembly),
+                );
+            }
         } else {
             tracing::warn!(
                 "No predictors for genome release {:?}, respective endpoint will be unavailable.",
