@@ -259,7 +259,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                         .insert(genome_release, frequency_db);
                 }
                 _ => tracing::warn!(
-                    "Multiple frequency databases loaded, only the first one will be used."
+                    "Multiple frequency databases loaded. This is not supported. The respective endpoint will be unavailable."
                 ),
             }
         }
@@ -276,7 +276,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                     data.clinvar_annotators.insert(genome_release, annotator);
                 }
                 _ => tracing::warn!(
-                    "Multiple clinvar databases loaded, only the first one will be used."
+                    "Multiple clinvar databases specified. This is not supported. The respective endpoint will be unavailable."
                 ),
             }
         }
