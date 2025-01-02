@@ -4,10 +4,24 @@ use strum::{Display, VariantArray};
 #[derive(Debug, ClapArgs)]
 #[group(required = true, multiple = true)]
 pub struct Sources {
+
+    /// Transcript database containing the transcript information.
+    ///
+    /// Pre-built databases are available at https://github.com/varfish-org/mehari-data-tx/releases
     #[arg(long)]
     pub transcripts: Option<Vec<String>>,
+
+    /// Frequency database.
+    ///
+    /// The frequency database contains gnomAD frequencies for the variants.
+    /// Pre-built databases are available at TODO
     #[arg(long)]
     pub frequencies: Option<String>,
+
+    /// ClinVar database.
+    ///
+    /// The ClinVar database contains clinical significance information for the variants.
+    /// Pre-built databases are available at https://github.com/varfish-org/annonars-data-clinvar/releases
     #[arg(long)]
     pub clinvar: Option<String>,
 }
@@ -18,7 +32,7 @@ pub struct TranscriptSettings {
     #[arg(long, value_enum, default_value_t = TranscriptSource::Both)]
     pub transcript_source: TranscriptSource,
 
-    /// Whether to report only the worst consequence for each picked transcript.
+    /// Whether to report only the most severe consequence, grouped by gene, transcript, or allele.
     #[arg(long)]
     pub report_most_severe_consequence_by: Option<ConsequenceBy>,
 
