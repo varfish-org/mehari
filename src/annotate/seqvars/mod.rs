@@ -1970,36 +1970,18 @@ pub(crate) fn setup_seqvars_annotator(
     let mut annotators = vec![];
 
     // Add the frequency annotator if requested.
-    if let Some(rocksdb_path) = &sources.frequencies {
-        let skip = assembly.map_or(false, |a| !rocksdb_path.contains(path_component(a)));
-        if !skip {
-            tracing::info!(
-                "Loading frequency database for assembly {:?} from {}",
-                &assembly,
-                &rocksdb_path
-            );
-            annotators
-                .push(FrequencyAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Frequency)?)
-        } else {
-            tracing::warn!("Skipping frequency database as its assembly does not match the requested one ({:?})", &assembly);
+    if let Some(rocksdb_paths) = &sources.frequencies {
+        let freq_dbs = load_frequency_dbs_for_assembly(rocksdb_paths, assembly)?;
+        for freq_db in freq_dbs {
+            annotators.push(AnnotatorEnum::Frequency(freq_db))
         }
     }
 
     // Add the ClinVar annotator if requested.
-    if let Some(rocksdb_path) = &sources.clinvar {
-        let skip = assembly.map_or(false, |a| !rocksdb_path.contains(path_component(a)));
-        if !skip {
-            tracing::info!(
-                "Loading ClinVar database for assembly {:?} from {}",
-                &assembly,
-                &rocksdb_path
-            );
-            annotators.push(ClinvarAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Clinvar)?)
-        } else {
-            tracing::warn!(
-                "Skipping ClinVar database as its assembly does not match the requested one ({:?})",
-                &assembly
-            );
+    if let Some(rocksdb_paths) = &sources.clinvar {
+        let clinvar_dbs = load_clinvar_dbs_for_assembly(rocksdb_paths, assembly)?;
+        for clinvar_db in clinvar_dbs {
+            annotators.push(AnnotatorEnum::Clinvar(clinvar_db))
         }
     }
 
@@ -2026,6 +2008,52 @@ pub(crate) fn setup_seqvars_annotator(
 
     let annotator = Annotator::new(annotators);
     Ok(annotator)
+}
+
+pub(crate) fn load_clinvar_dbs_for_assembly(
+    rocksdb_paths: &[String],
+    assembly: Option<Assembly>,
+) -> Result<Vec<ClinvarAnnotator>, Error> {
+    rocksdb_paths
+        .iter()
+        .filter_map(|rocksdb_path| {
+            let skip = assembly.map_or(false, |a| !rocksdb_path.contains(path_component(a)));
+            if !skip {
+                tracing::info!(
+                    "Loading ClinVar database for assembly {:?} from {}",
+                    &assembly,
+                    &rocksdb_path
+                );
+                Some(ClinvarAnnotator::from_path(rocksdb_path))
+            } else {
+                tracing::warn!(
+                "Skipping ClinVar database as its assembly does not match the requested one ({:?})",
+                &assembly
+            );
+                None
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn load_frequency_dbs_for_assembly(
+    rocksdb_paths: &[String],
+    assembly: Option<Assembly>,
+) -> Result<Vec<FrequencyAnnotator>, Error> {
+    rocksdb_paths.iter().filter_map(|rocksdb_path| {
+        let skip = assembly.map_or(false, |a| !rocksdb_path.contains(path_component(a)));
+        if !skip {
+            tracing::info!(
+                    "Loading frequency database for assembly {:?} from {}",
+                    &assembly,
+                    &rocksdb_path
+                );
+            Some(FrequencyAnnotator::from_path(rocksdb_path))
+        } else {
+            tracing::warn!("Skipping frequency database as its assembly does not match the requested one ({:?})", &assembly);
+            None
+        }
+    }).collect()
 }
 
 pub(crate) fn load_transcript_dbs_for_assembly(
@@ -2113,8 +2141,8 @@ mod test {
                 "tests/data/annotate/seqvars/brca1.examples.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: None,
@@ -2154,8 +2182,8 @@ mod test {
                 "tests/data/annotate/seqvars/brca1.examples.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
@@ -2207,8 +2235,8 @@ mod test {
                 "tests/data/annotate/seqvars/badly_formed_vcf_entry.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
@@ -2254,8 +2282,8 @@ mod test {
                 "tests/data/annotate/seqvars/mitochondrial_variants.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
@@ -2303,8 +2331,8 @@ mod test {
                 "tests/data/annotate/seqvars/clair3-glnexus-min.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
@@ -2352,8 +2380,8 @@ mod test {
                 "tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),

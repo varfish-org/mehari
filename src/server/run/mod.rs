@@ -1,7 +1,7 @@
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::seqvars::csq::ConfigBuilder;
 use crate::annotate::seqvars::{
-    load_transcript_dbs_for_assembly, ConsequenceAnnotator, FrequencyAnnotator,
+    load_frequency_dbs_for_assembly, load_transcript_dbs_for_assembly, ConsequenceAnnotator,
 };
 use crate::db::merge::merge_transcript_databases;
 use crate::{
@@ -194,8 +194,9 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     tracing::info!("Loading database...");
     let before_loading = std::time::Instant::now();
     let mut data = actix_server::WebServerData::default();
+
     for genome_release in GenomeRelease::value_variants().iter().copied() {
-        tracing::info!("  - loading genome release {:?}", genome_release);
+        tracing::info!("Loading genome release {:?}", genome_release);
         let assembly = genome_release.into();
 
         if let Some(tx_db_paths) = args.sources.transcripts.as_ref() {
@@ -236,30 +237,21 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
             );
         }
 
-        if let Some(path) = args.sources.frequencies.as_ref() {
-            if path
-                .to_ascii_lowercase()
-                .contains(&genome_release.name().to_ascii_lowercase())
-            {
-                if let Ok(freq) = FrequencyAnnotator::from_path(path) {
+        if let Some(paths) = args.sources.frequencies.as_ref() {
+            let freqs = load_frequency_dbs_for_assembly(paths, Some(assembly))?;
+
+            match freqs.len() {
+                0 => tracing::warn!(
+                    "No frequency databases loaded, respective endpoint will be unavailable."
+                ),
+                1 => {
+                    let freq = freqs.into_iter().next().unwrap();
                     data.frequency_annotators.insert(genome_release, freq);
-                } else {
-                    tracing::warn!(
-                        "Failed to load frequencies predictor for genome release {:?}, respective endpoint will be unavailable.",
-                        genome_release
-                    );
                 }
-            } else {
-                tracing::warn!(
-                    "No frequencies predictor for genome release {:?}, respective endpoint will be unavailable.",
-                    genome_release
-                );
+                _ => tracing::warn!(
+                    "Multiple frequency databases loaded, only the first one will be used."
+                ),
             }
-        } else {
-            tracing::warn!(
-                "No frequencies predictor for genome release {:?}, respective endpoint will be unavailable.",
-                genome_release
-            );
         }
     }
     let data = actix_web::web::Data::new(data);

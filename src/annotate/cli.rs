@@ -15,14 +15,14 @@ pub struct Sources {
     /// The frequency database contains gnomAD frequencies for the variants.
     /// Pre-built databases are available at TODO
     #[arg(long)]
-    pub frequencies: Option<String>,
+    pub frequencies: Option<Vec<String>>,
 
     /// ClinVar database.
     ///
     /// The ClinVar database contains clinical significance information for the variants.
     /// Pre-built databases are available at https://github.com/varfish-org/annonars-data-clinvar/releases
     #[arg(long)]
-    pub clinvar: Option<String>,
+    pub clinvar: Option<Vec<String>>,
 }
 
 #[derive(Debug, ClapArgs, Default, Clone)]
