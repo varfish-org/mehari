@@ -61,12 +61,15 @@ pub struct Args {
     /// Genome release to use, default is to auto-detect.
     #[arg(long, value_enum)]
     pub genome_release: Option<GenomeRelease>,
+
     /// Path to the input PED file.
     #[arg(long)]
     pub path_input_ped: String,
+
     /// Path to the input VCF files.
     #[arg(long, required = true)]
     pub path_input_vcf: Vec<String>,
+
     #[command(flatten)]
     pub output: PathOutput,
 
