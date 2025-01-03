@@ -6,11 +6,14 @@ use actix_web::ResponseError;
 use utoipa::OpenApi as _;
 
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
+use crate::annotate::seqvars::{ClinvarAnnotator, FrequencyAnnotator};
 use crate::annotate::strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor;
 use crate::{annotate::seqvars::csq::ConsequencePredictor, common::GenomeRelease};
 
 pub mod gene_txs;
+pub mod seqvars_clinvar;
 pub mod seqvars_csq;
+pub mod seqvars_frequencies;
 pub mod strucvars_csq;
 pub mod versions;
 
@@ -42,11 +45,19 @@ pub struct WebServerData {
     /// `MehariProvider` to provide the transcript info.
     #[derivative(Debug = "ignore")]
     pub provider: std::collections::HashMap<GenomeRelease, Arc<MehariProvider>>,
+
     /// The sequence variant consequence predictors for each assembly.
     pub seqvars_predictors: std::collections::HashMap<GenomeRelease, ConsequencePredictor>,
-    /// The structural variant consequence predictors for eacha ssembly.
+
+    /// The structural variant consequence predictors for each assembly.
     pub strucvars_predictors:
         std::collections::HashMap<GenomeRelease, StrucvarConsequencePredictor>,
+
+    /// The frequency annotators for each assembly.
+    pub frequency_annotators: std::collections::HashMap<GenomeRelease, FrequencyAnnotator>,
+
+    /// The clinvar annotators for each assembly.
+    pub clinvar_annotators: std::collections::HashMap<GenomeRelease, ClinvarAnnotator>,
 }
 
 /// Main entry point for running the REST server.
@@ -64,6 +75,10 @@ pub async fn main(
             .service(seqvars_csq::handle_with_openapi)
             .service(strucvars_csq::handle)
             .service(strucvars_csq::handle_with_openapi)
+            .service(seqvars_frequencies::handle)
+            .service(seqvars_frequencies::handle_with_openapi)
+            .service(seqvars_clinvar::handle)
+            .service(seqvars_clinvar::handle_with_openapi)
             .service(versions::handle)
             .service(
                 utoipa_swagger_ui::SwaggerUi::new("/swagger-ui/{_:.*}")

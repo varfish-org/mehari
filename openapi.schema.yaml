@@ -56,6 +56,58 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CustomError'
+  /api/v1/seqvars/clinvar:
+    get:
+      tags:
+      - seqvars_clinvar
+      summary: Query for ClinVar information of a variant.
+      operationId: seqvarsClinvar
+      parameters:
+      - name: genome_release
+        in: query
+        description: The assembly.
+        required: true
+        schema:
+          $ref: '#/components/schemas/GenomeRelease'
+      - name: chromosome
+        in: query
+        description: SPDI sequence.
+        required: true
+        schema:
+          type: string
+      - name: position
+        in: query
+        description: SPDI position.
+        required: true
+        schema:
+          type: integer
+          format: int32
+          minimum: 0
+      - name: reference
+        in: query
+        description: SPDI deletion.
+        required: true
+        schema:
+          type: string
+      - name: alternative
+        in: query
+        description: SPDI insertion.
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Clinvar information.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClinvarResponse'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomError'
   /api/v1/seqvars/csq:
     get:
       tags:
@@ -109,6 +161,58 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SeqvarsCsqResponse'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomError'
+  /api/v1/seqvars/frequency:
+    get:
+      tags:
+      - seqvars_frequencies
+      summary: Query for gnomAD frequencies of a variant.
+      operationId: seqvarsFrequency
+      parameters:
+      - name: genome_release
+        in: query
+        description: The assembly.
+        required: true
+        schema:
+          $ref: '#/components/schemas/GenomeRelease'
+      - name: chromosome
+        in: query
+        description: SPDI sequence.
+        required: true
+        schema:
+          type: string
+      - name: position
+        in: query
+        description: SPDI position.
+        required: true
+        schema:
+          type: integer
+          format: int32
+          minimum: 0
+      - name: reference
+        in: query
+        description: SPDI deletion.
+        required: true
+        schema:
+          type: string
+      - name: alternative
+        in: query
+        description: SPDI insertion.
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Frequency information.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FrequencyResponse'
         '500':
           description: Internal server error.
           content:
@@ -198,6 +302,98 @@ components:
       enum:
       - grch37
       - grch38
+    AutosomalResultEntry:
+      type: object
+      required:
+      - gnomad_exomes_an
+      - gnomad_exomes_hom
+      - gnomad_exomes_het
+      - gnomad_genomes_an
+      - gnomad_genomes_hom
+      - gnomad_genomes_het
+      properties:
+        gnomad_exomes_an:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_exomes_hom:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_exomes_het:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_genomes_an:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_genomes_hom:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_genomes_het:
+          type: integer
+          format: int32
+          minimum: 0
+    ClinvarQuery:
+      type: object
+      description: Query parameters of the `/api/v1/seqvars/clinvar` endpoint.
+      required:
+      - genome_release
+      - chromosome
+      - position
+      - reference
+      - alternative
+      properties:
+        genome_release:
+          $ref: '#/components/schemas/GenomeRelease'
+        chromosome:
+          type: string
+          description: SPDI sequence.
+        position:
+          type: integer
+          format: int32
+          description: SPDI position.
+          minimum: 0
+        reference:
+          type: string
+          description: SPDI deletion.
+        alternative:
+          type: string
+          description: SPDI insertion.
+    ClinvarResponse:
+      type: object
+      description: Response of the `/api/v1/seqvars/clinvar` endpoint.
+      required:
+      - version
+      - query
+      - result
+      properties:
+        version:
+          $ref: '#/components/schemas/VersionsInfoResponse'
+        query:
+          $ref: '#/components/schemas/ClinvarQuery'
+        result:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClinvarResultEntry'
+          description: The resulting records for the scored genes.
+    ClinvarResultEntry:
+      type: object
+      description: One entry in `ClinvarResponse`.
+      required:
+      - clinvar_vcv
+      - clinvar_germline_classification
+      properties:
+        clinvar_vcv:
+          type: array
+          items:
+            type: string
+        clinvar_germline_classification:
+          type: array
+          items:
+            type: string
     Consequence:
       type: string
       description: Putative impact.
@@ -339,6 +535,70 @@ components:
               value:
                 type: string
       description: Enum for `AnnField::feature_type`.
+    FrequencyQuery:
+      type: object
+      description: Query parameters of the `/api/v1/seqvars/frequency` endpoint.
+      required:
+      - genome_release
+      - chromosome
+      - position
+      - reference
+      - alternative
+      properties:
+        genome_release:
+          $ref: '#/components/schemas/GenomeRelease'
+        chromosome:
+          type: string
+          description: SPDI sequence.
+        position:
+          type: integer
+          format: int32
+          description: SPDI position.
+          minimum: 0
+        reference:
+          type: string
+          description: SPDI deletion.
+        alternative:
+          type: string
+          description: SPDI insertion.
+    FrequencyResponse:
+      type: object
+      description: Response of the `/api/v1/seqvars/frequency` endpoint.
+      required:
+      - version
+      - query
+      - result
+      properties:
+        version:
+          $ref: '#/components/schemas/VersionsInfoResponse'
+        query:
+          $ref: '#/components/schemas/FrequencyQuery'
+        result:
+          type: array
+          items:
+            $ref: '#/components/schemas/FrequencyResultEntry'
+          description: The resulting records for the scored genes.
+    FrequencyResultEntry:
+      oneOf:
+      - type: object
+        required:
+        - Autosomal
+        properties:
+          Autosomal:
+            $ref: '#/components/schemas/AutosomalResultEntry'
+      - type: object
+        required:
+        - Gonosomal
+        properties:
+          Gonosomal:
+            $ref: '#/components/schemas/GonosomalResultEntry'
+      - type: object
+        required:
+        - Mitochondrial
+        properties:
+          Mitochondrial:
+            $ref: '#/components/schemas/MitochondrialResultEntry'
+      description: One entry in `FrequencyResponse`.
     GenesTranscriptsListQuery:
       type: object
       description: Query arguments for the `/api/v1/genes/transcripts` endpoint.
@@ -412,6 +672,50 @@ components:
       enum:
       - grch37
       - grch38
+    GonosomalResultEntry:
+      type: object
+      required:
+      - gnomad_exomes_an
+      - gnomad_exomes_hom
+      - gnomad_exomes_het
+      - gnomad_exomes_hemi
+      - gnomad_genomes_an
+      - gnomad_genomes_hom
+      - gnomad_genomes_het
+      - gnomad_genomes_hemi
+      properties:
+        gnomad_exomes_an:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_exomes_hom:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_exomes_het:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_exomes_hemi:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_genomes_an:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_genomes_hom:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_genomes_het:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_genomes_hemi:
+          type: integer
+          format: int32
+          minimum: 0
     Message:
       type: string
       description: A message to be used in `AnnField::messages`.
@@ -426,6 +730,40 @@ components:
       - info_realign_three_prime
       - info_compound_annotation
       - info_non_reference_annotation
+    MitochondrialResultEntry:
+      type: object
+      required:
+      - helix_an
+      - helix_hom
+      - helix_het
+      - gnomad_genomes_an
+      - gnomad_genomes_hom
+      - gnomad_genomes_het
+      properties:
+        helix_an:
+          type: integer
+          format: int32
+          minimum: 0
+        helix_hom:
+          type: integer
+          format: int32
+          minimum: 0
+        helix_het:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_genomes_an:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_genomes_hom:
+          type: integer
+          format: int32
+          minimum: 0
+        gnomad_genomes_het:
+          type: integer
+          format: int32
+          minimum: 0
     Pos:
       type: object
       description: Position, optionally with total length.
@@ -519,6 +857,7 @@ components:
       - feature_id
       - feature_biotype
       - feature_tag
+      - strand
       properties:
         consequences:
           type: array
@@ -574,6 +913,10 @@ components:
           format: int32
           description: Distance to feature.
           nullable: true
+        strand:
+          type: integer
+          format: int32
+          description: Strand of the alignment
         messages:
           type: array
           items:

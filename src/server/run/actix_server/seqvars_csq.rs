@@ -73,6 +73,8 @@ pub(crate) struct SeqvarsCsqResultEntry {
     pub protein_pos: Option<Pos>,
     /// Distance to feature.
     pub distance: Option<i32>,
+    /// Strand of the alignment
+    pub strand: i32,
     /// Optional list of warnings and error messages.
     pub messages: Option<Vec<Message>>,
 }
@@ -146,6 +148,7 @@ async fn handle_impl(
                 cds_pos,
                 protein_pos,
                 distance,
+                strand,
                 messages,
                 ..
             } = ann_field;
@@ -173,6 +176,7 @@ async fn handle_impl(
                 cds_pos,
                 protein_pos,
                 distance,
+                strand,
                 messages,
             };
             result.push(entry);
