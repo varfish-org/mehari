@@ -263,7 +263,7 @@ pub enum Consequence {
     // SequenceVariant,
 
     /// "A transcript variant occurring within an intron."
-    /// SO:intron_variant
+    /// SO:intron_variant, VEP:intron_variant
     IntronVariant,
 
     /// "A sequence variant where the structure of the gene is changed."
