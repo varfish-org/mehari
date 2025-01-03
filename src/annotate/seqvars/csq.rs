@@ -1092,7 +1092,14 @@ impl ConsequencePredictor {
                             }
                         }
                         ProteinEdit::DelIns { alternative } => {
-                            if conservative {
+                            // When the delins does not change the CDS length,
+                            // it is a missense variant, not an inframe deletion
+                            // cf https://github.com/Ensembl/ensembl-vep/issues/1388
+                            if alternative.len()
+                                == loc.start.number.abs_diff(loc.end.number) as usize + 1
+                            {
+                                consequences |= Consequence::MissenseVariant;
+                            } else if conservative {
                                 consequences |= Consequence::ConservativeInframeDeletion;
                             } else {
                                 consequences |= Consequence::DisruptiveInframeDeletion;
