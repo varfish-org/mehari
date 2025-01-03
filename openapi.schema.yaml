@@ -7,7 +7,7 @@ info:
     email: manuel.holtgrewe@bih-charite.de
   license:
     name: MIT
-  version: 0.30.0
+  version: 0.30.1
 paths:
   /api/v1/genes/transcripts:
     get:
@@ -218,6 +218,7 @@ components:
       - conservative_inframe_insertion
       - conservative_inframe_deletion
       - missense_variant
+      - rare_amino_acid_variant
       - splice_donor_5th_base_variant
       - splice_region_variant
       - splice_donor_region_variant
