@@ -98,7 +98,7 @@ async fn handle_impl(
     Ok(Json(result))
 }
 
-/// Query for gnomAD frequencies of a variant.
+/// Query for ClinVar information of a variant.
 #[allow(clippy::unused_async)]
 #[get("/seqvars/clinvar")]
 async fn handle(
@@ -109,7 +109,7 @@ async fn handle(
     handle_impl(data, _path, query).await
 }
 
-/// Query for gnomAD frequencies of a variant.
+/// Query for ClinVar information of a variant.
 #[allow(clippy::unused_async)]
 #[utoipa::path(
     get,
