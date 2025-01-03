@@ -1089,6 +1089,13 @@ impl ConsequencePredictor {
                                 }
                             } else {
                                 consequences |= Consequence::MissenseVariant;
+                                // Missense variants that affect selenocysteine are marked
+                                // as rare amino acid variants.
+                                if alternative.contains("U")
+                                    || (loc.start == loc.end) && loc.start.aa == "U"
+                                {
+                                    consequences |= Consequence::RareAminoAcidVariant;
+                                }
                             }
                         }
                         ProteinEdit::DelIns { alternative } => {
