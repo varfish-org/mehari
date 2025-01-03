@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.31.0](https://github.com/varfish-org/mehari/compare/v0.30.1...v0.31.0) (2025-01-03)
+
+
+### Features
+
+* Add rare amino acid SO term ([#658](https://github.com/varfish-org/mehari/issues/658)) ([aee7693](https://github.com/varfish-org/mehari/commit/aee76930c633ab1be6fb023da042ca3fa1255ae4))
+* refactor db subset CLI, add subset by VCF and subset by TxId options ([#641](https://github.com/varfish-org/mehari/issues/641)) ([9286286](https://github.com/varfish-org/mehari/commit/92862866b41307b56c2823b93b3156a876f0bf74))
+
+
+### Bug Fixes
+
+* inframe vs missense ([#659](https://github.com/varfish-org/mehari/issues/659)) ([36bd717](https://github.com/varfish-org/mehari/commit/36bd7177fc23c55b6c912e14d44dc1355520ac5f))
+
 ## [0.30.1](https://github.com/varfish-org/mehari/compare/v0.30.0...v0.30.1) (2024-11-21)
 
 
