@@ -60,7 +60,7 @@ paths:
     get:
       tags:
       - seqvars_clinvar
-      summary: Query for gnomAD frequencies of a variant.
+      summary: Query for ClinVar information of a variant.
       operationId: seqvarsClinvar
       parameters:
       - name: genome_release
