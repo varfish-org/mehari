@@ -127,6 +127,10 @@ pub enum Consequence {
     /// SO:missense_variant, VEP:missense_variant
     MissenseVariant,
 
+    /// "A sequence variant whereby at least one base of a codon encoding a rare amino acid is changed, resulting in a different encoded amino acid."
+    /// SO:rare_amino_acid_variant
+    RareAminoAcidVariant,
+
     // Not used by mehari, but by VEP (we're usually more specific)
     // /// "A sequence_variant which is predicted to change the protein encoded in the coding sequence."
     // /// SO:protein_altering_variant, VEP:missense_variant
@@ -261,7 +265,6 @@ pub enum Consequence {
     // /// "A sequence_variant is a non exact copy of a sequence_feature or genome exhibiting one or more sequence_alteration."
     // /// SO:sequence_variant, VEP:sequence_variant
     // SequenceVariant,
-
     /// "A transcript variant occurring within an intron."
     /// SO:intron_variant, VEP:intron_variant
     IntronVariant,
@@ -290,7 +293,8 @@ impl From<Consequence> for PutativeImpact {
             | DisruptiveInframeDeletion
             | ConservativeInframeInsertion
             | ConservativeInframeDeletion
-            | MissenseVariant => PutativeImpact::Moderate,
+            | MissenseVariant
+            | RareAminoAcidVariant => PutativeImpact::Moderate,
             SpliceDonorFifthBaseVariant
             | SpliceRegionVariant
             | SpliceDonorRegionVariant
