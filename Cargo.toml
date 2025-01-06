@@ -47,7 +47,7 @@ flate2 = "1.0"
 futures = "0.3"
 hgvs = "0.17.4"
 indexmap = { version = "2.7", features = ["serde"] }
-itertools = "0.13"
+itertools = "0.14"
 jsonl = "4.0"
 log = "0.4"
 nom = "7.1"
