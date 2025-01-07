@@ -1055,6 +1055,7 @@ impl ConsequencePredictor {
             s.contains('*') || s.contains('X') || s.contains("Ter")
         }
 
+        const SEC: &str = "U";
         match var_p {
             HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
                 ProtLocEdit::Ordinary { loc, edit } => {
@@ -1070,7 +1071,7 @@ impl ConsequencePredictor {
                         } => {
                             consequences |= Consequence::FeatureElongation;
                             if let Some(ext_aa) = ext_aa {
-                                if ext_aa == "Ter" {
+                                if is_stop(ext_aa) {
                                     consequences |= Consequence::StopLost;
                                 }
                             }
@@ -1106,8 +1107,8 @@ impl ConsequencePredictor {
                                 consequences |= Consequence::MissenseVariant;
                                 // Missense variants that affect selenocysteine are marked
                                 // as rare amino acid variants.
-                                if alternative.contains("U")
-                                    || (loc.start == loc.end) && loc.start.aa == "U"
+                                if alternative.contains(SEC)
+                                    || (loc.start == loc.end) && loc.start.aa == SEC
                                 {
                                     consequences |= Consequence::RareAminoAcidVariant;
                                 }
@@ -1130,6 +1131,12 @@ impl ConsequencePredictor {
                             if has_stop(alternative) {
                                 consequences |= Consequence::StopGained;
                             }
+                            if alternative.contains(SEC) {
+                                consequences |= Consequence::RareAminoAcidVariant;
+                            }
+                        }
+                        ProteinEdit::Ins { alternative } if alternative.contains(SEC) => {
+                            consequences |= Consequence::RareAminoAcidVariant;
                         }
                         ProteinEdit::Ins { .. } | ProteinEdit::Dup => {
                             if conservative {
