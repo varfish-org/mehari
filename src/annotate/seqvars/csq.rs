@@ -1063,9 +1063,24 @@ impl ConsequencePredictor {
                         ProteinEdit::Fs { .. } => {
                             consequences |= Consequence::FrameshiftVariant;
                         }
-                        ProteinEdit::Ext { .. } => {
-                            consequences |= Consequence::StopLost;
+                        ProteinEdit::Ext {
+                            aa_ext,
+                            ext_aa,
+                            change,
+                        } => {
                             consequences |= Consequence::FeatureElongation;
+                            if let Some(ext_aa) = ext_aa {
+                                if ext_aa == "Ter" {
+                                    consequences |= Consequence::StopLost;
+                                }
+                            }
+                            if let Some(aa_ext) = aa_ext {
+                                if aa_ext.starts_with("Met1")
+                                    && matches!(change, UncertainLengthChange::Known(i) if *i < 0)
+                                {
+                                    // TODO which SO term?
+                                }
+                            }
                         }
                         ProteinEdit::Subst { alternative } => {
                             if alternative.is_empty() {
