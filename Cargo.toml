@@ -7,7 +7,7 @@ description = "Variant effect prediction all in Rust"
 license = "MIT"
 repository = "https://github.com/varfish-org/mehari"
 readme = "README.md"
-rust-version = "1.75.0"
+rust-version = "1.80.0"
 
 [features]
 default = []
