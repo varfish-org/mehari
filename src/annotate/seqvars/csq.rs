@@ -724,6 +724,7 @@ impl ConsequencePredictor {
                 ..
             } = var_p
             {
+                #[allow(clippy::single_match)]
                 match edit.inner() {
                     // Stop lost due to a deletion in the CDS, but the resulting protein translation
                     // continues to have a stop codon at the same position.
@@ -742,23 +743,6 @@ impl ConsequencePredictor {
                     }
                     // Detect cases where the frameshift resolves into
                     // a missense + stop retained variant.
-                    // This is the shortest possible frameshift in hgvsp (fs*2).
-                    ProteinEdit::Fs {
-                        alternative,
-                        terminal,
-                        length,
-                    } => {
-                        if let (Some(alt), Some(terminal), UncertainLengthChange::Known(2)) =
-                            (alternative, terminal, length)
-                        {
-                            if is_stop(terminal) && alt.len() == 1 {
-                                *consequences |= Consequence::MissenseVariant;
-                                *consequences |= Consequence::StopRetainedVariant;
-                                *consequences &= !Consequence::StopLost;
-                                *consequences &= !Consequence::FrameshiftVariant;
-                            }
-                        }
-                    }
                     _ => {}
                 }
             }
