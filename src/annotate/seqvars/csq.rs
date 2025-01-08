@@ -1154,6 +1154,10 @@ impl ConsequencePredictor {
                         }
                         ProteinEdit::Ident => {
                             consequences |= Consequence::SynonymousVariant;
+
+                            if is_stop(&loc.start.aa) {
+                                consequences |= Consequence::StopRetainedVariant;
+                            }
                         }
                     };
                 }
