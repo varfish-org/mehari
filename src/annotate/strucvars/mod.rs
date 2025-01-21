@@ -4210,4 +4210,47 @@ mod test {
 
         Ok(())
     }
+
+    // Checks whether the sample order stays consistent between input and output vcf.
+    // This is important for the pedigree information to be correctly associated with the samples
+    // in the output VCF.
+    //
+    // cf. https://github.com/varfish-org/mehari/issues/668
+    #[tokio::test]
+    async fn test_sample_order_consistency() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+
+        let out_path = temp.join("out.vcf");
+
+        let args = Args {
+            path_db: String::from("tests/data/db/create"),
+            genome_release: Some(GenomeRelease::Grch38),
+            path_input_ped: String::from("tests/data/annotate/strucvars/test.order.ped"),
+            path_input_vcf: vec![String::from("tests/data/annotate/strucvars/test.order.vcf")],
+            output: PathOutput {
+                path_output_vcf: Some(format!("{}", out_path.display())),
+                path_output_tsv: None,
+            },
+            max_var_count: None,
+            path_cov_vcf: vec![],
+            file_date: Some(String::from("20250121")),
+            min_overlap: 0.8,
+            slack_bnd: 50,
+            slack_ins: 50,
+            rng_seed: Some(42),
+        };
+
+        run(&args_common, &args).await?;
+
+        let expected =
+            std::fs::read_to_string("tests/data/annotate/strucvars/test.order.expected.vcf")?;
+        let actual = std::fs::read_to_string(&out_path)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
 }
