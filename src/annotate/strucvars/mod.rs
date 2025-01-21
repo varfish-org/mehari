@@ -71,6 +71,7 @@ pub struct Args {
     /// Path to the input VCF files.
     #[arg(long, required = true)]
     pub path_input_vcf: Vec<String>,
+
     #[command(flatten)]
     pub output: PathOutput,
 
