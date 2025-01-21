@@ -855,7 +855,7 @@ impl AsyncAnnotatedVariantWriter for VarFishStrucvarTsvWriter {
             let sample = record
                 .samples()
                 .get(header, sample_name)
-                .expect("sample not found");
+                .ok_or_else(|| anyhow::anyhow!("Sample {} not found in VCF record", sample_name))?;
 
             for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                 match (key.as_ref(), value) {
