@@ -845,7 +845,6 @@ impl AsyncAnnotatedVariantWriter for VarFishStrucvarTsvWriter {
         }
 
         // First, create genotype info records.
-        let mut gt_it = record.samples().values();
         for sample_name in header.sample_names() {
             tsv_record.genotype.entries.push(GenotypeInfo {
                 name: sample_name.clone(),
@@ -853,7 +852,10 @@ impl AsyncAnnotatedVariantWriter for VarFishStrucvarTsvWriter {
             });
 
             let entry = tsv_record.genotype.entries.last_mut().expect("just pushed");
-            let sample = gt_it.next().expect("genotype iterator exhausted");
+            let sample = record
+                .samples()
+                .get(&header, sample_name)
+                .expect("sample not found");
 
             for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                 match (key.as_ref(), value) {
