@@ -854,7 +854,7 @@ impl AsyncAnnotatedVariantWriter for VarFishStrucvarTsvWriter {
             let entry = tsv_record.genotype.entries.last_mut().expect("just pushed");
             let sample = record
                 .samples()
-                .get(&header, sample_name)
+                .get(header, sample_name)
                 .expect("sample not found");
 
             for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
