@@ -360,7 +360,7 @@ pub mod vcf_header {
                 Map::<Format>::new(FormatNumber::Count(1), Type::Integer, "Split-end coverage"),
             )
             .add_format(
-                "src",
+                "src", // FIXME this is clearly the same format as above?!
                 Map::<Format>::new(
                     FormatNumber::Count(1),
                     Type::Integer,
