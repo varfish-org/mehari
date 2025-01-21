@@ -126,6 +126,7 @@ pub mod vcf_header {
     use noodles::vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, END_POSITION, POSITION_CONFIDENCE_INTERVALS, SV_TYPE,
     };
+    use std::collections::HashMap;
 
     use noodles::vcf::variant::record::samples::keys::key::{
         CONDITIONAL_GENOTYPE_QUALITY, FILTER, GENOTYPE, GENOTYPE_COPY_NUMBER,
@@ -424,10 +425,21 @@ pub mod vcf_header {
         // Wait for https://github.com/zaeleus/noodles/issues/162#issuecomment-1514444101
         // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles::vcf::header::record::value::map::Other>::builder();
 
-        for i in pedigree.individuals.values() {
-            if header.sample_names().contains(&i.name) {
-                builder = builder.add_sample_name(i.name.clone());
+        let individuals = pedigree
+            .individuals
+            .values()
+            .map(|i| (i.name.clone(), i))
+            .collect::<HashMap<_, _>>();
+
+        for sample in header.sample_names() {
+            let individual = individuals.get(sample);
+            if individual.is_none() {
+                tracing::debug!("Sample {} not part of the pedigree, skipping.", sample);
+                continue;
             }
+            let i = individual.unwrap();
+
+            builder = builder.add_sample_name(i.name.clone());
 
             // Add SAMPLE entry.
             builder = builder.insert(
