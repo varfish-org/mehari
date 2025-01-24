@@ -13,6 +13,8 @@ use crate::{
     common::GenomeRelease,
 };
 use clap::ValueEnum;
+use std::collections::HashMap;
+use strum::EnumString;
 
 /// Implementation of Actix server.
 pub mod actix_server;
@@ -135,8 +137,15 @@ pub struct Args {
     pub listen_port: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString)]
+enum Endpoint {
+    Transcripts,
+    Frequency,
+    Clinvar,
+}
+
 /// Print some hints via `tracing::info!`.
-pub fn print_hints(args: &Args) {
+fn print_hints(args: &Args, enabled_sources: &[(GenomeRelease, Endpoint)]) {
     tracing::info!(
         "Launching server main on http://{}:{} ...",
         args.listen_host.as_str(),
@@ -148,41 +157,42 @@ pub fn print_hints(args: &Args) {
         return;
     }
 
-    // The endpoint `/genes/txs` provides transcript information.
-    tracing::info!(
-        "  try: http://{}:{}/api/v1/genes/transcripts?hgnc_id=HGNC:1100&genome_build=grch37&\
-        genomeBuild=GENOME_BUILD_GRCH37",
-        args.listen_host.as_str(),
-        args.listen_port
+    use Endpoint::*;
+    use GenomeRelease::*;
+
+    let prefix = format!(
+        "try: http://{host}:{port}/api/v1/",
+        host = args.listen_host,
+        port = args.listen_port
     );
-    // The endpoint `/tx/csq` to compute the consequence of a variant; without and with filtering
-    // for HGNC gene ID.
-    tracing::info!(
-        "  try: http://{}:{}/api/v1/seqvars/csq?genome_release=grch37\
-        &chromosome=17&position=48275363&reference=C&alternative=A",
-        args.listen_host.as_str(),
-        args.listen_port
-    );
-    tracing::info!(
-        "  try: http://{}:{}/api/v1/seqvars/csq?genome_release=grch37\
-        &chromosome=17&position=48275363&reference=C&alternative=A&hgnc_id=HGNC:2197",
-        args.listen_host.as_str(),
-        args.listen_port
-    );
-    // The endpoint `/strucvars/csq` computes the consequence of an SV.
-    tracing::info!(
-        "  try: http://{}:{}/api/v1/strucvars/csq?genome_release=grch37\
-        &chromosome=17&start=48275360&&stop=48275370&sv_type=DEL",
-        args.listen_host.as_str(),
-        args.listen_port
-    );
-    // The endpoint `/structvars/csq` computes the consequence of an SV.
-    tracing::info!(
-        "  try: http://{}:{}/api/v1/strucvars/csq?genome_release=grch37\
-        &chromosome=17&start=48275360&&stop=48275370&sv_type=DEL",
-        args.listen_host.as_str(),
-        args.listen_port
-    );
+    let examples: HashMap<(GenomeRelease, Endpoint), Vec<&str>> = HashMap::from([
+        (
+            (Grch37, Transcripts),
+            vec![
+                r#"genes/transcripts?hgnc_id=HGNC:1100&genome_build=grch37"#,
+                r#"seqvars/csq?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
+                r#"seqvars/csq?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A&hgnc_id=HGNC:2197"#,
+                r#"strucvars/csq?genome_release=grch37&chromosome=17&start=48275360&&stop=48275370&sv_type=DEL""#,
+            ],
+        ),
+        (
+            (Grch38, Transcripts),
+            vec![r#"genes/transcripts?hgnc_id=HGNC:1100&genome_build=grch38"#],
+        ),
+        (
+            (Grch37, Frequency),
+            vec![
+                r#"seqvars/frequency?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
+            ],
+        ),
+    ]);
+    for (genome_release, endpoint) in enabled_sources {
+        if let Some(examples) = examples.get(&(*genome_release, *endpoint)) {
+            for example in examples {
+                tracing::info!("{}{}", prefix, example);
+            }
+        }
+    }
 }
 
 /// Main entry point for `server run` sub command.
@@ -203,6 +213,9 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     tracing::info!("Loading database...");
     let before_loading = std::time::Instant::now();
     let mut data = actix_server::WebServerData::default();
+
+    let mut enabled_sources = vec![];
+    use Endpoint::*;
 
     for genome_release in GenomeRelease::value_variants().iter().copied() {
         tracing::info!("Loading genome release {:?}", genome_release);
@@ -238,6 +251,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                     genome_release,
                     StrucvarConsequencePredictor::new(provider.clone(), assembly),
                 );
+                enabled_sources.push((genome_release, Transcripts));
             }
         } else {
             tracing::warn!(
@@ -257,6 +271,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                     let frequency_db = annotators.into_iter().next().unwrap();
                     data.frequency_annotators
                         .insert(genome_release, frequency_db);
+                    enabled_sources.push((genome_release, Frequency));
                 }
                 _ => tracing::warn!(
                     "Multiple frequency databases loaded. This is not supported. The respective endpoint will be unavailable."
@@ -274,6 +289,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                 1 => {
                     let annotator = annotators.into_iter().next().unwrap();
                     data.clinvar_annotators.insert(genome_release, annotator);
+                    enabled_sources.push((genome_release, Clinvar));
                 }
                 _ => tracing::warn!(
                     "Multiple clinvar databases specified. This is not supported. The respective endpoint will be unavailable."
@@ -285,7 +301,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     tracing::info!("... done loading data {:?}", before_loading.elapsed());
 
     // Print the server URL and some hints (the latter: unless suppressed).
-    print_hints(args);
+    print_hints(args, &enabled_sources);
     // Launch the Actix web server.
     actix_server::main(args, data).await?;
 
