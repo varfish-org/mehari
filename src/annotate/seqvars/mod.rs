@@ -2071,7 +2071,7 @@ pub(crate) fn setup_seqvars_annotator(
 
     // Add the ClinVar annotator if requested.
     if let Some(rocksdb_paths) = &sources.clinvar {
-        let clinvar_dbs = intialize_clinvar_annotators_for_assembly(rocksdb_paths, assembly)?;
+        let clinvar_dbs = initialize_clinvar_annotators_for_assembly(rocksdb_paths, assembly)?;
         for clinvar_db in clinvar_dbs {
             annotators.push(AnnotatorEnum::Clinvar(clinvar_db))
         }
@@ -2102,7 +2102,7 @@ pub(crate) fn setup_seqvars_annotator(
     Ok(annotator)
 }
 
-pub(crate) fn intialize_clinvar_annotators_for_assembly(
+pub(crate) fn initialize_clinvar_annotators_for_assembly(
     rocksdb_paths: &[String],
     assembly: Option<Assembly>,
 ) -> Result<Vec<ClinvarAnnotator>, Error> {

@@ -1,7 +1,7 @@
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::seqvars::csq::ConfigBuilder;
 use crate::annotate::seqvars::{
-    initialize_frequency_annotators_for_assembly, intialize_clinvar_annotators_for_assembly,
+    initialize_clinvar_annotators_for_assembly, initialize_frequency_annotators_for_assembly,
     load_transcript_dbs_for_assembly, ConsequenceAnnotator,
 };
 use crate::db::merge::merge_transcript_databases;
@@ -301,7 +301,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         }
 
         if let Some(paths) = args.sources.clinvar.as_ref() {
-            let annotators = intialize_clinvar_annotators_for_assembly(paths, Some(assembly))?;
+            let annotators = initialize_clinvar_annotators_for_assembly(paths, Some(assembly))?;
 
             match annotators.len() {
                 0 => tracing::warn!(
