@@ -176,13 +176,34 @@ fn print_hints(args: &Args, enabled_sources: &[(GenomeRelease, Endpoint)]) {
             ],
         ),
         (
-            (Grch38, Transcripts),
-            vec![r#"genes/transcripts?hgnc_id=HGNC:1100&genome_build=grch38"#],
-        ),
-        (
             (Grch37, Frequency),
             vec![
                 r#"seqvars/frequency?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
+            ],
+        ),
+        (
+            (Grch37, Clinvar),
+            vec![
+                r#"seqvars/clinvar?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
+            ],
+        ),
+        (
+            (Grch38, Transcripts),
+            vec![
+                r#"genes/transcripts?hgnc_id=HGNC:1100&genome_build=grch38"#,
+                r#"seqvars/csq?genome_release=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
+            ],
+        ),
+        (
+            (Grch38, Frequency),
+            vec![
+                r#"seqvars/frequency?genome_release=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
+            ],
+        ),
+        (
+            (Grch38, Clinvar),
+            vec![
+                r#"seqvars/clinvar?genome_release=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
             ],
         ),
     ]);
