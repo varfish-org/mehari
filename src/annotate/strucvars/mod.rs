@@ -4227,7 +4227,6 @@ mod test {
         let out_path = temp.join("out.vcf");
 
         let args = Args {
-            path_db: String::from("tests/data/db/create"),
             genome_release: Some(GenomeRelease::Grch38),
             path_input_ped: String::from("tests/data/annotate/strucvars/test.order.ped"),
             path_input_vcf: vec![String::from("tests/data/annotate/strucvars/test.order.vcf")],
