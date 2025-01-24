@@ -1066,10 +1066,24 @@ impl ConsequencePredictor {
                                 }
                             } else {
                                 consequences |= Consequence::MissenseVariant;
+                                // Missense variants that affect selenocysteine are marked
+                                // as rare amino acid variants.
+                                if alternative.contains("U")
+                                    || (loc.start == loc.end) && loc.start.aa == "U"
+                                {
+                                    consequences |= Consequence::RareAminoAcidVariant;
+                                }
                             }
                         }
                         ProteinEdit::DelIns { alternative } => {
-                            if conservative {
+                            // When the delins does not change the CDS length,
+                            // it is a missense variant, not an inframe deletion
+                            // cf https://github.com/Ensembl/ensembl-vep/issues/1388
+                            if alternative.len()
+                                == loc.start.number.abs_diff(loc.end.number) as usize + 1
+                            {
+                                consequences |= Consequence::MissenseVariant;
+                            } else if conservative {
                                 consequences |= Consequence::ConservativeInframeDeletion;
                             } else {
                                 consequences |= Consequence::DisruptiveInframeDeletion;

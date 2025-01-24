@@ -414,6 +414,7 @@ components:
       - conservative_inframe_insertion
       - conservative_inframe_deletion
       - missense_variant
+      - rare_amino_acid_variant
       - splice_donor_5th_base_variant
       - splice_region_variant
       - splice_donor_region_variant
