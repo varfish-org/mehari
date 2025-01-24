@@ -2071,6 +2071,12 @@ mod test {
         run(&args_common, &args).await?;
 
         let actual = std::fs::read_to_string(args.output.path_output_vcf.unwrap())?;
+        // remove vcf header lines starting with ##mehari
+        let actual = actual
+            .lines()
+            .filter(|line| !line.starts_with("##mehari"))
+            .collect::<Vec<_>>()
+            .join("\n");
         insta::assert_snapshot!(actual);
 
         Ok(())
