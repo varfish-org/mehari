@@ -1,5 +1,6 @@
 //! Annotation of sequence variants.
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fmt::Display;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
@@ -16,6 +17,8 @@ use biocommons_bioutils::assemblies::Assembly;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use itertools::Itertools;
+use noodles::vcf::header::record::key;
 use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
 use noodles::vcf::header::record::value::map::format::Type as FormatType;
 use noodles::vcf::header::record::value::map::info::Number;
@@ -207,7 +210,7 @@ pub struct PathOutput {
     pub path_output_tsv: Option<String>,
 }
 
-fn build_header(header_in: &VcfHeader) -> VcfHeader {
+fn build_header(header_in: &VcfHeader, additional_records: &[(String, String)]) -> VcfHeader {
     let mut header_out = header_in.clone();
 
     header_out.infos_mut().insert(
@@ -325,6 +328,15 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         "clinvar_vcv".into(),
         Map::<Info>::new(Number::Count(1), InfoType::String, "ClinVar VCV accession"),
     );
+
+    for (key, value) in additional_records {
+        header_out
+            .insert(
+                key.parse().expect("invalid key"),
+                noodles::vcf::header::record::Value::from(value.as_ref()),
+            )
+            .unwrap();
+    }
 
     header_out
 }
@@ -1410,6 +1422,24 @@ struct Annotator {
     annotators: Vec<AnnotatorEnum>,
 }
 
+impl Annotator {
+    fn versions_for_vcf_header(&self) -> Vec<(String, String)> {
+        // TODO also extract version information for frequencies and clinvar
+
+        let tx_db_version = self
+            .annotators
+            .iter()
+            .filter_map(|a| match a {
+                AnnotatorEnum::Consequence(a) => a.predictor.data_version(),
+                _ => None,
+            })
+            .next();
+        tx_db_version
+            .map(|v| vec![("mehariTxDbVersion".to_string(), v)])
+            .unwrap_or_default()
+    }
+}
+
 pub struct FrequencyAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
 }
@@ -1865,7 +1895,6 @@ async fn run_with_writer(
     let mut reader = open_variant_reader(&args.path_input_vcf).await?;
 
     let mut header_in = reader.read_header().await?;
-    let header_out = build_header(&header_in);
 
     // Work around glnexus issue with RNC.
     if let Some(format) = header_in.formats_mut().get_mut("RNC") {
@@ -1883,6 +1912,11 @@ async fn run_with_writer(
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
     let annotator = setup_annotator(args)?;
+    let mut additional_header_info = annotator.versions_for_vcf_header();
+    additional_header_info.push(("mehariCmd".into(), env::args().join(" ")));
+    additional_header_info.push(("mehariVersion".into(), env!("CARGO_PKG_VERSION").into()));
+
+    let header_out = build_header(&header_in, &additional_header_info);
 
     // Perform the VCF annotation.
     tracing::info!("Annotating VCF ...");
