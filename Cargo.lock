@@ -1833,9 +1833,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hgvs"
-version = "0.17.4"
+version = "0.17.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "049d7b9c42a2b7a2e814669e58e1c34a6825f64a7f2bc8863976ae60704d27ed"
+checksum = "5410ecaeb2311757d208361a1a795db08ad660a07cb8584f87f01f1d60a7bb09"
 dependencies = [
  "ahash 0.8.11",
  "base16ct",
@@ -1846,7 +1846,6 @@ dependencies = [
  "enum-map",
  "flate2",
  "indexmap",
- "lazy_static",
  "log",
  "md-5",
  "nom",
