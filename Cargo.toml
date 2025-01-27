@@ -92,7 +92,7 @@ features = ["async", "bgzf", "core", "vcf", "bcf", "csi", "fasta", "tabix"]
 anyhow = "1.0"
 built = { version = "0.7", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
 pbjson-build = "0.7.0"
-prost-build = "0.13.3"
+prost-build = "0.13.4"
 
 [dev-dependencies]
 csv = "1.3"
