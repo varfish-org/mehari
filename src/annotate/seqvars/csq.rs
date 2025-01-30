@@ -1,4 +1,9 @@
 //! Compute molecular consequence of variants.
+use super::{
+    ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
+    provider::Provider as MehariProvider,
+};
+use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
 use crate::pbs::txs::{GenomeAlignment, Strand, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
 use hgvs::parser::{NoRef, ProteinEdit, UncertainLengthChange};
@@ -14,12 +19,6 @@ use std::cmp::Ordering;
 use std::ops::Range;
 use std::{collections::HashMap, sync::Arc};
 
-use super::{
-    ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
-    provider::Provider as MehariProvider,
-    ConsequenceBy,
-};
-
 /// A variant description how VCF would do it.
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct VcfVariant {
@@ -31,28 +30,6 @@ pub struct VcfVariant {
     pub reference: String,
     /// Alternative bases.
     pub alternative: String,
-}
-
-/// Enum that allows to select the transcript source.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Default,
-    serde::Deserialize,
-    serde::Serialize,
-    clap::ValueEnum,
-)]
-pub enum TranscriptSource {
-    /// ENSEMBL
-    Ensembl,
-    /// RefSeq
-    RefSeq,
-    /// Both
-    #[default]
-    Both,
 }
 
 /// Configuration for consequence prediction.
@@ -84,7 +61,7 @@ impl Default for Config {
 pub struct ConsequencePredictor {
     /// The internal transcript provider for locating transcripts.
     #[derivative(Debug = "ignore")]
-    provider: Arc<MehariProvider>,
+    pub(crate) provider: Arc<MehariProvider>,
     /// Assembly mapper for variant consequence prediction.
     #[derivative(Debug = "ignore")]
     mapper: assembly::Mapper,
@@ -1265,10 +1242,10 @@ impl ConsequencePredictor {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::annotate::cli::{TranscriptPickType, TranscriptSettings};
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
         load_tx_db, run_with_writer, Args, AsyncAnnotatedVariantWriter, PathOutput,
-        TranscriptPickType,
     };
     use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
     use csv::ReaderBuilder;
@@ -1747,10 +1724,11 @@ mod test {
                     path_output_vcf: Some(output.as_ref().to_str().unwrap().into()),
                     path_output_tsv: None,
                 },
-                transcript_source: Default::default(),
-                report_most_severe_consequence_by: Some(ConsequenceBy::Allele),
-                pick_transcript: vec![TranscriptPickType::ManeSelect],
-                pick_transcript_mode: Default::default(),
+                transcript_settings: TranscriptSettings {
+                    report_most_severe_consequence_by: Some(ConsequenceBy::Allele),
+                    pick_transcript: vec![TranscriptPickType::ManeSelect],
+                    ..Default::default()
+                },
                 max_var_count: None,
                 hgnc: None,
                 sources: crate::annotate::seqvars::Sources {

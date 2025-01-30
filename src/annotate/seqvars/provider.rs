@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::annotate::seqvars::{TranscriptPickMode, TranscriptPickType};
+use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType};
 use crate::db::create::Reason;
 use crate::db::TranscriptDatabase;
 use crate::{

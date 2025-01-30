@@ -7,11 +7,11 @@ use std::{
     time::Instant,
 };
 
+use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
 use crate::annotate::seqvars::{
     csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
     load_tx_db, path_component,
     provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
-    ConsequenceBy, TranscriptPickMode, TranscriptPickType,
 };
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;

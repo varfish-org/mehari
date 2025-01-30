@@ -58,16 +58,14 @@ mod maelstrom;
 #[derive(Parser, Debug, Clone)]
 #[command(about = "Annotate structural variant VCF files", long_about = None)]
 pub struct Args {
-    /// Path to the mehari database folder.
-    #[arg(long)]
-    pub path_db: String,
-
     /// Genome release to use, default is to auto-detect.
     #[arg(long, value_enum)]
     pub genome_release: Option<GenomeRelease>,
+
     /// Path to the input PED file.
     #[arg(long)]
     pub path_input_ped: String,
+
     /// Path to the input VCF files.
     #[arg(long, required = true)]
     pub path_input_vcf: Vec<String>,
@@ -87,9 +85,11 @@ pub struct Args {
     /// Minimal reciprocal overlap to require.
     #[arg(long, default_value_t = 0.8)]
     pub min_overlap: f32,
+
     /// Slack to use around break-ends.
     #[arg(long, default_value_t = 50)]
     pub slack_bnd: i32,
+
     /// Slack to use around insertions.
     #[arg(long, default_value_t = 50)]
     pub slack_ins: i32,
@@ -97,6 +97,7 @@ pub struct Args {
     /// Seed for random number generator (UUIDs), if any.
     #[arg(long)]
     pub rng_seed: Option<u64>,
+
     /// Optionally, value to write to `##fileDate`.
     #[arg(long)]
     pub file_date: Option<String>,
@@ -4170,7 +4171,6 @@ mod test {
         let out_path = temp.join(format!("out{}", suffix));
 
         let args = Args {
-            path_db: String::from("tests/data/db/create"),
             genome_release: Some(GenomeRelease::Grch37),
             path_input_ped: String::from("tests/data/annotate/strucvars/maelstrom/delly2-min.ped"),
             path_input_vcf: vec![String::from(
@@ -4227,7 +4227,6 @@ mod test {
         let out_path = temp.join("out.vcf");
 
         let args = Args {
-            path_db: String::from("tests/data/db/create"),
             genome_release: Some(GenomeRelease::Grch38),
             path_input_ped: String::from("tests/data/annotate/strucvars/test.order.ped"),
             path_input_vcf: vec![String::from("tests/data/annotate/strucvars/test.order.vcf")],
