@@ -24,6 +24,7 @@ use hgvs::{
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
+use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
@@ -178,10 +179,7 @@ pub struct Provider {
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
 
-    /// Path to the FASTA file of the reference genome.
-    reference: PathBuf,
-    /// The index for the reference genome.
-    reference_index: bio::io::fasta::Index,
+    reference_sequences: HashMap<String, Vec<u8>>,
 
     /// The data version.
     data_version: String,
@@ -400,10 +398,17 @@ impl Provider {
             config
         );
         let schema_version = data_version.clone();
-        let reference_path = reference.as_ref().to_path_buf();
 
-        let reference_index = bio::io::fasta::Index::with_fasta_file(&reference_path)
-            .expect("Could not open reference index");
+        let reference_path = reference.as_ref().to_path_buf();
+        let reference_reader = bio::io::fasta::Reader::from_file(&reference_path)
+            .expect("Failed to create FASTA reader");
+        let reference_sequences = reference_reader
+            .records()
+            .map(|r| {
+                let record = r.expect("Failed to read FASTA record");
+                (record.id().to_string(), record.seq().to_vec())
+            })
+            .collect();
 
         Self {
             tx_seq_db,
@@ -412,8 +417,7 @@ impl Provider {
             tx_map,
             seq_map,
             picked_gene_to_tx_id,
-            reference_index,
-            reference: reference_path,
+            reference_sequences,
             data_version,
             schema_version,
         }
@@ -555,23 +559,17 @@ impl ProviderInterface for Provider {
             // let alias = &sequence_info.name;
             // let region = noodles::core::Region::new(alias.as_str(), begin..=end);
 
-            let reader = std::fs::File::open(&self.reference).map_err(|e| {
-                Error::NoSequenceRecord(format!("Could not open reference file: {}", e))
-            })?;
-            let mut reference =
-                bio::io::fasta::IndexedReader::with_index(reader, self.reference_index.clone());
             // noodles::fasta::io::indexed_reader::Builder::default()
             //.build_from_path(&self.reference)
 
             // Requires refseq_ac, i.e. refseq reference FASTA file
-            let begin = begin.unwrap() as u64;
-            let end = end.unwrap() as u64;
-            reference
-                .fetch(ac, begin, end)
-                .map_err(|e| Error::NoSequenceRecord(e.to_string()))?;
-            let mut seq = Vec::with_capacity((end - begin) as usize);
-            reference.read(&mut seq).expect("Could not read sequence");
-            let seq = String::from_utf8_lossy(&seq).to_string();
+            let begin = begin.unwrap();
+            let end = end.unwrap();
+            let seq = self
+                .reference_sequences
+                .get(ac)
+                .ok_or(Error::NoSequenceRecord(ac.to_string()))?;
+            let seq = String::from_utf8_lossy(&seq[begin..end]).to_string();
             return Ok(seq);
         }
         let seq_idx = *self
