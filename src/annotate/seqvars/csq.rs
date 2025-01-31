@@ -97,10 +97,10 @@ impl ConsequencePredictor {
         }
 
         let mapper_config = assembly::Config {
-            replace_reference: false,
+            replace_reference: true,
             strict_bounds: false,
-            renormalize_g: false,
-            genome_seq_available: false,
+            renormalize_g: true,
+            genome_seq_available: true,
             ..Default::default()
         };
         let mapper = assembly::Mapper::new(mapper_config, provider.clone());
