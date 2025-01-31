@@ -1,7 +1,5 @@
 //! Implementation of `hgvs` Provider interface based on protobuf.
 
-use std::collections::HashMap;
-
 use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType};
 use crate::db::create::Reason;
 use crate::db::TranscriptDatabase;
@@ -24,6 +22,10 @@ use hgvs::{
     sequences::{seq_md5, TranslationTable},
 };
 use itertools::Itertools;
+use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &[
@@ -175,6 +177,12 @@ pub struct Provider {
     /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
+
+    /// Path to the FASTA file of the reference genome.
+    reference: PathBuf,
+    /// The index for the reference genome.
+    reference_index: bio::io::fasta::Index,
+
     /// The data version.
     data_version: String,
     /// The schema version.
@@ -203,7 +211,12 @@ impl Provider {
     /// # Arguments
     ///
     /// * `tx_seq_db` - The `TxSeqDatabase` to use.
-    pub fn new(mut tx_seq_db: TxSeqDatabase, config: Config) -> Self {
+    pub fn new(
+        mut tx_seq_db: TxSeqDatabase,
+        // reference: IndexedReader<noodles::fasta::io::BufReader<File>>,
+        reference: impl AsRef<Path>,
+        config: Config,
+    ) -> Self {
         let tx_trees = TxIntervalTrees::new(&tx_seq_db);
         let gene_map = HashMap::from_iter(
             tx_seq_db
@@ -387,6 +400,11 @@ impl Provider {
             config
         );
         let schema_version = data_version.clone();
+        let reference_path = reference.as_ref().to_path_buf();
+
+        let reference_index = bio::io::fasta::Index::with_fasta_file(&reference_path)
+            .expect("Could not open reference index");
+
         Self {
             tx_seq_db,
             tx_trees,
@@ -394,6 +412,8 @@ impl Provider {
             tx_map,
             seq_map,
             picked_gene_to_tx_id,
+            reference_index,
+            reference: reference_path,
             data_version,
             schema_version,
         }
@@ -519,6 +539,41 @@ impl ProviderInterface for Provider {
         begin: Option<usize>,
         end: Option<usize>,
     ) -> Result<String, Error> {
+        if ac.starts_with("NC") || ac.starts_with("NT") || ac.starts_with("NW") {
+            // let begin = noodles::core::Position::try_from(begin.unwrap())
+            //     .map_err(|e| Error::NoSequenceRecord(e.to_string()))?;
+            // let end = noodles::core::Position::try_from(end.unwrap())
+            //     .map_err(|e| Error::NoSequenceRecord(e.to_string()))?;
+
+            // get assembly infos and lookup the aliases / alternative accessions
+            // let assembly = self.assembly();
+            // let sequence_info = ASSEMBLY_INFOS[assembly]
+            //     .sequences
+            //     .iter()
+            //     .find(|seq| seq.refseq_ac == ac)
+            //     .expect("No matching sequence found in assembly info");
+            // let alias = &sequence_info.name;
+            // let region = noodles::core::Region::new(alias.as_str(), begin..=end);
+
+            let reader = std::fs::File::open(&self.reference).map_err(|e| {
+                Error::NoSequenceRecord(format!("Could not open reference file: {}", e))
+            })?;
+            let mut reference =
+                bio::io::fasta::IndexedReader::with_index(reader, self.reference_index.clone());
+            // noodles::fasta::io::indexed_reader::Builder::default()
+            //.build_from_path(&self.reference)
+
+            // Requires refseq_ac, i.e. refseq reference FASTA file
+            let begin = begin.unwrap() as u64;
+            let end = end.unwrap() as u64;
+            reference
+                .fetch(ac, begin, end)
+                .map_err(|e| Error::NoSequenceRecord(e.to_string()))?;
+            let mut seq = Vec::with_capacity((end - begin) as usize);
+            reference.read(&mut seq).expect("Could not read sequence");
+            let seq = String::from_utf8_lossy(&seq).to_string();
+            return Ok(seq);
+        }
         let seq_idx = *self
             .seq_map
             .get(ac)

@@ -1,12 +1,5 @@
 //! Verification of the sequence variant consequence prediction.
 
-use std::{
-    fs::File,
-    io::{BufRead, BufReader, Write},
-    sync::Arc,
-    time::Instant,
-};
-
 use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
 use crate::annotate::seqvars::{
     csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
@@ -17,6 +10,12 @@ use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use noodles::core::{Position, Region};
 use quick_cache::unsync::Cache;
+use std::{
+    fs::File,
+    io::{BufRead, BufReader, Write},
+    sync::Arc,
+    time::Instant,
+};
 
 /// Command line arguments for `verify seqvars` sub command.
 #[derive(Parser, Debug)]
@@ -29,12 +28,12 @@ pub struct Args {
     /// Path to the input TSV file.
     #[arg(long)]
     pub path_input_tsv: String,
-    /// Path to the reference FASTA file.
 
+    /// Path to the reference FASTA file.
     #[arg(long)]
     pub path_reference_fasta: String,
-    /// Path to output TSV file.
 
+    /// Path to output TSV file.
     #[arg(long)]
     pub path_output_tsv: String,
 
@@ -132,9 +131,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         "Opening reference FASTA file: {}",
         &args.path_reference_fasta
     );
-    let fai_index = noodles::fasta::fai::read(format!("{}.fai", args.path_reference_fasta))?;
-    let mut fai_reader = noodles::fasta::indexed_reader::Builder::default()
-        .set_index(fai_index)
+    let mut fai_reader = noodles::fasta::io::indexed_reader::Builder::default()
         .build_from_path(&args.path_reference_fasta)?;
 
     // Read the serialized transcripts.
@@ -145,8 +142,12 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         path_component(assembly)
     ))?;
 
+    // let reference = noodles::fasta::io::indexed_reader::Builder::default()
+    //     .build_from_path(&args.path_reference_fasta)?;
+
     let provider = Arc::new(MehariProvider::new(
         tx_db,
+        &args.path_reference_fasta,
         MehariProviderConfigBuilder::default()
             .pick_transcript(args.pick_transcript.clone())
             .pick_transcript_mode(args.pick_transcript_mode)

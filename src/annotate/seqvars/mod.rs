@@ -4,7 +4,7 @@ use std::env;
 use std::fmt::Display;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -80,6 +80,10 @@ pub struct Args {
     /// Genome release to use, default is to auto-detect.
     #[arg(long, value_enum)]
     pub genome_release: Option<GenomeRelease>,
+
+    /// Reference genome FASTA file (with accompanying index).
+    #[arg(long)]
+    pub reference: PathBuf,
 
     /// Path to the input PED file.
     #[arg(long)]
@@ -1824,11 +1828,14 @@ impl ConsequenceAnnotator {
 
     pub(crate) fn from_db_and_settings(
         tx_db: TxSeqDatabase,
+        reference: impl AsRef<Path>,
         transcript_settings: &TranscriptSettings,
     ) -> anyhow::Result<Self> {
         let args = transcript_settings;
+
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            reference,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(args.pick_transcript.clone())
                 .pick_transcript_mode(args.pick_transcript_mode)
@@ -1958,7 +1965,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 async fn run_with_writer(
     writer: &mut impl AsyncAnnotatedVariantWriter,
     args: &Args,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), Error> {
     tracing::info!("Open VCF and read header");
     let mut reader = open_variant_reader(&args.path_input_vcf).await?;
 
@@ -1979,8 +1986,13 @@ async fn run_with_writer(
     writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
-    let annotator =
-        setup_seqvars_annotator(&args.sources, &args.transcript_settings, Some(assembly))?;
+    let annotator = setup_seqvars_annotator(
+        &args.sources,
+        &args.reference,
+        &args.transcript_settings,
+        Some(assembly),
+    )?;
+
     let mut additional_header_info = annotator.versions_for_vcf_header();
     additional_header_info.push(("mehariCmd".into(), env::args().join(" ")));
     additional_header_info.push(("mehariVersion".into(), env!("CARGO_PKG_VERSION").into()));
@@ -2056,6 +2068,7 @@ pub(crate) fn proto_assembly_from(assembly: &Assembly) -> Option<crate::pbs::txs
 
 pub(crate) fn setup_seqvars_annotator(
     sources: &Sources,
+    reference: impl AsRef<Path>,
     transcript_settings: &TranscriptSettings,
     assembly: Option<Assembly>,
 ) -> Result<Annotator, Error> {
@@ -2092,7 +2105,7 @@ pub(crate) fn setup_seqvars_annotator(
                 &tx_sources.join(", ")
             );
             annotators.push(
-                ConsequenceAnnotator::from_db_and_settings(tx_db, transcript_settings)
+                ConsequenceAnnotator::from_db_and_settings(tx_db, &reference, transcript_settings)
                     .map(AnnotatorEnum::Consequence)?,
             );
         }
@@ -2171,7 +2184,7 @@ pub(crate) fn load_transcript_dbs_for_assembly(
                 Some(_) => {
                     tracing::info!("Skipping transcript database {} as its version {:?} does not support the requested assembly ({:?})", &tx_sources[i], &db.source_version, &assembly);
                     None
-                },
+                }
                 None => Some(Ok(db)),
             },
             Err(_) => Some(txdb),

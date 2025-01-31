@@ -14,6 +14,7 @@ use crate::{
 };
 use clap::ValueEnum;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use strum::EnumString;
 
 /// Implementation of Actix server.
@@ -116,6 +117,10 @@ pub mod openapi {
 #[derive(clap::Parser, Debug)]
 #[command(about = "Run Mehari REST API server", long_about = None)]
 pub struct Args {
+    /// Path to the reference genome.
+    #[arg(long)]
+    pub reference: PathBuf,
+
     /// What to annotate and which source to use.
     #[command(flatten)]
     pub sources: Sources,
@@ -251,8 +256,11 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                 );
             } else {
                 let tx_db = merge_transcript_databases(tx_dbs)?;
-                let annotator =
-                    ConsequenceAnnotator::from_db_and_settings(tx_db, &args.transcript_settings)?;
+                let annotator = ConsequenceAnnotator::from_db_and_settings(
+                    tx_db,
+                    &args.reference,
+                    &args.transcript_settings,
+                )?;
                 let config = ConfigBuilder::default()
                     .report_most_severe_consequence_by(
                         args.transcript_settings.report_most_severe_consequence_by,
