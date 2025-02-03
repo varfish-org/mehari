@@ -3,7 +3,6 @@
 use std::{collections::HashMap, sync::Arc};
 
 use biocommons_bioutils::assemblies::Assembly;
-use hgvs::data::interface::Provider;
 
 use crate::{
     annotate::seqvars::provider::{Provider as MehariProvider, TxIntervalTrees},
@@ -452,17 +451,7 @@ pub struct ConsequencePredictor {
 
 impl ConsequencePredictor {
     pub fn new(provider: Arc<MehariProvider>, assembly: Assembly) -> Self {
-        let acc_to_chrom = provider.get_assembly_map(assembly);
-        let mut chrom_to_acc = HashMap::new();
-        for (acc, chrom) in &acc_to_chrom {
-            let chrom = if chrom.starts_with("chr") {
-                chrom.strip_prefix("chr").unwrap()
-            } else {
-                chrom
-            };
-            chrom_to_acc.insert(chrom.to_string(), acc.clone());
-            chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
-        }
+        let chrom_to_acc = provider.build_chrom_to_acc(Some(assembly));
 
         ConsequencePredictor {
             provider,

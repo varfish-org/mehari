@@ -83,18 +83,7 @@ pub type Consequences = BitFlags<Consequence>;
 impl ConsequencePredictor {
     pub fn new(provider: Arc<MehariProvider>, config: Config) -> Self {
         tracing::info!("Building transcript interval trees ...");
-        let acc_to_chrom: indexmap::IndexMap<String, String> =
-            provider.get_assembly_map(provider.assembly());
-        let mut chrom_to_acc = HashMap::new();
-        for (acc, chrom) in &acc_to_chrom {
-            let chrom = if chrom.starts_with("chr") {
-                chrom.strip_prefix("chr").unwrap()
-            } else {
-                chrom
-            };
-            chrom_to_acc.insert(chrom.to_string(), acc.clone());
-            chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
-        }
+        let chrom_to_acc = provider.build_chrom_to_acc(None);
 
         let reference_available = provider.reference_available();
 

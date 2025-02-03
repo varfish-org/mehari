@@ -498,6 +498,22 @@ impl Provider {
     pub fn reference_available(&self) -> bool {
         !self.reference_sequences.is_empty()
     }
+
+    pub fn build_chrom_to_acc(&self, assembly: Option<Assembly>) -> HashMap<String, String> {
+        let acc_to_chrom: indexmap::IndexMap<String, String> =
+            self.get_assembly_map(assembly.unwrap_or_else(|| self.assembly()));
+        let mut chrom_to_acc = HashMap::new();
+        for (acc, chrom) in &acc_to_chrom {
+            let chrom = if chrom.starts_with("chr") {
+                chrom.strip_prefix("chr").unwrap()
+            } else {
+                chrom
+            };
+            chrom_to_acc.insert(chrom.to_string(), acc.clone());
+            chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
+        }
+        chrom_to_acc
+    }
 }
 
 impl ProviderInterface for Provider {
