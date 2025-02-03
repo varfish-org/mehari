@@ -540,25 +540,24 @@ impl ProviderInterface for Provider {
         begin: Option<usize>,
         end: Option<usize>,
     ) -> Result<String, Error> {
-        let sequence =
-            (ac.starts_with("NC") || ac.starts_with("NT") || ac.starts_with("NW")).then(|| {
-                // Requires refseq_ac, i.e. refseq reference FASTA file
-                let seq = self
-                    .reference_sequences
-                    .get(ac)
-                    .unwrap_or_else(|| panic!("no reference sequence with accession {} found", ac));
-                seq.as_slice()
-            });
-
-        let seq = sequence.unwrap_or_else(|| {
+        // In case the accession starts with "NC" or "NT" or "NW",
+        // we need to look up the sequence in the reference FASTA mapping.
+        let seq = if ac.starts_with("NC") || ac.starts_with("NT") || ac.starts_with("NW") {
+            // Requires refseq_ac, i.e. refseq reference FASTA file
+            let seq = self
+                .reference_sequences
+                .get(ac)
+                .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?;
+            seq.as_slice()
+        } else {
+            // Otherwise, look up the sequence in the transcript database.
             let seq_idx = *self
                 .seq_map
                 .get(ac)
-                .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))
-                .unwrap();
+                .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?;
             let seq_idx = seq_idx as usize;
             self.tx_seq_db.seq_db.as_ref().expect("no seq_db?").seqs[seq_idx].as_bytes()
-        });
+        };
 
         let slice = match (begin, end) {
             (Some(begin), Some(end)) => {
