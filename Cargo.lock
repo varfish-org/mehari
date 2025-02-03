@@ -286,9 +286,9 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "annonars"
-version = "0.42.3"
+version = "0.42.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86428b1ff21f6e8f5fc574928a3dc643300f4ddd4915eaed3f2c8cd47d0d5f79"
+checksum = "e7ef1715dbc642d8c26dae38dcd48c62facf0cd3ef729a041381267138965008"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -299,7 +299,7 @@ dependencies = [
  "byteorder",
  "chrono",
  "clap",
- "clap-verbosity-flag 2.2.3",
+ "clap-verbosity-flag",
  "csv",
  "enum-map",
  "env_logger",
@@ -307,8 +307,9 @@ dependencies = [
  "flate2",
  "indexmap",
  "indicatif",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
+ "lru",
  "noodles 0.77.0",
  "pbjson",
  "pbjson-build",
@@ -324,6 +325,7 @@ dependencies = [
  "serde_with",
  "serde_yaml",
  "strum",
+ "tempfile",
  "thiserror 2.0.3",
  "tracing",
  "tracing-subscriber",
@@ -949,16 +951,6 @@ dependencies = [
 
 [[package]]
 name = "clap-verbosity-flag"
-version = "2.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34c77f67047557f62582784fd7482884697731b2932c7d37ced54bce2312e1e2"
-dependencies = [
- "clap",
- "log",
-]
-
-[[package]]
-name = "clap-verbosity-flag"
 version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2678fade3b77aa3a8ff3aae87e9c008d3fb00473a41c71fbf74e91c8c7b37e84"
@@ -1578,6 +1570,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
+name = "foldhash"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0d2fde1f7b3d48b8395d5f2de76c18a528bd6a9cdde438df747bfcba3e05d6f"
+
+[[package]]
 name = "form_urlencoded"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1797,6 +1795,11 @@ name = "hashbrown"
 version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf151400ff0baff5465007dd2f3e717f3fe502074ca563069ce3a6629d07b289"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash",
+]
 
 [[package]]
 name = "hashlink"
@@ -2559,6 +2562,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
+name = "lru"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "227748d55f2f0ab4735d87fd623798cb6b664512fe979705f829c9f81c934465"
+dependencies = [
+ "hashbrown 0.15.2",
+]
+
+[[package]]
 name = "lz4-sys"
 version = "1.11.1+lz4-1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2622,7 +2634,7 @@ dependencies = [
  "byte-unit",
  "chrono",
  "clap",
- "clap-verbosity-flag 3.0.2",
+ "clap-verbosity-flag",
  "criterion",
  "csv",
  "derivative",
