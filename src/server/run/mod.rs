@@ -117,9 +117,9 @@ pub mod openapi {
 #[derive(clap::Parser, Debug)]
 #[command(about = "Run Mehari REST API server", long_about = None)]
 pub struct Args {
-    /// Path to the reference genome.
+    /// Path to the reference genome, with accompanying index.
     #[arg(long)]
-    pub reference: PathBuf,
+    pub reference: Option<PathBuf>,
 
     /// What to annotate and which source to use.
     #[command(flatten)]
@@ -258,7 +258,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                 let tx_db = merge_transcript_databases(tx_dbs)?;
                 let annotator = ConsequenceAnnotator::from_db_and_settings(
                     tx_db,
-                    &args.reference,
+                    args.reference.as_ref(),
                     &args.transcript_settings,
                 )?;
                 let config = ConfigBuilder::default()

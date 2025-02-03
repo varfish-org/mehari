@@ -83,7 +83,7 @@ pub struct Args {
 
     /// Reference genome FASTA file (with accompanying index).
     #[arg(long)]
-    pub reference: PathBuf,
+    pub reference: Option<PathBuf>,
 
     /// Path to the input PED file.
     #[arg(long)]
@@ -1828,7 +1828,7 @@ impl ConsequenceAnnotator {
 
     pub(crate) fn from_db_and_settings(
         tx_db: TxSeqDatabase,
-        reference: impl AsRef<Path>,
+        reference: Option<impl AsRef<Path>>,
         transcript_settings: &TranscriptSettings,
     ) -> anyhow::Result<Self> {
         let args = transcript_settings;
@@ -1988,7 +1988,7 @@ async fn run_with_writer(
 
     let annotator = setup_seqvars_annotator(
         &args.sources,
-        &args.reference,
+        args.reference.as_ref(),
         &args.transcript_settings,
         Some(assembly),
     )?;
@@ -2068,7 +2068,7 @@ pub(crate) fn proto_assembly_from(assembly: &Assembly) -> Option<crate::pbs::txs
 
 pub(crate) fn setup_seqvars_annotator(
     sources: &Sources,
-    reference: impl AsRef<Path>,
+    reference: Option<impl AsRef<Path>>,
     transcript_settings: &TranscriptSettings,
     assembly: Option<Assembly>,
 ) -> Result<Annotator, Error> {
@@ -2105,7 +2105,7 @@ pub(crate) fn setup_seqvars_annotator(
                 &tx_sources.join(", ")
             );
             annotators.push(
-                ConsequenceAnnotator::from_db_and_settings(tx_db, &reference, transcript_settings)
+                ConsequenceAnnotator::from_db_and_settings(tx_db, reference, transcript_settings)
                     .map(AnnotatorEnum::Consequence)?,
             );
         }
@@ -2231,6 +2231,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            reference: None,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2278,6 +2279,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            reference: None,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2331,6 +2333,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            reference: None,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2378,6 +2381,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            reference: None,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2427,6 +2431,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            reference: None,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2476,6 +2481,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch38";
         let args = Args {
+            reference: None,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),

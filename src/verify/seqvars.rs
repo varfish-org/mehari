@@ -147,7 +147,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     let provider = Arc::new(MehariProvider::new(
         tx_db,
-        &args.path_reference_fasta,
+        Some(&args.path_reference_fasta),
         MehariProviderConfigBuilder::default()
             .pick_transcript(args.pick_transcript.clone())
             .pick_transcript_mode(args.pick_transcript_mode)

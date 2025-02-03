@@ -209,7 +209,7 @@ impl Provider {
     pub fn new(
         mut tx_seq_db: TxSeqDatabase,
         // reference: IndexedReader<noodles::fasta::io::BufReader<File>>,
-        reference: impl AsRef<Path>,
+        reference: Option<impl AsRef<Path>>,
         config: Config,
     ) -> Self {
         let tx_trees = TxIntervalTrees::new(&tx_seq_db);
@@ -396,16 +396,20 @@ impl Provider {
         );
         let schema_version = data_version.clone();
 
-        let reference_path = reference.as_ref().to_path_buf();
-        let reference_reader = bio::io::fasta::Reader::from_file(&reference_path)
-            .expect("Failed to create FASTA reader");
-        let reference_sequences = reference_reader
-            .records()
-            .map(|r| {
-                let record = r.expect("Failed to read FASTA record");
-                (record.id().to_string(), record.seq().to_vec())
-            })
-            .collect();
+        let reference_sequences = if let Some(reference_path) = reference {
+            let reference_path = reference_path.as_ref().to_path_buf();
+            let reference_reader = bio::io::fasta::Reader::from_file(&reference_path)
+                .expect("Failed to create FASTA reader");
+            reference_reader
+                .records()
+                .map(|r| {
+                    let record = r.expect("Failed to read FASTA record");
+                    (record.id().to_string(), record.seq().to_vec())
+                })
+                .collect()
+        } else {
+            HashMap::new()
+        };
 
         Self {
             tx_seq_db,
@@ -489,6 +493,10 @@ impl Provider {
                 Some(tx)
             }
         })
+    }
+
+    pub fn reference_available(&self) -> bool {
+        !self.reference_sequences.is_empty()
     }
 }
 

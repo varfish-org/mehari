@@ -96,11 +96,13 @@ impl ConsequencePredictor {
             chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
         }
 
+        let reference_available = provider.reference_available();
+
         let mapper_config = assembly::Config {
-            replace_reference: true,
+            replace_reference: reference_available,
             strict_bounds: false,
-            renormalize_g: true,
-            genome_seq_available: true,
+            renormalize_g: reference_available,
+            genome_seq_available: reference_available,
             ..Default::default()
         };
         let mapper = assembly::Mapper::new(mapper_config, provider.clone());
@@ -1252,7 +1254,7 @@ mod test {
     use futures::TryStreamExt;
     use pretty_assertions::assert_eq;
     use serde::Deserialize;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::{fs::File, io::BufReader};
     use tempfile::NamedTempFile;
 
@@ -1291,7 +1293,11 @@ mod test {
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(tx_db, Default::default()));
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            Default::default(),
+        ));
 
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
@@ -1370,6 +1376,7 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            None::<PathBuf>,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1473,6 +1480,7 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            None::<PathBuf>,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1531,6 +1539,7 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            None::<PathBuf>,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1597,6 +1606,7 @@ mod test {
         };
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            None::<PathBuf>,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
                 .build()
@@ -1667,6 +1677,7 @@ mod test {
 
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            None::<PathBuf>,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
                 .build()
@@ -1717,6 +1728,7 @@ mod test {
         run_with_writer(
             &mut writer,
             &Args {
+                reference: None,
                 genome_release: None,
                 path_input_ped: None,
                 path_input_vcf: path_input_vcf.into(),
@@ -1854,7 +1866,11 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(tx_db, Default::default()));
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            Default::default(),
+        ));
 
         let report_most_severe_consequence_by = if report_most_severe_consequence_only {
             Some(ConsequenceBy::Gene)
