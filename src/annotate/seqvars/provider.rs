@@ -23,10 +23,7 @@ use hgvs::{
 };
 use itertools::Itertools;
 use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
-use std::fs::File;
-use std::io::BufReader;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &[
@@ -543,55 +540,40 @@ impl ProviderInterface for Provider {
         begin: Option<usize>,
         end: Option<usize>,
     ) -> Result<String, Error> {
-        if ac.starts_with("NC") || ac.starts_with("NT") || ac.starts_with("NW") {
-            // let begin = noodles::core::Position::try_from(begin.unwrap())
-            //     .map_err(|e| Error::NoSequenceRecord(e.to_string()))?;
-            // let end = noodles::core::Position::try_from(end.unwrap())
-            //     .map_err(|e| Error::NoSequenceRecord(e.to_string()))?;
+        let sequence =
+            (ac.starts_with("NC") || ac.starts_with("NT") || ac.starts_with("NW")).then(|| {
+                // Requires refseq_ac, i.e. refseq reference FASTA file
+                let seq = self
+                    .reference_sequences
+                    .get(ac)
+                    .unwrap_or_else(|| panic!("no reference sequence with accession {} found", ac));
+                seq.as_slice()
+            });
 
-            // get assembly infos and lookup the aliases / alternative accessions
-            // let assembly = self.assembly();
-            // let sequence_info = ASSEMBLY_INFOS[assembly]
-            //     .sequences
-            //     .iter()
-            //     .find(|seq| seq.refseq_ac == ac)
-            //     .expect("No matching sequence found in assembly info");
-            // let alias = &sequence_info.name;
-            // let region = noodles::core::Region::new(alias.as_str(), begin..=end);
-
-            // noodles::fasta::io::indexed_reader::Builder::default()
-            //.build_from_path(&self.reference)
-
-            // Requires refseq_ac, i.e. refseq reference FASTA file
-            let begin = begin.unwrap();
-            let end = end.unwrap();
-            let seq = self
-                .reference_sequences
+        let seq = sequence.unwrap_or_else(|| {
+            let seq_idx = *self
+                .seq_map
                 .get(ac)
-                .ok_or(Error::NoSequenceRecord(ac.to_string()))?;
-            let seq = String::from_utf8_lossy(&seq[begin..end]).to_string();
-            return Ok(seq);
-        }
-        let seq_idx = *self
-            .seq_map
-            .get(ac)
-            .ok_or(Error::NoSequenceRecord(ac.to_string()))?;
-        let seq_idx = seq_idx as usize;
+                .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))
+                .unwrap();
+            let seq_idx = seq_idx as usize;
+            self.tx_seq_db.seq_db.as_ref().expect("no seq_db?").seqs[seq_idx].as_bytes()
+        });
 
-        let seq = &self.tx_seq_db.seq_db.as_ref().expect("no seq_db?").seqs[seq_idx];
-        match (begin, end) {
+        let slice = match (begin, end) {
             (Some(begin), Some(end)) => {
                 let begin = std::cmp::min(begin, seq.len());
                 let end = std::cmp::min(end, seq.len());
-                Ok(seq[begin..end].to_string())
+                &seq[begin..end]
             }
             (Some(begin), None) => {
                 let begin = std::cmp::min(begin, seq.len());
-                Ok(seq[begin..].to_string())
+                &seq[begin..]
             }
-            (None, Some(end)) => Ok(seq[..end].to_string()),
-            (None, None) => Ok(seq.clone()),
-        }
+            (None, Some(end)) => &seq[..end],
+            (None, None) => seq,
+        };
+        Ok(String::from_utf8_lossy(slice).to_string())
     }
 
     fn get_acs_for_protein_seq(&self, seq: &str) -> Result<Vec<String>, Error> {
