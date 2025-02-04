@@ -1835,6 +1835,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hgvs"
 version = "0.17.5"
+source = "git+https://github.com/varfish-org/hgvs-rs.git?branch=str-to-vec#c103eb27243095be3eee8b0f0b6d86bbc07475de"
 dependencies = [
  "ahash 0.8.11",
  "base16ct",
@@ -1853,7 +1854,7 @@ dependencies = [
  "quick_cache",
  "regex",
  "rustc-hash 2.1.0",
- "seqrepo 0.10.3",
+ "seqrepo 0.10.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_bytes",
  "serde_json",
@@ -2662,7 +2663,7 @@ dependencies = [
  "rocksdb",
  "rstest",
  "rustc-hash 2.1.0",
- "seqrepo 0.10.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "seqrepo 0.10.3 (git+https://github.com/varfish-org/seqrepo-rs.git?branch=str-to-vec)",
  "serde",
  "serde_json",
  "serde_with",
@@ -4252,6 +4253,8 @@ dependencies = [
 [[package]]
 name = "seqrepo"
 version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8382cc8df7f9393b407caaeb2fe9ba7506a5abc32e5a117288cf9f5726c21dfb"
 dependencies = [
  "chrono",
  "noodles 0.76.0",
@@ -4263,8 +4266,7 @@ dependencies = [
 [[package]]
 name = "seqrepo"
 version = "0.10.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8382cc8df7f9393b407caaeb2fe9ba7506a5abc32e5a117288cf9f5726c21dfb"
+source = "git+https://github.com/varfish-org/seqrepo-rs.git?branch=str-to-vec#8a894df83451c653de1f738986f3c816151c12b7"
 dependencies = [
  "chrono",
  "noodles 0.76.0",
