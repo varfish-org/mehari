@@ -692,7 +692,7 @@ impl TranscriptLoader {
                 let seq = seq_repo.fetch_sequence(&AliasOrSeqId::Alias {
                     value: (*tx_id).to_string(),
                     namespace: Some(namespace.clone()),
-                }).map(|v| v.as_bytes().to_vec());
+                }).map(|v| v.to_vec());
                 if let Ok(seq) = seq {
                     let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
                     if seq.is_empty() {
