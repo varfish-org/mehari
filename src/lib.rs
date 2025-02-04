@@ -31,3 +31,5 @@ pub mod verify;
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
+
+pub(crate) type Sequence = Vec<u8>;

@@ -677,11 +677,12 @@ dependencies = [
 
 [[package]]
 name = "bstr"
-version = "1.11.0"
+version = "1.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a68f1f47cdf0ec8ee4b941b2eee2a80cb796db73118c0dd09ac63fbe405be22"
+checksum = "531a9155a481e2ee699d4f98f43c0ca4ff8ee1bfd55c31e9e98fb29d2b176fe0"
 dependencies = [
  "memchr",
+ "regex-automata 0.4.9",
  "serde",
 ]
 
@@ -1834,13 +1835,12 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hgvs"
 version = "0.17.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5410ecaeb2311757d208361a1a795db08ad660a07cb8584f87f01f1d60a7bb09"
 dependencies = [
  "ahash 0.8.11",
  "base16ct",
  "bio",
  "biocommons-bioutils",
+ "bstr",
  "cached",
  "chrono",
  "enum-map",
@@ -1853,8 +1853,9 @@ dependencies = [
  "quick_cache",
  "regex",
  "rustc-hash 2.1.0",
- "seqrepo",
+ "seqrepo 0.10.3",
  "serde",
+ "serde_bytes",
  "serde_json",
  "thiserror 2.0.3",
 ]
@@ -2618,6 +2619,7 @@ dependencies = [
  "async-compression",
  "bio",
  "biocommons-bioutils",
+ "bstr",
  "built",
  "byte-unit",
  "chrono",
@@ -2660,7 +2662,7 @@ dependencies = [
  "rocksdb",
  "rstest",
  "rustc-hash 2.1.0",
- "seqrepo",
+ "seqrepo 0.10.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
  "serde_with",
@@ -4250,6 +4252,17 @@ dependencies = [
 [[package]]
 name = "seqrepo"
 version = "0.10.3"
+dependencies = [
+ "chrono",
+ "noodles 0.76.0",
+ "rusqlite",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
+name = "seqrepo"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8382cc8df7f9393b407caaeb2fe9ba7506a5abc32e5a117288cf9f5726c21dfb"
 dependencies = [
@@ -4267,6 +4280,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02fc4265df13d6fa1d00ecff087228cc0a2b5f3c0e87e258d8b94a156e984c70"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "387cc504cb06bb40a96c8e04e951fe01854cf6bc921053c954e4a606d9675c6a"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

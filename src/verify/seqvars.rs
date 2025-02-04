@@ -277,8 +277,8 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             let vcf_var = VcfVariant {
                 chromosome: contig.to_owned(),
                 position: start.get() as i32,
-                reference: reference_allele.to_owned(),
-                alternative: alt_allele.clone(),
+                reference: reference_allele.as_bytes().to_vec(),
+                alternative: alt_allele.as_bytes().to_vec(),
             };
             let anns = predictor.predict(&vcf_var)?;
             pred_cache.insert(record.location.clone(), anns);

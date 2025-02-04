@@ -1571,8 +1571,8 @@ impl FrequencyAnnotator {
         let vcf_var = keys::Var::from(
             &vcf_var.chromosome,
             vcf_var.position,
-            &vcf_var.reference,
-            &vcf_var.alternative,
+            std::str::from_utf8(&vcf_var.reference)?,
+            std::str::from_utf8(&vcf_var.alternative)?,
         );
         let key: Vec<u8> = vcf_var.clone().into();
         use crate::server::run::actix_server::seqvars_frequencies::*;
@@ -1772,8 +1772,8 @@ impl ClinvarAnnotator {
         let vcf_var = keys::Var::from(
             &vcf_var.chromosome,
             vcf_var.position,
-            &vcf_var.reference,
-            &vcf_var.alternative,
+            std::str::from_utf8(&vcf_var.reference)?,
+            std::str::from_utf8(&vcf_var.alternative)?,
         );
         let key: Vec<u8> = vcf_var.clone().into();
 
@@ -1863,8 +1863,8 @@ impl ConsequenceAnnotator {
         if let Some(ann_fields) = self.predictor.predict(&VcfVariant {
             chromosome: chrom,
             position: pos,
-            reference,
-            alternative,
+            reference: reference.as_bytes().to_vec(),
+            alternative: alternative.as_bytes().to_vec(),
         })? {
             if !ann_fields.is_empty() {
                 record.info_mut().insert(

@@ -3,10 +3,7 @@
 use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType};
 use crate::db::create::Reason;
 use crate::db::TranscriptDatabase;
-use crate::{
-    annotate::seqvars::csq::ALT_ALN_METHOD,
-    pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
-};
+use crate::{annotate::seqvars::csq::ALT_ALN_METHOD, pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase}, Sequence};
 use annonars::common::cli::CANONICAL;
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
@@ -404,7 +401,7 @@ impl Provider {
                 .records()
                 .map(|r| {
                     let record = r.expect("Failed to read FASTA record");
-                    (record.id().to_string(), record.seq().to_vec())
+                    (record.id().to_string(), record.seq().to_ascii_uppercase())
                 })
                 .collect()
         } else {
@@ -563,7 +560,7 @@ impl ProviderInterface for Provider {
         ac: &str,
         begin: Option<usize>,
         end: Option<usize>,
-    ) -> Result<String, Error> {
+    ) -> Result<Sequence, Error> {
         // In case the accession starts with "NC" or "NT" or "NW",
         // we need to look up the sequence in the reference FASTA mapping.
         let seq = if ac.starts_with("NC") || ac.starts_with("NT") || ac.starts_with("NW") {
@@ -596,10 +593,10 @@ impl ProviderInterface for Provider {
             (None, Some(end)) => &seq[..end],
             (None, None) => seq,
         };
-        Ok(String::from_utf8_lossy(slice).to_string())
+        Ok(slice.to_vec())
     }
 
-    fn get_acs_for_protein_seq(&self, seq: &str) -> Result<Vec<String>, Error> {
+    fn get_acs_for_protein_seq(&self, seq: &[u8]) -> Result<Vec<String>, Error> {
         Ok(vec![format!("MD5_{}", seq_md5(seq, true)?)])
     }
 

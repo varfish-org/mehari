@@ -78,8 +78,8 @@ async fn handle_impl(
     let g_var = VcfVariant {
         chromosome,
         position: position as i32,
-        reference,
-        alternative,
+        reference: reference.into(),
+        alternative: alternative.into(),
     };
     let annotations = annotator
         .annotate_variant(&g_var)

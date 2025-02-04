@@ -32,6 +32,7 @@ use thousands::Separable;
 
 use crate::common::{trace_rss_now, GenomeRelease};
 use crate::pbs::txs::{Assembly, Source, SourceVersion, TxSeqDatabase};
+use crate::Sequence;
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1"];
@@ -623,7 +624,7 @@ impl TranscriptLoader {
     fn filter_transcripts_with_sequence(
         &mut self,
         seq_repo: &SeqRepo,
-    ) -> Result<HashMap<TranscriptId, String>, Error> {
+    ) -> Result<HashMap<TranscriptId, Sequence>, Error> {
         tracing::info!("Filtering transcripts with seqrepo …");
         let start = Instant::now();
 
@@ -672,7 +673,7 @@ impl TranscriptLoader {
             }
         };
 
-        let (discards, keeps): (Vec<_>, HashMap<TranscriptId, String>) = self
+        let (discards, keeps): (Vec<_>, HashMap<TranscriptId, Sequence>) = self
             .transcript_id_to_transcript
             .par_iter()
             .partition_map(|(tx_id, tx)| {
@@ -691,7 +692,7 @@ impl TranscriptLoader {
                 let seq = seq_repo.fetch_sequence(&AliasOrSeqId::Alias {
                     value: (*tx_id).to_string(),
                     namespace: Some(namespace.clone()),
-                });
+                }).map(|v| v.as_bytes().to_vec());
                 if let Ok(seq) = seq {
                     let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
                     if seq.is_empty() {
@@ -709,18 +710,19 @@ impl TranscriptLoader {
                     {
                         let cds_length = cds_end - cds_start;
                         let delta = (3 - (cds_length % 3)).max(cds_end.saturating_sub(seq.len()));
-                        let seq = append_poly_a(seq, delta);
+                        let mut seq = seq;
+                        append_poly_a_inplace(&mut seq, delta);
                         let tx_seq_to_translate = &seq[cds_start..cds_end];
                         let aa_sequence = translate_cds(
                             tx_seq_to_translate,
                             true,
-                            "*",
+                            b'*',
                             TranslationTable::Standard,
                         ).expect("Translation should work, since the length is guaranteed to be a multiple of 3 at this point");
 
                         let mut reason = Reason::empty();
-                        let has_missing_stop_codon = (!is_mt && !aa_sequence.ends_with('*'))
-                            || (is_mt && !aa_sequence.contains('*'));
+                        let has_missing_stop_codon = (!is_mt && !aa_sequence.ends_with(b"*"))
+                            || (is_mt && !aa_sequence.contains(&b'*'));
                         if has_missing_stop_codon {
                             reason |= Reason::MissingStopCodon;
                             if five_prime_truncated(tx) {
@@ -1166,7 +1168,7 @@ impl TranscriptLoader {
     /// This can be done by simply converting the models from ``hgvs-rs`` to the prost generated data structures.
     fn build_protobuf(
         &mut self,
-        sequence_map: &mut HashMap<TranscriptId, String>,
+        sequence_map: &mut HashMap<TranscriptId, Sequence>,
         source_version: SourceVersion,
     ) -> Result<TxSeqDatabase, Error> {
         tracing::info!("Constructing protobuf data structures …");
@@ -1215,7 +1217,13 @@ impl TranscriptLoader {
                         .map(|seq| ((*tx_id).to_string(), seq))
                 })
                 .enumerate()
-                .map(|(idx, (tx_id, seq))| (tx_id, idx as u32, seq))
+                .map(|(idx, (tx_id, seq))| {
+                    (
+                        tx_id,
+                        idx as u32,
+                        String::from_utf8(seq).expect("Sequence is ASCII"),
+                    )
+                })
                 .multiunzip();
 
             crate::pbs::txs::SequenceDb {
@@ -1464,12 +1472,10 @@ impl TranscriptLoader {
     }
 }
 
-fn append_poly_a(seq: String, length: usize) -> String {
+fn append_poly_a_inplace(seq: &mut Sequence, length: usize) {
     // Append poly-A for chrMT transcripts (which are from ENSEMBL).
     // This also potentially fixes the stop codon.
-    let mut seq = seq.into_bytes();
     seq.extend_from_slice(b"A".repeat(length).as_slice());
-    String::from_utf8(seq).expect("must be valid UTF-8")
 }
 
 #[bitflags]

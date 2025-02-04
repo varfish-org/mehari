@@ -119,8 +119,8 @@ async fn handle_impl(
     let g_var = VcfVariant {
         chromosome,
         position: position as i32,
-        reference,
-        alternative,
+        reference: reference.into(),
+        alternative: alternative.into(),
     };
     let ann_fields = predictor
         .predict(&g_var)

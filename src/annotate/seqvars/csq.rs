@@ -5,6 +5,8 @@ use super::{
 };
 use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
 use crate::pbs::txs::{GenomeAlignment, Strand, TranscriptBiotype, TranscriptTag};
+use crate::Sequence;
+use bstr::{ByteSlice, ByteVec};
 use enumflags2::BitFlags;
 use hgvs::parser::{NoRef, ProteinEdit, UncertainLengthChange};
 use hgvs::{
@@ -27,9 +29,9 @@ pub struct VcfVariant {
     /// 1-based position on the chromosome of first base of `reference`.
     pub position: i32,
     /// Reference bases.
-    pub reference: String,
+    pub reference: Sequence,
     /// Alternative bases.
-    pub alternative: String,
+    pub alternative: Sequence,
 }
 
 /// Configuration for consequence prediction.
@@ -166,7 +168,7 @@ impl ConsequencePredictor {
         if txs.is_empty() {
             return Ok(Some(self.filter_ann_fields(vec![AnnField {
                 allele: Allele::Alt {
-                    alternative: var.alternative.clone(),
+                    alternative: String::from_utf8_lossy(&var.alternative).into(),
                 },
                 gene_id: "".to_string(),
                 consequences: vec![Consequence::IntergenicVariant],
@@ -641,7 +643,7 @@ impl ConsequencePredictor {
         // Build and return ANN field from the information derived above.
         Ok(Some(AnnField {
             allele: Allele::Alt {
-                alternative: orig_var.alternative.clone(),
+                alternative: String::from_utf8_lossy(&orig_var.alternative).into(),
             },
             consequences,
             putative_impact,
@@ -675,8 +677,8 @@ impl ConsequencePredictor {
         var_c: &HgvsVariant,
         var_p: &HgvsVariant,
     ) {
-        fn is_stop(s: &str) -> bool {
-            s == "X" || s == "Ter" || s == "*"
+        fn is_stop(s: &[u8]) -> bool {
+            s == b"X" || s == b"Ter" || s == b"*"
         }
 
         // In some cases, we predict a stop lost based on the cds variant
@@ -784,7 +786,7 @@ impl ConsequencePredictor {
                             NaEdit::DelRef { .. } => {
                                 first_codon.replace_range(3 + start - 1..=3 + end - 1, "");
                                 // If the first codon is still a start codon, then it is a start retained.
-                                first_codon[2..5].contains("ATG")
+                                first_codon[2..5].contains_str(b"ATG")
                             }
                             // TODO: handle other cases
                             _ => false,
@@ -1015,12 +1017,12 @@ impl ConsequencePredictor {
         let mut consequences: Consequences = Consequences::empty();
 
         // TODO move to hgvs-rs library as method of `ProtPos` or similar
-        fn is_stop(s: &str) -> bool {
-            s == "X" || s == "Ter" || s == "*"
+        fn is_stop(s: &[u8]) -> bool {
+            s == b"X" || s == b"Ter" || s == b"*"
         }
 
-        fn has_stop(s: &str) -> bool {
-            s.contains('*') || s.contains('X') || s.contains("Ter")
+        fn has_stop(s: &[u8]) -> bool {
+            s.contains(&b'*') || s.contains(&b'X') || s.contains_str(b"Ter")
         }
 
         match var_p {
@@ -1039,7 +1041,7 @@ impl ConsequencePredictor {
                             if alternative.is_empty() {
                                 consequences |= Consequence::SynonymousVariant;
                             } else if is_stop(alternative) {
-                                if loc.start == loc.end && is_stop(&loc.start.aa) {
+                                if loc.start == loc.end && is_stop(&[loc.start.aa]) {
                                     consequences |= Consequence::StopRetainedVariant;
                                 } else {
                                     consequences |= Consequence::StopGained;
@@ -1059,8 +1061,8 @@ impl ConsequencePredictor {
                                 consequences |= Consequence::MissenseVariant;
                                 // Missense variants that affect selenocysteine are marked
                                 // as rare amino acid variants.
-                                if alternative.contains("U")
-                                    || (loc.start == loc.end) && loc.start.aa == "U"
+                                if alternative.contains(&b'U')
+                                    || (loc.start == loc.end) && loc.start.aa == b'U'
                                 {
                                     consequences |= Consequence::RareAminoAcidVariant;
                                 }
@@ -1099,7 +1101,7 @@ impl ConsequencePredictor {
                             }
                         }
                         ProteinEdit::Ident => {
-                            if loc.start == loc.end && is_stop(&loc.start.aa) {
+                            if loc.start == loc.end && is_stop(&[loc.start.aa]) {
                                 consequences |= Consequence::StopRetainedVariant;
                             } else {
                                 consequences |= Consequence::SynonymousVariant;
@@ -1294,8 +1296,8 @@ mod test {
             .predict(&VcfVariant {
                 chromosome: spdi[0].clone(),
                 position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
+                reference: spdi[2].as_bytes().to_vec(),
+                alternative: spdi[3].as_bytes().to_vec(),
             })?
             .unwrap();
 
@@ -1387,8 +1389,8 @@ mod test {
             .predict(&VcfVariant {
                 chromosome: spdi[0].clone(),
                 position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
+                reference: spdi[2].as_bytes().to_vec(),
+                alternative: spdi[3].as_bytes().to_vec(),
             })?
             .unwrap();
 
@@ -1485,8 +1487,8 @@ mod test {
             .predict(&VcfVariant {
                 chromosome: spdi[0].clone(),
                 position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
+                reference: spdi[2].as_bytes().to_vec(),
+                alternative: spdi[3].as_bytes().to_vec(),
             })?
             .unwrap();
 
@@ -1544,8 +1546,8 @@ mod test {
             .predict(&VcfVariant {
                 chromosome: spdi[0].clone(),
                 position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
+                reference: spdi[2].as_bytes().to_vec(),
+                alternative: spdi[3].as_bytes().to_vec(),
             })?
             .unwrap();
 
@@ -1619,8 +1621,8 @@ mod test {
             .predict(&VcfVariant {
                 chromosome: spdi[0].clone(),
                 position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
+                reference: spdi[2].as_bytes().to_vec(),
+                alternative: spdi[3].as_bytes().to_vec(),
             })?
             .unwrap();
 
@@ -1691,8 +1693,8 @@ mod test {
             .predict(&VcfVariant {
                 chromosome: spdi[0].clone(),
                 position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
+                reference: spdi[2].as_bytes().to_vec(),
+                alternative: spdi[3].as_bytes().to_vec(),
             })?
             .unwrap();
 
@@ -1904,8 +1906,8 @@ mod test {
                     .predict(&VcfVariant {
                         chromosome: arr[0].to_string(),
                         position: arr[1].parse::<i32>()?,
-                        reference: arr[2].to_string(),
-                        alternative: arr[3].to_string(),
+                        reference: arr[2].as_bytes().to_vec(),
+                        alternative: arr[3].as_bytes().to_vec(),
                     })?
                     .unwrap();
                 // Now, for the overlapping transcripts, check that we have a match with the
