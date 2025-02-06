@@ -18,7 +18,6 @@ use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use itertools::Itertools;
-use noodles::vcf::header::record::key;
 use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
 use noodles::vcf::header::record::value::map::format::Type as FormatType;
 use noodles::vcf::header::record::value::map::info::Number;
