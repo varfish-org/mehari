@@ -29,12 +29,12 @@ pub struct Args {
     /// Path to the input TSV file.
     #[arg(long)]
     pub path_input_tsv: String,
-    /// Path to the reference FASTA file.
 
+    /// Path to the reference FASTA file.
     #[arg(long)]
     pub path_reference_fasta: String,
-    /// Path to output TSV file.
 
+    /// Path to output TSV file.
     #[arg(long)]
     pub path_output_tsv: String,
 
