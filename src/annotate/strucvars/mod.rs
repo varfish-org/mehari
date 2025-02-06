@@ -35,7 +35,7 @@ use noodles::vcf::variant::{Record, RecordBuf as VcfRecord};
 use noodles::vcf::Header as VcfHeader;
 use rand::rngs::StdRng;
 use rand::RngCore;
-use rand_core::SeedableRng;
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, IntoEnumIterator};
 use uuid::Uuid;
@@ -3165,7 +3165,7 @@ async fn run_with_writer(
     let mut rng = if let Some(rng_seed) = args.rng_seed {
         StdRng::seed_from_u64(rng_seed)
     } else {
-        StdRng::from_entropy()
+        StdRng::from_os_rng()
     };
 
     // Load maelstrom coverage tracks if given.
