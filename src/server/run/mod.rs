@@ -63,7 +63,6 @@ pub mod openapi {
             gene_txs::handle_with_openapi,
             seqvars_csq::handle_with_openapi,
             strucvars_csq::handle_with_openapi,
-            strucvars_csq::handle_with_openapi,
             seqvars_frequencies::handle_with_openapi,
             seqvars_clinvar::handle_with_openapi,
         ),
