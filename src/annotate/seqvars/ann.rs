@@ -5,8 +5,7 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{alphanumeric1, digit1},
-    combinator::{all_consuming, map}
-    ,
+    combinator::{all_consuming, map},
     IResult,
 };
 use parse_display::{Display, FromStr};
