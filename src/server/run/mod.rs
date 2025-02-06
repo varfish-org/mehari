@@ -47,7 +47,6 @@ pub mod openapi {
             versions::handle,
             gene_txs::handle_with_openapi,
             seqvars_csq::handle_with_openapi,
-            strucvars_csq::handle_with_openapi,
             strucvars_csq::handle_with_openapi
         ),
         components(schemas(
