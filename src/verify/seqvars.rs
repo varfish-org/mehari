@@ -7,11 +7,11 @@ use std::{
     time::Instant,
 };
 
+use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
 use crate::annotate::seqvars::{
     csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
     load_tx_db, path_component,
     provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
-    ConsequenceBy, TranscriptPickMode, TranscriptPickType,
 };
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
@@ -29,12 +29,12 @@ pub struct Args {
     /// Path to the input TSV file.
     #[arg(long)]
     pub path_input_tsv: String,
-    /// Path to the reference FASTA file.
 
+    /// Path to the reference FASTA file.
     #[arg(long)]
     pub path_reference_fasta: String,
-    /// Path to output TSV file.
 
+    /// Path to output TSV file.
     #[arg(long)]
     pub path_output_tsv: String,
 

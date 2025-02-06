@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::annotate::seqvars::{TranscriptPickMode, TranscriptPickType};
+use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType};
 use crate::db::create::Reason;
 use crate::db::TranscriptDatabase;
 use crate::{
@@ -96,6 +96,48 @@ impl TxIntervalTrees {
         trees.iter_mut().for_each(|t| t.index());
 
         (contig_to_idx, trees)
+    }
+
+    pub fn get_tx_for_region(
+        &self,
+        tx_seq_db: &TxSeqDatabase,
+        alt_ac: &str,
+        _alt_aln_method: &str,
+        start_i: i32,
+        end_i: i32,
+    ) -> Result<Vec<TxForRegionRecord>, Error> {
+        let contig_idx = *self
+            .contig_to_idx
+            .get(alt_ac)
+            .ok_or(Error::NoTranscriptFound(alt_ac.to_string()))?;
+        let query = start_i..end_i;
+        let tx_idxs = self.trees[contig_idx].find(query);
+
+        Ok(tx_idxs
+            .iter()
+            .map(|entry| {
+                let tx = &tx_seq_db.tx_db.as_ref().expect("no tx_db?").transcripts
+                    [*entry.data() as usize];
+                assert_eq!(
+                    tx.genome_alignments.len(),
+                    1,
+                    "Can only have one alignment in Mehari"
+                );
+                let alt_strand = tx.genome_alignments.first().unwrap().strand;
+                TxForRegionRecord {
+                    tx_ac: tx.id.clone(),
+                    alt_ac: alt_ac.to_string(),
+                    alt_strand: match Strand::try_from(alt_strand).expect("invalid strand") {
+                        Strand::Plus => 1,
+                        Strand::Minus => -1,
+                        _ => unreachable!("invalid strand {}", alt_strand),
+                    },
+                    alt_aln_method: ALT_ALN_METHOD.to_string(),
+                    start_i,
+                    end_i,
+                }
+            })
+            .collect())
     }
 }
 
@@ -412,7 +454,7 @@ impl Provider {
     /// # Returns
     ///
     /// The `Transcript` for the given accession, or None if the accession was not found.
-    pub fn get_tx(&self, tx_id: &str) -> Option<Transcript> {
+    pub fn get_tx(&self, tx_id: &str) -> Option<&Transcript> {
         self.tx_map.get(tx_id).and_then(|idx| {
             let tx = &self
                 .tx_seq_db
@@ -423,7 +465,7 @@ impl Provider {
             if let Some(true) = tx.filtered {
                 None
             } else {
-                Some(tx.clone())
+                Some(tx)
             }
         })
     }

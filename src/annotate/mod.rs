@@ -4,6 +4,7 @@ use noodles::vcf::header::FileFormat;
 use noodles::vcf::variant::record::samples::series::value::genotype::Phasing;
 use noodles::vcf::variant::record_buf::samples::sample::value::Genotype;
 
+pub(crate) mod cli;
 pub mod seqvars;
 pub mod strucvars;
 

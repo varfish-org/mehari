@@ -66,6 +66,7 @@ fn genes_tx_impl(
         transcripts: tx_acs[first..last]
             .iter()
             .filter_map(|tx_ac| provider.get_tx(tx_ac))
+            .cloned()
             .collect::<Vec<_>>(),
         next_page_token: if last < tx_acs.len() {
             Some(tx_acs[last].clone())

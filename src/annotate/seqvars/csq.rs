@@ -1,4 +1,9 @@
 //! Compute molecular consequence of variants.
+use super::{
+    ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
+    provider::Provider as MehariProvider,
+};
+use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
 use crate::pbs::txs::{GenomeAlignment, Strand, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
 use hgvs::parser::{NoRef, ProteinEdit, UncertainLengthChange};
@@ -14,12 +19,6 @@ use std::cmp::Ordering;
 use std::ops::Range;
 use std::{collections::HashMap, sync::Arc};
 
-use super::{
-    ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
-    provider::Provider as MehariProvider,
-    ConsequenceBy,
-};
-
 /// A variant description how VCF would do it.
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct VcfVariant {
@@ -31,28 +30,6 @@ pub struct VcfVariant {
     pub reference: String,
     /// Alternative bases.
     pub alternative: String,
-}
-
-/// Enum that allows to select the transcript source.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Default,
-    serde::Deserialize,
-    serde::Serialize,
-    clap::ValueEnum,
-)]
-pub enum TranscriptSource {
-    /// ENSEMBL
-    Ensembl,
-    /// RefSeq
-    RefSeq,
-    /// Both
-    #[default]
-    Both,
 }
 
 /// Configuration for consequence prediction.
@@ -84,7 +61,7 @@ impl Default for Config {
 pub struct ConsequencePredictor {
     /// The internal transcript provider for locating transcripts.
     #[derivative(Debug = "ignore")]
-    provider: Arc<MehariProvider>,
+    pub(crate) provider: Arc<MehariProvider>,
     /// Assembly mapper for variant consequence prediction.
     #[derivative(Debug = "ignore")]
     mapper: assembly::Mapper,
@@ -677,12 +654,12 @@ impl ConsequencePredictor {
             },
             consequences,
             putative_impact,
-            gene_symbol: tx.gene_symbol,
-            gene_id: tx.gene_id,
+            gene_symbol: tx.gene_symbol.clone(),
+            gene_id: tx.gene_id.clone(),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
-            feature_id: tx.id,
+            feature_id: tx.id.clone(),
             feature_biotype,
             rank,
             hgvs_t,
@@ -1089,10 +1066,24 @@ impl ConsequencePredictor {
                                 }
                             } else {
                                 consequences |= Consequence::MissenseVariant;
+                                // Missense variants that affect selenocysteine are marked
+                                // as rare amino acid variants.
+                                if alternative.contains("U")
+                                    || (loc.start == loc.end) && loc.start.aa == "U"
+                                {
+                                    consequences |= Consequence::RareAminoAcidVariant;
+                                }
                             }
                         }
                         ProteinEdit::DelIns { alternative } => {
-                            if conservative {
+                            // When the delins does not change the CDS length,
+                            // it is a missense variant, not an inframe deletion
+                            // cf https://github.com/Ensembl/ensembl-vep/issues/1388
+                            if alternative.len()
+                                == loc.start.number.abs_diff(loc.end.number) as usize + 1
+                            {
+                                consequences |= Consequence::MissenseVariant;
+                            } else if conservative {
                                 consequences |= Consequence::ConservativeInframeDeletion;
                             } else {
                                 consequences |= Consequence::DisruptiveInframeDeletion;
@@ -1117,7 +1108,11 @@ impl ConsequencePredictor {
                             }
                         }
                         ProteinEdit::Ident => {
-                            consequences |= Consequence::SynonymousVariant;
+                            if loc.start == loc.end && is_stop(&loc.start.aa) {
+                                consequences |= Consequence::StopRetainedVariant;
+                            } else {
+                                consequences |= Consequence::SynonymousVariant;
+                            }
                         }
                     };
                 }
@@ -1247,10 +1242,10 @@ impl ConsequencePredictor {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::annotate::cli::{TranscriptPickType, TranscriptSettings};
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
         load_tx_db, run_with_writer, Args, AsyncAnnotatedVariantWriter, PathOutput,
-        TranscriptPickType,
     };
     use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
     use csv::ReaderBuilder;
@@ -1729,10 +1724,11 @@ mod test {
                     path_output_vcf: Some(output.as_ref().to_str().unwrap().into()),
                     path_output_tsv: None,
                 },
-                transcript_source: Default::default(),
-                report_most_severe_consequence_by: Some(ConsequenceBy::Allele),
-                pick_transcript: vec![TranscriptPickType::ManeSelect],
-                pick_transcript_mode: Default::default(),
+                transcript_settings: TranscriptSettings {
+                    report_most_severe_consequence_by: Some(ConsequenceBy::Allele),
+                    pick_transcript: vec![TranscriptPickType::ManeSelect],
+                    ..Default::default()
+                },
                 max_var_count: None,
                 hgnc: None,
                 sources: crate::annotate::seqvars::Sources {
