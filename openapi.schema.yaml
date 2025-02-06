@@ -1,4 +1,4 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: mehari
   description: Variant effect prediction all in Rust
@@ -7,6 +7,7 @@ info:
     email: manuel.holtgrewe@bih-charite.de
   license:
     name: MIT
+    identifier: MIT
   version: 0.30.1
 paths:
   /api/v1/genes/transcripts:
@@ -33,16 +34,18 @@ paths:
         description: Page size.
         required: false
         schema:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
-          nullable: true
       - name: next_page_token
         in: query
         description: Next page token.
         required: false
         schema:
-          type: string
-          nullable: true
+          type:
+          - string
+          - 'null'
       responses:
         '200':
           description: Transcripts for the selected gene.
@@ -152,8 +155,9 @@ paths:
         description: Optionally, the HGNC ID of the gene to limit to.
         required: false
         schema:
-          type: string
-          nullable: true
+          type:
+          - string
+          - 'null'
       responses:
         '200':
           description: Seqvars consequence information.
@@ -250,9 +254,10 @@ paths:
         description: 1-based stop position, ignored for INS.
         required: false
         schema:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
-          nullable: true
       - name: sv_type
         in: query
         description: The variant type to use for annotation.
@@ -348,6 +353,7 @@ components:
       properties:
         genome_release:
           $ref: '#/components/schemas/GenomeRelease'
+          description: The assembly.
         chromosome:
           type: string
           description: SPDI sequence.
@@ -372,8 +378,10 @@ components:
       properties:
         version:
           $ref: '#/components/schemas/VersionsInfoResponse'
+          description: Version information.
         query:
           $ref: '#/components/schemas/ClinvarQuery'
+          description: The original query records.
         result:
           type: array
           items:
@@ -457,14 +465,17 @@ components:
       properties:
         genome_build:
           $ref: '#/components/schemas/Assembly'
+          description: Assembly for which the data version is specified.
         version_refseq:
-          type: string
+          type:
+          - string
+          - 'null'
           description: Version of the RefSeq database, if any.
-          nullable: true
         version_ensembl:
-          type: string
+          type:
+          - string
+          - 'null'
           description: Version of the Ensembl database, if any.
-          nullable: true
         version_cdot:
           type: string
           description: Version of cdot used.
@@ -490,15 +501,17 @@ components:
           format: int32
           description: Exon number.
         alt_cds_start_i:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
           description: CDS start coordinate.
-          nullable: true
         alt_cds_end_i:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
           description: CDS end coordinate.
-          nullable: true
         cigar:
           type: string
           description: CIGAR string of alignment, empty indicates full matches.
@@ -547,6 +560,7 @@ components:
       properties:
         genome_release:
           $ref: '#/components/schemas/GenomeRelease'
+          description: The assembly.
         chromosome:
           type: string
           description: SPDI sequence.
@@ -571,8 +585,10 @@ components:
       properties:
         version:
           $ref: '#/components/schemas/VersionsInfoResponse'
+          description: Version information.
         query:
           $ref: '#/components/schemas/FrequencyQuery'
+          description: The original query records.
         result:
           type: array
           items:
@@ -611,15 +627,18 @@ components:
           description: HGNC gene ID.
         genome_build:
           $ref: '#/components/schemas/Assembly'
+          description: Genome build.
         page_size:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
           description: Page size.
-          nullable: true
         next_page_token:
-          type: string
+          type:
+          - string
+          - 'null'
           description: Next page token.
-          nullable: true
     GenesTranscriptsListResponse:
       type: object
       description: Response of the `/api/v1/genes/transcripts` endpoint.
@@ -632,9 +651,10 @@ components:
             $ref: '#/components/schemas/Transcript'
           description: The transcripts for the gene.
         next_page_token:
-          type: string
+          type:
+          - string
+          - 'null'
           description: The token to continue from a previous query.
-          nullable: true
     GenomeAlignment:
       type: object
       description: Store information about a transcript aligning to a genome.
@@ -646,21 +666,25 @@ components:
       properties:
         genome_build:
           $ref: '#/components/schemas/Assembly'
+          description: The genome build identifier.
         contig:
           type: string
           description: Accession of the contig sequence.
         cds_start:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
           description: CDS end position, `-1` to indicate `None`.
-          nullable: true
         cds_end:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
           description: CDS end position, `-1` to indicate `None`.
-          nullable: true
         strand:
           $ref: '#/components/schemas/Strand'
+          description: The strand.
         exons:
           type: array
           items:
@@ -774,9 +798,10 @@ components:
           type: integer
           format: int32
         total:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
-          nullable: true
     PutativeImpact:
       type: string
       description: Putative impact level.
@@ -810,6 +835,7 @@ components:
       properties:
         genome_release:
           $ref: '#/components/schemas/GenomeRelease'
+          description: The assembly.
         chromosome:
           type: string
           description: SPDI sequence.
@@ -825,9 +851,10 @@ components:
           type: string
           description: SPDI insertion.
         hgnc_id:
-          type: string
+          type:
+          - string
+          - 'null'
           description: Optionally, the HGNC ID of the gene to limit to.
-          nullable: true
     SeqvarsCsqResponse:
       type: object
       description: Response of the `/api/v1/seqvars/csq` endpoint.
@@ -838,8 +865,10 @@ components:
       properties:
         version:
           $ref: '#/components/schemas/VersionsInfoResponse'
+          description: Version information.
         query:
           $ref: '#/components/schemas/SeqvarsCsqQuery'
+          description: The original query records.
         result:
           type: array
           items:
@@ -866,6 +895,7 @@ components:
           description: The consequences of the allele.
         putative_impact:
           $ref: '#/components/schemas/PutativeImpact'
+          description: The putative impact.
         gene_symbol:
           type: string
           description: The gene symbol.
@@ -874,55 +904,65 @@ components:
           description: The gene identifier.
         feature_type:
           $ref: '#/components/schemas/FeatureType'
+          description: The feature type.
         feature_id:
           type: string
           description: The feature identifier.
         feature_biotype:
           $ref: '#/components/schemas/FeatureBiotype'
+          description: The feature biotype.
         feature_tag:
           type: array
           items:
             $ref: '#/components/schemas/FeatureBiotype'
           description: The feature tags.
         rank:
-          allOf:
+          oneOf:
+          - type: 'null'
           - $ref: '#/components/schemas/Rank'
-          nullable: true
+            description: The exon / intron rank.
         hgvs_t:
-          type: string
+          type:
+          - string
+          - 'null'
           description: HGVS c. notation.
-          nullable: true
         hgvs_p:
-          type: string
+          type:
+          - string
+          - 'null'
           description: HGVS p. notation.
-          nullable: true
         tx_pos:
-          allOf:
+          oneOf:
+          - type: 'null'
           - $ref: '#/components/schemas/Pos'
-          nullable: true
+            description: cDNA position.
         cds_pos:
-          allOf:
+          oneOf:
+          - type: 'null'
           - $ref: '#/components/schemas/Pos'
-          nullable: true
+            description: CDS position.
         protein_pos:
-          allOf:
+          oneOf:
+          - type: 'null'
           - $ref: '#/components/schemas/Pos'
-          nullable: true
+            description: Protein position.
         distance:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
           description: Distance to feature.
-          nullable: true
         strand:
           type: integer
           format: int32
           description: Strand of the alignment
         messages:
-          type: array
+          type:
+          - array
+          - 'null'
           items:
             $ref: '#/components/schemas/Message'
           description: Optional list of warnings and error messages.
-          nullable: true
     SoFeature:
       type: string
       description: Sequence ontology feature.
@@ -959,6 +999,7 @@ components:
       properties:
         genome_release:
           $ref: '#/components/schemas/GenomeRelease'
+          description: The assembly.
         chromosome:
           type: string
           description: Chromosome.
@@ -967,12 +1008,14 @@ components:
           format: int32
           description: 1-based start position.
         stop:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
           description: 1-based stop position, ignored for INS.
-          nullable: true
         sv_type:
           $ref: '#/components/schemas/StrucvarsSvType'
+          description: The variant type to use for annotation.
     StrucvarsCsqResponse:
       type: object
       description: Response of the `/api/v1/strucvars/csq` endpoint.
@@ -983,8 +1026,10 @@ components:
       properties:
         version:
           $ref: '#/components/schemas/VersionsInfoResponse'
+          description: Version information.
         query:
           $ref: '#/components/schemas/StrucvarsCsqQuery'
+          description: The original query record.
         result:
           type: array
           items:
@@ -1047,39 +1092,45 @@ components:
           description: HGNC gene identifier, e.g., `"1100"` for BRCA1.
         biotype:
           $ref: '#/components/schemas/TranscriptBiotype'
+          description: Transcript biotype.
         tags:
           type: array
           items:
             $ref: '#/components/schemas/TranscriptTag'
           description: Transcript flags.
         protein:
-          type: string
+          type:
+          - string
+          - 'null'
           description: Identifier of the corresponding protein.
-          nullable: true
         start_codon:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
           description: CDS start codon.
-          nullable: true
         stop_codon:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
           description: CDS stop codon.
-          nullable: true
         genome_alignments:
           type: array
           items:
             $ref: '#/components/schemas/GenomeAlignment'
           description: Alignments on the different genome builds.
         filtered:
-          type: boolean
+          type:
+          - boolean
+          - 'null'
           description: Whether this transcript has an issue (e.g. MissingStopCodon), cf. `mehari::db::create::mod::Reason`.
-          nullable: true
         filter_reason:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int32
           description: Reason for filtering.
-          nullable: true
           minimum: 0
     TranscriptBiotype:
       type: string
@@ -1107,6 +1158,7 @@ components:
       properties:
         software:
           $ref: '#/components/schemas/SoftwareVersions'
+          description: Software versions specification.
         data:
           type: array
           items:
