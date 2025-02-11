@@ -404,7 +404,7 @@ impl Provider {
                 .records()
                 .map(|r| {
                     let record = r.expect("Failed to read FASTA record");
-                    (record.id().to_string(), record.seq().to_vec())
+                    (record.id().to_string(), record.seq().to_ascii_uppercase())
                 })
                 .collect()
         } else {
