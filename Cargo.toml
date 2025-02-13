@@ -45,7 +45,7 @@ enumflags2 = { version = "0.7.11", features = ["serde"] }
 env_logger = "0.11"
 flate2 = "1.0"
 futures = "0.3"
-hgvs = "0.17.5"
+hgvs = "0.18.0"
 indexmap = { version = "2.7", features = ["serde"] }
 itertools = "0.14"
 jsonl = "4.0"
