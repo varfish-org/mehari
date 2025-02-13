@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.31.0](https://github.com/varfish-org/mehari/compare/v0.30.1...v0.31.0) (2025-02-06)
+
+
+### Features
+
+* Add rare amino acid SO term ([#658](https://github.com/varfish-org/mehari/issues/658)) ([aee7693](https://github.com/varfish-org/mehari/commit/aee76930c633ab1be6fb023da042ca3fa1255ae4))
+* refactor db subset CLI, add subset by VCF and subset by TxId options ([#641](https://github.com/varfish-org/mehari/issues/641)) ([9286286](https://github.com/varfish-org/mehari/commit/92862866b41307b56c2823b93b3156a876f0bf74))
+
+
+### Bug Fixes
+
+* Consolidate CLI ([#650](https://github.com/varfish-org/mehari/issues/650)) ([08c8fb6](https://github.com/varfish-org/mehari/commit/08c8fb61de2453ba411266554dab052f7f15e9a7))
+* ensure FORMAT sample order is in-sync with header sample order ([#671](https://github.com/varfish-org/mehari/issues/671)) ([1d3c230](https://github.com/varfish-org/mehari/commit/1d3c230a48e68694a9bb840f72f924b9dfed0503))
+* include mehari cmd and version info in VCF header ([#673](https://github.com/varfish-org/mehari/issues/673)) ([8b9fa2e](https://github.com/varfish-org/mehari/commit/8b9fa2e91485cd0b0cede083ae679d37d65f62bd))
+* inframe vs missense ([#659](https://github.com/varfish-org/mehari/issues/659)) ([36bd717](https://github.com/varfish-org/mehari/commit/36bd7177fc23c55b6c912e14d44dc1355520ac5f))
+
 ## [0.30.1](https://github.com/varfish-org/mehari/compare/v0.30.0...v0.30.1) (2024-11-21)
 
 

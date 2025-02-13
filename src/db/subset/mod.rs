@@ -225,7 +225,7 @@ fn _extract_transcripts_by_region(
 
 fn _extract_transcripts_by_txid(
     container_tx_db: &TranscriptDb,
-    transcript_ids: &Vec<String>,
+    transcript_ids: &[String],
 ) -> (IndexSet<usize>, IndexSet<String>, IndexSet<String>) {
     let transcript_ids = IndexSet::<String>::from_iter(transcript_ids.iter().cloned());
     let (tx_idxs, gene_ids) = __extract_transcripts_from_db(container_tx_db, &transcript_ids);
@@ -238,7 +238,7 @@ fn _extract_transcripts_by_txid(
 
 fn _extract_transcripts_by_hgnc_id(
     container_tx_db: &TranscriptDb,
-    gene_symbols: &Vec<String>,
+    gene_symbols: &[String],
 ) -> Result<(IndexSet<usize>, IndexSet<String>, IndexSet<String>)> {
     let hgnc_ids = IndexSet::<String>::from_iter(gene_symbols.iter().cloned());
     let mut tx_idxs = Vec::new();
