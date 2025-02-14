@@ -120,6 +120,10 @@ pub struct Args {
     #[arg(long)]
     pub reference: Option<PathBuf>,
 
+    /// Read the reference genome into memory.
+    #[arg(long, requires = "reference")]
+    pub in_memory_reference: bool,
+
     /// What to annotate and which source to use.
     #[command(flatten)]
     pub sources: Sources,
@@ -258,6 +262,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                 let annotator = ConsequenceAnnotator::from_db_and_settings(
                     tx_db,
                     args.reference.as_ref(),
+                    args.in_memory_reference,
                     &args.transcript_settings,
                 )?;
                 let config = ConfigBuilder::default()

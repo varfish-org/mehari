@@ -59,6 +59,7 @@ pub mod ann;
 pub mod binning;
 pub mod csq;
 pub mod provider;
+pub(crate) mod reference;
 
 /// Parsing of HGNC xlink records.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,6 +85,10 @@ pub struct Args {
     /// Reference genome FASTA file (with accompanying index).
     #[arg(long)]
     pub reference: Option<PathBuf>,
+
+    /// Read the reference genome into memory.
+    #[arg(long, requires = "reference")]
+    pub in_memory_reference: bool,
 
     /// Path to the input PED file.
     #[arg(long)]
@@ -1829,6 +1834,7 @@ impl ConsequenceAnnotator {
     pub(crate) fn from_db_and_settings(
         tx_db: TxSeqDatabase,
         reference: Option<impl AsRef<Path>>,
+        in_memory_reference: bool,
         transcript_settings: &TranscriptSettings,
     ) -> anyhow::Result<Self> {
         let args = transcript_settings;
@@ -1836,6 +1842,7 @@ impl ConsequenceAnnotator {
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             reference,
+            in_memory_reference,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(args.pick_transcript.clone())
                 .pick_transcript_mode(args.pick_transcript_mode)
@@ -1989,6 +1996,7 @@ async fn run_with_writer(
     let annotator = setup_seqvars_annotator(
         &args.sources,
         args.reference.as_ref(),
+        args.in_memory_reference,
         &args.transcript_settings,
         Some(assembly),
     )?;
@@ -2069,6 +2077,7 @@ pub(crate) fn proto_assembly_from(assembly: &Assembly) -> Option<crate::pbs::txs
 pub(crate) fn setup_seqvars_annotator(
     sources: &Sources,
     reference: Option<impl AsRef<Path>>,
+    in_memory_reference: bool,
     transcript_settings: &TranscriptSettings,
     assembly: Option<Assembly>,
 ) -> Result<Annotator, Error> {
@@ -2105,8 +2114,13 @@ pub(crate) fn setup_seqvars_annotator(
                 &tx_sources.join(", ")
             );
             annotators.push(
-                ConsequenceAnnotator::from_db_and_settings(tx_db, reference, transcript_settings)
-                    .map(AnnotatorEnum::Consequence)?,
+                ConsequenceAnnotator::from_db_and_settings(
+                    tx_db,
+                    reference,
+                    in_memory_reference,
+                    transcript_settings,
+                )
+                .map(AnnotatorEnum::Consequence)?,
             );
         }
     }

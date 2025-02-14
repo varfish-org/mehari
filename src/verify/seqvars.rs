@@ -33,6 +33,10 @@ pub struct Args {
     #[arg(long)]
     pub path_reference_fasta: String,
 
+    /// Read the reference genome into memory.
+    #[arg(long, requires = "reference")]
+    pub in_memory_reference: bool,
+
     /// Path to output TSV file.
     #[arg(long)]
     pub path_output_tsv: String,
@@ -148,6 +152,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
     let provider = Arc::new(MehariProvider::new(
         tx_db,
         Some(&args.path_reference_fasta),
+        args.in_memory_reference,
         MehariProviderConfigBuilder::default()
             .pick_transcript(args.pick_transcript.clone())
             .pick_transcript_mode(args.pick_transcript_mode)
