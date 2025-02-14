@@ -8,6 +8,7 @@ use crate::{
     pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
 use annonars::common::cli::CANONICAL;
+use anyhow::anyhow;
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
 use hgvs::{
@@ -22,8 +23,17 @@ use hgvs::{
     sequences::{seq_md5, TranslationTable},
 };
 use itertools::Itertools;
+use nom::AsChar;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
+use std::fs::File;
+use std::io::SeekFrom;
+
+#[cfg(target_os = "windows")]
+use std::io::{Read, Seek};
+#[cfg(not(target_os = "windows"))]
+use std::os::unix::fs::FileExt;
+use std::path::{Path, PathBuf};
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &[
@@ -176,7 +186,8 @@ pub struct Provider {
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
 
-    reference_sequences: HashMap<String, Vec<u8>>,
+    // reference_sequences: HashMap<String, Vec<u8>>,
+    reference_reader: Option<ReferenceReader>,
 
     /// The data version.
     data_version: String,
@@ -396,20 +407,22 @@ impl Provider {
         );
         let schema_version = data_version.clone();
 
-        let reference_sequences = if let Some(reference_path) = reference {
-            let reference_path = reference_path.as_ref().to_path_buf();
-            let reference_reader = bio::io::fasta::Reader::from_file(&reference_path)
-                .expect("Failed to create FASTA reader");
-            reference_reader
-                .records()
-                .map(|r| {
-                    let record = r.expect("Failed to read FASTA record");
-                    (record.id().to_string(), record.seq().to_ascii_uppercase())
-                })
-                .collect()
-        } else {
-            HashMap::new()
-        };
+        // let reference_sequences = if let Some(reference_path) = reference {
+        //     let reference_path = reference_path.as_ref().to_path_buf();
+        //     let reference_reader = bio::io::fasta::Reader::from_file(&reference_path)
+        //         .expect("Failed to create FASTA reader");
+        //     reference_reader
+        //         .records()
+        //         .map(|r| {
+        //             let record = r.expect("Failed to read FASTA record");
+        //             (record.id().to_string(), record.seq().to_ascii_uppercase())
+        //         })
+        //         .collect()
+        // } else {
+        //     HashMap::new()
+        // };
+
+        let reference_reader = reference.map(ReferenceReader::new).transpose().unwrap();
 
         Self {
             tx_seq_db,
@@ -418,7 +431,7 @@ impl Provider {
             tx_map,
             seq_map,
             picked_gene_to_tx_id,
-            reference_sequences,
+            reference_reader,
             data_version,
             schema_version,
         }
@@ -496,7 +509,7 @@ impl Provider {
     }
 
     pub fn reference_available(&self) -> bool {
-        !self.reference_sequences.is_empty()
+        self.reference_reader.is_some()
     }
 
     pub fn build_chrom_to_acc(&self, assembly: Option<Assembly>) -> HashMap<String, String> {
@@ -513,6 +526,118 @@ impl Provider {
             chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
         }
         chrom_to_acc
+    }
+}
+
+pub(crate) struct ReferenceReader {
+    #[allow(dead_code)]
+    path: PathBuf,
+    file: File,
+    index: HashMap<String, IndexRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct IndexRecord {
+    name: String,
+    length: u64,
+    offset: u64,
+    line_bases: u64,
+    line_bytes: u64,
+}
+
+impl ReferenceReader {
+    fn new(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        let index_path = format!("{}.fai", path.to_str().ok_or(anyhow!("Invalid path"))?);
+        let index = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .delimiter(b'\t')
+            .from_path(index_path)?
+            .deserialize()
+            .map(|record| {
+                let record: IndexRecord = record.expect("Failed to read index record");
+                (record.name.clone(), record)
+            })
+            .collect();
+        let file = File::open(&path)?;
+
+        Ok(Self { path, file, index })
+    }
+
+    pub(crate) fn get(
+        &self,
+        ac: &str,
+        start: Option<u64>,
+        end: Option<u64>,
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        if let Some(index_record) = self.index.get(ac) {
+            fn seek_position(idx: &IndexRecord, start: u64) -> SeekFrom {
+                assert!(start <= idx.length);
+
+                let line_offset = start % idx.line_bases;
+                let line_start = start / idx.line_bases * idx.line_bytes;
+                let offset = SeekFrom::Start(idx.offset + line_start + line_offset);
+
+                offset
+            }
+
+            let (start, end) = match (start, end) {
+                (Some(start), Some(end)) => (start, end),
+                (Some(start), None) => (start, index_record.length),
+                (None, Some(end)) => (0, end),
+                (None, None) => (0, index_record.length),
+            };
+            let length_bases = end - start;
+            let start_line = start / index_record.line_bases;
+            let end_line = end / index_record.line_bases;
+            let num_lines = (end_line - start_line) + 1;
+            let newline_bytes = index_record.line_bytes - index_record.line_bases;
+            let num_newline_bytes = (num_lines - 1) * newline_bytes;
+
+            let mut seq_with_newlines = vec![0; (length_bases + num_newline_bytes) as usize];
+            let seek_from = seek_position(index_record, start);
+
+            #[cfg(target_os = "windows")]
+            {
+                let mut reader = File::open("foo")?;
+                reader.seek(seek_from)?;
+                reader.read_exact(seq_with_newlines)?;
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let reader = &self.file;
+                let position = match seek_from {
+                    SeekFrom::Start(pos) => pos,
+                    SeekFrom::Current(_) => unreachable!(),
+                    SeekFrom::End(_) => unreachable!(),
+                };
+                reader.read_exact_at(&mut seq_with_newlines, position)?;
+            }
+
+            fn remove_newlines_and_uppercase(data: &mut Vec<u8>) {
+                let mut new_idx = 0;
+                let len = data.len();
+                for old_idx in 0..len {
+                    let c = data[old_idx] as char;
+
+                    if !c.is_newline() {
+                        data[new_idx] = c.to_ascii_uppercase() as u8;
+                        new_idx += 1;
+                    }
+                }
+
+                data.truncate(new_idx);
+            }
+
+            remove_newlines_and_uppercase(&mut seq_with_newlines);
+            let seq = seq_with_newlines;
+            assert_eq!(seq.len(), length_bases as usize);
+
+            Ok(Some(seq))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -566,13 +691,19 @@ impl ProviderInterface for Provider {
     ) -> Result<String, Error> {
         // In case the accession starts with "NC" or "NT" or "NW",
         // we need to look up the sequence in the reference FASTA mapping.
-        let seq = if ac.starts_with("NC") || ac.starts_with("NT") || ac.starts_with("NW") {
+        let seq = if ac.starts_with("NC")
+            || ac.starts_with("NT")
+            || ac.starts_with("NW") && self.reference_available()
+        {
             // Requires refseq_ac, i.e. refseq reference FASTA file
             let seq = self
-                .reference_sequences
-                .get(ac)
+                .reference_reader
+                .as_ref()
+                .unwrap()
+                .get(ac, begin.map(|x| x as u64), end.map(|x| x as u64))
+                .map_err(|_| Error::NoSequenceRecord(ac.to_string()))?
                 .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?;
-            seq.as_slice()
+            return String::from_utf8(seq).map_err(|_| Error::NoSequenceRecord(ac.to_string()));
         } else {
             // Otherwise, look up the sequence in the transcript database.
             let seq_idx = *self
