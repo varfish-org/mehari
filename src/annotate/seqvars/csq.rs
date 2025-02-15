@@ -1285,6 +1285,7 @@ mod test {
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             None::<PathBuf>,
+            true,
             Default::default(),
         ));
 
@@ -1366,6 +1367,7 @@ mod test {
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             None::<PathBuf>,
+            true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1470,6 +1472,7 @@ mod test {
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             None::<PathBuf>,
+            true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1529,6 +1532,7 @@ mod test {
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             None::<PathBuf>,
+            true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1596,6 +1600,7 @@ mod test {
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             None::<PathBuf>,
+            true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
                 .build()
@@ -1667,6 +1672,7 @@ mod test {
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             None::<PathBuf>,
+            true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
                 .build()
@@ -1718,6 +1724,7 @@ mod test {
             &mut writer,
             &Args {
                 reference: None,
+                in_memory_reference: true,
                 genome_release: None,
                 path_input_ped: None,
                 path_input_vcf: path_input_vcf.into(),
@@ -1858,6 +1865,7 @@ mod test {
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             None::<PathBuf>,
+            true,
             Default::default(),
         ));
 

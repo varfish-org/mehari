@@ -2246,6 +2246,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             reference: None,
+            in_memory_reference: true,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2294,6 +2295,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             reference: None,
+            in_memory_reference: true,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2348,6 +2350,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             reference: None,
+            in_memory_reference: true,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2396,6 +2399,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             reference: None,
+            in_memory_reference: true,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2446,6 +2450,7 @@ mod test {
         let assembly = "grch37";
         let args = Args {
             reference: None,
+            in_memory_reference: true,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2496,6 +2501,7 @@ mod test {
         let assembly = "grch38";
         let args = Args {
             reference: None,
+            in_memory_reference: true,
             genome_release: None,
             transcript_settings: TranscriptSettings {
                 report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
