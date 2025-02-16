@@ -1,11 +1,8 @@
 use anyhow::anyhow;
+use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-#[cfg(target_os = "windows")]
-use std::io::{Read, Seek, SeekFrom};
-#[cfg(not(target_os = "windows"))]
-use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
 pub trait ReferenceReader {
@@ -61,7 +58,7 @@ impl ReferenceReader for InMemoryFastaAccess {
 pub struct UnbufferedIndexedFastaAccess {
     #[allow(dead_code)]
     path: PathBuf,
-    file: File,
+    mmap: Mmap,
     index: HashMap<String, IndexRecord>,
 }
 
@@ -90,8 +87,12 @@ impl UnbufferedIndexedFastaAccess {
             })
             .collect();
         let file = File::open(&path)?;
+        // SAFETY: The file is opened in read-only mode;
+        // however, if the underlying file is modified, this can still lead to undefined behavior.
+        let mmap = unsafe { Mmap::map(&file)? };
+        mmap.advise(memmap2::Advice::Sequential)?;
 
-        Ok(Self { path, file, index })
+        Ok(Self { path, mmap, index })
     }
 }
 
@@ -119,42 +120,22 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
             let newline_bytes = index_record.line_bytes - index_record.line_bases;
             let num_newline_bytes = (num_lines - 1) * newline_bytes;
 
-            let mut seq_with_newlines = vec![0; (num_bases + num_newline_bytes) as usize];
-
             let line_offset = start % index_record.line_bases;
             let line_start = start / index_record.line_bases * index_record.line_bytes;
             let offset = index_record.offset + line_start + line_offset;
 
-            #[cfg(target_os = "windows")]
-            {
-                let mut reader = File::open(&self.path)?;
-                reader.seek(SeekFrom::Start(offset))?;
-                reader.read_exact(&mut seq_with_newlines)?;
-            }
-
-            #[cfg(not(target_os = "windows"))]
-            {
-                let reader = &self.file;
-                reader.read_exact_at(&mut seq_with_newlines, offset)?;
-            }
-
-            fn remove_newlines_and_uppercase(data: &mut Vec<u8>) {
-                let mut new_idx = 0;
-                let len = data.len();
-                for old_idx in 0..len {
-                    let c = data[old_idx] as char;
-
-                    if !(c == '\n' || c == '\r') {
-                        data[new_idx] = c.to_ascii_uppercase() as u8;
-                        new_idx += 1;
-                    }
+            let start = offset as usize;
+            let end = (offset + num_bases + num_newline_bytes) as usize;
+            let mut seq = Vec::with_capacity(num_bases as usize);
+            for c in self.mmap[start..end].iter().filter_map(|&c| {
+                if c != b'\n' && c != b'\r' {
+                    Some(c.to_ascii_uppercase())
+                } else {
+                    None
                 }
-
-                data.truncate(new_idx);
+            }) {
+                seq.push(c);
             }
-
-            remove_newlines_and_uppercase(&mut seq_with_newlines);
-            let seq = seq_with_newlines;
             assert_eq!(seq.len(), num_bases as usize);
 
             Ok(Some(seq))

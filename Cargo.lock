@@ -2570,6 +2570,7 @@ dependencies = [
  "itertools 0.14.0",
  "jsonl",
  "log",
+ "memmap2",
  "nom 8.0.0",
  "noodles 0.77.0",
  "nutype",
