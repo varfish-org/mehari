@@ -83,24 +83,16 @@ pub type Consequences = BitFlags<Consequence>;
 impl ConsequencePredictor {
     pub fn new(provider: Arc<MehariProvider>, config: Config) -> Self {
         tracing::info!("Building transcript interval trees ...");
-        let acc_to_chrom: indexmap::IndexMap<String, String> =
-            provider.get_assembly_map(provider.assembly());
-        let mut chrom_to_acc = HashMap::new();
-        for (acc, chrom) in &acc_to_chrom {
-            let chrom = if chrom.starts_with("chr") {
-                chrom.strip_prefix("chr").unwrap()
-            } else {
-                chrom
-            };
-            chrom_to_acc.insert(chrom.to_string(), acc.clone());
-            chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
-        }
+        let chrom_to_acc = provider.build_chrom_to_acc(None);
+
+        let reference_available = provider.reference_available();
 
         let mapper_config = assembly::Config {
-            replace_reference: false,
+            assembly: provider.assembly(),
+            replace_reference: reference_available,
             strict_bounds: false,
-            renormalize_g: false,
-            genome_seq_available: false,
+            renormalize_g: reference_available,
+            genome_seq_available: reference_available,
             ..Default::default()
         };
         let mapper = assembly::Mapper::new(mapper_config, provider.clone());
@@ -1252,7 +1244,7 @@ mod test {
     use futures::TryStreamExt;
     use pretty_assertions::assert_eq;
     use serde::Deserialize;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::{fs::File, io::BufReader};
     use tempfile::NamedTempFile;
 
@@ -1291,7 +1283,12 @@ mod test {
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(tx_db, Default::default()));
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
 
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
@@ -1370,6 +1367,8 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            None::<PathBuf>,
+            true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1473,6 +1472,8 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            None::<PathBuf>,
+            true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1531,6 +1532,8 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            None::<PathBuf>,
+            true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
                     TranscriptPickType::ManePlusClinical,
@@ -1597,6 +1600,8 @@ mod test {
         };
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            None::<PathBuf>,
+            true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
                 .build()
@@ -1667,6 +1672,8 @@ mod test {
 
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            None::<PathBuf>,
+            true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
                 .build()
@@ -1717,6 +1724,8 @@ mod test {
         run_with_writer(
             &mut writer,
             &Args {
+                reference: None,
+                in_memory_reference: true,
                 genome_release: None,
                 path_input_ped: None,
                 path_input_vcf: path_input_vcf.into(),
@@ -1854,7 +1863,12 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(tx_db, Default::default()));
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
 
         let report_most_severe_consequence_by = if report_most_severe_consequence_only {
             Some(ConsequenceBy::Gene)
