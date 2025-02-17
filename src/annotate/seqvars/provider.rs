@@ -24,6 +24,7 @@ use hgvs::{
     },
     sequences::{seq_md5, TranslationTable},
 };
+use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::Path;
@@ -182,6 +183,11 @@ pub struct Provider {
     /// for reading parts of reference sequences
     reference_reader: Option<ReferenceReaderImpl>,
 
+    /// Mapping from chromosome to accession.
+    chrom_to_acc: IndexMap<String, String>,
+    /// Mapping from accession to chromosome.
+    acc_to_chrom: IndexMap<String, String>,
+
     /// The data version.
     data_version: String,
     /// The schema version.
@@ -305,6 +311,9 @@ impl Provider {
             (None, _) => None,
         };
 
+        let acc_to_chrom = _get_assembly_map(tx_seq_db.assembly());
+        let chrom_to_acc = _chrom_to_acc(&acc_to_chrom);
+
         Self {
             tx_seq_db,
             tx_trees,
@@ -313,6 +322,8 @@ impl Provider {
             seq_map,
             picked_gene_to_tx_id,
             reference_reader,
+            chrom_to_acc,
+            acc_to_chrom,
             data_version,
             schema_version,
         }
@@ -510,19 +521,9 @@ impl Provider {
     }
 
     pub fn build_chrom_to_acc(&self, assembly: Option<Assembly>) -> HashMap<String, String> {
-        let acc_to_chrom: indexmap::IndexMap<String, String> =
+        let acc_to_chrom: IndexMap<String, String> =
             self.get_assembly_map(assembly.unwrap_or_else(|| self.assembly()));
-        let mut chrom_to_acc = HashMap::new();
-        for (acc, chrom) in &acc_to_chrom {
-            let chrom = if chrom.starts_with("chr") {
-                chrom.strip_prefix("chr").unwrap()
-            } else {
-                chrom
-            };
-            chrom_to_acc.insert(chrom.to_string(), acc.clone());
-            chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
-        }
-        chrom_to_acc
+        _chrom_to_acc(&acc_to_chrom).into_iter().collect()
     }
 }
 
@@ -537,16 +538,8 @@ impl ProviderInterface for Provider {
         &self.schema_version
     }
 
-    fn get_assembly_map(
-        &self,
-        assembly: biocommons_bioutils::assemblies::Assembly,
-    ) -> indexmap::IndexMap<String, String> {
-        indexmap::IndexMap::from_iter(
-            ASSEMBLY_INFOS[assembly]
-                .sequences
-                .iter()
-                .map(|record| (record.refseq_ac.clone(), record.name.clone())),
-        )
+    fn get_assembly_map(&self, assembly: Assembly) -> indexmap::IndexMap<String, String> {
+        _get_assembly_map(assembly)
     }
 
     fn get_gene_info(&self, _hgnc: &str) -> Result<hgvs::data::interface::GeneInfoRecord, Error> {
@@ -580,7 +573,7 @@ impl ProviderInterface for Provider {
             || ac.starts_with("NT")
             || ac.starts_with("NW") && self.reference_available()
         {
-            // Requires refseq_ac, i.e. refseq reference FASTA file
+            let ac = self.acc_to_chrom.get(ac).map_or(ac, |v| v);
             let seq = self
                 .reference_reader
                 .as_ref()
@@ -887,6 +880,29 @@ impl ProviderInterface for Provider {
             alt_aln_method: NCBI_ALN_METHOD.to_string(),
         }])
     }
+}
+
+fn _get_assembly_map(assembly: Assembly) -> IndexMap<String, String> {
+    IndexMap::from_iter(
+        ASSEMBLY_INFOS[assembly]
+            .sequences
+            .iter()
+            .map(|record| (record.refseq_ac.clone(), record.name.clone())),
+    )
+}
+
+fn _chrom_to_acc(acc_to_chrom: &IndexMap<String, String>) -> IndexMap<String, String> {
+    let mut chrom_to_acc = IndexMap::with_capacity(acc_to_chrom.len());
+    for (acc, chrom) in acc_to_chrom {
+        let chrom = if chrom.starts_with("chr") {
+            chrom.strip_prefix("chr").unwrap()
+        } else {
+            chrom
+        };
+        chrom_to_acc.insert(chrom.to_string(), acc.clone());
+        chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
+    }
+    chrom_to_acc
 }
 
 #[cfg(test)]
