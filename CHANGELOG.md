@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.0](https://github.com/varfish-org/mehari/compare/v0.31.0...v0.32.0) (2025-02-17)
+
+
+### Features
+
+* allow specifying reference FASTA ([#684](https://github.com/varfish-org/mehari/issues/684)) ([a9dc3da](https://github.com/varfish-org/mehari/commit/a9dc3da2b22f0a1e899d291fc6b14c8c44f640f7))
+
 ## [0.31.0](https://github.com/varfish-org/mehari/compare/v0.30.1...v0.31.0) (2025-02-06)
 
 
