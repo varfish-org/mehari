@@ -85,6 +85,15 @@ pub enum Consequence {
     /// SO:frameshift_variant, VEP:frameshift_variant
     FrameshiftVariant,
 
+
+    /// "A frameshift variant that causes the translational reading frame to be extended relative to the reference feature."
+    /// SO:frameshift_elongation
+    FrameshiftElongation,
+
+    /// "A frameshift variant that causes the translational reading frame to be shortened relative to the reference feature."
+    /// SO:frameshift_truncation
+    FrameshiftTruncation,
+
     /// "A sequence variant where at least one base of the terminator codon (stop) is changed, resulting in an elongated transcript."
     /// SO:stop_lost, VEP:stop_lost
     StopLost,
@@ -284,6 +293,8 @@ impl From<Consequence> for PutativeImpact {
             | SpliceDonorVariant
             | StopGained
             | FrameshiftVariant
+            | FrameshiftElongation
+            | FrameshiftTruncation
             | StopLost
             | StartLost
             | TranscriptAmplification

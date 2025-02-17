@@ -6,6 +6,7 @@ use super::{
 use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
 use crate::pbs::txs::{GenomeAlignment, Strand, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
+use hgvs::mapper::altseq::AltSeqBuilder;
 use hgvs::parser::{NoRef, ProteinEdit, UncertainLengthChange};
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
@@ -16,7 +17,6 @@ use hgvs::{
 };
 use itertools::Itertools;
 use std::cmp::Ordering;
-use std::ops::Range;
 use std::{collections::HashMap, sync::Arc};
 
 /// A variant description how VCF would do it.
@@ -580,8 +580,13 @@ impl ConsequencePredictor {
                         Self::analyze_cds_variant(&var_c, is_exonic, is_intronic, conservative);
 
                     // Analyze `var_p` for changes in the protein sequence.
-                    let consequences_protein =
-                        Self::analyze_protein_variant(&var_p, &protein_pos, conservative);
+                    let consequences_protein = self.analyze_protein_variant(
+                        &var_c,
+                        &var_p,
+                        &protein_pos,
+                        conservative,
+                        &tx_record.tx_ac,
+                    );
 
                     consequences |= consequences_cds | consequences_protein;
 
@@ -688,49 +693,7 @@ impl ConsequencePredictor {
         if consequences_cds.contains(Consequence::StopLost)
             && !consequences_protein.contains(Consequence::StopLost)
         {
-            if let HgvsVariant::ProtVariant {
-                loc_edit: ProtLocEdit::Ordinary { loc, edit },
-                ..
-            } = var_p
-            {
-                match edit.inner() {
-                    // Stop lost due to a deletion in the CDS, but the resulting protein translation
-                    // continues to have a stop codon at the same position.
-                    ProteinEdit::DelIns { alternative } => {
-                        let loc_length = Range::<i32>::from(loc.inner().clone()).len();
-                        match alternative.len().cmp(&loc_length) {
-                            Ordering::Equal => {
-                                *consequences &= !Consequence::StopLost;
-                                *consequences |= Consequence::StopRetainedVariant;
-                            }
-                            Ordering::Greater => {
-                                *consequences |= Consequence::FeatureElongation;
-                            }
-                            _ => {}
-                        }
-                    }
-                    // Detect cases where the frameshift resolves into
-                    // a missense + stop retained variant.
-                    // This is the shortest possible frameshift in hgvsp (fs*2).
-                    ProteinEdit::Fs {
-                        alternative,
-                        terminal,
-                        length,
-                    } => {
-                        if let (Some(alt), Some(terminal), UncertainLengthChange::Known(2)) =
-                            (alternative, terminal, length)
-                        {
-                            if is_stop(terminal) && alt.len() == 1 {
-                                *consequences |= Consequence::MissenseVariant;
-                                *consequences |= Consequence::StopRetainedVariant;
-                                *consequences &= !Consequence::StopLost;
-                                *consequences &= !Consequence::FrameshiftVariant;
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
+            *consequences &= !Consequence::StopLost;
         }
 
         // Similarly, for the start lost case
@@ -1009,9 +972,12 @@ impl ConsequencePredictor {
     }
 
     fn analyze_protein_variant(
+        &self,
+        var_c: &HgvsVariant,
         var_p: &HgvsVariant,
         protein_pos: &Option<Pos>,
         conservative: bool,
+        tx_accession: &str,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -1031,6 +997,52 @@ impl ConsequencePredictor {
                     match edit.inner() {
                         ProteinEdit::Fs { .. } => {
                             consequences |= Consequence::FrameshiftVariant;
+
+                            // in the case of frameshifts, we will get the altered protein sequence
+                            // in order to compare it with the unaltered one
+
+                            if let Ok(reference_data) =
+                                hgvs::mapper::altseq::ref_transcript_data_cached(
+                                    self.provider.clone(),
+                                    tx_accession,
+                                    None,
+                                )
+                            {
+                                let original_sequence = reference_data.aa_sequence.clone();
+                                let alt_data = AltSeqBuilder::new(var_c.clone(), reference_data)
+                                    .build_altseq()
+                                    .unwrap();
+                                let alt_data = alt_data.first().unwrap();
+                                let altered_sequence = Some(alt_data.aa_sequence.clone());
+                                if let Some(ref altered_sequence) = altered_sequence {
+                                    let original_sequence = &original_sequence;
+
+                                    // trim altered sequence to the first stop encountered
+                                    let altered_sequence = if let Some(pos) = altered_sequence
+                                        .find('*')
+                                        .or_else(|| altered_sequence.find('X'))
+                                    {
+                                        &altered_sequence[..=pos]
+                                    } else {
+                                        altered_sequence
+                                    };
+
+                                    match altered_sequence.len().cmp(&original_sequence.len()) {
+                                        Ordering::Less => {
+                                            consequences |= Consequence::FrameshiftTruncation;
+                                        }
+                                        Ordering::Equal => {
+                                            consequences |= Consequence::MissenseVariant;
+                                            // TODO: discuss stop_retained
+                                            // consequences |= Consequence::StopRetainedVariant;
+                                            consequences &= !Consequence::FrameshiftVariant;
+                                        }
+                                        Ordering::Greater => {
+                                            consequences |= Consequence::FrameshiftElongation;
+                                        }
+                                    }
+                                }
+                            }
                         }
                         ProteinEdit::Ext { .. } => {
                             consequences |= Consequence::StopLost;
@@ -1068,17 +1080,28 @@ impl ConsequencePredictor {
                             }
                         }
                         ProteinEdit::DelIns { alternative } => {
-                            // When the delins does not change the CDS length,
-                            // it is a missense variant, not an inframe deletion
-                            // cf https://github.com/Ensembl/ensembl-vep/issues/1388
-                            if alternative.len()
-                                == loc.start.number.abs_diff(loc.end.number) as usize + 1
+                            match alternative
+                                .len()
+                                .cmp(&(loc.start.number.abs_diff(loc.end.number) as usize + 1))
                             {
-                                consequences |= Consequence::MissenseVariant;
-                            } else if conservative {
-                                consequences |= Consequence::ConservativeInframeDeletion;
-                            } else {
-                                consequences |= Consequence::DisruptiveInframeDeletion;
+                                Ordering::Less if conservative => {
+                                    consequences |= Consequence::ConservativeInframeDeletion;
+                                }
+                                Ordering::Less => {
+                                    consequences |= Consequence::DisruptiveInframeDeletion;
+                                }
+                                Ordering::Equal => {
+                                    // When the delins does not change the CDS length,
+                                    // it is a missense variant, not an inframe deletion
+                                    // cf https://github.com/Ensembl/ensembl-vep/issues/1388
+                                    consequences |= Consequence::MissenseVariant;
+                                }
+                                Ordering::Greater if conservative => {
+                                    consequences |= Consequence::ConservativeInframeInsertion;
+                                }
+                                Ordering::Greater => {
+                                    consequences |= Consequence::DisruptiveInframeInsertion;
+                                }
                             }
 
                             if has_stop(alternative) {
