@@ -331,6 +331,19 @@ impl Provider {
         let tx_db = tx_seq_db.tx_db.as_mut().unwrap();
         let mut new_gene_to_tx = Vec::new();
 
+        fn tag_to_picktype(tag: &i32) -> Option<TranscriptPickType> {
+            match TranscriptTag::try_from(*tag).unwrap() {
+                TranscriptTag::Unknown | TranscriptTag::Other => None,
+                TranscriptTag::Basic => Some(TranscriptPickType::Basic),
+                TranscriptTag::EnsemblCanonical => Some(TranscriptPickType::EnsemblCanonical),
+                TranscriptTag::ManeSelect => Some(TranscriptPickType::ManeSelect),
+                TranscriptTag::ManePlusClinical => Some(TranscriptPickType::ManePlusClinical),
+                TranscriptTag::RefSeqSelect => Some(TranscriptPickType::RefSeqSelect),
+                TranscriptTag::Selenoprotein => None,
+                TranscriptTag::GencodePrimary => Some(TranscriptPickType::GencodePrimary),
+            }
+        }
+
         // Process each gene.
         for entry in tx_db.gene_to_tx.iter() {
             // First, determine whether we have any MANE transcripts.
@@ -342,28 +355,7 @@ impl Provider {
                 .filter_map(|(i, tx_id)| {
                     tx_map.get(tx_id).map(|tx_idx| {
                         let tx = &tx_db.transcripts[*tx_idx as usize];
-                        let tags = tx
-                            .tags
-                            .iter()
-                            .filter_map(|tag| match TranscriptTag::try_from(*tag).unwrap() {
-                                TranscriptTag::Unknown | TranscriptTag::Other => None,
-                                TranscriptTag::Basic => Some(TranscriptPickType::Basic),
-                                TranscriptTag::EnsemblCanonical => {
-                                    Some(TranscriptPickType::EnsemblCanonical)
-                                }
-                                TranscriptTag::ManeSelect => Some(TranscriptPickType::ManeSelect),
-                                TranscriptTag::ManePlusClinical => {
-                                    Some(TranscriptPickType::ManePlusClinical)
-                                }
-                                TranscriptTag::RefSeqSelect => {
-                                    Some(TranscriptPickType::RefSeqSelect)
-                                }
-                                TranscriptTag::Selenoprotein => None,
-                                TranscriptTag::GencodePrimary => {
-                                    Some(TranscriptPickType::GencodePrimary)
-                                }
-                            })
-                            .collect_vec();
+                        let tags = tx.tags.iter().filter_map(tag_to_picktype).collect_vec();
                         let length = transcript_length(tx);
                         if let Some((prev_i, prev_length)) = longest_tx_id.as_mut() {
                             if length > *prev_length {
