@@ -111,7 +111,15 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
                 (None, None) => (0, index_record.length),
             };
 
-            assert!(start <= index_record.length);
+            if start > index_record.length {
+                return Err(anyhow!(
+                    "Requested sequence part {ac}:{start}-{end} is out of bounds for sequence of length {length}",
+                    ac = ac,
+                    start = start,
+                    end = end,
+                    length = index_record.length
+                ));
+            }
 
             let num_bases = end - start;
             let start_line = start / index_record.line_bases;
