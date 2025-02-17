@@ -111,7 +111,7 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
                 (None, None) => (0, index_record.length),
             };
 
-            if start > index_record.length {
+            if start > index_record.length || end > index_record.length {
                 return Err(anyhow!(
                     "Requested sequence part {ac}:{start}-{end} is out of bounds for sequence of length {length}",
                     ac = ac,
@@ -134,6 +134,7 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
 
             let start = offset as usize;
             let end = (offset + num_bases + num_newline_bytes) as usize;
+            assert!(end <= self.mmap.len());
             let mut seq = Vec::with_capacity(num_bases as usize);
             for c in self.mmap[start..end].iter().filter_map(|&c| {
                 if c != b'\n' && c != b'\r' {
