@@ -179,7 +179,7 @@ pub struct Provider {
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
 
-    // reference_sequences: HashMap<String, Vec<u8>>,
+    /// for reading parts of reference sequences
     reference_reader: Option<ReferenceReaderImpl>,
 
     /// The data version.
@@ -276,6 +276,53 @@ impl Provider {
                 .map(|(alias, idx)| (alias.clone(), *idx)),
         );
 
+        let picked_gene_to_tx_id = Self::picked_genes_to_tx_map(&mut tx_seq_db, &config, &tx_map);
+
+        // TODO obtain or construct data_version and schema_version somehow
+        // for now, these are just set to a combination of things that make this provider instance
+        // unique, such that `data_version` and `schema_version` can be used as keys for
+        // caching.
+        let data_version = format!(
+            "{}{}{:?}",
+            tx_seq_db.version.as_ref().unwrap_or(&"".to_string()),
+            tx_seq_db
+                .source_version
+                .iter()
+                .map(|v| format!("{:#?}", v))
+                .join(","),
+            config
+        );
+        let schema_version = data_version.clone();
+
+        let reference_reader = match (reference, in_memory_reference) {
+            (Some(path), false) => Some(ReferenceReaderImpl::Unbuffered(
+                UnbufferedIndexedFastaAccess::from_path(path)
+                    .expect("Failed to open reference FASTA file"),
+            )),
+            (Some(path), true) => Some(ReferenceReaderImpl::InMemory(
+                InMemoryFastaAccess::from_path(path).expect("Failed to open reference FASTA file"),
+            )),
+            (None, _) => None,
+        };
+
+        Self {
+            tx_seq_db,
+            tx_trees,
+            gene_map,
+            tx_map,
+            seq_map,
+            picked_gene_to_tx_id,
+            reference_reader,
+            data_version,
+            schema_version,
+        }
+    }
+
+    fn picked_genes_to_tx_map(
+        tx_seq_db: &mut TxSeqDatabase,
+        config: &Config,
+        tx_map: &HashMap<String, u32>,
+    ) -> Option<Vec<GeneToTxId>> {
         // When transcript picking is enabled, restrict to ManeSelect and ManePlusClinical if
         // we have any such transcript.  Otherwise, fall back to the longest transcript.
         let picked_gene_to_tx_id = if !config.pick_transcript.is_empty() {
@@ -402,45 +449,7 @@ impl Provider {
         } else {
             None
         };
-
-        // TODO obtain or construct data_version and schema_version somehow
-        // for now, these are just set to a combination of things that make this provider instance
-        // unique, such that `data_version` and `schema_version` can be used as keys for
-        // caching.
-        let data_version = format!(
-            "{}{}{:?}",
-            tx_seq_db.version.as_ref().unwrap_or(&"".to_string()),
-            tx_seq_db
-                .source_version
-                .iter()
-                .map(|v| format!("{:#?}", v))
-                .join(","),
-            config
-        );
-        let schema_version = data_version.clone();
-
-        let reference_reader = match (reference, in_memory_reference) {
-            (Some(path), false) => Some(ReferenceReaderImpl::Unbuffered(
-                UnbufferedIndexedFastaAccess::from_path(path)
-                    .expect("Failed to open reference FASTA file"),
-            )),
-            (Some(path), true) => Some(ReferenceReaderImpl::InMemory(
-                InMemoryFastaAccess::from_path(path).expect("Failed to open reference FASTA file"),
-            )),
-            (None, _) => None,
-        };
-
-        Self {
-            tx_seq_db,
-            tx_trees,
-            gene_map,
-            tx_map,
-            seq_map,
-            picked_gene_to_tx_id,
-            reference_reader,
-            data_version,
-            schema_version,
-        }
+        picked_gene_to_tx_id
     }
 
     /// Return the assembly of the provider.
