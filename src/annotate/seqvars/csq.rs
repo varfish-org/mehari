@@ -88,6 +88,7 @@ impl ConsequencePredictor {
         let reference_available = provider.reference_available();
 
         let mapper_config = assembly::Config {
+            assembly: provider.assembly(),
             replace_reference: reference_available,
             strict_bounds: false,
             renormalize_g: reference_available,
