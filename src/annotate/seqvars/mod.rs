@@ -2136,7 +2136,7 @@ pub(crate) fn initialize_clinvar_annotators_for_assembly(
     rocksdb_paths
         .iter()
         .filter_map(|rocksdb_path| {
-            let skip = assembly.map_or(false, |a| !rocksdb_path.contains(path_component(a)));
+            let skip = assembly.is_some_and(|a| !rocksdb_path.contains(path_component(a)));
             if !skip {
                 tracing::info!(
                     "Loading ClinVar database for assembly {:?} from {}",
@@ -2160,7 +2160,7 @@ pub(crate) fn initialize_frequency_annotators_for_assembly(
     assembly: Option<Assembly>,
 ) -> Result<Vec<FrequencyAnnotator>, Error> {
     rocksdb_paths.iter().filter_map(|rocksdb_path| {
-        let skip = assembly.map_or(false, |a| !rocksdb_path.contains(path_component(a)));
+        let skip = assembly.is_some_and(|a| !rocksdb_path.contains(path_component(a)));
         if !skip {
             tracing::info!(
                     "Loading frequency database for assembly {:?} from {}",
@@ -2176,7 +2176,7 @@ pub(crate) fn initialize_frequency_annotators_for_assembly(
 }
 
 pub(crate) fn load_transcript_dbs_for_assembly(
-    tx_sources: &Vec<String>,
+    tx_sources: &[String],
     assembly: Option<Assembly>,
 ) -> Result<Vec<TxSeqDatabase>, Error> {
     let pb_assembly = assembly.as_ref().and_then(proto_assembly_from);
