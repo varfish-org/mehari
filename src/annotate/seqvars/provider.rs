@@ -184,7 +184,9 @@ pub struct Provider {
     reference_reader: Option<ReferenceReaderImpl>,
 
     /// Mapping from chromosome to accession.
+    #[allow(dead_code)]
     chrom_to_acc: IndexMap<String, String>,
+
     /// Mapping from accession to chromosome.
     acc_to_chrom: IndexMap<String, String>,
 
