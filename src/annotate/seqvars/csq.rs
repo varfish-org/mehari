@@ -7,7 +7,7 @@ use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
 use crate::pbs::txs::{GenomeAlignment, Strand, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
 use hgvs::mapper::altseq::AltSeqBuilder;
-use hgvs::parser::{NoRef, ProteinEdit, UncertainLengthChange};
+use hgvs::parser::{NoRef, ProteinEdit};
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
     mapper::{assembly, Error},
