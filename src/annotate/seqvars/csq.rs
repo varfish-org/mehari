@@ -980,6 +980,47 @@ impl ConsequencePredictor {
                     consequences |= Consequence::ThreePrimeUtrExonVariant;
                 }
             }
+
+            if !ends_right_of_stop && !starts_left_of_start {
+                match edit {
+                    NaEdit::RefAlt {
+                        reference,
+                        alternative,
+                    } => {
+                        if reference.len().abs_diff(alternative.len()) % 3 != 0 {
+                            consequences |= Consequence::FrameshiftVariant;
+                        }
+                    }
+                    NaEdit::DelRef { reference } => {
+                        if reference.len() % 3 != 0 {
+                            consequences |= Consequence::FrameshiftVariant;
+                        } else if conservative {
+                            consequences |= Consequence::ConservativeInframeDeletion;
+                        } else {
+                            consequences |= Consequence::DisruptiveInframeDeletion;
+                        }
+                    }
+                    NaEdit::DelNum { count } => {
+                        if count % 3 != 0 {
+                            consequences |= Consequence::FrameshiftVariant;
+                        } else if conservative {
+                            consequences |= Consequence::ConservativeInframeDeletion;
+                        } else {
+                            consequences |= Consequence::DisruptiveInframeDeletion;
+                        }
+                    }
+                    NaEdit::Ins { alternative } => {
+                        if alternative.len() % 3 != 0 {
+                            consequences |= Consequence::FrameshiftVariant;
+                        } else if conservative {
+                            consequences |= Consequence::ConservativeInframeInsertion;
+                        } else {
+                            consequences |= Consequence::DisruptiveInframeInsertion;
+                        }
+                    }
+                    _ => {}
+                }
+            }
         } else {
             panic!("Must be CDS variant: {}", &var_c)
         };
