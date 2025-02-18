@@ -933,7 +933,7 @@ impl ConsequencePredictor {
         var_c: &HgvsVariant,
         is_exonic: bool,
         is_intronic: bool,
-        _conservative: bool,
+        conservative: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -942,7 +942,7 @@ impl ConsequencePredictor {
             // coordinates.  The cases where the start/stop codon is touched by the variant
             // directly is handled above based on the `var_p` prediction.
             let loc = loc_edit.loc.inner();
-            let _edit = loc_edit.edit.inner();
+            let edit = loc_edit.edit.inner();
             let start_base = loc.start.base;
             let start_cds_from = loc.start.cds_from;
             // let end_base = loc.end.base;
@@ -964,16 +964,15 @@ impl ConsequencePredictor {
             }
 
             // Detect variants affecting the 5'/3' UTRs.
-            if start_cds_from == CdsFrom::Start {
-                if start_base < 0 {
-                    if is_intronic {
-                        consequences |= Consequence::FivePrimeUtrIntronVariant;
-                    }
-                    if is_exonic {
-                        consequences |= Consequence::FivePrimeUtrExonVariant;
-                    }
+            if starts_left_of_start && start_base < 0 {
+                if is_intronic {
+                    consequences |= Consequence::FivePrimeUtrIntronVariant;
                 }
-            } else if end_cds_from == CdsFrom::End {
+                if is_exonic {
+                    consequences |= Consequence::FivePrimeUtrExonVariant;
+                }
+            }
+            if ends_right_of_stop {
                 if is_intronic {
                     consequences |= Consequence::ThreePrimeUtrIntronVariant;
                 }
