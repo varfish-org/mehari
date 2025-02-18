@@ -1777,7 +1777,7 @@ mod test {
 
         let records_written = read_vcf(output).await?;
         let records_expected = read_vcf(expected_vcf).await?;
-        assert_eq!(records_written, records_expected);
+        assert_eq!(records_expected, records_written);
 
         Ok(())
     }
