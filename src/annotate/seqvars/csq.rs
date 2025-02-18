@@ -1080,6 +1080,7 @@ impl ConsequencePredictor {
                             }
                         }
                         ProteinEdit::DelIns { alternative } => {
+                            consequences |= Consequence::ProteinAlteringVariant;
                             match alternative
                                 .len()
                                 .cmp(&(loc.start.number.abs_diff(loc.end.number) as usize + 1))
@@ -1095,6 +1096,7 @@ impl ConsequencePredictor {
                                     // it is a missense variant, not an inframe deletion
                                     // cf https://github.com/Ensembl/ensembl-vep/issues/1388
                                     consequences |= Consequence::MissenseVariant;
+                                    consequences &= !Consequence::ProteinAlteringVariant;
                                 }
                                 Ordering::Greater if conservative => {
                                     consequences |= Consequence::ConservativeInframeInsertion;
