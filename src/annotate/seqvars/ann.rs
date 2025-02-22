@@ -85,7 +85,6 @@ pub enum Consequence {
     /// SO:frameshift_variant, VEP:frameshift_variant
     FrameshiftVariant,
 
-
     /// "A frameshift variant that causes the translational reading frame to be extended relative to the reference feature."
     /// SO:frameshift_elongation
     FrameshiftElongation,
