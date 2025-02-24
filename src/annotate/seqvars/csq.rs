@@ -128,7 +128,14 @@ impl ConsequencePredictor {
     /// If there was any error during the prediction.
     pub fn predict(&self, var: &VcfVariant) -> Result<Option<Vec<AnnField>>, anyhow::Error> {
         // Normalize variant by stripping common prefix and suffix.
-        let norm_var = self.normalize_variant(var);
+        let mut norm_var = self.normalize_variant(var);
+
+        // TODO check for VCF specification version.
+        // According to VCF specification (>=4.1), an alternative of "N" means REF=ALT
+        // Prior to 4.1, it indicated a deletion.
+        if norm_var.alternative == "N" {
+            norm_var.alternative = norm_var.reference.clone();
+        }
 
         // Obtain accession from chromosome name.
         let chrom_acc = self.chrom_to_acc.get(&norm_var.chromosome);
