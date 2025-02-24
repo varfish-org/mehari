@@ -1848,8 +1848,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hgvs"
 version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e411f8beeb410413167d2ac7da7360f3ab9e3a8852c96688deb0495c811022"
+source = "git+https://github.com/varfish-org/hgvs-rs?branch=fix-ter-subst#afac6a3dee1eeb9062ba6de43390ddc8c747373a"
 dependencies = [
  "ahash 0.8.11",
  "base16ct",

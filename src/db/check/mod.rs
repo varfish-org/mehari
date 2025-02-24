@@ -154,8 +154,8 @@ fn load_cdot_files(paths: &[PathBuf]) -> Result<IdCollection> {
 #[derive(Debug, Serialize, Deserialize)]
 struct HgncEntry {
     hgnc_id: String,
-    location: String,
-    location_sortable: String,
+    location: Option<String>,
+    location_sortable: Option<String>,
     locus_group: String,
     locus_type: String,
     name: String,
