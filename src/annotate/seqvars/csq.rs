@@ -1608,12 +1608,12 @@ mod test {
     }
 
     #[rstest::rstest]
-    #[case("3:193311167:ATGT:T", vec![Consequence::StartLost])]
+    #[case("3:193311167:ATGT:T", vec![Consequence::StartLost, Consequence::ConservativeInframeDeletion])]
     #[case("3:193311170:TGGC:C", vec![Consequence::ConservativeInframeDeletion])]
-    #[case("3:193311170:TGGCG:G", vec![Consequence::FrameshiftVariant])]
+    #[case("3:193311170:TGGCG:G", vec![Consequence::FrameshiftVariant, Consequence::ConservativeInframeDeletion])]
     #[case("3:193311180:GTCG:G", vec![Consequence::DisruptiveInframeDeletion])]
     #[case("3:193409910:GAAA:G", vec![Consequence::ConservativeInframeDeletion])]
-    #[case("3:193409913:ATAA:A", vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    #[case("3:193409913:ATAA:A", vec![Consequence::StopLost, Consequence::FeatureElongation, Consequence::ConservativeInframeDeletion])]
     fn annotate_del_opa1_csqs(
         #[case] spdi: &str,
         #[case] expected_csqs: Vec<Consequence>,
