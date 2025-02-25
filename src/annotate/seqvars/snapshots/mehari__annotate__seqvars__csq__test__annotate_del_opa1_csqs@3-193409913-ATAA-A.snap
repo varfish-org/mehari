@@ -8,6 +8,7 @@ expression: res
   consequences:
     - stop_lost
     - feature_elongation
+    - conservative_inframe_deletion
   putative_impact: high
   gene_symbol: OPA1
   gene_id: "HGNC:8140"
