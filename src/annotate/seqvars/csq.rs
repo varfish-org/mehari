@@ -1169,6 +1169,12 @@ impl ConsequencePredictor {
                                 }
                             }
 
+                            if (is_stop(&loc.start.aa) || is_stop(&loc.end.aa))
+                                && !has_stop(alternative)
+                            {
+                                consequences |= Consequence::StopLost;
+                            }
+
                             if has_stop(alternative) {
                                 consequences |= Consequence::StopGained;
                             }
