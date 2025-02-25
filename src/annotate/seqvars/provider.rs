@@ -575,15 +575,18 @@ impl ProviderInterface for Provider {
             || ac.starts_with("NT")
             || ac.starts_with("NW") && self.reference_available()
         {
-            let ac = self.acc_to_chrom.get(ac).map_or(ac, |v| v);
-            let seq = self
-                .reference_reader
-                .as_ref()
-                .unwrap()
-                .get(ac, begin.map(|x| x as u64), end.map(|x| x as u64))
-                .map_err(|_| Error::NoSequenceRecord(ac.to_string()))?
-                .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?;
-            return String::from_utf8(seq).map_err(|_| Error::NoSequenceRecord(ac.to_string()));
+            let chrom = self.acc_to_chrom.get(ac).map_or(ac, |v| v);
+            let reader = self.reference_reader.as_ref().unwrap();
+            let seq = reader.get(chrom, begin.map(|x| x as u64), end.map(|x| x as u64));
+            let seq = match seq.transpose() {
+                Some(Ok(seq)) => seq,
+                Some(Err(_)) => return Err(Error::NoSequenceRecord(chrom.to_string())),
+                None => reader
+                    .get(ac, begin.map(|x| x as u64), end.map(|x| x as u64))
+                    .map_err(|_| Error::NoSequenceRecord(ac.to_string()))?
+                    .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?,
+            };
+            return String::from_utf8(seq).map_err(|_| Error::NoSequenceRecord(chrom.to_string()));
         } else {
             // Otherwise, look up the sequence in the transcript database.
             let seq_idx = *self
