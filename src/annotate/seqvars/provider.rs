@@ -586,7 +586,9 @@ impl ProviderInterface for Provider {
                     .map_err(|_| Error::NoSequenceRecord(ac.to_string()))?
                     .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?,
             };
-            return String::from_utf8(seq).map_err(|_| Error::NoSequenceRecord(chrom.to_string()));
+            return String::from_utf8(seq).map_err(|_| {
+                Error::NoSequenceRecord("Failed converting seq to UTF-8.".to_string())
+            });
         } else {
             // Otherwise, look up the sequence in the transcript database.
             let seq_idx = *self
