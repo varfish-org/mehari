@@ -85,6 +85,14 @@ pub enum Consequence {
     /// SO:frameshift_variant, VEP:frameshift_variant
     FrameshiftVariant,
 
+    /// "A frameshift variant that causes the translational reading frame to be extended relative to the reference feature."
+    /// SO:frameshift_elongation
+    FrameshiftElongation,
+
+    /// "A frameshift variant that causes the translational reading frame to be shortened relative to the reference feature."
+    /// SO:frameshift_truncation
+    FrameshiftTruncation,
+
     /// "A sequence variant where at least one base of the terminator codon (stop) is changed, resulting in an elongated transcript."
     /// SO:stop_lost, VEP:stop_lost
     StopLost,
@@ -131,10 +139,9 @@ pub enum Consequence {
     /// SO:rare_amino_acid_variant
     RareAminoAcidVariant,
 
-    // Not used by mehari, but by VEP (we're usually more specific)
-    // /// "A sequence_variant which is predicted to change the protein encoded in the coding sequence."
-    // /// SO:protein_altering_variant, VEP:missense_variant
-    // ProteinAlteringVariant,
+    /// "A sequence_variant which is predicted to change the protein encoded in the coding sequence."
+    /// SO:protein_altering_variant, VEP:missense_variant
+    ProteinAlteringVariant,
 
     // low impact
     /// "A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript."
@@ -284,6 +291,8 @@ impl From<Consequence> for PutativeImpact {
             | SpliceDonorVariant
             | StopGained
             | FrameshiftVariant
+            | FrameshiftElongation
+            | FrameshiftTruncation
             | StopLost
             | StartLost
             | TranscriptAmplification
@@ -293,6 +302,7 @@ impl From<Consequence> for PutativeImpact {
             | DisruptiveInframeDeletion
             | ConservativeInframeInsertion
             | ConservativeInframeDeletion
+            | ProteinAlteringVariant
             | MissenseVariant
             | RareAminoAcidVariant => PutativeImpact::Moderate,
             SpliceDonorFifthBaseVariant

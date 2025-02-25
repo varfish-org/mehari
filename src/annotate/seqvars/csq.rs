@@ -6,7 +6,8 @@ use super::{
 use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
 use crate::pbs::txs::{GenomeAlignment, Strand, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
-use hgvs::parser::{NoRef, ProteinEdit, UncertainLengthChange};
+use hgvs::mapper::altseq::AltSeqBuilder;
+use hgvs::parser::{NoRef, ProteinEdit};
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
     mapper::{assembly, Error},
@@ -16,7 +17,6 @@ use hgvs::{
 };
 use itertools::Itertools;
 use std::cmp::Ordering;
-use std::ops::Range;
 use std::{collections::HashMap, sync::Arc};
 
 /// A variant description how VCF would do it.
@@ -128,7 +128,14 @@ impl ConsequencePredictor {
     /// If there was any error during the prediction.
     pub fn predict(&self, var: &VcfVariant) -> Result<Option<Vec<AnnField>>, anyhow::Error> {
         // Normalize variant by stripping common prefix and suffix.
-        let norm_var = self.normalize_variant(var);
+        let mut norm_var = self.normalize_variant(var);
+
+        // TODO check for VCF specification version.
+        // According to VCF specification (>=4.1), an alternative of "N" means REF=ALT
+        // Prior to 4.1, it indicated a deletion.
+        if norm_var.alternative == "N" {
+            norm_var.alternative = norm_var.reference.clone();
+        }
 
         // Obtain accession from chromosome name.
         let chrom_acc = self.chrom_to_acc.get(&norm_var.chromosome);
@@ -580,8 +587,13 @@ impl ConsequencePredictor {
                         Self::analyze_cds_variant(&var_c, is_exonic, is_intronic, conservative);
 
                     // Analyze `var_p` for changes in the protein sequence.
-                    let consequences_protein =
-                        Self::analyze_protein_variant(&var_p, &protein_pos, conservative);
+                    let consequences_protein = self.analyze_protein_variant(
+                        &var_c,
+                        &var_p,
+                        &protein_pos,
+                        conservative,
+                        &tx_record.tx_ac,
+                    );
 
                     consequences |= consequences_cds | consequences_protein;
 
@@ -676,8 +688,24 @@ impl ConsequencePredictor {
         var_c: &HgvsVariant,
         var_p: &HgvsVariant,
     ) {
-        fn is_stop(s: &str) -> bool {
-            s == "X" || s == "Ter" || s == "*"
+        // If a frameshift/ins/del was predicted on the CDS level,
+        // but any relevant consequence (i.e. not just GeneVariant) was produced on the protein level,
+        // then it is likely that the frameshift induced a more specific consequence.
+        let check_cds_csqs: Consequences = Consequence::FrameshiftVariant.into();
+        // | Consequence::DisruptiveInframeDeletion
+        // | Consequence::ConservativeInframeDeletion
+        // | Consequence::DisruptiveInframeInsertion
+        // | Consequence::DisruptiveInframeInsertion;
+        let checked = consequences_cds & check_cds_csqs;
+        if checked != Consequences::empty()
+            // if the protein consequence is not effectively empty, we remove the CDS frameshift consequence
+            && !(consequences_protein.eq(&Consequence::GeneVariant)
+                || consequences_protein.is_empty())
+            // if the protein consequence also includes a frameshift, then we keep it
+            && !consequences_protein
+                .intersects(Consequence::FrameshiftElongation | Consequence::FrameshiftTruncation)
+        {
+            *consequences &= !checked;
         }
 
         // In some cases, we predict a stop lost based on the cds variant
@@ -688,49 +716,7 @@ impl ConsequencePredictor {
         if consequences_cds.contains(Consequence::StopLost)
             && !consequences_protein.contains(Consequence::StopLost)
         {
-            if let HgvsVariant::ProtVariant {
-                loc_edit: ProtLocEdit::Ordinary { loc, edit },
-                ..
-            } = var_p
-            {
-                match edit.inner() {
-                    // Stop lost due to a deletion in the CDS, but the resulting protein translation
-                    // continues to have a stop codon at the same position.
-                    ProteinEdit::DelIns { alternative } => {
-                        let loc_length = Range::<i32>::from(loc.inner().clone()).len();
-                        match alternative.len().cmp(&loc_length) {
-                            Ordering::Equal => {
-                                *consequences &= !Consequence::StopLost;
-                                *consequences |= Consequence::StopRetainedVariant;
-                            }
-                            Ordering::Greater => {
-                                *consequences |= Consequence::FeatureElongation;
-                            }
-                            _ => {}
-                        }
-                    }
-                    // Detect cases where the frameshift resolves into
-                    // a missense + stop retained variant.
-                    // This is the shortest possible frameshift in hgvsp (fs*2).
-                    ProteinEdit::Fs {
-                        alternative,
-                        terminal,
-                        length,
-                    } => {
-                        if let (Some(alt), Some(terminal), UncertainLengthChange::Known(2)) =
-                            (alternative, terminal, length)
-                        {
-                            if is_stop(terminal) && alt.len() == 1 {
-                                *consequences |= Consequence::MissenseVariant;
-                                *consequences |= Consequence::StopRetainedVariant;
-                                *consequences &= !Consequence::StopLost;
-                                *consequences &= !Consequence::FrameshiftVariant;
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
+            *consequences &= !Consequence::StopLost;
         }
 
         // Similarly, for the start lost case
@@ -954,7 +940,7 @@ impl ConsequencePredictor {
         var_c: &HgvsVariant,
         is_exonic: bool,
         is_intronic: bool,
-        _conservative: bool,
+        conservative: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -963,7 +949,7 @@ impl ConsequencePredictor {
             // coordinates.  The cases where the start/stop codon is touched by the variant
             // directly is handled above based on the `var_p` prediction.
             let loc = loc_edit.loc.inner();
-            let _edit = loc_edit.edit.inner();
+            let edit = loc_edit.edit.inner();
             let start_base = loc.start.base;
             let start_cds_from = loc.start.cds_from;
             // let end_base = loc.end.base;
@@ -985,21 +971,61 @@ impl ConsequencePredictor {
             }
 
             // Detect variants affecting the 5'/3' UTRs.
-            if start_cds_from == CdsFrom::Start {
-                if start_base < 0 {
-                    if is_intronic {
-                        consequences |= Consequence::FivePrimeUtrIntronVariant;
-                    }
-                    if is_exonic {
-                        consequences |= Consequence::FivePrimeUtrExonVariant;
-                    }
+            if starts_left_of_start && start_base < 0 {
+                if is_intronic {
+                    consequences |= Consequence::FivePrimeUtrIntronVariant;
                 }
-            } else if end_cds_from == CdsFrom::End {
+                if is_exonic {
+                    consequences |= Consequence::FivePrimeUtrExonVariant;
+                }
+            }
+            if ends_right_of_stop {
                 if is_intronic {
                     consequences |= Consequence::ThreePrimeUtrIntronVariant;
                 }
                 if is_exonic {
                     consequences |= Consequence::ThreePrimeUtrExonVariant;
+                }
+            }
+
+            if !ends_right_of_stop && !starts_left_of_start && (!is_intronic || is_exonic) {
+                match edit {
+                    NaEdit::RefAlt {
+                        reference,
+                        alternative,
+                    } => {
+                        if reference.len().abs_diff(alternative.len()) % 3 != 0 {
+                            consequences |= Consequence::FrameshiftVariant;
+                        }
+                    }
+                    NaEdit::DelRef { reference } => {
+                        if reference.len() % 3 != 0 {
+                            consequences |= Consequence::FrameshiftVariant;
+                        } else if conservative {
+                            consequences |= Consequence::ConservativeInframeDeletion;
+                        } else {
+                            consequences |= Consequence::DisruptiveInframeDeletion;
+                        }
+                    }
+                    NaEdit::DelNum { count } => {
+                        if count % 3 != 0 {
+                            consequences |= Consequence::FrameshiftVariant;
+                        } else if conservative {
+                            consequences |= Consequence::ConservativeInframeDeletion;
+                        } else {
+                            consequences |= Consequence::DisruptiveInframeDeletion;
+                        }
+                    }
+                    NaEdit::Ins { alternative } => {
+                        if alternative.len() % 3 != 0 {
+                            consequences |= Consequence::FrameshiftVariant;
+                        } else if conservative {
+                            consequences |= Consequence::ConservativeInframeInsertion;
+                        } else {
+                            consequences |= Consequence::DisruptiveInframeInsertion;
+                        }
+                    }
+                    _ => {}
                 }
             }
         } else {
@@ -1009,9 +1035,12 @@ impl ConsequencePredictor {
     }
 
     fn analyze_protein_variant(
+        &self,
+        var_c: &HgvsVariant,
         var_p: &HgvsVariant,
         protein_pos: &Option<Pos>,
         conservative: bool,
+        tx_accession: &str,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -1031,6 +1060,52 @@ impl ConsequencePredictor {
                     match edit.inner() {
                         ProteinEdit::Fs { .. } => {
                             consequences |= Consequence::FrameshiftVariant;
+
+                            // in the case of frameshifts, we will get the altered protein sequence
+                            // in order to compare it with the unaltered one
+
+                            if let Ok(reference_data) =
+                                hgvs::mapper::altseq::ref_transcript_data_cached(
+                                    self.provider.clone(),
+                                    tx_accession,
+                                    None,
+                                )
+                            {
+                                let original_sequence = reference_data.aa_sequence.clone();
+                                let alt_data = AltSeqBuilder::new(var_c.clone(), reference_data)
+                                    .build_altseq()
+                                    .unwrap();
+                                let alt_data = alt_data.first().unwrap();
+                                let altered_sequence = Some(alt_data.aa_sequence.clone());
+                                if let Some(ref altered_sequence) = altered_sequence {
+                                    let original_sequence = &original_sequence;
+
+                                    // trim altered sequence to the first stop encountered
+                                    let altered_sequence = if let Some(pos) = altered_sequence
+                                        .find('*')
+                                        .or_else(|| altered_sequence.find('X'))
+                                    {
+                                        &altered_sequence[..=pos]
+                                    } else {
+                                        altered_sequence
+                                    };
+
+                                    match altered_sequence.len().cmp(&original_sequence.len()) {
+                                        Ordering::Less => {
+                                            consequences |= Consequence::FrameshiftTruncation;
+                                        }
+                                        Ordering::Equal => {
+                                            consequences |= Consequence::MissenseVariant;
+                                            // TODO: discuss stop_retained
+                                            // consequences |= Consequence::StopRetainedVariant;
+                                            consequences &= !Consequence::FrameshiftVariant;
+                                        }
+                                        Ordering::Greater => {
+                                            consequences |= Consequence::FrameshiftElongation;
+                                        }
+                                    }
+                                }
+                            }
                         }
                         ProteinEdit::Ext { .. } => {
                             consequences |= Consequence::StopLost;
@@ -1068,17 +1143,36 @@ impl ConsequencePredictor {
                             }
                         }
                         ProteinEdit::DelIns { alternative } => {
-                            // When the delins does not change the CDS length,
-                            // it is a missense variant, not an inframe deletion
-                            // cf https://github.com/Ensembl/ensembl-vep/issues/1388
-                            if alternative.len()
-                                == loc.start.number.abs_diff(loc.end.number) as usize + 1
+                            consequences |= Consequence::ProteinAlteringVariant;
+                            match alternative
+                                .len()
+                                .cmp(&(loc.start.number.abs_diff(loc.end.number) as usize + 1))
                             {
-                                consequences |= Consequence::MissenseVariant;
-                            } else if conservative {
-                                consequences |= Consequence::ConservativeInframeDeletion;
-                            } else {
-                                consequences |= Consequence::DisruptiveInframeDeletion;
+                                Ordering::Less if conservative => {
+                                    consequences |= Consequence::ConservativeInframeDeletion;
+                                }
+                                Ordering::Less => {
+                                    consequences |= Consequence::DisruptiveInframeDeletion;
+                                }
+                                Ordering::Equal => {
+                                    // When the delins does not change the CDS length,
+                                    // it is a missense variant, not an inframe deletion
+                                    // cf https://github.com/Ensembl/ensembl-vep/issues/1388
+                                    consequences |= Consequence::MissenseVariant;
+                                    consequences &= !Consequence::ProteinAlteringVariant;
+                                }
+                                Ordering::Greater if conservative => {
+                                    consequences |= Consequence::ConservativeInframeInsertion;
+                                }
+                                Ordering::Greater => {
+                                    consequences |= Consequence::DisruptiveInframeInsertion;
+                                }
+                            }
+
+                            if (is_stop(&loc.start.aa) || is_stop(&loc.end.aa))
+                                && !has_stop(alternative)
+                            {
+                                consequences |= Consequence::StopLost;
                             }
 
                             if has_stop(alternative) {
@@ -1514,12 +1608,12 @@ mod test {
     }
 
     #[rstest::rstest]
-    #[case("3:193311167:ATGT:T", vec![Consequence::StartLost])]
+    #[case("3:193311167:ATGT:T", vec![Consequence::StartLost, Consequence::ConservativeInframeDeletion])]
     #[case("3:193311170:TGGC:C", vec![Consequence::ConservativeInframeDeletion])]
-    #[case("3:193311170:TGGCG:G", vec![Consequence::FrameshiftVariant])]
+    #[case("3:193311170:TGGCG:G", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
     #[case("3:193311180:GTCG:G", vec![Consequence::DisruptiveInframeDeletion])]
     #[case("3:193409910:GAAA:G", vec![Consequence::ConservativeInframeDeletion])]
-    #[case("3:193409913:ATAA:A", vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    #[case("3:193409913:ATAA:A", vec![Consequence::StopLost, Consequence::FeatureElongation, Consequence::ConservativeInframeDeletion])]
     fn annotate_del_opa1_csqs(
         #[case] spdi: &str,
         #[case] expected_csqs: Vec<Consequence>,
@@ -1752,7 +1846,7 @@ mod test {
 
         let records_written = read_vcf(output).await?;
         let records_expected = read_vcf(expected_vcf).await?;
-        assert_eq!(records_written, records_expected);
+        assert_eq!(records_expected, records_written);
 
         Ok(())
     }
@@ -1904,7 +1998,14 @@ mod test {
             lineno += 1;
 
             let record: Record = record?;
-            // let mut printed = false;
+
+            // Because for this variant our highest impact is "HIGH" and vep's is not (and because we filter for the highest impact), skip it.
+            // We predict FrameshiftVariant, FrameshiftTruncation, SpliceRegionVariant and ThreePrimeUtrExonVariant,
+            // while vep calls "splice_region_variant", "coding_sequence_variant", "3_prime_UTR_variant".
+            if record.var == "17-41196310-GGTGGAAGTGTTTGCTACCAAGTTTATTTGCAGTGTTAACAGCACAACATTTACAAAACGTATTTTGTACAATCAAGTCTTCACTGCCCTTGCACACTGGGGGGGCTAGGGAAGACCTAGTCCTTCCAACAGCTATAAACAGTCCTGGATAATGGGTTTATGAAAAACACTTTTTCTTCCTTCAGCAAGCAAAATTATTTATGAAGCTGTATGGTTTCAGCAACAGGGAGCAAAGGAAAAAAATCACCTCAAAGAAAGCAACAGCTTCCTTCCTGGTGGGATCTGTCATTTTATAGATATGAAATATTCATGCCAGAGGTCTTATATTTTAAGAGGAATGGATTATATACCAGAGCTACAACAATAAACATTTTACTTATTACTAATGAGGAATTAGAAGACTGTCTTTGGAAACCGGTTCTTGAAAATCTTCTGCTGTTTTAGAACACATTCTTTAGAAATCTAGCAAATATATCTCAGACTTTTAGAAATCTCTTCTAGTTTCATTTTCCTTTTTTTTTTTTTTTTTTTGAGCCACAGTCTCACTGTCACCCAGGCTGGAGTGCCGTGGTATGATCTTGGCTCACTGCAACCTCCACCTCCCGGGCTGAAGTGATTCTCCTGCCTTAGCCACCTGAGTAGCTGGGATTACAGGTGTCCACCACCATGACCGGCTAATTTCTGTATTTTTAGTAGAGATGGGGTTTCACCATGTTGGCCAGGCTGGTTTCGAACTCCTGACCTCCAGTGATCTGCCCACCTTGGCCTCCCAAAGTGCTGGGATTACAGGCGTGAGCCACCATGCCCAGGTTTCAAGTTTCCTTTTCATTTCTAATACCTGCCTCAGAATTTCCTCCCCAATGTTCCACTCCAACATTTGAGAACTGCCCAAGGACTATTCTGACTTTAAGTCACATAATCGATCCCAAGCACTCTCCTTCCATTGAAGGGTCTGACTCTCTGCCTTTGTGAACACAGGGTTTTAGAGAAGTAAACTTAGGGAAACCAGCTATTCTCTTGAGGCCAAGCCACTCTGTGCTTCCAGCCCTAAGCCAACAACAGCCTGAATAGAAAGAATAGGGCTGATAAATAATGAATCAGCATCTTGCTCAATTGGTGGCGTTTAAATGGTTTTAAAATCTTCTCAGGTGAAAAATTACCATAATTTTGTGCTCATGGCAGATTTCCAAGGGAGACTTCAAGCAGAAAATCTTTAAGGGACCCTTGCATAGCCAGAAGTCCTTTTCAGGCTGATGTACATAAAATATTTAGTAGCCAGGACAGTAGAAGGACTGAAGAGTGAGAGGAGCTCCCAGGGCCTGGAAAGGCCACTTTGTAAGCTCATTCTTGGGGTCCTGTGGCTCTGTACCTGTGGCTGGCTGCAGTCAGTAGTGGCTGTGGGGGATCTGGGGTATCAGGTAGGTGTCCAGCTCCTGGCACTGGTAGAGTGCTACACTGTCCAACACCCACTCTCGGGTCACCACAGGTGCCTCACACATCTGCCCAATT-G" {
+                continue;
+            }
+
             if txs.contains(&record.tx) {
                 // "Parse" out the variant.
                 let arr = record.var.split('-').collect::<Vec<_>>();
@@ -1944,89 +2045,83 @@ mod test {
                         expected_one_of.push("inframe_deletion");
                     }
 
-                    // Try to find a direct match.
-                    let found_one = record_csqs.iter().any(|csq| expected_one_of.contains(csq));
-
-                    // vep sometimes only reports a coding_sequence_variant, so we accept anything
-                    let found_one = found_one
-                        || path_tsv.contains(".vep")
+                    let found_one = [
+                        // Try to find a direct match.
+                        record_csqs.iter().any(|csq| expected_one_of.contains(csq)),
+                        // vep sometimes only reports a coding_sequence_variant, so we accept anything
+                        path_tsv.contains(".vep")
                             && (record_csqs == ["coding_sequence_variant"]
-                                && !expected_one_of.is_empty());
-
-                    // It is common that the other tool predicts a frameshift variant while the actual prediction
-                    // is stop_gained or stop_lost.  We thus also check for this case and allow it.
-                    let found_one = found_one
-                        || (record_csqs.contains(&"frameshift_variant")
+                                && !expected_one_of.is_empty()),
+                        // It is common that the other tool predicts a frameshift variant while the actual prediction
+                        // is stop_gained or stop_lost.  We thus also check for this case and allow it.
+                        (record_csqs.contains(&"frameshift_variant")
+                            || record_csqs.contains(&"frameshift_truncation")
+                            || record_csqs.contains(&"frameshift_elongation"))
                             && (expected_one_of.contains(&"stop_gained"))
-                            || expected_one_of.contains(&"stop_lost"));
-                    // VEP does not differentiate between disruptive and conservative inframe deletions and insertions.
-                    let found_one = found_one
-                        || (record_csqs.contains(&"inframe_deletion")
+                            || expected_one_of.contains(&"stop_lost"),
+                        // … or vice-versa
+                        (expected_one_of.contains(&"frameshift_variant")
+                            || expected_one_of.contains(&"frameshift_truncation")
+                            || expected_one_of.contains(&"frameshift_elongation"))
+                            && (record_csqs.contains(&"stop_gained"))
+                            || record_csqs.contains(&"stop_lost"),
+                        // VEP does not differentiate between disruptive and conservative inframe deletions and insertions.
+                        (record_csqs.contains(&"inframe_deletion")
                             && (expected_one_of.contains(&"disruptive_inframe_deletion")
                                 || expected_one_of.contains(&"conservative_inframe_deletion")))
-                        || (record_csqs.contains(&"inframe_insertion")
-                            && (expected_one_of.contains(&"disruptive_inframe_insertion")
-                                || expected_one_of.contains(&"conservative_inframe_insertion")));
-                    // NB: We cannot predict 5_prime_UTR_premature_start_codon_gain_variant yet. For now, we
-                    // also accept 5_prime_UTR_variant.
-                    let found_one = found_one
-                        || ((expected_one_of.contains(&"5_prime_UTR_exon_variant")
+                            || (record_csqs.contains(&"inframe_insertion")
+                                && (expected_one_of.contains(&"disruptive_inframe_insertion")
+                                    || expected_one_of
+                                        .contains(&"conservative_inframe_insertion"))),
+                        // NB: We cannot predict 5_prime_UTR_premature_start_codon_gain_variant yet. For now, we
+                        // also accept 5_prime_UTR_variant.
+                        ((expected_one_of.contains(&"5_prime_UTR_exon_variant")
                             || expected_one_of.contains(&"5_prime_UTR_intron_variant"))
                             && (record_csqs
-                                .contains(&"5_prime_UTR_premature_start_codon_gain_variant")));
-                    // VEP predicts `splice_donor_5th_base_variant` rather than `splice_region_variant`.
-                    // Same for `splice_donor_region_variant`.
-                    let found_one = found_one
-                        || (expected_one_of.contains(&"splice_region_variant")
+                                .contains(&"5_prime_UTR_premature_start_codon_gain_variant"))),
+                        // VEP predicts `splice_donor_5th_base_variant` rather than `splice_region_variant`.
+                        // Same for `splice_donor_region_variant`.
+                        (expected_one_of.contains(&"splice_region_variant")
                             && (record_csqs.contains(&"splice_donor_5th_base_variant")
-                                || record_csqs.contains(&"splice_donor_region_variant")));
-                    // In the case of insertions at the end of an exon, VEP predicts `splice_region_variant`
-                    // while we predict `splice_donor_variant`, same for start.
-                    let found_one = found_one
-                        || (expected_one_of.contains(&"splice_donor_variant")
+                                || record_csqs.contains(&"splice_donor_region_variant"))),
+                        // In the case of insertions at the end of an exon, VEP predicts `splice_region_variant`
+                        // while we predict `splice_donor_variant`, same for start.
+                        (expected_one_of.contains(&"splice_donor_variant")
                             || expected_one_of.contains(&"splice_acceptor_variant"))
-                            && (record_csqs.contains(&"splice_region_variant"));
-                    // VEP sometimes mispredicts disruptive inframe deletion as missense...
-                    // cf. https://github.com/Ensembl/ensembl-vep/issues/1388
-                    let found_one = found_one
-                        || expected_one_of.contains(&"disruptive_inframe_deletion")
-                            && (record_csqs.contains(&"missense_variant"));
-                    // VEP does not provide `exon_loss_variant`, so we also accept `inframe_deletion` and
-                    // `splice_region_variant` (BRA1 test case).
-                    let found_one = found_one
-                        || expected_one_of.contains(&"exon_loss_variant")
+                            && (record_csqs.contains(&"splice_region_variant")),
+                        // VEP sometimes mispredicts disruptive inframe deletion as missense...
+                        // cf. https://github.com/Ensembl/ensembl-vep/issues/1388
+                        expected_one_of.contains(&"disruptive_inframe_deletion")
+                            && (record_csqs.contains(&"missense_variant")),
+                        // VEP does not provide `exon_loss_variant`, so we also accept `inframe_deletion` and
+                        // `splice_region_variant` (BRA1 test case).
+                        expected_one_of.contains(&"exon_loss_variant")
                             && (record_csqs.contains(&"inframe_deletion")
-                                || record_csqs.contains(&"splice_region_variant"));
-                    // On BRCA1, there is a case where VEP predicts `protein_altering_variant` rather than
-                    // `disruptive_inframe_deletion`.  We accept this as well.
-                    let found_one = found_one
-                        || (expected_one_of.contains(&"disruptive_inframe_deletion")
+                                || record_csqs.contains(&"splice_region_variant")),
+                        // On BRCA1, there is a case where VEP predicts `protein_altering_variant` rather than
+                        // `disruptive_inframe_deletion`.  We accept this as well.
+                        (expected_one_of.contains(&"disruptive_inframe_deletion")
                             || expected_one_of.contains(&"inframe_indel"))
-                            && (record_csqs.contains(&"protein_altering_variant"));
-                    // In the case of `GRCh37:17:41258543:T:TA`, the `hgvs` prediction is `c.-1_1insT` and
-                    // `p.Met1?` which leads to `start_lost` while VEP predicts `5_prime_UTR_variant`.
-                    // This may be a bug in `hgvs` and we don't change this for now.  We accept the call
-                    // by VEP, of course.
-                    let found_one = found_one
-                        || expected_one_of.contains(&"start_lost")
-                            && (record_csqs.contains(&"5_prime_UTR_variant"));
-                    // We have specialized {5,3}_prime_UTR_{exon,intron}_variant handling, while
-                    // vep and snpEff do not
-                    let found_one = found_one
-                        || record_csqs.contains(&"5_prime_UTR_variant")
+                            && (record_csqs.contains(&"protein_altering_variant")),
+                        // In the case of `GRCh37:17:41258543:T:TA`, the `hgvs` prediction is `c.-1_1insT` and
+                        // `p.Met1?` which leads to `start_lost` while VEP predicts `5_prime_UTR_variant`.
+                        // This may be a bug in `hgvs` and we don't change this for now.  We accept the call
+                        // by VEP, of course.
+                        expected_one_of.contains(&"start_lost")
+                            && (record_csqs.contains(&"5_prime_UTR_variant")),
+                        // We have specialized {5,3}_prime_UTR_{exon,intron}_variant handling, while
+                        // vep and snpEff do not
+                        record_csqs.contains(&"5_prime_UTR_variant")
                             && (expected_one_of.contains(&"5_prime_UTR_exon_variant")
-                                || expected_one_of.contains(&"5_prime_UTR_intron_variant"));
-                    let found_one = found_one
-                        || record_csqs.contains(&"3_prime_UTR_variant")
+                                || expected_one_of.contains(&"5_prime_UTR_intron_variant")),
+                        record_csqs.contains(&"3_prime_UTR_variant")
                             && (expected_one_of.contains(&"3_prime_UTR_exon_variant")
-                                || expected_one_of.contains(&"3_prime_UTR_intron_variant"));
-                    // an inframe_indel can be a missense_variant if it is an MNV (which we do not explicitly check here)
-                    let found_one = found_one
-                        || expected_one_of.contains(&"inframe_indel")
-                            && (record_csqs.contains(&"missense_variant"));
-                    // inframe_indel also is a superclass of *_inframe_{deletion, insertion}
-                    let found_one = found_one
-                        || expected_one_of.contains(&"inframe_indel")
+                                || expected_one_of.contains(&"3_prime_UTR_intron_variant")),
+                        // an inframe_indel can be a missense_variant if it is an MNV (which we do not explicitly check here)
+                        expected_one_of.contains(&"inframe_indel")
+                            && (record_csqs.contains(&"missense_variant")),
+                        // inframe_indel also is a superclass of *_inframe_{deletion, insertion}
+                        expected_one_of.contains(&"inframe_indel")
                             && [
                                 "disruptive_inframe_deletion",
                                 "conservative_inframe_deletion",
@@ -2036,42 +2131,38 @@ mod test {
                                 "inframe_insertion",
                             ]
                             .iter()
-                            .any(|c| record_csqs.contains(c));
-                    // SnpEff has a different interpretation of disruptive/conservative inframe deletions.
-                    // We thus allow both.
-                    let found_one = found_one
-                        || expected_one_of.contains(&"disruptive_inframe_deletion")
+                            .any(|c| record_csqs.contains(c)),
+                        // SnpEff has a different interpretation of disruptive/conservative inframe deletions.
+                        // We thus allow both.
+                        expected_one_of.contains(&"disruptive_inframe_deletion")
                             && (record_csqs.contains(&"conservative_inframe_deletion"))
-                        || expected_one_of.contains(&"disruptive_inframe_insertion")
-                            && (record_csqs.contains(&"conservative_inframe_insertion"));
-                    // SnpEff may not predict `splice_region_variant` for 5' UTR correctly, so we
-                    // allow this.
-                    let found_one = found_one
-                        || expected_one_of.contains(&"splice_region_variant")
-                            && (record_csqs.contains(&"5_prime_UTR_variant"));
-                    // SnpEff does not predict `splice_polypyrimidine_tract_variant`
-                    let found_one = found_one
-                        || expected_one_of.contains(&"splice_polypyrimidine_tract_variant")
+                            || expected_one_of.contains(&"disruptive_inframe_insertion")
+                                && (record_csqs.contains(&"conservative_inframe_insertion")),
+                        // SnpEff may not predict `splice_region_variant` for 5' UTR correctly, so we
+                        // allow this.
+                        expected_one_of.contains(&"splice_region_variant")
+                            && (record_csqs.contains(&"5_prime_UTR_variant")),
+                        // SnpEff does not predict `splice_polypyrimidine_tract_variant`
+                        expected_one_of.contains(&"splice_polypyrimidine_tract_variant")
                             && (record_csqs.contains(&"splice_region_variant")
-                                || record_csqs.contains(&"intron_variant"));
-                    // For `GRCh37:3:193366573:A:ATATTGCCTAGAATGAACT`, SnpEff predicts
-                    // `stop_gained` while this rather is a intron variant.  We skip this variant.
-                    let found_one = found_one
-                        || record_csqs.contains(&"stop_gained")
-                            && record.var == "3-193366573-A-ATATTGCCTAGAATGAACT";
-                    // For `GRCh37:3:193409913:ATAAAT:A`, there appears to be a model error
-                    // in SnpEff as it predicts `exon_loss`.  We skip this variant.
-                    let found_one = found_one
-                        || record_csqs.contains(&"exon_loss_variant")
-                            && record.var == "3-193409913-ATAAAT-A";
-                    // SnpEff may predict `pMet1.?` as `initiator_codon_variant` rather than `start_lost`.
-                    let found_one = found_one
-                        || expected_one_of.contains(&"start_lost")
-                            && (record_csqs.contains(&"initiator_codon_variant"));
-                    // Similarly, SnpEff may predict `c.-1_1` as `start_retained` rather than `start_lost`.
-                    let found_one = found_one
-                        || expected_one_of.contains(&"start_lost")
-                            && (record_csqs.contains(&"start_retained_variant"));
+                                || record_csqs.contains(&"intron_variant")),
+                        // For `GRCh37:3:193366573:A:ATATTGCCTAGAATGAACT`, SnpEff predicts
+                        // `stop_gained` while this rather is a intron variant.  We skip this variant.
+                        record_csqs.contains(&"stop_gained")
+                            && record.var == "3-193366573-A-ATATTGCCTAGAATGAACT",
+                        // For `GRCh37:3:193409913:ATAAAT:A`, there appears to be a model error
+                        // in SnpEff as it predicts `exon_loss`.  We skip this variant.
+                        record_csqs.contains(&"exon_loss_variant")
+                            && record.var == "3-193409913-ATAAAT-A",
+                        // SnpEff may predict `pMet1.?` as `initiator_codon_variant` rather than `start_lost`.
+                        expected_one_of.contains(&"start_lost")
+                            && (record_csqs.contains(&"initiator_codon_variant")),
+                        // Similarly, SnpEff may predict `c.-1_1` as `start_retained` rather than `start_lost`.
+                        expected_one_of.contains(&"start_lost")
+                            && (record_csqs.contains(&"start_retained_variant")),
+                    ]
+                    .iter()
+                    .any(|b| *b);
 
                     assert!(
                         found_one,
