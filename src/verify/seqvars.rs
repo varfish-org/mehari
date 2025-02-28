@@ -248,22 +248,21 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         };
 
         // Extract the reference allele from the FASTA file (load from cache if possible).
-        let reference_allele = if let Some(reference_allele) =
-            ref_cache.get(&(record.location.clone(), is_del, is_ins))
-        {
-            reference_allele
-        } else {
-            let reference_allele = std::str::from_utf8(
-                fai_reader
-                    .query(&Region::new(contig, start..=end))?
-                    .sequence()
-                    .as_ref(),
-            )?
-            .to_owned();
-            ref_cache.insert((record.location.clone(), is_del, is_ins), reference_allele);
-            ref_cache
-                .get(&(record.location.clone(), is_del, is_ins))
-                .unwrap()
+        let reference_allele = match ref_cache.get(&(record.location.clone(), is_del, is_ins)) {
+            Some(reference_allele) => reference_allele,
+            _ => {
+                let reference_allele = std::str::from_utf8(
+                    fai_reader
+                        .query(&Region::new(contig, start..=end))?
+                        .sequence()
+                        .as_ref(),
+                )?
+                .to_owned();
+                ref_cache.insert((record.location.clone(), is_del, is_ins), reference_allele);
+                ref_cache
+                    .get(&(record.location.clone(), is_del, is_ins))
+                    .unwrap()
+            }
         };
 
         // Determine alternate allele, deletions and insertions need special handling.
@@ -276,18 +275,19 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         };
 
         // Extract prediction from mehari (load from cache if possible).
-        let anns = if let Some(pred_cache) = pred_cache.get(&record.location) {
-            pred_cache
-        } else {
-            let vcf_var = VcfVariant {
-                chromosome: contig.to_owned(),
-                position: start.get() as i32,
-                reference: reference_allele.to_owned(),
-                alternative: alt_allele.clone(),
-            };
-            let anns = predictor.predict(&vcf_var)?;
-            pred_cache.insert(record.location.clone(), anns);
-            pred_cache.get(&record.location).unwrap()
+        let anns = match pred_cache.get(&record.location) {
+            Some(pred_cache) => pred_cache,
+            _ => {
+                let vcf_var = VcfVariant {
+                    chromosome: contig.to_owned(),
+                    position: start.get() as i32,
+                    reference: reference_allele.to_owned(),
+                    alternative: alt_allele.clone(),
+                };
+                let anns = predictor.predict(&vcf_var)?;
+                pred_cache.insert(record.location.clone(), anns);
+                pred_cache.get(&record.location).unwrap()
+            }
         };
 
         if let Some(anns) = anns {

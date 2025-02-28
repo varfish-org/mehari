@@ -154,15 +154,18 @@ fn subset_tx_db(container: &TxSeqDatabase, selection: &Selection) -> Result<TxSe
             .zip(container_seq_db.aliases_idx.iter())
         {
             if tx_ids.contains(alias) {
-                if let Some(new_alias_idx) = old_to_new_idx.get(old_alias_idx) {
-                    aliases.push(alias.clone());
-                    aliases_idx.push(*new_alias_idx);
-                } else {
-                    let new_alias_idx = seqs.len();
-                    old_to_new_idx.insert(*old_alias_idx, new_alias_idx as u32);
-                    aliases.push(alias.clone());
-                    aliases_idx.push(new_alias_idx as u32);
-                    seqs.push(container_seq_db.seqs[*old_alias_idx as usize].clone());
+                match old_to_new_idx.get(old_alias_idx) {
+                    Some(new_alias_idx) => {
+                        aliases.push(alias.clone());
+                        aliases_idx.push(*new_alias_idx);
+                    }
+                    _ => {
+                        let new_alias_idx = seqs.len();
+                        old_to_new_idx.insert(*old_alias_idx, new_alias_idx as u32);
+                        aliases.push(alias.clone());
+                        aliases_idx.push(new_alias_idx as u32);
+                        seqs.push(container_seq_db.seqs[*old_alias_idx as usize].clone());
+                    }
                 }
             }
         }
