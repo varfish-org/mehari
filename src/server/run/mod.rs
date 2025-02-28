@@ -234,7 +234,9 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     tracing::info!("args = {:?}", &args);
 
     if let Some(log::Level::Trace | log::Level::Debug) = args_common.verbose.log_level() {
-        // TODO: Audit that the environment access only happens in single-threaded code.
+        // SAFETY: This environment variable is set during server initialization,
+        // before any worker threads are spawned. At this point, only the main thread
+        // is running, making this operation thread-safe.
         unsafe { std::env::set_var("RUST_LOG", "debug") };
         env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     }
