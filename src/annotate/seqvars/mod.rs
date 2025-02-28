@@ -1583,63 +1583,66 @@ impl FrequencyAnnotator {
         use crate::server::run::actix_server::seqvars_frequencies::*;
         // Annotate with frequency.
         if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
-            if let Some(freq) = self
+            match self
                 .db
                 .get_cf(self.db.cf_handle("autosomal").as_ref().unwrap(), key)?
             {
-                let val = auto::Record::from_buf(&freq);
-                Ok(Some(FrequencyResultEntry::Autosomal(
-                    AutosomalResultEntry {
-                        gnomad_exomes_an: val.gnomad_exomes.an,
-                        gnomad_exomes_hom: val.gnomad_exomes.ac_hom,
-                        gnomad_exomes_het: val.gnomad_exomes.ac_het,
-                        gnomad_genomes_an: val.gnomad_genomes.an,
-                        gnomad_genomes_hom: val.gnomad_genomes.ac_hom,
-                        gnomad_genomes_het: val.gnomad_genomes.ac_het,
-                    },
-                )))
-            } else {
-                Err(anyhow!("No frequency data found for variant {:?}", vcf_var))
+                Some(freq) => {
+                    let val = auto::Record::from_buf(&freq);
+                    Ok(Some(FrequencyResultEntry::Autosomal(
+                        AutosomalResultEntry {
+                            gnomad_exomes_an: val.gnomad_exomes.an,
+                            gnomad_exomes_hom: val.gnomad_exomes.ac_hom,
+                            gnomad_exomes_het: val.gnomad_exomes.ac_het,
+                            gnomad_genomes_an: val.gnomad_genomes.an,
+                            gnomad_genomes_hom: val.gnomad_genomes.ac_hom,
+                            gnomad_genomes_het: val.gnomad_genomes.ac_het,
+                        },
+                    )))
+                }
+                _ => Err(anyhow!("No frequency data found for variant {:?}", vcf_var)),
             }
         } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
-            if let Some(freq) = self
+            match self
                 .db
                 .get_cf(self.db.cf_handle("gonosomal").as_ref().unwrap(), key)?
             {
-                let val = xy::Record::from_buf(&freq);
-                Ok(Some(FrequencyResultEntry::Gonosomal(
-                    GonosomalResultEntry {
-                        gnomad_exomes_an: val.gnomad_exomes.an,
-                        gnomad_exomes_hom: val.gnomad_exomes.ac_hom,
-                        gnomad_exomes_het: val.gnomad_exomes.ac_het,
-                        gnomad_exomes_hemi: val.gnomad_exomes.ac_hemi,
-                        gnomad_genomes_an: val.gnomad_genomes.an,
-                        gnomad_genomes_hom: val.gnomad_genomes.ac_hom,
-                        gnomad_genomes_het: val.gnomad_genomes.ac_het,
-                        gnomad_genomes_hemi: val.gnomad_genomes.ac_hemi,
-                    },
-                )))
-            } else {
-                Err(anyhow!("No frequency data found for variant {:?}", vcf_var))
+                Some(freq) => {
+                    let val = xy::Record::from_buf(&freq);
+                    Ok(Some(FrequencyResultEntry::Gonosomal(
+                        GonosomalResultEntry {
+                            gnomad_exomes_an: val.gnomad_exomes.an,
+                            gnomad_exomes_hom: val.gnomad_exomes.ac_hom,
+                            gnomad_exomes_het: val.gnomad_exomes.ac_het,
+                            gnomad_exomes_hemi: val.gnomad_exomes.ac_hemi,
+                            gnomad_genomes_an: val.gnomad_genomes.an,
+                            gnomad_genomes_hom: val.gnomad_genomes.ac_hom,
+                            gnomad_genomes_het: val.gnomad_genomes.ac_het,
+                            gnomad_genomes_hemi: val.gnomad_genomes.ac_hemi,
+                        },
+                    )))
+                }
+                _ => Err(anyhow!("No frequency data found for variant {:?}", vcf_var)),
             }
         } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
-            if let Some(freq) = self
+            match self
                 .db
                 .get_cf(self.db.cf_handle("mitochondrial").as_ref().unwrap(), key)?
             {
-                let val = mt::Record::from_buf(&freq);
-                Ok(Some(FrequencyResultEntry::Mitochondrial(
-                    MitochondrialResultEntry {
-                        helix_an: val.helixmtdb.an,
-                        helix_hom: val.helixmtdb.ac_hom,
-                        helix_het: val.helixmtdb.ac_het,
-                        gnomad_genomes_an: val.gnomad_mtdna.an,
-                        gnomad_genomes_hom: val.gnomad_mtdna.ac_hom,
-                        gnomad_genomes_het: val.gnomad_mtdna.ac_het,
-                    },
-                )))
-            } else {
-                Err(anyhow!("No frequency data found for variant {:?}", vcf_var))
+                Some(freq) => {
+                    let val = mt::Record::from_buf(&freq);
+                    Ok(Some(FrequencyResultEntry::Mitochondrial(
+                        MitochondrialResultEntry {
+                            helix_an: val.helixmtdb.an,
+                            helix_hom: val.helixmtdb.ac_hom,
+                            helix_het: val.helixmtdb.ac_het,
+                            gnomad_genomes_an: val.gnomad_mtdna.an,
+                            gnomad_genomes_hom: val.gnomad_mtdna.ac_hom,
+                            gnomad_genomes_het: val.gnomad_mtdna.ac_het,
+                        },
+                    )))
+                }
+                _ => Err(anyhow!("No frequency data found for variant {:?}", vcf_var)),
             }
         } else {
             tracing::trace!(
@@ -1782,42 +1785,44 @@ impl ClinvarAnnotator {
         );
         let key: Vec<u8> = vcf_var.clone().into();
 
-        if let Some(raw_value) = self
+        match self
             .db
             .get_cf(self.db.cf_handle("clinvar").as_ref().unwrap(), key)?
         {
-            let record_list = annonars::pbs::clinvar::minimal::ExtractedVcvRecordList::decode(
-                &mut Cursor::new(&raw_value),
-            )?;
+            Some(raw_value) => {
+                let record_list = annonars::pbs::clinvar::minimal::ExtractedVcvRecordList::decode(
+                    &mut Cursor::new(&raw_value),
+                )?;
 
-            let mut clinvar_vcvs = Vec::new();
-            let mut clinvar_germline_classifications = Vec::new();
-            for clinvar_record in record_list.records.iter() {
-                let accession = clinvar_record.accession.as_ref().expect("must have VCV");
-                let vcv = format!("{}.{}", accession.accession, accession.version);
-                let classifications = clinvar_record
-                    .classifications
-                    .as_ref()
-                    .expect("must have classifications");
-                if let Some(germline_classification) = &classifications.germline_classification {
-                    let description = germline_classification
-                        .description
+                let mut clinvar_vcvs = Vec::new();
+                let mut clinvar_germline_classifications = Vec::new();
+                for clinvar_record in record_list.records.iter() {
+                    let accession = clinvar_record.accession.as_ref().expect("must have VCV");
+                    let vcv = format!("{}.{}", accession.accession, accession.version);
+                    let classifications = clinvar_record
+                        .classifications
                         .as_ref()
-                        .expect("description missing")
-                        .to_string();
-                    clinvar_vcvs.push(vcv);
-                    clinvar_germline_classifications.push(description);
+                        .expect("must have classifications");
+                    if let Some(germline_classification) = &classifications.germline_classification
+                    {
+                        let description = germline_classification
+                            .description
+                            .as_ref()
+                            .expect("description missing")
+                            .to_string();
+                        clinvar_vcvs.push(vcv);
+                        clinvar_germline_classifications.push(description);
+                    }
                 }
-            }
 
-            Ok(Some(
-                crate::server::run::actix_server::seqvars_clinvar::ClinvarResultEntry {
-                    clinvar_vcv: clinvar_vcvs,
-                    clinvar_germline_classification: clinvar_germline_classifications,
-                },
-            ))
-        } else {
-            Ok(None)
+                Ok(Some(
+                    crate::server::run::actix_server::seqvars_clinvar::ClinvarResultEntry {
+                        clinvar_vcv: clinvar_vcvs,
+                        clinvar_germline_classification: clinvar_germline_classifications,
+                    },
+                ))
+            }
+            _ => Ok(None),
         }
     }
 }
@@ -2018,30 +2023,33 @@ async fn run_with_writer(
     use futures::TryStreamExt;
     let mut records = reader.records(&header_in).await;
     loop {
-        if let Some(mut vcf_record) = records.try_next().await? {
-            // We currently can only process records with one alternate allele.
-            if vcf_record.alternate_bases().len() != 1 {
-                tracing::error!(
+        match records.try_next().await? {
+            Some(mut vcf_record) => {
+                // We currently can only process records with one alternate allele.
+                if vcf_record.alternate_bases().len() != 1 {
+                    tracing::error!(
                     "Found record with more than one alternate allele.  This is currently not supported. \
                     Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
                     &vcf_record
                 );
-                anyhow::bail!("multi-allelic records not supported");
+                    anyhow::bail!("multi-allelic records not supported");
+                }
+
+                annotator.annotate(&mut vcf_record)?;
+
+                if prev.elapsed().as_secs() >= 60 {
+                    tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
+                    prev = Instant::now();
+                }
+
+                // Write out the record.
+                writer
+                    .write_noodles_record(&header_out, &vcf_record)
+                    .await?;
             }
-
-            annotator.annotate(&mut vcf_record)?;
-
-            if prev.elapsed().as_secs() >= 60 {
-                tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
-                prev = Instant::now();
+            _ => {
+                break; // all done
             }
-
-            // Write out the record.
-            writer
-                .write_noodles_record(&header_out, &vcf_record)
-                .await?;
-        } else {
-            break; // all done
         }
 
         total_written += 1;

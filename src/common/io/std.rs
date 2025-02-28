@@ -92,7 +92,7 @@ where
 /// Given a `BufWriter<File>`, flush buffers and sync the file.
 #[macro_export]
 macro_rules! finalize_buf_writer {
-    ($a:expr) => {
+    ($a:expr_2021) => {
         $a.flush()
             .map_err(|e| anyhow::anyhow!("problem flushing buffers: {}", e))?;
         let file = $a

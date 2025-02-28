@@ -3526,12 +3526,16 @@ mod test {
         // generation.
         let mut records = reader.record_bufs(&header_in);
         loop {
-            if let Some(record) = records.next() {
-                let uuid = Uuid::from_bytes(bytes);
-                let record = converter.convert(pedigree, &record?, uuid, GenomeRelease::Grch37)?;
-                jsonl::write(&out_jsonl, &record)?;
-            } else {
-                break; // all done
+            match records.next() {
+                Some(record) => {
+                    let uuid = Uuid::from_bytes(bytes);
+                    let record =
+                        converter.convert(pedigree, &record?, uuid, GenomeRelease::Grch37)?;
+                    jsonl::write(&out_jsonl, &record)?;
+                }
+                _ => {
+                    break; // all done
+                }
             }
 
             bytes[0] += 1;
