@@ -1,13 +1,28 @@
+[workspace]
+members = [
+    "mehari-plugins",
+    "mehari-plugin-vep-nmd",
+]
+resolver = "2"
+
+[workspace.package]
+homepage = "https://github.com/varfish-org/mehari"
+repository = "https://github.com/varfish-org/mehari"
+license = "MIT"
+edition = "2021"
+readme = "README.md"
+
 [package]
 name = "mehari"
 version = "0.32.0"
-edition = "2021"
 authors = ["Manuel Holtgrewe <manuel.holtgrewe@bih-charite.de>"]
 description = "Variant effect prediction all in Rust"
-license = "MIT"
-repository = "https://github.com/varfish-org/mehari"
-readme = "README.md"
 rust-version = "1.75.0"
+edition = "2021"
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
 
 [features]
 default = []
@@ -79,6 +94,8 @@ zstd = "0.13"
 utoipa = { version = "5.2.0", features = ["actix_extras", "chrono", "indexmap", "openapi_extensions", "preserve_order", "yaml"] }
 utoipa-swagger-ui = { version = "9.0.0", features = ["actix-web"] }
 memmap2 = "0.9.5"
+extism = "1.1.0"
+mehari-plugins = { path = "mehari-plugins" }
 
 [dependencies.dhat]
 version = "0.3.3"

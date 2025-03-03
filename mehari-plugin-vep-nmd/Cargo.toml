@@ -1,0 +1,28 @@
+[package]
+name = "mehari-plugin-vep-nmd"
+version = "0.1.0"
+authors = ["Till Hartmann <till.hartmann@bih-charite.de>"]
+description = "NMD plugin for mehari, based on VEP's NMD plugin"
+edition = "2021"
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+
+# Once https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#per-package-target is stable, use that.
+# The .cargo/config.toml is ignored by Cargo (in the parent workspace).
+# Running cargo build from the mehari-plugin-vep-nmd directory (instead of from the parent mehari dir)
+# does pick up the target.
+# forced-target = "wasm32-unknown-unknown"
+
+[lib]
+crate_type = ["cdylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+extism-pdk = "1.1.0"
+extism-convert = "1.2.0"
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = "1.0.115"
+mehari-plugins = { path = "../mehari-plugins" }
