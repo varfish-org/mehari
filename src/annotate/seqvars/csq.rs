@@ -1615,9 +1615,9 @@ mod test {
     #[rstest::rstest]
     #[case("3:193311167:ATGT:T", vec![Consequence::StartLost, Consequence::ConservativeInframeDeletion])]
     #[case("3:193311170:TGGC:C", vec![Consequence::ConservativeInframeDeletion])]
-    #[case("3:193311170:TGGCG:G", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
+    #[case("3:193311170:TGGCG:G", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
     #[case("3:193311180:GTCG:G", vec![Consequence::DisruptiveInframeDeletion])]
-    #[case("3:193409910:GAAA:G", vec![Consequence::ConservativeInframeDeletion])]
+    #[case("3:193409910:GAAA:G", vec![Consequence::StopGained, Consequence::ConservativeInframeDeletion])]
     #[case("3:193409913:ATAA:A", vec![Consequence::StopLost, Consequence::FeatureElongation, Consequence::ConservativeInframeDeletion])]
     fn annotate_del_opa1_csqs(
         #[case] spdi: &str,
@@ -1807,7 +1807,7 @@ mod test {
         Ok(())
     }
 
-    /// This is a set of variants where VEP and mehari to disagree,
+    /// This is a set of variants where VEP and mehari tend to disagree,
     /// i.e. interesting/edge cases that are not as clear-cut as others.
     ///
     /// This test ensures we do not regress on these cases.
