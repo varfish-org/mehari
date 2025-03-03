@@ -1092,6 +1092,7 @@ impl ConsequencePredictor {
 
                                     match altered_sequence.len().cmp(&original_sequence.len()) {
                                         Ordering::Less => {
+                                            consequences |= Consequence::StopGained;
                                             consequences |= Consequence::FrameshiftTruncation;
                                         }
                                         Ordering::Equal => {
@@ -1101,6 +1102,7 @@ impl ConsequencePredictor {
                                             consequences &= !Consequence::FrameshiftVariant;
                                         }
                                         Ordering::Greater => {
+                                            consequences |= Consequence::StopLost;
                                             consequences |= Consequence::FrameshiftElongation;
                                         }
                                     }
