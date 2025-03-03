@@ -178,7 +178,7 @@ impl TranscriptExt for Transcript {
             || self
                 .biotype
                 .as_ref()
-                .map_or(false, |bt| bt.iter().any(|b| b.is_protein_coding()))
+                .is_some_and(|bt| bt.iter().any(|b| b.is_protein_coding()))
     }
 
     fn is_on_contig(&self, contig: &str) -> bool {
@@ -340,9 +340,11 @@ impl TranscriptLoader {
                     Reason::NoTranscripts;
             }
             if let Some(gene) = self.hgnc_id_to_gene.get(hgnc_id) {
-                if gene.biotype.as_ref().map_or(false, |bt| {
-                    bt.iter().any(|b| DISCARD_BIOTYPES_GENES.contains(b))
-                }) {
+                if gene
+                    .biotype
+                    .as_ref()
+                    .is_some_and(|bt| bt.iter().any(|b| DISCARD_BIOTYPES_GENES.contains(b)))
+                {
                     *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
                         Reason::Biotype;
                 }
@@ -729,7 +731,7 @@ impl TranscriptLoader {
                             if three_prime_truncated(tx) {
                                 reason |= Reason::ThreePrimeEndTruncated;
                             }
-                            if has_invalid_cds_length || self.fixes.get(&Identifier::TxId(tx_id.clone())).map_or(false, |f| f.contains(Fix::Cds)) {
+                            if has_invalid_cds_length || self.fixes.get(&Identifier::TxId(tx_id.clone())).is_some_and(|f| f.contains(Fix::Cds)) {
                                 reason |= Reason::InvalidCdsLength;
                             }
                         }
@@ -798,7 +800,7 @@ impl TranscriptLoader {
             if gene
                 .biotype
                 .as_ref()
-                .map_or(false, |bt| bt.contains(&BioType::Pseudogene))
+                .is_some_and(|bt| bt.contains(&BioType::Pseudogene))
             {
                 *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |= Reason::Pseudogene;
             }
@@ -1253,7 +1255,7 @@ impl TranscriptLoader {
                     .get(hgnc_id)
                     .unwrap_or(&empty);
                 let hgnc_reason = self.discards.get(&Identifier::Hgnc(*hgnc_id));
-                let filtered = hgnc_reason.map_or(false, |reason| !reason.is_empty());
+                let filtered = hgnc_reason.is_some_and(|reason| !reason.is_empty());
                 crate::pbs::txs::GeneToTxId {
                     gene_id: hgnc_id.to_string(),
                     tx_ids: tx_ids
@@ -1300,12 +1302,12 @@ impl TranscriptLoader {
 
         // Combine discard reasons for transcript and gene level.
         let reason = self.discards.get(&Identifier::TxId(tx_id.clone()));
-        let filtered = reason.map_or(false, |reason| !reason.is_empty());
+        let filtered = reason.is_some_and(|reason| !reason.is_empty());
         let filtered = filtered
             | self
                 .discards
                 .get(&Identifier::Hgnc(*hgnc_id))
-                .map_or(false, |reason| !reason.is_empty());
+                .is_some_and(|reason| !reason.is_empty());
 
         // ... build genome alignment for selected:
         let (genome_alignments, tags): (Vec<_>, Vec<_>) = tx
@@ -1319,7 +1321,7 @@ impl TranscriptLoader {
         let seleno_tag = tx
             .biotype
             .as_ref()
-            .map_or(false, |bt| bt.contains(&BioType::Selenoprotein))
+            .is_some_and(|bt| bt.contains(&BioType::Selenoprotein))
             .then(|| crate::pbs::txs::TranscriptTag::Selenoprotein.into());
 
         let tags = tags

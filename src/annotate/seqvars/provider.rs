@@ -1,8 +1,9 @@
 //! Implementation of `hgvs` Provider interface based on protobuf.
 
-use std::collections::HashMap;
-
-use crate::annotate::seqvars::{TranscriptPickMode, TranscriptPickType};
+use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType};
+use crate::annotate::seqvars::reference::{
+    InMemoryFastaAccess, ReferenceReader, UnbufferedIndexedFastaAccess,
+};
 use crate::db::create::Reason;
 use crate::db::TranscriptDatabase;
 use crate::{
@@ -23,7 +24,10 @@ use hgvs::{
     },
     sequences::{seq_md5, TranslationTable},
 };
+use indexmap::IndexMap;
 use itertools::Itertools;
+use std::collections::HashMap;
+use std::path::Path;
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &[
@@ -175,10 +179,40 @@ pub struct Provider {
     /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
+
+    /// for reading parts of reference sequences
+    reference_reader: Option<ReferenceReaderImpl>,
+
+    /// Mapping from chromosome to accession.
+    #[allow(dead_code)]
+    chrom_to_acc: IndexMap<String, String>,
+
+    /// Mapping from accession to chromosome.
+    acc_to_chrom: IndexMap<String, String>,
+
     /// The data version.
     data_version: String,
     /// The schema version.
     schema_version: String,
+}
+
+enum ReferenceReaderImpl {
+    InMemory(InMemoryFastaAccess),
+    Unbuffered(UnbufferedIndexedFastaAccess),
+}
+
+impl ReferenceReader for ReferenceReaderImpl {
+    fn get(
+        &self,
+        ac: &str,
+        start: Option<u64>,
+        end: Option<u64>,
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        match self {
+            ReferenceReaderImpl::InMemory(v) => v.get(ac, start, end),
+            ReferenceReaderImpl::Unbuffered(v) => v.get(ac, start, end),
+        }
+    }
 }
 
 fn transcript_length(tx: &Transcript) -> i32 {
@@ -203,7 +237,12 @@ impl Provider {
     /// # Arguments
     ///
     /// * `tx_seq_db` - The `TxSeqDatabase` to use.
-    pub fn new(mut tx_seq_db: TxSeqDatabase, config: Config) -> Self {
+    pub fn new(
+        mut tx_seq_db: TxSeqDatabase,
+        reference: Option<impl AsRef<Path>>,
+        in_memory_reference: bool,
+        config: Config,
+    ) -> Self {
         let tx_trees = TxIntervalTrees::new(&tx_seq_db);
         let gene_map = HashMap::from_iter(
             tx_seq_db
@@ -245,132 +284,7 @@ impl Provider {
                 .map(|(alias, idx)| (alias.clone(), *idx)),
         );
 
-        // When transcript picking is enabled, restrict to ManeSelect and ManePlusClinical if
-        // we have any such transcript.  Otherwise, fall back to the longest transcript.
-        let picked_gene_to_tx_id = if !config.pick_transcript.is_empty() {
-            if let Some(tx_db) = tx_seq_db.tx_db.as_mut() {
-                // The new gene-to-txid mapping we will build.
-                let mut new_gene_to_tx = Vec::new();
-
-                // Process each gene.
-                for entry in tx_db.gene_to_tx.iter() {
-                    // First, determine whether we have any MANE transcripts.
-                    let mut longest_tx_id = None;
-                    let mut tx_tags = entry
-                        .tx_ids
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, tx_id)| {
-                            tx_map.get(tx_id).map(|tx_idx| {
-                                let tx = &tx_db.transcripts[*tx_idx as usize];
-                                let tags = tx
-                                    .tags
-                                    .iter()
-                                    .filter_map(|tag| {
-                                        match TranscriptTag::try_from(*tag).unwrap() {
-                                            TranscriptTag::Unknown | TranscriptTag::Other => None,
-                                            TranscriptTag::Basic => Some(TranscriptPickType::Basic),
-                                            TranscriptTag::EnsemblCanonical => {
-                                                Some(TranscriptPickType::EnsemblCanonical)
-                                            }
-                                            TranscriptTag::ManeSelect => {
-                                                Some(TranscriptPickType::ManeSelect)
-                                            }
-                                            TranscriptTag::ManePlusClinical => {
-                                                Some(TranscriptPickType::ManePlusClinical)
-                                            }
-                                            TranscriptTag::RefSeqSelect => {
-                                                Some(TranscriptPickType::RefSeqSelect)
-                                            }
-                                            TranscriptTag::Selenoprotein => None,
-                                            TranscriptTag::GencodePrimary => {
-                                                Some(TranscriptPickType::GencodePrimary)
-                                            }
-                                        }
-                                    })
-                                    .collect_vec();
-                                let length = transcript_length(tx);
-                                if let Some((prev_i, prev_length)) = longest_tx_id.as_mut() {
-                                    if length > *prev_length {
-                                        *prev_i = i;
-                                        *prev_length = length;
-                                    }
-                                } else {
-                                    longest_tx_id = Some((i, length));
-                                }
-                                (tx_id, tags, length)
-                            })
-                        })
-                        .collect_vec();
-                    if let Some((i, _)) = longest_tx_id {
-                        tx_tags[i].1.push(TranscriptPickType::Length);
-                    }
-
-                    let tx_ids = match config.pick_transcript_mode {
-                        TranscriptPickMode::First => {
-                            // only keep the first transcript that fulfills the transcript picking strategy,
-                            // if any
-                            let tx_id = config
-                                .pick_transcript
-                                .iter()
-                                .filter_map(|pick| {
-                                    tx_tags
-                                        .iter()
-                                        .find(|(_, tags, _)| tags.contains(pick))
-                                        .map(|(tx_id, _, _)| tx_id)
-                                })
-                                .next();
-                            if let Some(tx_id) = tx_id {
-                                vec![tx_id.to_string()]
-                            } else {
-                                vec![]
-                            }
-                        }
-                        TranscriptPickMode::All => {
-                            // keep all transcripts that fulfill the transcript picking strategy
-                            tx_tags
-                                .iter()
-                                .filter_map(|(tx_id, tags, _)| {
-                                    tags.iter()
-                                        .any(|tag| config.pick_transcript.contains(tag))
-                                        .then_some(tx_id.to_string())
-                                })
-                                .collect()
-                        }
-                    };
-
-                    let new_entry = if !tx_ids.is_empty() {
-                        GeneToTxId {
-                            gene_id: entry.gene_id.clone(),
-                            tx_ids,
-                            filtered: Some(false),
-                            filter_reason: None,
-                        }
-                    } else {
-                        tracing::trace!("no transcript found for gene {} with the chosen transcript picking strategy: {:?}", &entry.gene_id, &config.pick_transcript);
-                        GeneToTxId {
-                            gene_id: entry.gene_id.clone(),
-                            tx_ids: vec![],
-                            filtered: Some(true),
-                            filter_reason: Some(Reason::NoTranscriptLeft as u32),
-                        }
-                    };
-
-                    tracing::trace!(
-                        "picked transcripts {:?} for gene {}",
-                        new_entry.tx_ids,
-                        new_entry.gene_id
-                    );
-                    new_gene_to_tx.push(new_entry);
-                }
-
-                Some(new_gene_to_tx)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let picked_gene_to_tx_id = Self::picked_genes_to_tx_map(&mut tx_seq_db, &config, &tx_map);
 
         // TODO obtain or construct data_version and schema_version somehow
         // for now, these are just set to a combination of things that make this provider instance
@@ -387,6 +301,21 @@ impl Provider {
             config
         );
         let schema_version = data_version.clone();
+
+        let reference_reader = match (reference, in_memory_reference) {
+            (Some(path), false) => Some(ReferenceReaderImpl::Unbuffered(
+                UnbufferedIndexedFastaAccess::from_path(path)
+                    .expect("Failed to open reference FASTA file"),
+            )),
+            (Some(path), true) => Some(ReferenceReaderImpl::InMemory(
+                InMemoryFastaAccess::from_path(path).expect("Failed to open reference FASTA file"),
+            )),
+            (None, _) => None,
+        };
+
+        let acc_to_chrom = _get_assembly_map(tx_seq_db.assembly());
+        let chrom_to_acc = _chrom_to_acc(&acc_to_chrom);
+
         Self {
             tx_seq_db,
             tx_trees,
@@ -394,9 +323,128 @@ impl Provider {
             tx_map,
             seq_map,
             picked_gene_to_tx_id,
+            reference_reader,
+            chrom_to_acc,
+            acc_to_chrom,
             data_version,
             schema_version,
         }
+    }
+
+    /// When transcript picking is enabled, restrict to ManeSelect and ManePlusClinical if we have any such transcript.
+    /// Otherwise, fall back to the longest transcript.
+    fn picked_genes_to_tx_map(
+        tx_seq_db: &mut TxSeqDatabase,
+        config: &Config,
+        tx_map: &HashMap<String, u32>,
+    ) -> Option<Vec<GeneToTxId>> {
+        if config.pick_transcript.is_empty() || tx_seq_db.tx_db.is_none() {
+            return None;
+        }
+        let tx_db = tx_seq_db.tx_db.as_mut().unwrap();
+        let mut new_gene_to_tx = Vec::new();
+
+        fn tag_to_picktype(tag: &i32) -> Option<TranscriptPickType> {
+            match TranscriptTag::try_from(*tag).unwrap() {
+                TranscriptTag::Unknown | TranscriptTag::Other => None,
+                TranscriptTag::Basic => Some(TranscriptPickType::Basic),
+                TranscriptTag::EnsemblCanonical => Some(TranscriptPickType::EnsemblCanonical),
+                TranscriptTag::ManeSelect => Some(TranscriptPickType::ManeSelect),
+                TranscriptTag::ManePlusClinical => Some(TranscriptPickType::ManePlusClinical),
+                TranscriptTag::RefSeqSelect => Some(TranscriptPickType::RefSeqSelect),
+                TranscriptTag::Selenoprotein => None,
+                TranscriptTag::GencodePrimary => Some(TranscriptPickType::GencodePrimary),
+            }
+        }
+
+        // Process each gene.
+        for entry in tx_db.gene_to_tx.iter() {
+            // First, determine whether we have any MANE transcripts.
+            let mut longest_tx_id = None;
+            let mut tx_tags = entry
+                .tx_ids
+                .iter()
+                .enumerate()
+                .filter_map(|(i, tx_id)| {
+                    tx_map.get(tx_id).map(|tx_idx| {
+                        let tx = &tx_db.transcripts[*tx_idx as usize];
+                        let tags = tx.tags.iter().filter_map(tag_to_picktype).collect_vec();
+                        let length = transcript_length(tx);
+                        if let Some((prev_i, prev_length)) = longest_tx_id.as_mut() {
+                            if length > *prev_length {
+                                *prev_i = i;
+                                *prev_length = length;
+                            }
+                        } else {
+                            longest_tx_id = Some((i, length));
+                        }
+                        (tx_id, tags, length)
+                    })
+                })
+                .collect_vec();
+            if let Some((i, _)) = longest_tx_id {
+                tx_tags[i].1.push(TranscriptPickType::Length);
+            }
+
+            let tx_ids = match config.pick_transcript_mode {
+                TranscriptPickMode::First => {
+                    // only keep the first transcript that fulfills the transcript picking strategy,
+                    // if any
+                    let tx_id = config
+                        .pick_transcript
+                        .iter()
+                        .filter_map(|pick| {
+                            tx_tags
+                                .iter()
+                                .find(|(_, tags, _)| tags.contains(pick))
+                                .map(|(tx_id, _, _)| tx_id)
+                        })
+                        .next();
+                    if let Some(tx_id) = tx_id {
+                        vec![tx_id.to_string()]
+                    } else {
+                        vec![]
+                    }
+                }
+                TranscriptPickMode::All => {
+                    // keep all transcripts that fulfill the transcript picking strategy
+                    tx_tags
+                        .iter()
+                        .filter_map(|(tx_id, tags, _)| {
+                            tags.iter()
+                                .any(|tag| config.pick_transcript.contains(tag))
+                                .then_some(tx_id.to_string())
+                        })
+                        .collect()
+                }
+            };
+
+            let new_entry = if !tx_ids.is_empty() {
+                GeneToTxId {
+                    gene_id: entry.gene_id.clone(),
+                    tx_ids,
+                    filtered: Some(false),
+                    filter_reason: None,
+                }
+            } else {
+                tracing::trace!("no transcript found for gene {} with the chosen transcript picking strategy: {:?}", &entry.gene_id, &config.pick_transcript);
+                GeneToTxId {
+                    gene_id: entry.gene_id.clone(),
+                    tx_ids: vec![],
+                    filtered: Some(true),
+                    filter_reason: Some(Reason::NoTranscriptLeft as u32),
+                }
+            };
+
+            tracing::trace!(
+                "picked transcripts {:?} for gene {}",
+                new_entry.tx_ids,
+                new_entry.gene_id
+            );
+            new_gene_to_tx.push(new_entry);
+        }
+
+        Some(new_gene_to_tx)
     }
 
     /// Return the assembly of the provider.
@@ -469,6 +517,16 @@ impl Provider {
             }
         })
     }
+
+    pub fn reference_available(&self) -> bool {
+        self.reference_reader.is_some()
+    }
+
+    pub fn build_chrom_to_acc(&self, assembly: Option<Assembly>) -> HashMap<String, String> {
+        let acc_to_chrom: IndexMap<String, String> =
+            self.get_assembly_map(assembly.unwrap_or_else(|| self.assembly()));
+        _chrom_to_acc(&acc_to_chrom).into_iter().collect()
+    }
 }
 
 impl ProviderInterface for Provider {
@@ -482,16 +540,8 @@ impl ProviderInterface for Provider {
         &self.schema_version
     }
 
-    fn get_assembly_map(
-        &self,
-        assembly: biocommons_bioutils::assemblies::Assembly,
-    ) -> indexmap::IndexMap<String, String> {
-        indexmap::IndexMap::from_iter(
-            ASSEMBLY_INFOS[assembly]
-                .sequences
-                .iter()
-                .map(|record| (record.refseq_ac.clone(), record.name.clone())),
-        )
+    fn get_assembly_map(&self, assembly: Assembly) -> indexmap::IndexMap<String, String> {
+        _get_assembly_map(assembly)
     }
 
     fn get_gene_info(&self, _hgnc: &str) -> Result<hgvs::data::interface::GeneInfoRecord, Error> {
@@ -519,26 +569,50 @@ impl ProviderInterface for Provider {
         begin: Option<usize>,
         end: Option<usize>,
     ) -> Result<String, Error> {
-        let seq_idx = *self
-            .seq_map
-            .get(ac)
-            .ok_or(Error::NoSequenceRecord(ac.to_string()))?;
-        let seq_idx = seq_idx as usize;
+        // In case the accession starts with "NC" or "NT" or "NW",
+        // we need to look up the sequence in the reference FASTA mapping.
+        let seq = if ac.starts_with("NC")
+            || ac.starts_with("NT")
+            || ac.starts_with("NW") && self.reference_available()
+        {
+            let chrom = self.acc_to_chrom.get(ac).map_or(ac, |v| v);
+            let reader = self.reference_reader.as_ref().unwrap();
+            let seq = reader.get(chrom, begin.map(|x| x as u64), end.map(|x| x as u64));
+            let seq = match seq.transpose() {
+                Some(Ok(seq)) => seq,
+                Some(Err(_)) => return Err(Error::NoSequenceRecord(chrom.to_string())),
+                None => reader
+                    .get(ac, begin.map(|x| x as u64), end.map(|x| x as u64))
+                    .map_err(|_| Error::NoSequenceRecord(ac.to_string()))?
+                    .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?,
+            };
+            return String::from_utf8(seq).map_err(|_| {
+                Error::NoSequenceRecord("Failed converting seq to UTF-8.".to_string())
+            });
+        } else {
+            // Otherwise, look up the sequence in the transcript database.
+            let seq_idx = *self
+                .seq_map
+                .get(ac)
+                .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?;
+            let seq_idx = seq_idx as usize;
+            self.tx_seq_db.seq_db.as_ref().expect("no seq_db?").seqs[seq_idx].as_bytes()
+        };
 
-        let seq = &self.tx_seq_db.seq_db.as_ref().expect("no seq_db?").seqs[seq_idx];
-        match (begin, end) {
+        let slice = match (begin, end) {
             (Some(begin), Some(end)) => {
                 let begin = std::cmp::min(begin, seq.len());
                 let end = std::cmp::min(end, seq.len());
-                Ok(seq[begin..end].to_string())
+                &seq[begin..end]
             }
             (Some(begin), None) => {
                 let begin = std::cmp::min(begin, seq.len());
-                Ok(seq[begin..].to_string())
+                &seq[begin..]
             }
-            (None, Some(end)) => Ok(seq[..end].to_string()),
-            (None, None) => Ok(seq.clone()),
-        }
+            (None, Some(end)) => &seq[..end],
+            (None, None) => seq,
+        };
+        Ok(String::from_utf8_lossy(slice).to_string())
     }
 
     fn get_acs_for_protein_seq(&self, seq: &str) -> Result<Vec<String>, Error> {
@@ -813,6 +887,29 @@ impl ProviderInterface for Provider {
             alt_aln_method: NCBI_ALN_METHOD.to_string(),
         }])
     }
+}
+
+fn _get_assembly_map(assembly: Assembly) -> IndexMap<String, String> {
+    IndexMap::from_iter(
+        ASSEMBLY_INFOS[assembly]
+            .sequences
+            .iter()
+            .map(|record| (record.refseq_ac.clone(), record.name.clone())),
+    )
+}
+
+fn _chrom_to_acc(acc_to_chrom: &IndexMap<String, String>) -> IndexMap<String, String> {
+    let mut chrom_to_acc = IndexMap::with_capacity(acc_to_chrom.len());
+    for (acc, chrom) in acc_to_chrom {
+        let chrom = if chrom.starts_with("chr") {
+            chrom.strip_prefix("chr").unwrap()
+        } else {
+            chrom
+        };
+        chrom_to_acc.insert(chrom.to_string(), acc.clone());
+        chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
+    }
+    chrom_to_acc
 }
 
 #[cfg(test)]

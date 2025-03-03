@@ -7,6 +7,7 @@ expression: res
       alternative: G
   consequences:
     - frameshift_variant
+    - frameshift_truncation
   putative_impact: high
   gene_symbol: OPA1
   gene_id: "HGNC:8140"

@@ -7,6 +7,7 @@ expression: res
       alternative: T
   consequences:
     - start_lost
+    - conservative_inframe_deletion
   putative_impact: high
   gene_symbol: OPA1
   gene_id: "HGNC:8140"

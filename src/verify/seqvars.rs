@@ -1,22 +1,21 @@
 //! Verification of the sequence variant consequence prediction.
 
+use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
+use crate::annotate::seqvars::{
+    csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
+    load_tx_db, path_component,
+    provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
+};
+use biocommons_bioutils::assemblies::Assembly;
+use clap::Parser;
+use noodles::core::{Position, Region};
+use quick_cache::unsync::Cache;
 use std::{
     fs::File,
     io::{BufRead, BufReader, Write},
     sync::Arc,
     time::Instant,
 };
-
-use crate::annotate::seqvars::{
-    csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
-    load_tx_db, path_component,
-    provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
-    ConsequenceBy, TranscriptPickMode, TranscriptPickType,
-};
-use biocommons_bioutils::assemblies::Assembly;
-use clap::Parser;
-use noodles::core::{Position, Region};
-use quick_cache::unsync::Cache;
 
 /// Command line arguments for `verify seqvars` sub command.
 #[derive(Parser, Debug)]
@@ -29,12 +28,16 @@ pub struct Args {
     /// Path to the input TSV file.
     #[arg(long)]
     pub path_input_tsv: String,
-    /// Path to the reference FASTA file.
 
+    /// Path to the reference FASTA file.
     #[arg(long)]
     pub path_reference_fasta: String,
-    /// Path to output TSV file.
 
+    /// Read the reference genome into memory.
+    #[arg(long, requires = "reference")]
+    pub in_memory_reference: bool,
+
+    /// Path to output TSV file.
     #[arg(long)]
     pub path_output_tsv: String,
 
@@ -132,9 +135,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         "Opening reference FASTA file: {}",
         &args.path_reference_fasta
     );
-    let fai_index = noodles::fasta::fai::read(format!("{}.fai", args.path_reference_fasta))?;
-    let mut fai_reader = noodles::fasta::indexed_reader::Builder::default()
-        .set_index(fai_index)
+    let mut fai_reader = noodles::fasta::io::indexed_reader::Builder::default()
         .build_from_path(&args.path_reference_fasta)?;
 
     // Read the serialized transcripts.
@@ -145,8 +146,13 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         path_component(assembly)
     ))?;
 
+    // let reference = noodles::fasta::io::indexed_reader::Builder::default()
+    //     .build_from_path(&args.path_reference_fasta)?;
+
     let provider = Arc::new(MehariProvider::new(
         tx_db,
+        Some(&args.path_reference_fasta),
+        args.in_memory_reference,
         MehariProviderConfigBuilder::default()
             .pick_transcript(args.pick_transcript.clone())
             .pick_transcript_mode(args.pick_transcript_mode)
@@ -242,22 +248,21 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         };
 
         // Extract the reference allele from the FASTA file (load from cache if possible).
-        let reference_allele = if let Some(reference_allele) =
-            ref_cache.get(&(record.location.clone(), is_del, is_ins))
-        {
-            reference_allele
-        } else {
-            let reference_allele = std::str::from_utf8(
-                fai_reader
-                    .query(&Region::new(contig, start..=end))?
-                    .sequence()
-                    .as_ref(),
-            )?
-            .to_owned();
-            ref_cache.insert((record.location.clone(), is_del, is_ins), reference_allele);
-            ref_cache
-                .get(&(record.location.clone(), is_del, is_ins))
-                .unwrap()
+        let reference_allele = match ref_cache.get(&(record.location.clone(), is_del, is_ins)) {
+            Some(reference_allele) => reference_allele,
+            _ => {
+                let reference_allele = std::str::from_utf8(
+                    fai_reader
+                        .query(&Region::new(contig, start..=end))?
+                        .sequence()
+                        .as_ref(),
+                )?
+                .to_owned();
+                ref_cache.insert((record.location.clone(), is_del, is_ins), reference_allele);
+                ref_cache
+                    .get(&(record.location.clone(), is_del, is_ins))
+                    .unwrap()
+            }
         };
 
         // Determine alternate allele, deletions and insertions need special handling.
@@ -270,18 +275,19 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         };
 
         // Extract prediction from mehari (load from cache if possible).
-        let anns = if let Some(pred_cache) = pred_cache.get(&record.location) {
-            pred_cache
-        } else {
-            let vcf_var = VcfVariant {
-                chromosome: contig.to_owned(),
-                position: start.get() as i32,
-                reference: reference_allele.to_owned(),
-                alternative: alt_allele.clone(),
-            };
-            let anns = predictor.predict(&vcf_var)?;
-            pred_cache.insert(record.location.clone(), anns);
-            pred_cache.get(&record.location).unwrap()
+        let anns = match pred_cache.get(&record.location) {
+            Some(pred_cache) => pred_cache,
+            _ => {
+                let vcf_var = VcfVariant {
+                    chromosome: contig.to_owned(),
+                    position: start.get() as i32,
+                    reference: reference_allele.to_owned(),
+                    alternative: alt_allele.clone(),
+                };
+                let anns = predictor.predict(&vcf_var)?;
+                pred_cache.insert(record.location.clone(), anns);
+                pred_cache.get(&record.location).unwrap()
+            }
         };
 
         if let Some(anns) = anns {

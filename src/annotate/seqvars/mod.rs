@@ -1,13 +1,28 @@
 //! Annotation of sequence variants.
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fmt::Display;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use self::ann::{AnnField, Consequence, FeatureBiotype};
+use crate::annotate::cli::{Sources, TranscriptSettings};
+use crate::annotate::genotype_string;
+use crate::annotate::seqvars::csq::{
+    ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
+};
+use crate::annotate::seqvars::provider::{
+    ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
+};
+use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
+use crate::common::{guess_assembly, GenomeRelease};
+use crate::db::merge::merge_transcript_databases;
+use crate::pbs::txs::TxSeqDatabase;
+use crate::ped::{PedigreeByName, Sex};
 use annonars::common::cli::is_canonical;
 use annonars::common::keys;
 use annonars::freqs::serialized::{auto, mt, xy};
@@ -16,6 +31,7 @@ use biocommons_bioutils::assemblies::Assembly;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use itertools::Itertools;
 use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
 use noodles::vcf::header::record::value::map::format::Type as FormatType;
 use noodles::vcf::header::record::value::map::info::Number;
@@ -35,29 +51,15 @@ use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use strum::{Display, VariantArray};
+use strum::Display;
 use thousands::Separable;
 use tokio::io::AsyncWriteExt;
-
-use crate::annotate::genotype_string;
-use crate::annotate::seqvars::csq::{
-    ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
-};
-use crate::annotate::seqvars::provider::{
-    ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
-};
-use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
-use crate::common::{guess_assembly, GenomeRelease};
-use crate::db::merge::merge_transcript_databases;
-use crate::pbs::txs::TxSeqDatabase;
-use crate::ped::{PedigreeByName, Sex};
-
-use self::ann::{AnnField, Consequence, FeatureBiotype};
 
 pub mod ann;
 pub mod binning;
 pub mod csq;
 pub mod provider;
+pub(crate) mod reference;
 
 /// Parsing of HGNC xlink records.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -80,6 +82,14 @@ pub struct Args {
     #[arg(long, value_enum)]
     pub genome_release: Option<GenomeRelease>,
 
+    /// Reference genome FASTA file (with accompanying index).
+    #[arg(long)]
+    pub reference: Option<PathBuf>,
+
+    /// Read the reference genome into memory.
+    #[arg(long, requires = "reference")]
+    pub in_memory_reference: bool,
+
     /// Path to the input PED file.
     #[arg(long)]
     pub path_input_ped: Option<String>,
@@ -90,28 +100,6 @@ pub struct Args {
 
     #[command(flatten)]
     pub output: PathOutput,
-
-    /// The transcript source.
-    #[arg(long, value_enum, default_value_t = csq::TranscriptSource::Both)]
-    pub transcript_source: csq::TranscriptSource,
-
-    /// Whether to report only the worst consequence for each picked transcript.
-    #[arg(long)]
-    pub report_most_severe_consequence_by: Option<ConsequenceBy>,
-
-    /// Which kind of transcript to pick / restrict to. Default is not to pick at all.
-    ///
-    /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
-    /// either the first one is kept or all are kept.
-    #[arg(long)]
-    pub pick_transcript: Vec<TranscriptPickType>,
-
-    /// Determines how to handle multiple transcripts. Default is to keep all.
-    ///
-    /// When transcript picking is enabled via `--pick-transcript`,
-    /// either keep the first one found or keep all that match.
-    #[arg(long, default_value = "all", requires = "pick_transcript")]
-    pub pick_transcript_mode: TranscriptPickMode,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
@@ -124,67 +112,10 @@ pub struct Args {
     /// What to annotate and which source to use.
     #[command(flatten)]
     pub sources: Sources,
-}
 
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Display,
-    clap::ValueEnum,
-    VariantArray,
-    parse_display::FromStr,
-)]
-pub enum ConsequenceBy {
-    Gene,
-    Transcript,
-    // or "Variant"?
-    Allele,
-}
-
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Display,
-    clap::ValueEnum,
-    VariantArray,
-    parse_display::FromStr,
-)]
-pub enum TranscriptPickType {
-    ManeSelect,
-    ManePlusClinical,
-    Length,
-    EnsemblCanonical,
-    RefSeqSelect,
-    GencodePrimary,
-    Basic,
-}
-
-#[derive(Debug, Copy, Clone, Display, clap::ValueEnum, Default)]
-pub enum TranscriptPickMode {
-    #[default]
-    First,
-    All,
-}
-
-#[derive(Debug, ClapArgs)]
-#[group(required = true, multiple = true)]
-pub struct Sources {
-    #[arg(long)]
-    transcripts: Option<Vec<String>>,
-    #[arg(long)]
-    frequencies: Option<String>,
-    #[arg(long)]
-    clinvar: Option<String>,
+    /// Transcript annotation related settings
+    #[command(flatten)]
+    pub transcript_settings: TranscriptSettings,
 }
 
 #[derive(Debug, Display, Copy, Clone, clap::ValueEnum, PartialEq, Eq, parse_display::FromStr)]
@@ -207,7 +138,7 @@ pub struct PathOutput {
     pub path_output_tsv: Option<String>,
 }
 
-fn build_header(header_in: &VcfHeader) -> VcfHeader {
+fn build_header(header_in: &VcfHeader, additional_records: &[(String, String)]) -> VcfHeader {
     let mut header_out = header_in.clone();
 
     header_out.infos_mut().insert(
@@ -325,6 +256,15 @@ fn build_header(header_in: &VcfHeader) -> VcfHeader {
         "clinvar_vcv".into(),
         Map::<Info>::new(Number::Count(1), InfoType::String, "ClinVar VCV accession"),
     );
+
+    for (key, value) in additional_records {
+        header_out
+            .insert(
+                key.parse().expect("invalid key"),
+                noodles::vcf::header::record::Value::from(value.as_ref()),
+            )
+            .unwrap();
+    }
 
     header_out
 }
@@ -1390,7 +1330,7 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
 }
 
 #[allow(clippy::large_enum_variant)]
-enum AnnotatorEnum {
+pub(crate) enum AnnotatorEnum {
     Frequency(FrequencyAnnotator),
     Clinvar(ClinvarAnnotator),
     Consequence(ConsequenceAnnotator),
@@ -1406,10 +1346,29 @@ impl AnnotatorEnum {
     }
 }
 
-struct Annotator {
+pub(crate) struct Annotator {
     annotators: Vec<AnnotatorEnum>,
 }
 
+impl Annotator {
+    fn versions_for_vcf_header(&self) -> Vec<(String, String)> {
+        // TODO also extract version information for frequencies and clinvar
+
+        let tx_db_version = self
+            .annotators
+            .iter()
+            .filter_map(|a| match a {
+                AnnotatorEnum::Consequence(a) => a.predictor.data_version(),
+                _ => None,
+            })
+            .next();
+        tx_db_version
+            .map(|v| vec![("mehariTxDbVersion".to_string(), v)])
+            .unwrap_or_default()
+    }
+}
+
+#[derive(Debug)]
 pub struct FrequencyAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
 }
@@ -1418,7 +1377,7 @@ impl FrequencyAnnotator {
         Self { db }
     }
 
-    fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
+    pub(crate) fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
         // Open the frequency RocksDB database in read only mode.
         tracing::info!("Opening frequency database");
         tracing::debug!("RocksDB path = {}", &path);
@@ -1481,7 +1440,7 @@ impl FrequencyAnnotator {
         Ok(())
     }
 
-    /// Annotate record on gonomosomal chromosome with gnomAD exomes/genomes.
+    /// Annotate record on gonosomal chromosome with gnomAD exomes/genomes.
     pub fn annotate_record_xy(
         &self,
         key: &[u8],
@@ -1491,51 +1450,47 @@ impl FrequencyAnnotator {
             .db
             .get_cf(self.db.cf_handle("gonosomal").as_ref().unwrap(), key)?
         {
-            let auto_record = xy::Record::from_buf(&freq);
+            let xy_record = xy::Record::from_buf(&freq);
 
             vcf_record.info_mut().insert(
                 "gnomad_exomes_an".into(),
-                Some(field::Value::Integer(auto_record.gnomad_exomes.an as i32)),
+                Some(field::Value::Integer(xy_record.gnomad_exomes.an as i32)),
             );
             vcf_record.info_mut().insert(
                 "gnomad_exomes_hom".into(),
-                Some(field::Value::Integer(
-                    auto_record.gnomad_exomes.ac_hom as i32,
-                )),
+                Some(field::Value::Integer(xy_record.gnomad_exomes.ac_hom as i32)),
             );
             vcf_record.info_mut().insert(
                 "gnomad_exomes_het".into(),
-                Some(field::Value::Integer(
-                    auto_record.gnomad_exomes.ac_het as i32,
-                )),
+                Some(field::Value::Integer(xy_record.gnomad_exomes.ac_het as i32)),
             );
             vcf_record.info_mut().insert(
                 "gnomad_exomes_hemi".into(),
                 Some(field::Value::Integer(
-                    auto_record.gnomad_exomes.ac_hemi as i32,
+                    xy_record.gnomad_exomes.ac_hemi as i32,
                 )),
             );
 
             vcf_record.info_mut().insert(
                 "gnomad_genomes_an".into(),
-                Some(field::Value::Integer(auto_record.gnomad_genomes.an as i32)),
+                Some(field::Value::Integer(xy_record.gnomad_genomes.an as i32)),
             );
             vcf_record.info_mut().insert(
                 "gnomad_genomes_hom".into(),
                 Some(field::Value::Integer(
-                    auto_record.gnomad_genomes.ac_hom as i32,
+                    xy_record.gnomad_genomes.ac_hom as i32,
                 )),
             );
             vcf_record.info_mut().insert(
                 "gnomad_genomes_het".into(),
                 Some(field::Value::Integer(
-                    auto_record.gnomad_genomes.ac_het as i32,
+                    xy_record.gnomad_genomes.ac_het as i32,
                 )),
             );
             vcf_record.info_mut().insert(
                 "gnomad_genomes_hemi".into(),
                 Some(field::Value::Integer(
-                    auto_record.gnomad_genomes.ac_hemi as i32,
+                    xy_record.gnomad_genomes.ac_hemi as i32,
                 )),
             );
         };
@@ -1605,8 +1560,101 @@ impl FrequencyAnnotator {
         }
         Ok(())
     }
+
+    pub(crate) fn annotate_variant(
+        &self,
+        vcf_var: &VcfVariant,
+    ) -> anyhow::Result<
+        Option<crate::server::run::actix_server::seqvars_frequencies::FrequencyResultEntry>,
+    > {
+        // Only attempt lookups into RocksDB for canonical contigs.
+        if !is_canonical(&vcf_var.chromosome) {
+            return Ok(None);
+        }
+
+        // Build key for RocksDB database
+        let vcf_var = keys::Var::from(
+            &vcf_var.chromosome,
+            vcf_var.position,
+            &vcf_var.reference,
+            &vcf_var.alternative,
+        );
+        let key: Vec<u8> = vcf_var.clone().into();
+        use crate::server::run::actix_server::seqvars_frequencies::*;
+        // Annotate with frequency.
+        if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
+            match self
+                .db
+                .get_cf(self.db.cf_handle("autosomal").as_ref().unwrap(), key)?
+            {
+                Some(freq) => {
+                    let val = auto::Record::from_buf(&freq);
+                    Ok(Some(FrequencyResultEntry::Autosomal(
+                        AutosomalResultEntry {
+                            gnomad_exomes_an: val.gnomad_exomes.an,
+                            gnomad_exomes_hom: val.gnomad_exomes.ac_hom,
+                            gnomad_exomes_het: val.gnomad_exomes.ac_het,
+                            gnomad_genomes_an: val.gnomad_genomes.an,
+                            gnomad_genomes_hom: val.gnomad_genomes.ac_hom,
+                            gnomad_genomes_het: val.gnomad_genomes.ac_het,
+                        },
+                    )))
+                }
+                _ => Err(anyhow!("No frequency data found for variant {:?}", vcf_var)),
+            }
+        } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
+            match self
+                .db
+                .get_cf(self.db.cf_handle("gonosomal").as_ref().unwrap(), key)?
+            {
+                Some(freq) => {
+                    let val = xy::Record::from_buf(&freq);
+                    Ok(Some(FrequencyResultEntry::Gonosomal(
+                        GonosomalResultEntry {
+                            gnomad_exomes_an: val.gnomad_exomes.an,
+                            gnomad_exomes_hom: val.gnomad_exomes.ac_hom,
+                            gnomad_exomes_het: val.gnomad_exomes.ac_het,
+                            gnomad_exomes_hemi: val.gnomad_exomes.ac_hemi,
+                            gnomad_genomes_an: val.gnomad_genomes.an,
+                            gnomad_genomes_hom: val.gnomad_genomes.ac_hom,
+                            gnomad_genomes_het: val.gnomad_genomes.ac_het,
+                            gnomad_genomes_hemi: val.gnomad_genomes.ac_hemi,
+                        },
+                    )))
+                }
+                _ => Err(anyhow!("No frequency data found for variant {:?}", vcf_var)),
+            }
+        } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
+            match self
+                .db
+                .get_cf(self.db.cf_handle("mitochondrial").as_ref().unwrap(), key)?
+            {
+                Some(freq) => {
+                    let val = mt::Record::from_buf(&freq);
+                    Ok(Some(FrequencyResultEntry::Mitochondrial(
+                        MitochondrialResultEntry {
+                            helix_an: val.helixmtdb.an,
+                            helix_hom: val.helixmtdb.ac_hom,
+                            helix_het: val.helixmtdb.ac_het,
+                            gnomad_genomes_an: val.gnomad_mtdna.an,
+                            gnomad_genomes_hom: val.gnomad_mtdna.ac_hom,
+                            gnomad_genomes_het: val.gnomad_mtdna.ac_het,
+                        },
+                    )))
+                }
+                _ => Err(anyhow!("No frequency data found for variant {:?}", vcf_var)),
+            }
+        } else {
+            tracing::trace!(
+                "Record @{:?} on non-canonical chromosome, skipping.",
+                &vcf_var
+            );
+            Ok(None)
+        }
+    }
 }
 
+#[derive(Debug)]
 pub struct ClinvarAnnotator {
     db: DBWithThreadMode<rocksdb::MultiThreaded>,
 }
@@ -1638,7 +1686,7 @@ impl ClinvarAnnotator {
         Self { db }
     }
 
-    fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
+    pub(crate) fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
         tracing::info!("Opening ClinVar database");
         tracing::debug!("RocksDB path = {}", &path);
         let options = rocksdb::Options::default();
@@ -1717,10 +1765,70 @@ impl ClinvarAnnotator {
         }
         Ok(())
     }
+
+    pub(crate) fn annotate_variant(
+        &self,
+        vcf_var: &VcfVariant,
+    ) -> anyhow::Result<Option<crate::server::run::actix_server::seqvars_clinvar::ClinvarResultEntry>>
+    {
+        // Only attempt lookups into RocksDB for canonical contigs.
+        if !is_canonical(&vcf_var.chromosome) {
+            return Ok(None);
+        }
+
+        // Build key for RocksDB database
+        let vcf_var = keys::Var::from(
+            &vcf_var.chromosome,
+            vcf_var.position,
+            &vcf_var.reference,
+            &vcf_var.alternative,
+        );
+        let key: Vec<u8> = vcf_var.clone().into();
+
+        match self
+            .db
+            .get_cf(self.db.cf_handle("clinvar").as_ref().unwrap(), key)?
+        {
+            Some(raw_value) => {
+                let record_list = annonars::pbs::clinvar::minimal::ExtractedVcvRecordList::decode(
+                    &mut Cursor::new(&raw_value),
+                )?;
+
+                let mut clinvar_vcvs = Vec::new();
+                let mut clinvar_germline_classifications = Vec::new();
+                for clinvar_record in record_list.records.iter() {
+                    let accession = clinvar_record.accession.as_ref().expect("must have VCV");
+                    let vcv = format!("{}.{}", accession.accession, accession.version);
+                    let classifications = clinvar_record
+                        .classifications
+                        .as_ref()
+                        .expect("must have classifications");
+                    if let Some(germline_classification) = &classifications.germline_classification
+                    {
+                        let description = germline_classification
+                            .description
+                            .as_ref()
+                            .expect("description missing")
+                            .to_string();
+                        clinvar_vcvs.push(vcv);
+                        clinvar_germline_classifications.push(description);
+                    }
+                }
+
+                Ok(Some(
+                    crate::server::run::actix_server::seqvars_clinvar::ClinvarResultEntry {
+                        clinvar_vcv: clinvar_vcvs,
+                        clinvar_germline_classification: clinvar_germline_classifications,
+                    },
+                ))
+            }
+            _ => Ok(None),
+        }
+    }
 }
 
-struct ConsequenceAnnotator {
-    predictor: ConsequencePredictor,
+pub(crate) struct ConsequenceAnnotator {
+    pub(crate) predictor: ConsequencePredictor,
 }
 
 impl ConsequenceAnnotator {
@@ -1728,9 +1836,18 @@ impl ConsequenceAnnotator {
         Self { predictor }
     }
 
-    fn from_db_and_args(tx_db: TxSeqDatabase, args: &Args) -> anyhow::Result<Self> {
+    pub(crate) fn from_db_and_settings(
+        tx_db: TxSeqDatabase,
+        reference: Option<impl AsRef<Path>>,
+        in_memory_reference: bool,
+        transcript_settings: &TranscriptSettings,
+    ) -> anyhow::Result<Self> {
+        let args = transcript_settings;
+
         let provider = Arc::new(MehariProvider::new(
             tx_db,
+            reference,
+            in_memory_reference,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(args.pick_transcript.clone())
                 .pick_transcript_mode(args.pick_transcript_mode)
@@ -1776,7 +1893,7 @@ impl ConsequenceAnnotator {
 }
 
 impl Annotator {
-    fn new(annotators: Vec<AnnotatorEnum>) -> Self {
+    pub(crate) fn new(annotators: Vec<AnnotatorEnum>) -> Self {
         Self { annotators }
     }
 
@@ -1860,12 +1977,11 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 async fn run_with_writer(
     writer: &mut impl AsyncAnnotatedVariantWriter,
     args: &Args,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), Error> {
     tracing::info!("Open VCF and read header");
     let mut reader = open_variant_reader(&args.path_input_vcf).await?;
 
     let mut header_in = reader.read_header().await?;
-    let header_out = build_header(&header_in);
 
     // Work around glnexus issue with RNC.
     if let Some(format) = header_in.formats_mut().get_mut("RNC") {
@@ -1882,7 +1998,19 @@ async fn run_with_writer(
     writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
-    let annotator = setup_annotator(args)?;
+    let annotator = setup_seqvars_annotator(
+        &args.sources,
+        args.reference.as_ref(),
+        args.in_memory_reference,
+        &args.transcript_settings,
+        Some(assembly),
+    )?;
+
+    let mut additional_header_info = annotator.versions_for_vcf_header();
+    additional_header_info.push(("mehariCmd".into(), env::args().join(" ")));
+    additional_header_info.push(("mehariVersion".into(), env!("CARGO_PKG_VERSION").into()));
+
+    let header_out = build_header(&header_in, &additional_header_info);
 
     // Perform the VCF annotation.
     tracing::info!("Annotating VCF ...");
@@ -1895,30 +2023,33 @@ async fn run_with_writer(
     use futures::TryStreamExt;
     let mut records = reader.records(&header_in).await;
     loop {
-        if let Some(mut vcf_record) = records.try_next().await? {
-            // We currently can only process records with one alternate allele.
-            if vcf_record.alternate_bases().len() != 1 {
-                tracing::error!(
+        match records.try_next().await? {
+            Some(mut vcf_record) => {
+                // We currently can only process records with one alternate allele.
+                if vcf_record.alternate_bases().len() != 1 {
+                    tracing::error!(
                     "Found record with more than one alternate allele.  This is currently not supported. \
                     Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
                     &vcf_record
                 );
-                anyhow::bail!("multi-allelic records not supported");
+                    anyhow::bail!("multi-allelic records not supported");
+                }
+
+                annotator.annotate(&mut vcf_record)?;
+
+                if prev.elapsed().as_secs() >= 60 {
+                    tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
+                    prev = Instant::now();
+                }
+
+                // Write out the record.
+                writer
+                    .write_noodles_record(&header_out, &vcf_record)
+                    .await?;
             }
-
-            annotator.annotate(&mut vcf_record)?;
-
-            if prev.elapsed().as_secs() >= 60 {
-                tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
-                prev = Instant::now();
+            _ => {
+                break; // all done
             }
-
-            // Write out the record.
-            writer
-                .write_noodles_record(&header_out, &vcf_record)
-                .await?;
-        } else {
-            break; // all done
         }
 
         total_written += 1;
@@ -1941,37 +2072,147 @@ async fn run_with_writer(
     Ok(())
 }
 
-fn setup_annotator(args: &Args) -> Result<Annotator, Error> {
+pub(crate) fn proto_assembly_from(assembly: &Assembly) -> Option<crate::pbs::txs::Assembly> {
+    crate::pbs::txs::Assembly::from_str_name(&format!(
+        "ASSEMBLY_{}",
+        match assembly {
+            Assembly::Grch38 => "GRCH38",
+            _ => "GRCH37",
+        }
+    ))
+}
+
+pub(crate) fn setup_seqvars_annotator(
+    sources: &Sources,
+    reference: Option<impl AsRef<Path>>,
+    in_memory_reference: bool,
+    transcript_settings: &TranscriptSettings,
+    assembly: Option<Assembly>,
+) -> Result<Annotator, Error> {
     let mut annotators = vec![];
 
     // Add the frequency annotator if requested.
-    if let Some(rocksdb_path) = &args.sources.frequencies {
-        annotators.push(FrequencyAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Frequency)?)
+    if let Some(rocksdb_paths) = &sources.frequencies {
+        let freq_dbs = initialize_frequency_annotators_for_assembly(rocksdb_paths, assembly)?;
+        for freq_db in freq_dbs {
+            annotators.push(AnnotatorEnum::Frequency(freq_db))
+        }
     }
 
     // Add the ClinVar annotator if requested.
-    if let Some(rocksdb_path) = &args.sources.clinvar {
-        annotators.push(ClinvarAnnotator::from_path(rocksdb_path).map(AnnotatorEnum::Clinvar)?)
+    if let Some(rocksdb_paths) = &sources.clinvar {
+        let clinvar_dbs = initialize_clinvar_annotators_for_assembly(rocksdb_paths, assembly)?;
+        for clinvar_db in clinvar_dbs {
+            annotators.push(AnnotatorEnum::Clinvar(clinvar_db))
+        }
     }
 
     // Add the consequence annotator if requested.
-    if let Some(tx_sources) = &args.sources.transcripts {
+    if let Some(tx_sources) = &sources.transcripts {
         tracing::info!("Opening transcript database(s)");
 
-        let tx_db = merge_transcript_databases(
-            tx_sources
-                .iter()
-                .map(load_tx_db)
-                .collect::<anyhow::Result<Vec<_>>>()?,
-        )?;
+        let databases = load_transcript_dbs_for_assembly(tx_sources, assembly)?;
 
-        annotators.push(
-            ConsequenceAnnotator::from_db_and_args(tx_db, args).map(AnnotatorEnum::Consequence)?,
-        );
+        if databases.is_empty() {
+            tracing::warn!("No suitable transcript databases found for requested assembly {:?}, therefore no consequence prediction will occur.", &assembly);
+        } else {
+            let tx_db = merge_transcript_databases(databases)?;
+            tracing::info!(
+                "Loaded transcript database(s) from {}",
+                &tx_sources.join(", ")
+            );
+            annotators.push(
+                ConsequenceAnnotator::from_db_and_settings(
+                    tx_db,
+                    reference,
+                    in_memory_reference,
+                    transcript_settings,
+                )
+                .map(AnnotatorEnum::Consequence)?,
+            );
+        }
     }
 
     let annotator = Annotator::new(annotators);
     Ok(annotator)
+}
+
+pub(crate) fn initialize_clinvar_annotators_for_assembly(
+    rocksdb_paths: &[String],
+    assembly: Option<Assembly>,
+) -> Result<Vec<ClinvarAnnotator>, Error> {
+    rocksdb_paths
+        .iter()
+        .filter_map(|rocksdb_path| {
+            let skip = assembly.is_some_and(|a| !rocksdb_path.contains(path_component(a)));
+            if !skip {
+                tracing::info!(
+                    "Loading ClinVar database for assembly {:?} from {}",
+                    &assembly,
+                    &rocksdb_path
+                );
+                Some(ClinvarAnnotator::from_path(rocksdb_path))
+            } else {
+                tracing::warn!(
+                "Skipping ClinVar database as its assembly does not match the requested one ({:?})",
+                &assembly
+            );
+                None
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn initialize_frequency_annotators_for_assembly(
+    rocksdb_paths: &[String],
+    assembly: Option<Assembly>,
+) -> Result<Vec<FrequencyAnnotator>, Error> {
+    rocksdb_paths.iter().filter_map(|rocksdb_path| {
+        let skip = assembly.is_some_and(|a| !rocksdb_path.contains(path_component(a)));
+        if !skip {
+            tracing::info!(
+                    "Loading frequency database for assembly {:?} from {}",
+                    &assembly,
+                    &rocksdb_path
+                );
+            Some(FrequencyAnnotator::from_path(rocksdb_path))
+        } else {
+            tracing::warn!("Skipping frequency database as its assembly does not match the requested one ({:?})", &assembly);
+            None
+        }
+    }).collect()
+}
+
+pub(crate) fn load_transcript_dbs_for_assembly(
+    tx_sources: &[String],
+    assembly: Option<Assembly>,
+) -> Result<Vec<TxSeqDatabase>, Error> {
+    let pb_assembly = assembly.as_ref().and_then(proto_assembly_from);
+
+    // Filter out any transcript databases that do not match the requested assembly.
+    let check_assembly = |db: &TxSeqDatabase, assembly: crate::pbs::txs::Assembly| {
+        db.source_version
+            .iter()
+            .map(|s| s.assembly)
+            .any(|a| a == i32::from(assembly))
+    };
+    let databases = tx_sources
+        .iter()
+        .enumerate()
+        .map(|(i, path)| (i, load_tx_db(path)))
+        .filter_map(|(i, txdb)| match txdb {
+            Ok(db) => match pb_assembly {
+                Some(assembly) if check_assembly(&db, assembly) => Some(Ok(db)),
+                Some(_) => {
+                    tracing::info!("Skipping transcript database {} as its version {:?} does not support the requested assembly ({:?})", &tx_sources[i], &db.source_version, &assembly);
+                    None
+                }
+                None => Some(Ok(db)),
+            },
+            Err(_) => Some(txdb),
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(databases)
 }
 
 /// Create for all alternate alleles from the given VCF record.
@@ -1993,13 +2234,13 @@ pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usiz
 
 #[cfg(test)]
 mod test {
+    use super::binning::bin_from_range;
+    use super::{run, Args, PathOutput};
+    use crate::annotate::cli::ConsequenceBy;
+    use crate::annotate::cli::{Sources, TranscriptSettings};
     use clap_verbosity_flag::Verbosity;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
-
-    use super::binning::bin_from_range;
-    use super::{csq::TranscriptSource, run, Args, ConsequenceBy, PathOutput};
-    use crate::annotate::seqvars::Sources;
 
     #[tokio::test]
     async fn smoke_test_output_vcf() -> Result<(), anyhow::Error> {
@@ -2012,11 +2253,13 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            reference: None,
+            in_memory_reference: true,
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: Some(path_out.into_os_string().into_string().unwrap()),
@@ -2027,8 +2270,8 @@ mod test {
                 "tests/data/annotate/seqvars/brca1.examples.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: None,
@@ -2037,6 +2280,12 @@ mod test {
         run(&args_common, &args).await?;
 
         let actual = std::fs::read_to_string(args.output.path_output_vcf.unwrap())?;
+        // remove vcf header lines starting with ##mehari
+        let actual = actual
+            .lines()
+            .filter(|line| !line.starts_with("##mehari"))
+            .collect::<Vec<_>>()
+            .join("\n");
         insta::assert_snapshot!(actual);
 
         Ok(())
@@ -2053,11 +2302,13 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            reference: None,
+            in_memory_reference: true,
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2068,8 +2319,8 @@ mod test {
                 "tests/data/annotate/seqvars/brca1.examples.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
@@ -2106,11 +2357,13 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            reference: None,
+            in_memory_reference: true,
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2121,8 +2374,8 @@ mod test {
                 "tests/data/annotate/seqvars/badly_formed_vcf_entry.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
@@ -2153,11 +2406,13 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            reference: None,
+            in_memory_reference: true,
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2168,8 +2423,8 @@ mod test {
                 "tests/data/annotate/seqvars/mitochondrial_variants.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
@@ -2202,11 +2457,13 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            reference: None,
+            in_memory_reference: true,
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2217,8 +2474,8 @@ mod test {
                 "tests/data/annotate/seqvars/clair3-glnexus-min.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
@@ -2251,11 +2508,13 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch38";
         let args = Args {
+            reference: None,
+            in_memory_reference: true,
             genome_release: None,
-            report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-            transcript_source: TranscriptSource::Both,
-            pick_transcript: vec![],
-            pick_transcript_mode: Default::default(),
+            transcript_settings: TranscriptSettings {
+                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                ..Default::default()
+            },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
             output: PathOutput {
                 path_output_vcf: None,
@@ -2266,8 +2525,8 @@ mod test {
                 "tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped",
             )),
             sources: Sources {
-                frequencies: Some(format!("{prefix}/{assembly}/seqvars/freqs")),
-                clinvar: Some(format!("{prefix}/{assembly}/seqvars/clinvar")),
+                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
+                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),

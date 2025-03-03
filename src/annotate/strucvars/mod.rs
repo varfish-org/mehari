@@ -35,7 +35,7 @@ use noodles::vcf::variant::{Record, RecordBuf as VcfRecord};
 use noodles::vcf::Header as VcfHeader;
 use rand::rngs::StdRng;
 use rand::RngCore;
-use rand_core::SeedableRng;
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, IntoEnumIterator};
 use uuid::Uuid;
@@ -58,19 +58,18 @@ mod maelstrom;
 #[derive(Parser, Debug, Clone)]
 #[command(about = "Annotate structural variant VCF files", long_about = None)]
 pub struct Args {
-    /// Path to the mehari database folder.
-    #[arg(long)]
-    pub path_db: String,
-
     /// Genome release to use, default is to auto-detect.
     #[arg(long, value_enum)]
     pub genome_release: Option<GenomeRelease>,
+
     /// Path to the input PED file.
     #[arg(long)]
     pub path_input_ped: String,
+
     /// Path to the input VCF files.
     #[arg(long, required = true)]
     pub path_input_vcf: Vec<String>,
+
     #[command(flatten)]
     pub output: PathOutput,
 
@@ -86,9 +85,11 @@ pub struct Args {
     /// Minimal reciprocal overlap to require.
     #[arg(long, default_value_t = 0.8)]
     pub min_overlap: f32,
+
     /// Slack to use around break-ends.
     #[arg(long, default_value_t = 50)]
     pub slack_bnd: i32,
+
     /// Slack to use around insertions.
     #[arg(long, default_value_t = 50)]
     pub slack_ins: i32,
@@ -96,6 +97,7 @@ pub struct Args {
     /// Seed for random number generator (UUIDs), if any.
     #[arg(long)]
     pub rng_seed: Option<u64>,
+
     /// Optionally, value to write to `##fileDate`.
     #[arg(long)]
     pub file_date: Option<String>,
@@ -126,6 +128,7 @@ pub mod vcf_header {
     use noodles::vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, END_POSITION, POSITION_CONFIDENCE_INTERVALS, SV_TYPE,
     };
+    use std::collections::HashMap;
 
     use noodles::vcf::variant::record::samples::keys::key::{
         CONDITIONAL_GENOTYPE_QUALITY, FILTER, GENOTYPE, GENOTYPE_COPY_NUMBER,
@@ -358,7 +361,7 @@ pub mod vcf_header {
                 Map::<Format>::new(FormatNumber::Count(1), Type::Integer, "Split-end coverage"),
             )
             .add_format(
-                "src",
+                "src", // FIXME this is clearly the same format as above?!
                 Map::<Format>::new(
                     FormatNumber::Count(1),
                     Type::Integer,
@@ -424,10 +427,21 @@ pub mod vcf_header {
         // Wait for https://github.com/zaeleus/noodles/issues/162#issuecomment-1514444101
         // let mut b: record::value::map::Builder<record::value::map::Other> = Map::<noodles::vcf::header::record::value::map::Other>::builder();
 
-        for i in pedigree.individuals.values() {
-            if header.sample_names().contains(&i.name) {
-                builder = builder.add_sample_name(i.name.clone());
+        let individuals = pedigree
+            .individuals
+            .values()
+            .map(|i| (i.name.clone(), i))
+            .collect::<HashMap<_, _>>();
+
+        for sample in header.sample_names() {
+            let individual = individuals.get(sample);
+            if individual.is_none() {
+                tracing::debug!("Sample {} not part of the pedigree, skipping.", sample);
+                continue;
             }
+            let i = individual.unwrap();
+
+            builder = builder.add_sample_name(i.name.clone());
 
             // Add SAMPLE entry.
             builder = builder.insert(
@@ -832,7 +846,6 @@ impl AsyncAnnotatedVariantWriter for VarFishStrucvarTsvWriter {
         }
 
         // First, create genotype info records.
-        let mut gt_it = record.samples().values();
         for sample_name in header.sample_names() {
             tsv_record.genotype.entries.push(GenotypeInfo {
                 name: sample_name.clone(),
@@ -840,7 +853,10 @@ impl AsyncAnnotatedVariantWriter for VarFishStrucvarTsvWriter {
             });
 
             let entry = tsv_record.genotype.entries.last_mut().expect("just pushed");
-            let sample = gt_it.next().expect("genotype iterator exhausted");
+            let sample = record
+                .samples()
+                .get(header, sample_name)
+                .ok_or_else(|| anyhow::anyhow!("Sample {} not found in VCF record", sample_name))?;
 
             for (key, value) in sample.keys().as_ref().iter().zip(sample.values().iter()) {
                 match (key.as_ref(), value) {
@@ -3149,7 +3165,7 @@ async fn run_with_writer(
     let mut rng = if let Some(rng_seed) = args.rng_seed {
         StdRng::seed_from_u64(rng_seed)
     } else {
-        StdRng::from_entropy()
+        StdRng::from_os_rng()
     };
 
     // Load maelstrom coverage tracks if given.
@@ -3510,12 +3526,16 @@ mod test {
         // generation.
         let mut records = reader.record_bufs(&header_in);
         loop {
-            if let Some(record) = records.next() {
-                let uuid = Uuid::from_bytes(bytes);
-                let record = converter.convert(pedigree, &record?, uuid, GenomeRelease::Grch37)?;
-                jsonl::write(&out_jsonl, &record)?;
-            } else {
-                break; // all done
+            match records.next() {
+                Some(record) => {
+                    let uuid = Uuid::from_bytes(bytes);
+                    let record =
+                        converter.convert(pedigree, &record?, uuid, GenomeRelease::Grch37)?;
+                    jsonl::write(&out_jsonl, &record)?;
+                }
+                _ => {
+                    break; // all done
+                }
             }
 
             bytes[0] += 1;
@@ -4155,7 +4175,6 @@ mod test {
         let out_path = temp.join(format!("out{}", suffix));
 
         let args = Args {
-            path_db: String::from("tests/data/db/create"),
             genome_release: Some(GenomeRelease::Grch37),
             path_input_ped: String::from("tests/data/annotate/strucvars/maelstrom/delly2-min.ped"),
             path_input_vcf: vec![String::from(
@@ -4191,6 +4210,48 @@ mod test {
         ))?;
         let actual = std::fs::read_to_string(out_path)?;
 
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    // Checks whether the sample order stays consistent between input and output vcf.
+    // This is important for the pedigree information to be correctly associated with the samples
+    // in the output VCF.
+    //
+    // cf. https://github.com/varfish-org/mehari/issues/668
+    #[tokio::test]
+    async fn test_sample_order_consistency() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+
+        let out_path = temp.join("out.vcf");
+
+        let args = Args {
+            genome_release: Some(GenomeRelease::Grch38),
+            path_input_ped: String::from("tests/data/annotate/strucvars/test.order.ped"),
+            path_input_vcf: vec![String::from("tests/data/annotate/strucvars/test.order.vcf")],
+            output: PathOutput {
+                path_output_vcf: Some(format!("{}", out_path.display())),
+                path_output_tsv: None,
+            },
+            max_var_count: None,
+            path_cov_vcf: vec![],
+            file_date: Some(String::from("20250121")),
+            min_overlap: 0.8,
+            slack_bnd: 50,
+            slack_ins: 50,
+            rng_seed: Some(42),
+        };
+
+        run(&args_common, &args).await?;
+
+        let expected =
+            std::fs::read_to_string("tests/data/annotate/strucvars/test.order.expected.vcf")?;
+        let actual = std::fs::read_to_string(&out_path)?;
         assert_eq!(actual, expected);
 
         Ok(())

@@ -154,8 +154,8 @@ fn load_cdot_files(paths: &[PathBuf]) -> Result<IdCollection> {
 #[derive(Debug, Serialize, Deserialize)]
 struct HgncEntry {
     hgnc_id: String,
-    location: String,
-    location_sortable: String,
+    location: Option<String>,
+    location_sortable: Option<String>,
     locus_group: String,
     locus_type: String,
     name: String,
@@ -476,7 +476,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
             continue;
         }
 
-        let has_transcripts = info.map_or(false, |info| {
+        let has_transcripts = info.is_some_and(|info| {
             info.iter()
                 .any(|a| matches!(a, Id::NcbiTranscript(_) | Id::EnsemblTranscript(_)))
         });
@@ -502,7 +502,8 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
                 let cdot_ids = info
                     .unwrap_or(&empty)
                     .iter()
-                    .filter_map(|id| cdot_keys.contains(id).then(|| format!("{id:?}")))
+                    .filter(|id| cdot_keys.contains(id))
+                    .map(|id| format!("{id:?}"))
                     .join(", ");
                 report.push(Entry::new(
                     Status::Err,
@@ -532,7 +533,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
 
         let info = hgnc_ids.get(id);
 
-        let has_transcripts = info.map_or(false, |info| {
+        let has_transcripts = info.is_some_and(|info| {
             info.iter()
                 .any(|a| matches!(a, Id::NcbiTranscript(_) | Id::EnsemblTranscript(_)))
         });
@@ -543,7 +544,8 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
             let cdot_ids = info
                 .unwrap_or(&empty)
                 .iter()
-                .filter_map(|id| cdot_keys.contains(id).then(|| format!("{id:?}")))
+                .filter(|id| cdot_keys.contains(id))
+                .map(|id| format!("{id:?}"))
                 .join(", ");
             report.push(Entry::new(
                 Status::Err,

@@ -92,12 +92,11 @@ impl Reader {
         for result in query {
             let record = result?;
 
-            let window_end = if let Some(Some(Integer(window_end))) =
-                record.info().get(header, "END").transpose()?
-            {
-                window_end as usize
-            } else {
-                anyhow::bail!("missing INFO/END in record");
+            let window_end = match record.info().get(header, "END").transpose()? {
+                Some(Some(Integer(window_end))) => window_end as usize,
+                _ => {
+                    anyhow::bail!("missing INFO/END in record");
+                }
             };
             let window_start: usize = record
                 .variant_start()

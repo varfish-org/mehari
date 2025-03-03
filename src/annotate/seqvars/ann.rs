@@ -1,11 +1,11 @@
 //! Code for annotating variants based on molecular consequence.
 use enumflags2::bitflags;
+use nom::Parser;
 use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{alphanumeric1, digit1},
     combinator::{all_consuming, map},
-    sequence::tuple,
     IResult,
 };
 use parse_display::{Display, FromStr};
@@ -85,6 +85,14 @@ pub enum Consequence {
     /// SO:frameshift_variant, VEP:frameshift_variant
     FrameshiftVariant,
 
+    /// "A frameshift variant that causes the translational reading frame to be extended relative to the reference feature."
+    /// SO:frameshift_elongation
+    FrameshiftElongation,
+
+    /// "A frameshift variant that causes the translational reading frame to be shortened relative to the reference feature."
+    /// SO:frameshift_truncation
+    FrameshiftTruncation,
+
     /// "A sequence variant where at least one base of the terminator codon (stop) is changed, resulting in an elongated transcript."
     /// SO:stop_lost, VEP:stop_lost
     StopLost,
@@ -127,10 +135,13 @@ pub enum Consequence {
     /// SO:missense_variant, VEP:missense_variant
     MissenseVariant,
 
-    // Not used by mehari, but by VEP (we're usually more specific)
-    // /// "A sequence_variant which is predicted to change the protein encoded in the coding sequence."
-    // /// SO:protein_altering_variant, VEP:missense_variant
-    // ProteinAlteringVariant,
+    /// "A sequence variant whereby at least one base of a codon encoding a rare amino acid is changed, resulting in a different encoded amino acid."
+    /// SO:rare_amino_acid_variant
+    RareAminoAcidVariant,
+
+    /// "A sequence_variant which is predicted to change the protein encoded in the coding sequence."
+    /// SO:protein_altering_variant, VEP:missense_variant
+    ProteinAlteringVariant,
 
     // low impact
     /// "A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript."
@@ -261,6 +272,8 @@ pub enum Consequence {
     // /// "A sequence_variant is a non exact copy of a sequence_feature or genome exhibiting one or more sequence_alteration."
     // /// SO:sequence_variant, VEP:sequence_variant
     // SequenceVariant,
+    /// "A transcript variant occurring within an intron."
+    /// SO:intron_variant, VEP:intron_variant
     IntronVariant,
 
     /// "A sequence variant where the structure of the gene is changed."
@@ -278,6 +291,8 @@ impl From<Consequence> for PutativeImpact {
             | SpliceDonorVariant
             | StopGained
             | FrameshiftVariant
+            | FrameshiftElongation
+            | FrameshiftTruncation
             | StopLost
             | StartLost
             | TranscriptAmplification
@@ -287,7 +302,9 @@ impl From<Consequence> for PutativeImpact {
             | DisruptiveInframeDeletion
             | ConservativeInframeInsertion
             | ConservativeInframeDeletion
-            | MissenseVariant => PutativeImpact::Moderate,
+            | ProteinAlteringVariant
+            | MissenseVariant
+            | RareAminoAcidVariant => PutativeImpact::Moderate,
             SpliceDonorFifthBaseVariant
             | SpliceRegionVariant
             | SpliceDonorRegionVariant
@@ -359,11 +376,12 @@ pub enum Allele {
 
 mod parse {
     use nom::bytes::complete::take_while1;
+    use nom::Parser;
 
     pub static NA_IUPAC: &str = "ACGTURYMKWSBDHVNacgturymkwsbdhvn";
 
     pub fn na1(input: &str) -> Result<(&str, &str), nom::Err<nom::error::Error<&str>>> {
-        take_while1(|c: char| NA_IUPAC.contains(c))(input)
+        take_while1(|c: char| NA_IUPAC.contains(c)).parse(input)
     }
 }
 
@@ -373,12 +391,13 @@ impl Allele {
             Self::parse_compound,
             Self::parse_alt_ref,
             Self::parse_alt,
-        )))(input)
+        )))
+        .parse(input)
     }
 
     fn parse_compound(input: &str) -> IResult<&str, Self> {
         map(
-            tuple((
+            (
                 parse::na1,
                 tag("-"),
                 alphanumeric1,
@@ -388,7 +407,7 @@ impl Allele {
                 parse::na1,
                 tag(">"),
                 parse::na1,
-            )),
+            ),
             |(alternative, _, other_chrom, _, other_pos, _, other_ref, _, other_alt)| {
                 Allele::Compound {
                     alternative: alternative.to_string(),
@@ -398,23 +417,26 @@ impl Allele {
                     other_alt: other_alt.to_string(),
                 }
             },
-        )(input)
+        )
+        .parse(input)
     }
 
     fn parse_alt_ref(input: &str) -> IResult<&str, Self> {
         map(
-            tuple((parse::na1, tag("-"), parse::na1)),
+            (parse::na1, tag("-"), parse::na1),
             |(alternative, _, reference)| Allele::AltRef {
                 alternative: alternative.to_string(),
                 reference: reference.to_string(),
             },
-        )(input)
+        )
+        .parse(input)
     }
 
     fn parse_alt(input: &str) -> IResult<&str, Self> {
         map(parse::na1, |alternative| Allele::Alt {
             alternative: alternative.to_string(),
-        })(input)
+        })
+        .parse(input)
     }
 }
 
@@ -583,39 +605,41 @@ impl std::fmt::Display for Pos {
 
 impl Pos {
     fn parse_number_neg(input: &str) -> IResult<&str, i32> {
-        map(tuple((tag("-"), digit1::<&str, _>)), |(sign, num)| {
+        map((tag("-"), digit1::<&str, _>), |(sign, num)| {
             let num = num.parse::<i32>().unwrap();
             if sign == "-" {
                 -num
             } else {
                 num
             }
-        })(input)
+        })
+        .parse(input)
     }
 
     fn parse_number_nosign(input: &str) -> IResult<&str, i32> {
-        map(digit1::<&str, _>, |num| num.parse::<i32>().unwrap())(input)
+        map(digit1::<&str, _>, |num| num.parse::<i32>().unwrap()).parse(input)
     }
 
     fn parse_number(input: &str) -> IResult<&str, i32> {
-        alt((Self::parse_number_neg, Self::parse_number_nosign))(input)
+        alt((Self::parse_number_neg, Self::parse_number_nosign)).parse(input)
     }
 
     fn parse_with_total(input: &str) -> IResult<&str, Self> {
-        map(
-            tuple((Self::parse_number, tag("/"), digit1)),
-            |(num, _, total)| Pos {
+        map((Self::parse_number, tag("/"), digit1), |(num, _, total)| {
+            Pos {
                 ord: num,
                 total: Some(total.parse::<i32>().unwrap()),
-            },
-        )(input)
+            }
+        })
+        .parse(input)
     }
 
     fn parse_no_total(input: &str) -> IResult<&str, Self> {
         map(Self::parse_number, |num| Pos {
             ord: num,
             total: None,
-        })(input)
+        })
+        .parse(input)
     }
 }
 
@@ -623,7 +647,8 @@ impl FromStr for Pos {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        all_consuming(alt((Self::parse_with_total, Self::parse_no_total)))(s)
+        all_consuming(alt((Self::parse_with_total, Self::parse_no_total)))
+            .parse(s)
             .map(|(_, value)| value)
             .map_err(|e| anyhow::anyhow!("{}", e))
     }
