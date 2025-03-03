@@ -1,13 +1,15 @@
 ---
 source: src/annotate/seqvars/csq.rs
 expression: res
+snapshot_kind: text
 ---
 - allele:
     Alt:
       alternative: G
   consequences:
+    - stop_gained
     - conservative_inframe_deletion
-  putative_impact: moderate
+  putative_impact: high
   gene_symbol: OPA1
   gene_id: "HGNC:8140"
   feature_type:

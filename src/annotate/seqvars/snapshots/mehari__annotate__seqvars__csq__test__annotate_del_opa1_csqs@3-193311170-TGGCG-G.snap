@@ -1,11 +1,13 @@
 ---
 source: src/annotate/seqvars/csq.rs
 expression: res
+snapshot_kind: text
 ---
 - allele:
     Alt:
       alternative: G
   consequences:
+    - stop_gained
     - frameshift_variant
     - frameshift_truncation
   putative_impact: high
