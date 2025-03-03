@@ -590,7 +590,6 @@ impl ConsequencePredictor {
                     let consequences_protein = self.analyze_protein_variant(
                         &var_c,
                         &var_p,
-                        &protein_pos,
                         conservative,
                         &tx_record.tx_ac,
                     );
@@ -1038,7 +1037,6 @@ impl ConsequencePredictor {
         &self,
         var_c: &HgvsVariant,
         var_p: &HgvsVariant,
-        protein_pos: &Option<Pos>,
         conservative: bool,
         tx_accession: &str,
     ) -> Consequences {
@@ -1121,17 +1119,22 @@ impl ConsequencePredictor {
                                     consequences |= Consequence::StopRetainedVariant;
                                 } else {
                                     consequences |= Consequence::StopGained;
-                                    // if the substitution happens right before the stop codon
-                                    // and if it is a conservative change
-                                    // then it is not a stop gained
-                                    // cf. 1:43450470:GCCT:G, ENST00000634258.3:c.10294_10296del/p.Leu3432Ter
-                                    if let Some(p) = protein_pos {
-                                        if p.total.is_some_and(|t| p.ord == t - 1) && conservative {
-                                            consequences &= !Consequence::StopGained;
-                                            consequences |=
-                                                Consequence::ConservativeInframeDeletion;
-                                        }
-                                    }
+
+                                    // We previously had a special case for the following:
+                                    // // if the substitution happens right before the stop codon
+                                    // // and if it is a conservative change
+                                    // // then it is not a stop gained
+                                    // // cf. 1:43450470:GCCT:G, ENST00000634258.3:c.10294_10296del/p.Leu3432Ter
+                                    // if let Some(p) = protein_pos {
+                                    //     if p.total.is_some_and(|t| p.ord == t - 1) && conservative {
+                                    //         consequences &= !Consequence::StopGained;
+                                    //         consequences |=
+                                    //             Consequence::ConservativeInframeDeletion;
+                                    //     }
+                                    // }
+                                    // However, it seems like this is incorrectly reported in clinVar
+                                    // https://www.ncbi.nlm.nih.gov/clinvar/variation/1376043/
+                                    // since *effectively* this is a stop gained variant
                                 }
                             } else {
                                 consequences |= Consequence::MissenseVariant;
