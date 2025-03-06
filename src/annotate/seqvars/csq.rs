@@ -970,6 +970,13 @@ impl ConsequencePredictor {
                 consequences |= Consequence::StopLost;
             }
 
+            if starts_left_of_start
+                && ends_right_of_stop
+                && matches!(edit, NaEdit::DelNum { .. } | NaEdit::DelRef { .. })
+            {
+                consequences |= Consequence::TranscriptAblation;
+            }
+
             // Detect variants affecting the 5'/3' UTRs.
             if starts_left_of_start && start_base < 0 {
                 if is_intronic {
