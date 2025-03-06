@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.1](https://github.com/varfish-org/mehari/compare/v0.32.0...v0.32.1) (2025-03-06)
+
+
+### Bug Fixes
+
+* report `transcript_ablation` for deletions starting pre start and ending post stop ([#702](https://github.com/varfish-org/mehari/issues/702)) ([e71a153](https://github.com/varfish-org/mehari/commit/e71a153953140e2783a22220045d6d9761d63929))
+
 ## [0.32.0](https://github.com/varfish-org/mehari/compare/v0.31.0...v0.32.0) (2025-02-25)
 
 
