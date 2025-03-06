@@ -584,7 +584,7 @@ impl ConsequencePredictor {
                     let conservative = is_conservative_cds_variant(&var_c);
 
                     let consequences_cds =
-                        Self::analyze_cds_variant(&var_c, is_exonic, is_intronic, conservative);
+                        Self::analyze_cds_variant(&var_c, is_exonic, conservative);
 
                     // Analyze `var_p` for changes in the protein sequence.
                     let consequences_protein = self.analyze_protein_variant(
@@ -939,7 +939,6 @@ impl ConsequencePredictor {
     fn analyze_cds_variant(
         var_c: &HgvsVariant,
         is_exonic: bool,
-        is_intronic: bool,
         conservative: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
@@ -954,6 +953,16 @@ impl ConsequencePredictor {
             let start_cds_from = loc.start.cds_from;
             // let end_base = loc.end.base;
             let end_cds_from = loc.end.cds_from;
+
+            // Update is_intronic flag with information from var_c.
+            // From hgvs spec:
+            // > Base-Offset coordinates use a base position,
+            //   which is an index in the specified sequence,
+            //   and an optional offset from that base position.
+            //   Non-zero offsets refer to non-coding sequence,
+            //   such as 5’ UTR, 3’ UTR, or intronic position.
+            let is_intronic =
+                loc.start.offset.unwrap_or(0) != 0 && loc.end.offset.unwrap_or(0) != 0;
 
             // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
             //
@@ -995,7 +1004,7 @@ impl ConsequencePredictor {
                 }
             }
 
-            if !ends_right_of_stop && !starts_left_of_start && (!is_intronic || is_exonic) {
+            if !ends_right_of_stop && !starts_left_of_start && (!is_intronic && is_exonic) {
                 match edit {
                     NaEdit::RefAlt {
                         reference,
