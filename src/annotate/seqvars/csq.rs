@@ -1160,29 +1160,16 @@ impl ConsequencePredictor {
                         }
                         ProteinEdit::DelIns { alternative } => {
                             consequences |= Consequence::ProteinAlteringVariant;
-                            match alternative
+                            if alternative
                                 .len()
                                 .cmp(&(loc.start.number.abs_diff(loc.end.number) as usize + 1))
+                                == Ordering::Equal
                             {
-                                Ordering::Less if conservative => {
-                                    consequences |= Consequence::ConservativeInframeDeletion;
-                                }
-                                Ordering::Less => {
-                                    consequences |= Consequence::DisruptiveInframeDeletion;
-                                }
-                                Ordering::Equal => {
-                                    // When the delins does not change the CDS length,
-                                    // it is a missense variant, not an inframe deletion
-                                    // cf https://github.com/Ensembl/ensembl-vep/issues/1388
-                                    consequences |= Consequence::MissenseVariant;
-                                    consequences &= !Consequence::ProteinAlteringVariant;
-                                }
-                                Ordering::Greater if conservative => {
-                                    consequences |= Consequence::ConservativeInframeInsertion;
-                                }
-                                Ordering::Greater => {
-                                    consequences |= Consequence::DisruptiveInframeInsertion;
-                                }
+                                // When the delins does not change the CDS length,
+                                // it is a missense variant, not an inframe deletion
+                                // cf https://github.com/Ensembl/ensembl-vep/issues/1388
+                                consequences |= Consequence::MissenseVariant;
+                                consequences &= !Consequence::ProteinAlteringVariant;
                             }
 
                             if (is_stop(&loc.start.aa) || is_stop(&loc.end.aa))
