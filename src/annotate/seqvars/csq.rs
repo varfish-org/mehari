@@ -1097,9 +1097,12 @@ impl ConsequencePredictor {
                                     let original_sequence = &original_sequence;
 
                                     // trim altered sequence to the first stop encountered
-                                    let altered_sequence = if let Some(pos) = altered_sequence
-                                        .find('*')
-                                        .or_else(|| altered_sequence.find('X'))
+                                    let altered_sequence = if let Some(pos) =
+                                        altered_sequence.find('*')
+                                    // do not use the 'X' fallback here,
+                                    // as that is _usually_ only added
+                                    // when the number of bases is not divisible by 3.
+                                    // .or_else(|| altered_sequence.find('X'))
                                     {
                                         &altered_sequence[..=pos]
                                     } else {
