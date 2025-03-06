@@ -1102,6 +1102,8 @@ impl ConsequencePredictor {
                                     // do not use the 'X' fallback here,
                                     // as that is _usually_ only added
                                     // when the number of bases is not divisible by 3.
+                                    // We only want to identify cases where a new/later
+                                    // stop codon is encountered
                                     // .or_else(|| altered_sequence.find('X'))
                                     {
                                         &altered_sequence[..=pos]
