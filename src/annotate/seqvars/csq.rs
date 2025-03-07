@@ -898,6 +898,7 @@ impl ConsequencePredictor {
 
         // Check the case where the variant overlaps with the splice region (1-3 bases in exon
         // or 3-8 bases in intron).
+        // n.b. the 1-3 bases in exon check is already done within `analyze_exonic_variant`.
         // We have to check all cases independently and not with `else`
         // because the variant may be larger.
         if var_overlaps(intron_start + 2, intron_start + 8)
