@@ -703,7 +703,7 @@ impl ConsequencePredictor {
                 || consequences_protein.is_empty())
             // if the protein consequence also includes a frameshift, then we keep it
             && !consequences_protein
-                .intersects(Consequence::FrameshiftElongation | Consequence::FrameshiftTruncation)
+                .intersects(Consequence::FrameshiftElongation | Consequence::FrameshiftTruncation | Consequence::FrameshiftVariant)
         {
             *consequences &= !checked;
         }
