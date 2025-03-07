@@ -700,10 +700,10 @@ impl ConsequencePredictor {
         if checked != Consequences::empty()
             // if the protein consequence is not effectively empty, we remove the CDS frameshift consequence
             && !(consequences_protein.eq(&Consequence::GeneVariant)
-                || consequences_protein.is_empty())
+            || consequences_protein.is_empty())
             // if the protein consequence also includes a frameshift, then we keep it
             && !consequences_protein
-                .intersects(Consequence::FrameshiftElongation | Consequence::FrameshiftTruncation | Consequence::FrameshiftVariant)
+            .intersects(Consequence::FrameshiftElongation | Consequence::FrameshiftTruncation | Consequence::FrameshiftVariant)
         {
             *consequences &= !checked;
         }
