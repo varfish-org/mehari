@@ -2096,6 +2096,16 @@ mod test {
                                 && (expected_one_of.contains(&"disruptive_inframe_insertion")
                                     || expected_one_of
                                         .contains(&"conservative_inframe_insertion"))),
+                        // delins on protein level are sometimes erroneously reported as inframe_insertion/deletion instead
+                        (expected_one_of.contains(&"protein_altering_variant")
+                            && ([
+                                "disruptive_inframe_deletion",
+                                "disruptive_inframe_insertion",
+                                "conservative_inframe_deletion",
+                                "conservative_inframe_insertion",
+                            ]
+                            .iter()
+                            .any(|c| record_csqs.contains(c)))),
                         // NB: We cannot predict 5_prime_UTR_premature_start_codon_gain_variant yet. For now, we
                         // also accept 5_prime_UTR_variant.
                         ((expected_one_of.contains(&"5_prime_UTR_exon_variant")
