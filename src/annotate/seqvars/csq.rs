@@ -954,6 +954,8 @@ impl ConsequencePredictor {
             let start_cds_from = loc.start.cds_from;
             // let end_base = loc.end.base;
             let end_cds_from = loc.end.cds_from;
+            let loc_start_offset = loc.start.offset.unwrap_or(0);
+            let loc_end_offset = loc.end.offset.unwrap_or(0);
 
             // Update is_intronic flag with information from var_c.
             // From hgvs spec:
@@ -962,8 +964,7 @@ impl ConsequencePredictor {
             //   and an optional offset from that base position.
             //   Non-zero offsets refer to non-coding sequence,
             //   such as 5’ UTR, 3’ UTR, or intronic position.
-            let is_intronic =
-                loc.start.offset.unwrap_or(0) != 0 && loc.end.offset.unwrap_or(0) != 0;
+            let is_intronic = loc_start_offset != 0 && loc_end_offset != 0;
 
             // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
             //
@@ -1009,8 +1010,8 @@ impl ConsequencePredictor {
                 || starts_left_of_start
                 || is_intronic
                 || !is_exonic
-                || loc.start.offset.unwrap_or(0) != 0
-                || loc.end.offset.unwrap_or(0) != 0)
+                || loc_start_offset != 0
+                || loc_end_offset != 0)
             {
                 match edit {
                     NaEdit::RefAlt {
@@ -1050,6 +1051,13 @@ impl ConsequencePredictor {
                     }
                     _ => {}
                 }
+            }
+
+            if (1..=2).contains(&loc_start_offset) || (1..=2).contains(&loc_end_offset) {
+                consequences |= Consequence::SpliceDonorVariant;
+            }
+            if (-2..0).contains(&loc_start_offset) || (-2..0).contains(&loc_end_offset) {
+                consequences |= Consequence::SpliceAcceptorVariant;
             }
         } else {
             panic!("Must be CDS variant: {}", &var_c)
