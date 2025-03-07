@@ -1085,10 +1085,14 @@ impl ConsequencePredictor {
                 }
             }
 
-            if (1..=2).contains(&loc_start_offset) || (1..=2).contains(&loc_end_offset) {
+            if ((1..=2).contains(&loc_start_offset) || (1..=2).contains(&loc_end_offset))
+                || (loc_start_offset == 0) && loc_end_offset >= 1
+            {
                 consequences |= Consequence::SpliceDonorVariant;
             }
-            if (-2..0).contains(&loc_start_offset) || (-2..0).contains(&loc_end_offset) {
+            if ((-2..=-1).contains(&loc_start_offset) || (-2..=-1).contains(&loc_end_offset))
+                || (loc_start_offset < 0) && loc_end_offset == 0
+            {
                 consequences |= Consequence::SpliceAcceptorVariant;
             }
         } else {
