@@ -1006,25 +1006,53 @@ impl ConsequencePredictor {
                 }
             }
 
-            if !(ends_right_of_stop
-                || starts_left_of_start
-                || is_intronic
-                || !is_exonic
-                || loc_start_offset != 0
-                || loc_end_offset != 0)
-            {
+            // Make sure not to report frameshift variants
+            // that occur completely within intronic sequence
+            // i.e. not within the CDS, as the definition is
+            // "A sequence variant which causes a disruption of the translational reading frame,
+            // because the number of nucleotides inserted or deleted is not a multiple of three."
+            let within_exonic_sequence = loc_start_offset == 0 && loc_end_offset == 0;
+            let _crosses_boundary = (loc_start_offset != 0) ^ (loc_end_offset != 0);
+
+            if !(ends_right_of_stop || starts_left_of_start || is_intronic) {
                 match edit {
                     NaEdit::RefAlt {
                         reference,
                         alternative,
                     } => {
                         if reference.len().abs_diff(alternative.len()) % 3 != 0 {
-                            consequences |= Consequence::FrameshiftVariant;
+                            if within_exonic_sequence {
+                                consequences |= Consequence::FrameshiftVariant;
+                            }
+                        } else {
+                            // Check for inframe insertions/deletions (that are not delins)
+                            match (
+                                reference.len().cmp(&alternative.len()),
+                                alternative.is_empty() ^ reference.is_empty(),
+                            ) {
+                                (Ordering::Less, true) => {
+                                    if conservative {
+                                        consequences |= Consequence::ConservativeInframeInsertion;
+                                    } else {
+                                        consequences |= Consequence::DisruptiveInframeInsertion;
+                                    }
+                                }
+                                (Ordering::Greater, true) => {
+                                    if conservative {
+                                        consequences |= Consequence::ConservativeInframeDeletion;
+                                    } else {
+                                        consequences |= Consequence::DisruptiveInframeDeletion;
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                     }
                     NaEdit::DelRef { reference } => {
                         if reference.len() % 3 != 0 {
-                            consequences |= Consequence::FrameshiftVariant;
+                            if within_exonic_sequence {
+                                consequences |= Consequence::FrameshiftVariant;
+                            }
                         } else if conservative {
                             consequences |= Consequence::ConservativeInframeDeletion;
                         } else {
@@ -1033,7 +1061,9 @@ impl ConsequencePredictor {
                     }
                     NaEdit::DelNum { count } => {
                         if count % 3 != 0 {
-                            consequences |= Consequence::FrameshiftVariant;
+                            if within_exonic_sequence {
+                                consequences |= Consequence::FrameshiftVariant;
+                            }
                         } else if conservative {
                             consequences |= Consequence::ConservativeInframeDeletion;
                         } else {
@@ -1042,7 +1072,9 @@ impl ConsequencePredictor {
                     }
                     NaEdit::Ins { alternative } => {
                         if alternative.len() % 3 != 0 {
-                            consequences |= Consequence::FrameshiftVariant;
+                            if within_exonic_sequence {
+                                consequences |= Consequence::FrameshiftVariant;
+                            }
                         } else if conservative {
                             consequences |= Consequence::ConservativeInframeInsertion;
                         } else {
