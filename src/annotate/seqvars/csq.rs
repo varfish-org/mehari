@@ -1005,7 +1005,13 @@ impl ConsequencePredictor {
                 }
             }
 
-            if !ends_right_of_stop && !starts_left_of_start && (!is_intronic && is_exonic) {
+            if !(ends_right_of_stop
+                || starts_left_of_start
+                || is_intronic
+                || !is_exonic
+                || loc.start.offset.unwrap_or(0) != 0
+                || loc.end.offset.unwrap_or(0) != 0)
+            {
                 match edit {
                     NaEdit::RefAlt {
                         reference,
