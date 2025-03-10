@@ -630,7 +630,7 @@ impl ConsequencePredictor {
         // Take a highest-ranking consequence and derive putative impact from it.
         if consequences.is_empty() {
             tracing::error!(
-                "No consequences for {:?} on {} (hgvs_p={}) - adding `gene_variant`;\
+                "No consequences for {:?} on {} (hgvs_p={}) - adding `gene_variant`; \
                 most likely the transcript has multiple stop codons and the variant \
                 lies behind the first.",
                 var,
