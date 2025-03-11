@@ -688,6 +688,12 @@ impl ConsequencePredictor {
         var_c: &HgvsVariant,
         var_p: &HgvsVariant,
     ) {
+        // If we have a transcript_ablation, we can remove all other consequences
+        if consequences.contains(Consequence::TranscriptAblation) {
+            *consequences = Consequence::TranscriptAblation.into();
+            return;
+        }
+
         // If a frameshift/ins/del was predicted on the CDS level,
         // but any relevant consequence (i.e. not just GeneVariant) was produced on the protein level,
         // then it is likely that the frameshift induced a more specific consequence.
