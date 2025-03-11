@@ -784,6 +784,26 @@ impl ConsequencePredictor {
                 }
             }
         }
+        match var_c {
+            HgvsVariant::CdsVariant { loc_edit, .. } => {
+                let loc = loc_edit.loc.inner();
+                let start_base = loc.start.base;
+                let start_cds_from = loc.start.cds_from;
+                let end_base = loc.end.base;
+                let end_cds_from = loc.end.cds_from;
+
+                let starts_left_of_start = start_cds_from == CdsFrom::Start && start_base < 0;
+                let ends_left_of_start = end_cds_from == CdsFrom::Start && end_base < 0;
+
+                if consequences.contains(Consequence::ExonLossVariant)
+                    && starts_left_of_start
+                    && ends_left_of_start
+                {
+                    *consequences &= !Consequence::ExonLossVariant;
+                }
+            }
+            _ => unreachable!(),
+        }
     }
 
     #[allow(clippy::too_many_arguments, unused_variables)]
@@ -803,6 +823,8 @@ impl ConsequencePredictor {
 
         // Check the cases where the variant overlaps with whole exon.
         if var_start <= exon_start && var_end >= exon_end {
+            // FIXME: this is not true if the var_c variant is effectively pre start completely
+            // we address that in fix_special_cases
             consequences |= Consequence::ExonLossVariant;
             if var_start < exon_start {
                 if strand == Strand::Plus && !rank.is_first() {
