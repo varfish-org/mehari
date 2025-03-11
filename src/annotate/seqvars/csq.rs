@@ -714,7 +714,8 @@ impl ConsequencePredictor {
         // e.g.:
         // 20:35511609:CAAGCCGCCTCCAGGTAGCAGCCACAGCCAGGAGCACACAGACAGAAGACTGTGTCATGGGTCATGGCCCCTCCGCACACCTACAGGTTTGCCAAAGGAA:C
         if consequences_cds.contains(Consequence::StopLost)
-            && !consequences_protein.contains(Consequence::StopLost)
+            && !consequences_protein
+                .intersects(Consequence::StopLost | Consequence::ProteinAlteringVariant)
         {
             *consequences &= !Consequence::StopLost;
         }
