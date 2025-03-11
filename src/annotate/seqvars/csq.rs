@@ -779,6 +779,12 @@ impl ConsequencePredictor {
                             _ => false,
                         };
                         if start_retained {
+                            tracing::trace!(
+                                "Fixing StartLost → StartRetained for {}, {}, {}",
+                                &var_g,
+                                &var_c,
+                                &var_p
+                            );
                             *consequences &= !Consequence::StartLost;
                             *consequences |= Consequence::StartRetainedVariant;
                         }
