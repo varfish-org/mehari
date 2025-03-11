@@ -982,7 +982,7 @@ impl ConsequencePredictor {
             let edit = loc_edit.edit.inner();
             let start_base = loc.start.base;
             let start_cds_from = loc.start.cds_from;
-            // let end_base = loc.end.base;
+            let end_base = loc.end.base;
             let end_cds_from = loc.end.cds_from;
             let loc_start_offset = loc.start.offset.unwrap_or(0);
             let loc_end_offset = loc.end.offset.unwrap_or(0);
@@ -1033,6 +1033,19 @@ impl ConsequencePredictor {
                 }
                 if is_exonic {
                     consequences |= Consequence::ThreePrimeUtrExonVariant;
+                }
+            }
+
+            if matches!(edit, NaEdit::DelNum { .. } | NaEdit::DelRef { .. })
+                && end_base > start_base
+                && end_base > 0
+            {
+                if start_base <= 0 {
+                    consequences |= Consequence::StartLost;
+                }
+
+                if loc_start_offset < 0 && loc_end_offset > 0 {
+                    consequences |= Consequence::ExonLossVariant;
                 }
             }
 
