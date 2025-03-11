@@ -727,6 +727,7 @@ impl ConsequencePredictor {
         // (This case just shortens a poly-A from which the start codon starts)
         if consequences_cds.contains(Consequence::StartLost)
             && !consequences_protein.contains(Consequence::StartLost)
+            && !consequences_protein.is_empty()
         {
             *consequences &= !Consequence::StartLost;
         }
