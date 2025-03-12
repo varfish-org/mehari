@@ -1046,7 +1046,7 @@ impl ConsequencePredictor {
                 && end_base > start_base
                 && end_base > 0
             {
-                if start_base <= 0 {
+                if start_base <= 3 && start_cds_from == CdsFrom::Start {
                     consequences |= Consequence::StartLost;
                 }
 
