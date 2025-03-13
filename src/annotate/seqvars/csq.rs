@@ -1000,7 +1000,7 @@ impl ConsequencePredictor {
             //   and an optional offset from that base position.
             //   Non-zero offsets refer to non-coding sequence,
             //   such as 5’ UTR, 3’ UTR, or intronic position.
-            let is_intronic = loc_start_offset != 0 && loc_end_offset != 0;
+            let is_intronic_or_utr = loc_start_offset != 0 && loc_end_offset != 0;
 
             // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
             //
@@ -1026,18 +1026,16 @@ impl ConsequencePredictor {
 
             // Detect variants affecting the 5'/3' UTRs.
             if starts_left_of_start && start_base < 0 {
-                if is_intronic {
+                if is_intronic_or_utr {
                     consequences |= Consequence::FivePrimeUtrIntronVariant;
-                }
-                if is_exonic {
+                } else if is_exonic {
                     consequences |= Consequence::FivePrimeUtrExonVariant;
                 }
             }
             if ends_right_of_stop {
-                if is_intronic {
+                if is_intronic_or_utr {
                     consequences |= Consequence::ThreePrimeUtrIntronVariant;
-                }
-                if is_exonic {
+                } else if is_exonic {
                     consequences |= Consequence::ThreePrimeUtrExonVariant;
                 }
             }
@@ -1063,7 +1061,7 @@ impl ConsequencePredictor {
             let within_exonic_sequence = loc_start_offset == 0 && loc_end_offset == 0;
             let _crosses_boundary = (loc_start_offset != 0) ^ (loc_end_offset != 0);
 
-            if !(ends_right_of_stop || starts_left_of_start || is_intronic) {
+            if !(ends_right_of_stop || starts_left_of_start || is_intronic_or_utr) {
                 match edit {
                     NaEdit::RefAlt {
                         reference,
