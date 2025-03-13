@@ -419,10 +419,12 @@ impl ConsequencePredictor {
                 }
             }
 
-            let consequences_exonic = Self::analyze_exonic_variant(
-                var, strand, var_start, var_end, exon_start, exon_end, &rank,
-            );
-            consequences |= consequences_exonic;
+            if var_overlaps(exon_start, exon_end) {
+                let consequences_exonic = Self::analyze_exonic_variant(
+                    var, strand, var_start, var_end, exon_start, exon_end, &rank,
+                );
+                consequences |= consequences_exonic;
+            }
 
             if let Some(intron_start) = intron_start {
                 let consequences_intronic = Self::analyze_intronic_variant(
