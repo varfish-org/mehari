@@ -151,10 +151,13 @@ impl ConsequencePredictor {
 
         // We follow hgvs conventions and therefore normalize input variants
         let var_g = Self::get_var_g(&norm_var, chrom_acc);
-        let var_g = if self.mapper.config.renormalize_g {
-            self.mapper.maybe_normalize(&var_g)?
+        let (var_g_fwd, var_g_rev) = if self.mapper.config.renormalize_g {
+            (
+                self.mapper.maybe_normalize(&var_g)?,
+                self.mapper.inner.left_normalizer()?.normalize(&var_g)?,
+            )
         } else {
-            var_g
+            (var_g.clone(), var_g)
         };
 
         // Get all affected transcripts.
@@ -180,8 +183,8 @@ impl ConsequencePredictor {
             _ => unreachable!(),
         };
 
-        let qry_start = var_start - PADDING;
-        let qry_end = var_end + PADDING;
+        let qry_start = var_start_fwd.min(var_start_rev) - PADDING;
+        let qry_end = var_end_fwd.max(var_end_rev) + PADDING;
         let txs = {
             let mut txs =
                 self.provider
@@ -226,7 +229,25 @@ impl ConsequencePredictor {
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
         let anns_all_txs = txs
             .into_iter()
-            .map(|tx| self.build_ann_field(var, var_g.clone(), tx, var_start, var_end))
+            .map(|tx| {
+                if tx.alt_strand == -1 {
+                    self.build_ann_field(
+                        var,
+                        var_g_rev.clone(),
+                        tx,
+                        var_start_rev,
+                        var_end_rev,
+                    )
+                } else {
+                    self.build_ann_field(
+                        var,
+                        var_g_fwd.clone(),
+                        tx,
+                        var_start_fwd,
+                        var_end_fwd,
+                    )
+                }
+            })
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten()
