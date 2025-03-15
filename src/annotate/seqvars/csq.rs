@@ -1187,15 +1187,32 @@ impl ConsequencePredictor {
                 }
             }
 
-            if ((1..=2).contains(&loc_start_offset) || (1..=2).contains(&loc_end_offset))
-                || (loc_start_offset == 0) && loc_end_offset >= 1
-            {
-                consequences |= Consequence::SpliceDonorVariant;
-            }
-            if ((-2..=-1).contains(&loc_start_offset) || (-2..=-1).contains(&loc_end_offset))
-                || (loc_start_offset < 0) && loc_end_offset == 0
-            {
-                consequences |= Consequence::SpliceAcceptorVariant;
+            if loc_start_offset != 0 || loc_end_offset != 0 {
+                let intronic_overlap =
+                    |start, end| -> bool { overlaps(loc_start_offset, loc_end_offset, start, end) };
+                if intronic_overlap(-17, -3) {
+                    consequences |= Consequence::SplicePolypyrimidineTractVariant;
+                }
+
+                if intronic_overlap(3, 8) {
+                    consequences |= Consequence::SpliceRegionVariant;
+                }
+
+                if intronic_overlap(5, 5) {
+                    consequences |= Consequence::SpliceDonorFifthBaseVariant;
+                }
+
+                if intronic_overlap(3, 6) {
+                    consequences |= Consequence::SpliceDonorRegionVariant;
+                }
+
+                if intronic_overlap(1, 2) {
+                    consequences |= Consequence::SpliceDonorVariant;
+                }
+
+                if intronic_overlap(-2, -1) {
+                    consequences |= Consequence::SpliceAcceptorVariant;
+                }
             }
         } else {
             panic!("Must be CDS variant: {}", &var_c)
