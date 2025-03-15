@@ -151,65 +151,40 @@ impl ConsequencePredictor {
 
         // We will do another round of normalization via hgvs
         let var_g = Self::get_var_g(&norm_var, chrom_acc);
-        let var_g = if self.mapper.config.renormalize_g {
-            self.mapper.maybe_normalize(&var_g)?
+        let (var_g_fwd, var_g_rev) = if self.mapper.config.renormalize_g {
+            (
+                self.mapper.maybe_normalize(&var_g)?,
+                self.mapper.inner.left_normalizer()?.normalize(&var_g)?,
+            )
         } else {
-            var_g
+            (var_g.clone(), var_g)
         };
 
         // and then re-construct the VCF variant from the hgvs.g one
-        let norm_var = {
-            match &var_g {
-                HgvsVariant::GenomeVariant { loc_edit, .. } => {
-                    let loc = loc_edit.loc.inner();
-                    let edit = loc_edit.edit.inner();
-                    let (reference, alternative) = match edit {
-                        NaEdit::RefAlt {
-                            reference,
-                            alternative,
-                        } => (reference, alternative),
-                        NaEdit::NumAlt { .. } => {
-                            todo!("NumAlt")
-                        }
-                        NaEdit::DelRef { reference } => (reference, &"".to_string()),
-                        NaEdit::DelNum { .. } => {
-                            todo!("DelNum")
-                        }
-                        NaEdit::Ins { alternative } => (&"".to_string(), alternative),
-                        NaEdit::Dup { reference } => {
-                            (reference, &format!("{}{}", reference, reference))
-                        }
-                        NaEdit::InvRef { .. } => {
-                            todo!("InvRef")
-                        }
-                        NaEdit::InvNum { .. } => {
-                            todo!("InvNum")
-                        }
-                    };
-                    VcfVariant {
-                        chromosome: norm_var.chromosome.clone(),
-                        // TODO check if position is 0-based or 1-based at this point
-                        position: loc.start.map_or(norm_var.position, |s| s + 0),
-                        reference: reference.clone(),
-                        alternative: alternative.clone(),
-                    }
-                }
-                _ => unreachable!(),
-            }
-        };
+        let norm_var_fwd = Self::get_norm_var_from_var_g(&norm_var, &var_g_fwd);
+        let norm_var_rev = Self::get_norm_var_from_var_g(&norm_var, &var_g_rev);
 
         // Get all affected transcripts.
-        let (var_start, var_end) = if norm_var.reference.is_empty() {
-            (norm_var.position - 1, norm_var.position - 1)
+        let (var_start_fwd, var_end_fwd) = if norm_var_fwd.reference.is_empty() {
+            (norm_var_fwd.position - 1, norm_var_fwd.position - 1)
         } else {
             (
-                norm_var.position - 1,
-                norm_var.position + norm_var.reference.len() as i32 - 1,
+                norm_var_fwd.position - 1,
+                norm_var_fwd.position + norm_var_fwd.reference.len() as i32 - 1,
             )
         };
 
-        let qry_start = var_start - PADDING;
-        let qry_end = var_end + PADDING;
+        let (var_start_rev, var_end_rev) = if norm_var_rev.reference.is_empty() {
+            (norm_var_rev.position - 1, norm_var_rev.position - 1)
+        } else {
+            (
+                norm_var_rev.position - 1,
+                norm_var_rev.position + norm_var_rev.reference.len() as i32 - 1,
+            )
+        };
+
+        let qry_start = var_start_fwd.min(var_start_rev) - PADDING;
+        let qry_end = var_end_fwd.max(var_end_rev) + PADDING;
         let txs = {
             let mut txs =
                 self.provider
@@ -250,7 +225,27 @@ impl ConsequencePredictor {
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
         let anns_all_txs = txs
             .into_iter()
-            .map(|tx| self.build_ann_field(var, &norm_var, var_g.clone(), tx, var_start, var_end))
+            .map(|tx| {
+                if tx.alt_strand == -1 {
+                    self.build_ann_field(
+                        var,
+                        &norm_var_rev,
+                        var_g_rev.clone(),
+                        tx,
+                        var_start_rev,
+                        var_end_rev,
+                    )
+                } else {
+                    self.build_ann_field(
+                        var,
+                        &norm_var_fwd,
+                        var_g_fwd.clone(),
+                        tx,
+                        var_start_fwd,
+                        var_end_fwd,
+                    )
+                }
+            })
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten()
@@ -258,6 +253,46 @@ impl ConsequencePredictor {
 
         // Return all or worst annotation only.
         Ok(Some(self.filter_ann_fields(anns_all_txs)))
+    }
+
+    fn get_norm_var_from_var_g(norm_var: &VcfVariant, var_g: &HgvsVariant) -> VcfVariant {
+        match &var_g {
+            HgvsVariant::GenomeVariant { loc_edit, .. } => {
+                let loc = loc_edit.loc.inner();
+                let edit = loc_edit.edit.inner();
+                let (reference, alternative) = match edit {
+                    NaEdit::RefAlt {
+                        reference,
+                        alternative,
+                    } => (reference, alternative),
+                    NaEdit::NumAlt { .. } => {
+                        todo!("NumAlt")
+                    }
+                    NaEdit::DelRef { reference } => (reference, &"".to_string()),
+                    NaEdit::DelNum { .. } => {
+                        todo!("DelNum")
+                    }
+                    NaEdit::Ins { alternative } => (&"".to_string(), alternative),
+                    NaEdit::Dup { reference } => {
+                        (reference, &format!("{}{}", reference, reference))
+                    }
+                    NaEdit::InvRef { .. } => {
+                        todo!("InvRef")
+                    }
+                    NaEdit::InvNum { .. } => {
+                        todo!("InvNum")
+                    }
+                };
+                VcfVariant {
+                    chromosome: norm_var.chromosome.clone(),
+                    // TODO check if position is 0-based or 1-based at this point
+                    position: loc.start.map_or(norm_var.position, |s| s + 0),
+                    reference: reference.clone(),
+                    alternative: alternative.clone(),
+                }
+            }
+            _ => unreachable!(),
+        }
     }
 
     // Filter transcripts to the picked ones from the selected transcript source.
