@@ -150,7 +150,7 @@ impl ConsequencePredictor {
         };
 
         // We will do another round of normalization via hgvs
-        let var_g = Self::get_var_g(var, chrom_acc);
+        let var_g = Self::get_var_g(&norm_var, chrom_acc);
         let var_g = if self.mapper.config.renormalize_g {
             self.mapper.maybe_normalize(&var_g)?
         } else {
@@ -250,9 +250,7 @@ impl ConsequencePredictor {
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
         let anns_all_txs = txs
             .into_iter()
-            .map(|tx| {
-                self.build_ann_field(var, &norm_var, var_g.clone(), tx, var_start, var_end)
-            })
+            .map(|tx| self.build_ann_field(var, &norm_var, var_g.clone(), tx, var_start, var_end))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten()
