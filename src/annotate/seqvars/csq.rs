@@ -636,7 +636,7 @@ impl ConsequencePredictor {
                     let conservative = is_conservative_cds_variant(&var_c);
 
                     let consequences_cds =
-                        Self::analyze_cds_variant(&var_c, alignment, is_exonic, conservative);
+                        Self::analyze_cds_variant(&var_c, is_exonic, is_intronic, conservative);
 
                     // Analyze `var_p` for changes in the protein sequence.
                     let consequences_protein = self.analyze_protein_variant(
@@ -1027,8 +1027,8 @@ impl ConsequencePredictor {
 
     fn analyze_cds_variant(
         var_c: &HgvsVariant,
-        alignment: &GenomeAlignment,
         is_exonic: bool,
+        is_intronic: bool,
         conservative: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
@@ -1182,34 +1182,6 @@ impl ConsequencePredictor {
                         }
                     }
                     _ => {}
-                }
-            }
-
-            if loc_start_offset != 0 || loc_end_offset != 0 {
-                let intronic_overlap =
-                    |start, end| -> bool { overlaps(loc_start_offset, loc_end_offset, start, end) };
-                if intronic_overlap(-17, -3) {
-                    consequences |= Consequence::SplicePolypyrimidineTractVariant;
-                }
-
-                if intronic_overlap(3, 8) {
-                    consequences |= Consequence::SpliceRegionVariant;
-                }
-
-                if intronic_overlap(5, 5) {
-                    consequences |= Consequence::SpliceDonorFifthBaseVariant;
-                }
-
-                if intronic_overlap(3, 6) {
-                    consequences |= Consequence::SpliceDonorRegionVariant;
-                }
-
-                if intronic_overlap(1, 2) {
-                    consequences |= Consequence::SpliceDonorVariant;
-                }
-
-                if intronic_overlap(-2, -1) {
-                    consequences |= Consequence::SpliceAcceptorVariant;
                 }
             }
         } else {
