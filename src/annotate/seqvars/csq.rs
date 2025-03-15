@@ -149,6 +149,55 @@ impl ConsequencePredictor {
             return Ok(None);
         };
 
+        // We will do another round of normalization via hgvs
+        let var_g = Self::get_var_g(var, chrom_acc);
+        let var_g = if self.mapper.config.renormalize_g {
+            self.mapper.maybe_normalize(&var_g)?
+        } else {
+            var_g
+        };
+
+        // and then re-construct the VCF variant from the hgvs.g one
+        let norm_var = {
+            match &var_g {
+                HgvsVariant::GenomeVariant { loc_edit, .. } => {
+                    let loc = loc_edit.loc.inner();
+                    let edit = loc_edit.edit.inner();
+                    let (reference, alternative) = match edit {
+                        NaEdit::RefAlt {
+                            reference,
+                            alternative,
+                        } => (reference, alternative),
+                        NaEdit::NumAlt { .. } => {
+                            todo!("NumAlt")
+                        }
+                        NaEdit::DelRef { reference } => (reference, &"".to_string()),
+                        NaEdit::DelNum { .. } => {
+                            todo!("DelNum")
+                        }
+                        NaEdit::Ins { alternative } => (&"".to_string(), alternative),
+                        NaEdit::Dup { reference } => {
+                            (reference, &format!("{}{}", reference, reference))
+                        }
+                        NaEdit::InvRef { .. } => {
+                            todo!("InvRef")
+                        }
+                        NaEdit::InvNum { .. } => {
+                            todo!("InvNum")
+                        }
+                    };
+                    VcfVariant {
+                        chromosome: norm_var.chromosome.clone(),
+                        // TODO check if position is 0-based or 1-based at this point
+                        position: loc.start.map_or(norm_var.position, |s| s + 0),
+                        reference: reference.clone(),
+                        alternative: alternative.clone(),
+                    }
+                }
+                _ => unreachable!(),
+            }
+        };
+
         // Get all affected transcripts.
         let (var_start, var_end) = if norm_var.reference.is_empty() {
             (norm_var.position - 1, norm_var.position - 1)
@@ -158,6 +207,7 @@ impl ConsequencePredictor {
                 norm_var.position + norm_var.reference.len() as i32 - 1,
             )
         };
+
         let qry_start = var_start - PADDING;
         let qry_end = var_end + PADDING;
         let txs = {
@@ -201,7 +251,7 @@ impl ConsequencePredictor {
         let anns_all_txs = txs
             .into_iter()
             .map(|tx| {
-                self.build_ann_field(var, &norm_var, tx, chrom_acc.clone(), var_start, var_end)
+                self.build_ann_field(var, &norm_var, var_g.clone(), tx, var_start, var_end)
             })
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
@@ -314,8 +364,8 @@ impl ConsequencePredictor {
         &self,
         orig_var: &VcfVariant,
         var: &VcfVariant,
+        var_g: HgvsVariant,
         tx_record: TxForRegionRecord,
-        chrom_acc: String,
         var_start: i32,
         var_end: i32,
     ) -> Result<Option<AnnField>, anyhow::Error> {
@@ -340,6 +390,8 @@ impl ConsequencePredictor {
             );
             return Ok(None);
         };
+
+        // tracing::trace!("Annotating variant {:?} w.r.t. transcript {}", orig_var, &tx_record.tx_ac);
 
         assert_eq!(
             tx.genome_alignments.len(),
@@ -508,7 +560,7 @@ impl ConsequencePredictor {
             }
         }
 
-        let var_g = Self::get_var_g(var, &chrom_acc);
+        // let var_g = Self::get_var_g(var, &chrom_acc);
 
         let (rank, hgvs_t, hgvs_p, tx_pos, cds_pos, protein_pos) = if !is_upstream && !is_downstream
         {
@@ -586,7 +638,7 @@ impl ConsequencePredictor {
                     let conservative = is_conservative_cds_variant(&var_c);
 
                     let consequences_cds =
-                        Self::analyze_cds_variant(&var_c, is_exonic, conservative);
+                        Self::analyze_cds_variant(&var_c, alignment, is_exonic, conservative);
 
                     // Analyze `var_p` for changes in the protein sequence.
                     let consequences_protein = self.analyze_protein_variant(
@@ -977,6 +1029,7 @@ impl ConsequencePredictor {
 
     fn analyze_cds_variant(
         var_c: &HgvsVariant,
+        alignment: &GenomeAlignment,
         is_exonic: bool,
         conservative: bool,
     ) -> Consequences {
