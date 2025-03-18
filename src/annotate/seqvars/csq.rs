@@ -149,42 +149,29 @@ impl ConsequencePredictor {
             return Ok(None);
         };
 
-        // We will do another round of normalization via hgvs
+        // We follow hgvs conventions and therefore normalize input variants
         let var_g = Self::get_var_g(&norm_var, chrom_acc);
-        let (var_g_fwd, var_g_rev) = if self.mapper.config.renormalize_g {
-            (
-                self.mapper.maybe_normalize(&var_g)?,
-                self.mapper.inner.left_normalizer()?.normalize(&var_g)?,
-            )
+        let var_g = if self.mapper.config.renormalize_g {
+            self.mapper.maybe_normalize(&var_g)?
         } else {
-            (var_g.clone(), var_g)
+            var_g
         };
 
-        // and then re-construct the VCF variant from the hgvs.g one
-        let norm_var_fwd = Self::get_norm_var_from_var_g(&norm_var, &var_g_fwd);
-        let norm_var_rev = Self::get_norm_var_from_var_g(&norm_var, &var_g_rev);
+        // Re-construct the VCF variant from the hgvs.g one
+        let hgvs_var = Self::get_norm_var_from_var_g(&norm_var, &var_g);
 
         // Get all affected transcripts.
-        let (var_start_fwd, var_end_fwd) = if norm_var_fwd.reference.is_empty() {
-            (norm_var_fwd.position - 1, norm_var_fwd.position - 1)
+        let (var_start, var_end) = if hgvs_var.reference.is_empty() {
+            (hgvs_var.position - 1, hgvs_var.position - 1)
         } else {
             (
-                norm_var_fwd.position - 1,
-                norm_var_fwd.position + norm_var_fwd.reference.len() as i32 - 1,
+                hgvs_var.position - 1,
+                hgvs_var.position + hgvs_var.reference.len() as i32 - 1,
             )
         };
 
-        let (var_start_rev, var_end_rev) = if norm_var_rev.reference.is_empty() {
-            (norm_var_rev.position - 1, norm_var_rev.position - 1)
-        } else {
-            (
-                norm_var_rev.position - 1,
-                norm_var_rev.position + norm_var_rev.reference.len() as i32 - 1,
-            )
-        };
-
-        let qry_start = var_start_fwd.min(var_start_rev) - PADDING;
-        let qry_end = var_end_fwd.max(var_end_rev) + PADDING;
+        let qry_start = var_start - PADDING;
+        let qry_end = var_end + PADDING;
         let txs = {
             let mut txs =
                 self.provider
@@ -225,27 +212,7 @@ impl ConsequencePredictor {
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
         let anns_all_txs = txs
             .into_iter()
-            .map(|tx| {
-                if tx.alt_strand == -1 {
-                    self.build_ann_field(
-                        var,
-                        &norm_var_rev,
-                        var_g_rev.clone(),
-                        tx,
-                        var_start_rev,
-                        var_end_rev,
-                    )
-                } else {
-                    self.build_ann_field(
-                        var,
-                        &norm_var_fwd,
-                        var_g_fwd.clone(),
-                        tx,
-                        var_start_fwd,
-                        var_end_fwd,
-                    )
-                }
-            })
+            .map(|tx| self.build_ann_field(var, &hgvs_var, var_g.clone(), tx, var_start, var_end))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten()
