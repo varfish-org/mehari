@@ -240,12 +240,8 @@ impl ConsequencePredictor {
                         todo!("DelNum")
                     }
                     NaEdit::Ins { alternative } => (&"".to_string(), alternative),
-                    NaEdit::Dup { reference } => {
-                        (reference, &format!("{}{}", reference, reference))
-                    }
-                    NaEdit::InvRef { .. } => {
-                        todo!("InvRef")
-                    }
+                    NaEdit::Dup { reference } => (reference, &"<DUP>".to_string()),
+                    NaEdit::InvRef { reference } => (reference, &"<INV>".to_string()),
                     NaEdit::InvNum { .. } => {
                         todo!("InvNum")
                     }
