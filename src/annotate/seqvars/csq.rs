@@ -157,17 +157,27 @@ impl ConsequencePredictor {
             var_g
         };
 
-        // Re-construct the VCF variant from the hgvs.g one
-        let hgvs_var = Self::get_norm_var_from_var_g(&norm_var, &var_g);
-
         // Get all affected transcripts.
-        let (var_start, var_end) = if hgvs_var.reference.is_empty() {
-            (hgvs_var.position - 1, hgvs_var.position - 1)
-        } else {
-            (
-                hgvs_var.position - 1,
-                hgvs_var.position + hgvs_var.reference.len() as i32 - 1,
-            )
+        let (var_start, var_end) = match &var_g {
+            HgvsVariant::GenomeVariant { loc_edit, .. } => {
+                let loc = loc_edit.loc.inner();
+                let edit = loc_edit.edit.inner();
+                let start = loc
+                    .start
+                    .map(|s| s - 1)
+                    .expect("Failed to get start position");
+                let end = loc.end.map(|s| s - 1).expect("Failed to get end position");
+                let ref_len = norm_var.reference.len() as i32;
+                let old_end = start + ref_len;
+                let end = if edit.is_ins() || edit.is_dup() {
+                    start
+                } else {
+                    end + 1
+                };
+                assert_eq!(end, old_end, "End position mismatch, start is {}, end is {}, ref_len is {}, var_g is {}, norm_var is {:?}", start, end, ref_len, &var_g, &norm_var);
+                (start, end)
+            }
+            _ => unreachable!(),
         };
 
         let qry_start = var_start - PADDING;
@@ -212,7 +222,7 @@ impl ConsequencePredictor {
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
         let anns_all_txs = txs
             .into_iter()
-            .map(|tx| self.build_ann_field(var, &hgvs_var, var_g.clone(), tx, var_start, var_end))
+            .map(|tx| self.build_ann_field(var, var_g.clone(), tx, var_start, var_end))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten()
@@ -220,42 +230,6 @@ impl ConsequencePredictor {
 
         // Return all or worst annotation only.
         Ok(Some(self.filter_ann_fields(anns_all_txs)))
-    }
-
-    fn get_norm_var_from_var_g(norm_var: &VcfVariant, var_g: &HgvsVariant) -> VcfVariant {
-        match &var_g {
-            HgvsVariant::GenomeVariant { loc_edit, .. } => {
-                let loc = loc_edit.loc.inner();
-                let edit = loc_edit.edit.inner();
-                let (reference, alternative) = match edit {
-                    NaEdit::RefAlt {
-                        reference,
-                        alternative,
-                    } => (reference, alternative),
-                    NaEdit::NumAlt { .. } => {
-                        todo!("NumAlt")
-                    }
-                    NaEdit::DelRef { reference } => (reference, &"".to_string()),
-                    NaEdit::DelNum { .. } => {
-                        todo!("DelNum")
-                    }
-                    NaEdit::Ins { alternative } => (&"".to_string(), alternative),
-                    NaEdit::Dup { reference } => (reference, &"<DUP>".to_string()),
-                    NaEdit::InvRef { reference } => (reference, &"<INV>".to_string()),
-                    NaEdit::InvNum { .. } => {
-                        todo!("InvNum")
-                    }
-                };
-                VcfVariant {
-                    chromosome: norm_var.chromosome.clone(),
-                    // TODO check if position is 0-based or 1-based at this point
-                    position: loc.start.map_or(norm_var.position, |s| s + 0),
-                    reference: reference.clone(),
-                    alternative: alternative.clone(),
-                }
-            }
-            _ => unreachable!(),
-        }
     }
 
     // Filter transcripts to the picked ones from the selected transcript source.
@@ -359,7 +333,6 @@ impl ConsequencePredictor {
     fn build_ann_field(
         &self,
         orig_var: &VcfVariant,
-        var: &VcfVariant,
         var_g: HgvsVariant,
         tx_record: TxForRegionRecord,
         var_start: i32,
@@ -469,14 +442,14 @@ impl ConsequencePredictor {
 
             if var_overlaps(exon_start, exon_end) {
                 let consequences_exonic = Self::analyze_exonic_variant(
-                    var, strand, var_start, var_end, exon_start, exon_end, &rank,
+                    strand, var_start, var_end, exon_start, exon_end, &rank,
                 );
                 consequences |= consequences_exonic;
             }
 
             if let Some(intron_start) = intron_start {
                 let consequences_intronic = Self::analyze_intronic_variant(
-                    var,
+                    &var_g,
                     alignment,
                     strand,
                     var_start,
@@ -555,8 +528,6 @@ impl ConsequencePredictor {
                 distance = Some(val);
             }
         }
-
-        // let var_g = Self::get_var_g(var, &chrom_acc);
 
         let (rank, hgvs_t, hgvs_p, tx_pos, cds_pos, protein_pos) = if !is_upstream && !is_downstream
         {
@@ -683,7 +654,7 @@ impl ConsequencePredictor {
                 "No consequences for {:?} on {} (hgvs_p={}) - adding `gene_variant`; \
                 most likely the transcript has multiple stop codons and the variant \
                 lies behind the first.",
-                var,
+                orig_var,
                 &tx_record.tx_ac,
                 hgvs_p
                     .as_ref()
@@ -870,9 +841,8 @@ impl ConsequencePredictor {
         }
     }
 
-    #[allow(clippy::too_many_arguments, unused_variables)]
+    #[allow(clippy::too_many_arguments)]
     fn analyze_exonic_variant(
-        var: &VcfVariant,
         strand: Strand,
         var_start: i32,
         var_end: i32,
@@ -936,7 +906,7 @@ impl ConsequencePredictor {
 
     #[allow(clippy::too_many_arguments)]
     fn analyze_intronic_variant(
-        var: &VcfVariant,
+        var_g: &HgvsVariant,
         alignment: &GenomeAlignment,
         strand: Strand,
         var_start: i32,
@@ -952,7 +922,20 @@ impl ConsequencePredictor {
         // For insertions, we need to consider the case of the insertion being right at
         // the exon/intron junction.  We can express this with a shift of 1 for using
         // "< / >" X +/- shift and meaning <= / >= X.
-        let ins_shift = if var.reference.is_empty() { 1 } else { 0 };
+        let ins_shift = match var_g {
+            HgvsVariant::GenomeVariant {
+                loc_edit: GenomeLocEdit { edit, .. },
+                ..
+            } => {
+                let edit = edit.inner();
+                if edit.is_ins() || edit.is_dup() {
+                    1
+                } else {
+                    0
+                }
+            }
+            _ => unreachable!(),
+        };
 
         // Check the cases where the variant overlaps with the splice acceptor/donor site.
         if var_overlaps(intron_start - ins_shift, intron_start + 2) {
