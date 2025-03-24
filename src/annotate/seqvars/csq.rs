@@ -1251,6 +1251,17 @@ impl ConsequencePredictor {
                         } else {
                             consequences |= Consequence::DisruptiveInframeInsertion;
                         }
+                    },
+                    NaEdit::Dup { reference } => {
+                        if reference.len() % 3 != 0 {
+                            if within_exonic_sequence {
+                                consequences |= Consequence::FrameshiftVariant;
+                            }
+                        } else if conservative {
+                            consequences |= Consequence::ConservativeInframeInsertion;
+                        } else {
+                            consequences |= Consequence::DisruptiveInframeInsertion;
+                        }
                     }
                     NaEdit::Dup { reference } => {
                         if reference.len() % 3 != 0 {
