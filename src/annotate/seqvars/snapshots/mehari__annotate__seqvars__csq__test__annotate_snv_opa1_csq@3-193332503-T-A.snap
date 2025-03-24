@@ -21,9 +21,10 @@ expression: res
   rank:
     ord: 2
     total: 30
-  hgvs_t: c.33-9T>A
+  hgvs_g: g.193332503T>A
+  hgvs_c: c.33-9T>A
   hgvs_p: p.?
-  tx_pos:
+  cdna_pos:
     ord: 203
     total: 6429
   cds_pos:

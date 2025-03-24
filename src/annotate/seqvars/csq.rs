@@ -194,6 +194,9 @@ impl ConsequencePredictor {
 
         // Handle case of no overlapping transcripts -> intergenic.
         if txs.is_empty() {
+            let hgvs_g = format!("{}", &NoRef(&var_g));
+            let hgvs_g = Some(hgvs_g.split(':').nth(1).unwrap().to_owned());
+
             return Ok(Some(self.filter_ann_fields(vec![AnnField {
                 allele: Allele::Alt {
                     alternative: var.alternative.clone(),
@@ -209,9 +212,10 @@ impl ConsequencePredictor {
                 rank: None,
                 distance: None,
                 strand: 0,
-                hgvs_t: None,
+                hgvs_g,
+                hgvs_c: None,
                 hgvs_p: None,
-                tx_pos: None,
+                cdna_pos: None,
                 cds_pos: None,
                 protein_pos: None,
                 gene_symbol: "".to_string(),
@@ -672,6 +676,9 @@ impl ConsequencePredictor {
             Strand::Minus => -1,
         };
 
+        let hgvs_g = format!("{}", &NoRef(&var_g));
+        let hgvs_g = Some(hgvs_g.split(':').nth(1).unwrap().to_owned());
+
         // Build and return ANN field from the information derived above.
         Ok(Some(AnnField {
             allele: Allele::Alt {
@@ -687,9 +694,10 @@ impl ConsequencePredictor {
             feature_id: tx.id.clone(),
             feature_biotype,
             rank,
-            hgvs_t,
+            hgvs_g,
+            hgvs_c: hgvs_t,
             hgvs_p,
-            tx_pos,
+            cdna_pos: tx_pos,
             cds_pos,
             protein_pos,
             strand,
@@ -2310,7 +2318,7 @@ mod test {
                         lineno,
                         record.var,
                         record.tx,
-                        ann.hgvs_t.as_ref(),
+                        ann.hgvs_c.as_ref(),
                         ann.hgvs_p.as_ref(),
                         &record_csqs,
                         &expected_one_of,

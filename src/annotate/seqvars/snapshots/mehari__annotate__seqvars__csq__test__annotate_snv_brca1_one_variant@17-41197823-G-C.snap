@@ -22,9 +22,10 @@ expression: res
   rank:
     ord: 22
     total: 22
-  hgvs_t: c.5468-4C>G
+  hgvs_g: g.41197823G>C
+  hgvs_c: c.5468-4C>G
   hgvs_p: p.?
-  tx_pos:
+  cdna_pos:
     ord: 5581
     total: 7088
   cds_pos:
@@ -53,9 +54,10 @@ expression: res
   rank:
     ord: 21
     total: 21
-  hgvs_t: c.5327-4C>G
+  hgvs_g: g.41197823G>C
+  hgvs_c: c.5327-4C>G
   hgvs_p: p.?
-  tx_pos:
+  cdna_pos:
     ord: 5521
     total: 7028
   cds_pos:
@@ -84,9 +86,10 @@ expression: res
   rank:
     ord: 21
     total: 21
-  hgvs_t: c.2156-4C>G
+  hgvs_g: g.41197823G>C
+  hgvs_c: c.2156-4C>G
   hgvs_p: p.?
-  tx_pos:
+  cdna_pos:
     ord: 2175
     total: 3682
   cds_pos:
@@ -115,9 +118,10 @@ expression: res
   rank:
     ord: 21
     total: 21
-  hgvs_t: c.2082-4C>G
+  hgvs_g: g.41197823G>C
+  hgvs_c: c.2082-4C>G
   hgvs_p: p.?
-  tx_pos:
+  cdna_pos:
     ord: 2189
     total: 3696
   cds_pos:
@@ -146,9 +150,10 @@ expression: res
   rank:
     ord: 23
     total: 23
-  hgvs_t: c.5531-4C>G
+  hgvs_g: g.41197823G>C
+  hgvs_c: c.5531-4C>G
   hgvs_p: p.?
-  tx_pos:
+  cdna_pos:
     ord: 5644
     total: 7151
   cds_pos:

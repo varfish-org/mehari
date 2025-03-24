@@ -22,9 +22,10 @@ expression: res
   rank:
     ord: 30
     total: 31
-  hgvs_t: c.3046_3048del
+  hgvs_g: g.193409914_193409916del
+  hgvs_c: c.3046_3048del
   hgvs_p: p.Ter1016IleextTer12
-  tx_pos:
+  cdna_pos:
     ord: 3216
     total: 6429
   cds_pos:

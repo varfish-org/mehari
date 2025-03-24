@@ -20,9 +20,10 @@ expression: res
   rank:
     ord: 23
     total: 23
-  hgvs_t: c.5586C>G
+  hgvs_g: g.41197701G>C
+  hgvs_c: c.5586C>G
   hgvs_p: p.His1862Gln
-  tx_pos:
+  cdna_pos:
     ord: 5699
     total: 7088
   cds_pos:

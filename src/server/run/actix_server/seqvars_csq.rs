@@ -61,6 +61,8 @@ pub(crate) struct SeqvarsCsqResultEntry {
     pub feature_tag: Vec<FeatureBiotype>,
     /// The exon / intron rank.
     pub rank: Option<Rank>,
+    /// HGVS g. notation.
+    pub hgvs_g: Option<String>,
     /// HGVS c. notation.
     pub hgvs_t: Option<String>,
     /// HGVS p. notation.
@@ -142,9 +144,10 @@ async fn handle_impl(
                 feature_id,
                 feature_biotype,
                 rank,
-                hgvs_t,
+                hgvs_g,
+                hgvs_c: hgvs_t,
                 hgvs_p,
-                tx_pos,
+                cdna_pos: tx_pos,
                 cds_pos,
                 protein_pos,
                 distance,
@@ -170,6 +173,7 @@ async fn handle_impl(
                     .filter(|b| *b != FeatureBiotype::Coding && *b != FeatureBiotype::Noncoding)
                     .collect(),
                 rank,
+                hgvs_g,
                 hgvs_t,
                 hgvs_p,
                 tx_pos,
