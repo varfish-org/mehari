@@ -277,6 +277,11 @@ pub enum Consequence {
     // /// "A sequence_variant is a non exact copy of a sequence_feature or genome exhibiting one or more sequence_alteration."
     // /// SO:sequence_variant, VEP:sequence_variant
     // SequenceVariant,
+
+    /// "A transcript variant occurring within an intron of a coding transcript."
+    /// SO:coding_transcript_intron_variant
+    CodingTranscriptIntronVariant,
+
     /// "A transcript variant occurring within an intron."
     /// SO:intron_variant, VEP:intron_variant
     IntronVariant,
@@ -335,6 +340,7 @@ impl From<Consequence> for PutativeImpact {
             | RegulatoryRegionAmplification
             | RegulatoryRegionVariant
             | IntergenicVariant
+            | CodingTranscriptIntronVariant
             | IntronVariant
             | GeneVariant => PutativeImpact::Modifier,
         }
