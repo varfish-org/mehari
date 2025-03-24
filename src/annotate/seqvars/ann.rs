@@ -1341,8 +1341,8 @@ mod test {
 
         assert_eq!(
             format!("{}", &value),
-            "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|Coding|1/2|HGVS.c\
-            |HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
+            "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|Coding|1/2|HGVS.g|\
+            HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
         );
     }
 
