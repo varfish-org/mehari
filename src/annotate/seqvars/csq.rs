@@ -2289,6 +2289,9 @@ mod test {
                             || expected_one_of.contains(&"5_prime_UTR_intron_variant"))
                             && (record_csqs
                                 .contains(&"5_prime_UTR_premature_start_codon_gain_variant"))),
+                        // A coding_transcript_intron_variant is a more specific intron_variant
+                        (expected_one_of.contains(&"coding_transcript_intron_variant")
+                            && (record_csqs.contains(&"intron_variant"))),
                         // VEP predicts `splice_donor_5th_base_variant` rather than `splice_region_variant`.
                         // Same for `splice_donor_region_variant`.
                         (expected_one_of.contains(&"splice_region_variant")
@@ -2377,7 +2380,7 @@ mod test {
                     assert!(
                         found_one,
                         "line no. {}, variant: {}, tx: {}, hgvs_c: {:?}, hgvs_p: {:?}, \
-                        record_csqs: {:?}, expected_one_of: {:?}, ann_csqs: {:?}",
+                        their_csqs: {:?}, expected_one_of: {:?}, our_csqs: {:?}",
                         lineno,
                         record.var,
                         record.tx,
