@@ -937,7 +937,7 @@ impl ConsequencePredictor {
         exon_start: i32,
         exon_end: i32,
         rank: &Rank,
-        is_utr: bool,
+        _is_utr: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -968,24 +968,24 @@ impl ConsequencePredictor {
         // Check splice region variants
         if var_overlaps(exon_end - 3, exon_end) {
             if strand == Strand::Plus {
-                if !rank.is_last() && !is_utr {
+                if !rank.is_last() {
                     consequences |= Consequence::SpliceRegionVariant;
                 }
             } else {
                 // alignment.strand == Strand::Minus
-                if !rank.is_first() && !is_utr {
+                if !rank.is_first() {
                     consequences |= Consequence::SpliceRegionVariant;
                 }
             }
         }
         if var_overlaps(exon_start, exon_start + 3) {
             if strand == Strand::Plus {
-                if !rank.is_first() && !is_utr {
+                if !rank.is_first() {
                     consequences |= Consequence::SpliceRegionVariant;
                 }
             } else {
                 // alignment.strand == Strand::Minus
-                if !rank.is_last() && !is_utr {
+                if !rank.is_last() {
                     consequences |= Consequence::SpliceRegionVariant;
                 }
             }
@@ -1002,14 +1002,9 @@ impl ConsequencePredictor {
         var_end: i32,
         intron_start: i32,
         intron_end: i32,
-        is_utr: bool,
+        _is_utr: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
-
-        // We're only checking splice variants here, so we can skip the rest if the variant is UTR.
-        if is_utr {
-            return consequences;
-        }
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
