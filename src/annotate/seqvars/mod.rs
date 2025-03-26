@@ -138,6 +138,27 @@ pub struct PathOutput {
     pub path_output_tsv: Option<String>,
 }
 
+const HEADER_ANN_NAMES: [&str; 18] = [
+    "Allele",
+    "Annotation",
+    "Annotation_Impact",
+    "Gene_Name",
+    "Gene_ID",
+    "Feature_Type",
+    "Feature_ID",
+    "Transcript_BioType",
+    "Rank",
+    "HGVS.g",
+    "HGVS.c",
+    "HGVS.p",
+    "cDNA.pos / cDNA.length",
+    "CDS.pos / CDS.length",
+    "AA.pos / AA.length",
+    "Distance",
+    "Strand",
+    "ERRORS / WARNINGS / INFO",
+];
+
 fn build_header(header_in: &VcfHeader, additional_records: &[(String, String)]) -> VcfHeader {
     let mut header_out = header_in.clone();
 
@@ -232,15 +253,13 @@ fn build_header(header_in: &VcfHeader, additional_records: &[(String, String)]) 
         ),
     );
 
+    let fields = HEADER_ANN_NAMES.join(" | ");
     header_out.infos_mut().insert(
         "ANN".into(),
         Map::<Info>::new(
             Number::Unknown,
             InfoType::String,
-            "Functional annotations: 'Allele | Annotation | Annotation_Impact | Gene_Name | \
-            Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | \
-            cDNA.pos / cDNA.length | CDS.pos / CDS.length | AA.pos / AA.length | Distance | Strand | \
-            ERRORS / WARNINGS / INFO'",
+            format!("Functional annotations: '{fields}'"),
         ),
     );
 
@@ -988,7 +1007,7 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.ensembl_transcript_id = Some(ann.feature_id.clone());
                         tsv_record.ensembl_transcript_coding =
                             Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
-                        tsv_record.ensembl_hgvs_c.clone_from(&ann.hgvs_t);
+                        tsv_record.ensembl_hgvs_c.clone_from(&ann.hgvs_c);
                         tsv_record.ensembl_hgvs_p.clone_from(&ann.hgvs_p);
                         assert!(!ann.consequences.is_empty());
                         if ann.consequences.contains(&Consequence::IntergenicVariant) {
@@ -1015,7 +1034,7 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.refseq_transcript_id = Some(ann.feature_id.clone());
                         tsv_record.refseq_transcript_coding =
                             Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
-                        tsv_record.refseq_hgvs_c.clone_from(&ann.hgvs_t);
+                        tsv_record.refseq_hgvs_c.clone_from(&ann.hgvs_c);
                         tsv_record.refseq_hgvs_p.clone_from(&ann.hgvs_p);
                         if !ann.consequences.is_empty() {
                             tsv_record.refseq_effect = Some(
@@ -1858,6 +1877,9 @@ impl ConsequenceAnnotator {
             ConsequencePredictorConfigBuilder::default()
                 .report_most_severe_consequence_by(args.report_most_severe_consequence_by)
                 .transcript_source(args.transcript_source)
+                .keep_intergenic(args.keep_intergenic)
+                .discard_utr_splice_variants(args.discard_utr_splice_variants)
+                .vep_hgvs_shift(args.vep_hgvs_shift)
                 .build()?,
         );
         Ok(Self::new(predictor))

@@ -1,13 +1,14 @@
 ---
 source: src/annotate/seqvars/csq.rs
 expression: res
+snapshot_kind: text
 ---
 - allele:
     Alt:
       alternative: T
   consequences:
     - splice_donor_variant
-    - intron_variant
+    - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: OPA1
   gene_id: "HGNC:8140"
@@ -21,14 +22,11 @@ expression: res
   rank:
     ord: 3
     total: 30
-  hgvs_t: c.351+1G>T
+  hgvs_g: g.193332831G>T
+  hgvs_c: c.351+1G>T
   hgvs_p: p.?
-  tx_pos:
-    ord: 521
-    total: 6429
-  cds_pos:
-    ord: 351
-    total: 3048
+  cdna_pos: ~
+  cds_pos: ~
   protein_pos: ~
   distance: 1
   strand: 1

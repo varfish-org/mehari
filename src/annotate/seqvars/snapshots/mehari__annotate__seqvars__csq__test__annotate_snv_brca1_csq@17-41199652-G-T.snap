@@ -1,13 +1,14 @@
 ---
 source: src/annotate/seqvars/csq.rs
 expression: res
+snapshot_kind: text
 ---
 - allele:
     Alt:
       alternative: T
   consequences:
     - splice_region_variant
-    - intron_variant
+    - coding_transcript_intron_variant
   putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -21,14 +22,11 @@ expression: res
   rank:
     ord: 22
     total: 22
-  hgvs_t: c.5467+8C>A
+  hgvs_g: g.41199652G>T
+  hgvs_c: c.5467+8C>A
   hgvs_p: p.?
-  tx_pos:
-    ord: 5580
-    total: 7088
-  cds_pos:
-    ord: 5467
-    total: 5592
+  cdna_pos: ~
+  cds_pos: ~
   protein_pos: ~
   distance: -8
   strand: -1

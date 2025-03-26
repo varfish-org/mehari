@@ -8,7 +8,7 @@ info:
   license:
     name: MIT
     identifier: MIT
-  version: 0.31.0
+  version: 0.32.0
 paths:
   /api/v1/genes/transcripts:
     get:
@@ -924,6 +924,11 @@ components:
           - type: 'null'
           - $ref: '#/components/schemas/Rank'
             description: The exon / intron rank.
+        hgvs_g:
+          type:
+          - string
+          - 'null'
+          description: HGVS g. notation.
         hgvs_t:
           type:
           - string

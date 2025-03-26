@@ -20,9 +20,10 @@ expression: res
   rank:
     ord: 1
     total: 23
-  hgvs_t: c.-112C>G
+  hgvs_g: g.41277380G>C
+  hgvs_c: c.-112C>G
   hgvs_p: p.?
-  tx_pos:
+  cdna_pos:
     ord: 2
     total: 7088
   cds_pos:
@@ -49,9 +50,10 @@ expression: res
   rank:
     ord: 1
     total: 22
-  hgvs_t: c.-193C>G
+  hgvs_g: g.41277380G>C
+  hgvs_c: c.-193C>G
   hgvs_p: p.?
-  tx_pos:
+  cdna_pos:
     ord: 2
     total: 7028
   cds_pos:
@@ -76,9 +78,10 @@ expression: res
   feature_biotype:
     - coding
   rank: ~
-  hgvs_t: ~
+  hgvs_g: g.41277380G>C
+  hgvs_c: ~
   hgvs_p: ~
-  tx_pos: ~
+  cdna_pos: ~
   cds_pos: ~
   protein_pos: ~
   distance: 1248
@@ -101,9 +104,10 @@ expression: res
   rank:
     ord: 1
     total: 22
-  hgvs_t: c.-106C>G
+  hgvs_g: g.41277380G>C
+  hgvs_c: c.-106C>G
   hgvs_p: p.?
-  tx_pos:
+  cdna_pos:
     ord: 2
     total: 3696
   cds_pos:
@@ -130,9 +134,10 @@ expression: res
   rank:
     ord: 1
     total: 24
-  hgvs_t: c.-112C>G
+  hgvs_g: g.41277380G>C
+  hgvs_c: c.-112C>G
   hgvs_p: p.?
-  tx_pos:
+  cdna_pos:
     ord: 2
     total: 7151
   cds_pos:

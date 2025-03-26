@@ -18,9 +18,10 @@ expression: res
     - coding
     - mane_select
   rank: ~
-  hgvs_t: ~
+  hgvs_g: g.41196311G>C
+  hgvs_c: ~
   hgvs_p: ~
-  tx_pos: ~
+  cdna_pos: ~
   cds_pos: ~
   protein_pos: ~
   distance: -1
@@ -41,9 +42,10 @@ expression: res
   feature_biotype:
     - coding
   rank: ~
-  hgvs_t: ~
+  hgvs_g: g.41196311G>C
+  hgvs_c: ~
   hgvs_p: ~
-  tx_pos: ~
+  cdna_pos: ~
   cds_pos: ~
   protein_pos: ~
   distance: -1
@@ -64,9 +66,10 @@ expression: res
   feature_biotype:
     - coding
   rank: ~
-  hgvs_t: ~
+  hgvs_g: g.41196311G>C
+  hgvs_c: ~
   hgvs_p: ~
-  tx_pos: ~
+  cdna_pos: ~
   cds_pos: ~
   protein_pos: ~
   distance: -1
@@ -87,9 +90,10 @@ expression: res
   feature_biotype:
     - coding
   rank: ~
-  hgvs_t: ~
+  hgvs_g: g.41196311G>C
+  hgvs_c: ~
   hgvs_p: ~
-  tx_pos: ~
+  cdna_pos: ~
   cds_pos: ~
   protein_pos: ~
   distance: -1
@@ -110,9 +114,10 @@ expression: res
   feature_biotype:
     - coding
   rank: ~
-  hgvs_t: ~
+  hgvs_g: g.41196311G>C
+  hgvs_c: ~
   hgvs_p: ~
-  tx_pos: ~
+  cdna_pos: ~
   cds_pos: ~
   protein_pos: ~
   distance: -1
