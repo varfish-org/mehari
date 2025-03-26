@@ -44,9 +44,13 @@ pub struct Config {
     #[builder(default)]
     pub report_most_severe_consequence_by: Option<ConsequenceBy>,
 
-    /// Whether to discard intergenic variants.
+    /// Whether to keep intergenic variants.
     #[builder(default = "false")]
     pub keep_intergenic: bool,
+
+    /// Whether to report splice variants in UTRs.
+    #[builder(default = "false")]
+    pub discard_utr_splice_variants: bool,
 
     /// Whether to do hgvs shifting for hgvs.g like vep does
     #[builder(default = "false")]
@@ -763,6 +767,38 @@ impl ConsequencePredictor {
         if consequences.contains(Consequence::TranscriptAblation) {
             *consequences = Consequence::TranscriptAblation.into();
             return;
+        }
+
+        // Do not report splice variants in UTRs.
+        if self.config.discard_utr_splice_variants {
+            let splice_variants = Consequence::SpliceDonorVariant
+                | Consequence::SpliceAcceptorVariant
+                | Consequence::SpliceRegionVariant
+                | Consequence::SpliceDonorFifthBaseVariant
+                | Consequence::SpliceDonorRegionVariant
+                | Consequence::SplicePolypyrimidineTractVariant;
+            let utr_intron_variants =
+                Consequence::FivePrimeUtrIntronVariant | Consequence::ThreePrimeUtrIntronVariant;
+            let is_utr = match var_c {
+                HgvsVariant::CdsVariant { loc_edit, .. } => {
+                    let loc = loc_edit.loc.inner();
+                    loc.start.base < 0
+                        && loc.end.base < 0
+                        && loc.start.cds_from == CdsFrom::Start
+                        && loc.end.cds_from == CdsFrom::Start
+                        || loc.start.base > 0
+                            && loc.end.base > 0
+                            && loc.start.cds_from == CdsFrom::End
+                            && loc.end.cds_from == CdsFrom::End
+                }
+                _ => unreachable!(),
+            };
+            if is_utr
+                && consequences.intersects(splice_variants)
+                && consequences.intersects(utr_intron_variants)
+            {
+                *consequences &= !splice_variants;
+            }
         }
 
         // If a frameshift/ins/del was predicted on the CDS level,

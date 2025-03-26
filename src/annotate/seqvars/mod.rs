@@ -1878,6 +1878,7 @@ impl ConsequenceAnnotator {
                 .report_most_severe_consequence_by(args.report_most_severe_consequence_by)
                 .transcript_source(args.transcript_source)
                 .keep_intergenic(args.keep_intergenic)
+                .discard_utr_splice_variants(args.discard_utr_splice_variants)
                 .vep_hgvs_shift(args.vep_hgvs_shift)
                 .build()?,
         );

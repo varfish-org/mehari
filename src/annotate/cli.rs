@@ -49,9 +49,13 @@ pub struct TranscriptSettings {
     #[arg(long, default_value = "all")]
     pub pick_transcript_mode: TranscriptPickMode,
 
-    /// Whether to discard intergenic variants.
+    /// Whether to keep intergenic variants.
     #[arg(long, default_value = "false")]
     pub keep_intergenic: bool,
+
+    /// Whether to report splice variants in UTRs.
+    #[arg(long, default_value = "false")]
+    pub discard_utr_splice_variants: bool,
 
     /// Whether to do hgvs shifting for hgvs.g like vep does
     #[arg(long, default_value = "false", hide = true)]
