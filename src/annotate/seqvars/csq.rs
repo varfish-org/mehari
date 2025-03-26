@@ -153,35 +153,22 @@ impl ConsequencePredictor {
         let var_g = Self::get_var_g(&norm_var, chrom_acc);
         let (var_g_fwd, var_g_rev) = if self.mapper.config.renormalize_g {
             (
-                self.mapper.maybe_normalize(&var_g)?,
-                self.mapper.inner.left_normalizer()?.normalize(&var_g)?,
+                self.mapper
+                    .variant_mapper()
+                    .right_normalizer()?
+                    .normalize(&var_g)?,
+                self.mapper
+                    .variant_mapper()
+                    .left_normalizer()?
+                    .normalize(&var_g)?,
             )
         } else {
             (var_g.clone(), var_g)
         };
 
         // Get all affected transcripts.
-        let (var_start, var_end) = match &var_g {
-            HgvsVariant::GenomeVariant { loc_edit, .. } => {
-                let loc = loc_edit.loc.inner();
-                let edit = loc_edit.edit.inner();
-                let start = loc
-                    .start
-                    .map(|s| s - 1)
-                    .expect("Failed to get start position");
-                let end = loc.end.map(|s| s - 1).expect("Failed to get end position");
-                let ref_len = norm_var.reference.len() as i32;
-                let old_end = start + ref_len;
-                let end = if edit.is_ins() || edit.is_dup() {
-                    start
-                } else {
-                    end + 1
-                };
-                assert_eq!(end, old_end, "End position mismatch, start is {}, end is {}, ref_len is {}, var_g is {}, norm_var is {:?}", start, end, ref_len, &var_g, &norm_var);
-                (start, end)
-            }
-            _ => unreachable!(),
-        };
+        let (var_start_fwd, var_end_fwd) = Self::get_var_start_end(&mut norm_var, &var_g_fwd);
+        let (var_start_rev, var_end_rev) = Self::get_var_start_end(&mut norm_var, &var_g_rev);
 
         let qry_start = var_start_fwd.min(var_start_rev) - PADDING;
         let qry_end = var_end_fwd.max(var_end_rev) + PADDING;
@@ -231,21 +218,9 @@ impl ConsequencePredictor {
             .into_iter()
             .map(|tx| {
                 if tx.alt_strand == -1 {
-                    self.build_ann_field(
-                        var,
-                        var_g_rev.clone(),
-                        tx,
-                        var_start_rev,
-                        var_end_rev,
-                    )
+                    self.build_ann_field(var, var_g_rev.clone(), tx, var_start_rev, var_end_rev)
                 } else {
-                    self.build_ann_field(
-                        var,
-                        var_g_fwd.clone(),
-                        tx,
-                        var_start_fwd,
-                        var_end_fwd,
-                    )
+                    self.build_ann_field(var, var_g_fwd.clone(), tx, var_start_fwd, var_end_fwd)
                 }
             })
             .collect::<Result<Vec<_>, _>>()?
@@ -255,6 +230,30 @@ impl ConsequencePredictor {
 
         // Return all or worst annotation only.
         Ok(Some(self.filter_ann_fields(anns_all_txs)))
+    }
+
+    fn get_var_start_end(norm_var: &mut VcfVariant, var_g: &HgvsVariant) -> (i32, i32) {
+        match &var_g {
+            HgvsVariant::GenomeVariant { loc_edit, .. } => {
+                let loc = loc_edit.loc.inner();
+                let edit = loc_edit.edit.inner();
+                let start = loc
+                    .start
+                    .map(|s| s - 1)
+                    .expect("Failed to get start position");
+                let end = loc.end.map(|s| s - 1).expect("Failed to get end position");
+                let ref_len = norm_var.reference.len() as i32;
+                let old_end = start + ref_len;
+                let end = if edit.is_ins() || edit.is_dup() {
+                    start
+                } else {
+                    end + 1
+                };
+                assert_eq!(end, old_end, "End position mismatch, start is {}, end is {}, ref_len is {}, var_g is {}, norm_var is {:?}", start, end, ref_len, &var_g, &norm_var);
+                (start, end)
+            }
+            _ => unreachable!(),
+        }
     }
 
     // Filter transcripts to the picked ones from the selected transcript source.
