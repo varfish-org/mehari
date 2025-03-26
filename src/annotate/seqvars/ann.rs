@@ -223,6 +223,10 @@ pub enum Consequence {
     /// SO:non_coding_transcript_intron_variant, VEP:non_coding_transcript_variant
     NonCodingTranscriptIntronVariant,
 
+    /// "A transcript variant occurring within an intron of a coding transcript."
+    /// SO:coding_transcript_intron_variant
+    CodingTranscriptIntronVariant,
+
     // Not used by mehari, but by VEP
     // /// "A transcript variant of a protein coding gene."
     // /// SO:coding_transcript_variant, VEP:coding_transcript_variant
@@ -321,6 +325,7 @@ impl From<Consequence> for PutativeImpact {
             | ThreePrimeUtrIntronVariant
             | NonCodingTranscriptExonVariant
             | NonCodingTranscriptIntronVariant
+            | CodingTranscriptIntronVariant
             | UpstreamGeneVariant
             | DownstreamGeneVariant
             | TfbsAblation
