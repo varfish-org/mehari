@@ -1,6 +1,7 @@
 ---
 source: src/annotate/seqvars/csq.rs
 expression: res
+snapshot_kind: text
 ---
 - allele:
     Alt:
@@ -25,12 +26,8 @@ expression: res
   hgvs_g: g.193332833G>A
   hgvs_c: c.351+3G>A
   hgvs_p: p.?
-  cdna_pos:
-    ord: 521
-    total: 6429
-  cds_pos:
-    ord: 351
-    total: 3048
+  cdna_pos: ~
+  cds_pos: ~
   protein_pos: ~
   distance: 3
   strand: 1

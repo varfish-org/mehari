@@ -421,7 +421,7 @@ impl ConsequencePredictor {
         let mut rank = Rank::default();
         let mut is_exonic = false;
         let mut is_intronic = false;
-        let mut is_utr = false;
+        let mut is_utr;
         let mut distance: Option<i32> = None;
         let mut tx_len = 0;
 
@@ -575,124 +575,124 @@ impl ConsequencePredictor {
             }
         }
 
-        let (rank, hgvs_t, hgvs_p, tx_pos, cds_pos, protein_pos) = if !is_upstream && !is_downstream
-        {
-            // TODO: do not include such transcripts when building the tx database.
-            let var_n = self.mapper.g_to_n(&var_g, &tx.id).map_or_else(
-                |e| match e {
-                    Error::NonAdjacentExons(_, _, _, _) => {
-                        tracing::warn!("{}, {}: NonAdjacentExons, skipping", &tx.id, &var_g);
-                        Ok(None)
-                    }
-                    _ => Err(e),
-                },
-                |v| Ok(Some(v)),
-            )?;
-            if var_n.is_none() {
-                return Ok(None);
-            }
-            let var_n = var_n.unwrap();
-
-            let tx_pos = match &var_n {
-                HgvsVariant::TxVariant { loc_edit, .. } => Some(Pos {
-                    ord: loc_edit.loc.inner().start.base,
-                    total: Some(tx_len),
-                }),
-                _ => panic!("Invalid tx position: {:?}", &var_n),
-            };
-
-            let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match transcript_biotype {
-                TranscriptBiotype::Coding => {
-                    let cds_len = tx.stop_codon.unwrap() - tx.start_codon.unwrap();
-                    let prot_len = cds_len / 3;
-
-                    let var_c = self.mapper.n_to_c(&var_n)?;
-                    // Gracefully handle the case that the transcript is unsupported because the length
-                    // is not a multiple of 3.
-                    // TODO: do not include such transcripts when building the tx database.
-                    let var_p = self.mapper.c_to_p(&var_c).map_or_else(
-                        |e| {
-                            if e.to_string()
-                                .contains("is not supported because its sequence length of")
-                            {
-                                Ok(None)
-                            } else {
-                                Err(e)
-                            }
-                        },
-                        |v| Ok(Some(v)),
-                    )?;
-                    if var_p.is_none() {
-                        return Ok(None);
-                    }
-                    let var_p = var_p.unwrap();
-
-                    let hgvs_p = format!("{}", &var_p);
-                    let hgvs_p = hgvs_p.split(':').nth(1).unwrap().to_owned();
-                    let hgvs_p = Some(hgvs_p);
-                    let cds_pos = match &var_c {
-                        HgvsVariant::CdsVariant { loc_edit, .. } => Some(Pos {
-                            ord: loc_edit.loc.inner().start.base,
-                            total: Some(cds_len),
-                        }),
-                        _ => panic!("Invalid CDS position: {:?}", &var_n),
-                    };
-                    let protein_pos = match &var_p {
-                        HgvsVariant::ProtVariant { loc_edit, .. } => match &loc_edit {
-                            ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
-                                ord: loc.inner().start.number,
-                                total: Some(prot_len),
-                            }),
-                            _ => None,
-                        },
-                        _ => panic!("Not a protein position: {:?}", &var_n),
-                    };
-
-                    let conservative = is_conservative_cds_variant(&var_c);
-
-                    let consequences_cds =
-                        Self::analyze_cds_variant(&var_c, is_exonic, is_intronic, conservative);
-
-                    // Analyze `var_p` for changes in the protein sequence.
-                    let consequences_protein = self.analyze_protein_variant(
-                        &var_c,
-                        &var_p,
-                        &protein_pos,
-                        conservative,
-                        &tx_record.tx_ac,
-                    );
-
-                    consequences |= consequences_cds | consequences_protein;
-
-                    self.consequences_fix_special_cases(
-                        &mut consequences,
-                        consequences_cds,
-                        consequences_protein,
-                        &var_g,
-                        &var_n,
-                        &var_c,
-                        &var_p,
-                    );
-
-                    (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
+        let (rank, hgvs_t, hgvs_p, cdna_pos, cds_pos, protein_pos) =
+            if !is_upstream && !is_downstream {
+                // TODO: do not include such transcripts when building the tx database.
+                let var_n = self.mapper.g_to_n(&var_g, &tx.id).map_or_else(
+                    |e| match e {
+                        Error::NonAdjacentExons(_, _, _, _) => {
+                            tracing::warn!("{}, {}: NonAdjacentExons, skipping", &tx.id, &var_g);
+                            Ok(None)
+                        }
+                        _ => Err(e),
+                    },
+                    |v| Ok(Some(v)),
+                )?;
+                if var_n.is_none() {
+                    return Ok(None);
                 }
-                TranscriptBiotype::NonCoding => (var_n, None, None, None, None),
-                _ => unreachable!("invalid transcript biotype: {:?}", transcript_biotype),
-            };
-            let hgvs_t = format!("{}", &NoRef(&var_t));
-            let hgvs_t = hgvs_t.split(':').nth(1).unwrap().to_owned();
+                let var_n = var_n.unwrap();
 
-            (
-                Some(rank),
-                Some(hgvs_t),
-                hgvs_p,
-                tx_pos,
-                cds_pos,
-                protein_pos,
-            )
-        } else {
-            (None, None, None, None, None, None)
-        };
+                let cdna_pos = is_exonic.then_some(match &var_n {
+                    HgvsVariant::TxVariant { loc_edit, .. } => Pos {
+                        ord: loc_edit.loc.inner().start.base,
+                        total: Some(tx_len),
+                    },
+                    _ => panic!("Invalid tx position: {:?}", &var_n),
+                });
+
+                let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match transcript_biotype {
+                    TranscriptBiotype::Coding => {
+                        let cds_len = tx.stop_codon.unwrap() - tx.start_codon.unwrap();
+                        let prot_len = cds_len / 3;
+
+                        let var_c = self.mapper.n_to_c(&var_n)?;
+                        // Gracefully handle the case that the transcript is unsupported because the length
+                        // is not a multiple of 3.
+                        // TODO: do not include such transcripts when building the tx database.
+                        let var_p = self.mapper.c_to_p(&var_c).map_or_else(
+                            |e| {
+                                if e.to_string()
+                                    .contains("is not supported because its sequence length of")
+                                {
+                                    Ok(None)
+                                } else {
+                                    Err(e)
+                                }
+                            },
+                            |v| Ok(Some(v)),
+                        )?;
+                        if var_p.is_none() {
+                            return Ok(None);
+                        }
+                        let var_p = var_p.unwrap();
+
+                        let hgvs_p = format!("{}", &var_p);
+                        let hgvs_p = hgvs_p.split(':').nth(1).unwrap().to_owned();
+                        let hgvs_p = Some(hgvs_p);
+                        let cds_pos = is_exonic.then_some(match &var_c {
+                            HgvsVariant::CdsVariant { loc_edit, .. } => Pos {
+                                ord: loc_edit.loc.inner().start.base,
+                                total: Some(cds_len),
+                            },
+                            _ => panic!("Invalid CDS position: {:?}", &var_n),
+                        });
+                        let protein_pos = match &var_p {
+                            HgvsVariant::ProtVariant { loc_edit, .. } => match &loc_edit {
+                                ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
+                                    ord: loc.inner().start.number,
+                                    total: Some(prot_len),
+                                }),
+                                _ => None,
+                            },
+                            _ => panic!("Not a protein position: {:?}", &var_n),
+                        };
+
+                        let conservative = is_conservative_cds_variant(&var_c);
+
+                        let consequences_cds =
+                            Self::analyze_cds_variant(&var_c, is_exonic, is_intronic, conservative);
+
+                        // Analyze `var_p` for changes in the protein sequence.
+                        let consequences_protein = self.analyze_protein_variant(
+                            &var_c,
+                            &var_p,
+                            &protein_pos,
+                            conservative,
+                            &tx_record.tx_ac,
+                        );
+
+                        consequences |= consequences_cds | consequences_protein;
+
+                        self.consequences_fix_special_cases(
+                            &mut consequences,
+                            consequences_cds,
+                            consequences_protein,
+                            &var_g,
+                            &var_n,
+                            &var_c,
+                            &var_p,
+                        );
+
+                        (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
+                    }
+                    TranscriptBiotype::NonCoding => (var_n, None, None, None, None),
+                    _ => unreachable!("invalid transcript biotype: {:?}", transcript_biotype),
+                };
+                let hgvs_t = format!("{}", &NoRef(&var_t));
+                let hgvs_t = hgvs_t.split(':').nth(1).unwrap().to_owned();
+
+                (
+                    Some(rank),
+                    Some(hgvs_t),
+                    hgvs_p,
+                    cdna_pos,
+                    cds_pos,
+                    protein_pos,
+                )
+            } else {
+                (None, None, None, None, None, None)
+            };
 
         // Take a highest-ranking consequence and derive putative impact from it.
         if consequences.is_empty() {
@@ -739,7 +739,7 @@ impl ConsequencePredictor {
             hgvs_g,
             hgvs_c: hgvs_t,
             hgvs_p,
-            cdna_pos: tx_pos,
+            cdna_pos,
             cds_pos,
             protein_pos,
             strand,
