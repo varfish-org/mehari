@@ -2057,7 +2057,7 @@ mod test {
             String::from("NM_130837.3"),
         ];
 
-        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only)
+        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only, false)
     }
 
     // Compare to SnpEff annotated variants for BRCA1, touching special cases.
@@ -2096,19 +2096,21 @@ mod test {
             String::from("NM_007300.4"),
         ];
 
-        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only)
+        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only, false)
     }
 
     fn annotate_vars(
         path_tsv: &str,
         txs: &[String],
         report_most_severe_consequence_only: bool,
+        with_reference: bool
     ) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
+        let reference_path = "resources/GCF_000001405.25_GRCh37.p13_genomic.fna";
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            None::<PathBuf>,
+            with_reference.then_some(reference_path),
             true,
             Default::default(),
         ));
