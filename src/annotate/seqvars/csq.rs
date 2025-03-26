@@ -428,8 +428,8 @@ impl ConsequencePredictor {
 
                         // We compute the "distance" with "+1", the first base of the
                         // intron is "+1", the last one is "-1".
-                        let dist_start = var_start + 1 - intron_start;
-                        let dist_end = -(intron_end + 1 - var_end);
+                        let dist_start: i32 = var_start + 1 - intron_start;
+                        let dist_end: i32 = -(intron_end + 1 - var_end);
                         let dist_start_end = if dist_start.abs() <= dist_end.abs() {
                             dist_start
                         } else {
