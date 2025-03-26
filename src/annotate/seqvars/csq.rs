@@ -779,6 +779,8 @@ impl ConsequencePredictor {
                 | Consequence::SplicePolypyrimidineTractVariant;
             let utr_intron_variants =
                 Consequence::FivePrimeUtrIntronVariant | Consequence::ThreePrimeUtrIntronVariant;
+            let utr_exon_variants =
+                Consequence::FivePrimeUtrExonVariant | Consequence::ThreePrimeUtrExonVariant;
             let is_utr = match var_c {
                 HgvsVariant::CdsVariant { loc_edit, .. } => {
                     let loc = loc_edit.loc.inner();
@@ -795,7 +797,7 @@ impl ConsequencePredictor {
             };
             if is_utr
                 && consequences.intersects(splice_variants)
-                && consequences.intersects(utr_intron_variants)
+                && consequences.intersects(utr_intron_variants | utr_exon_variants)
             {
                 *consequences &= !splice_variants;
             }
