@@ -54,7 +54,7 @@ pub struct TranscriptSettings {
     pub keep_intergenic: bool,
 
     /// Whether to do hgvs shifting for hgvs.g like vep does
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value = "false", hide = true)]
     pub vep_hgvs_shift: bool,
 }
 
