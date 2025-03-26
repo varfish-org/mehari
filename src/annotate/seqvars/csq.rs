@@ -1462,8 +1462,9 @@ fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
     }
 }
 
-fn overlaps(var_start: i32, var_end: i32, exon_intron_start: i32, exon_intron_end: i32) -> bool {
-    (var_start < exon_intron_end) && (var_end > exon_intron_start)
+#[inline]
+fn overlaps(start_a: i32, end_a: i32, start_b: i32, end_b: i32) -> bool {
+    (start_a < end_b) && (end_a > start_b)
 }
 
 impl ConsequencePredictor {
