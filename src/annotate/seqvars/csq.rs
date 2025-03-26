@@ -424,11 +424,15 @@ impl ConsequencePredictor {
         let mut rank = Rank::default();
         let mut is_exonic = false;
         let mut is_intronic = false;
+        let mut is_utr = false;
         let mut distance: Option<i32> = None;
         let mut tx_len = 0;
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
+
+        let cds_start = alignment.cds_start.unwrap_or(-1);
+        let cds_end = alignment.cds_end.unwrap_or(-1);
 
         for exon_alignment in &alignment.exons {
             tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i;
@@ -437,6 +441,9 @@ impl ConsequencePredictor {
             let exon_end = exon_alignment.alt_end_i;
             let intron_start = prev_end;
             let intron_end = exon_start;
+
+            is_utr = exon_start < cds_start && !var_overlaps(cds_start, cds_end)
+                || exon_end > cds_end && !var_overlaps(cds_start, cds_end);
 
             // Check the cases where the variant overlaps with the exon or is contained within an
             // intron.
@@ -452,6 +459,9 @@ impl ConsequencePredictor {
                 // We are in an intron (the first exon does not have an intron left of it
                 // which is expressed by `intron_start` being an `Option<i32>` rather than `i32`.
                 if var_start >= intron_start && var_end <= intron_end {
+                    is_utr = intron_start < cds_start && !var_overlaps(cds_start, cds_end)
+                        || intron_end > cds_end && !var_overlaps(cds_start, cds_end);
+
                     // Contained within intron: cannot be in next exon.
                     if !is_exonic {
                         rank = Rank {
@@ -480,7 +490,7 @@ impl ConsequencePredictor {
 
             if var_overlaps(exon_start, exon_end) {
                 let consequences_exonic = Self::analyze_exonic_variant(
-                    strand, var_start, var_end, exon_start, exon_end, &rank,
+                    strand, var_start, var_end, exon_start, exon_end, &rank, is_utr,
                 );
                 consequences |= consequences_exonic;
             }
@@ -494,6 +504,7 @@ impl ConsequencePredictor {
                     var_end,
                     intron_start,
                     intron_end,
+                    is_utr,
                 );
                 consequences |= consequences_intronic;
             }
@@ -891,6 +902,7 @@ impl ConsequencePredictor {
         exon_start: i32,
         exon_end: i32,
         rank: &Rank,
+        is_utr: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -921,24 +933,24 @@ impl ConsequencePredictor {
         // Check splice region variants
         if var_overlaps(exon_end - 3, exon_end) {
             if strand == Strand::Plus {
-                if !rank.is_last() {
+                if !rank.is_last() && !is_utr {
                     consequences |= Consequence::SpliceRegionVariant;
                 }
             } else {
                 // alignment.strand == Strand::Minus
-                if !rank.is_first() {
+                if !rank.is_first() && !is_utr {
                     consequences |= Consequence::SpliceRegionVariant;
                 }
             }
         }
         if var_overlaps(exon_start, exon_start + 3) {
             if strand == Strand::Plus {
-                if !rank.is_first() {
+                if !rank.is_first() && !is_utr {
                     consequences |= Consequence::SpliceRegionVariant;
                 }
             } else {
                 // alignment.strand == Strand::Minus
-                if !rank.is_last() {
+                if !rank.is_last() && !is_utr {
                     consequences |= Consequence::SpliceRegionVariant;
                 }
             }
@@ -955,8 +967,14 @@ impl ConsequencePredictor {
         var_end: i32,
         intron_start: i32,
         intron_end: i32,
+        is_utr: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
+
+        // We're only checking splice variants here, so we can skip the rest if the variant is UTR.
+        if is_utr {
+            return consequences;
+        }
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
@@ -1051,7 +1069,7 @@ impl ConsequencePredictor {
     fn analyze_cds_variant(
         var_c: &HgvsVariant,
         is_exonic: bool,
-        is_intronic: bool,
+        _is_intronic: bool,
         conservative: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
