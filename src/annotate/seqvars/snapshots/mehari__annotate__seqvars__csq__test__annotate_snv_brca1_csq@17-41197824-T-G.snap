@@ -9,7 +9,7 @@ snapshot_kind: text
   consequences:
     - splice_region_variant
     - splice_polypyrimidine_tract_variant
-    - intron_variant
+    - coding_transcript_intron_variant
   putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"

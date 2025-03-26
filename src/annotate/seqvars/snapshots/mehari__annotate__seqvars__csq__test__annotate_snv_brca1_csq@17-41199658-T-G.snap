@@ -8,7 +8,7 @@ snapshot_kind: text
       alternative: G
   consequences:
     - splice_donor_variant
-    - intron_variant
+    - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"

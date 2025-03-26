@@ -7,7 +7,7 @@ snapshot_kind: text
     Alt:
       alternative: G
   consequences:
-    - intron_variant
+    - coding_transcript_intron_variant
   putative_impact: modifier
   gene_symbol: OPA1
   gene_id: "HGNC:8140"

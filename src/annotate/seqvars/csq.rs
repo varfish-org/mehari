@@ -543,7 +543,6 @@ impl ConsequencePredictor {
             if transcript_biotype == TranscriptBiotype::NonCoding {
                 consequences |= Consequence::NonCodingTranscriptIntronVariant;
             } else {
-                consequences |= Consequence::IntronVariant;
                 consequences |= Consequence::CodingTranscriptIntronVariant;
             }
         } else if is_upstream {
@@ -1611,42 +1610,42 @@ mod test {
     /// The order of the consequences is important: ordered by severity, descending.
     /// cf Consequences enum ordering.
     #[rstest::rstest]
-    #[case("17:41197820:G:T", 1, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    #[case("17:41197820:G:T", 1, vec![Consequence::SpliceAcceptorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 1bp intronic
-    #[case("17:41197821:A:C", 2, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    #[case("17:41197821:A:C", 2, vec![Consequence::SpliceAcceptorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 2bp intronic
-    #[case("17:41197822:C:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197822:C:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 3bp intronic
-    #[case("17:41197823:C:A", 4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197823:C:A", 4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 4bp intronic
-    #[case("17:41197824:T:G", 5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197824:T:G", 5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 5bp intronic
-    #[case("17:41197825:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197825:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 6bp intronic
-    #[case("17:41197835:T:G", 16, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197835:T:G", 16, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 16bp intronic
-    #[case("17:41197836:G:A", 17, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197836:G:A", 17, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 17bp intronic
-    #[case("17:41197837:G:A", 18, vec![Consequence::IntronVariant])] // 18bp intronic
+    #[case("17:41197837:G:A", 18, vec![Consequence::CodingTranscriptIntronVariant])] // 18bp intronic
     #[case("17:41199660:G:T", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant]
     )] // exonic
-    #[case("17:41199659:G:T", -1, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    #[case("17:41199659:G:T", -1, vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -1bp intronic
-    #[case("17:41199658:T:G", -2, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    #[case("17:41199658:T:G", -2, vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -2bp intronic
-    #[case("17:41199657:G:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199657:G:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -3bp intronic
-    #[case("17:41199656:A:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199656:A:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -4bp intronic
-    #[case("17:41199655:G:T", -5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199655:G:T", -5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -5bp intronic
-    #[case("17:41199654:G:T", -6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199654:G:T", -6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -6bp intronic
-    #[case("17:41199653:T:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199653:T:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -7bp intronic
-    #[case("17:41199652:G:T", -8, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199652:G:T", -8, vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -8bp intronic
-    #[case("17:41199651:C:A", -9, vec![Consequence::IntronVariant])] // -9bp intronic
+    #[case("17:41199651:C:A", -9, vec![Consequence::CodingTranscriptIntronVariant])] // -9bp intronic
     fn annotate_snv_brca1_csq(
         #[case] spdi: &str,
         #[case] expected_dist: i32,
@@ -1714,44 +1713,44 @@ mod test {
     #[rstest::rstest]
     #[case("3:193332512:T:G", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant]
     )] // exonic
-    #[case("3:193332511:G:T", -1, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    #[case("3:193332511:G:T", -1, vec![Consequence::SpliceAcceptorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -1bp intronic
-    #[case("3:193332510:A:G", -2, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    #[case("3:193332510:A:G", -2, vec![Consequence::SpliceAcceptorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -2bp intronic
-    #[case("3:193332509:C:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant]
+    #[case("3:193332509:C:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::CodingTranscriptIntronVariant]
     )] // -3bp intronic
-    #[case("3:193332508:T:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant]
+    #[case("3:193332508:T:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::CodingTranscriptIntronVariant]
     )] // -4bp intronic
-    #[case("3:193332507:T:C", -5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant]
+    #[case("3:193332507:T:C", -5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::CodingTranscriptIntronVariant]
     )] // -5bp intronic
-    #[case("3:193332506:T:C", -6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("3:193332506:T:C", -6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -6bp intronic
-    #[case("3:193332505:C:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("3:193332505:C:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -7bp intronic
-    #[case("3:193332504:T:C", -8, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("3:193332504:T:C", -8, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -8bp intronic
-    #[case("3:193332503:T:A", -9, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("3:193332503:T:A", -9, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -9bp intronic
-    #[case("3:193332831:G:T", 1, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    #[case("3:193332831:G:T", 1, vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 1bp intronic
-    #[case("3:193332832:T:C", 2, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    #[case("3:193332832:T:C", 2, vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 2bp intronic
-    #[case("3:193332833:G:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332833:G:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 3bp intronic
-    #[case("3:193332834:A:C", 4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332834:A:C", 4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 4bp intronic
-    #[case("3:193332835:A:T", 5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332835:A:T", 5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 5bp intronic
-    #[case("3:193332836:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332836:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 6bp intronic
-    #[case("3:193332837:T:G", 7, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332837:T:G", 7, vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 7bp intronic
-    #[case("3:193332838:T:G", 8, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332838:T:G", 8, vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 8bp intronic
-    #[case("3:193332839:G:A", 9, vec![Consequence::IntronVariant])] // 9bp intronic
-    #[case("3:193332846:A:G", 16, vec![Consequence::IntronVariant])] // 16bp intronic
-    #[case("3:193332847:G:A", 17, vec![Consequence::IntronVariant])] // 17bp intronic
-    #[case("3:193332848:T:A", 18, vec![Consequence::IntronVariant])] // 18bp intronic
+    #[case("3:193332839:G:A", 9, vec![Consequence::CodingTranscriptIntronVariant])] // 9bp intronic
+    #[case("3:193332846:A:G", 16, vec![Consequence::CodingTranscriptIntronVariant])] // 16bp intronic
+    #[case("3:193332847:G:A", 17, vec![Consequence::CodingTranscriptIntronVariant])] // 17bp intronic
+    #[case("3:193332848:T:A", 18, vec![Consequence::CodingTranscriptIntronVariant])] // 18bp intronic
     fn annotate_snv_opa1_csq(
         #[case] spdi: &str,
         #[case] expected_dist: i32,

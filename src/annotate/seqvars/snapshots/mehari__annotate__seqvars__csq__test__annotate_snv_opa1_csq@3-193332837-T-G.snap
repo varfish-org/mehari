@@ -8,7 +8,7 @@ snapshot_kind: text
       alternative: G
   consequences:
     - splice_region_variant
-    - intron_variant
+    - coding_transcript_intron_variant
   putative_impact: low
   gene_symbol: OPA1
   gene_id: "HGNC:8140"

@@ -9,7 +9,6 @@ snapshot_kind: text
   consequences:
     - splice_acceptor_variant
     - coding_transcript_intron_variant
-    - intron_variant
   putative_impact: high
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -38,7 +37,6 @@ snapshot_kind: text
   consequences:
     - splice_acceptor_variant
     - coding_transcript_intron_variant
-    - intron_variant
   putative_impact: high
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -66,7 +64,6 @@ snapshot_kind: text
   consequences:
     - splice_acceptor_variant
     - coding_transcript_intron_variant
-    - intron_variant
   putative_impact: high
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -94,7 +91,6 @@ snapshot_kind: text
   consequences:
     - splice_acceptor_variant
     - coding_transcript_intron_variant
-    - intron_variant
   putative_impact: high
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -122,7 +118,6 @@ snapshot_kind: text
   consequences:
     - splice_acceptor_variant
     - coding_transcript_intron_variant
-    - intron_variant
   putative_impact: high
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"

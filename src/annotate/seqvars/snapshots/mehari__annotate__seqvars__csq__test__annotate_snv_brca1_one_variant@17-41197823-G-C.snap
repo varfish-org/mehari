@@ -10,7 +10,6 @@ snapshot_kind: text
     - splice_region_variant
     - splice_polypyrimidine_tract_variant
     - coding_transcript_intron_variant
-    - intron_variant
   putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -40,7 +39,6 @@ snapshot_kind: text
     - splice_region_variant
     - splice_polypyrimidine_tract_variant
     - coding_transcript_intron_variant
-    - intron_variant
   putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -69,7 +67,6 @@ snapshot_kind: text
     - splice_region_variant
     - splice_polypyrimidine_tract_variant
     - coding_transcript_intron_variant
-    - intron_variant
   putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -98,7 +95,6 @@ snapshot_kind: text
     - splice_region_variant
     - splice_polypyrimidine_tract_variant
     - coding_transcript_intron_variant
-    - intron_variant
   putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -127,7 +123,6 @@ snapshot_kind: text
     - splice_region_variant
     - splice_polypyrimidine_tract_variant
     - coding_transcript_intron_variant
-    - intron_variant
   putative_impact: low
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
