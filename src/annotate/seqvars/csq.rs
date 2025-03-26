@@ -181,8 +181,8 @@ impl ConsequencePredictor {
         };
 
         // Get all affected transcripts.
-        let (var_start_fwd, var_end_fwd) = Self::get_var_start_end(&mut norm_var, &var_g_fwd);
-        let (var_start_rev, var_end_rev) = Self::get_var_start_end(&mut norm_var, &var_g_rev);
+        let (var_start_fwd, var_end_fwd) = Self::get_var_start_end(&var_g_fwd);
+        let (var_start_rev, var_end_rev) = Self::get_var_start_end(&var_g_rev);
 
         let qry_start = var_start_fwd.min(var_start_rev) - PADDING;
         let qry_end = var_end_fwd.max(var_end_rev) + PADDING;
@@ -246,7 +246,7 @@ impl ConsequencePredictor {
         Ok(Some(self.filter_ann_fields(anns_all_txs)))
     }
 
-    fn get_var_start_end(norm_var: &mut VcfVariant, var_g: &HgvsVariant) -> (i32, i32) {
+    fn get_var_start_end(var_g: &HgvsVariant) -> (i32, i32) {
         match &var_g {
             HgvsVariant::GenomeVariant { loc_edit, .. } => {
                 let loc = loc_edit.loc.inner();
@@ -256,14 +256,11 @@ impl ConsequencePredictor {
                     .map(|s| s - 1)
                     .expect("Failed to get start position");
                 let end = loc.end.map(|s| s - 1).expect("Failed to get end position");
-                let ref_len = norm_var.reference.len() as i32;
-                let old_end = start + ref_len;
                 let end = if edit.is_ins() || edit.is_dup() {
                     start
                 } else {
                     end + 1
                 };
-                assert_eq!(end, old_end, "End position mismatch, start is {}, end is {}, ref_len is {}, var_g is {}, norm_var is {:?}", start, end, ref_len, &var_g, &norm_var);
                 (start, end)
             }
             _ => unreachable!(),
