@@ -1659,7 +1659,8 @@ mod test {
     )] // 16bp intronic
     #[case("17:41197836:G:A", 17, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 17bp intronic
-    #[case("17:41197837:G:A", 18, vec![Consequence::CodingTranscriptIntronVariant])] // 18bp intronic
+    #[case("17:41197837:G:A", 18, vec![Consequence::CodingTranscriptIntronVariant]
+    )] // 18bp intronic
     #[case("17:41199660:G:T", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant]
     )] // exonic
     #[case("17:41199659:G:T", -1, vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant]
@@ -1678,7 +1679,8 @@ mod test {
     )] // -7bp intronic
     #[case("17:41199652:G:T", -8, vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -8bp intronic
-    #[case("17:41199651:C:A", -9, vec![Consequence::CodingTranscriptIntronVariant])] // -9bp intronic
+    #[case("17:41199651:C:A", -9, vec![Consequence::CodingTranscriptIntronVariant]
+    )] // -9bp intronic
     fn annotate_snv_brca1_csq(
         #[case] spdi: &str,
         #[case] expected_dist: i32,
@@ -1839,12 +1841,15 @@ mod test {
     }
 
     #[rstest::rstest]
-    #[case("3:193311167:ATGT:T", vec![Consequence::StartLost, Consequence::ConservativeInframeDeletion])]
+    #[case("3:193311167:ATGT:T", vec![Consequence::StartLost, Consequence::ConservativeInframeDeletion]
+    )]
     #[case("3:193311170:TGGC:C", vec![Consequence::ConservativeInframeDeletion])]
-    #[case("3:193311170:TGGCG:G", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
+    #[case("3:193311170:TGGCG:G", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation]
+    )]
     #[case("3:193311180:GTCG:G", vec![Consequence::DisruptiveInframeDeletion])]
     #[case("3:193409910:GAAA:G", vec![Consequence::ConservativeInframeDeletion])]
-    #[case("3:193409913:ATAA:A", vec![Consequence::StopLost, Consequence::FeatureElongation, Consequence::ConservativeInframeDeletion])]
+    #[case("3:193409913:ATAA:A", vec![Consequence::StopLost, Consequence::FeatureElongation, Consequence::ConservativeInframeDeletion]
+    )]
     fn annotate_del_opa1_csqs(
         #[case] spdi: &str,
         #[case] expected_csqs: Vec<Consequence>,
