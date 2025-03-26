@@ -1877,6 +1877,8 @@ impl ConsequenceAnnotator {
             ConsequencePredictorConfigBuilder::default()
                 .report_most_severe_consequence_by(args.report_most_severe_consequence_by)
                 .transcript_source(args.transcript_source)
+                .keep_intergenic(args.keep_intergenic)
+                .vep_hgvs_shift(args.vep_hgvs_shift)
                 .build()?,
         );
         Ok(Self::new(predictor))

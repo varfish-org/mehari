@@ -48,6 +48,14 @@ pub struct TranscriptSettings {
     /// either keep the first one found or keep all that match.
     #[arg(long, default_value = "all")]
     pub pick_transcript_mode: TranscriptPickMode,
+
+    /// Whether to discard intergenic variants.
+    #[arg(long, default_value = "false")]
+    pub keep_intergenic: bool,
+
+    /// Whether to do hgvs shifting for hgvs.g like vep does
+    #[arg(long, default_value = "false")]
+    pub vep_hgvs_shift: bool,
 }
 
 #[derive(

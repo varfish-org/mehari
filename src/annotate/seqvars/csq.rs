@@ -45,8 +45,12 @@ pub struct Config {
     pub report_most_severe_consequence_by: Option<ConsequenceBy>,
 
     /// Whether to discard intergenic variants.
-    #[builder(default = "true")]
-    pub discard_intergenic: bool,
+    #[builder(default = "false")]
+    pub keep_intergenic: bool,
+
+    /// Whether to do hgvs shifting for hgvs.g like vep does
+    #[builder(default = "false")]
+    pub vep_hgvs_shift: bool,
 }
 
 impl Default for Config {
@@ -152,18 +156,28 @@ impl ConsequencePredictor {
         // We follow hgvs conventions and therefore normalize input variants
         let var_g = Self::get_var_g(&norm_var, chrom_acc);
         let (var_g_fwd, var_g_rev) = if self.mapper.config.renormalize_g {
+            // if renormalize_g is enabled, always do at least 3' shifting
+            let right = self
+                .mapper
+                .variant_mapper()
+                .right_normalizer()?
+                .normalize(&var_g)?;
+
             (
-                self.mapper
-                    .variant_mapper()
-                    .right_normalizer()?
-                    .normalize(&var_g)?,
-                self.mapper
-                    .variant_mapper()
-                    .left_normalizer()?
-                    .normalize(&var_g)?,
+                right.clone(),
+                // if additionally vep_hgvs_shift is enabled, also do 5' shifting
+                if self.config.vep_hgvs_shift {
+                    self.mapper
+                        .variant_mapper()
+                        .left_normalizer()?
+                        .normalize(&var_g)?
+                } else {
+                    right
+                },
             )
         } else {
-            (var_g.clone(), var_g)
+            // otherwise, do not do any shifting
+            (var_g.clone(), var_g.clone())
         };
 
         // Get all affected transcripts.
@@ -184,7 +198,7 @@ impl ConsequencePredictor {
 
         // Handle case of no overlapping transcripts -> intergenic.
         if txs.is_empty() {
-            let hgvs_g = format!("{}", &NoRef(&var_g));
+            let hgvs_g = format!("{}", &NoRef(&var_g.clone()));
             let hgvs_g = Some(hgvs_g.split(':').nth(1).unwrap().to_owned());
 
             return Ok(Some(self.filter_ann_fields(vec![AnnField {
@@ -295,7 +309,7 @@ impl ConsequencePredictor {
     /// If all transcripts are to be reported then return `ann_fields` as is, otherwise
     /// select one worst consequence per gene.
     fn filter_ann_fields(&self, ann_fields: Vec<AnnField>) -> Vec<AnnField> {
-        let ann_fields = if self.config.discard_intergenic {
+        let ann_fields = if !self.config.keep_intergenic {
             ann_fields
                 .into_iter()
                 .filter(|field| field.consequences != [Consequence::IntergenicVariant])
@@ -2123,7 +2137,7 @@ mod test {
         path_tsv: &str,
         txs: &[String],
         report_most_severe_consequence_only: bool,
-        with_reference: bool
+        with_reference: bool,
     ) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
