@@ -1012,23 +1012,8 @@ impl ConsequencePredictor {
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
 
-        // For insertions, we need to consider the case of the insertion being right at
-        // the exon/intron junction.  We can express this with a shift of 1 for using
-        // "< / >" X +/- shift and meaning <= / >= X.
-        let ins_shift = match var_g {
-            HgvsVariant::GenomeVariant {
-                loc_edit: GenomeLocEdit { edit, .. },
-                ..
-            } => {
-                let edit = edit.inner();
-                if edit.is_ins() || edit.is_dup() {
-                    1
-                } else {
-                    0
-                }
-            }
-            _ => unreachable!(),
-        };
+        // Insertion ranges are end-exclusive, so subtract 1 from the end, where applicable.
+        let ins_shift = Self::ins_shift(var_g);
 
         // Check the cases where the variant overlaps with the splice acceptor/donor site.
         if var_overlaps(intron_start - ins_shift, intron_start + 2) {
@@ -1097,6 +1082,27 @@ impl ConsequencePredictor {
         }
 
         consequences
+    }
+
+    fn ins_shift(var_g: &HgvsVariant) -> i32 {
+        // For insertions, we need to consider the case of the insertion being right at
+        // the exon/intron junction.  We can express this with a shift of 1 for using
+        // "< / >" X +/- shift and meaning <= / >= X.
+        let ins_shift = match var_g {
+            HgvsVariant::GenomeVariant {
+                loc_edit: GenomeLocEdit { edit, .. },
+                ..
+            } => {
+                let edit = edit.inner();
+                if edit.is_ins() || edit.is_dup() {
+                    1
+                } else {
+                    0
+                }
+            }
+            _ => unreachable!(),
+        };
+        ins_shift
     }
 
     fn analyze_cds_variant(
