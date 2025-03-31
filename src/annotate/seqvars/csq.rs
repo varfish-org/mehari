@@ -2414,6 +2414,19 @@ mod test {
                         // Similarly, SnpEff may predict `c.-1_1` as `start_retained` rather than `start_lost`.
                         expected_one_of.contains(&"start_lost")
                             && (record_csqs.contains(&"start_retained_variant")),
+                        // SnpEff calls this insertion at c.5193+2_5193+3insT a splice donor variant
+                        // even though the third intronic base is affected, not the first or second
+                        record_csqs.contains(&"splice_donor_variant")
+                            && expected_one_of.contains(&"splice_region_variant")
+                            && [
+                                "17-41215347-T-TA",
+                                "17-41215888-T-TA",
+                                "17-41242958-T-TA",
+                                "17-41256882-T-TA",
+                                "17-41276031-T-TA",
+                                "17-41277285-T-TA"
+                            ]
+                            .contains(&record.var.as_str()),
                     ]
                     .iter()
                     .any(|b| *b);
