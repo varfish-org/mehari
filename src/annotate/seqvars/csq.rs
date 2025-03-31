@@ -2336,6 +2336,11 @@ mod test {
                             || expected_one_of.contains(&"5_prime_UTR_intron_variant"))
                             && (record_csqs
                                 .contains(&"5_prime_UTR_premature_start_codon_gain_variant"))),
+                        // We accept 5_prime_UTR_exon_variant and 5_prime_UTR_intron_variant if the
+                        // other tool predicts upstream_gene_variant.
+                        ((expected_one_of.contains(&"5_prime_UTR_exon_variant")
+                            || expected_one_of.contains(&"5_prime_UTR_intron_variant"))
+                            && (record_csqs.contains(&"upstream_gene_variant"))),
                         // A coding_transcript_intron_variant is a more specific intron_variant
                         (expected_one_of.contains(&"coding_transcript_intron_variant")
                             && (record_csqs.contains(&"intron_variant"))),
