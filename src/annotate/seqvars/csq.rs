@@ -259,12 +259,7 @@ impl ConsequencePredictor {
                     .start
                     .map(|s| s - 1)
                     .expect("Failed to get start position");
-                let end = loc.end.map(|s| s - 1).expect("Failed to get end position");
-                let end = if edit.is_ins() || edit.is_dup() {
-                    start
-                } else {
-                    end + 1
-                };
+                let end = loc.end.map(|s| s).expect("Failed to get end position");
                 (start, end)
             }
             _ => unreachable!(),
@@ -1252,7 +1247,7 @@ impl ConsequencePredictor {
                         } else {
                             consequences |= Consequence::DisruptiveInframeInsertion;
                         }
-                    },
+                    }
                     NaEdit::Dup { reference } => {
                         if reference.len() % 3 != 0 {
                             if within_exonic_sequence {
