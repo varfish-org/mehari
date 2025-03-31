@@ -550,7 +550,6 @@ impl ConsequencePredictor {
                 consequences |= Consequence::NonCodingTranscriptIntronVariant;
             } else {
                 consequences |= Consequence::CodingTranscriptIntronVariant;
-                consequences |= Consequence::CodingTranscriptIntronVariant;
             }
         } else if is_upstream {
             let val = -(min_start + 1 - var_end);
