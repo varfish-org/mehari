@@ -785,7 +785,8 @@ impl ConsequencePredictor {
 
         // Do not report splice variants in UTRs.
         if self.config.discard_utr_splice_variants {
-            let splice_variants = Consequence::SpliceDonorVariant
+            let splice_variants = Consequence::ExonicSpliceRegionVariant
+                | Consequence::SpliceDonorVariant
                 | Consequence::SpliceAcceptorVariant
                 | Consequence::SpliceRegionVariant
                 | Consequence::SpliceDonorFifthBaseVariant
@@ -983,24 +984,24 @@ impl ConsequencePredictor {
         if var_overlaps(exon_end - 3, exon_end) {
             if strand == Strand::Plus {
                 if !rank.is_last() {
-                    consequences |= Consequence::SpliceRegionVariant;
+                    consequences |= Consequence::ExonicSpliceRegionVariant;
                 }
             } else {
                 // alignment.strand == Strand::Minus
                 if !rank.is_first() {
-                    consequences |= Consequence::SpliceRegionVariant;
+                    consequences |= Consequence::ExonicSpliceRegionVariant;
                 }
             }
         }
         if var_overlaps(exon_start, exon_start + 3) {
             if strand == Strand::Plus {
                 if !rank.is_first() {
-                    consequences |= Consequence::SpliceRegionVariant;
+                    consequences |= Consequence::ExonicSpliceRegionVariant;
                 }
             } else {
                 // alignment.strand == Strand::Minus
                 if !rank.is_last() {
-                    consequences |= Consequence::SpliceRegionVariant;
+                    consequences |= Consequence::ExonicSpliceRegionVariant;
                 }
             }
         }
@@ -1076,6 +1077,7 @@ impl ConsequencePredictor {
 
         // Check conditions for splice_donor_region_variant
         // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
+        // Note that this is two bases short of the intronic part of splice_region_variant
         if strand == Strand::Plus && var_overlaps(intron_start + 2, intron_start + 6) {
             consequences |= Consequence::SpliceDonorRegionVariant;
         }
@@ -1681,7 +1683,7 @@ mod test {
     )] // 17bp intronic
     #[case("17:41197837:G:A", 18, vec![Consequence::CodingTranscriptIntronVariant]
     )] // 18bp intronic
-    #[case("17:41199660:G:T", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant]
+    #[case("17:41199660:G:T", 0, vec![Consequence::MissenseVariant, Consequence::ExonicSpliceRegionVariant]
     )] // exonic
     #[case("17:41199659:G:T", -1, vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -1bp intronic
@@ -1766,7 +1768,7 @@ mod test {
     /// The order of the consequences is important: ordered by severity, descending.
     /// cf Consequences enum ordering.
     #[rstest::rstest]
-    #[case("3:193332512:T:G", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant]
+    #[case("3:193332512:T:G", 0, vec![Consequence::MissenseVariant, Consequence::ExonicSpliceRegionVariant]
     )] // exonic
     #[case("3:193332511:G:T", -1, vec![Consequence::SpliceAcceptorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -1bp intronic
@@ -2416,7 +2418,8 @@ mod test {
                                 && (record_csqs.contains(&"conservative_inframe_insertion")),
                         // SnpEff may not predict `splice_region_variant` for 5' UTR correctly, so we
                         // allow this.
-                        expected_one_of.contains(&"splice_region_variant")
+                        (expected_one_of.contains(&"splice_region_variant")
+                            || expected_one_of.contains(&"exonic_splice_region_variant"))
                             && (record_csqs.contains(&"5_prime_UTR_variant")),
                         // SnpEff does not predict `splice_polypyrimidine_tract_variant`
                         expected_one_of.contains(&"splice_polypyrimidine_tract_variant")
@@ -2449,6 +2452,9 @@ mod test {
                                 "17-41277285-T-TA",
                             ]
                             .contains(&record.var.as_str()),
+                        // we call exonic_splice_region_variant, while the others only call splice_region_variant
+                        record_csqs.contains(&"splice_region_variant")
+                            && expected_one_of.contains(&"exonic_splice_region_variant"),
                     ]
                     .iter()
                     .any(|b| *b);

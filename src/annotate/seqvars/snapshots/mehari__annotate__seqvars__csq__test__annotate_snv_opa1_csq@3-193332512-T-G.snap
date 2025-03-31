@@ -7,7 +7,7 @@ expression: res
       alternative: G
   consequences:
     - missense_variant
-    - splice_region_variant
+    - exonic_splice_region_variant
   putative_impact: moderate
   gene_symbol: OPA1
   gene_id: "HGNC:8140"

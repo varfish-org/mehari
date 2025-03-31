@@ -155,6 +155,10 @@ pub enum Consequence {
     /// SO:splice_region_variant, VEP:splice_region_variant
     SpliceRegionVariant,
 
+    /// "A sequence variant in which a change has occurred within the exonic region of the splice site, 1-2 bases from boundary."
+    /// SO:exonic_splice_region_variant,
+    ExonicSpliceRegionVariant,
+
     /// "A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron)."
     /// SO:splice_donor_region_variant, VEP:splice_donor_region_variant
     SpliceDonorRegionVariant,
@@ -312,6 +316,7 @@ impl From<Consequence> for PutativeImpact {
             | RareAminoAcidVariant => PutativeImpact::Moderate,
             SpliceDonorFifthBaseVariant
             | SpliceRegionVariant
+            | ExonicSpliceRegionVariant
             | SpliceDonorRegionVariant
             | SplicePolypyrimidineTractVariant
             | StartRetainedVariant
