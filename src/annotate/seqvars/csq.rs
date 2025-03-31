@@ -259,7 +259,14 @@ impl ConsequencePredictor {
                     .start
                     .map(|s| s - 1)
                     .expect("Failed to get start position");
-                let end = loc.end.map(|s| s).expect("Failed to get end position");
+                let end = loc.end.expect("Failed to get end position");
+                // In insertion / duplication cases, range end is exclusive.
+                // See https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/
+                let end = if edit.is_ins() || edit.is_dup() {
+                    end - 1
+                } else {
+                    end
+                };
                 (start, end)
             }
             _ => unreachable!(),
