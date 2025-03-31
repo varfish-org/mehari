@@ -560,7 +560,11 @@ impl ConsequencePredictor {
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
             } else {
-                unreachable!("variant is intergenic but this cannot happen here");
+                tracing::debug!("variant is intergenic {}", &var_g);
+                // this can happen if the vep_hgvs_shift mode is enabled,
+                // because var_start and var_end calculations +- PADDING is done slightly
+                // differently in that case
+                // unreachable!("variant is intergenic but this cannot happen here");
             }
             if distance.is_none() {
                 distance = Some(val);
@@ -574,14 +578,18 @@ impl ConsequencePredictor {
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
             } else {
-                unreachable!("variant is intergenic but this cannot happen here");
+                tracing::debug!("variant is intergenic {}", &var_g);
+                // this can happen if the vep_hgvs_shift mode is enabled,
+                // because var_start and var_end calculations +- PADDING is done slightly
+                // differently in that case
+                // unreachable!("variant is intergenic but this cannot happen here");
             }
             if distance.is_none() {
                 distance = Some(val);
             }
         }
 
-        let (rank, hgvs_t, hgvs_p, cdna_pos, cds_pos, protein_pos) =
+        let (rank, hgvs_c, hgvs_p, cdna_pos, cds_pos, protein_pos) =
             if !is_upstream && !is_downstream {
                 // TODO: do not include such transcripts when building the tx database.
                 let var_n = self.mapper.g_to_n(&var_g, &tx.id).map_or_else(
@@ -607,7 +615,7 @@ impl ConsequencePredictor {
                     _ => panic!("Invalid tx position: {:?}", &var_n),
                 });
 
-                let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match transcript_biotype {
+                let (var_c, _var_p, hgvs_p, cds_pos, protein_pos) = match transcript_biotype {
                     TranscriptBiotype::Coding => {
                         let cds_len = tx.stop_codon.unwrap() - tx.start_codon.unwrap();
                         let prot_len = cds_len / 3;
@@ -685,12 +693,12 @@ impl ConsequencePredictor {
                     TranscriptBiotype::NonCoding => (var_n, None, None, None, None),
                     _ => unreachable!("invalid transcript biotype: {:?}", transcript_biotype),
                 };
-                let hgvs_t = format!("{}", &NoRef(&var_t));
-                let hgvs_t = hgvs_t.split(':').nth(1).unwrap().to_owned();
+                let hgvs_c = format!("{}", &NoRef(&var_c));
+                let hgvs_c = hgvs_c.split(':').nth(1).unwrap().to_owned();
 
                 (
                     Some(rank),
-                    Some(hgvs_t),
+                    Some(hgvs_c),
                     hgvs_p,
                     cdna_pos,
                     cds_pos,
@@ -703,11 +711,15 @@ impl ConsequencePredictor {
         // Take a highest-ranking consequence and derive putative impact from it.
         if consequences.is_empty() {
             tracing::error!(
-                "No consequences for {:?} on {} (hgvs_p={}) - adding `gene_variant`; \
+                "No consequences for {:?} on {} (hgvs_c={}, hgvs_p={}) - adding `gene_variant`; \
                 most likely the transcript has multiple stop codons and the variant \
                 lies behind the first.",
                 orig_var,
                 &tx_record.tx_ac,
+                hgvs_c
+                    .as_ref()
+                    .map(|s| (&s).to_string())
+                    .unwrap_or(String::from("None")),
                 hgvs_p
                     .as_ref()
                     .map(|s| (&s).to_string())
@@ -743,7 +755,7 @@ impl ConsequencePredictor {
             feature_biotype,
             rank,
             hgvs_g,
-            hgvs_c: hgvs_t,
+            hgvs_c,
             hgvs_p,
             cdna_pos,
             cds_pos,
