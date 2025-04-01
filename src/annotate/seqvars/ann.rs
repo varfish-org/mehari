@@ -699,75 +699,75 @@ pub enum Message {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct AnnField {
     /// The alternative allele that this annotation refers to.
-    #[serde(rename = "Allele")]
+    #[serde(alias = "Allele")]
     pub allele: Allele,
 
     /// The consequences of the allele.
-    #[serde(rename = "Annotation")]
+    #[serde(alias = "Annotation")]
     pub consequences: Vec<Consequence>,
 
     /// The putative impact.
-    #[serde(rename = "Annotation_Impact")]
+    #[serde(alias = "Annotation_Impact")]
     pub putative_impact: PutativeImpact,
 
     /// The gene symbol.
-    #[serde(rename = "Gene_Name")]
+    #[serde(alias = "Gene_Name")]
     pub gene_symbol: String,
 
     /// The gene identifier.
-    #[serde(rename = "Gene_ID")]
+    #[serde(alias = "Gene_ID")]
     pub gene_id: String,
 
     /// The feature type.
-    #[serde(rename = "Feature_Type")]
+    #[serde(alias = "Feature_Type")]
     pub feature_type: FeatureType,
 
     /// The feature identifier.
-    #[serde(rename = "Feature_ID")]
+    #[serde(alias = "Feature_ID")]
     pub feature_id: String,
 
     /// The feature biotype.
-    #[serde(rename = "Transcript_BioType")]
+    #[serde(alias = "Transcript_BioType")]
     pub feature_biotype: Vec<FeatureBiotype>,
 
     /// The exon / intron rank.
-    #[serde(rename = "Rank")]
+    #[serde(alias = "Rank")]
     pub rank: Option<Rank>,
 
     /// HGVS g. notation.
-    #[serde(rename = "HGVS.g")]
+    #[serde(alias = "HGVS.g")]
     pub hgvs_g: Option<String>,
 
     /// HGVS c. notation.
-    #[serde(rename = "HGVS.c")]
+    #[serde(alias = "HGVS.c")]
     pub hgvs_c: Option<String>,
 
     /// HGVS p. notation.
-    #[serde(rename = "HGVS.p")]
+    #[serde(alias = "HGVS.p")]
     pub hgvs_p: Option<String>,
 
     /// cDNA position.
-    #[serde(rename = "cDNA.pos / cDNA.length")]
+    #[serde(alias = "cDNA.pos / cDNA.length")]
     pub cdna_pos: Option<Pos>,
 
     /// CDS position.
-    #[serde(rename = "CDS.pos / CDS.length")]
+    #[serde(alias = "CDS.pos / CDS.length")]
     pub cds_pos: Option<Pos>,
 
     /// Protein position.
-    #[serde(rename = "AA.pos / AA.length")]
+    #[serde(alias = "AA.pos / AA.length")]
     pub protein_pos: Option<Pos>,
 
     /// Distance to feature.
-    #[serde(rename = "Distance")]
+    #[serde(alias = "Distance")]
     pub distance: Option<i32>,
 
     /// Strand of the alignment
-    #[serde(rename = "Strand")]
+    #[serde(alias = "Strand")]
     pub strand: i32,
 
     /// Optional list of warnings and error messages.
-    #[serde(rename = "ERRORS / WARNINGS / INFO")]
+    #[serde(alias = "ERRORS / WARNINGS / INFO")]
     pub messages: Option<Vec<Message>>,
 }
 
@@ -990,9 +990,9 @@ impl std::fmt::Display for AnnField {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-
+    use itertools::Itertools;
     use pretty_assertions::assert_eq;
+    use std::str::FromStr;
 
     use super::*;
 
@@ -1351,6 +1351,9 @@ mod test {
     #[test]
     fn automatic_ann_header_names() -> Result<(), anyhow::Error> {
         let ann_names = serde_aux::serde_introspection::serde_introspect::<AnnField>();
+        // FIXME: serde_introspect returns all aliases and the original name,
+        //   we rely on the order being consistent.
+        let ann_names = ann_names.iter().step_by(2).copied().collect_vec();
         assert_eq!(
             ann_names,
             [
