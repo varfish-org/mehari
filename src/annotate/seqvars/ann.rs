@@ -1,4 +1,5 @@
 //! Code for annotating variants based on molecular consequence.
+
 use enumflags2::bitflags;
 use nom::Parser;
 use nom::{
@@ -9,8 +10,6 @@ use nom::{
     IResult,
 };
 use parse_display::{Display, FromStr};
-use serde::de::DeserializeOwned;
-use serde::Deserialize;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
@@ -696,21 +695,6 @@ pub enum Message {
     InfoNonReferenceAnnotation,
 }
 
-fn deserialize_ann_str_list<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
-where
-    T: DeserializeOwned,
-    D: serde::Deserializer<'de>,
-{
-    // Deserialize the input as a string
-    let s: String = String::deserialize(deserializer)?;
-    // Split the string by '&', deserialize each part into T, and collect into a Vec<T>
-    let items: Result<Vec<T>, D::Error> = s
-        .split('&')
-        .map(|s| serde_json::from_str(s).map_err(serde::de::Error::custom))
-        .collect();
-    items
-}
-
 /// Representation of an `ANN` field.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct AnnField {
@@ -719,7 +703,7 @@ pub struct AnnField {
     pub allele: Allele,
 
     /// The consequences of the allele.
-    #[serde(rename = "Annotation", deserialize_with = "deserialize_ann_str_list")]
+    #[serde(rename = "Annotation")]
     pub consequences: Vec<Consequence>,
 
     /// The putative impact.
@@ -743,10 +727,7 @@ pub struct AnnField {
     pub feature_id: String,
 
     /// The feature biotype.
-    #[serde(
-        rename = "Transcript_BioType",
-        deserialize_with = "deserialize_ann_str_list"
-    )]
+    #[serde(rename = "Transcript_BioType")]
     pub feature_biotype: Vec<FeatureBiotype>,
 
     /// The exon / intron rank.
