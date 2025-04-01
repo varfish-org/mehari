@@ -138,27 +138,6 @@ pub struct PathOutput {
     pub path_output_tsv: Option<String>,
 }
 
-const HEADER_ANN_NAMES: [&str; 18] = [
-    "Allele",
-    "Annotation",
-    "Annotation_Impact",
-    "Gene_Name",
-    "Gene_ID",
-    "Feature_Type",
-    "Feature_ID",
-    "Transcript_BioType",
-    "Rank",
-    "HGVS.g",
-    "HGVS.c",
-    "HGVS.p",
-    "cDNA.pos / cDNA.length",
-    "CDS.pos / CDS.length",
-    "AA.pos / AA.length",
-    "Distance",
-    "Strand",
-    "ERRORS / WARNINGS / INFO",
-];
-
 fn build_header(
     header_in: &VcfHeader,
     with_annotations: bool,
@@ -262,7 +241,8 @@ fn build_header(
     }
 
     if with_annotations {
-        let fields = HEADER_ANN_NAMES.join(" | ");
+        let ann_names = serde_aux::serde_introspection::serde_introspect::<AnnField>();
+        let fields = ann_names.join(" | ");
         header_out.infos_mut().insert(
             "ANN".into(),
             Map::<Info>::new(
