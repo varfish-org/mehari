@@ -7,7 +7,7 @@ expression: res
       alternative: G
   consequences:
     - missense_variant
-    - splice_region_variant
+    - exonic_splice_region_variant
   putative_impact: moderate
   gene_symbol: OPA1
   gene_id: "HGNC:8140"
@@ -21,9 +21,10 @@ expression: res
   rank:
     ord: 2
     total: 31
-  hgvs_t: c.33T>G
+  hgvs_g: g.193332512T>G
+  hgvs_c: c.33T>G
   hgvs_p: p.Cys11Trp
-  tx_pos:
+  cdna_pos:
     ord: 203
     total: 6429
   cds_pos:

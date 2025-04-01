@@ -6,7 +6,7 @@ expression: res
     Alt:
       alternative: C
   consequences:
-    - splice_region_variant
+    - exonic_splice_region_variant
     - synonymous_variant
   putative_impact: low
   gene_symbol: BRCA1
@@ -21,9 +21,10 @@ expression: res
   rank:
     ord: 23
     total: 23
-  hgvs_t: c.5469A>G
+  hgvs_g: g.41197818G>C
+  hgvs_c: c.5469A>G
   hgvs_p: p.Ala1823=
-  tx_pos:
+  cdna_pos:
     ord: 5582
     total: 7088
   cds_pos:
@@ -39,7 +40,7 @@ expression: res
     Alt:
       alternative: C
   consequences:
-    - splice_region_variant
+    - exonic_splice_region_variant
     - synonymous_variant
   putative_impact: low
   gene_symbol: BRCA1
@@ -53,9 +54,10 @@ expression: res
   rank:
     ord: 22
     total: 22
-  hgvs_t: c.5328A>G
+  hgvs_g: g.41197818G>C
+  hgvs_c: c.5328A>G
   hgvs_p: p.Ala1776=
-  tx_pos:
+  cdna_pos:
     ord: 5522
     total: 7028
   cds_pos:
@@ -71,7 +73,7 @@ expression: res
     Alt:
       alternative: C
   consequences:
-    - splice_region_variant
+    - exonic_splice_region_variant
     - synonymous_variant
   putative_impact: low
   gene_symbol: BRCA1
@@ -85,9 +87,10 @@ expression: res
   rank:
     ord: 22
     total: 22
-  hgvs_t: c.2157A>G
+  hgvs_g: g.41197818G>C
+  hgvs_c: c.2157A>G
   hgvs_p: p.Ala719=
-  tx_pos:
+  cdna_pos:
     ord: 2176
     total: 3682
   cds_pos:
@@ -104,7 +107,7 @@ expression: res
       alternative: C
   consequences:
     - missense_variant
-    - splice_region_variant
+    - exonic_splice_region_variant
   putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -117,9 +120,10 @@ expression: res
   rank:
     ord: 22
     total: 22
-  hgvs_t: c.2083A>G
+  hgvs_g: g.41197818G>C
+  hgvs_c: c.2083A>G
   hgvs_p: p.Asn695Asp
-  tx_pos:
+  cdna_pos:
     ord: 2190
     total: 3696
   cds_pos:
@@ -135,7 +139,7 @@ expression: res
     Alt:
       alternative: C
   consequences:
-    - splice_region_variant
+    - exonic_splice_region_variant
     - synonymous_variant
   putative_impact: low
   gene_symbol: BRCA1
@@ -149,9 +153,10 @@ expression: res
   rank:
     ord: 24
     total: 24
-  hgvs_t: c.5532A>G
+  hgvs_g: g.41197818G>C
+  hgvs_c: c.5532A>G
   hgvs_p: p.Ala1844=
-  tx_pos:
+  cdna_pos:
     ord: 5645
     total: 7151
   cds_pos:

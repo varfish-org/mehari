@@ -44,9 +44,17 @@ pub struct Config {
     #[builder(default)]
     pub report_most_severe_consequence_by: Option<ConsequenceBy>,
 
-    /// Whether to discard intergenic variants.
-    #[builder(default = "true")]
-    pub discard_intergenic: bool,
+    /// Whether to keep intergenic variants.
+    #[builder(default = "false")]
+    pub keep_intergenic: bool,
+
+    /// Whether to report splice variants in UTRs.
+    #[builder(default = "false")]
+    pub discard_utr_splice_variants: bool,
+
+    /// Whether to do hgvs shifting for hgvs.g like vep does
+    #[builder(default = "false")]
+    pub vep_hgvs_shift: bool,
 }
 
 impl Default for Config {
@@ -149,17 +157,39 @@ impl ConsequencePredictor {
             return Ok(None);
         };
 
-        // Get all affected transcripts.
-        let (var_start, var_end) = if norm_var.reference.is_empty() {
-            (norm_var.position - 1, norm_var.position - 1)
-        } else {
+        // We follow hgvs conventions and therefore normalize input variants
+        let var_g = Self::get_var_g(&norm_var, chrom_acc);
+        let (var_g_fwd, var_g_rev) = if self.mapper.config.renormalize_g {
+            // if renormalize_g is enabled, always do at least 3' shifting
+            let right = self
+                .mapper
+                .variant_mapper()
+                .right_normalizer()?
+                .normalize(&var_g)?;
+
             (
-                norm_var.position - 1,
-                norm_var.position + norm_var.reference.len() as i32 - 1,
+                right.clone(),
+                // if additionally vep_hgvs_shift is enabled, also do 5' shifting
+                if self.config.vep_hgvs_shift {
+                    self.mapper
+                        .variant_mapper()
+                        .left_normalizer()?
+                        .normalize(&var_g)?
+                } else {
+                    right
+                },
             )
+        } else {
+            // otherwise, do not do any shifting
+            (var_g.clone(), var_g.clone())
         };
-        let qry_start = var_start - PADDING;
-        let qry_end = var_end + PADDING;
+
+        // Get all affected transcripts.
+        let (var_start_fwd, var_end_fwd) = Self::get_var_start_end(&var_g_fwd);
+        let (var_start_rev, var_end_rev) = Self::get_var_start_end(&var_g_rev);
+
+        let qry_start = var_start_fwd.min(var_start_rev) - PADDING;
+        let qry_end = var_end_fwd.max(var_end_rev) + PADDING;
         let txs = {
             let mut txs =
                 self.provider
@@ -172,6 +202,9 @@ impl ConsequencePredictor {
 
         // Handle case of no overlapping transcripts -> intergenic.
         if txs.is_empty() {
+            let hgvs_g = format!("{}", &NoRef(&var_g.clone()));
+            let hgvs_g = Some(hgvs_g.split(':').nth(1).unwrap().to_owned());
+
             return Ok(Some(self.filter_ann_fields(vec![AnnField {
                 allele: Allele::Alt {
                     alternative: var.alternative.clone(),
@@ -187,9 +220,10 @@ impl ConsequencePredictor {
                 rank: None,
                 distance: None,
                 strand: 0,
-                hgvs_t: None,
+                hgvs_g,
+                hgvs_c: None,
                 hgvs_p: None,
-                tx_pos: None,
+                cdna_pos: None,
                 cds_pos: None,
                 protein_pos: None,
                 gene_symbol: "".to_string(),
@@ -201,7 +235,11 @@ impl ConsequencePredictor {
         let anns_all_txs = txs
             .into_iter()
             .map(|tx| {
-                self.build_ann_field(var, &norm_var, tx, chrom_acc.clone(), var_start, var_end)
+                if tx.alt_strand == -1 {
+                    self.build_ann_field(var, var_g_rev.clone(), tx, var_start_rev, var_end_rev)
+                } else {
+                    self.build_ann_field(var, var_g_fwd.clone(), tx, var_start_fwd, var_end_fwd)
+                }
             })
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
@@ -210,6 +248,29 @@ impl ConsequencePredictor {
 
         // Return all or worst annotation only.
         Ok(Some(self.filter_ann_fields(anns_all_txs)))
+    }
+
+    fn get_var_start_end(var_g: &HgvsVariant) -> (i32, i32) {
+        match &var_g {
+            HgvsVariant::GenomeVariant { loc_edit, .. } => {
+                let loc = loc_edit.loc.inner();
+                let edit = loc_edit.edit.inner();
+                let start = loc
+                    .start
+                    .map(|s| s - 1)
+                    .expect("Failed to get start position");
+                let end = loc.end.expect("Failed to get end position");
+                // In insertion / duplication cases, range end is exclusive.
+                // See https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/
+                let end = if edit.is_ins() || edit.is_dup() {
+                    end - 1
+                } else {
+                    end
+                };
+                (start, end)
+            }
+            _ => unreachable!(),
+        }
     }
 
     // Filter transcripts to the picked ones from the selected transcript source.
@@ -251,7 +312,7 @@ impl ConsequencePredictor {
     /// If all transcripts are to be reported then return `ann_fields` as is, otherwise
     /// select one worst consequence per gene.
     fn filter_ann_fields(&self, ann_fields: Vec<AnnField>) -> Vec<AnnField> {
-        let ann_fields = if self.config.discard_intergenic {
+        let ann_fields = if !self.config.keep_intergenic {
             ann_fields
                 .into_iter()
                 .filter(|field| field.consequences != [Consequence::IntergenicVariant])
@@ -313,9 +374,8 @@ impl ConsequencePredictor {
     fn build_ann_field(
         &self,
         orig_var: &VcfVariant,
-        var: &VcfVariant,
+        var_g: HgvsVariant,
         tx_record: TxForRegionRecord,
-        chrom_acc: String,
         var_start: i32,
         var_end: i32,
     ) -> Result<Option<AnnField>, anyhow::Error> {
@@ -341,6 +401,8 @@ impl ConsequencePredictor {
             return Ok(None);
         };
 
+        // tracing::trace!("Annotating variant {:?} w.r.t. transcript {}", orig_var, &tx_record.tx_ac);
+
         assert_eq!(
             tx.genome_alignments.len(),
             1,
@@ -365,11 +427,15 @@ impl ConsequencePredictor {
         let mut rank = Rank::default();
         let mut is_exonic = false;
         let mut is_intronic = false;
+        let mut is_utr;
         let mut distance: Option<i32> = None;
         let mut tx_len = 0;
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
+
+        let cds_start = alignment.cds_start.unwrap_or(-1);
+        let cds_end = alignment.cds_end.unwrap_or(-1);
 
         for exon_alignment in &alignment.exons {
             tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i;
@@ -378,6 +444,9 @@ impl ConsequencePredictor {
             let exon_end = exon_alignment.alt_end_i;
             let intron_start = prev_end;
             let intron_end = exon_start;
+
+            is_utr = exon_start < cds_start && !var_overlaps(cds_start, cds_end)
+                || exon_end > cds_end && !var_overlaps(cds_start, cds_end);
 
             // Check the cases where the variant overlaps with the exon or is contained within an
             // intron.
@@ -393,6 +462,9 @@ impl ConsequencePredictor {
                 // We are in an intron (the first exon does not have an intron left of it
                 // which is expressed by `intron_start` being an `Option<i32>` rather than `i32`.
                 if var_start >= intron_start && var_end <= intron_end {
+                    is_utr = intron_start < cds_start && !var_overlaps(cds_start, cds_end)
+                        || intron_end > cds_end && !var_overlaps(cds_start, cds_end);
+
                     // Contained within intron: cannot be in next exon.
                     if !is_exonic {
                         rank = Rank {
@@ -403,8 +475,8 @@ impl ConsequencePredictor {
 
                         // We compute the "distance" with "+1", the first base of the
                         // intron is "+1", the last one is "-1".
-                        let dist_start = var_start + 1 - intron_start;
-                        let dist_end = -(intron_end + 1 - var_end);
+                        let dist_start: i32 = var_start + 1 - intron_start;
+                        let dist_end: i32 = -(intron_end + 1 - var_end);
                         let dist_start_end = if dist_start.abs() <= dist_end.abs() {
                             dist_start
                         } else {
@@ -419,20 +491,23 @@ impl ConsequencePredictor {
                 }
             }
 
-            let consequences_exonic = Self::analyze_exonic_variant(
-                var, strand, var_start, var_end, exon_start, exon_end, &rank,
-            );
-            consequences |= consequences_exonic;
+            if var_overlaps(exon_start, exon_end) {
+                let consequences_exonic = Self::analyze_exonic_variant(
+                    strand, var_start, var_end, exon_start, exon_end, &rank, is_utr,
+                );
+                consequences |= consequences_exonic;
+            }
 
             if let Some(intron_start) = intron_start {
                 let consequences_intronic = Self::analyze_intronic_variant(
-                    var,
+                    &var_g,
                     alignment,
                     strand,
                     var_start,
                     var_end,
                     intron_start,
                     intron_end,
+                    is_utr,
                 );
                 consequences |= consequences_intronic;
             }
@@ -474,7 +549,7 @@ impl ConsequencePredictor {
             if transcript_biotype == TranscriptBiotype::NonCoding {
                 consequences |= Consequence::NonCodingTranscriptIntronVariant;
             } else {
-                consequences |= Consequence::IntronVariant;
+                consequences |= Consequence::CodingTranscriptIntronVariant;
             }
         } else if is_upstream {
             let val = -(min_start + 1 - var_end);
@@ -485,7 +560,11 @@ impl ConsequencePredictor {
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
             } else {
-                unreachable!("variant is intergenic but this cannot happen here");
+                tracing::debug!("variant is intergenic {}", &var_g);
+                // this can happen if the vep_hgvs_shift mode is enabled,
+                // because var_start and var_end calculations +- PADDING is done slightly
+                // differently in that case
+                // unreachable!("variant is intergenic but this cannot happen here");
             }
             if distance.is_none() {
                 distance = Some(val);
@@ -499,142 +578,148 @@ impl ConsequencePredictor {
                     _ => unreachable!("invalid strand: {}", alignment.strand),
                 }
             } else {
-                unreachable!("variant is intergenic but this cannot happen here");
+                tracing::debug!("variant is intergenic {}", &var_g);
+                // this can happen if the vep_hgvs_shift mode is enabled,
+                // because var_start and var_end calculations +- PADDING is done slightly
+                // differently in that case
+                // unreachable!("variant is intergenic but this cannot happen here");
             }
             if distance.is_none() {
                 distance = Some(val);
             }
         }
 
-        let var_g = Self::get_var_g(var, &chrom_acc);
-
-        let (rank, hgvs_t, hgvs_p, tx_pos, cds_pos, protein_pos) = if !is_upstream && !is_downstream
-        {
-            // TODO: do not include such transcripts when building the tx database.
-            let var_n = self.mapper.g_to_n(&var_g, &tx.id).map_or_else(
-                |e| match e {
-                    Error::NonAdjacentExons(_, _, _, _) => {
-                        tracing::warn!("{}, {}: NonAdjacentExons, skipping", &tx.id, &var_g);
-                        Ok(None)
-                    }
-                    _ => Err(e),
-                },
-                |v| Ok(Some(v)),
-            )?;
-            if var_n.is_none() {
-                return Ok(None);
-            }
-            let var_n = var_n.unwrap();
-
-            let tx_pos = match &var_n {
-                HgvsVariant::TxVariant { loc_edit, .. } => Some(Pos {
-                    ord: loc_edit.loc.inner().start.base,
-                    total: Some(tx_len),
-                }),
-                _ => panic!("Invalid tx position: {:?}", &var_n),
-            };
-
-            let (var_t, _var_p, hgvs_p, cds_pos, protein_pos) = match transcript_biotype {
-                TranscriptBiotype::Coding => {
-                    let cds_len = tx.stop_codon.unwrap() - tx.start_codon.unwrap();
-                    let prot_len = cds_len / 3;
-
-                    let var_c = self.mapper.n_to_c(&var_n)?;
-                    // Gracefully handle the case that the transcript is unsupported because the length
-                    // is not a multiple of 3.
-                    // TODO: do not include such transcripts when building the tx database.
-                    let var_p = self.mapper.c_to_p(&var_c).map_or_else(
-                        |e| {
-                            if e.to_string()
-                                .contains("is not supported because its sequence length of")
-                            {
-                                Ok(None)
-                            } else {
-                                Err(e)
-                            }
-                        },
-                        |v| Ok(Some(v)),
-                    )?;
-                    if var_p.is_none() {
-                        return Ok(None);
-                    }
-                    let var_p = var_p.unwrap();
-
-                    let hgvs_p = format!("{}", &var_p);
-                    let hgvs_p = hgvs_p.split(':').nth(1).unwrap().to_owned();
-                    let hgvs_p = Some(hgvs_p);
-                    let cds_pos = match &var_c {
-                        HgvsVariant::CdsVariant { loc_edit, .. } => Some(Pos {
-                            ord: loc_edit.loc.inner().start.base,
-                            total: Some(cds_len),
-                        }),
-                        _ => panic!("Invalid CDS position: {:?}", &var_n),
-                    };
-                    let protein_pos = match &var_p {
-                        HgvsVariant::ProtVariant { loc_edit, .. } => match &loc_edit {
-                            ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
-                                ord: loc.inner().start.number,
-                                total: Some(prot_len),
-                            }),
-                            _ => None,
-                        },
-                        _ => panic!("Not a protein position: {:?}", &var_n),
-                    };
-
-                    let conservative = is_conservative_cds_variant(&var_c);
-
-                    let consequences_cds =
-                        Self::analyze_cds_variant(&var_c, is_exonic, is_intronic, conservative);
-
-                    // Analyze `var_p` for changes in the protein sequence.
-                    let consequences_protein = self.analyze_protein_variant(
-                        &var_c,
-                        &var_p,
-                        &protein_pos,
-                        conservative,
-                        &tx_record.tx_ac,
-                    );
-
-                    consequences |= consequences_cds | consequences_protein;
-
-                    self.consequences_fix_special_cases(
-                        &mut consequences,
-                        consequences_cds,
-                        consequences_protein,
-                        &var_g,
-                        &var_n,
-                        &var_c,
-                        &var_p,
-                    );
-
-                    (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
+        let (rank, hgvs_c, hgvs_p, cdna_pos, cds_pos, protein_pos) =
+            if !is_upstream && !is_downstream {
+                // TODO: do not include such transcripts when building the tx database.
+                let var_n = self.mapper.g_to_n(&var_g, &tx.id).map_or_else(
+                    |e| match e {
+                        Error::NonAdjacentExons(_, _, _, _) => {
+                            tracing::warn!("{}, {}: NonAdjacentExons, skipping", &tx.id, &var_g);
+                            Ok(None)
+                        }
+                        _ => Err(e),
+                    },
+                    |v| Ok(Some(v)),
+                )?;
+                if var_n.is_none() {
+                    return Ok(None);
                 }
-                TranscriptBiotype::NonCoding => (var_n, None, None, None, None),
-                _ => unreachable!("invalid transcript biotype: {:?}", transcript_biotype),
-            };
-            let hgvs_t = format!("{}", &NoRef(&var_t));
-            let hgvs_t = hgvs_t.split(':').nth(1).unwrap().to_owned();
+                let var_n = var_n.unwrap();
 
-            (
-                Some(rank),
-                Some(hgvs_t),
-                hgvs_p,
-                tx_pos,
-                cds_pos,
-                protein_pos,
-            )
-        } else {
-            (None, None, None, None, None, None)
-        };
+                let cdna_pos = is_exonic.then_some(match &var_n {
+                    HgvsVariant::TxVariant { loc_edit, .. } => Pos {
+                        ord: loc_edit.loc.inner().start.base,
+                        total: Some(tx_len),
+                    },
+                    _ => panic!("Invalid tx position: {:?}", &var_n),
+                });
+
+                let (var_c, _var_p, hgvs_p, cds_pos, protein_pos) = match transcript_biotype {
+                    TranscriptBiotype::Coding => {
+                        let cds_len = tx.stop_codon.unwrap() - tx.start_codon.unwrap();
+                        let prot_len = cds_len / 3;
+
+                        let var_c = self.mapper.n_to_c(&var_n)?;
+                        // Gracefully handle the case that the transcript is unsupported because the length
+                        // is not a multiple of 3.
+                        // TODO: do not include such transcripts when building the tx database.
+                        let var_p = self.mapper.c_to_p(&var_c).map_or_else(
+                            |e| {
+                                if e.to_string()
+                                    .contains("is not supported because its sequence length of")
+                                {
+                                    Ok(None)
+                                } else {
+                                    Err(e)
+                                }
+                            },
+                            |v| Ok(Some(v)),
+                        )?;
+                        if var_p.is_none() {
+                            return Ok(None);
+                        }
+                        let var_p = var_p.unwrap();
+
+                        let hgvs_p = format!("{}", &var_p);
+                        let hgvs_p = hgvs_p.split(':').nth(1).unwrap().to_owned();
+                        let hgvs_p = Some(hgvs_p);
+                        let cds_pos = is_exonic.then_some(match &var_c {
+                            HgvsVariant::CdsVariant { loc_edit, .. } => Pos {
+                                ord: loc_edit.loc.inner().start.base,
+                                total: Some(cds_len),
+                            },
+                            _ => panic!("Invalid CDS position: {:?}", &var_n),
+                        });
+                        let protein_pos = match &var_p {
+                            HgvsVariant::ProtVariant { loc_edit, .. } => match &loc_edit {
+                                ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
+                                    ord: loc.inner().start.number,
+                                    total: Some(prot_len),
+                                }),
+                                _ => None,
+                            },
+                            _ => panic!("Not a protein position: {:?}", &var_n),
+                        };
+
+                        let conservative = is_conservative_cds_variant(&var_c);
+
+                        let consequences_cds =
+                            Self::analyze_cds_variant(&var_c, is_exonic, is_intronic, conservative);
+
+                        // Analyze `var_p` for changes in the protein sequence.
+                        let consequences_protein = self.analyze_protein_variant(
+                            &var_c,
+                            &var_p,
+                            &protein_pos,
+                            conservative,
+                            &tx_record.tx_ac,
+                        );
+
+                        consequences |= consequences_cds | consequences_protein;
+
+                        self.consequences_fix_special_cases(
+                            &mut consequences,
+                            consequences_cds,
+                            consequences_protein,
+                            &var_g,
+                            &var_n,
+                            &var_c,
+                            &var_p,
+                        );
+
+                        (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
+                    }
+                    TranscriptBiotype::NonCoding => (var_n, None, None, None, None),
+                    _ => unreachable!("invalid transcript biotype: {:?}", transcript_biotype),
+                };
+                let hgvs_c = format!("{}", &NoRef(&var_c));
+                let hgvs_c = hgvs_c.split(':').nth(1).unwrap().to_owned();
+
+                (
+                    Some(rank),
+                    Some(hgvs_c),
+                    hgvs_p,
+                    cdna_pos,
+                    cds_pos,
+                    protein_pos,
+                )
+            } else {
+                (None, None, None, None, None, None)
+            };
 
         // Take a highest-ranking consequence and derive putative impact from it.
         if consequences.is_empty() {
             tracing::error!(
-                "No consequences for {:?} on {} (hgvs_p={}) - adding `gene_variant`;\
+                "No consequences for {:?} on {} (hgvs_c={}, hgvs_p={}) - adding `gene_variant`; \
                 most likely the transcript has multiple stop codons and the variant \
                 lies behind the first.",
-                var,
+                orig_var,
                 &tx_record.tx_ac,
+                hgvs_c
+                    .as_ref()
+                    .map(|s| (&s).to_string())
+                    .unwrap_or(String::from("None")),
                 hgvs_p
                     .as_ref()
                     .map(|s| (&s).to_string())
@@ -651,6 +736,9 @@ impl ConsequencePredictor {
             Strand::Minus => -1,
         };
 
+        let hgvs_g = format!("{}", &NoRef(&var_g));
+        let hgvs_g = Some(hgvs_g.split(':').nth(1).unwrap().to_owned());
+
         // Build and return ANN field from the information derived above.
         Ok(Some(AnnField {
             allele: Allele::Alt {
@@ -666,9 +754,10 @@ impl ConsequencePredictor {
             feature_id: tx.id.clone(),
             feature_biotype,
             rank,
-            hgvs_t,
+            hgvs_g,
+            hgvs_c,
             hgvs_p,
-            tx_pos,
+            cdna_pos,
             cds_pos,
             protein_pos,
             strand,
@@ -688,6 +777,47 @@ impl ConsequencePredictor {
         var_c: &HgvsVariant,
         var_p: &HgvsVariant,
     ) {
+        // If we have a transcript_ablation, we can remove all other consequences
+        if consequences.contains(Consequence::TranscriptAblation) {
+            *consequences = Consequence::TranscriptAblation.into();
+            return;
+        }
+
+        // Do not report splice variants in UTRs.
+        if self.config.discard_utr_splice_variants {
+            let splice_variants = Consequence::ExonicSpliceRegionVariant
+                | Consequence::SpliceDonorVariant
+                | Consequence::SpliceAcceptorVariant
+                | Consequence::SpliceRegionVariant
+                | Consequence::SpliceDonorFifthBaseVariant
+                | Consequence::SpliceDonorRegionVariant
+                | Consequence::SplicePolypyrimidineTractVariant;
+            let utr_intron_variants =
+                Consequence::FivePrimeUtrIntronVariant | Consequence::ThreePrimeUtrIntronVariant;
+            let utr_exon_variants =
+                Consequence::FivePrimeUtrExonVariant | Consequence::ThreePrimeUtrExonVariant;
+            let is_utr = match var_c {
+                HgvsVariant::CdsVariant { loc_edit, .. } => {
+                    let loc = loc_edit.loc.inner();
+                    loc.start.base < 0
+                        && loc.end.base < 0
+                        && loc.start.cds_from == CdsFrom::Start
+                        && loc.end.cds_from == CdsFrom::Start
+                        || loc.start.base > 0
+                            && loc.end.base > 0
+                            && loc.start.cds_from == CdsFrom::End
+                            && loc.end.cds_from == CdsFrom::End
+                }
+                _ => unreachable!(),
+            };
+            if is_utr
+                && consequences.intersects(splice_variants)
+                && consequences.intersects(utr_intron_variants | utr_exon_variants)
+            {
+                *consequences &= !splice_variants;
+            }
+        }
+
         // If a frameshift/ins/del was predicted on the CDS level,
         // but any relevant consequence (i.e. not just GeneVariant) was produced on the protein level,
         // then it is likely that the frameshift induced a more specific consequence.
@@ -700,10 +830,10 @@ impl ConsequencePredictor {
         if checked != Consequences::empty()
             // if the protein consequence is not effectively empty, we remove the CDS frameshift consequence
             && !(consequences_protein.eq(&Consequence::GeneVariant)
-                || consequences_protein.is_empty())
+            || consequences_protein.is_empty())
             // if the protein consequence also includes a frameshift, then we keep it
             && !consequences_protein
-                .intersects(Consequence::FrameshiftElongation | Consequence::FrameshiftTruncation)
+            .intersects(Consequence::FrameshiftElongation | Consequence::FrameshiftTruncation | Consequence::FrameshiftVariant)
         {
             *consequences &= !checked;
         }
@@ -714,7 +844,8 @@ impl ConsequencePredictor {
         // e.g.:
         // 20:35511609:CAAGCCGCCTCCAGGTAGCAGCCACAGCCAGGAGCACACAGACAGAAGACTGTGTCATGGGTCATGGCCCCTCCGCACACCTACAGGTTTGCCAAAGGAA:C
         if consequences_cds.contains(Consequence::StopLost)
-            && !consequences_protein.contains(Consequence::StopLost)
+            && !consequences_protein
+                .intersects(Consequence::StopLost | Consequence::ProteinAlteringVariant)
         {
             *consequences &= !Consequence::StopLost;
         }
@@ -726,6 +857,7 @@ impl ConsequencePredictor {
         // (This case just shortens a poly-A from which the start codon starts)
         if consequences_cds.contains(Consequence::StartLost)
             && !consequences_protein.contains(Consequence::StartLost)
+            && !consequences_protein.is_empty()
         {
             *consequences &= !Consequence::StartLost;
         }
@@ -777,6 +909,12 @@ impl ConsequencePredictor {
                             _ => false,
                         };
                         if start_retained {
+                            tracing::trace!(
+                                "Fixing StartLost → StartRetained for {}, {}, {}",
+                                &var_g,
+                                &var_c,
+                                &var_p
+                            );
                             *consequences &= !Consequence::StartLost;
                             *consequences |= Consequence::StartRetainedVariant;
                         }
@@ -784,17 +922,37 @@ impl ConsequencePredictor {
                 }
             }
         }
+        match var_c {
+            HgvsVariant::CdsVariant { loc_edit, .. } => {
+                let loc = loc_edit.loc.inner();
+                let start_base = loc.start.base;
+                let start_cds_from = loc.start.cds_from;
+                let end_base = loc.end.base;
+                let end_cds_from = loc.end.cds_from;
+
+                let starts_left_of_start = start_cds_from == CdsFrom::Start && start_base < 0;
+                let ends_left_of_start = end_cds_from == CdsFrom::Start && end_base < 0;
+
+                if consequences.contains(Consequence::ExonLossVariant)
+                    && starts_left_of_start
+                    && ends_left_of_start
+                {
+                    *consequences &= !Consequence::ExonLossVariant;
+                }
+            }
+            _ => unreachable!(),
+        }
     }
 
-    #[allow(clippy::too_many_arguments, unused_variables)]
+    #[allow(clippy::too_many_arguments)]
     fn analyze_exonic_variant(
-        var: &VcfVariant,
         strand: Strand,
         var_start: i32,
         var_end: i32,
         exon_start: i32,
         exon_end: i32,
         rank: &Rank,
+        _is_utr: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -803,6 +961,8 @@ impl ConsequencePredictor {
 
         // Check the cases where the variant overlaps with whole exon.
         if var_start <= exon_start && var_end >= exon_end {
+            // FIXME: this is not true if the var_c variant is effectively pre start completely
+            // we address that in fix_special_cases
             consequences |= Consequence::ExonLossVariant;
             if var_start < exon_start {
                 if strand == Strand::Plus && !rank.is_first() {
@@ -824,24 +984,24 @@ impl ConsequencePredictor {
         if var_overlaps(exon_end - 3, exon_end) {
             if strand == Strand::Plus {
                 if !rank.is_last() {
-                    consequences |= Consequence::SpliceRegionVariant;
+                    consequences |= Consequence::ExonicSpliceRegionVariant;
                 }
             } else {
                 // alignment.strand == Strand::Minus
                 if !rank.is_first() {
-                    consequences |= Consequence::SpliceRegionVariant;
+                    consequences |= Consequence::ExonicSpliceRegionVariant;
                 }
             }
         }
         if var_overlaps(exon_start, exon_start + 3) {
             if strand == Strand::Plus {
                 if !rank.is_first() {
-                    consequences |= Consequence::SpliceRegionVariant;
+                    consequences |= Consequence::ExonicSpliceRegionVariant;
                 }
             } else {
                 // alignment.strand == Strand::Minus
                 if !rank.is_last() {
-                    consequences |= Consequence::SpliceRegionVariant;
+                    consequences |= Consequence::ExonicSpliceRegionVariant;
                 }
             }
         }
@@ -850,23 +1010,22 @@ impl ConsequencePredictor {
 
     #[allow(clippy::too_many_arguments)]
     fn analyze_intronic_variant(
-        var: &VcfVariant,
+        var_g: &HgvsVariant,
         alignment: &GenomeAlignment,
         strand: Strand,
         var_start: i32,
         var_end: i32,
         intron_start: i32,
         intron_end: i32,
+        _is_utr: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
 
-        // For insertions, we need to consider the case of the insertion being right at
-        // the exon/intron junction.  We can express this with a shift of 1 for using
-        // "< / >" X +/- shift and meaning <= / >= X.
-        let ins_shift = if var.reference.is_empty() { 1 } else { 0 };
+        // Insertion ranges are end-exclusive, so subtract 1 from the end, where applicable.
+        let ins_shift = Self::ins_shift(var_g);
 
         // Check the cases where the variant overlaps with the splice acceptor/donor site.
         if var_overlaps(intron_start - ins_shift, intron_start + 2) {
@@ -898,6 +1057,7 @@ impl ConsequencePredictor {
 
         // Check the case where the variant overlaps with the splice region (1-3 bases in exon
         // or 3-8 bases in intron).
+        // n.b. the 1-3 bases in exon check is already done within `analyze_exonic_variant`.
         // We have to check all cases independently and not with `else`
         // because the variant may be larger.
         if var_overlaps(intron_start + 2, intron_start + 8)
@@ -917,6 +1077,7 @@ impl ConsequencePredictor {
 
         // Check conditions for splice_donor_region_variant
         // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
+        // Note that this is two bases short of the intronic part of splice_region_variant
         if strand == Strand::Plus && var_overlaps(intron_start + 2, intron_start + 6) {
             consequences |= Consequence::SpliceDonorRegionVariant;
         }
@@ -936,10 +1097,31 @@ impl ConsequencePredictor {
         consequences
     }
 
+    fn ins_shift(var_g: &HgvsVariant) -> i32 {
+        // For insertions, we need to consider the case of the insertion being right at
+        // the exon/intron junction.  We can express this with a shift of 1 for using
+        // "< / >" X +/- shift and meaning <= / >= X.
+        let ins_shift = match var_g {
+            HgvsVariant::GenomeVariant {
+                loc_edit: GenomeLocEdit { edit, .. },
+                ..
+            } => {
+                let edit = edit.inner();
+                if edit.is_ins() || edit.is_dup() {
+                    1
+                } else {
+                    0
+                }
+            }
+            _ => unreachable!(),
+        };
+        ins_shift
+    }
+
     fn analyze_cds_variant(
         var_c: &HgvsVariant,
         is_exonic: bool,
-        is_intronic: bool,
+        _is_intronic: bool,
         conservative: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
@@ -952,8 +1134,19 @@ impl ConsequencePredictor {
             let edit = loc_edit.edit.inner();
             let start_base = loc.start.base;
             let start_cds_from = loc.start.cds_from;
-            // let end_base = loc.end.base;
+            let end_base = loc.end.base;
             let end_cds_from = loc.end.cds_from;
+            let loc_start_offset = loc.start.offset.unwrap_or(0);
+            let loc_end_offset = loc.end.offset.unwrap_or(0);
+
+            // Update is_intronic flag with information from var_c.
+            // From hgvs spec:
+            // > Base-Offset coordinates use a base position,
+            //   which is an index in the specified sequence,
+            //   and an optional offset from that base position.
+            //   Non-zero offsets refer to non-coding sequence,
+            //   such as 5’ UTR, 3’ UTR, or intronic position.
+            let is_intronic_or_utr = loc_start_offset != 0 && loc_end_offset != 0;
 
             // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
             //
@@ -970,7 +1163,7 @@ impl ConsequencePredictor {
                 consequences |= Consequence::StopLost;
             }
 
-            if starts_left_of_start
+            if (start_cds_from == CdsFrom::Start && start_base <= 0)
                 && ends_right_of_stop
                 && matches!(edit, NaEdit::DelNum { .. } | NaEdit::DelRef { .. })
             {
@@ -979,35 +1172,80 @@ impl ConsequencePredictor {
 
             // Detect variants affecting the 5'/3' UTRs.
             if starts_left_of_start && start_base < 0 {
-                if is_intronic {
+                if is_intronic_or_utr {
                     consequences |= Consequence::FivePrimeUtrIntronVariant;
-                }
-                if is_exonic {
+                } else if is_exonic {
                     consequences |= Consequence::FivePrimeUtrExonVariant;
                 }
             }
             if ends_right_of_stop {
-                if is_intronic {
+                if is_intronic_or_utr {
                     consequences |= Consequence::ThreePrimeUtrIntronVariant;
-                }
-                if is_exonic {
+                } else if is_exonic {
                     consequences |= Consequence::ThreePrimeUtrExonVariant;
                 }
             }
 
-            if !ends_right_of_stop && !starts_left_of_start && (!is_intronic || is_exonic) {
+            if matches!(edit, NaEdit::DelNum { .. } | NaEdit::DelRef { .. })
+                && end_base > start_base
+                && end_base > 0
+            {
+                if start_base <= 3 && start_cds_from == CdsFrom::Start {
+                    consequences |= Consequence::StartLost;
+                }
+
+                if loc_start_offset < 0 && loc_end_offset > 0 {
+                    consequences |= Consequence::ExonLossVariant;
+                }
+            }
+
+            // Make sure not to report frameshift variants
+            // that occur completely within intronic sequence
+            // i.e. not within the CDS, as the definition is
+            // "A sequence variant which causes a disruption of the translational reading frame,
+            // because the number of nucleotides inserted or deleted is not a multiple of three."
+            let within_exonic_sequence = loc_start_offset == 0 && loc_end_offset == 0;
+            let _crosses_boundary = (loc_start_offset != 0) ^ (loc_end_offset != 0);
+
+            if !(ends_right_of_stop || starts_left_of_start || is_intronic_or_utr) {
                 match edit {
                     NaEdit::RefAlt {
                         reference,
                         alternative,
                     } => {
                         if reference.len().abs_diff(alternative.len()) % 3 != 0 {
-                            consequences |= Consequence::FrameshiftVariant;
+                            if within_exonic_sequence {
+                                consequences |= Consequence::FrameshiftVariant;
+                            }
+                        } else {
+                            // Check for inframe insertions/deletions (that are not delins)
+                            match (
+                                reference.len().cmp(&alternative.len()),
+                                alternative.is_empty() ^ reference.is_empty(),
+                            ) {
+                                (Ordering::Less, true) => {
+                                    if conservative {
+                                        consequences |= Consequence::ConservativeInframeInsertion;
+                                    } else {
+                                        consequences |= Consequence::DisruptiveInframeInsertion;
+                                    }
+                                }
+                                (Ordering::Greater, true) => {
+                                    if conservative {
+                                        consequences |= Consequence::ConservativeInframeDeletion;
+                                    } else {
+                                        consequences |= Consequence::DisruptiveInframeDeletion;
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                     }
                     NaEdit::DelRef { reference } => {
                         if reference.len() % 3 != 0 {
-                            consequences |= Consequence::FrameshiftVariant;
+                            if within_exonic_sequence {
+                                consequences |= Consequence::FrameshiftVariant;
+                            }
                         } else if conservative {
                             consequences |= Consequence::ConservativeInframeDeletion;
                         } else {
@@ -1016,7 +1254,9 @@ impl ConsequencePredictor {
                     }
                     NaEdit::DelNum { count } => {
                         if count % 3 != 0 {
-                            consequences |= Consequence::FrameshiftVariant;
+                            if within_exonic_sequence {
+                                consequences |= Consequence::FrameshiftVariant;
+                            }
                         } else if conservative {
                             consequences |= Consequence::ConservativeInframeDeletion;
                         } else {
@@ -1025,7 +1265,20 @@ impl ConsequencePredictor {
                     }
                     NaEdit::Ins { alternative } => {
                         if alternative.len() % 3 != 0 {
-                            consequences |= Consequence::FrameshiftVariant;
+                            if within_exonic_sequence {
+                                consequences |= Consequence::FrameshiftVariant;
+                            }
+                        } else if conservative {
+                            consequences |= Consequence::ConservativeInframeInsertion;
+                        } else {
+                            consequences |= Consequence::DisruptiveInframeInsertion;
+                        }
+                    }
+                    NaEdit::Dup { reference } => {
+                        if reference.len() % 3 != 0 {
+                            if within_exonic_sequence {
+                                consequences |= Consequence::FrameshiftVariant;
+                            }
                         } else if conservative {
                             consequences |= Consequence::ConservativeInframeInsertion;
                         } else {
@@ -1088,9 +1341,14 @@ impl ConsequencePredictor {
                                     let original_sequence = &original_sequence;
 
                                     // trim altered sequence to the first stop encountered
-                                    let altered_sequence = if let Some(pos) = altered_sequence
-                                        .find('*')
-                                        .or_else(|| altered_sequence.find('X'))
+                                    let altered_sequence = if let Some(pos) =
+                                        altered_sequence.find('*')
+                                    // do not use the 'X' fallback here,
+                                    // as that is _usually_ only added
+                                    // when the number of bases is not divisible by 3.
+                                    // We only want to identify cases where a new/later
+                                    // stop codon is encountered
+                                    // .or_else(|| altered_sequence.find('X'))
                                     {
                                         &altered_sequence[..=pos]
                                     } else {
@@ -1151,29 +1409,16 @@ impl ConsequencePredictor {
                         }
                         ProteinEdit::DelIns { alternative } => {
                             consequences |= Consequence::ProteinAlteringVariant;
-                            match alternative
+                            if alternative
                                 .len()
                                 .cmp(&(loc.start.number.abs_diff(loc.end.number) as usize + 1))
+                                == Ordering::Equal
                             {
-                                Ordering::Less if conservative => {
-                                    consequences |= Consequence::ConservativeInframeDeletion;
-                                }
-                                Ordering::Less => {
-                                    consequences |= Consequence::DisruptiveInframeDeletion;
-                                }
-                                Ordering::Equal => {
-                                    // When the delins does not change the CDS length,
-                                    // it is a missense variant, not an inframe deletion
-                                    // cf https://github.com/Ensembl/ensembl-vep/issues/1388
-                                    consequences |= Consequence::MissenseVariant;
-                                    consequences &= !Consequence::ProteinAlteringVariant;
-                                }
-                                Ordering::Greater if conservative => {
-                                    consequences |= Consequence::ConservativeInframeInsertion;
-                                }
-                                Ordering::Greater => {
-                                    consequences |= Consequence::DisruptiveInframeInsertion;
-                                }
+                                // When the delins does not change the CDS length,
+                                // it is a missense variant, not an inframe deletion
+                                // cf https://github.com/Ensembl/ensembl-vep/issues/1388
+                                consequences |= Consequence::MissenseVariant;
+                                consequences &= !Consequence::ProteinAlteringVariant;
                             }
 
                             if (is_stop(&loc.start.aa) || is_stop(&loc.end.aa))
@@ -1321,8 +1566,9 @@ fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
     }
 }
 
-fn overlaps(var_start: i32, var_end: i32, exon_intron_start: i32, exon_intron_end: i32) -> bool {
-    (var_start < exon_intron_end) && (var_end > exon_intron_start)
+#[inline]
+fn overlaps(start_a: i32, end_a: i32, start_b: i32, end_b: i32) -> bool {
+    (start_a < end_b) && (end_a > start_b)
 }
 
 impl ConsequencePredictor {
@@ -1419,42 +1665,44 @@ mod test {
     /// The order of the consequences is important: ordered by severity, descending.
     /// cf Consequences enum ordering.
     #[rstest::rstest]
-    #[case("17:41197820:G:T", 1, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    #[case("17:41197820:G:T", 1, vec![Consequence::SpliceAcceptorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 1bp intronic
-    #[case("17:41197821:A:C", 2, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    #[case("17:41197821:A:C", 2, vec![Consequence::SpliceAcceptorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 2bp intronic
-    #[case("17:41197822:C:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197822:C:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 3bp intronic
-    #[case("17:41197823:C:A", 4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197823:C:A", 4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 4bp intronic
-    #[case("17:41197824:T:G", 5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197824:T:G", 5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 5bp intronic
-    #[case("17:41197825:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197825:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 6bp intronic
-    #[case("17:41197835:T:G", 16, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197835:T:G", 16, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 16bp intronic
-    #[case("17:41197836:G:A", 17, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("17:41197836:G:A", 17, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 17bp intronic
-    #[case("17:41197837:G:A", 18, vec![Consequence::IntronVariant])] // 18bp intronic
-    #[case("17:41199660:G:T", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant]
+    #[case("17:41197837:G:A", 18, vec![Consequence::CodingTranscriptIntronVariant]
+    )] // 18bp intronic
+    #[case("17:41199660:G:T", 0, vec![Consequence::MissenseVariant, Consequence::ExonicSpliceRegionVariant]
     )] // exonic
-    #[case("17:41199659:G:T", -1, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    #[case("17:41199659:G:T", -1, vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -1bp intronic
-    #[case("17:41199658:T:G", -2, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    #[case("17:41199658:T:G", -2, vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -2bp intronic
-    #[case("17:41199657:G:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199657:G:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -3bp intronic
-    #[case("17:41199656:A:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199656:A:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -4bp intronic
-    #[case("17:41199655:G:T", -5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199655:G:T", -5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -5bp intronic
-    #[case("17:41199654:G:T", -6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199654:G:T", -6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -6bp intronic
-    #[case("17:41199653:T:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199653:T:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -7bp intronic
-    #[case("17:41199652:G:T", -8, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    #[case("17:41199652:G:T", -8, vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -8bp intronic
-    #[case("17:41199651:C:A", -9, vec![Consequence::IntronVariant])] // -9bp intronic
+    #[case("17:41199651:C:A", -9, vec![Consequence::CodingTranscriptIntronVariant]
+    )] // -9bp intronic
     fn annotate_snv_brca1_csq(
         #[case] spdi: &str,
         #[case] expected_dist: i32,
@@ -1520,46 +1768,46 @@ mod test {
     /// The order of the consequences is important: ordered by severity, descending.
     /// cf Consequences enum ordering.
     #[rstest::rstest]
-    #[case("3:193332512:T:G", 0, vec![Consequence::MissenseVariant, Consequence::SpliceRegionVariant]
+    #[case("3:193332512:T:G", 0, vec![Consequence::MissenseVariant, Consequence::ExonicSpliceRegionVariant]
     )] // exonic
-    #[case("3:193332511:G:T", -1, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    #[case("3:193332511:G:T", -1, vec![Consequence::SpliceAcceptorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -1bp intronic
-    #[case("3:193332510:A:G", -2, vec![Consequence::SpliceAcceptorVariant, Consequence::IntronVariant]
+    #[case("3:193332510:A:G", -2, vec![Consequence::SpliceAcceptorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -2bp intronic
-    #[case("3:193332509:C:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant]
+    #[case("3:193332509:C:T", -3, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::CodingTranscriptIntronVariant]
     )] // -3bp intronic
-    #[case("3:193332508:T:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant]
+    #[case("3:193332508:T:C", -4, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::CodingTranscriptIntronVariant]
     )] // -4bp intronic
-    #[case("3:193332507:T:C", -5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::IntronVariant]
+    #[case("3:193332507:T:C", -5, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant,  Consequence::CodingTranscriptIntronVariant]
     )] // -5bp intronic
-    #[case("3:193332506:T:C", -6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("3:193332506:T:C", -6, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -6bp intronic
-    #[case("3:193332505:C:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("3:193332505:C:G", -7, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -7bp intronic
-    #[case("3:193332504:T:C", -8, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("3:193332504:T:C", -8, vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -8bp intronic
-    #[case("3:193332503:T:A", -9, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::IntronVariant]
+    #[case("3:193332503:T:A", -9, vec![Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant]
     )] // -9bp intronic
-    #[case("3:193332831:G:T", 1, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    #[case("3:193332831:G:T", 1, vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 1bp intronic
-    #[case("3:193332832:T:C", 2, vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant]
+    #[case("3:193332832:T:C", 2, vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 2bp intronic
-    #[case("3:193332833:G:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332833:G:A", 3, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 3bp intronic
-    #[case("3:193332834:A:C", 4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332834:A:C", 4, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 4bp intronic
-    #[case("3:193332835:A:T", 5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332835:A:T", 5, vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 5bp intronic
-    #[case("3:193332836:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332836:C:A", 6, vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 6bp intronic
-    #[case("3:193332837:T:G", 7, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332837:T:G", 7, vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 7bp intronic
-    #[case("3:193332838:T:G", 8, vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant]
+    #[case("3:193332838:T:G", 8, vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant]
     )] // 8bp intronic
-    #[case("3:193332839:G:A", 9, vec![Consequence::IntronVariant])] // 9bp intronic
-    #[case("3:193332846:A:G", 16, vec![Consequence::IntronVariant])] // 16bp intronic
-    #[case("3:193332847:G:A", 17, vec![Consequence::IntronVariant])] // 17bp intronic
-    #[case("3:193332848:T:A", 18, vec![Consequence::IntronVariant])] // 18bp intronic
+    #[case("3:193332839:G:A", 9, vec![Consequence::CodingTranscriptIntronVariant])] // 9bp intronic
+    #[case("3:193332846:A:G", 16, vec![Consequence::CodingTranscriptIntronVariant])] // 16bp intronic
+    #[case("3:193332847:G:A", 17, vec![Consequence::CodingTranscriptIntronVariant])] // 17bp intronic
+    #[case("3:193332848:T:A", 18, vec![Consequence::CodingTranscriptIntronVariant])] // 18bp intronic
     fn annotate_snv_opa1_csq(
         #[case] spdi: &str,
         #[case] expected_dist: i32,
@@ -1615,12 +1863,15 @@ mod test {
     }
 
     #[rstest::rstest]
-    #[case("3:193311167:ATGT:T", vec![Consequence::StartLost, Consequence::ConservativeInframeDeletion])]
+    #[case("3:193311167:ATGT:T", vec![Consequence::StartLost, Consequence::ConservativeInframeDeletion]
+    )]
     #[case("3:193311170:TGGC:C", vec![Consequence::ConservativeInframeDeletion])]
-    #[case("3:193311170:TGGCG:G", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
+    #[case("3:193311170:TGGCG:G", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation]
+    )]
     #[case("3:193311180:GTCG:G", vec![Consequence::DisruptiveInframeDeletion])]
     #[case("3:193409910:GAAA:G", vec![Consequence::ConservativeInframeDeletion])]
-    #[case("3:193409913:ATAA:A", vec![Consequence::StopLost, Consequence::FeatureElongation, Consequence::ConservativeInframeDeletion])]
+    #[case("3:193409913:ATAA:A", vec![Consequence::StopLost, Consequence::FeatureElongation, Consequence::ConservativeInframeDeletion]
+    )]
     fn annotate_del_opa1_csqs(
         #[case] spdi: &str,
         #[case] expected_csqs: Vec<Consequence>,
@@ -1915,7 +2166,7 @@ mod test {
             String::from("NM_130837.3"),
         ];
 
-        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only)
+        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only, false)
     }
 
     // Compare to SnpEff annotated variants for BRCA1, touching special cases.
@@ -1954,19 +2205,21 @@ mod test {
             String::from("NM_007300.4"),
         ];
 
-        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only)
+        annotate_vars(path_tsv, &txs, report_most_severe_consequence_only, false)
     }
 
     fn annotate_vars(
         path_tsv: &str,
         txs: &[String],
         report_most_severe_consequence_only: bool,
+        with_reference: bool,
     ) -> Result<(), anyhow::Error> {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
+        let reference_path = "resources/GCF_000001405.25_GRCh37.p13_genomic.fna";
         let provider = Arc::new(MehariProvider::new(
             tx_db,
-            None::<PathBuf>,
+            with_reference.then_some(reference_path),
             true,
             Default::default(),
         ));
@@ -2080,12 +2333,30 @@ mod test {
                                 && (expected_one_of.contains(&"disruptive_inframe_insertion")
                                     || expected_one_of
                                         .contains(&"conservative_inframe_insertion"))),
+                        // delins on protein level are sometimes erroneously reported as inframe_insertion/deletion instead
+                        (expected_one_of.contains(&"protein_altering_variant")
+                            && ([
+                                "disruptive_inframe_deletion",
+                                "disruptive_inframe_insertion",
+                                "conservative_inframe_deletion",
+                                "conservative_inframe_insertion",
+                            ]
+                            .iter()
+                            .any(|c| record_csqs.contains(c)))),
                         // NB: We cannot predict 5_prime_UTR_premature_start_codon_gain_variant yet. For now, we
                         // also accept 5_prime_UTR_variant.
                         ((expected_one_of.contains(&"5_prime_UTR_exon_variant")
                             || expected_one_of.contains(&"5_prime_UTR_intron_variant"))
                             && (record_csqs
                                 .contains(&"5_prime_UTR_premature_start_codon_gain_variant"))),
+                        // We accept 5_prime_UTR_exon_variant and 5_prime_UTR_intron_variant if the
+                        // other tool predicts upstream_gene_variant.
+                        ((expected_one_of.contains(&"5_prime_UTR_exon_variant")
+                            || expected_one_of.contains(&"5_prime_UTR_intron_variant"))
+                            && (record_csqs.contains(&"upstream_gene_variant"))),
+                        // A coding_transcript_intron_variant is a more specific intron_variant
+                        (expected_one_of.contains(&"coding_transcript_intron_variant")
+                            && (record_csqs.contains(&"intron_variant"))),
                         // VEP predicts `splice_donor_5th_base_variant` rather than `splice_region_variant`.
                         // Same for `splice_donor_region_variant`.
                         (expected_one_of.contains(&"splice_region_variant")
@@ -2147,7 +2418,8 @@ mod test {
                                 && (record_csqs.contains(&"conservative_inframe_insertion")),
                         // SnpEff may not predict `splice_region_variant` for 5' UTR correctly, so we
                         // allow this.
-                        expected_one_of.contains(&"splice_region_variant")
+                        (expected_one_of.contains(&"splice_region_variant")
+                            || expected_one_of.contains(&"exonic_splice_region_variant"))
                             && (record_csqs.contains(&"5_prime_UTR_variant")),
                         // SnpEff does not predict `splice_polypyrimidine_tract_variant`
                         expected_one_of.contains(&"splice_polypyrimidine_tract_variant")
@@ -2167,6 +2439,22 @@ mod test {
                         // Similarly, SnpEff may predict `c.-1_1` as `start_retained` rather than `start_lost`.
                         expected_one_of.contains(&"start_lost")
                             && (record_csqs.contains(&"start_retained_variant")),
+                        // SnpEff calls this insertion at c.5193+2_5193+3insT a splice donor variant
+                        // even though the third intronic base is affected, not the first or second
+                        record_csqs.contains(&"splice_donor_variant")
+                            && expected_one_of.contains(&"splice_region_variant")
+                            && [
+                                "17-41215347-T-TA",
+                                "17-41215888-T-TA",
+                                "17-41242958-T-TA",
+                                "17-41256882-T-TA",
+                                "17-41276031-T-TA",
+                                "17-41277285-T-TA",
+                            ]
+                            .contains(&record.var.as_str()),
+                        // we call exonic_splice_region_variant, while the others only call splice_region_variant
+                        record_csqs.contains(&"splice_region_variant")
+                            && expected_one_of.contains(&"exonic_splice_region_variant"),
                     ]
                     .iter()
                     .any(|b| *b);
@@ -2174,11 +2462,11 @@ mod test {
                     assert!(
                         found_one,
                         "line no. {}, variant: {}, tx: {}, hgvs_c: {:?}, hgvs_p: {:?}, \
-                        record_csqs: {:?}, expected_one_of: {:?}, ann_csqs: {:?}",
+                        their_csqs: {:?}, expected_one_of: {:?}, our_csqs: {:?}",
                         lineno,
                         record.var,
                         record.tx,
-                        ann.hgvs_t.as_ref(),
+                        ann.hgvs_c.as_ref(),
                         ann.hgvs_p.as_ref(),
                         &record_csqs,
                         &expected_one_of,

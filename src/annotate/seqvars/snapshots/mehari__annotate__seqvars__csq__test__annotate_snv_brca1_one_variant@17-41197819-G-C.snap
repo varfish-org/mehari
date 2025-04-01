@@ -7,7 +7,7 @@ expression: res
       alternative: C
   consequences:
     - missense_variant
-    - splice_region_variant
+    - exonic_splice_region_variant
   putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -21,9 +21,10 @@ expression: res
   rank:
     ord: 23
     total: 23
-  hgvs_t: c.5468C>G
+  hgvs_g: g.41197819G>C
+  hgvs_c: c.5468C>G
   hgvs_p: p.Ala1823Gly
-  tx_pos:
+  cdna_pos:
     ord: 5581
     total: 7088
   cds_pos:
@@ -40,7 +41,7 @@ expression: res
       alternative: C
   consequences:
     - missense_variant
-    - splice_region_variant
+    - exonic_splice_region_variant
   putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -53,9 +54,10 @@ expression: res
   rank:
     ord: 22
     total: 22
-  hgvs_t: c.5327C>G
+  hgvs_g: g.41197819G>C
+  hgvs_c: c.5327C>G
   hgvs_p: p.Ala1776Gly
-  tx_pos:
+  cdna_pos:
     ord: 5521
     total: 7028
   cds_pos:
@@ -72,7 +74,7 @@ expression: res
       alternative: C
   consequences:
     - missense_variant
-    - splice_region_variant
+    - exonic_splice_region_variant
   putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -85,9 +87,10 @@ expression: res
   rank:
     ord: 22
     total: 22
-  hgvs_t: c.2156C>G
+  hgvs_g: g.41197819G>C
+  hgvs_c: c.2156C>G
   hgvs_p: p.Ala719Gly
-  tx_pos:
+  cdna_pos:
     ord: 2175
     total: 3682
   cds_pos:
@@ -104,7 +107,7 @@ expression: res
       alternative: C
   consequences:
     - missense_variant
-    - splice_region_variant
+    - exonic_splice_region_variant
   putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -117,9 +120,10 @@ expression: res
   rank:
     ord: 22
     total: 22
-  hgvs_t: c.2082C>G
+  hgvs_g: g.41197819G>C
+  hgvs_c: c.2082C>G
   hgvs_p: p.Cys694Trp
-  tx_pos:
+  cdna_pos:
     ord: 2189
     total: 3696
   cds_pos:
@@ -136,7 +140,7 @@ expression: res
       alternative: C
   consequences:
     - missense_variant
-    - splice_region_variant
+    - exonic_splice_region_variant
   putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -149,9 +153,10 @@ expression: res
   rank:
     ord: 24
     total: 24
-  hgvs_t: c.5531C>G
+  hgvs_g: g.41197819G>C
+  hgvs_c: c.5531C>G
   hgvs_p: p.Ala1844Gly
-  tx_pos:
+  cdna_pos:
     ord: 5644
     total: 7151
   cds_pos:

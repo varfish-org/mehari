@@ -21,9 +21,10 @@ expression: res
   rank:
     ord: 1
     total: 31
-  hgvs_t: c.1_3del
+  hgvs_g: g.193311167_193311170delinsT
+  hgvs_c: c.1_3del
   hgvs_p: p.Met1?
-  tx_pos:
+  cdna_pos:
     ord: 171
     total: 6429
   cds_pos:

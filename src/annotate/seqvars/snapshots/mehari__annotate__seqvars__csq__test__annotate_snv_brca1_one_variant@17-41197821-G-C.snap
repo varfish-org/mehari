@@ -1,13 +1,14 @@
 ---
 source: src/annotate/seqvars/csq.rs
 expression: res
+snapshot_kind: text
 ---
 - allele:
     Alt:
       alternative: C
   consequences:
     - splice_acceptor_variant
-    - intron_variant
+    - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -21,14 +22,11 @@ expression: res
   rank:
     ord: 22
     total: 22
-  hgvs_t: c.5468-2C>G
+  hgvs_g: g.41197821G>C
+  hgvs_c: c.5468-2C>G
   hgvs_p: p.?
-  tx_pos:
-    ord: 5581
-    total: 7088
-  cds_pos:
-    ord: 5468
-    total: 5592
+  cdna_pos: ~
+  cds_pos: ~
   protein_pos: ~
   distance: 2
   strand: -1
@@ -38,7 +36,7 @@ expression: res
       alternative: C
   consequences:
     - splice_acceptor_variant
-    - intron_variant
+    - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -51,14 +49,11 @@ expression: res
   rank:
     ord: 21
     total: 21
-  hgvs_t: c.5327-2C>G
+  hgvs_g: g.41197821G>C
+  hgvs_c: c.5327-2C>G
   hgvs_p: p.?
-  tx_pos:
-    ord: 5521
-    total: 7028
-  cds_pos:
-    ord: 5327
-    total: 5451
+  cdna_pos: ~
+  cds_pos: ~
   protein_pos: ~
   distance: 2
   strand: -1
@@ -68,7 +63,7 @@ expression: res
       alternative: C
   consequences:
     - splice_acceptor_variant
-    - intron_variant
+    - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -81,14 +76,11 @@ expression: res
   rank:
     ord: 21
     total: 21
-  hgvs_t: c.2156-2C>G
+  hgvs_g: g.41197821G>C
+  hgvs_c: c.2156-2C>G
   hgvs_p: p.?
-  tx_pos:
-    ord: 2175
-    total: 3682
-  cds_pos:
-    ord: 2156
-    total: 2280
+  cdna_pos: ~
+  cds_pos: ~
   protein_pos: ~
   distance: 2
   strand: -1
@@ -98,7 +90,7 @@ expression: res
       alternative: C
   consequences:
     - splice_acceptor_variant
-    - intron_variant
+    - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -111,14 +103,11 @@ expression: res
   rank:
     ord: 21
     total: 21
-  hgvs_t: c.2082-2C>G
+  hgvs_g: g.41197821G>C
+  hgvs_c: c.2082-2C>G
   hgvs_p: p.?
-  tx_pos:
-    ord: 2189
-    total: 3696
-  cds_pos:
-    ord: 2082
-    total: 2100
+  cdna_pos: ~
+  cds_pos: ~
   protein_pos: ~
   distance: 2
   strand: -1
@@ -128,7 +117,7 @@ expression: res
       alternative: C
   consequences:
     - splice_acceptor_variant
-    - intron_variant
+    - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
   gene_id: "HGNC:1100"
@@ -141,14 +130,11 @@ expression: res
   rank:
     ord: 23
     total: 23
-  hgvs_t: c.5531-2C>G
+  hgvs_g: g.41197821G>C
+  hgvs_c: c.5531-2C>G
   hgvs_p: p.?
-  tx_pos:
-    ord: 5644
-    total: 7151
-  cds_pos:
-    ord: 5531
-    total: 5655
+  cdna_pos: ~
+  cds_pos: ~
   protein_pos: ~
   distance: 2
   strand: -1

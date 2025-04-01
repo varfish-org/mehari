@@ -9,6 +9,8 @@ use nom::{
     IResult,
 };
 use parse_display::{Display, FromStr};
+use serde::de::DeserializeOwned;
+use serde::Deserialize;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
@@ -105,7 +107,6 @@ pub enum Consequence {
     /// SO:transcript_amplification, VEP:transcript_amplification
     TranscriptAmplification,
 
-    // Currently never written out (because hgvs::parser::ProteinEdit::Ext not produced)
     /// "A sequence variant that causes the extension of a genomic feature, with regard to the reference sequence."
     /// SO:feature_elongation, VEP:feature_elongation
     FeatureElongation,
@@ -153,6 +154,10 @@ pub enum Consequence {
     /// "A sequence variant in which a change has occurred within the region of the splice site, either within 1-3 bases of the exon or 3-8 bases of the intron."
     /// SO:splice_region_variant, VEP:splice_region_variant
     SpliceRegionVariant,
+
+    /// "A sequence variant in which a change has occurred within the exonic region of the splice site, 1-2 bases from boundary."
+    /// SO:exonic_splice_region_variant,
+    ExonicSpliceRegionVariant,
 
     /// "A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron)."
     /// SO:splice_donor_region_variant, VEP:splice_donor_region_variant
@@ -221,6 +226,10 @@ pub enum Consequence {
     /// "A sequence variant that changes non-coding intron sequence in a non-coding transcript."
     /// SO:non_coding_transcript_intron_variant, VEP:non_coding_transcript_variant
     NonCodingTranscriptIntronVariant,
+
+    /// "A transcript variant occurring within an intron of a coding transcript."
+    /// SO:coding_transcript_intron_variant
+    CodingTranscriptIntronVariant,
 
     // Not used by mehari, but by VEP
     // /// "A transcript variant of a protein coding gene."
@@ -307,6 +316,7 @@ impl From<Consequence> for PutativeImpact {
             | RareAminoAcidVariant => PutativeImpact::Moderate,
             SpliceDonorFifthBaseVariant
             | SpliceRegionVariant
+            | ExonicSpliceRegionVariant
             | SpliceDonorRegionVariant
             | SplicePolypyrimidineTractVariant
             | StartRetainedVariant
@@ -320,6 +330,7 @@ impl From<Consequence> for PutativeImpact {
             | ThreePrimeUtrIntronVariant
             | NonCodingTranscriptExonVariant
             | NonCodingTranscriptIntronVariant
+            | CodingTranscriptIntronVariant
             | UpstreamGeneVariant
             | DownstreamGeneVariant
             | TfbsAblation
@@ -685,42 +696,97 @@ pub enum Message {
     InfoNonReferenceAnnotation,
 }
 
+fn deserialize_ann_str_list<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    T: DeserializeOwned,
+    D: serde::Deserializer<'de>,
+{
+    // Deserialize the input as a string
+    let s: String = String::deserialize(deserializer)?;
+    // Split the string by '&', deserialize each part into T, and collect into a Vec<T>
+    let items: Result<Vec<T>, D::Error> = s
+        .split('&')
+        .map(|s| serde_json::from_str(s).map_err(serde::de::Error::custom))
+        .collect();
+    items
+}
+
 /// Representation of an `ANN` field.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct AnnField {
     /// The alternative allele that this annotation refers to.
+    #[serde(alias = "Allele")]
     pub allele: Allele,
+
     /// The consequences of the allele.
+    #[serde(alias = "Annotation", deserialize_with = "deserialize_ann_str_list")]
     pub consequences: Vec<Consequence>,
+
     /// The putative impact.
+    #[serde(alias = "Annotation_Impact")]
     pub putative_impact: PutativeImpact,
+
     /// The gene symbol.
+    #[serde(alias = "Gene_Name")]
     pub gene_symbol: String,
+
     /// The gene identifier.
+    #[serde(alias = "Gene_ID")]
     pub gene_id: String,
+
     /// The feature type.
+    #[serde(alias = "Feature_Type")]
     pub feature_type: FeatureType,
+
     /// The feature identifier.
+    #[serde(alias = "Feature_ID")]
     pub feature_id: String,
+
     /// The feature biotype.
+    #[serde(
+        alias = "Transcript_BioType",
+        deserialize_with = "deserialize_ann_str_list"
+    )]
     pub feature_biotype: Vec<FeatureBiotype>,
+
     /// The exon / intron rank.
+    #[serde(alias = "Rank")]
     pub rank: Option<Rank>,
+
+    /// HGVS g. notation.
+    #[serde(alias = "HGVS.g")]
+    pub hgvs_g: Option<String>,
+
     /// HGVS c. notation.
-    pub hgvs_t: Option<String>,
+    #[serde(alias = "HGVS.c")]
+    pub hgvs_c: Option<String>,
+
     /// HGVS p. notation.
+    #[serde(alias = "HGVS.p")]
     pub hgvs_p: Option<String>,
+
     /// cDNA position.
-    pub tx_pos: Option<Pos>,
+    #[serde(alias = "cDNA.pos / cDNA.length")]
+    pub cdna_pos: Option<Pos>,
+
     /// CDS position.
+    #[serde(alias = "CDS.pos / CDS.length")]
     pub cds_pos: Option<Pos>,
+
     /// Protein position.
+    #[serde(alias = "AA.pos / AA.length")]
     pub protein_pos: Option<Pos>,
+
     /// Distance to feature.
+    #[serde(alias = "Distance")]
     pub distance: Option<i32>,
+
     /// Strand of the alignment
+    #[serde(alias = "Strand")]
     pub strand: i32,
+
     /// Optional list of warnings and error messages.
+    #[serde(alias = "ERRORS / WARNINGS / INFO")]
     pub messages: Option<Vec<Message>>,
 }
 
@@ -740,9 +806,10 @@ impl Default for AnnField {
             feature_id: Default::default(),
             feature_biotype: vec![FeatureBiotype::Coding],
             rank: Default::default(),
-            hgvs_t: Default::default(),
+            hgvs_g: Default::default(),
+            hgvs_c: Default::default(),
             hgvs_p: Default::default(),
-            tx_pos: Default::default(),
+            cdna_pos: Default::default(),
             cds_pos: Default::default(),
             protein_pos: Default::default(),
             distance: Default::default(),
@@ -782,11 +849,17 @@ impl FromStr for AnnField {
         } else {
             Some(rank.parse()?)
         };
-        let hgvs_t = fields.next().unwrap();
-        let hgvs_t = if hgvs_t.is_empty() {
+        let hgvs_g = fields.next().unwrap();
+        let hgvs_g = if hgvs_g.is_empty() {
             None
         } else {
-            Some(hgvs_t.to_string())
+            Some(hgvs_g.to_string())
+        };
+        let hgvs_c = fields.next().unwrap();
+        let hgvs_c = if hgvs_c.is_empty() {
+            None
+        } else {
+            Some(hgvs_c.to_string())
         };
         let hgvs_p = fields.next().unwrap();
         let hgvs_p = if hgvs_p.is_empty() {
@@ -794,11 +867,11 @@ impl FromStr for AnnField {
         } else {
             Some(hgvs_p.to_string())
         };
-        let tx_pos = fields.next().unwrap();
-        let tx_pos = if tx_pos.is_empty() {
+        let cdna_pos = fields.next().unwrap();
+        let cdna_pos = if cdna_pos.is_empty() {
             None
         } else {
-            Some(tx_pos.parse()?)
+            Some(cdna_pos.parse()?)
         };
         let cds_pos = fields.next().unwrap();
         let cds_pos = if cds_pos.is_empty() {
@@ -841,9 +914,10 @@ impl FromStr for AnnField {
             feature_id,
             feature_biotype,
             rank,
-            hgvs_t,
+            hgvs_g,
+            hgvs_c,
             hgvs_p,
-            tx_pos,
+            cdna_pos,
             cds_pos,
             protein_pos,
             distance,
@@ -889,7 +963,11 @@ impl std::fmt::Display for AnnField {
             write!(f, "{}", rank)?;
         }
         write!(f, "|")?;
-        if let Some(hgvs_c) = &self.hgvs_t {
+        if let Some(hgvs_g) = &self.hgvs_g {
+            write!(f, "{}", hgvs_g)?;
+        }
+        write!(f, "|")?;
+        if let Some(hgvs_c) = &self.hgvs_c {
             write!(f, "{}", hgvs_c)?;
         }
         write!(f, "|")?;
@@ -897,7 +975,7 @@ impl std::fmt::Display for AnnField {
             write!(f, "{}", hgvs_p)?;
         }
         write!(f, "|")?;
-        if let Some(cdna_pos) = &self.tx_pos {
+        if let Some(cdna_pos) = &self.cdna_pos {
             write!(f, "{}", cdna_pos)?;
         }
         write!(f, "|")?;
@@ -1251,9 +1329,10 @@ mod test {
             feature_id: String::from("feature_id"),
             feature_biotype: vec![FeatureBiotype::Coding],
             rank: Some(Rank { ord: 1, total: 2 }),
-            hgvs_t: Some(String::from("HGVS.c")),
+            hgvs_g: Some(String::from("HGVS.g")),
+            hgvs_c: Some(String::from("HGVS.c")),
             hgvs_p: Some(String::from("HGVS.p")),
-            tx_pos: Some(Pos {
+            cdna_pos: Some(Pos {
                 ord: 1,
                 total: None,
             }),
@@ -1272,15 +1351,15 @@ mod test {
 
         assert_eq!(
             format!("{}", &value),
-            "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|Coding|1/2|HGVS.c\
-            |HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
+            "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|Coding|1/2|HGVS.g|\
+            HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
         );
     }
 
     #[test]
     fn ann_field_from_str() -> Result<(), anyhow::Error> {
         let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
-        Coding|1/2|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
+        Coding|1/2|HGVS.g|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
 
         let field = AnnField::from_str(value)?;
         assert_eq!(format!("{}", &field), value);
