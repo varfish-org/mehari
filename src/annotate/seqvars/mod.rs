@@ -138,143 +138,134 @@ pub struct PathOutput {
     pub path_output_tsv: Option<String>,
 }
 
-const HEADER_ANN_NAMES: [&str; 18] = [
-    "Allele",
-    "Annotation",
-    "Annotation_Impact",
-    "Gene_Name",
-    "Gene_ID",
-    "Feature_Type",
-    "Feature_ID",
-    "Transcript_BioType",
-    "Rank",
-    "HGVS.g",
-    "HGVS.c",
-    "HGVS.p",
-    "cDNA.pos / cDNA.length",
-    "CDS.pos / CDS.length",
-    "AA.pos / AA.length",
-    "Distance",
-    "Strand",
-    "ERRORS / WARNINGS / INFO",
-];
-
-fn build_header(header_in: &VcfHeader, additional_records: &[(String, String)]) -> VcfHeader {
+fn build_header(
+    header_in: &VcfHeader,
+    with_annotations: bool,
+    with_frequencies: bool,
+    with_clinvar: bool,
+    additional_records: &[(String, String)],
+) -> VcfHeader {
     let mut header_out = header_in.clone();
 
-    header_out.infos_mut().insert(
-        "gnomad_exomes_an".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::Integer,
-            "Number of alleles in gnomAD exomes",
-        ),
-    );
-    header_out.infos_mut().insert(
-        "gnomad_exomes_hom".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::Integer,
-            "Number of hom. alt. carriers in gnomAD exomes",
-        ),
-    );
-    header_out.infos_mut().insert(
-        "gnomad_exomes_het".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::Integer,
-            "Number of het. alt. carriers in gnomAD exomes",
-        ),
-    );
-    header_out.infos_mut().insert(
-        "gnomad_exomes_hemi".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::Integer,
-            "Number of hemi. alt. carriers in gnomAD exomes",
-        ),
-    );
+    if with_frequencies {
+        header_out.infos_mut().insert(
+            "gnomad_exomes_an".into(),
+            Map::<Info>::new(
+                Number::Count(1),
+                InfoType::Integer,
+                "Number of alleles in gnomAD exomes",
+            ),
+        );
+        header_out.infos_mut().insert(
+            "gnomad_exomes_hom".into(),
+            Map::<Info>::new(
+                Number::Count(1),
+                InfoType::Integer,
+                "Number of hom. alt. carriers in gnomAD exomes",
+            ),
+        );
+        header_out.infos_mut().insert(
+            "gnomad_exomes_het".into(),
+            Map::<Info>::new(
+                Number::Count(1),
+                InfoType::Integer,
+                "Number of het. alt. carriers in gnomAD exomes",
+            ),
+        );
+        header_out.infos_mut().insert(
+            "gnomad_exomes_hemi".into(),
+            Map::<Info>::new(
+                Number::Count(1),
+                InfoType::Integer,
+                "Number of hemi. alt. carriers in gnomAD exomes",
+            ),
+        );
 
-    header_out.infos_mut().insert(
-        "gnomad_genomes_an".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::Integer,
-            "Number of alleles in gnomAD genomes",
-        ),
-    );
-    header_out.infos_mut().insert(
-        "gnomad_genomes_hom".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::Integer,
-            "Number of hom. alt. carriers in gnomAD genomes",
-        ),
-    );
-    header_out.infos_mut().insert(
-        "gnomad_genomes_het".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::Integer,
-            "Number of het. alt. carriers in gnomAD genomes",
-        ),
-    );
-    header_out.infos_mut().insert(
-        "gnomad_genomes_hemi".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::Integer,
-            "Number of hemi. alt. carriers in gnomAD genomes",
-        ),
-    );
+        header_out.infos_mut().insert(
+            "gnomad_genomes_an".into(),
+            Map::<Info>::new(
+                Number::Count(1),
+                InfoType::Integer,
+                "Number of alleles in gnomAD genomes",
+            ),
+        );
+        header_out.infos_mut().insert(
+            "gnomad_genomes_hom".into(),
+            Map::<Info>::new(
+                Number::Count(1),
+                InfoType::Integer,
+                "Number of hom. alt. carriers in gnomAD genomes",
+            ),
+        );
+        header_out.infos_mut().insert(
+            "gnomad_genomes_het".into(),
+            Map::<Info>::new(
+                Number::Count(1),
+                InfoType::Integer,
+                "Number of het. alt. carriers in gnomAD genomes",
+            ),
+        );
+        header_out.infos_mut().insert(
+            "gnomad_genomes_hemi".into(),
+            Map::<Info>::new(
+                Number::Count(1),
+                InfoType::Integer,
+                "Number of hemi. alt. carriers in gnomAD genomes",
+            ),
+        );
 
-    header_out.infos_mut().insert(
-        "helix_an".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::Integer,
-            "Number of alleles in HelixMtDb",
-        ),
-    );
-    header_out.infos_mut().insert(
-        "helix_hom".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::Integer,
-            "Number of hom. alt. carriers in HelixMtDb",
-        ),
-    );
-    header_out.infos_mut().insert(
-        "helix_het".into(),
-        Map::<Info>::new(
-            Number::Count(1),
-            InfoType::Integer,
-            "Number of het. alt. carriers in HelixMtDb",
-        ),
-    );
+        header_out.infos_mut().insert(
+            "helix_an".into(),
+            Map::<Info>::new(
+                Number::Count(1),
+                InfoType::Integer,
+                "Number of alleles in HelixMtDb",
+            ),
+        );
+        header_out.infos_mut().insert(
+            "helix_hom".into(),
+            Map::<Info>::new(
+                Number::Count(1),
+                InfoType::Integer,
+                "Number of hom. alt. carriers in HelixMtDb",
+            ),
+        );
+        header_out.infos_mut().insert(
+            "helix_het".into(),
+            Map::<Info>::new(
+                Number::Count(1),
+                InfoType::Integer,
+                "Number of het. alt. carriers in HelixMtDb",
+            ),
+        );
+    }
 
-    let fields = HEADER_ANN_NAMES.join(" | ");
-    header_out.infos_mut().insert(
-        "ANN".into(),
-        Map::<Info>::new(
-            Number::Unknown,
-            InfoType::String,
-            format!("Functional annotations: '{fields}'"),
-        ),
-    );
+    if with_annotations {
+        let fields = AnnField::ann_field_names().join(" | ");
+        header_out.infos_mut().insert(
+            "ANN".into(),
+            Map::<Info>::new(
+                Number::Unknown,
+                InfoType::String,
+                format!("Functional annotations: '{fields}'"),
+            ),
+        );
+    }
 
-    header_out.infos_mut().insert(
-        "clinvar_germline_classification".into(),
-        Map::<Info>::new(
-            Number::Unknown,
-            InfoType::String,
-            "ClinVar clinical significance",
-        ),
-    );
-    header_out.infos_mut().insert(
-        "clinvar_vcv".into(),
-        Map::<Info>::new(Number::Count(1), InfoType::String, "ClinVar VCV accession"),
-    );
+    if with_clinvar {
+        header_out.infos_mut().insert(
+            "clinvar_germline_classification".into(),
+            Map::<Info>::new(
+                Number::Unknown,
+                InfoType::String,
+                "ClinVar clinical significance",
+            ),
+        );
+        header_out.infos_mut().insert(
+            "clinvar_vcv".into(),
+            Map::<Info>::new(Number::Count(1), InfoType::String, "ClinVar VCV accession"),
+        );
+    }
 
     for (key, value) in additional_records {
         header_out
@@ -2032,7 +2023,25 @@ async fn run_with_writer(
     additional_header_info.push(("mehariCmd".into(), env::args().join(" ")));
     additional_header_info.push(("mehariVersion".into(), env!("CARGO_PKG_VERSION").into()));
 
-    let header_out = build_header(&header_in, &additional_header_info);
+    let with_annotations = args
+        .sources
+        .transcripts
+        .as_ref()
+        .is_some_and(|v| !v.is_empty());
+    let with_frequencies = args
+        .sources
+        .frequencies
+        .as_ref()
+        .is_some_and(|v| !v.is_empty());
+    let with_clinvar = args.sources.clinvar.as_ref().is_some_and(|v| !v.is_empty());
+
+    let header_out = build_header(
+        &header_in,
+        with_annotations,
+        with_frequencies,
+        with_clinvar,
+        &additional_header_info,
+    );
 
     // Perform the VCF annotation.
     tracing::info!("Annotating VCF ...");

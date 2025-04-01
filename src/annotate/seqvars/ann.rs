@@ -1,4 +1,5 @@
 //! Code for annotating variants based on molecular consequence.
+
 use enumflags2::bitflags;
 use nom::Parser;
 use nom::{
@@ -9,8 +10,6 @@ use nom::{
     IResult,
 };
 use parse_display::{Display, FromStr};
-use serde::de::DeserializeOwned;
-use serde::Deserialize;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
@@ -696,21 +695,6 @@ pub enum Message {
     InfoNonReferenceAnnotation,
 }
 
-fn deserialize_ann_str_list<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
-where
-    T: DeserializeOwned,
-    D: serde::Deserializer<'de>,
-{
-    // Deserialize the input as a string
-    let s: String = String::deserialize(deserializer)?;
-    // Split the string by '&', deserialize each part into T, and collect into a Vec<T>
-    let items: Result<Vec<T>, D::Error> = s
-        .split('&')
-        .map(|s| serde_json::from_str(s).map_err(serde::de::Error::custom))
-        .collect();
-    items
-}
-
 /// Representation of an `ANN` field.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct AnnField {
@@ -719,7 +703,7 @@ pub struct AnnField {
     pub allele: Allele,
 
     /// The consequences of the allele.
-    #[serde(alias = "Annotation", deserialize_with = "deserialize_ann_str_list")]
+    #[serde(alias = "Annotation")]
     pub consequences: Vec<Consequence>,
 
     /// The putative impact.
@@ -743,10 +727,7 @@ pub struct AnnField {
     pub feature_id: String,
 
     /// The feature biotype.
-    #[serde(
-        alias = "Transcript_BioType",
-        deserialize_with = "deserialize_ann_str_list"
-    )]
+    #[serde(alias = "Transcript_BioType")]
     pub feature_biotype: Vec<FeatureBiotype>,
 
     /// The exon / intron rank.
@@ -788,6 +769,17 @@ pub struct AnnField {
     /// Optional list of warnings and error messages.
     #[serde(alias = "ERRORS / WARNINGS / INFO")]
     pub messages: Option<Vec<Message>>,
+}
+
+impl AnnField {
+    /// Return vector of all field names in the `ANN` field,
+    /// as they appear in the VCF INFO ANN header description.
+    pub fn ann_field_names() -> Vec<&'static str> {
+        // FIXME: serde_introspect returns all aliases and the original name,
+        //   we rely on the order being consistent.
+        let names = serde_aux::serde_introspection::serde_introspect::<Self>();
+        names.iter().step_by(2).copied().collect()
+    }
 }
 
 impl Default for AnnField {
@@ -1009,9 +1001,9 @@ impl std::fmt::Display for AnnField {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-
+    use itertools::Itertools;
     use pretty_assertions::assert_eq;
+    use std::str::FromStr;
 
     use super::*;
 
@@ -1364,6 +1356,35 @@ mod test {
         let field = AnnField::from_str(value)?;
         assert_eq!(format!("{}", &field), value);
 
+        Ok(())
+    }
+
+    #[test]
+    fn automatic_ann_header_names() -> Result<(), anyhow::Error> {
+        let ann_names = AnnField::ann_field_names();
+        assert_eq!(
+            ann_names,
+            [
+                "Allele",
+                "Annotation",
+                "Annotation_Impact",
+                "Gene_Name",
+                "Gene_ID",
+                "Feature_Type",
+                "Feature_ID",
+                "Transcript_BioType",
+                "Rank",
+                "HGVS.g",
+                "HGVS.c",
+                "HGVS.p",
+                "cDNA.pos / cDNA.length",
+                "CDS.pos / CDS.length",
+                "AA.pos / AA.length",
+                "Distance",
+                "Strand",
+                "ERRORS / WARNINGS / INFO"
+            ]
+        );
         Ok(())
     }
 }
