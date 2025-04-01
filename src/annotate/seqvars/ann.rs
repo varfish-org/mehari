@@ -771,6 +771,17 @@ pub struct AnnField {
     pub messages: Option<Vec<Message>>,
 }
 
+impl AnnField {
+    /// Return vector of all field names in the `ANN` field,
+    /// as they appear in the VCF INFO ANN header description.
+    pub fn ann_field_names() -> Vec<&'static str> {
+        // FIXME: serde_introspect returns all aliases and the original name,
+        //   we rely on the order being consistent.
+        let names = serde_aux::serde_introspection::serde_introspect::<Self>();
+        names.iter().step_by(2).copied().collect()
+    }
+}
+
 impl Default for AnnField {
     fn default() -> Self {
         Self {
@@ -1350,10 +1361,7 @@ mod test {
 
     #[test]
     fn automatic_ann_header_names() -> Result<(), anyhow::Error> {
-        let ann_names = serde_aux::serde_introspection::serde_introspect::<AnnField>();
-        // FIXME: serde_introspect returns all aliases and the original name,
-        //   we rely on the order being consistent.
-        let ann_names = ann_names.iter().step_by(2).copied().collect_vec();
+        let ann_names = AnnField::ann_field_names();
         assert_eq!(
             ann_names,
             [

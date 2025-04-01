@@ -241,11 +241,7 @@ fn build_header(
     }
 
     if with_annotations {
-        let ann_names = serde_aux::serde_introspection::serde_introspect::<AnnField>();
-        // FIXME: serde_introspect returns all aliases and the original name,
-        //   we rely on the order being consistent.
-        let ann_names = ann_names.iter().step_by(2).copied().collect_vec();
-        let fields = ann_names.join(" | ");
+        let fields = AnnField::ann_field_names().join(" | ");
         header_out.infos_mut().insert(
             "ANN".into(),
             Map::<Info>::new(
