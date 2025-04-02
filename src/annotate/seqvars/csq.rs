@@ -1100,13 +1100,25 @@ impl ConsequencePredictor {
                 .unwrap_or("")
                 .to_owned(),
         );
-        let hgvs_c = context.hgvs.hgvs_c.as_ref().map(|var_c| {
-            format!("{}", &NoRef(var_c))
-                .split(':')
-                .nth(1)
-                .unwrap_or("")
-                .to_owned()
-        });
+
+        let hgvs_c = match transcript_biotype {
+            TranscriptBiotype::Coding => context.hgvs.hgvs_c.as_ref().map(|var_c| {
+                format!("{}", &NoRef(var_c))
+                    .split(':')
+                    .nth(1)
+                    .unwrap_or("")
+                    .to_owned()
+            }),
+            TranscriptBiotype::NonCoding => context.hgvs.hgvs_n.as_ref().map(|var_n| {
+                format!("{}", &NoRef(var_n))
+                    .split(':')
+                    .nth(1)
+                    .unwrap_or("")
+                    .to_owned()
+            }),
+            _ => None,
+        };
+
         let hgvs_p = context.hgvs.hgvs_p.as_ref().map(|var_p| {
             format!("{}", &NoRef(var_p))
                 .split(':')
