@@ -775,33 +775,7 @@ impl ConsequencePredictor {
                     }
                 }
                 TranscriptBiotype::NonCoding => {
-                    hgvs_projections.hgvs_c = Some(var_n.clone());
-                    match hgvs_mapper::altseq::ref_transcript_data_cached(
-                        self.provider.clone(),
-                        &tx.id,
-                        None,
-                    ) {
-                        Ok(reference_data) => {
-                            sequence_info.ref_tx_seq =
-                                Some(reference_data.transcript_sequence.clone());
-                            match AltSeqBuilder::new(var_n.clone(), reference_data).build_altseq() {
-                                Ok(alt_data) => {
-                                    if let Some(first_alt) = alt_data.first() {
-                                        sequence_info.alt_tx_seq =
-                                            Some(first_alt.transcript_sequence.clone());
-                                    }
-                                }
-                                Err(e) => tracing::warn!(
-                                    "Failed to build alt seq for non-coding {}: {}",
-                                    tx.id,
-                                    e
-                                ),
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to get ref data for non-coding {}: {}", tx.id, e)
-                        }
-                    }
+                    hgvs_projections.hgvs_n = Some(var_n);
                 }
                 _ => unreachable!("invalid transcript biotype: {:?}", transcript_biotype),
             }
