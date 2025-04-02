@@ -554,6 +554,7 @@ impl FeatureBiotype {
 /// Encode exon/intron rank.
 #[derive(
     Clone,
+    Copy,
     Debug,
     PartialEq,
     Eq,
@@ -589,6 +590,7 @@ impl Rank {
 #[derive(
     Debug,
     Clone,
+    Copy,
     PartialEq,
     Eq,
     PartialOrd,
@@ -1001,7 +1003,6 @@ impl std::fmt::Display for AnnField {
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
     use pretty_assertions::assert_eq;
     use std::str::FromStr;
 
