@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.33.0](https://github.com/varfish-org/mehari/compare/v0.32.0...v0.33.0) (2025-04-01)
+
+
+### Features
+
+* Miscellaneous consequence prediction fixes ([#704](https://github.com/varfish-org/mehari/issues/704)) ([20b16ee](https://github.com/varfish-org/mehari/commit/20b16eeb2992b1dafb3a03f9fd6110a4366dc555))
+* More flexible INFO/ANN header entry ([#727](https://github.com/varfish-org/mehari/issues/727)) ([2062c3c](https://github.com/varfish-org/mehari/commit/2062c3cbf8db9b369ac105bb78ea570b6338ad80))
+
+
+### Bug Fixes
+
+* report `transcript_ablation` for deletions starting pre start and ending post stop ([#702](https://github.com/varfish-org/mehari/issues/702)) ([e71a153](https://github.com/varfish-org/mehari/commit/e71a153953140e2783a22220045d6d9761d63929))
+
 ## [0.32.0](https://github.com/varfish-org/mehari/compare/v0.31.0...v0.32.0) (2025-02-25)
 
 
