@@ -1,13 +1,12 @@
 //! Annotation of sequence variants.
-use std::collections::{HashMap, HashSet};
-use std::env;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Display;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::{env, thread};
 
 use self::ann::{AnnField, Consequence, FeatureBiotype};
 use crate::annotate::cli::{Sources, TranscriptSettings};
@@ -18,7 +17,9 @@ use crate::annotate::seqvars::csq::{
 use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
-use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
+use crate::common::noodles::{
+    open_variant_reader, open_variant_writer, NoodlesVariantReader, VariantReader,
+};
 use crate::common::{guess_assembly, GenomeRelease};
 use crate::db::merge::merge_transcript_databases;
 use crate::pbs::txs::TxSeqDatabase;
@@ -31,6 +32,7 @@ use biocommons_bioutils::assemblies::Assembly;
 use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use futures::TryStreamExt;
 use itertools::Itertools;
 use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
 use noodles::vcf::header::record::value::map::format::Type as FormatType;
@@ -44,7 +46,7 @@ use noodles::vcf::variant::record::samples::keys::key::{
 };
 use noodles::vcf::variant::record::AlternateBases;
 use noodles::vcf::variant::record_buf::info::field;
-use noodles::vcf::variant::RecordBuf as VcfRecord;
+use noodles::vcf::variant::{RecordBuf as VcfRecord, RecordBuf};
 use noodles::vcf::{header::record::value::map::Map, Header as VcfHeader};
 use once_cell::sync::Lazy;
 use prost::Message;
@@ -54,6 +56,9 @@ use serde::{Deserialize, Serialize};
 use strum::Display;
 use thousands::Separable;
 use tokio::io::AsyncWriteExt;
+use tokio::runtime::Builder;
+use tokio::sync::mpsc;
+use tokio::task;
 
 pub mod ann;
 pub mod binning;
@@ -89,6 +94,10 @@ pub struct Args {
     /// Read the reference genome into memory.
     #[arg(long, requires = "reference")]
     pub in_memory_reference: bool,
+
+    /// Number of threads to use
+    #[arg(long)]
+    pub threads: usize,
 
     /// Path to the input PED file.
     #[arg(long)]
@@ -1910,30 +1919,312 @@ impl Annotator {
         Self { annotators }
     }
 
-    fn annotate(&self, vcf_record: &mut VcfRecord) -> anyhow::Result<()> {
+    fn annotate(&self, mut vcf_record: VcfRecord) -> anyhow::Result<VcfRecord> {
         // Get first alternate allele record.
-        let vcf_var = from_vcf_allele(vcf_record, 0);
+        let vcf_record_ = &mut vcf_record;
+        let vcf_var = from_vcf_allele(vcf_record_, 0);
 
         // Skip records with a deletion as alternative allele.
         if vcf_var.alternative == "*" {
-            return Ok(());
+            return Ok(vcf_record);
         }
 
         for annotator in &self.annotators {
-            annotator.annotate(&vcf_var, vcf_record)?;
+            annotator.annotate(&vcf_var, vcf_record_)?;
         }
 
-        Ok(())
+        Ok(vcf_record)
     }
 }
 
 /// Main entry point for `annotate seqvars` sub command.
-pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
+pub async fn run(_common: &crate::common::Args, args: Args) -> Result<(), anyhow::Error> {
     tracing::info!("config = {:#?}", &args);
-    if let Some(path_output_vcf) = &args.output.path_output_vcf {
+    main(args).await?;
+    Ok(())
+}
+
+/// Run the annotation with the given `Write` within the `VcfWriter`.
+async fn main(args: Args) -> Result<(), Error> {
+    tracing::info!("Open VCF and read header");
+    let mut reader = open_variant_reader(&args.path_input_vcf).await?;
+
+    let mut header_in = reader.read_header().await?;
+
+    // Work around glnexus issue with RNC.
+    if let Some(format) = header_in.formats_mut().get_mut("RNC") {
+        *format.number_mut() = FormatNumber::Count(1);
+        *format.type_mut() = FormatType::String;
+    }
+
+    // Guess genome release from contigs in VCF header.
+    let genome_release = args.genome_release.map(|gr| match gr {
+        GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
+        GenomeRelease::Grch38 => Assembly::Grch38,
+    });
+    let assembly = guess_assembly(&header_in, false, genome_release)?;
+    tracing::info!("Determined input assembly to be {:?}", &assembly);
+
+    let annotator = setup_seqvars_annotator(
+        &args.sources,
+        args.reference.as_ref(),
+        args.in_memory_reference,
+        &args.transcript_settings,
+        Some(assembly),
+    )?;
+
+    let mut additional_header_info = annotator.versions_for_vcf_header();
+    additional_header_info.push(("mehariCmd".into(), env::args().join(" ")));
+    additional_header_info.push(("mehariVersion".into(), env!("CARGO_PKG_VERSION").into()));
+
+    let with_annotations = args
+        .sources
+        .transcripts
+        .as_ref()
+        .is_some_and(|v| !v.is_empty());
+    let with_frequencies = args
+        .sources
+        .frequencies
+        .as_ref()
+        .is_some_and(|v| !v.is_empty());
+    let with_clinvar = args.sources.clinvar.as_ref().is_some_and(|v| !v.is_empty());
+
+    let header_out = build_header(
+        &header_in,
+        with_annotations,
+        with_frequencies,
+        with_clinvar,
+        &additional_header_info,
+    );
+
+    // Perform the VCF annotation.
+    tracing::info!("Annotating VCF ...");
+
+    use futures::TryStreamExt;
+
+    let num_workers = args.threads;
+    let buffer_queue_size = num_workers * 10;
+
+    let (producer_tx, producer_rx) = mpsc::channel::<(u64, VcfRecord)>(buffer_queue_size);
+    let (worker_tx, worker_rx) =
+        mpsc::channel::<(u64, anyhow::Result<VcfRecord>)>(buffer_queue_size);
+
+    let producer_thread_tx = producer_tx; // Move sender
+    let producer_handle = thread::spawn(move || {
+        // std::thread::spawn
+        // Create a local runtime FOR THIS THREAD
+        let rt = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create producer runtime");
+
+        // Run the producer's async logic within this thread's runtime
+        println!("[Main Task] Starting producer thread runtime.");
+        let result = rt.block_on(read_vcf_records(reader, header_in, producer_thread_tx));
+        println!("[Main Task] Producer thread finished.");
+        result // Return result from thread
+    });
+
+    let mut worker_handles = Vec::with_capacity(num_workers);
+    let shared_producer_rx = Arc::new(tokio::sync::Mutex::new(producer_rx));
+    let annotator = Arc::new(annotator);
+
+    for i in 0..num_workers {
+        let rx_clone = Arc::clone(&shared_producer_rx);
+        let tx_clone = worker_tx.clone();
+        let annotator_ = annotator.clone();
+        let handle = task::spawn(async move {
+            tracing::info!("Worker {} started", i);
+            loop {
+                // Lock the mutex to receive an item
+                let maybe_item = {
+                    let mut rx_guard = rx_clone.lock().await;
+                    rx_guard.recv().await
+                };
+
+                if let Some((index, record)) = maybe_item {
+                    let result = annotator_.annotate(record);
+                    if tx_clone.send((index, result)).await.is_err() {
+                        // Writer task likely terminated, stop worker
+                        tracing::warn!("Worker {}: Writer channel closed, stopping.", i);
+                        break;
+                    }
+                } else {
+                    // Producer channel closed, no more records
+                    tracing::debug!("Worker {}: Producer channel closed, stopping.", i);
+                    break;
+                }
+            }
+        });
+        worker_handles.push(handle);
+    }
+    // Drop the original sender so the writer knows when all workers are done
+    drop(worker_tx);
+
+    let writer_thread_rx = worker_rx;
+    let args = Arc::new(args);
+    let writer_handle = thread::spawn(move || {
+        let rt = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create writer runtime");
+        println!("[Main Task] Starting writer thread runtime.");
+        let result = rt.block_on(write_records(
+            args.clone(),
+            assembly,
+            header_out,
+            writer_thread_rx,
+        ));
+        println!("[Main Task] Writer thread finished.");
+        result
+    });
+
+    println!("[Main Task] Waiting for producer thread...");
+    // Use ? to propagate panic errors, handle Result for logical errors
+    match producer_handle.join().expect("Producer thread panicked") {
+        Ok(_) => println!("[Main Task] Producer thread completed successfully."),
+        Err(e) => eprintln!("[Main Task] Producer thread failed: {}", e),
+    }
+
+    // Wait for all workers to finish
+    println!("[Main Task] Waiting for workers...");
+    for (i, handle) in worker_handles.into_iter().enumerate() {
+        match handle.await {
+            Ok(_) => println!("Worker {} finished.", i),
+            Err(e) => eprintln!("Worker {} task panicked: {}", i, e),
+        }
+    }
+    println!("[Main Task] All workers finished.");
+
+    println!("[Main Task] Waiting for writer thread...");
+    // Wait for the writer
+    match writer_handle.join() {
+        Ok(Ok(count)) => println!("Writer finished successfully. Wrote {} records.", count),
+        Ok(Err(e)) => eprintln!("Writer failed: {}", e),
+        Err(e) => eprintln!("Writer task panicked: {:?}", e), // JoinError
+    }
+
+    println!("[Main Task] Processing complete.");
+    Ok(())
+}
+
+async fn read_vcf_records(
+    mut reader: VariantReader,
+    header: VcfHeader,
+    tx: mpsc::Sender<(u64, RecordBuf)>,
+) -> anyhow::Result<()> {
+    let mut records = reader.records(&header).await;
+    let mut index = 0;
+    loop {
+        match records.try_next().await? {
+            Some(vcf_record) => {
+                // We currently can only process records with one alternate allele.
+                if vcf_record.alternate_bases().len() != 1 {
+                    tracing::error!(
+                    "Found record with more than one alternate allele.  This is currently not supported. \
+                    Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
+                    &vcf_record
+                );
+                    anyhow::bail!("multi-allelic records not supported");
+                }
+                tx.send((index, vcf_record)).await?;
+                index += 1;
+            }
+            _ => {
+                break; // all done
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn write_records(
+    args: Arc<Args>,
+    assembly: Assembly,
+    header: VcfHeader,
+    mut rx: mpsc::Receiver<(u64, anyhow::Result<VcfRecord>)>,
+) -> anyhow::Result<u64> {
+    let total_written = if let Some(path_output_vcf) = &args.output.path_output_vcf {
         let mut writer = open_variant_writer(path_output_vcf).await?;
-        run_with_writer(&mut writer, args).await?;
+        writer.set_assembly(assembly);
+        writer.write_noodles_header(&header).await?;
+
+        let mut next_expected_index = 0;
+        let mut out_of_order_buffer: BTreeMap<u64, VcfRecord> = BTreeMap::new();
+        let mut total_written: u64 = 0;
+        let mut total_received: u64 = 0;
+        let mut error_count = 0;
+
+        while let Some((index, record)) = rx.recv().await {
+            total_received += 1;
+            if total_received % 1000 == 0 {
+                println!("Writer received result {}", total_received);
+            }
+
+            match record {
+                Ok(record) => {
+                    if index == next_expected_index {
+                        writer.write_noodles_record(&header, &record).await?;
+                        total_written += 1;
+                        next_expected_index += 1;
+
+                        // Check buffer for consecutive records
+                        while let Some(record) = out_of_order_buffer.remove(&next_expected_index) {
+                            writer.write_noodles_record(&header, &record).await?;
+                            total_written += 1;
+                            next_expected_index += 1;
+                        }
+                    } else if index > next_expected_index {
+                        // Buffer this record for later
+                        out_of_order_buffer.insert(index, record);
+                    } else {
+                        // This should ideally not happen with monotonically increasing indices
+                        eprintln!("Writer received record with unexpected past index: {} (expected >= {})", index, next_expected_index);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Writer: Error processing record {}: {}", index, e);
+                    error_count += 1;
+                    if index == next_expected_index {
+                        // Mark this index as processed (even though failed) to allow subsequent records to be written
+                        next_expected_index += 1;
+                        // Check buffer after skipping
+                        while let Some(record) = out_of_order_buffer.remove(&next_expected_index) {
+                            writer.write_noodles_record(&header, &record).await?;
+                            total_written += 1;
+                            next_expected_index += 1;
+                        }
+                    } else if index > next_expected_index {
+                        // Store a placeholder or simply ignore? For simplicity, we just log and don't buffer the error.
+                        // If strict ordering *around* errors is needed, you might buffer an error marker.
+                        tracing::warn!(
+                            "Expected record index {}, got {}",
+                            next_expected_index,
+                            index
+                        );
+                    }
+                }
+            }
+        }
+
+        // After the channel closes, ensure the buffer is empty (should be if no errors skipped indices)
+        if !out_of_order_buffer.is_empty() {
+            eprintln!(
+                "Writer finished, but buffer not empty! Missing indices: {:?}",
+                out_of_order_buffer.keys()
+            );
+            for (_, record) in out_of_order_buffer {
+                writer.write_noodles_record(&header, &record).await?;
+                total_written += 1;
+            }
+        }
+
         writer.shutdown().await?;
+        println!(
+            "Writer finished. Received: {}, Written: {}, Errors: {}",
+            total_received, total_written, error_count
+        );
+        total_written
     } else {
         // Load the HGNC xlink map.
         let hgnc_map = {
@@ -1976,131 +2267,88 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
         tracing::info!("... done loading pedigree");
 
         writer.set_hgnc_map(hgnc_map);
-        run_with_writer(&mut writer, args).await?;
+        writer.set_assembly(assembly);
+        writer.write_noodles_header(&header).await?;
 
-        writer
-            .flush()
-            .map_err(|e| anyhow::anyhow!("problem flushing file: {}", e))?;
-    }
+        let mut next_expected_index = 0;
+        let mut out_of_order_buffer: BTreeMap<u64, VcfRecord> = BTreeMap::new();
+        let mut total_written: u64 = 0;
+        let mut total_received: u64 = 0;
+        let mut error_count = 0;
 
-    Ok(())
-}
-
-/// Run the annotation with the given `Write` within the `VcfWriter`.
-async fn run_with_writer(
-    writer: &mut impl AsyncAnnotatedVariantWriter,
-    args: &Args,
-) -> Result<(), Error> {
-    tracing::info!("Open VCF and read header");
-    let mut reader = open_variant_reader(&args.path_input_vcf).await?;
-
-    let mut header_in = reader.read_header().await?;
-
-    // Work around glnexus issue with RNC.
-    if let Some(format) = header_in.formats_mut().get_mut("RNC") {
-        *format.number_mut() = FormatNumber::Count(1);
-        *format.type_mut() = FormatType::String;
-    }
-
-    // Guess genome release from contigs in VCF header.
-    let genome_release = args.genome_release.map(|gr| match gr {
-        GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
-        GenomeRelease::Grch38 => Assembly::Grch38,
-    });
-    let assembly = guess_assembly(&header_in, false, genome_release)?;
-    writer.set_assembly(assembly);
-    tracing::info!("Determined input assembly to be {:?}", &assembly);
-
-    let annotator = setup_seqvars_annotator(
-        &args.sources,
-        args.reference.as_ref(),
-        args.in_memory_reference,
-        &args.transcript_settings,
-        Some(assembly),
-    )?;
-
-    let mut additional_header_info = annotator.versions_for_vcf_header();
-    additional_header_info.push(("mehariCmd".into(), env::args().join(" ")));
-    additional_header_info.push(("mehariVersion".into(), env!("CARGO_PKG_VERSION").into()));
-
-    let with_annotations = args
-        .sources
-        .transcripts
-        .as_ref()
-        .is_some_and(|v| !v.is_empty());
-    let with_frequencies = args
-        .sources
-        .frequencies
-        .as_ref()
-        .is_some_and(|v| !v.is_empty());
-    let with_clinvar = args.sources.clinvar.as_ref().is_some_and(|v| !v.is_empty());
-
-    let header_out = build_header(
-        &header_in,
-        with_annotations,
-        with_frequencies,
-        with_clinvar,
-        &additional_header_info,
-    );
-
-    // Perform the VCF annotation.
-    tracing::info!("Annotating VCF ...");
-    let start = Instant::now();
-    let mut prev = Instant::now();
-    let mut total_written = 0usize;
-
-    writer.write_noodles_header(&header_out).await?;
-
-    use futures::TryStreamExt;
-    let mut records = reader.records(&header_in).await;
-    loop {
-        match records.try_next().await? {
-            Some(mut vcf_record) => {
-                // We currently can only process records with one alternate allele.
-                if vcf_record.alternate_bases().len() != 1 {
-                    tracing::error!(
-                    "Found record with more than one alternate allele.  This is currently not supported. \
-                    Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
-                    &vcf_record
-                );
-                    anyhow::bail!("multi-allelic records not supported");
-                }
-
-                annotator.annotate(&mut vcf_record)?;
-
-                if prev.elapsed().as_secs() >= 60 {
-                    tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
-                    prev = Instant::now();
-                }
-
-                // Write out the record.
-                writer
-                    .write_noodles_record(&header_out, &vcf_record)
-                    .await?;
+        while let Some((index, record)) = rx.recv().await {
+            total_received += 1;
+            if total_received % 1000 == 0 {
+                println!("Writer received result {}", total_received);
             }
-            _ => {
-                break; // all done
+
+            match record {
+                Ok(record) => {
+                    if index == next_expected_index {
+                        writer.write_noodles_record(&header, &record).await?;
+                        total_written += 1;
+                        next_expected_index += 1;
+
+                        // Check buffer for consecutive records
+                        while let Some(record) = out_of_order_buffer.remove(&next_expected_index) {
+                            writer.write_noodles_record(&header, &record).await?;
+                            total_written += 1;
+                            next_expected_index += 1;
+                        }
+                    } else if index > next_expected_index {
+                        // Buffer this record for later
+                        out_of_order_buffer.insert(index, record);
+                    } else {
+                        // This should ideally not happen with monotonically increasing indices
+                        eprintln!("Writer received record with unexpected past index: {} (expected >= {})", index, next_expected_index);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Writer: Error processing record {}: {}", index, e);
+                    error_count += 1;
+                    if index == next_expected_index {
+                        // Mark this index as processed (even though failed) to allow subsequent records to be written
+                        next_expected_index += 1;
+                        // Check buffer after skipping
+                        while let Some(record) = out_of_order_buffer.remove(&next_expected_index) {
+                            writer.write_noodles_record(&header, &record).await?;
+                            total_written += 1;
+                            next_expected_index += 1;
+                        }
+                    } else if index > next_expected_index {
+                        // Store a placeholder or simply ignore? For simplicity, we just log and don't buffer the error.
+                        // If strict ordering *around* errors is needed, you might buffer an error marker.
+                        tracing::warn!(
+                            "Expected record index {}, got {}",
+                            next_expected_index,
+                            index
+                        );
+                    }
+                }
             }
         }
 
-        total_written += 1;
-        if let Some(max_var_count) = args.max_var_count {
-            if total_written >= max_var_count {
-                tracing::warn!(
-                    "Stopping after {} records as requested by --max-var-count",
-                    total_written
-                );
-                break;
+        // After the channel closes, ensure the buffer is empty (should be if no errors skipped indices)
+        if !out_of_order_buffer.is_empty() {
+            eprintln!(
+                "Writer finished, but buffer not empty! Missing indices: {:?}",
+                out_of_order_buffer.keys()
+            );
+            for (_, record) in out_of_order_buffer {
+                writer.write_noodles_record(&header, &record).await?;
+                total_written += 1;
             }
         }
-    }
-    tracing::info!(
-        "... annotated {} records in {:?}",
-        total_written.separate_with_commas(),
-        start.elapsed()
-    );
-    writer.shutdown().await?;
-    Ok(())
+
+        writer.shutdown().await?;
+        println!(
+            "Writer finished. Received: {}, Written: {}, Errors: {}",
+            total_received, total_written, error_count
+        );
+        total_written
+    };
+
+    Ok(total_written)
 }
 
 pub(crate) fn proto_assembly_from(assembly: &Assembly) -> Option<crate::pbs::txs::Assembly> {

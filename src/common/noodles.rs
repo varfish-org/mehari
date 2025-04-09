@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::Error;
 use futures::future::join_all;
-use futures::stream::LocalBoxStream;
+use futures::stream::{BoxStream, LocalBoxStream};
 use futures::StreamExt;
 use noodles::bcf;
 use noodles::vcf;
@@ -52,6 +52,8 @@ pub enum VariantReader {
     Vcf(AsyncVcfReader),
     Bcf(AsyncBcfReader),
 }
+
+unsafe impl Send for VariantReader {}
 
 pub trait NoodlesVariantReader {
     #[allow(async_fn_in_trait)]

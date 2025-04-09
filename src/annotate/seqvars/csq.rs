@@ -1584,7 +1584,7 @@ mod test {
     use crate::annotate::cli::{TranscriptPickType, TranscriptSettings};
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
-        load_tx_db, run_with_writer, Args, AsyncAnnotatedVariantWriter, PathOutput,
+        load_tx_db, main, Args, AsyncAnnotatedVariantWriter, PathOutput,
     };
     use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
     use csv::ReaderBuilder;
@@ -2073,7 +2073,7 @@ mod test {
         let expected_vcf = "tests/data/annotate/seqvars/vep.disagreement-cases.expected.vcf";
         let output = NamedTempFile::new()?;
         let mut writer = open_variant_writer(output.as_ref()).await?;
-        run_with_writer(
+        main(
             &mut writer,
             &Args {
                 reference: None,

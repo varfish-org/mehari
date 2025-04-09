@@ -204,7 +204,7 @@ async fn main() -> Result<(), anyhow::Error> {
     // Install collector and go into sub commands.
     tracing::info!("Mehari startup -- letting the dromedary off the leash...");
 
-    match &cli.command {
+    match cli.command {
         Commands::Db(db) => match &db.command {
             DbCommands::Create(args) => db::create::run(&cli.common, args)?,
             DbCommands::Check(args) => db::check::run(&cli.common, args)?,
@@ -212,10 +212,10 @@ async fn main() -> Result<(), anyhow::Error> {
             DbCommands::Subset(args) => db::subset::run(&cli.common, args)?,
             DbCommands::Merge(args) => db::merge::run(&cli.common, args)?,
         },
-        Commands::Annotate(annotate) => match &annotate.command {
+        Commands::Annotate(annotate) => match annotate.command {
             AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args).await?,
             AnnotateCommands::Strucvars(args) => {
-                annotate::strucvars::run(&cli.common, args).await?
+                annotate::strucvars::run(&cli.common, &args).await?
             }
         },
         Commands::Server(server) => match &server.command {
