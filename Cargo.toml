@@ -77,7 +77,7 @@ tracing = { version = "0.1", features = ["log"] }
 uuid = { version = "1.16", features = ["fast-rng", "serde"] }
 zstd = "0.13"
 utoipa = { version = "5.2.0", features = ["actix_extras", "chrono", "indexmap", "openapi_extensions", "preserve_order", "yaml"] }
-utoipa-swagger-ui = { version = "9.0.0", features = ["actix-web"] }
+utoipa-swagger-ui = { version = "9.0.1", features = ["actix-web"] }
 memmap2 = "0.9.5"
 serde-aux = "4.6.0"
 
