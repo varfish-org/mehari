@@ -107,9 +107,7 @@ where
         .map_err(|e| anyhow::anyhow!("could not open file {}: {}", path.as_ref().display(), e))?;
 
     if path_is_gzip {
-        Ok(Box::pin(BufWriter::new(
-            bgzf::r#async::Writer::new(file),
-        )))
+        Ok(Box::pin(BufWriter::new(bgzf::r#async::Writer::new(file))))
     } else {
         Ok(Box::pin(BufWriter::new(file)))
     }
