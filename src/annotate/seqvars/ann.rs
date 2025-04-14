@@ -1001,7 +1001,6 @@ impl std::fmt::Display for AnnField {
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
     use pretty_assertions::assert_eq;
     use std::str::FromStr;
 

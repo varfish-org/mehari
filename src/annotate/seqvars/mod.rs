@@ -1669,28 +1669,6 @@ pub struct ClinvarAnnotator {
     db: DBWithThreadMode<rocksdb::MultiThreaded>,
 }
 
-/// Helper code for percent encoding of strings.
-///
-/// cf. https://github.com/varfish-org/varfish-server-worker/issues/485
-mod vcf_encoding {
-    use percent_encoding::{utf8_percent_encode, AsciiSet, PercentEncode, CONTROLS};
-
-    // § 1.2 "Character encoding, non-printable characters and characters with special meaning" (2023-08-23)
-    const PERCENT_ENCODE_SET: &AsciiSet = &CONTROLS
-        .add(b':')
-        .add(b';')
-        .add(b'=')
-        .add(b'%')
-        .add(b',')
-        .add(b'\r')
-        .add(b'\n')
-        .add(b'\t');
-
-    pub(super) fn percent_encode(s: &str) -> PercentEncode<'_> {
-        utf8_percent_encode(s, PERCENT_ENCODE_SET)
-    }
-}
-
 impl ClinvarAnnotator {
     pub fn new(db: DBWithThreadMode<rocksdb::MultiThreaded>) -> Self {
         Self { db }
@@ -1750,12 +1728,7 @@ impl ClinvarAnnotator {
                 Some(field::Value::Array(field::value::Array::String(
                     clinvar_germline_classifications
                         .into_iter()
-                        .map(|value| {
-                            // Manually encode until the following is fixed.
-                            //
-                            // https://github.com/varfish-org/varfish-server-worker/issues/485
-                            Some(vcf_encoding::percent_encode(&value).to_string())
-                        })
+                        .map(Some)
                         .collect::<Vec<_>>(),
                 ))),
             );
