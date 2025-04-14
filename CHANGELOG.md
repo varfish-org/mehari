@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.1](https://github.com/varfish-org/mehari/compare/v0.33.0...v0.33.1) (2025-04-14)
+
+
+### Bug Fixes
+
+* update noodles to 0.97 and annonars to 0.42.5 ([#735](https://github.com/varfish-org/mehari/issues/735)) ([f106408](https://github.com/varfish-org/mehari/commit/f1064087b2296f534d56cce7ecf7bf2527d203ad))
+
 ## [0.33.0](https://github.com/varfish-org/mehari/compare/v0.32.0...v0.33.0) (2025-04-01)
 
 
