@@ -108,7 +108,7 @@ where
 
     if path_is_gzip {
         Ok(Box::pin(BufWriter::new(
-            bgzf::r#async::writer::Writer::new(file),
+            bgzf::r#async::Writer::new(file),
         )))
     } else {
         Ok(Box::pin(BufWriter::new(file)))

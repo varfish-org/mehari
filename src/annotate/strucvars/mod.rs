@@ -557,7 +557,7 @@ pub struct GenotypeInfo {
     pub amq: Option<i32>,
     /// Copy number.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cn: Option<i32>,
+    pub cn: Option<f32>,
     /// Average normalized coverage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anc: Option<f32>,
@@ -887,7 +887,7 @@ impl AsyncAnnotatedVariantWriter for VarFishStrucvarTsvWriter {
                         entry.src = Some(*src);
                     }
                     // amq
-                    ("CN", Some(sample::Value::Integer(cn))) => {
+                    ("CN", Some(sample::Value::Float(cn))) => {
                         entry.cn = Some(*cn);
                     }
                     // anc
@@ -1403,7 +1403,7 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
                     .amq
                     .as_ref()
                     .map(|amq| sample::Value::Integer(*amq)),
-                genotype.cn.as_ref().map(|cn| sample::Value::Integer(*cn)),
+                genotype.cn.as_ref().map(|cn| sample::Value::Float(*cn)),
                 genotype.anc.as_ref().map(|anc| sample::Value::Float(*anc)),
                 genotype.pc.as_ref().map(|pc| sample::Value::Integer(*pc)),
             ]);
@@ -2102,8 +2102,11 @@ mod conv {
                             process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
-                        ("CN", Some(sample::Value::Integer(cn))) => {
+                        ("CN", Some(sample::Value::Float(cn))) => {
                             entries[sample_no].cn = Some(*cn);
+                        }
+                        ("CN", Some(sample::Value::Integer(cn))) => {
+                            entries[sample_no].cn = Some(*cn as f32);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
                         ("GQ", Some(sample::Value::Integer(gq))) => {
@@ -2287,8 +2290,11 @@ mod conv {
                             entries[sample_no].pev = Some(*pe);
                         }
                         // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
-                        ("CN", Some(sample::Value::Integer(cn))) => {
+                        ("CN", Some(sample::Value::Float(cn))) => {
                             entries[sample_no].cn = Some(*cn);
+                        }
+                        ("CN", Some(sample::Value::Integer(cn))) => {
+                            entries[sample_no].cn = Some(*cn as f32);
                         }
                         // Obtain `GenotypeInfo::pc` from `FORMAT/BC`.
                         ("BC", Some(sample::Value::Integer(bc))) => {
@@ -2402,8 +2408,11 @@ mod conv {
                             process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
-                        ("CN", Some(sample::Value::Integer(cn))) => {
+                        ("CN", Some(sample::Value::Float(cn))) => {
                             entries[sample_no].cn = Some(*cn);
+                        }
+                        ("CN", Some(sample::Value::Integer(cn))) => {
+                            entries[sample_no].cn = Some(*cn as f32);
                         }
                         // Obtain `GenotypeInfo::pc` from `FORMAT/NP`.
                         ("NP", Some(sample::Value::Integer(np))) => {
@@ -2780,15 +2789,24 @@ mod conv {
                     .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", &entry.name))
                     .sex;
                 let expected_cn = match (sex, is_chr_x, is_chr_y) {
-                    (_, false, false) => Some(2),
-                    (Sex::Male, false, true) | (Sex::Male, true, false) => Some(1),
-                    (Sex::Female, true, false) => Some(2),
+                    (_, false, false) => Some(2.),
+                    (Sex::Male, false, true) | (Sex::Male, true, false) => Some(1.),
+                    (Sex::Female, true, false) => Some(2.),
                     // do not count, sex missing or conflicting chromosome
                     _ => None,
                 };
                 if let (Some(cn), Some(expected_cn)) = (entry.cn, expected_cn) {
                     let delta = (cn - expected_cn).abs();
-                    if expected_cn == 1 {
+                    if delta.round() != delta {
+                        tracing::warn!(
+                            "Fractional CN value: {} and expected {} for sample {}, rounding.",
+                            cn,
+                            expected_cn,
+                            entry.name,
+                        );
+                    }
+                    let delta = delta.round() as i32;
+                    if expected_cn == 1. {
                         tsv_record.num_hemi_alt += delta;
                     } else if delta == 0 {
                         tsv_record.num_hom_ref += 1;
@@ -3988,7 +4006,7 @@ mod test {
                             src: Some(143),
                             srv: Some(43),
                             amq: Some(99),
-                            cn: Some(1),
+                            cn: Some(1.),
                             anc: Some(0.5),
                             pc: Some(10),
                         },
@@ -4002,7 +4020,7 @@ mod test {
                             src: Some(44),
                             srv: Some(0),
                             amq: Some(98),
-                            cn: Some(2),
+                            cn: Some(2.),
                             anc: Some(1.0),
                             pc: Some(10),
                         },
@@ -4016,7 +4034,7 @@ mod test {
                             src: Some(33),
                             srv: Some(0),
                             amq: Some(97),
-                            cn: Some(2),
+                            cn: Some(2.),
                             anc: Some(1.0),
                             pc: Some(10),
                         },
@@ -4064,7 +4082,7 @@ mod test {
                             src: Some(143),
                             srv: Some(43),
                             amq: Some(99),
-                            cn: Some(1),
+                            cn: Some(1.),
                             anc: Some(0.5),
                             pc: Some(10),
                         },
@@ -4078,7 +4096,7 @@ mod test {
                             src: Some(143),
                             srv: Some(43),
                             amq: Some(99),
-                            cn: Some(1),
+                            cn: Some(1.),
                             anc: Some(0.5),
                             pc: Some(10),
                         },
@@ -4092,7 +4110,7 @@ mod test {
                             src: Some(143),
                             srv: Some(43),
                             amq: Some(99),
-                            cn: Some(1),
+                            cn: Some(1.),
                             anc: Some(0.5),
                             pc: Some(10),
                         },
