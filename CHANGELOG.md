@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.35.0](https://github.com/varfish-org/mehari/compare/v0.34.0...v0.35.0) (2025-04-16)
+
+
+### Miscellaneous Chores
+
+* bump version for jemalloc default feature ([517e1d3](https://github.com/varfish-org/mehari/commit/517e1d3236d39d8670e57d6870bb1f48b6dcf4e0))
+
 ## [0.34.0](https://github.com/varfish-org/mehari/compare/v0.33.1...v0.34.0) (2025-04-16)
 
 
