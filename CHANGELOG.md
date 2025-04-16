@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.0](https://github.com/varfish-org/mehari/compare/v0.33.1...v0.34.0) (2025-04-16)
+
+
+### Miscellaneous Chores
+
+* bump version for annonars update ([1e625f9](https://github.com/varfish-org/mehari/commit/1e625f9a3a90854427669609296b93e8b7c964ed))
+
 ## [0.33.1](https://github.com/varfish-org/mehari/compare/v0.33.0...v0.33.1) (2025-04-14)
 
 
