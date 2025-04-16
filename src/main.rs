@@ -72,7 +72,22 @@
 //! $ cargo add mehari
 //! ```
 
-#[cfg(feature = "dhat-heap")]
+#[cfg(all(
+    feature = "jemalloc",
+    not(target_env = "msvc"),
+    not(feature = "dhat-heap")
+))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(all(
+    feature = "jemalloc",
+    not(target_env = "msvc"),
+    not(feature = "dhat-heap")
+))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
+#[cfg(all(feature = "dhat-heap", not(feature = "jemalloc")))]
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
