@@ -286,9 +286,9 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "annonars"
-version = "0.43.0"
+version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f455c9fed8cd149a55fc0ecd7d520184dba0b822d0e6636714feb3fc04bc3f58"
+checksum = "6661fb69734bba157e82616d94fd640f4eb88b77dfbfe68dd1cbb592135f4a69"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -327,6 +327,7 @@ dependencies = [
  "strum 0.27.1",
  "tempfile",
  "thiserror 2.0.12",
+ "tikv-jemallocator",
  "tracing",
  "tracing-subscriber",
  "utoipa",
@@ -2429,6 +2430,7 @@ dependencies = [
  "libc",
  "libz-sys",
  "lz4-sys",
+ "tikv-jemalloc-sys",
  "zstd-sys",
 ]
 
@@ -2647,6 +2649,7 @@ dependencies = [
  "temp_testdir",
  "tempfile",
  "thousands",
+ "tikv-jemallocator",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -4642,6 +4645,26 @@ checksum = "8b9ef9bad013ada3808854ceac7b46812a6465ba368859a37e2100283d2d719c"
 dependencies = [
  "cfg-if",
  "once_cell",
+]
+
+[[package]]
+name = "tikv-jemalloc-sys"
+version = "0.6.0+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd3c60906412afa9c2b5b5a48ca6a5abe5736aec9eb48ad05037a677e52e4e2d"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
+name = "tikv-jemallocator"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cec5ff18518d81584f477e9bfdf957f5bb0979b0bac3af4ca30b5b3ae2d2865"
+dependencies = [
+ "libc",
+ "tikv-jemalloc-sys",
 ]
 
 [[package]]

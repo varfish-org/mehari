@@ -10,7 +10,8 @@ readme = "README.md"
 rust-version = "1.75.0"
 
 [features]
-default = []
+default = ["jemalloc"]
+jemalloc = ["dep:tikv-jemallocator", "rocksdb/jemalloc", "annonars/jemalloc"]
 dhat-heap = ["dep:dhat"]  # for heap profiling with dhats
 documentation = []
 
@@ -27,7 +28,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = "4.10"
-annonars = "0.43.0"
+annonars = "0.44.0"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bio = "2.0.3"
@@ -80,6 +81,9 @@ utoipa = { version = "5.2.0", features = ["actix_extras", "chrono", "indexmap", 
 utoipa-swagger-ui = { version = "9.0.0", features = ["actix-web"] }
 memmap2 = "0.9.5"
 serde-aux = "4.6.0"
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { version = "0.6", optional = true }
 
 [dependencies.dhat]
 version = "0.3.3"
