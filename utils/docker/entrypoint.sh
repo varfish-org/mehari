@@ -19,10 +19,10 @@ HTTP_PORT=${HTTP_PORT-8080}
 
 PATH_TRANSCRIPTS_37=$PATH_DB/grch37/seqvars/txs.bin.zst
 PATH_TRANSCRIPTS_38=$PATH_DB/grch38/seqvars/txs.bin.zst
-PATH_FREQUENCIES_37=$PATH_DB/grch37/seqvars/freqs
-PATH_FREQUENCIES_38=$PATH_DB/grch38/seqvars/freqs
-PATH_CLINVAR_37=$PATH_DB/grch37/seqvars/clinvar
-PATH_CLINVAR_38=$PATH_DB/grch38/seqvars/clinvar
+PATH_FREQUENCIES_37=$PATH_DB/grch37/seqvars/freqs/rocksdb
+PATH_FREQUENCIES_38=$PATH_DB/grch38/seqvars/freqs/rocksdb
+PATH_CLINVAR_37=$PATH_DB/grch37/seqvars/clinvar/rocksdb
+PATH_CLINVAR_38=$PATH_DB/grch38/seqvars/clinvar/rocksdb
 
 first=${1-}
 
