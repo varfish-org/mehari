@@ -66,11 +66,15 @@ pub(crate) mod reference;
 pub struct HgncRecord {
     /// HGNC ID.
     pub hgnc_id: String,
+
     /// Ensembl gene ID.
     pub ensembl_gene_id: String,
+
     /// Entrez/NCBI gene ID.
     pub entrez_id: String,
+
     /// HGNC approved gene symbol.
+    #[serde(alias = "symbol")]
     pub gene_symbol: String,
 }
 
