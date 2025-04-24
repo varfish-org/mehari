@@ -12,6 +12,7 @@ use crate::{
     },
     common::GenomeRelease,
 };
+use anyhow::anyhow;
 use clap::ValueEnum;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -116,9 +117,12 @@ pub mod openapi {
 #[derive(clap::Parser, Debug)]
 #[command(about = "Run Mehari REST API server", long_about = None)]
 pub struct Args {
-    /// Path to the reference genome, with accompanying index.
+    /// Path to the reference genome(s), with accompanying index.
+    ///
+    /// Note that (at the moment) the reference path must contain "GRCh37" or "GRCh38"
+    /// to be able to match the reference to the transcript db correctly.
     #[arg(long)]
-    pub reference: Option<PathBuf>,
+    pub reference: Vec<PathBuf>,
 
     /// Read the reference genome into memory.
     #[arg(long, requires = "reference")]
@@ -242,19 +246,53 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     }
 
     // Load data that we need for running the server.
-    tracing::info!("Loading database...");
+    tracing::info!("Loading data...");
     let before_loading = std::time::Instant::now();
     let mut data = actix_server::WebServerData::default();
 
     let mut enabled_sources = vec![];
     use Endpoint::*;
 
+    if !(0..=GenomeRelease::value_variants().len()).contains(&args.reference.len()) {
+        return Err(anyhow!("Supplied number of reference genomes does not match the number of supported genome releases ({:?}).",
+        GenomeRelease::value_variants()));
+    }
+
     for genome_release in GenomeRelease::value_variants().iter().copied() {
         tracing::info!("Loading genome release {:?}", genome_release);
         let assembly = genome_release.into();
+        let reference = {
+            args.reference
+                .iter()
+                .filter_map(|reference_path| {
+                    if reference_path
+                        .file_name()
+                        .map(|f| {
+                            f.to_string_lossy()
+                                .to_lowercase()
+                                .contains(&genome_release.name().to_lowercase())
+                        })
+                        .unwrap_or(false)
+                    {
+                        tracing::info!(
+                            "Found reference genome for {:?}: {}",
+                            genome_release,
+                            reference_path.display()
+                        );
+                        Some(reference_path.clone())
+                    } else {
+                        None
+                    }
+                })
+                .next()
+        };
+
+        if !args.reference.is_empty() && reference.is_none() {
+            tracing::warn!("No reference genome found for {:?}.", genome_release);
+        }
 
         if let Some(tx_db_paths) = args.sources.transcripts.as_ref() {
-            tracing::info!("  - building seqvars predictors");
+            tracing::info!("Building seqvars predictors...");
             let tx_dbs = load_transcript_dbs_for_assembly(tx_db_paths, Some(assembly))?;
             if tx_dbs.is_empty() {
                 tracing::warn!(
@@ -264,7 +302,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                 let tx_db = merge_transcript_databases(tx_dbs)?;
                 let annotator = ConsequenceAnnotator::from_db_and_settings(
                     tx_db,
-                    args.reference.as_ref(),
+                    reference.as_ref(),
                     args.in_memory_reference,
                     &args.transcript_settings,
                 )?;
@@ -281,12 +319,14 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                     genome_release,
                     SeqvarConsequencePredictor::new(provider.clone(), config),
                 );
+                tracing::info!("Finished building seqvars predictors.");
 
-                tracing::info!("  - building strucvars predictors");
+                tracing::info!("Building strucvars predictors...");
                 data.strucvars_predictors.insert(
                     genome_release,
                     StrucvarConsequencePredictor::new(provider.clone(), assembly),
                 );
+                tracing::info!("Finished building strucvars predictors.");
                 enabled_sources.push((genome_release, Transcripts));
             }
         } else {
@@ -335,6 +375,8 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     }
     let data = actix_web::web::Data::new(data);
     tracing::info!("... done loading data {:?}", before_loading.elapsed());
+
+    tracing::info!("Loaded the following sources: {:?}", &enabled_sources);
 
     // Print the server URL and some hints (the latter: unless suppressed).
     print_hints(args, &enabled_sources);
