@@ -73,8 +73,8 @@ pub struct HgncRecord {
     /// Entrez/NCBI gene ID.
     pub entrez_id: String,
 
-    #[serde(alias = "symbol")]
     /// HGNC approved gene symbol.
+    #[serde(alias = "symbol")]
     pub gene_symbol: String,
 }
 
