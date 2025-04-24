@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.35.1](https://github.com/varfish-org/mehari/compare/v0.35.0...v0.35.1) (2025-04-24)
+
+
+### Bug Fixes
+
+* add 'symbol' as alias for 'gene_symbol' for hgnc complete set TSV ([#748](https://github.com/varfish-org/mehari/issues/748)) ([5d50862](https://github.com/varfish-org/mehari/commit/5d508620aaf96e342ee796b7e41336216d777108))
+* missing /rocksdb dir in docker entrypoint script ([#745](https://github.com/varfish-org/mehari/issues/745)) ([bdc9a3c](https://github.com/varfish-org/mehari/commit/bdc9a3c5fa35bf90dbdcd7b1134ccdfcb1439728))
+* point entrypoint at 'frequencies', not 'freqs' ([#747](https://github.com/varfish-org/mehari/issues/747)) ([23fbeeb](https://github.com/varfish-org/mehari/commit/23fbeebb0aa992b62b72e5dd15d67494caa53859))
+
 ## [0.35.0](https://github.com/varfish-org/mehari/compare/v0.34.0...v0.35.0) (2025-04-16)
 
 
