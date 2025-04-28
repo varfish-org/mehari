@@ -80,7 +80,7 @@ zstd = "0.13"
 utoipa = { version = "5.2.0", features = ["actix_extras", "chrono", "indexmap", "openapi_extensions", "preserve_order", "yaml"] }
 utoipa-swagger-ui = { version = "9.0.0", features = ["actix-web"] }
 memmap2 = "0.9.5"
-serde-aux = "4.6.0"
+serde-aux = "4.7.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
