@@ -27,7 +27,7 @@ name = "mehari"
 path = "src/main.rs"
 
 [dependencies]
-actix-web = "4.10"
+actix-web = "4.11"
 annonars = "0.44.0"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
