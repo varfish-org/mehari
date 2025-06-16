@@ -8,7 +8,7 @@ info:
   license:
     name: MIT
     identifier: MIT
-  version: 0.32.0
+  version: 0.35.1
 paths:
   /api/v1/genes/transcripts:
     get:
@@ -526,8 +526,53 @@ components:
       enum:
       - coding
       - noncoding
-      - mane_select
-      - mane_plus_clinical
+    FeatureTag:
+      oneOf:
+      - type: string
+        enum:
+        - unknown
+      - type: string
+        description: Member of Ensembl basic.
+        enum:
+        - basic
+      - type: string
+        description: |
+          Member of Ensembl canonical.
+        enum:
+        - ensembl_canonical
+      - type: string
+        description: Member of MANE Select.
+        enum:
+        - mane_select
+      - type: string
+        description: Member of MANE Plus Clinical.
+        enum:
+        - mane_plus_clinical
+      - type: string
+        description: Member of RefSeq Select.
+        enum:
+        - ref_seq_select
+      - type: string
+        description: Flagged as being a selenoprotein (UGA => selenon).
+        enum:
+        - selenoprotein
+      - type: string
+        description: Member of GENCODE Primary
+        enum:
+        - gencode_primary
+      - type: string
+        description: Is a graft feature from Ensembl.
+        enum:
+        - ensembl_graft
+      - type: object
+        description: catchall for other tags
+        required:
+        - other
+        properties:
+          other:
+            type: string
+            description: catchall for other tags
+      description: Encode feature tags.
     FeatureType:
       oneOf:
       - type: object
@@ -919,7 +964,7 @@ components:
         feature_tag:
           type: array
           items:
-            $ref: '#/components/schemas/FeatureBiotype'
+            $ref: '#/components/schemas/FeatureTag'
           description: The feature tags.
         rank:
           oneOf:
