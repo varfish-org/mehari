@@ -9,7 +9,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use self::ann::{AnnField, Consequence, FeatureBiotype};
+use self::ann::{AnnField, FeatureBiotype};
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::genotype_string;
 use crate::annotate::seqvars::csq::{
@@ -1004,23 +1004,16 @@ impl VarFishSeqvarTsvWriter {
                             Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
                         tsv_record.ensembl_hgvs_c.clone_from(&ann.hgvs_c);
                         tsv_record.ensembl_hgvs_p.clone_from(&ann.hgvs_p);
-                        assert!(!ann.consequences.is_empty());
-                        if ann.consequences.contains(&Consequence::IntergenicVariant) {
-                            assert_eq!(ann.consequences.len(), 1);
-                            tsv_record.ensembl_effect =
-                                Some(vec![Consequence::IntergenicVariant.to_string()]);
+                        if !ann.consequences.is_empty() {
+                            tsv_record.ensembl_effect = Some(
+                                ann.consequences
+                                    .iter()
+                                    .map(|c| format!("\"{}\"", &c))
+                                    .collect::<Vec<_>>(),
+                            );
                         }
-                        if !ann.consequences.contains(&Consequence::IntronVariant)
-                            && !ann.consequences.contains(&Consequence::UpstreamGeneVariant)
-                            && !ann
-                                .consequences
-                                .contains(&Consequence::DownstreamGeneVariant)
-                            && !ann.consequences.contains(&Consequence::IntergenicVariant)
-                        {
-                            tsv_record.ensembl_exon_dist = Some(0);
-                        } else {
-                            tsv_record.ensembl_exon_dist = ann.distance;
-                        }
+
+                        tsv_record.ensembl_exon_dist = ann.distance;
 
                         written_ensembl = true;
                     } else if !is_ensembl && !written_refseq {
