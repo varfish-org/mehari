@@ -1499,7 +1499,7 @@ mod test {
                 "Feature_Type",
                 "Feature_ID",
                 "Transcript_BioType",
-                "Feature_Tags",
+                "Feature_Tag",
                 "Rank",
                 "HGVS.g",
                 "HGVS.c",
