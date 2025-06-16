@@ -354,6 +354,7 @@ impl Provider {
                 TranscriptTag::RefSeqSelect => Some(TranscriptPickType::RefSeqSelect),
                 TranscriptTag::Selenoprotein => None,
                 TranscriptTag::GencodePrimary => Some(TranscriptPickType::GencodePrimary),
+                TranscriptTag::EnsemblGraft => None,
             }
         }
 

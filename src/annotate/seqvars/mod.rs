@@ -12,6 +12,7 @@ use std::time::Instant;
 use self::ann::{AnnField, FeatureBiotype};
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::genotype_string;
+use crate::annotate::seqvars::ann::FeatureTag;
 use crate::annotate::seqvars::csq::{
     ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
 };
@@ -995,7 +996,11 @@ impl VarFishSeqvarTsvWriter {
 
                 for ann in anns {
                     // We only assign the first prediction per gene for either RefSeq or ENSEMBL.
-                    let is_ensembl = ann.feature_id.starts_with("ENST");
+                    // Because in some cases, we graft ensembl transcripts into the refseq DB,
+                    // we explicitly check whether a transcript has been grafted.
+                    let is_ensembl = ann.feature_id.starts_with("ENST")
+                        && !ann.feature_tags.contains(&FeatureTag::EnsemblGraft);
+
                     if is_ensembl && !written_ensembl {
                         // Handle ENSEMBL.
                         tsv_record.ensembl_gene_id = Some(hgnc_record.ensembl_gene_id.clone());
