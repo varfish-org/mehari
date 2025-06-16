@@ -919,37 +919,34 @@ impl Default for AnnField {
     }
 }
 
+fn parse_list<T: std::str::FromStr>(raw: &str) -> anyhow::Result<Vec<T>>
+where
+    <T as std::str::FromStr>::Err: std::fmt::Debug,
+{
+    Ok(if raw.is_empty() {
+        vec![]
+    } else {
+        raw.split('&')
+            .map(|s| s.parse::<T>())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("could not parse list: {:?}", e))?
+    })
+}
+
 impl FromStr for AnnField {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut fields = s.split('|');
         let allele = fields.next().unwrap().parse()?;
-        let consequences = fields
-            .next()
-            .unwrap()
-            .split('&')
-            .map(|s| s.parse())
-            .collect::<Result<Vec<_>, _>>()?;
+        let consequences = parse_list(fields.next().unwrap())?;
         let putative_impact = fields.next().unwrap().parse()?;
         let gene_symbol = fields.next().unwrap().to_string();
         let gene_id = fields.next().unwrap().to_string();
         let feature_type = fields.next().unwrap().parse()?;
         let feature_id = fields.next().unwrap().to_string();
-        let feature_biotype = fields
-            .next()
-            .unwrap()
-            .split('&')
-            .map(|s| s.parse())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!("could not parse feature biotype: {}", e))?;
-        let feature_tags = fields
-            .next()
-            .unwrap()
-            .split('&')
-            .map(|s| s.parse())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!("could not parse feature tag: {}", e))?;
+        let feature_biotype = parse_list(fields.next().unwrap())?;
+        let feature_tags = parse_list(fields.next().unwrap())?;
         let rank = fields.next().unwrap();
         let rank = if rank.is_empty() {
             None
@@ -1478,6 +1475,17 @@ mod test {
     fn ann_field_from_str() -> Result<(), anyhow::Error> {
         let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
         Coding|Other|1/2|HGVS.g|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
+
+        let field = AnnField::from_str(value)?;
+        assert_eq!(format!("{}", &field), value);
+
+        Ok(())
+    }
+
+    #[test]
+    fn ann_field_from_str_with_empty_fields() -> Result<(), anyhow::Error> {
+        let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
+        ||1/2|HGVS.g|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
 
         let field = AnnField::from_str(value)?;
         assert_eq!(format!("{}", &field), value);
