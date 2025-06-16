@@ -935,7 +935,7 @@ components:
       - feature_type
       - feature_id
       - feature_biotype
-      - feature_tag
+      - feature_tags
       - strand
       properties:
         consequences:
@@ -961,7 +961,7 @@ components:
         feature_biotype:
           $ref: '#/components/schemas/FeatureBiotype'
           description: The feature biotype.
-        feature_tag:
+        feature_tags:
           type: array
           items:
             $ref: '#/components/schemas/FeatureTag'

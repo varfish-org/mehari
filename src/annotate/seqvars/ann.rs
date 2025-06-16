@@ -834,7 +834,7 @@ pub struct AnnField {
     pub feature_biotype: Vec<FeatureBiotype>,
 
     /// The feature tags.
-    #[serde(alias = "Feature_Tag")]
+    #[serde(alias = "Feature_Tags")]
     pub feature_tags: Vec<FeatureTag>,
 
     /// The exon / intron rank.
@@ -1499,7 +1499,7 @@ mod test {
                 "Feature_Type",
                 "Feature_ID",
                 "Transcript_BioType",
-                "Feature_Tag",
+                "Feature_Tags",
                 "Rank",
                 "HGVS.g",
                 "HGVS.c",
