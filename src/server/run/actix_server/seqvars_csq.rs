@@ -7,6 +7,8 @@ use actix_web::{
     web::{self, Data, Json, Path},
 };
 
+use super::{versions::VersionsInfoResponse, CustomError};
+use crate::annotate::seqvars::ann::FeatureTag;
 use crate::{
     annotate::seqvars::{
         ann::{
@@ -16,8 +18,6 @@ use crate::{
     },
     common::GenomeRelease,
 };
-
-use super::{versions::VersionsInfoResponse, CustomError};
 
 /// Query parameters of the `/api/v1/seqvars/csq` endpoint.
 #[derive(
@@ -58,7 +58,7 @@ pub(crate) struct SeqvarsCsqResultEntry {
     /// The feature biotype.
     pub feature_biotype: FeatureBiotype,
     /// The feature tags.
-    pub feature_tag: Vec<FeatureBiotype>,
+    pub feature_tags: Vec<FeatureTag>,
     /// The exon / intron rank.
     pub rank: Option<Rank>,
     /// HGVS g. notation.
@@ -143,6 +143,7 @@ async fn handle_impl(
                 feature_type,
                 feature_id,
                 feature_biotype,
+                feature_tags,
                 rank,
                 hgvs_g,
                 hgvs_c: hgvs_t,
@@ -167,11 +168,7 @@ async fn handle_impl(
                 } else {
                     FeatureBiotype::Noncoding
                 },
-                feature_tag: feature_biotype
-                    .iter()
-                    .cloned()
-                    .filter(|b| *b != FeatureBiotype::Coding && *b != FeatureBiotype::Noncoding)
-                    .collect(),
+                feature_tags,
                 rank,
                 hgvs_g,
                 hgvs_t,

@@ -16,7 +16,9 @@ expression: res
   feature_id: NM_007294.4
   feature_biotype:
     - coding
+  feature_tags:
     - mane_select
+    - ref_seq_select
   rank:
     ord: 23
     total: 23

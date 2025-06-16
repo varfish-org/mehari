@@ -4,6 +4,7 @@ use super::{
     provider::Provider as MehariProvider,
 };
 use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
+use crate::annotate::seqvars::ann::FeatureTag;
 use crate::pbs::txs::{GenomeAlignment, Strand, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
 use hgvs::mapper::altseq::AltSeqBuilder;
@@ -217,6 +218,7 @@ impl ConsequencePredictor {
                 },
                 feature_id: "".to_string(),
                 feature_biotype: vec![FeatureBiotype::Noncoding],
+                feature_tags: vec![],
                 rank: None,
                 distance: None,
                 strand: 0,
@@ -322,10 +324,10 @@ impl ConsequencePredictor {
         };
 
         /// Return sort order for ANN biotype, gives priority to ManeSelect and ManePlusClinical.
-        fn biotype_order(biotypes: &[FeatureBiotype]) -> i32 {
-            if biotypes.contains(&FeatureBiotype::ManeSelect) {
+        fn tag_order(tags: &[FeatureTag]) -> i32 {
+            if tags.contains(&FeatureTag::ManeSelect) {
                 0
-            } else if biotypes.contains(&FeatureBiotype::ManePlusClinical) {
+            } else if tags.contains(&FeatureTag::ManePlusClinical) {
                 1
             } else {
                 2
@@ -341,9 +343,7 @@ impl ConsequencePredictor {
             grouping
                 .into_values()
                 .map(|mut anns| {
-                    anns.sort_by_key(|ann| {
-                        (ann.consequences[0], biotype_order(&ann.feature_biotype))
-                    });
+                    anns.sort_by_key(|ann| (ann.consequences[0], tag_order(&ann.feature_tags)));
                     anns.into_iter().next().unwrap()
                 })
                 .collect()
@@ -523,21 +523,27 @@ impl ConsequencePredictor {
 
         let transcript_biotype =
             TranscriptBiotype::try_from(tx.biotype).expect("invalid transcript biotype");
-        let feature_biotype = {
-            let mut feature_biotypes = vec![match transcript_biotype {
-                TranscriptBiotype::Coding => FeatureBiotype::Coding,
-                TranscriptBiotype::NonCoding => FeatureBiotype::Noncoding,
-                _ => unreachable!("invalid biotype: {:?}", transcript_biotype),
-            }];
-
-            if tx.tags.contains(&(TranscriptTag::ManeSelect as i32)) {
-                feature_biotypes.push(FeatureBiotype::ManeSelect);
-            } else if tx.tags.contains(&(TranscriptTag::ManePlusClinical as i32)) {
-                feature_biotypes.push(FeatureBiotype::ManePlusClinical);
-            }
-
-            feature_biotypes
-        };
+        let feature_biotype = vec![match transcript_biotype {
+            TranscriptBiotype::Coding => FeatureBiotype::Coding,
+            TranscriptBiotype::NonCoding => FeatureBiotype::Noncoding,
+            _ => unreachable!("invalid biotype: {:?}", transcript_biotype),
+        }];
+        let transcript_tags = tx
+            .tags
+            .iter()
+            .map(|tag| TranscriptTag::try_from(*tag).expect("invalid transcript tag"))
+            .collect_vec();
+        let feature_tags = transcript_tags
+            .iter()
+            .filter_map(|transcript_tag| {
+                let tag = FeatureTag::from(*transcript_tag);
+                if !matches!(tag, FeatureTag::Other(_)) {
+                    Some(tag)
+                } else {
+                    None
+                }
+            })
+            .collect_vec();
 
         let is_upstream = var_end <= min_start;
         let is_downstream = var_start >= max_end;
@@ -753,6 +759,7 @@ impl ConsequencePredictor {
             },
             feature_id: tx.id.clone(),
             feature_biotype,
+            feature_tags,
             rank,
             hgvs_g,
             hgvs_c,

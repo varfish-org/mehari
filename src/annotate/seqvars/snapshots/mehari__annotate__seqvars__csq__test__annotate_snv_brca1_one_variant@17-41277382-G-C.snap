@@ -16,7 +16,9 @@ expression: res
   feature_id: NM_007294.4
   feature_biotype:
     - coding
+  feature_tags:
     - mane_select
+    - ref_seq_select
   rank: ~
   hgvs_g: g.41277382G>C
   hgvs_c: ~
@@ -41,6 +43,7 @@ expression: res
   feature_id: NM_007297.4
   feature_biotype:
     - coding
+  feature_tags: []
   rank: ~
   hgvs_g: g.41277382G>C
   hgvs_c: ~
@@ -65,6 +68,7 @@ expression: res
   feature_id: NM_007298.3
   feature_biotype:
     - coding
+  feature_tags: []
   rank: ~
   hgvs_g: g.41277382G>C
   hgvs_c: ~
@@ -89,6 +93,7 @@ expression: res
   feature_id: NM_007299.4
   feature_biotype:
     - coding
+  feature_tags: []
   rank: ~
   hgvs_g: g.41277382G>C
   hgvs_c: ~
@@ -113,6 +118,7 @@ expression: res
   feature_id: NM_007300.4
   feature_biotype:
     - coding
+  feature_tags: []
   rank: ~
   hgvs_g: g.41277382G>C
   hgvs_c: ~

@@ -1,7 +1,6 @@
 ---
 source: src/annotate/seqvars/csq.rs
 expression: res
-snapshot_kind: text
 ---
 - allele:
     Alt:
@@ -19,7 +18,9 @@ snapshot_kind: text
   feature_id: NM_007294.4
   feature_biotype:
     - coding
+  feature_tags:
     - mane_select
+    - ref_seq_select
   rank:
     ord: 22
     total: 22

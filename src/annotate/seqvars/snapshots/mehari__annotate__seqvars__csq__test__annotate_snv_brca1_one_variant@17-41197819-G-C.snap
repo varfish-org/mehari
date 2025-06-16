@@ -17,7 +17,9 @@ expression: res
   feature_id: NM_007294.4
   feature_biotype:
     - coding
+  feature_tags:
     - mane_select
+    - ref_seq_select
   rank:
     ord: 23
     total: 23
@@ -51,6 +53,7 @@ expression: res
   feature_id: NM_007297.4
   feature_biotype:
     - coding
+  feature_tags: []
   rank:
     ord: 22
     total: 22
@@ -84,6 +87,7 @@ expression: res
   feature_id: NM_007298.3
   feature_biotype:
     - coding
+  feature_tags: []
   rank:
     ord: 22
     total: 22
@@ -117,6 +121,7 @@ expression: res
   feature_id: NM_007299.4
   feature_biotype:
     - coding
+  feature_tags: []
   rank:
     ord: 22
     total: 22
@@ -150,6 +155,7 @@ expression: res
   feature_id: NM_007300.4
   feature_biotype:
     - coding
+  feature_tags: []
   rank:
     ord: 24
     total: 24

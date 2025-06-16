@@ -1,6 +1,8 @@
 //! Code for annotating variants based on molecular consequence.
 
+use crate::pbs::txs::TranscriptTag;
 use enumflags2::bitflags;
+use hgvs::data::cdot::json::models::Tag;
 use nom::Parser;
 use nom::{
     branch::alt,
@@ -537,17 +539,118 @@ impl FromStr for FeatureType {
 pub enum FeatureBiotype {
     /// Is coding transcript.
     Coding,
+
     /// Is non-coding transcript.
     Noncoding,
-    /// Is in MANE Select set.
-    ManeSelect,
-    /// Is in MANE Plus Clinical set.
-    ManePlusClinical,
 }
 
 impl FeatureBiotype {
     pub fn is_coding(&self) -> bool {
         matches!(self, FeatureBiotype::Coding)
+    }
+}
+
+/// Encode feature tags.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Display,
+    FromStr,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::EnumIter,
+    utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum FeatureTag {
+    Unknown,
+
+    /// Member of Ensembl basic.
+    Basic,
+
+    /// Member of Ensembl canonical.
+    ///
+    EnsemblCanonical,
+
+    /// Member of MANE Select.
+    ManeSelect,
+
+    /// Member of MANE Plus Clinical.
+    ManePlusClinical,
+
+    /// Member of RefSeq Select.
+    RefSeqSelect,
+
+    /// Flagged as being a selenoprotein (UGA => selenon).
+    Selenoprotein,
+
+    /// Member of GENCODE Primary
+    GencodePrimary,
+
+    /// Is a graft feature from Ensembl.
+    EnsemblGraft,
+
+    #[display("{0}")]
+    /// catchall for other tags
+    Other(String),
+}
+
+impl From<TranscriptTag> for FeatureTag {
+    fn from(value: TranscriptTag) -> Self {
+        match value {
+            TranscriptTag::Unknown => FeatureTag::Unknown,
+            TranscriptTag::Basic => FeatureTag::Basic,
+            TranscriptTag::EnsemblCanonical => FeatureTag::EnsemblCanonical,
+            TranscriptTag::ManeSelect => FeatureTag::ManeSelect,
+            TranscriptTag::ManePlusClinical => FeatureTag::ManePlusClinical,
+            TranscriptTag::RefSeqSelect => FeatureTag::RefSeqSelect,
+            TranscriptTag::Selenoprotein => FeatureTag::Selenoprotein,
+            TranscriptTag::GencodePrimary => FeatureTag::GencodePrimary,
+            TranscriptTag::EnsemblGraft => FeatureTag::EnsemblGraft,
+            TranscriptTag::Other => FeatureTag::Other("Other".to_string()),
+        }
+    }
+}
+
+impl From<Tag> for FeatureTag {
+    fn from(value: Tag) -> Self {
+        match value {
+            Tag::Basic => FeatureTag::Basic,
+            Tag::EnsemblCanonical => FeatureTag::EnsemblCanonical,
+            Tag::ManeSelect => FeatureTag::ManeSelect,
+            Tag::ManePlusClinical => FeatureTag::ManePlusClinical,
+            Tag::RefSeqSelect => FeatureTag::RefSeqSelect,
+            Tag::GencodePrimary => FeatureTag::GencodePrimary,
+            Tag::Other(v) => {
+                if v == "EnsemblGraft" {
+                    FeatureTag::EnsemblGraft
+                } else {
+                    FeatureTag::Other(v)
+                }
+            }
+        }
+    }
+}
+
+impl From<FeatureTag> for Tag {
+    fn from(value: FeatureTag) -> Self {
+        match value {
+            FeatureTag::Basic => Tag::Basic,
+            FeatureTag::EnsemblCanonical => Tag::EnsemblCanonical,
+            FeatureTag::ManeSelect => Tag::ManeSelect,
+            FeatureTag::ManePlusClinical => Tag::ManePlusClinical,
+            FeatureTag::RefSeqSelect => Tag::RefSeqSelect,
+            FeatureTag::GencodePrimary => Tag::GencodePrimary,
+            FeatureTag::Selenoprotein => Tag::Other("Selenoprotein".to_string()),
+            FeatureTag::EnsemblGraft => Tag::Other("EnsemblGraft".to_string()),
+            FeatureTag::Unknown => Tag::Other("Unknown".to_string()),
+            FeatureTag::Other(v) => Tag::Other(v),
+        }
     }
 }
 
@@ -730,6 +833,10 @@ pub struct AnnField {
     #[serde(alias = "Transcript_BioType")]
     pub feature_biotype: Vec<FeatureBiotype>,
 
+    /// The feature tags.
+    #[serde(alias = "Feature_Tags")]
+    pub feature_tags: Vec<FeatureTag>,
+
     /// The exon / intron rank.
     #[serde(alias = "Rank")]
     pub rank: Option<Rank>,
@@ -797,6 +904,7 @@ impl Default for AnnField {
             },
             feature_id: Default::default(),
             feature_biotype: vec![FeatureBiotype::Coding],
+            feature_tags: Default::default(),
             rank: Default::default(),
             hgvs_g: Default::default(),
             hgvs_c: Default::default(),
@@ -811,30 +919,34 @@ impl Default for AnnField {
     }
 }
 
+fn parse_list<T: std::str::FromStr>(raw: &str) -> anyhow::Result<Vec<T>>
+where
+    <T as std::str::FromStr>::Err: std::fmt::Debug,
+{
+    Ok(if raw.is_empty() {
+        vec![]
+    } else {
+        raw.split('&')
+            .map(|s| s.parse::<T>())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("could not parse list: {:?}", e))?
+    })
+}
+
 impl FromStr for AnnField {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut fields = s.split('|');
         let allele = fields.next().unwrap().parse()?;
-        let consequences = fields
-            .next()
-            .unwrap()
-            .split('&')
-            .map(|s| s.parse())
-            .collect::<Result<Vec<_>, _>>()?;
+        let consequences = parse_list(fields.next().unwrap())?;
         let putative_impact = fields.next().unwrap().parse()?;
         let gene_symbol = fields.next().unwrap().to_string();
         let gene_id = fields.next().unwrap().to_string();
         let feature_type = fields.next().unwrap().parse()?;
         let feature_id = fields.next().unwrap().to_string();
-        let feature_biotype = fields
-            .next()
-            .unwrap()
-            .split('&')
-            .map(|s| s.parse())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!("could not parse feature biotype: {}", e))?;
+        let feature_biotype = parse_list(fields.next().unwrap())?;
+        let feature_tags = parse_list(fields.next().unwrap())?;
         let rank = fields.next().unwrap();
         let rank = if rank.is_empty() {
             None
@@ -905,6 +1017,7 @@ impl FromStr for AnnField {
             feature_type,
             feature_id,
             feature_biotype,
+            feature_tags,
             rank,
             hgvs_g,
             hgvs_c,
@@ -945,6 +1058,16 @@ impl std::fmt::Display for AnnField {
             f,
             "{}",
             self.feature_biotype
+                .iter()
+                .map(|t| format!("{}", t))
+                .collect::<Vec<_>>()
+                .join("&")
+        )?;
+        write!(f, "|")?;
+        write!(
+            f,
+            "{}",
+            self.feature_tags
                 .iter()
                 .map(|t| format!("{}", t))
                 .collect::<Vec<_>>()
@@ -1319,6 +1442,7 @@ mod test {
             },
             feature_id: String::from("feature_id"),
             feature_biotype: vec![FeatureBiotype::Coding],
+            feature_tags: vec![FeatureTag::Other("Other".to_string())],
             rank: Some(Rank { ord: 1, total: 2 }),
             hgvs_g: Some(String::from("HGVS.g")),
             hgvs_c: Some(String::from("HGVS.c")),
@@ -1342,7 +1466,7 @@ mod test {
 
         assert_eq!(
             format!("{}", &value),
-            "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|Coding|1/2|HGVS.g|\
+            "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|Coding|Other|1/2|HGVS.g|\
             HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
         );
     }
@@ -1350,7 +1474,18 @@ mod test {
     #[test]
     fn ann_field_from_str() -> Result<(), anyhow::Error> {
         let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
-        Coding|1/2|HGVS.g|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
+        Coding|Other|1/2|HGVS.g|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
+
+        let field = AnnField::from_str(value)?;
+        assert_eq!(format!("{}", &field), value);
+
+        Ok(())
+    }
+
+    #[test]
+    fn ann_field_from_str_with_empty_fields() -> Result<(), anyhow::Error> {
+        let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
+        ||1/2|HGVS.g|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
 
         let field = AnnField::from_str(value)?;
         assert_eq!(format!("{}", &field), value);
@@ -1372,6 +1507,7 @@ mod test {
                 "Feature_Type",
                 "Feature_ID",
                 "Transcript_BioType",
+                "Feature_Tags",
                 "Rank",
                 "HGVS.g",
                 "HGVS.c",

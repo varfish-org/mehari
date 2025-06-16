@@ -8,6 +8,9 @@ use std::io::BufWriter;
 use std::path::Path;
 use std::{io::Write, path::PathBuf, time::Instant};
 
+use crate::annotate::seqvars::ann::FeatureTag;
+use crate::common::{trace_rss_now, GenomeRelease};
+use crate::pbs::txs::{Assembly, Source, SourceVersion, TxSeqDatabase};
 use anyhow::{anyhow, Error};
 use clap::{Parser, ValueEnum};
 use derive_new::new;
@@ -29,9 +32,6 @@ use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use strum::Display;
 use thousands::Separable;
-
-use crate::common::{trace_rss_now, GenomeRelease};
-use crate::pbs::txs::{Assembly, Source, SourceVersion, TxSeqDatabase};
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1"];
@@ -358,7 +358,10 @@ impl TranscriptLoader {
         Ok(())
     }
 
-    fn apply_fixes(&mut self, transcript_id_to_tags: &Option<HashMap<TranscriptId, Vec<Tag>>>) {
+    fn apply_fixes(
+        &mut self,
+        transcript_id_to_tags: &Option<HashMap<TranscriptId, Vec<FeatureTag>>>,
+    ) {
         self.fix_transcript_genome_builds();
         if let Some(txid_to_label) = transcript_id_to_tags {
             self.update_transcript_tags(txid_to_label);
@@ -836,7 +839,10 @@ impl TranscriptLoader {
         Ok((n_mt, n_mane_select, n_mane_plus_clinical))
     }
 
-    fn update_transcript_tags(&mut self, transcript_id_to_tags: &HashMap<TranscriptId, Vec<Tag>>) {
+    fn update_transcript_tags(
+        &mut self,
+        transcript_id_to_tags: &HashMap<TranscriptId, Vec<FeatureTag>>,
+    ) {
         self.transcript_id_to_transcript
             .iter_mut()
             .for_each(|(tx_id, tx)| {
@@ -845,7 +851,7 @@ impl TranscriptLoader {
                 if let Some(tags) = transcript_id_to_tags.get(&tx_id_no_version) {
                     tx.genome_builds.iter_mut().for_each(|(_, alignment)| {
                         if let Some(alignment_tag) = &mut alignment.tag {
-                            alignment_tag.extend(tags.iter().cloned());
+                            alignment_tag.extend(tags.iter().cloned().map(Tag::from));
                             alignment_tag.sort();
                             alignment_tag.dedup();
                         }
@@ -1409,7 +1415,10 @@ impl TranscriptLoader {
                     }
                     Tag::RefSeqSelect => crate::pbs::txs::TranscriptTag::RefSeqSelect.into(),
                     Tag::GencodePrimary => crate::pbs::txs::TranscriptTag::GencodePrimary.into(),
-                    Tag::Other => crate::pbs::txs::TranscriptTag::Other.into(),
+                    Tag::Other(v) if v == "EnsemblGraft" => {
+                        crate::pbs::txs::TranscriptTag::EnsemblGraft.into()
+                    }
+                    Tag::Other(_) => crate::pbs::txs::TranscriptTag::Other.into(),
                 };
                 tags.insert(elem);
             }
@@ -1541,7 +1550,7 @@ struct LogFix {
 
 fn txid_to_label(
     label_tsv_path: impl AsRef<Path>,
-) -> Result<HashMap<TranscriptId, Vec<Tag>>, Error> {
+) -> Result<HashMap<TranscriptId, Vec<FeatureTag>>, Error> {
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .comment(Some(b'#'))
@@ -1560,7 +1569,10 @@ fn txid_to_label(
                                 entry
                                     .label
                                     .split(',')
-                                    .map(models::str_to_tag)
+                                    .map(|s| {
+                                        let cdot_tag = models::str_to_tag(s);
+                                        FeatureTag::from(cdot_tag)
+                                    })
                                     .collect::<Vec<_>>(),
                             )
                         })

@@ -103,6 +103,8 @@ enum TranscriptTag {
     TRANSCRIPT_TAG_GENCODE_PRIMARY = 7;
     // catchall for other tags
     TRANSCRIPT_TAG_OTHER = 8;
+    // Whether the transcript has been grafted from Ensembl.
+    TRANSCRIPT_TAG_ENSEMBL_GRAFT = 9;
 }
 
 // Store information about a transcript.
