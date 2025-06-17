@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.36.0](https://github.com/varfish-org/mehari/compare/v0.35.1...v0.36.0) (2025-06-17)
+
+
+### Features
+
+* Harmonize ensembl and refseq `annotate seqvars` TSV output ([#773](https://github.com/varfish-org/mehari/issues/773)) ([b608c8e](https://github.com/varfish-org/mehari/commit/b608c8e5ca656dec9a3be823312a0e4d235238b7))
+
+
+### Bug Fixes
+
+* allow multiple references in mehari server run ([#749](https://github.com/varfish-org/mehari/issues/749)) ([ddf7d3f](https://github.com/varfish-org/mehari/commit/ddf7d3f84e2501c740d9dcfc83977f190cdc084b))
+
 ## [0.35.1](https://github.com/varfish-org/mehari/compare/v0.35.0...v0.35.1) (2025-04-24)
 
 
