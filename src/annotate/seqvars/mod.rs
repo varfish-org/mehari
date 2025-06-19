@@ -151,6 +151,8 @@ fn build_header(
     additional_records: &[(String, String)],
 ) -> VcfHeader {
     let mut header_out = header_in.clone();
+    let file_format = FileFormat::default();
+    *header_out.file_format_mut() = file_format.clone();
 
     if with_frequencies {
         header_out.infos_mut().insert(
@@ -662,6 +664,7 @@ impl VarFishSeqvarTsvWriter {
             .header
             .as_ref()
             .expect("VCF header must be set/written");
+        let file_format = hdr.file_format();
         let mut gt_calls = GenotypeCalls::default();
         let samples = record.samples();
         let sample_names = hdr.sample_names().iter();
@@ -673,7 +676,7 @@ impl VarFishSeqvarTsvWriter {
             genotypes.as_ref().and_then(|gt| {
                 gt.get(sample_idx).map(|value| match value {
                     Some(Value::String(s)) => s.to_owned(),
-                    Some(Value::Genotype(gt)) => genotype_string(gt, FileFormat::new(4, 3)),
+                    Some(Value::Genotype(gt)) => genotype_string(gt, file_format),
                     _ => ".".into(),
                 })
             })

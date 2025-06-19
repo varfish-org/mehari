@@ -151,7 +151,7 @@ pub mod vcf_header {
     ///
     /// # Arguments
     ///
-    /// * `assembly` - Genome assembly to use.  The canonical contigs will be taken from here.
+    /// * `assembly` - Genome assembly to use. The canonical contigs will be taken from here.
     /// * `pedigree` - Pedigree to use.  Will write out appropriate `META`, `SAMPLE`, and
     ///    `PEDIGREE` header lines.
     /// * `date` - Date to use for the `fileDate` header line.
@@ -173,6 +173,8 @@ pub mod vcf_header {
         let builder = add_meta_filter(builder)?;
         let builder = add_meta_format(builder)?;
         let builder = add_meta_pedigree(builder, pedigree, header)?;
+        // TODO: Decide whether to keep file format from source or use default.
+        let builder = builder.set_file_format(FileFormat::default());
 
         Ok(builder.build())
     }
