@@ -141,11 +141,11 @@ pub mod vcf_header {
     use crate::ped::{Disease, PedigreeByName, Sex};
 
     /// Major VCF version to use.
-    static FILE_FORMAT_MAJOR: u32 = 4;
+    pub(crate) const FILE_FORMAT_MAJOR: u32 = 4;
     /// Minor VCF version to use.
-    static FILE_FORMAT_MINOR: u32 = 3;
+    pub(crate) const FILE_FORMAT_MINOR: u32 = 3;
     /// The string to write out as the source.
-    static SOURCE: &str = "mehari";
+    pub(crate) const SOURCE: &str = "mehari";
 
     /// Construct VCF header.
     ///
@@ -173,8 +173,6 @@ pub mod vcf_header {
         let builder = add_meta_filter(builder)?;
         let builder = add_meta_format(builder)?;
         let builder = add_meta_pedigree(builder, pedigree, header)?;
-        // TODO: Decide whether to keep file format from source or use default.
-        let builder = builder.set_file_format(FileFormat::default());
 
         Ok(builder.build())
     }
@@ -515,6 +513,8 @@ pub mod vcf_header {
             )?)
     }
 }
+
+use crate::annotate::strucvars::vcf_header::{FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR};
 
 /// Writing of structural variants to VarFish TSV files.
 struct VarFishStrucvarTsvWriter {
@@ -866,8 +866,10 @@ impl AsyncAnnotatedVariantWriter for VarFishStrucvarTsvWriter {
                         entry.gt = Some(gt.clone());
                     }
                     ("GT", Some(sample::Value::Genotype(gt))) => {
-                        // FIXME get file format version from header
-                        let gt = genotype_string(gt, FileFormat::new(4, 0));
+                        let gt = genotype_string(
+                            gt,
+                            FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR),
+                        );
                         entry.gt = Some(gt);
                     }
                     ("FT", Some(sample::Value::String(ft))) => {
@@ -2020,6 +2022,8 @@ mod conv {
     use super::VarFishStrucvarTsvRecord;
     use super::VcfRecordConverter;
 
+    use super::vcf_header::{FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR};
+
     /// Helper function that extract the CIPOS and CIEND fields from `vcf_record` into `tsv_record`.
     pub fn extract_standard_cis(
         vcf_record: &VcfRecord,
@@ -2099,8 +2103,10 @@ mod conv {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         ("GT", Some(sample::Value::Genotype(gt))) => {
-                            // FIXME get file format version from header
-                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            let gt = genotype_string(
+                                gt,
+                                FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR),
+                            );
                             process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
@@ -2185,8 +2191,10 @@ mod conv {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         ("GT", Some(sample::Value::Genotype(gt))) => {
-                            // FIXME get file format version from header
-                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            let gt = genotype_string(
+                                gt,
+                                FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR),
+                            );
                             process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
@@ -2283,8 +2291,10 @@ mod conv {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         ("GT", Some(sample::Value::Genotype(gt))) => {
-                            // FIXME get file format version from header
-                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            let gt = genotype_string(
+                                gt,
+                                FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR),
+                            );
                             process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::pev` from `FORMAT/PE`; no pec is computed.
@@ -2405,8 +2415,10 @@ mod conv {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         ("GT", Some(sample::Value::Genotype(gt))) => {
-                            // FIXME get file format version from header
-                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            let gt = genotype_string(
+                                gt,
+                                FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR),
+                            );
                             process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::cn` from `FORMAT/CN`.
@@ -2473,8 +2485,10 @@ mod conv {
                         process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                     }
                     ("GT", Some(sample::Value::Genotype(gt))) => {
-                        // FIXME get file format version from header
-                        let gt = genotype_string(gt, FileFormat::new(4, 0));
+                        let gt = genotype_string(
+                            gt,
+                            FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR),
+                        );
                         process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                     }
                     // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
@@ -2574,8 +2588,10 @@ mod conv {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         ("GT", Some(sample::Value::Genotype(gt))) => {
-                            // FIXME get file format version from header
-                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            let gt = genotype_string(
+                                gt,
+                                FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR),
+                            );
                             process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GL`.
@@ -2680,8 +2696,10 @@ mod conv {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         ("GT", Some(sample::Value::Genotype(gt))) => {
-                            // FIXME get file format version from header
-                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            let gt = genotype_string(
+                                gt,
+                                FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR),
+                            );
                             process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
@@ -2878,8 +2896,10 @@ mod conv {
                             process_gt(&mut entries, sample_no, gt, pedigree, tsv_record);
                         }
                         ("GT", Some(sample::Value::Genotype(gt))) => {
-                            // FIXME get file format version from header
-                            let gt = genotype_string(gt, FileFormat::new(4, 0));
+                            let gt = genotype_string(
+                                gt,
+                                FileFormat::new(FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR),
+                            );
                             process_gt(&mut entries, sample_no, &gt, pedigree, tsv_record);
                         }
                         // Obtain `GenotypeInfo::gq` from `FORMAT/GQ`.
