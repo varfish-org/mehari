@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.36.1](https://github.com/varfish-org/mehari/compare/v0.36.0...v0.36.1) (2025-06-27)
+
+
+### Bug Fixes
+
+* Use noodle's VCF FileFormat::default() ([#778](https://github.com/varfish-org/mehari/issues/778)) ([3be028d](https://github.com/varfish-org/mehari/commit/3be028d1e25e365045198a3043f64297f087b43b))
+
 ## [0.36.0](https://github.com/varfish-org/mehari/compare/v0.35.1...v0.36.0) (2025-06-17)
 
 
