@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.36.1](https://github.com/varfish-org/mehari/compare/v0.36.0...v0.36.1) (2025-07-01)
+
+
+### Bug Fixes
+
+* TSV output + --keep-intergenic ([#785](https://github.com/varfish-org/mehari/issues/785)) ([f44a1e5](https://github.com/varfish-org/mehari/commit/f44a1e59db2d6406546b39e148534ba7623b338c))
+* Use noodle's VCF FileFormat::default() ([#778](https://github.com/varfish-org/mehari/issues/778)) ([3be028d](https://github.com/varfish-org/mehari/commit/3be028d1e25e365045198a3043f64297f087b43b))
+
 ## [0.36.0](https://github.com/varfish-org/mehari/compare/v0.35.1...v0.36.0) (2025-06-17)
 
 
