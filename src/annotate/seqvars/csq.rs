@@ -390,6 +390,10 @@ impl ConsequencePredictor {
                 == TranscriptBiotype::Coding
                 && tx.start_codon.is_none()
             {
+                tracing::debug!(
+                    "Skipping transcript {} because it is coding but has no CDS",
+                    &tx_record.tx_ac
+                );
                 return Ok(None);
             }
             tx
