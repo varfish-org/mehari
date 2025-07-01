@@ -12,7 +12,7 @@ use std::time::Instant;
 use self::ann::{AnnField, FeatureBiotype};
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::genotype_string;
-use crate::annotate::seqvars::ann::FeatureTag;
+use crate::annotate::seqvars::ann::{FeatureTag, FeatureType};
 use crate::annotate::seqvars::csq::{
     ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
 };
@@ -977,6 +977,13 @@ impl VarFishSeqvarTsvWriter {
                 anns.sort_by_key(|ann| ann.consequences[0]);
             }
 
+            let empty_hgnc_record = HgncRecord {
+                hgnc_id: "".to_string(),
+                ensembl_gene_id: "".to_string(),
+                entrez_id: "".to_string(),
+                gene_symbol: "".to_string(),
+            };
+
             // For each gene in `anns_by_gene`, assign only the `refseq_*` and `ensembl_*` values into
             // `tsv_record` and write out the record.  We clear the record before each iteration
             // so data does not leak to other genes.  We use `self.hgnc_map` to map from the gene
@@ -988,7 +995,34 @@ impl VarFishSeqvarTsvWriter {
                 // xlink table is not on the same version as the cdot data.
                 let hgnc_record = match self.hgnc_map.as_ref().unwrap().get(hgnc_id) {
                     Some(hgnc_record) => hgnc_record,
-                    None => continue,
+                    None => {
+                        if hgnc_id.is_empty() {
+                            // If the HGNC ID is empty, this is likely an intergenic variant.
+                            // We will check for this explicitly and construct a bogus hgnc record.
+                            if anns.iter().all(|a| {
+                                a.feature_type
+                                    == FeatureType::Custom {
+                                        value: "Intergenic".into(),
+                                    }
+                            }) {
+                                &empty_hgnc_record
+                            } else {
+                                tracing::warn!(
+                                    "Empty HGNC id for {}:{}-{}, skipping.",
+                                    tsv_record.chromosome,
+                                    tsv_record.start,
+                                    tsv_record.end
+                                );
+                                continue;
+                            }
+                        } else {
+                            tracing::warn!(
+                                "HGNC record for {} not found in HGNC map, skipping gene",
+                                hgnc_id
+                            );
+                            continue;
+                        }
+                    }
                 };
 
                 tsv_record.clear_refseq_ensembl();
