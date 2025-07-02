@@ -12,7 +12,7 @@ use std::time::Instant;
 use self::ann::{AnnField, FeatureBiotype};
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::genotype_string;
-use crate::annotate::seqvars::ann::{FeatureTag, FeatureType};
+use crate::annotate::seqvars::ann::FeatureType;
 use crate::annotate::seqvars::csq::{
     ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
 };
@@ -941,9 +941,10 @@ impl VarFishSeqvarTsvWriter {
 
     /// Fill `record` RefSEq and ENSEMBL and fields and write to `self.inner`.
     ///
-    /// First, the values in the `ANN` field are parsed and all predictions are extracted
-    /// and limited to the worst per gene.  We combine one prediction each from RefSeq
-    /// and ENSEMBL and write the resulting record out.
+    /// First, the values in the `ANN` field are parsed and all predictions are extracted.
+    /// For each gene, we find the single worst prediction for a RefSeq transcript and the
+    /// single worst prediction for an ENSEMBL transcript. We then combine these to create
+    /// one output row per gene.
     fn expand_refseq_ensembl_and_write(
         &mut self,
         record: &VcfRecord,
@@ -964,15 +965,15 @@ impl VarFishSeqvarTsvWriter {
             // Extract `AnnField` records, letting the errors bubble up.
             let anns: Result<Vec<_>, _> = anns.collect();
             let anns = anns?;
+
             // Collect the `AnnField` records by `gene_id`.
             let mut anns_by_gene: FxHashMap<String, Vec<AnnField>> = FxHashMap::default();
             for ann in anns {
                 let gene_id = ann.gene_id.clone();
                 anns_by_gene.entry(gene_id).or_default().push(ann);
             }
-            // Within each `AnnField` record, the `consequences` are already sorted and each record
-            // at least one consequence.  We now sort each gene's `AnnField` records by the worst
-            // (smallest) consequences.
+
+            // Within each gene's list of annotations, sort by consequence severity (worst first).
             for anns in anns_by_gene.values_mut() {
                 anns.sort_by_key(|ann| ann.consequences[0]);
             }
@@ -984,21 +985,21 @@ impl VarFishSeqvarTsvWriter {
                 gene_symbol: "".to_string(),
             };
 
-            // For each gene in `anns_by_gene`, assign only the `refseq_*` and `ensembl_*` values into
-            // `tsv_record` and write out the record.  We clear the record before each iteration
-            // so data does not leak to other genes.  We use `self.hgnc_map` to map from the gene
-            // ID stored in the key of `anns` to the appropriate ID for RefSeq and ENSEMBL (the
-            // cdot data contains he HGNC identifiers while the VarFish TSV expects the RefSeq
-            // and ENSEMBL gene IDs.
+            fn is_ensembl_id(feature_id: &str) -> bool {
+                feature_id.starts_with("ENST")
+            }
+
+            fn is_refseq_id(feature_id: &str) -> bool {
+                feature_id.starts_with("N") || feature_id.starts_with("X")
+            }
+
+            // For each gene, find the worst RefSeq and ENSEMBL annotation and write one record.
             for (hgnc_id, anns) in anns_by_gene.iter() {
-                // Get `HgncRecord` for the `hgnc_id` or skip this gene.  This can happen if the HGNC
-                // xlink table is not on the same version as the cdot data.
+                // Get `HgncRecord` for the `hgnc_id` or skip this gene.
                 let hgnc_record = match self.hgnc_map.as_ref().unwrap().get(hgnc_id) {
                     Some(hgnc_record) => hgnc_record,
                     None => {
                         if hgnc_id.is_empty() {
-                            // If the HGNC ID is empty, this is likely an intergenic variant.
-                            // We will check for this explicitly and construct a bogus hgnc record.
                             if anns.iter().all(|a| {
                                 a.feature_type
                                     == FeatureType::Custom {
@@ -1027,58 +1028,78 @@ impl VarFishSeqvarTsvWriter {
 
                 tsv_record.clear_refseq_ensembl();
 
-                let mut written_refseq = false;
-                let mut written_ensembl = false;
+                // Since `anns` is sorted by severity, the first match we find is the worst one.
+                let worst_refseq_ann = anns.iter().find(|ann| is_refseq_id(&ann.feature_id));
+                let worst_ensembl_ann = anns.iter().find(|ann| is_ensembl_id(&ann.feature_id));
 
-                for ann in anns {
-                    // We only assign the first prediction per gene for either RefSeq or ENSEMBL.
-                    // Because in some cases, we graft ensembl transcripts into the refseq DB,
-                    // we explicitly check whether a transcript has been grafted.
-                    let is_ensembl = ann.feature_id.starts_with("ENST")
-                        && !ann.feature_tags.contains(&FeatureTag::EnsemblGraft);
-
-                    if is_ensembl && !written_ensembl {
-                        // Handle ENSEMBL.
-                        tsv_record.ensembl_gene_id = Some(hgnc_record.ensembl_gene_id.clone());
-                        tsv_record.ensembl_transcript_id = Some(ann.feature_id.clone());
-                        tsv_record.ensembl_transcript_coding =
-                            Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
-                        tsv_record.ensembl_hgvs_c.clone_from(&ann.hgvs_c);
-                        tsv_record.ensembl_hgvs_p.clone_from(&ann.hgvs_p);
-                        if !ann.consequences.is_empty() {
-                            tsv_record.ensembl_effect = Some(
-                                ann.consequences
-                                    .iter()
-                                    .map(|c| format!("\"{}\"", &c))
-                                    .collect::<Vec<_>>(),
+                let (refseq_source_ann, ensembl_source_ann) =
+                    match (worst_refseq_ann, worst_ensembl_ann) {
+                        (Some(refseq), Some(ensembl)) => (Some(refseq), Some(ensembl)),
+                        (Some(refseq), None) => {
+                            tracing::debug!(
+                                "No Ensembl annotation for {}:{}-{}, using RefSeq annotation",
+                                tsv_record.chromosome,
+                                tsv_record.start,
+                                tsv_record.end
                             );
+                            (Some(refseq), Some(refseq))
                         }
-
-                        tsv_record.ensembl_exon_dist = ann.distance;
-
-                        written_ensembl = true;
-                    } else if !is_ensembl && !written_refseq {
-                        // Handle RefSeq.
-                        tsv_record.refseq_gene_id = Some(hgnc_record.entrez_id.clone());
-                        tsv_record.refseq_transcript_id = Some(ann.feature_id.clone());
-                        tsv_record.refseq_transcript_coding =
-                            Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
-                        tsv_record.refseq_hgvs_c.clone_from(&ann.hgvs_c);
-                        tsv_record.refseq_hgvs_p.clone_from(&ann.hgvs_p);
-                        if !ann.consequences.is_empty() {
-                            tsv_record.refseq_effect = Some(
-                                ann.consequences
-                                    .iter()
-                                    .map(|c| format!("\"{}\"", &c))
-                                    .collect::<Vec<_>>(),
+                        (None, Some(ensembl)) => {
+                            tracing::debug!(
+                                "No RefSeq annotation for {}:{}-{}, using Ensembl annotation",
+                                tsv_record.chromosome,
+                                tsv_record.start,
+                                tsv_record.end
                             );
+                            (Some(ensembl), Some(ensembl))
                         }
+                        (None, None) => {
+                            tracing::debug!(
+                                "No RefSeq or Ensembl annotation for {}:{}-{}.",
+                                tsv_record.chromosome,
+                                tsv_record.start,
+                                tsv_record.end
+                            );
+                            (None, None)
+                        }
+                    };
 
-                        tsv_record.refseq_exon_dist = ann.distance;
-
-                        written_refseq = true;
+                if let Some(ann) = ensembl_source_ann {
+                    tsv_record.ensembl_gene_id = Some(hgnc_record.ensembl_gene_id.clone());
+                    tsv_record.ensembl_transcript_id = Some(ann.feature_id.clone());
+                    tsv_record.ensembl_transcript_coding =
+                        Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
+                    tsv_record.ensembl_hgvs_c.clone_from(&ann.hgvs_c);
+                    tsv_record.ensembl_hgvs_p.clone_from(&ann.hgvs_p);
+                    if !ann.consequences.is_empty() {
+                        tsv_record.ensembl_effect = Some(
+                            ann.consequences
+                                .iter()
+                                .map(|c| format!("\"{}\"", &c))
+                                .collect::<Vec<_>>(),
+                        );
                     }
+                    tsv_record.ensembl_exon_dist = ann.distance;
                 }
+
+                if let Some(ann) = refseq_source_ann {
+                    tsv_record.refseq_gene_id = Some(hgnc_record.entrez_id.clone());
+                    tsv_record.refseq_transcript_id = Some(ann.feature_id.clone());
+                    tsv_record.refseq_transcript_coding =
+                        Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
+                    tsv_record.refseq_hgvs_c.clone_from(&ann.hgvs_c);
+                    tsv_record.refseq_hgvs_p.clone_from(&ann.hgvs_p);
+                    if !ann.consequences.is_empty() {
+                        tsv_record.refseq_effect = Some(
+                            ann.consequences
+                                .iter()
+                                .map(|c| format!("\"{}\"", &c))
+                                .collect::<Vec<_>>(),
+                        );
+                    }
+                    tsv_record.refseq_exon_dist = ann.distance;
+                }
+
                 writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
                     .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))?;
             }

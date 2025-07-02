@@ -592,6 +592,7 @@ pub enum FeatureTag {
     /// Member of GENCODE Primary
     GencodePrimary,
 
+    #[serde(skip)]
     /// Is a graft feature from Ensembl.
     EnsemblGraft,
 
