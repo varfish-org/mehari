@@ -1055,7 +1055,7 @@ impl VarFishSeqvarTsvWriter {
                         }
                         (None, None) => {
                             tracing::debug!(
-                                "No RefSeq or Ensembl annotation for {}:{}-{}, skipping",
+                                "No RefSeq or Ensembl annotation for {}:{}-{}.",
                                 tsv_record.chromosome,
                                 tsv_record.start,
                                 tsv_record.end
