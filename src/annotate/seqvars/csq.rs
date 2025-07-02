@@ -536,6 +536,7 @@ impl ConsequencePredictor {
             .tags
             .iter()
             .map(|tag| TranscriptTag::try_from(*tag).expect("invalid transcript tag"))
+            .filter(|tag| !matches!(tag, TranscriptTag::EnsemblGraft))
             .collect_vec();
         let feature_tags = transcript_tags
             .iter()
