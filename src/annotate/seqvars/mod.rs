@@ -12,7 +12,7 @@ use std::time::Instant;
 use self::ann::{AnnField, FeatureBiotype};
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::genotype_string;
-use crate::annotate::seqvars::ann::{FeatureTag, FeatureType};
+use crate::annotate::seqvars::ann::FeatureType;
 use crate::annotate::seqvars::csq::{
     ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
 };
@@ -1031,13 +1031,11 @@ impl VarFishSeqvarTsvWriter {
                 let mut written_ensembl = false;
 
                 for ann in anns {
-                    // We only assign the first prediction per gene for either RefSeq or ENSEMBL.
-                    // Because in some cases, we graft ensembl transcripts into the refseq DB,
-                    // we explicitly check whether a transcript has been grafted.
-                    let is_ensembl = ann.feature_id.starts_with("ENST")
-                        && !ann.feature_tags.contains(&FeatureTag::EnsemblGraft);
+                    // We only assign the first prediction per gene for both RefSeq or ENSEMBL,
+                    // irrespective of the feature_id
+                    // (i.e., whether it's a refseq or an ensembl transcript).
 
-                    if is_ensembl && !written_ensembl {
+                    if !written_ensembl {
                         // Handle ENSEMBL.
                         tsv_record.ensembl_gene_id = Some(hgnc_record.ensembl_gene_id.clone());
                         tsv_record.ensembl_transcript_id = Some(ann.feature_id.clone());
@@ -1057,7 +1055,8 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.ensembl_exon_dist = ann.distance;
 
                         written_ensembl = true;
-                    } else if !is_ensembl && !written_refseq {
+                    }
+                    if !written_refseq {
                         // Handle RefSeq.
                         tsv_record.refseq_gene_id = Some(hgnc_record.entrez_id.clone());
                         tsv_record.refseq_transcript_id = Some(ann.feature_id.clone());
@@ -1077,6 +1076,10 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.refseq_exon_dist = ann.distance;
 
                         written_refseq = true;
+                    }
+                    if written_refseq && written_ensembl {
+                        // We have written both RefSeq and ENSEMBL, no need to continue.
+                        break;
                     }
                 }
                 writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
