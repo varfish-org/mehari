@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.36.2](https://github.com/varfish-org/mehari/compare/v0.36.1...v0.36.2) (2025-07-02)
+
+
+### Bug Fixes
+
+* include both refseq and ensembl info in TSV output ([#786](https://github.com/varfish-org/mehari/issues/786)) ([cba5a25](https://github.com/varfish-org/mehari/commit/cba5a252484f6868c4cd4d91151a0d16b9a14201))
+
 ## [0.36.1](https://github.com/varfish-org/mehari/compare/v0.36.0...v0.36.1) (2025-07-01)
 
 
