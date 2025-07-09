@@ -120,6 +120,7 @@ pub enum TranscriptPickMode {
     PartialEq,
     Eq,
     Default,
+    Hash,
     serde::Deserialize,
     serde::Serialize,
     clap::ValueEnum,

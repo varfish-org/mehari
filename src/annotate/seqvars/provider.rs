@@ -1,6 +1,6 @@
 //! Implementation of `hgvs` Provider interface based on protobuf.
 
-use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType};
+use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType, TranscriptSource};
 use crate::annotate::seqvars::reference::{
     InMemoryFastaAccess, ReferenceReader, UnbufferedIndexedFastaAccess,
 };
@@ -358,10 +358,19 @@ impl Provider {
             }
         }
 
+        let transcript_id_to_source = |tx_id: &str| -> TranscriptSource {
+            if tx_id.starts_with("ENST") {
+                TranscriptSource::Ensembl
+            } else if tx_id.starts_with("N") {
+                TranscriptSource::RefSeq
+            } else {
+                panic!("Unknown transcript ID format: {}", tx_id);
+            }
+        };
+
         // Process each gene.
         for entry in tx_db.gene_to_tx.iter() {
-            // First, determine whether we have any MANE transcripts.
-            let mut longest_tx_id = None;
+            let mut longest_tx_per_source: HashMap<TranscriptSource, (usize, i32)> = HashMap::new();
             let mut tx_tags = entry
                 .tx_ids
                 .iter()
@@ -371,20 +380,23 @@ impl Provider {
                         let tx = &tx_db.transcripts[*tx_idx as usize];
                         let tags = tx.tags.iter().filter_map(tag_to_picktype).collect_vec();
                         let length = transcript_length(tx);
-                        if let Some((prev_i, prev_length)) = longest_tx_id.as_mut() {
-                            if length > *prev_length {
-                                *prev_i = i;
-                                *prev_length = length;
-                            }
-                        } else {
-                            longest_tx_id = Some((i, length));
-                        }
+                        let source = transcript_id_to_source(tx_id);
+
+                        longest_tx_per_source
+                            .entry(source)
+                            .and_modify(|(_prev_i, prev_length)| {
+                                if length > *prev_length {
+                                    *_prev_i = i;
+                                    *prev_length = length;
+                                }
+                            })
+                            .or_insert((i, length));
                         (tx_id, tags, length)
                     })
                 })
                 .collect_vec();
-            if let Some((i, _)) = longest_tx_id {
-                tx_tags[i].1.push(TranscriptPickType::Length);
+            for (_, (i, _)) in longest_tx_per_source.iter() {
+                tx_tags[*i].1.push(TranscriptPickType::Length);
             }
 
             let tx_ids = match config.pick_transcript_mode {
