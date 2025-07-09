@@ -12,7 +12,6 @@ use std::time::Instant;
 use self::ann::{AnnField, FeatureBiotype};
 use crate::annotate::cli::{Sources, TranscriptSettings};
 use crate::annotate::genotype_string;
-use crate::annotate::seqvars::ann::FeatureType;
 use crate::annotate::seqvars::csq::{
     ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
 };
@@ -998,30 +997,25 @@ impl VarFishSeqvarTsvWriter {
                 // Get `HgncRecord` for the `hgnc_id` or skip this gene.
                 let hgnc_record = match self.hgnc_map.as_ref().unwrap().get(hgnc_id) {
                     Some(hgnc_record) => hgnc_record,
+                    None if hgnc_id.is_empty() => {
+                        tracing::warn!(
+                            "Empty HGNC id for {}:{}-{}, writing empty record.",
+                            tsv_record.chromosome,
+                            tsv_record.start,
+                            tsv_record.end
+                        );
+                        &empty_hgnc_record
+                    }
                     None => {
-                        if hgnc_id.is_empty() {
-                            if anns.iter().all(|a| {
-                                a.feature_type
-                                    == FeatureType::Custom {
-                                        value: "Intergenic".into(),
-                                    }
-                            }) {
-                                &empty_hgnc_record
-                            } else {
-                                tracing::warn!(
-                                    "Empty HGNC id for {}:{}-{}, skipping.",
-                                    tsv_record.chromosome,
-                                    tsv_record.start,
-                                    tsv_record.end
-                                );
-                                continue;
-                            }
-                        } else {
-                            tracing::warn!(
-                                "HGNC record for {} not found in HGNC map, skipping gene",
-                                hgnc_id
-                            );
-                            continue;
+                        tracing::warn!(
+                            "HGNC record for {} not found in HGNC map, writing empty record",
+                            hgnc_id
+                        );
+                        &HgncRecord {
+                            hgnc_id: hgnc_id.to_string(),
+                            ensembl_gene_id: "".to_string(),
+                            entrez_id: "".to_string(),
+                            gene_symbol: "".to_string(),
                         }
                     }
                 };
