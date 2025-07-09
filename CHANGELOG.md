@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.36.3](https://github.com/varfish-org/mehari/compare/v0.36.2...v0.36.3) (2025-07-09)
+
+
+### Bug Fixes
+
+* keep longest transcript per TranscriptSource ([#790](https://github.com/varfish-org/mehari/issues/790)) ([9d12e6b](https://github.com/varfish-org/mehari/commit/9d12e6b29a0b700397e9981253c6b80618e0b661))
+* never skip records during TSV output ([#789](https://github.com/varfish-org/mehari/issues/789)) ([97827f6](https://github.com/varfish-org/mehari/commit/97827f69917ac0e08b5a6d296f4f7452c433af1e))
+
 ## [0.36.2](https://github.com/varfish-org/mehari/compare/v0.36.1...v0.36.2) (2025-07-02)
 
 
