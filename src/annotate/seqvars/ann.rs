@@ -69,7 +69,7 @@ pub enum Consequence {
     TranscriptAblation,
 
     /// "A sequence variant whereby an exon is lost from the transcript."
-    /// SO:exon_loss_variant, VEP:transcript_ablation
+    /// SO:exon_loss_variant, VEP:exon_loss_variant
     ExonLossVariant,
 
     /// "A splice variant that changes the 2 base region at the 3' end of an intron."
@@ -142,7 +142,7 @@ pub enum Consequence {
     RareAminoAcidVariant,
 
     /// "A sequence_variant which is predicted to change the protein encoded in the coding sequence."
-    /// SO:protein_altering_variant, VEP:missense_variant
+    /// SO:protein_altering_variant, VEP:protein_altering_variant
     ProteinAlteringVariant,
 
     // low impact
