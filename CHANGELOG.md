@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.37.0](https://github.com/varfish-org/mehari/compare/v0.36.3...v0.37.0) (2025-07-24)
+
+
+### Features
+
+* enforce reference in docker entrypoint ([#796](https://github.com/varfish-org/mehari/issues/796)) ([5f6b6d5](https://github.com/varfish-org/mehari/commit/5f6b6d56f27d710af2079bc02257c218bd4ef4f5))
+
 ## [0.36.3](https://github.com/varfish-org/mehari/compare/v0.36.2...v0.36.3) (2025-07-09)
 
 
