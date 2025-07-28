@@ -107,7 +107,7 @@ pretty_assertions = "1.4"
 rstest = "0.25"
 temp_testdir = "0.2"
 tracing-test = "0.2"
-criterion = { version = "0.6.0", features = ["async_tokio"] }
+criterion = { version = "0.7.0", features = ["async_tokio"] }
 pprof = { version = "0.15.0", features = ["flamegraph"] }
 
 # Compile insta with full optimization.
