@@ -312,7 +312,7 @@ dependencies = [
  "lru",
  "noodles 0.97.0",
  "pbjson 0.7.0",
- "pbjson-build",
+ "pbjson-build 0.7.0",
  "pbjson-types",
  "prost 0.13.5",
  "prost-build 0.13.5",
@@ -2577,7 +2577,7 @@ dependencies = [
  "once_cell",
  "parse-display",
  "pbjson 0.8.0",
- "pbjson-build",
+ "pbjson-build 0.8.0",
  "percent-encoding",
  "pprof",
  "pretty_assertions",
@@ -3282,6 +3282,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pbjson-build"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af22d08a625a2213a78dbb0ffa253318c5c79ce3133d32d296655a7bdfb02095"
+dependencies = [
+ "heck",
+ "itertools 0.14.0",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
+]
+
+[[package]]
 name = "pbjson-types"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3290,7 +3302,7 @@ dependencies = [
  "bytes",
  "chrono",
  "pbjson 0.7.0",
- "pbjson-build",
+ "pbjson-build 0.7.0",
  "prost 0.13.5",
  "prost-build 0.13.5",
  "serde",
