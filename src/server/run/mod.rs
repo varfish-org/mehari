@@ -14,7 +14,7 @@ use crate::{
     common::GenomeRelease,
 };
 use biocommons_bioutils::assemblies::Assembly;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use strum::EnumString;
 
@@ -341,28 +341,41 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
             }
         }
     }
-    let mut enabled_sources = vec![];
-    for (assembly, reference_path) in reference_paths {
-        let genome_release = assembly.into();
-        tracing::info!(
-            "Loading data for assembly {:?} using reference {}",
-            genome_release,
-            reference_path.display()
-        );
 
+    let mut all_releases = HashSet::new();
+    all_releases.extend(transcript_paths.keys());
+    all_releases.extend(frequency_paths.keys());
+    all_releases.extend(clinvar_paths.keys());
+
+    let mut enabled_sources = vec![];
+    for &genome_release in all_releases.iter() {
+        let assembly: Assembly = genome_release.into();
+        let reference_path = reference_paths.get(&assembly);
+
+        tracing::info!("Loading data for assembly {:?}...", genome_release);
+
+        // Load transcript data if available for this release.
+        // At the moment, this is the only type of data that can benefit from a reference FASTA.
         if let Some(tx_db_paths) = transcript_paths.get(&genome_release) {
+            if reference_path.is_none() {
+                tracing::warn!(
+                    "No reference FASTA provided for {:?}. Some features like HGVSg normalization will be unavailable.",
+                    genome_release
+                );
+            }
+
             tracing::info!("Building seqvars predictors for {:?}...", genome_release);
             let tx_dbs = load_transcript_dbs_for_assembly(tx_db_paths, Some(assembly))?;
             if tx_dbs.is_empty() {
                 tracing::warn!(
-                    "No transcript databases loaded for {:?}, respective endpoint will be unavailable.",
+                    "No transcript databases loaded for {:?}, respective endpoints will be unavailable.",
                     genome_release
                 );
             } else {
                 let tx_db = merge_transcript_databases(tx_dbs)?;
                 let annotator = ConsequenceAnnotator::from_db_and_settings(
                     tx_db,
-                    Some(reference_path),
+                    reference_path.cloned(),
                     args.in_memory_reference,
                     &args.transcript_settings,
                 )?;
@@ -387,16 +400,15 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                     StrucvarConsequencePredictor::new(provider.clone(), assembly),
                 );
                 enabled_sources.push((genome_release, Endpoint::Transcripts));
-                tracing::info!("Finished building predictors for {:?}.", genome_release);
+                tracing::info!(
+                    "Finished building seqvars predictors for {:?}.",
+                    genome_release
+                );
             }
-        } else if args.sources.transcripts.is_some() {
-            tracing::warn!(
-                "No predictors for genome release {:?}, respective endpoint will be unavailable.",
-                genome_release
-            );
         }
 
         if let Some(freq_path) = frequency_paths.get(&genome_release) {
+            tracing::info!("Loading frequency data for {:?}...", genome_release);
             let annotators = initialize_frequency_annotators_for_assembly(
                 std::slice::from_ref(freq_path),
                 Some(assembly),
@@ -405,10 +417,14 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                 data.frequency_annotators
                     .insert(genome_release, frequency_db);
                 enabled_sources.push((genome_release, Endpoint::Frequency));
+                tracing::info!("... done loading frequency data for {:?}.", genome_release);
+            } else {
+                tracing::warn!("Could not load frequency data for {:?}.", genome_release);
             }
         }
 
         if let Some(clinvar_path) = clinvar_paths.get(&genome_release) {
+            tracing::info!("Loading ClinVar data for {:?}...", genome_release);
             let annotators = initialize_clinvar_annotators_for_assembly(
                 std::slice::from_ref(clinvar_path),
                 Some(assembly),
@@ -416,6 +432,9 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
             if let Some(annotator) = annotators.into_iter().next() {
                 data.clinvar_annotators.insert(genome_release, annotator);
                 enabled_sources.push((genome_release, Endpoint::Clinvar));
+                tracing::info!("... done loading ClinVar data for {:?}.", genome_release);
+            } else {
+                tracing::warn!("Could not load ClinVar data for {:?}.", genome_release);
             }
         }
     }
