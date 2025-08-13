@@ -304,7 +304,14 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     if let Some(paths) = args.sources.frequencies.as_ref() {
         for path in paths {
             if let Some(release) = associate_db_path(path) {
-                frequency_paths.insert(release, path.clone());
+                if let Some(prev) = frequency_paths.insert(release, path.clone()) {
+                    tracing::warn!(
+                        "Duplicate frequency DB for {:?}: {} overwritten by {}",
+                        release,
+                        prev,
+                        path
+                    );
+                }
             } else {
                 tracing::warn!(
                     "Could not determine assembly for frequency db: {}. Skipping.",
@@ -318,7 +325,14 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     if let Some(paths) = args.sources.clinvar.as_ref() {
         for path in paths {
             if let Some(release) = associate_db_path(path) {
-                clinvar_paths.insert(release, path.clone());
+                if let Some(prev) = clinvar_paths.insert(release, path.clone()) {
+                    tracing::warn!(
+                        "Duplicate ClinVar DB for {:?}: {} overwritten by {}",
+                        release,
+                        prev,
+                        path
+                    );
+                }
             } else {
                 tracing::warn!(
                     "Could not determine assembly for clinvar db: {}. Skipping.",
@@ -375,7 +389,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                 enabled_sources.push((genome_release, Endpoint::Transcripts));
                 tracing::info!("Finished building predictors for {:?}.", genome_release);
             }
-        } else {
+        } else if args.sources.transcripts.is_some() {
             tracing::warn!(
                 "No predictors for genome release {:?}, respective endpoint will be unavailable.",
                 genome_release
