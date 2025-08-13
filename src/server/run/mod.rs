@@ -4,6 +4,7 @@ use crate::annotate::seqvars::{
     initialize_clinvar_annotators_for_assembly, initialize_frequency_annotators_for_assembly,
     load_transcript_dbs_for_assembly, ConsequenceAnnotator,
 };
+use crate::common::guess_assembly_from_fasta;
 use crate::db::merge::merge_transcript_databases;
 use crate::{
     annotate::{
@@ -12,8 +13,7 @@ use crate::{
     },
     common::GenomeRelease,
 };
-use anyhow::anyhow;
-use clap::ValueEnum;
+use biocommons_bioutils::assemblies::Assembly;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use strum::EnumString;
@@ -250,59 +250,105 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     let before_loading = std::time::Instant::now();
     let mut data = actix_server::WebServerData::default();
 
-    let mut enabled_sources = vec![];
-    use Endpoint::*;
-
-    if !(0..=GenomeRelease::value_variants().len()).contains(&args.reference.len()) {
-        return Err(anyhow!("Supplied number of reference genomes does not match the number of supported genome releases ({:?}).",
-        GenomeRelease::value_variants()));
+    let mut reference_paths: HashMap<Assembly, PathBuf> = HashMap::new();
+    for ref_path in &args.reference {
+        match guess_assembly_from_fasta(ref_path, false, None) {
+            Ok(assembly) => {
+                if reference_paths.insert(assembly, ref_path.clone()).is_some() {
+                    tracing::warn!(
+                        "Duplicate reference file provided for {:?}. Overwriting.",
+                        assembly
+                    );
+                }
+                tracing::info!(
+                    "Detected {:?} for reference {}",
+                    assembly,
+                    ref_path.display()
+                );
+            }
+            Err(e) => {
+                tracing::warn!("Skipping reference file {}: {}", ref_path.display(), e);
+            }
+        }
     }
 
-    for genome_release in GenomeRelease::value_variants().iter().copied() {
-        tracing::info!("Loading genome release {:?}", genome_release);
-        let assembly = genome_release.into();
-        let reference = {
-            args.reference
-                .iter()
-                .filter_map(|reference_path| {
-                    if reference_path
-                        .file_name()
-                        .map(|f| {
-                            f.to_string_lossy()
-                                .to_lowercase()
-                                .contains(&genome_release.name().to_lowercase())
-                        })
-                        .unwrap_or(false)
-                    {
-                        tracing::info!(
-                            "Found reference genome for {:?}: {}",
-                            genome_release,
-                            reference_path.display()
-                        );
-                        Some(reference_path.clone())
-                    } else {
-                        None
-                    }
-                })
-                .next()
-        };
-
-        if !args.reference.is_empty() && reference.is_none() {
-            tracing::warn!("No reference genome found for {:?}.", genome_release);
+    let associate_db_path = |path: &str| -> Option<GenomeRelease> {
+        let path_str = path.to_lowercase();
+        if path_str.contains("grch37") {
+            Some(GenomeRelease::Grch37)
+        } else if path_str.contains("grch38") {
+            Some(GenomeRelease::Grch38)
+        } else {
+            None
         }
+    };
 
-        if let Some(tx_db_paths) = args.sources.transcripts.as_ref() {
-            tracing::info!("Building seqvars predictors...");
+    let mut transcript_paths: HashMap<GenomeRelease, Vec<String>> = HashMap::new();
+    if let Some(paths) = args.sources.transcripts.as_ref() {
+        for path in paths {
+            if let Some(release) = associate_db_path(path) {
+                transcript_paths
+                    .entry(release)
+                    .or_default()
+                    .push(path.clone());
+            } else {
+                tracing::warn!(
+                    "Could not determine assembly for transcript db: {}. Skipping.",
+                    path
+                );
+            }
+        }
+    }
+
+    let mut frequency_paths = HashMap::new();
+    if let Some(paths) = args.sources.frequencies.as_ref() {
+        for path in paths {
+            if let Some(release) = associate_db_path(path) {
+                frequency_paths.insert(release, path.clone());
+            } else {
+                tracing::warn!(
+                    "Could not determine assembly for frequency db: {}. Skipping.",
+                    path
+                );
+            }
+        }
+    }
+
+    let mut clinvar_paths = HashMap::new();
+    if let Some(paths) = args.sources.clinvar.as_ref() {
+        for path in paths {
+            if let Some(release) = associate_db_path(path) {
+                clinvar_paths.insert(release, path.clone());
+            } else {
+                tracing::warn!(
+                    "Could not determine assembly for clinvar db: {}. Skipping.",
+                    path
+                );
+            }
+        }
+    }
+    let mut enabled_sources = vec![];
+    for (assembly, reference_path) in reference_paths {
+        let genome_release = assembly.into();
+        tracing::info!(
+            "Loading data for assembly {:?} using reference {}",
+            genome_release,
+            reference_path.display()
+        );
+
+        if let Some(tx_db_paths) = transcript_paths.get(&genome_release) {
+            tracing::info!("Building seqvars predictors for {:?}...", genome_release);
             let tx_dbs = load_transcript_dbs_for_assembly(tx_db_paths, Some(assembly))?;
             if tx_dbs.is_empty() {
                 tracing::warn!(
-                    "No transcript databases loaded, respective endpoint will be unavailable."
+                    "No transcript databases loaded for {:?}, respective endpoint will be unavailable.",
+                    genome_release
                 );
             } else {
                 let tx_db = merge_transcript_databases(tx_dbs)?;
                 let annotator = ConsequenceAnnotator::from_db_and_settings(
                     tx_db,
-                    reference.as_ref(),
+                    Some(reference_path),
                     args.in_memory_reference,
                     &args.transcript_settings,
                 )?;
@@ -326,8 +372,8 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                     genome_release,
                     StrucvarConsequencePredictor::new(provider.clone(), assembly),
                 );
-                tracing::info!("Finished building strucvars predictors.");
-                enabled_sources.push((genome_release, Transcripts));
+                enabled_sources.push((genome_release, Endpoint::Transcripts));
+                tracing::info!("Finished building predictors for {:?}.", genome_release);
             }
         } else {
             tracing::warn!(
@@ -336,40 +382,26 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
             );
         }
 
-        if let Some(paths) = args.sources.frequencies.as_ref() {
-            let annotators = initialize_frequency_annotators_for_assembly(paths, Some(assembly))?;
-
-            match annotators.len() {
-                0 => tracing::warn!(
-                    "No frequency databases loaded, respective endpoint will be unavailable."
-                ),
-                1 => {
-                    let frequency_db = annotators.into_iter().next().unwrap();
-                    data.frequency_annotators
-                        .insert(genome_release, frequency_db);
-                    enabled_sources.push((genome_release, Frequency));
-                }
-                _ => tracing::warn!(
-                    "Multiple frequency databases loaded. This is not supported. The respective endpoint will be unavailable."
-                ),
+        if let Some(freq_path) = frequency_paths.get(&genome_release) {
+            let annotators = initialize_frequency_annotators_for_assembly(
+                std::slice::from_ref(freq_path),
+                Some(assembly),
+            )?;
+            if let Some(frequency_db) = annotators.into_iter().next() {
+                data.frequency_annotators
+                    .insert(genome_release, frequency_db);
+                enabled_sources.push((genome_release, Endpoint::Frequency));
             }
         }
 
-        if let Some(paths) = args.sources.clinvar.as_ref() {
-            let annotators = initialize_clinvar_annotators_for_assembly(paths, Some(assembly))?;
-
-            match annotators.len() {
-                0 => tracing::warn!(
-                    "No clinvar databases loaded, respective endpoint will be unavailable."
-                ),
-                1 => {
-                    let annotator = annotators.into_iter().next().unwrap();
-                    data.clinvar_annotators.insert(genome_release, annotator);
-                    enabled_sources.push((genome_release, Clinvar));
-                }
-                _ => tracing::warn!(
-                    "Multiple clinvar databases specified. This is not supported. The respective endpoint will be unavailable."
-                ),
+        if let Some(clinvar_path) = clinvar_paths.get(&genome_release) {
+            let annotators = initialize_clinvar_annotators_for_assembly(
+                std::slice::from_ref(clinvar_path),
+                Some(assembly),
+            )?;
+            if let Some(annotator) = annotators.into_iter().next() {
+                data.clinvar_annotators.insert(genome_release, annotator);
+                enabled_sources.push((genome_release, Endpoint::Clinvar));
             }
         }
     }

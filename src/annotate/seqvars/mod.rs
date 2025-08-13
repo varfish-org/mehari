@@ -19,7 +19,7 @@ use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
 use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
-use crate::common::{guess_assembly, GenomeRelease};
+use crate::common::{guess_assembly_from_vcf, GenomeRelease};
 use crate::db::merge::merge_transcript_databases;
 use crate::pbs::txs::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
@@ -2033,7 +2033,7 @@ async fn run_with_writer(
         GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
         GenomeRelease::Grch38 => Assembly::Grch38,
     });
-    let assembly = guess_assembly(&header_in, false, genome_release)?;
+    let assembly = guess_assembly_from_vcf(&header_in, false, genome_release)?;
     writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 

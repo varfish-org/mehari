@@ -167,14 +167,25 @@ macro_rules! set_snapshot_suffix {
 
 pub use set_snapshot_suffix;
 
-/// Guess the assembly from the given header.
+/// Guess the assembly from a given list of contig names and lengths.
 ///
 /// If the header only contains chrM, for example, the result may be ambiguous. Use `ambiguous_ok`
 /// to allow or disallow this.  You can specify an initial value for the assembly to overcome
 /// issues.  If the result is incompatible with the `initial_assembly` then an error will
 /// be returned.
+///
+/// # Arguments
+///
+/// * `contigs` - A slice of `(String, usize)` tuples representing contig names and their lengths.
+/// * `ambiguous_ok` - Allow or disallow ambiguous results (e.g., matching both GRCh37 and GRCh38).
+/// * `initial_assembly` - An optional pre-assumed assembly to resolve ambiguity or validate against.
+///
+/// # Returns
+///
+/// The detected `Assembly` or an error if no match is found, there's an unresolved
+/// ambiguity, or the result is incompatible with `initial_assembly`.
 pub fn guess_assembly(
-    vcf_header: &::noodles::vcf::Header,
+    contigs: &[(String, usize)],
     ambiguous_ok: bool,
     initial_assembly: Option<Assembly>,
 ) -> Result<Assembly, anyhow::Error> {
@@ -202,26 +213,18 @@ pub fn guess_assembly(
         // Count compatible and incompatible contigs.
         let mut incompatible = 0;
         let mut compatible = 0;
-        for (name, data) in vcf_header.contigs() {
-            if let Some(length) = data.length() {
-                let idx = contig_map.name_map.get(name);
-                if let Some(idx) = idx {
-                    let name = &info.sequences[*idx].name;
-                    if CANONICAL.contains(&name.as_ref()) {
-                        if *lengths.get(idx).unwrap() == length {
-                            compatible += 1;
-                        } else {
-                            incompatible += 1;
-                        }
+
+        for (name, length) in contigs {
+            let idx = contig_map.name_map.get(name.as_str());
+            if let Some(idx) = idx {
+                let seq_info_name = &info.sequences[*idx].name;
+                if CANONICAL.contains(&seq_info_name.as_ref()) {
+                    if *lengths.get(idx).unwrap() == *length {
+                        compatible += 1;
+                    } else {
+                        incompatible += 1;
                     }
                 }
-            } else {
-                tracing::warn!(
-                    "Cannot guess assembly because no length for contig {}",
-                    &name
-                );
-                compatible = 0;
-                break;
             }
         }
 
@@ -232,7 +235,7 @@ pub fn guess_assembly(
             if let Some(result) = result {
                 if result != *assembly && !ambiguous_ok {
                     return Err(anyhow::anyhow!(
-                        "Found ambiguity;  initial={:?}, previous={:?}, current={:?}",
+                        "Found ambiguity; initial={:?}, previous={:?}, current={:?}",
                         initial_assembly,
                         result,
                         assembly,
@@ -242,15 +245,12 @@ pub fn guess_assembly(
             } else {
                 result = Some(*assembly);
             }
-        } else {
-            // Found incompatible assembly, bail out if is the initial assembly.
-            if let Some(initial_assembly) = initial_assembly {
-                if initial_assembly == *assembly {
-                    return Err(anyhow::anyhow!(
-                        "Incompatible with initial assembly {:?}",
-                        result.unwrap()
-                    ));
-                }
+        } else if let Some(initial_assembly) = initial_assembly {
+            if initial_assembly == *assembly && incompatible > 0 {
+                return Err(anyhow::anyhow!(
+                    "Incompatible with initial assembly {:?}",
+                    initial_assembly
+                ));
             }
         }
     }
@@ -258,6 +258,57 @@ pub fn guess_assembly(
     if let Some(result) = result {
         Ok(result)
     } else {
-        Err(anyhow::anyhow!("No matching assembly found"))
+        Err(anyhow::anyhow!(
+            "No matching assembly found for the provided contigs"
+        ))
     }
+}
+
+pub fn guess_assembly_from_vcf(
+    vcf_header: &::noodles::vcf::Header,
+    ambiguous_ok: bool,
+    initial_assembly: Option<Assembly>,
+) -> Result<Assembly, anyhow::Error> {
+    let mut contigs = Vec::new();
+    for (name, data) in vcf_header.contigs() {
+        if let Some(length) = data.length() {
+            contigs.push((name.to_string(), length));
+        } else {
+            // If any contig is missing a length, we cannot reliably guess.
+            return Err(anyhow::anyhow!(
+                "Cannot guess assembly because no length is defined for contig '{}' in the VCF header",
+                name
+            ));
+        }
+    }
+
+    guess_assembly(&contigs, ambiguous_ok, initial_assembly)
+}
+
+use ::noodles::fasta::fai;
+use std::path::Path;
+
+/// Guess the assembly from the given FASTA file by reading its index (.fai).
+pub fn guess_assembly_from_fasta(
+    fasta_path: &Path,
+    ambiguous_ok: bool,
+    initial_assembly: Option<Assembly>,
+) -> Result<Assembly, anyhow::Error> {
+    let index = fai::read(fasta_path.with_extension("fa.fai"))
+        .or_else(|_| fai::read(fasta_path.with_extension("fasta.fai")))?;
+
+    let contigs: Vec<(String, usize)> = index
+        .as_ref()
+        .iter()
+        .map(|record| (record.name().to_string(), record.length() as usize))
+        .collect();
+
+    if contigs.is_empty() {
+        return Err(anyhow::anyhow!(
+            "FASTA index for {} is empty or could not be read.",
+            fasta_path.display()
+        ));
+    }
+
+    guess_assembly(&contigs, ambiguous_ok, initial_assembly)
 }

@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, IntoEnumIterator};
 use uuid::Uuid;
 
-use crate::common::guess_assembly;
+use crate::common::guess_assembly_from_vcf;
 use crate::common::noodles::{open_variant_reader, NoodlesVariantReader};
 use crate::common::GenomeRelease;
 use crate::finalize_buf_writer;
@@ -3306,7 +3306,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                 .expect("must have at least input VCF"),
         )?;
         let header = reader.read_header()?;
-        let assembly = guess_assembly(&header, false, assembly)?;
+        let assembly = guess_assembly_from_vcf(&header, false, assembly)?;
         (header, assembly)
     };
     tracing::info!("Determined input assembly to be {:?}", &assembly);
