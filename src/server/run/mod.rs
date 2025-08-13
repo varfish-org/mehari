@@ -119,8 +119,8 @@ pub mod openapi {
 pub struct Args {
     /// Path to the reference genome(s), with accompanying index.
     ///
-    /// Note that (at the moment) the reference path must contain "GRCh37" or "GRCh38"
-    /// to be able to match the reference to the transcript db correctly.
+    /// The assembly for each reference is detected from its FASTA index (.fai).
+    /// Provide one reference per assembly you want to serve (e.g., GRCh37 and/or GRCh38).
     #[arg(long)]
     pub reference: Vec<PathBuf>,
 
