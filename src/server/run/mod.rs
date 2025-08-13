@@ -342,7 +342,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         }
     }
 
-    let mut all_releases = HashSet::new();
+    let mut all_releases: HashSet<GenomeRelease> = HashSet::new();
     all_releases.extend(transcript_paths.keys());
     all_releases.extend(frequency_paths.keys());
     all_releases.extend(clinvar_paths.keys());
@@ -440,6 +440,11 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     }
     let data = actix_web::web::Data::new(data);
     tracing::info!("... done loading data {:?}", before_loading.elapsed());
+
+    if enabled_sources.is_empty() {
+        tracing::error!("No data sources loaded. Exiting.");
+        return Err(anyhow::anyhow!("No data sources loaded."));
+    }
 
     tracing::info!("Loaded the following sources: {:?}", &enabled_sources);
 
