@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.37.1](https://github.com/varfish-org/mehari/compare/v0.37.0...v0.37.1) (2025-08-13)
+
+
+### Bug Fixes
+
+* bump hgvs-rs to 0.19.1 ([#821](https://github.com/varfish-org/mehari/issues/821)) ([033b3a9](https://github.com/varfish-org/mehari/commit/033b3a99de35b9d898043f0cd6786a6857daa6a0))
+* do not require reference in `server run` ([#820](https://github.com/varfish-org/mehari/issues/820)) ([d63827a](https://github.com/varfish-org/mehari/commit/d63827ae88cdd2bc59995830dbeddfee6b3f78ea))
+* improve `server run` reference detection ([#818](https://github.com/varfish-org/mehari/issues/818)) ([504d9e6](https://github.com/varfish-org/mehari/commit/504d9e6469d153ef31d837eb1aac4edd3e0581be))
+* VEP consequence in comment ([#792](https://github.com/varfish-org/mehari/issues/792)) ([afffef1](https://github.com/varfish-org/mehari/commit/afffef1df26e2d9293be9d98d052046666810805))
+
 ## [0.37.0](https://github.com/varfish-org/mehari/compare/v0.36.3...v0.37.0) (2025-07-24)
 
 
