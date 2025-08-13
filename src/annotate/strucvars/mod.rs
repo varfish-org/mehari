@@ -1591,7 +1591,7 @@ impl SvCaller {
                             inner,
                         ) = values
                         {
-                            if let Some(version) = inner[0].split('v').last() {
+                            if let Some(version) = inner[0].split('v').next_back() {
                                 return Ok(SvCaller::Melt {
                                     version: version.to_string(),
                                 });
@@ -1619,7 +1619,7 @@ impl SvCaller {
             .ok_or(anyhow::anyhow!("Problem with INFO/SVMETHOD field"))?
             .ok_or(anyhow::anyhow!("Problem with INFO/SVMETHOD INFO field"))?;
         if let field::Value::String(value) = value {
-            Ok(value.split('v').last().unwrap().to_string())
+            Ok(value.split('v').next_back().unwrap().to_string())
         } else {
             anyhow::bail!("Problem with INFO/SVMETHOD INFO field")
         }
@@ -1635,7 +1635,7 @@ impl SvCaller {
             if key.as_ref() == "source" {
                 if let noodles::vcf::header::record::value::Collection::Unstructured(inner) = values
                 {
-                    if let Some(version) = inner[0].split(splitter).last() {
+                    if let Some(version) = inner[0].split(splitter).next_back() {
                         return Ok(version.to_string());
                     }
                 }
