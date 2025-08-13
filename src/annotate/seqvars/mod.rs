@@ -19,7 +19,7 @@ use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
 use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
-use crate::common::{guess_assembly, GenomeRelease};
+use crate::common::{guess_assembly_from_vcf, GenomeRelease};
 use crate::db::merge::merge_transcript_databases;
 use crate::pbs::txs::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
@@ -288,6 +288,10 @@ pub static CHROM_MT: Lazy<HashSet<&'static str>> =
     Lazy::new(|| HashSet::from_iter(["M", "MT", "chrM", "chrMT"]));
 pub static CHROM_XY: Lazy<HashSet<&'static str>> =
     Lazy::new(|| HashSet::from_iter(["X", "Y", "chrX", "chrY"]));
+
+pub static CHROM_X: Lazy<HashSet<&'static str>> = Lazy::new(|| HashSet::from_iter(["X", "chrX"]));
+
+pub static CHROM_Y: Lazy<HashSet<&'static str>> = Lazy::new(|| HashSet::from_iter(["Y", "chrY"]));
 
 pub static CHROM_AUTO: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from_iter([
@@ -766,10 +770,7 @@ impl VarFishSeqvarTsvWriter {
                     .get(name)
                     .unwrap_or_else(|| panic!("individual {} not found in pedigree", name));
                 // Update per-family counts.
-                if ["X", "chrX"]
-                    .iter()
-                    .any(|c| *c == tsv_record.chromosome.as_str())
-                {
+                if CHROM_X.contains(&tsv_record.chromosome.as_str()) {
                     match individual.sex {
                         Sex::Male => {
                             if gt.contains('1') {
@@ -791,10 +792,7 @@ impl VarFishSeqvarTsvWriter {
                             }
                         }
                     }
-                } else if ["Y", "chrY"]
-                    .iter()
-                    .any(|c| *c == tsv_record.chromosome.as_str())
-                {
+                } else if CHROM_Y.contains(&tsv_record.chromosome.as_str()) {
                     if individual.sex == Sex::Male {
                         if gt.contains('1') {
                             tsv_record.num_hemi_alt += 1;
@@ -2033,7 +2031,7 @@ async fn run_with_writer(
         GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
         GenomeRelease::Grch38 => Assembly::Grch38,
     });
-    let assembly = guess_assembly(&header_in, false, genome_release)?;
+    let assembly = guess_assembly_from_vcf(&header_in, false, genome_release)?;
     writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
