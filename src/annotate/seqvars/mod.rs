@@ -289,6 +289,10 @@ pub static CHROM_MT: Lazy<HashSet<&'static str>> =
 pub static CHROM_XY: Lazy<HashSet<&'static str>> =
     Lazy::new(|| HashSet::from_iter(["X", "Y", "chrX", "chrY"]));
 
+pub static CHROM_X: Lazy<HashSet<&'static str>> = Lazy::new(|| HashSet::from_iter(["X", "chrX"]));
+
+pub static CHROM_Y: Lazy<HashSet<&'static str>> = Lazy::new(|| HashSet::from_iter(["Y", "chrY"]));
+
 pub static CHROM_AUTO: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from_iter([
         "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
@@ -766,7 +770,7 @@ impl VarFishSeqvarTsvWriter {
                     .get(name)
                     .unwrap_or_else(|| panic!("individual {} not found in pedigree", name));
                 // Update per-family counts.
-                if ["X", "chrX"].contains(&tsv_record.chromosome.as_str()) {
+                if CHROM_X.contains(&tsv_record.chromosome.as_str()) {
                     match individual.sex {
                         Sex::Male => {
                             if gt.contains('1') {
@@ -788,7 +792,7 @@ impl VarFishSeqvarTsvWriter {
                             }
                         }
                     }
-                } else if ["Y", "chrY"].contains(&tsv_record.chromosome.as_str()) {
+                } else if CHROM_Y.contains(&tsv_record.chromosome.as_str()) {
                     if individual.sex == Sex::Male {
                         if gt.contains('1') {
                             tsv_record.num_hemi_alt += 1;
