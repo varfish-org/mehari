@@ -61,7 +61,7 @@ procfs = "0.17"
 prost = "0.13.4"
 quick_cache = "0.6.16"
 rand = "0.9"
-rayon = "1.10.0"
+rayon = "1.11.0"
 rocksdb = { version = "0.23", features = ["multi-threaded-cf"] }
 rustc-hash = "2.1.0"
 seqrepo = { version = "0.10.2", features = ["cached"] }
