@@ -557,7 +557,8 @@ impl DatabaseChecker {
             | FilterReason::Biotype
             | FilterReason::Pseudogene
             | FilterReason::DeselectedGene
-            | FilterReason::UseNmTranscriptInsteadOfNr;
+            | FilterReason::UseNmTranscriptInsteadOfNr
+            | FilterReason::CdsStartOrEndNotConfirmed;
 
         for (id, &reason) in &data.tx_db_data.filter_reasons {
             if matches!(id, Id::Hgnc(_)) && !reason.intersects(uninteresting_reasons) {
