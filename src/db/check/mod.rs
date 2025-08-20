@@ -245,6 +245,7 @@ fn load_cdot_files(paths: &[PathBuf]) -> Result<IdentifierMap> {
         }
         if let Some(ref aliases) = g.aliases {
             entry.extend(aliases.iter().map(|s| Id::GeneSymbol(s.clone())));
+            entry.extend(aliases.iter().map(|s| Id::GeneAlias(s.clone())));
         }
     }
 
@@ -269,6 +270,7 @@ fn load_cdot_files(paths: &[PathBuf]) -> Result<IdentifierMap> {
         } else {
             entry.insert(Id::NcbiGene(t.gene_version.clone()));
         }
+        entry.insert(Id::GeneVersion(t.gene_version.clone()));
         if let Some(ref gene_name) = t.gene_name {
             entry.insert(Id::GeneName(gene_name.clone()));
         }
@@ -294,8 +296,8 @@ struct HgncEntry {
     refseq_accession: Option<Vec<String>>,
     uuid: Option<String>,
     // agr: Option<String>,
-    // alias_name: Vec<String>,
-    // alias_symbol: Vec<String>,
+    alias_name: Option<Vec<String>>,
+    alias_symbol: Option<Vec<String>>,
     // bioparadigms_slc: Option<String>,
     // ccds_id: Option<Vec<String>>,
     // cd: Option<String>,
@@ -365,6 +367,12 @@ fn load_hgnc_set(path: impl AsRef<Path>) -> Result<IdentifierMap> {
         }
         if let Some(mane) = entry.mane_select {
             ids.extend(mane.into_iter().map(|s| Id::from(&s)));
+        }
+        if let Some(alias_symbols) = entry.alias_symbol {
+            ids.extend(alias_symbols.into_iter().map(Id::GeneAlias));
+        }
+        if let Some(alias_names) = entry.alias_name {
+            ids.extend(alias_names.into_iter().map(Id::GeneAlias));
         }
     }
     Ok(map)
