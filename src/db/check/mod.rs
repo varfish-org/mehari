@@ -1,8 +1,3 @@
-use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::BufReader;
-use std::path::{Path, PathBuf};
-
 use anyhow::{Context, Result};
 use clap::Parser;
 use derive_new::new;
@@ -10,11 +5,16 @@ use enumflags2::BitFlags;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_with::{serde_as, DisplayFromStr};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
+use std::fs::File;
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
 use strum::Display;
 
 use crate::annotate::seqvars::load_tx_db;
 use crate::db::create::Reason as FilterReason;
-use crate::pbs::txs::TranscriptTag;
+use crate::pbs::txs::{TranscriptDb, TranscriptTag};
 
 /// Check a mehari transcript database against information from
 /// cdot, HGNC, human-phenotype-ontology and a collection of known issues.
@@ -61,8 +61,7 @@ enum Id {
     GeneName(String),
     GeneAlias(String),
     GeneVersion(String),
-    NcbiAccession(String),
-    NcbiGene(String),
+    Entrez(String),
     NcbiTranscript(String),
     EnsemblAccession(String),
     EnsemblGene(String),
@@ -78,8 +77,7 @@ impl Id {
             Id::GeneName(s) => ("gene_name".into(), s.clone()),
             Id::GeneAlias(s) => ("gene_alias".into(), s.clone()),
             Id::GeneVersion(s) => ("gene_version".into(), s.clone()),
-            Id::NcbiAccession(s) => ("ncbi_accession".into(), s.clone()),
-            Id::NcbiGene(s) => ("ncbi_gene".into(), s.clone()),
+            Id::Entrez(s) => ("entrez_id".into(), s.clone()),
             Id::NcbiTranscript(s) => ("ncbi_transcript".into(), s.clone()),
             Id::EnsemblAccession(s) => ("ensembl_accession".into(), s.clone()),
             Id::EnsemblGene(s) => ("ensembl_gene".into(), s.clone()),
@@ -108,7 +106,7 @@ where
         {
             Id::NcbiTranscript(value)
         } else if value.parse::<usize>().is_ok() {
-            Id::NcbiGene(value)
+            Id::Entrez(value)
         } else {
             Id::GeneSymbol(value)
         }
@@ -146,10 +144,15 @@ impl ComparisonDataContainer {
 
 #[derive(Debug)]
 struct TxDbData {
+    /// The transcript database.
+    tx_db: TranscriptDb,
+
     /// All gene and transcript IDs present in the database.
     all_ids: HashSet<Id>,
+
     /// The reason for filtering, for each filtered ID.
     filter_reasons: HashMap<Id, BitFlags<FilterReason>>,
+
     /// Discarded MANE transcripts and the reason for their exclusion.
     discarded_mane_entries: HashMap<Id, BitFlags<FilterReason>>,
 }
@@ -209,6 +212,7 @@ impl TxDbData {
             .collect();
 
         Ok(TxDbData {
+            tx_db,
             all_ids,
             filter_reasons,
             discarded_mane_entries,
@@ -259,17 +263,9 @@ fn load_cdot_files(paths: &[PathBuf]) -> Result<IdentifierMap> {
         entry.insert(Id::from(&t.id));
 
         if let Some((accession, _)) = tx_id.rsplit_once('.') {
-            if accession.starts_with("ENS") {
-                entry.insert(Id::EnsemblAccession(accession.to_string()));
-            } else {
-                entry.insert(Id::NcbiAccession(accession.to_string()));
-            }
+            entry.insert(Id::from(accession));
         }
-        if t.gene_version.starts_with("ENSG") {
-            entry.insert(Id::EnsemblGene(t.gene_version.clone()));
-        } else {
-            entry.insert(Id::NcbiGene(t.gene_version.clone()));
-        }
+        entry.insert(Id::from(t.gene_version.clone()));
         entry.insert(Id::GeneVersion(t.gene_version.clone()));
         if let Some(ref gene_name) = t.gene_name {
             entry.insert(Id::GeneName(gene_name.clone()));
@@ -357,16 +353,16 @@ fn load_hgnc_set(path: impl AsRef<Path>) -> Result<IdentifierMap> {
         ids.insert(Id::GeneName(entry.name));
 
         if let Some(entrez) = entry.entrez_id {
-            ids.insert(Id::NcbiGene(entrez));
+            ids.insert(Id::Entrez(entrez));
         }
         if let Some(ensg) = entry.ensembl_gene_id {
             ids.insert(Id::EnsemblGene(ensg));
         }
         if let Some(refseq) = entry.refseq_accession {
-            ids.extend(refseq.into_iter().map(Id::NcbiAccession));
+            ids.extend(refseq.into_iter().map(Id::from));
         }
         if let Some(mane) = entry.mane_select {
-            ids.extend(mane.into_iter().map(|s| Id::from(&s)));
+            ids.extend(mane.into_iter().map(Id::from));
         }
         if let Some(alias_symbols) = entry.alias_symbol {
             ids.extend(alias_symbols.into_iter().map(Id::GeneAlias));
@@ -414,7 +410,7 @@ fn load_known_issues(path: impl AsRef<Path>) -> Result<HashMap<Id, String>> {
         let id = match record.id_type.as_str() {
             "hgnc_id" => Id::Hgnc(record.id),
             "gene_symbol" => Id::GeneSymbol(record.id),
-            "refseq_id" => Id::NcbiAccession(record.id),
+            "refseq_id" => Id::NcbiTranscript(record.id),
             "ensembl_id" => Id::EnsemblTranscript(record.id),
             _ => Id::from(&record.id),
         };
@@ -529,7 +525,8 @@ impl DatabaseChecker {
         self.check_discarded_mane(&data, &mut reporter);
         self.check_unexpected_filtered_genes(&data, &mut reporter);
         self.check_missing_cdot_entries(&data, &mut reporter);
-        self.check_missing_disease_genes(&data, &mut reporter);
+        self.check_disease_genes_missing_from_cdot(&data, &mut reporter);
+        self.check_disease_genes_covered_in_tx_db(&data, &mut reporter);
 
         reporter.write_to_file(&self.args.output)?;
         Ok(())
@@ -607,7 +604,12 @@ impl DatabaseChecker {
         }
     }
 
-    fn check_missing_disease_genes(&self, data: &ComparisonDataContainer, reporter: &mut Reporter) {
+    /// Check for disease genes that are missing from the cdot file.
+    fn check_disease_genes_missing_from_cdot(
+        &self,
+        data: &ComparisonDataContainer,
+        reporter: &mut Reporter,
+    ) {
         for id in data.disease_genes.difference(&data.cdot_genes) {
             let info = data.hgnc_map.get(id);
             let has_transcripts = info.is_some_and(|info| {
@@ -632,6 +634,89 @@ impl DatabaseChecker {
                 BitFlags::empty(),
                 details,
             );
+        }
+    }
+
+    /// Check that every disease gene is represented by at least one unfiltered transcript in the tx_db.
+    fn check_disease_genes_covered_in_tx_db(
+        &self,
+        data: &ComparisonDataContainer,
+        reporter: &mut Reporter,
+    ) {
+        for disease_gene_id in &data.disease_genes {
+            if !matches!(disease_gene_id, Id::Hgnc(_)) {
+                panic!(
+                    "disease_gene_id should be an hgnc id, but is {}",
+                    &disease_gene_id
+                );
+            }
+
+            let gene_in_db = data
+                .tx_db_data
+                .tx_db
+                .gene_to_tx
+                .iter()
+                .find(|g| g.gene_id == disease_gene_id.to_parts().1);
+
+            let (is_covered, details) = if let Some(gene_entry) = gene_in_db {
+                // The gene exists in the database. Now check its transcripts.
+                let db_tx_ids = &gene_entry.tx_ids;
+
+                let has_unfiltered_tx = db_tx_ids.iter().any(|tx_id_str| {
+                    let tx_id = Id::from(tx_id_str.as_str());
+                    !data.tx_db_data.filter_reasons.contains_key(&tx_id)
+                });
+
+                if has_unfiltered_tx {
+                    (true, None)
+                } else {
+                    let mut details_str =
+                        "Gene is in db, but has no unfiltered transcripts. ".to_string();
+                    if db_tx_ids.is_empty() {
+                        write!(
+                            details_str,
+                            "No transcripts are associated with this gene in the db."
+                        )
+                        .unwrap();
+                    } else {
+                        let filtered_txs: Vec<String> = db_tx_ids
+                            .iter()
+                            .filter_map(|tx_id_str| {
+                                let tx_id = Id::from(tx_id_str.as_str());
+                                data.tx_db_data
+                                    .filter_reasons
+                                    .get(&tx_id)
+                                    .map(|reason| format!("{} (filtered: {})", tx_id, reason))
+                            })
+                            .collect();
+                        write!(
+                            details_str,
+                            "All associated transcripts were filtered: [{}]",
+                            filtered_txs.join(", ")
+                        )
+                        .unwrap();
+                    }
+                    (false, Some(details_str))
+                }
+            } else {
+                (
+                    false,
+                    Some(
+                        "Disease gene HGNC ID not found in the transcript database's gene map."
+                            .to_string(),
+                    ),
+                )
+            };
+
+            if !is_covered {
+                reporter.add_entry(
+                    Status::Err,
+                    disease_gene_id.clone(),
+                    "Disease gene not covered by any transcript in tx_db".to_string(),
+                    BitFlags::empty(),
+                    details,
+                );
+            }
         }
     }
 }
