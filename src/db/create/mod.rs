@@ -717,6 +717,7 @@ impl TranscriptLoader {
                 });
                 if let Ok(seq) = seq {
                     let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
+                    let is_seleno = tx.biotype.as_ref().map(|bt| bt.contains(&BioType::Selenoprotein)).unwrap_or(false);
                     if seq.is_empty() {
                         return Either::Left((
                             Identifier::TxId(tx_id.clone()),
@@ -738,7 +739,7 @@ impl TranscriptLoader {
                             tx_seq_to_translate,
                             true,
                             "*",
-                            TranslationTable::Standard,
+                            if is_mt { TranslationTable::VertebrateMitochondrial } else if is_seleno { TranslationTable::Selenocysteine } else { TranslationTable::Standard },
                         ).expect("Translation should work, since the length is guaranteed to be a multiple of 3 at this point");
 
                         let mut reason = Reason::empty();
