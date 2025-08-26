@@ -23,6 +23,7 @@ expression: res
     ord: 1
     total: 23
   hgvs_g: g.41277381G>T
+  hgvs_n: n.1G>A
   hgvs_c: c.-113G>A
   hgvs_p: p.?
   cdna_pos:
@@ -54,6 +55,7 @@ expression: res
     ord: 1
     total: 22
   hgvs_g: g.41277381G>T
+  hgvs_n: n.1G>A
   hgvs_c: c.-194G>A
   hgvs_p: p.?
   cdna_pos:
@@ -83,6 +85,7 @@ expression: res
   feature_tags: []
   rank: ~
   hgvs_g: g.41277381G>T
+  hgvs_n: ~
   hgvs_c: ~
   hgvs_p: ~
   cdna_pos: ~
@@ -110,6 +113,7 @@ expression: res
     ord: 1
     total: 22
   hgvs_g: g.41277381G>T
+  hgvs_n: n.1G>A
   hgvs_c: c.-107G>A
   hgvs_p: p.?
   cdna_pos:
@@ -141,6 +145,7 @@ expression: res
     ord: 1
     total: 24
   hgvs_g: g.41277381G>T
+  hgvs_n: n.1G>A
   hgvs_c: c.-113G>A
   hgvs_p: p.?
   cdna_pos:

@@ -24,6 +24,7 @@ expression: res
     ord: 23
     total: 23
   hgvs_g: g.41197818G>C
+  hgvs_n: n.5582A>G
   hgvs_c: c.5469A>G
   hgvs_p: p.Ala1823=
   cdna_pos:
@@ -58,6 +59,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_g: g.41197818G>C
+  hgvs_n: n.5522A>G
   hgvs_c: c.5328A>G
   hgvs_p: p.Ala1776=
   cdna_pos:
@@ -92,6 +94,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_g: g.41197818G>C
+  hgvs_n: n.2176A>G
   hgvs_c: c.2157A>G
   hgvs_p: p.Ala719=
   cdna_pos:
@@ -126,6 +129,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_g: g.41197818G>C
+  hgvs_n: n.2190A>G
   hgvs_c: c.2083A>G
   hgvs_p: p.Asn695Asp
   cdna_pos:
@@ -160,6 +164,7 @@ expression: res
     ord: 24
     total: 24
   hgvs_g: g.41197818G>C
+  hgvs_n: n.5645A>G
   hgvs_c: c.5532A>G
   hgvs_p: p.Ala1844=
   cdna_pos:
