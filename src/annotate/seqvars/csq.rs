@@ -620,11 +620,13 @@ impl ConsequencePredictor {
 
         if let Some(var_c) = &projection.c {
             if transcript_biotype == TranscriptBiotype::Coding {
-                let cds_len = tx.stop_codon.unwrap() - tx.start_codon.unwrap();
+                // If there's no stop codon, we can't compute the cds_len.
+                // We can, however, still analyze any consequences before the (missing) stop codon.
+                let cds_len = tx.stop_codon.map(|stop| stop - tx.start_codon.unwrap());
                 context.cds_pos = transcript_location.is_exonic.then_some(match var_c {
                     HgvsVariant::CdsVariant { loc_edit, .. } => Pos {
                         ord: loc_edit.loc.inner().start.base,
-                        total: Some(cds_len),
+                        total: cds_len,
                     },
                     _ => panic!("Invalid CDS position: {:?}", var_c),
                 });
@@ -634,7 +636,9 @@ impl ConsequencePredictor {
                     Self::analyze_cds_variant(var_c, transcript_location.is_exonic, conservative);
 
                 if let Some(var_p) = &projection.p {
-                    let prot_len = cds_len / 3;
+                    let prot_len = cds_len
+                        .expect("cds_len cannot be None if hgvs.p projection has been successful")
+                        / 3;
                     context.protein_pos = match var_p {
                         HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
                             ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
