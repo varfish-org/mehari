@@ -25,6 +25,7 @@ expression: res
     ord: 2
     total: 30
   hgvs_g: g.193332509C>T
+  hgvs_n: n.203-3C>T
   hgvs_c: c.33-3C>T
   hgvs_p: p.?
   cdna_pos: ~

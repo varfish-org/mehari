@@ -21,6 +21,7 @@ expression: res
     ord: 41
     total: 313
   hgvs_g: g.179631246G>A
+  hgvs_n: n.9790C>T
   hgvs_c: c.9565C>T
   hgvs_p: p.Gln3189Ter
   cdna_pos:
@@ -56,6 +57,7 @@ expression: res
     ord: 41
     total: 363
   hgvs_g: g.179631246G>A
+  hgvs_n: n.9790C>T
   hgvs_c: c.9565C>T
   hgvs_p: p.Gln3189Ter
   cdna_pos:
@@ -89,6 +91,7 @@ expression: res
     ord: 40
     total: 191
   hgvs_g: g.179631246G>A
+  hgvs_n: n.9652C>T
   hgvs_c: c.9427C>T
   hgvs_p: p.Gln3143Ter
   cdna_pos:
@@ -122,6 +125,7 @@ expression: res
     ord: 41
     total: 312
   hgvs_g: g.179631246G>A
+  hgvs_n: n.9790C>T
   hgvs_c: c.9565C>T
   hgvs_p: p.Gln3189Ter
   cdna_pos:
@@ -155,6 +159,7 @@ expression: res
     ord: 41
     total: 46
   hgvs_g: g.179631246G>A
+  hgvs_n: n.9790C>T
   hgvs_c: c.9565C>T
   hgvs_p: p.Gln3189Ter
   cdna_pos:
@@ -188,6 +193,7 @@ expression: res
     ord: 40
     total: 192
   hgvs_g: g.179631246G>A
+  hgvs_n: n.9652C>T
   hgvs_c: c.9427C>T
   hgvs_p: p.Gln3143Ter
   cdna_pos:
@@ -221,6 +227,7 @@ expression: res
     ord: 40
     total: 192
   hgvs_g: g.179631246G>A
+  hgvs_n: n.9652C>T
   hgvs_c: c.9427C>T
   hgvs_p: p.Gln3143Ter
   cdna_pos:

@@ -251,6 +251,7 @@ impl ConsequencePredictor {
                 distance: None,
                 strand: 0,
                 hgvs_g,
+                hgvs_n: None,
                 hgvs_c: None,
                 hgvs_p: None,
                 cdna_pos: None,
@@ -718,7 +719,7 @@ impl ConsequencePredictor {
             }
         }
 
-        let (rank, hgvs_c, hgvs_p, cdna_pos, cds_pos, protein_pos) =
+        let (rank, hgvs_n, hgvs_c, hgvs_p, cdna_pos, cds_pos, protein_pos) =
             if !transcript_location.is_upstream && !transcript_location.is_downstream {
                 let projection = self.project_hgvs(&var_g, tx, transcript_biotype)?;
                 if projection.n.is_none() {
@@ -745,6 +746,14 @@ impl ConsequencePredictor {
                     &projection,
                 );
 
+                let hgvs_n = projection.n.as_ref().map(|var_n| {
+                    format!("{}", &NoRef(var_n))
+                        .split(':')
+                        .nth(1)
+                        .unwrap()
+                        .to_owned()
+                });
+
                 let hgvs_c = projection.c.as_ref().map(|var_c| {
                     format!("{}", &NoRef(var_c))
                         .split(':')
@@ -760,6 +769,7 @@ impl ConsequencePredictor {
 
                 (
                     Some(transcript_location.rank),
+                    hgvs_n,
                     hgvs_c,
                     hgvs_p,
                     consequence_ctx.cdna_pos,
@@ -767,7 +777,7 @@ impl ConsequencePredictor {
                     consequence_ctx.protein_pos,
                 )
             } else {
-                (None, None, None, None, None, None)
+                (None, None, None, None, None, None, None)
             };
 
         let feature_biotype = vec![match transcript_biotype {
@@ -836,6 +846,7 @@ impl ConsequencePredictor {
             feature_tags,
             rank,
             hgvs_g,
+            hgvs_n,
             hgvs_c,
             hgvs_p,
             cdna_pos,

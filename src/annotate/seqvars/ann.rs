@@ -846,6 +846,10 @@ pub struct AnnField {
     #[serde(alias = "HGVS.g")]
     pub hgvs_g: Option<String>,
 
+    /// HGVS n. notation.
+    #[serde(alias = "HGVS.n")]
+    pub hgvs_n: Option<String>,
+
     /// HGVS c. notation.
     #[serde(alias = "HGVS.c")]
     pub hgvs_c: Option<String>,
@@ -908,6 +912,7 @@ impl Default for AnnField {
             feature_tags: Default::default(),
             rank: Default::default(),
             hgvs_g: Default::default(),
+            hgvs_n: Default::default(),
             hgvs_c: Default::default(),
             hgvs_p: Default::default(),
             cdna_pos: Default::default(),
@@ -959,6 +964,12 @@ impl FromStr for AnnField {
             None
         } else {
             Some(hgvs_g.to_string())
+        };
+        let hgvs_n = fields.next().unwrap();
+        let hgvs_n = if hgvs_n.is_empty() {
+            None
+        } else {
+            Some(hgvs_n.to_string())
         };
         let hgvs_c = fields.next().unwrap();
         let hgvs_c = if hgvs_c.is_empty() {
@@ -1021,6 +1032,7 @@ impl FromStr for AnnField {
             feature_tags,
             rank,
             hgvs_g,
+            hgvs_n,
             hgvs_c,
             hgvs_p,
             cdna_pos,
@@ -1081,6 +1093,10 @@ impl std::fmt::Display for AnnField {
         write!(f, "|")?;
         if let Some(hgvs_g) = &self.hgvs_g {
             write!(f, "{}", hgvs_g)?;
+        }
+        write!(f, "|")?;
+        if let Some(hgvs_n) = &self.hgvs_n {
+            write!(f, "{}", hgvs_n)?;
         }
         write!(f, "|")?;
         if let Some(hgvs_c) = &self.hgvs_c {
@@ -1446,6 +1462,7 @@ mod test {
             feature_tags: vec![FeatureTag::Other("Other".to_string())],
             rank: Some(Rank { ord: 1, total: 2 }),
             hgvs_g: Some(String::from("HGVS.g")),
+            hgvs_n: Some(String::from("HGVS.n")),
             hgvs_c: Some(String::from("HGVS.c")),
             hgvs_p: Some(String::from("HGVS.p")),
             cdna_pos: Some(Pos {
@@ -1468,14 +1485,14 @@ mod test {
         assert_eq!(
             format!("{}", &value),
             "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|Coding|Other|1/2|HGVS.g|\
-            HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
+            HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
         );
     }
 
     #[test]
     fn ann_field_from_str() -> Result<(), anyhow::Error> {
         let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
-        Coding|Other|1/2|HGVS.g|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
+        Coding|Other|1/2|HGVS.g|HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
 
         let field = AnnField::from_str(value)?;
         assert_eq!(format!("{}", &field), value);
@@ -1486,7 +1503,7 @@ mod test {
     #[test]
     fn ann_field_from_str_with_empty_fields() -> Result<(), anyhow::Error> {
         let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
-        ||1/2|HGVS.g|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
+        ||1/2|HGVS.g|HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
 
         let field = AnnField::from_str(value)?;
         assert_eq!(format!("{}", &field), value);
@@ -1511,6 +1528,7 @@ mod test {
                 "Feature_Tags",
                 "Rank",
                 "HGVS.g",
+                "HGVS.n",
                 "HGVS.c",
                 "HGVS.p",
                 "cDNA.pos / cDNA.length",

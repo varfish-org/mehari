@@ -23,6 +23,7 @@ expression: res
     ord: 3
     total: 30
   hgvs_g: g.193332846A>G
+  hgvs_n: n.521+16A>G
   hgvs_c: c.351+16A>G
   hgvs_p: p.?
   cdna_pos: ~

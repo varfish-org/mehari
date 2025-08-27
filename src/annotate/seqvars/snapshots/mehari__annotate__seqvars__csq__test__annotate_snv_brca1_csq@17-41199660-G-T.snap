@@ -24,6 +24,7 @@ expression: res
     ord: 22
     total: 23
   hgvs_g: g.41199660G>T
+  hgvs_n: n.5580G>A
   hgvs_c: c.5467G>A
   hgvs_p: p.Ala1823Thr
   cdna_pos:
