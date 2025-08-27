@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.38.0](https://github.com/varfish-org/mehari/compare/v0.37.1...v0.38.0) (2025-08-27)
+
+
+### Features
+
+* include HGVS.n in Annotation ([#830](https://github.com/varfish-org/mehari/issues/830)) ([fa4d08d](https://github.com/varfish-org/mehari/commit/fa4d08d087c9e2e671c916b3cc66ed2fdb67d9c0))
+* introduce compression-level option for `mehari db create` ([#836](https://github.com/varfish-org/mehari/issues/836)) ([20638cc](https://github.com/varfish-org/mehari/commit/20638cc9cd2f7818f5367cf7395f2f20a1afe415))
+
+
+### Bug Fixes
+
+* refactor db check ([#822](https://github.com/varfish-org/mehari/issues/822)) ([0233177](https://github.com/varfish-org/mehari/commit/0233177a0afb49d434131580a5d6f8de15ace5c9))
+
 ## [0.37.1](https://github.com/varfish-org/mehari/compare/v0.37.0...v0.37.1) (2025-08-13)
 
 
