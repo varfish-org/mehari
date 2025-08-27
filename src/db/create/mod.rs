@@ -315,6 +315,11 @@ impl TranscriptLoader {
                 let hgnc_id = hgnc_id.parse()?;
                 self.hgnc_id_to_gene.insert(hgnc_id, gene);
                 self.hgnc_id_to_transcript_ids.entry(hgnc_id).or_default();
+            } else {
+                tracing::warn!(
+                    "Missing HGNC Id for gene {} (from cdot)",
+                    gene.gene_symbol.as_deref().unwrap_or("")
+                );
             }
         }
 
@@ -465,6 +470,18 @@ impl TranscriptLoader {
         // Check whether the transcript has any genome builds.
         let empty_genome_builds = |p: &Params| -> bool { p.tx.genome_builds.is_empty() };
 
+        // Check whether the transcript has tags cds_start_NF or cds_end_NF.
+        let cds_start_end_nf = |p: &Params| -> bool {
+            p.tx.genome_builds.values().any(|gb| {
+                if let Some(tag) = &gb.tag {
+                    tag.contains(&Tag::Other("cds_start_NF".into()))
+                        || tag.contains(&Tag::Other("cds_end_NF".into()))
+                } else {
+                    false
+                }
+            })
+        };
+
         // Check whether the transcript is marked as partial.
         // Ignore "partial" tag for NR transcripts.
         // For protein coding transcripts which are marked as partial,
@@ -519,12 +536,13 @@ impl TranscriptLoader {
         // The latter set relies on the grouping of transcripts by hgnc id,
         // e.g. to discard transcripts with an older version within the same hgnc group
         type Filter = fn(&Params) -> bool;
-        let tx_filters: [(Filter, Reason); 5] = [
+        let tx_filters: [(Filter, Reason); 6] = [
             (missing_hgnc, Reason::MissingHgncId),
             (empty_genome_builds, Reason::EmptyGenomeBuilds),
             (partial, Reason::OnlyPartialAlignmentInRefSeq),
             (predicted, Reason::PredictedTranscript),
             (biotype, Reason::Biotype),
+            (cds_start_end_nf, Reason::CdsStartOrEndNotConfirmed),
         ];
 
         #[derive(new)]
@@ -699,6 +717,7 @@ impl TranscriptLoader {
                 });
                 if let Ok(seq) = seq {
                     let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
+                    let is_seleno = tx.biotype.as_ref().map(|bt| bt.contains(&BioType::Selenoprotein)).unwrap_or(false);
                     if seq.is_empty() {
                         return Either::Left((
                             Identifier::TxId(tx_id.clone()),
@@ -720,7 +739,7 @@ impl TranscriptLoader {
                             tx_seq_to_translate,
                             true,
                             "*",
-                            TranslationTable::Standard,
+                            if is_mt { TranslationTable::VertebrateMitochondrial } else if is_seleno { TranslationTable::Selenocysteine } else { TranslationTable::Standard },
                         ).expect("Translation should work, since the length is guaranteed to be a multiple of 3 at this point");
 
                         let mut reason = Reason::empty();
@@ -1508,6 +1527,7 @@ pub(crate) enum Reason {
     ThreePrimeEndTruncated,
     TranscriptPriority,
     UseNmTranscriptInsteadOfNr,
+    CdsStartOrEndNotConfirmed,
 }
 
 #[bitflags]
