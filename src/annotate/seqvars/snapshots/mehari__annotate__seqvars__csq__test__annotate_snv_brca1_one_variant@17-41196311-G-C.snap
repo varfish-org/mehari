@@ -21,6 +21,7 @@ expression: res
     - ref_seq_select
   rank: ~
   hgvs_g: g.41196311G>C
+  hgvs_n: ~
   hgvs_c: ~
   hgvs_p: ~
   cdna_pos: ~
@@ -46,6 +47,7 @@ expression: res
   feature_tags: []
   rank: ~
   hgvs_g: g.41196311G>C
+  hgvs_n: ~
   hgvs_c: ~
   hgvs_p: ~
   cdna_pos: ~
@@ -71,6 +73,7 @@ expression: res
   feature_tags: []
   rank: ~
   hgvs_g: g.41196311G>C
+  hgvs_n: ~
   hgvs_c: ~
   hgvs_p: ~
   cdna_pos: ~
@@ -96,6 +99,7 @@ expression: res
   feature_tags: []
   rank: ~
   hgvs_g: g.41196311G>C
+  hgvs_n: ~
   hgvs_c: ~
   hgvs_p: ~
   cdna_pos: ~
@@ -121,6 +125,7 @@ expression: res
   feature_tags: []
   rank: ~
   hgvs_g: g.41196311G>C
+  hgvs_n: ~
   hgvs_c: ~
   hgvs_p: ~
   cdna_pos: ~

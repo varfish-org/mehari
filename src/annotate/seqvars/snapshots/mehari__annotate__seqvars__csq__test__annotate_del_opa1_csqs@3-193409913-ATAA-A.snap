@@ -25,6 +25,7 @@ expression: res
     ord: 30
     total: 31
   hgvs_g: g.193409914_193409916del
+  hgvs_n: n.3216_3218del
   hgvs_c: c.3046_3048del
   hgvs_p: p.Ter1016IleextTer12
   cdna_pos:

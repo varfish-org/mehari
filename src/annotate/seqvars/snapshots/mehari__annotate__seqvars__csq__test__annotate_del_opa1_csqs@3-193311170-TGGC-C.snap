@@ -23,6 +23,7 @@ expression: res
     ord: 1
     total: 31
   hgvs_g: g.193311170_193311173delinsC
+  hgvs_n: n.174_176del
   hgvs_c: c.4_6del
   hgvs_p: p.Trp2del
   cdna_pos:

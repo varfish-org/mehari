@@ -23,6 +23,7 @@ expression: res
     ord: 23
     total: 23
   hgvs_g: g.41196313G>C
+  hgvs_n: n.7087C>G
   hgvs_c: c.*1382C>G
   hgvs_p: p.?
   cdna_pos:
@@ -54,6 +55,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_g: g.41196313G>C
+  hgvs_n: n.7027C>G
   hgvs_c: c.*1382C>G
   hgvs_p: p.?
   cdna_pos:
@@ -85,6 +87,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_g: g.41196313G>C
+  hgvs_n: n.3681C>G
   hgvs_c: c.*1382C>G
   hgvs_p: p.?
   cdna_pos:
@@ -116,6 +119,7 @@ expression: res
     ord: 22
     total: 22
   hgvs_g: g.41196313G>C
+  hgvs_n: n.3695C>G
   hgvs_c: c.*1488C>G
   hgvs_p: p.?
   cdna_pos:
@@ -147,6 +151,7 @@ expression: res
     ord: 24
     total: 24
   hgvs_g: g.41196313G>C
+  hgvs_n: n.7150C>G
   hgvs_c: c.*1382C>G
   hgvs_p: p.?
   cdna_pos:

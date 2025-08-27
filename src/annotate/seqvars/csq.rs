@@ -223,6 +223,7 @@ impl ConsequencePredictor {
                 distance: None,
                 strand: 0,
                 hgvs_g,
+                hgvs_n: None,
                 hgvs_c: None,
                 hgvs_p: None,
                 cdna_pos: None,
@@ -600,7 +601,7 @@ impl ConsequencePredictor {
             }
         }
 
-        let (rank, hgvs_c, hgvs_p, cdna_pos, cds_pos, protein_pos) =
+        let (rank, hgvs_n, hgvs_c, hgvs_p, cdna_pos, cds_pos, protein_pos) =
             if !is_upstream && !is_downstream {
                 // TODO: do not include such transcripts when building the tx database.
                 let var_n = self.mapper.g_to_n(&var_g, &tx.id).map_or_else(
@@ -701,14 +702,19 @@ impl ConsequencePredictor {
 
                         (var_c, Some(var_p), hgvs_p, cds_pos, protein_pos)
                     }
-                    TranscriptBiotype::NonCoding => (var_n, None, None, None, None),
+                    TranscriptBiotype::NonCoding => (var_n.clone(), None, None, None, None),
                     _ => unreachable!("invalid transcript biotype: {:?}", transcript_biotype),
                 };
+
+                let hgvs_n = format!("{}", &NoRef(&var_n));
+                let hgvs_n = hgvs_n.split(':').nth(1).unwrap().to_owned();
+
                 let hgvs_c = format!("{}", &NoRef(&var_c));
                 let hgvs_c = hgvs_c.split(':').nth(1).unwrap().to_owned();
 
                 (
                     Some(rank),
+                    Some(hgvs_n),
                     Some(hgvs_c),
                     hgvs_p,
                     cdna_pos,
@@ -716,7 +722,7 @@ impl ConsequencePredictor {
                     protein_pos,
                 )
             } else {
-                (None, None, None, None, None, None)
+                (None, None, None, None, None, None, None)
             };
 
         // Take a highest-ranking consequence and derive putative impact from it.
@@ -767,6 +773,7 @@ impl ConsequencePredictor {
             feature_tags,
             rank,
             hgvs_g,
+            hgvs_n,
             hgvs_c,
             hgvs_p,
             cdna_pos,
