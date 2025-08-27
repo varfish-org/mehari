@@ -802,11 +802,12 @@ impl ConsequencePredictor {
 
         if consequences.is_empty() {
             tracing::error!(
-                "No consequences for {:?} on {} (hgvs_c={}, hgvs_p={}) - adding `gene_variant`; \
+                "No consequences for {:?} on {} (hgvs_n={}, hgvs_c={}, hgvs_p={}) - adding `gene_variant`; \
                 most likely the transcript has multiple stop codons and the variant \
                 lies behind the first.",
                 orig_var,
                 &tx_record.tx_ac,
+                hgvs_n.as_deref().unwrap_or("None"),
                 hgvs_c.as_deref().unwrap_or("None"),
                 hgvs_p.as_deref().unwrap_or("None")
             );
