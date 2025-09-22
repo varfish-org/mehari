@@ -1,0 +1,108 @@
+//! Contig name harmonization.
+
+use biocommons_bioutils::assemblies::{Assembly, Sequence, ASSEMBLY_INFOS};
+use std::collections::HashMap;
+
+/// A manager for contig name harmonization.
+#[derive(Debug, Clone)]
+pub struct ContigNameManager {
+    /// The genome assembly.
+    assembly: Assembly,
+    /// Mapping from any known alias (e.g., "1", "chr1", "NC_000001.10") to the RefSeq accession.
+    alias_to_accession: HashMap<String, String>,
+    /// Mapping from the RefSeq accession back to the primary sequence info.
+    accession_to_info: HashMap<String, Sequence>,
+    /// Mapping from the primary name (e.g., "1", "X", "MT") to the chromosome number.
+    name_to_chrom_no: HashMap<String, u32>,
+}
+
+impl ContigNameManager {
+    /// Create a new manager for a given assembly.
+    pub fn new(assembly: Assembly) -> Self {
+        let mut alias_to_accession = HashMap::new();
+        let mut accession_to_info = HashMap::new();
+        let mut name_to_chrom_no = HashMap::new();
+
+        for seq in &ASSEMBLY_INFOS[assembly].sequences {
+            // Store mapping from accession to the full sequence info.
+            accession_to_info.insert(seq.refseq_ac.clone(), seq.clone());
+
+            // Map all known identifiers to the RefSeq accession.
+            alias_to_accession.insert(seq.name.clone(), seq.refseq_ac.clone());
+            alias_to_accession.insert(seq.refseq_ac.clone(), seq.refseq_ac.clone());
+            for alias in &seq.aliases {
+                alias_to_accession.insert(alias.clone(), seq.refseq_ac.clone());
+            }
+        }
+
+        // Build chrom_no map based on the primary sequence names.
+        for i in 1..=22 {
+            name_to_chrom_no.insert(format!("{}", i), i);
+        }
+        name_to_chrom_no.insert("X".to_string(), 23);
+        name_to_chrom_no.insert("Y".to_string(), 24);
+        name_to_chrom_no.insert("MT".to_string(), 25);
+        name_to_chrom_no.insert("M".to_string(), 25); // Add "M" as an alias for mitochondrial
+
+        Self {
+            assembly,
+            alias_to_accession,
+            accession_to_info,
+            name_to_chrom_no,
+        }
+    }
+
+    /// Get the RefSeq accession for any given contig name/alias.
+    pub fn get_accession(&self, alias: &str) -> Option<&String> {
+        self.alias_to_accession.get(alias)
+    }
+
+    /// Get the primary display name (e.g., "1", "X", "MT") for any given alias.
+    fn get_primary_name(&self, alias: &str) -> Option<&String> {
+        self.get_accession(alias)
+            .and_then(|ac| self.accession_to_info.get(ac))
+            .map(|info| &info.name)
+    }
+
+    /// Get the contig name formatted in the style of the VCF header for the assembly (e.g., with "chr").
+    /// GRCh38 uses "chr" prefix, GRCh37 does not (except for chrM/MT).
+    pub fn get_assembly_name(&self, alias: &str) -> Option<String> {
+        self.get_accession(alias)
+            .and_then(|ac| self.accession_to_info.get(ac))
+            .map(|info| {
+                if self.assembly == Assembly::Grch38 {
+                    info.aliases
+                        .iter()
+                        .find(|a| a.starts_with("chr"))
+                        .cloned()
+                        .unwrap_or_else(|| info.name.clone())
+                } else {
+                    info.name.clone()
+                }
+            })
+    }
+
+    /// Get the chromosome number (1-22, 23=X, 24=Y, 25=MT) for any given alias.
+    pub fn get_chrom_no(&self, alias: &str) -> Option<u32> {
+        self.get_primary_name(alias)
+            .and_then(|name| self.name_to_chrom_no.get(name).copied())
+    }
+
+    /// Check if the contig is chromosome X.
+    pub fn is_chr_x(&self, alias: &str) -> bool {
+        self.get_primary_name(alias)
+            .map_or(false, |name| name == "X")
+    }
+
+    /// Check if the contig is chromosome Y.
+    pub fn is_chr_y(&self, alias: &str) -> bool {
+        self.get_primary_name(alias)
+            .map_or(false, |name| name == "Y")
+    }
+
+    /// Check if the contig is mitochondrial DNA.
+    pub fn is_chr_mt(&self, alias: &str) -> bool {
+        self.get_primary_name(alias)
+            .map_or(false, |name| name == "MT" || name == "M")
+    }
+}

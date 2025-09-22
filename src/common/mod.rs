@@ -1,7 +1,6 @@
 //! Commonly used code.
 
 use annonars::common::cli::CANONICAL;
-use annonars::freqs::cli::import::reading::ContigMap;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -11,6 +10,7 @@ use byte_unit::{Byte, UnitType};
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 
+pub mod contig;
 pub mod io;
 pub mod noodles;
 
@@ -286,6 +286,7 @@ pub fn guess_assembly_from_vcf(
 }
 
 use ::noodles::fasta::fai;
+use annonars::freqs::cli::import::reading::ContigMap;
 use std::path::Path;
 
 /// Guess the assembly from the given FASTA file by reading its index (.fai).

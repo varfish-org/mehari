@@ -580,9 +580,9 @@ dependencies = [
 
 [[package]]
 name = "biocommons-bioutils"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82c91bd0b62cec4b6317445506ed4947a53c320942a681c5a086f4d576aa4c99"
+checksum = "fae2a4d60347d94aba53ad0e2fa8b5a63f3acec856d5078b217df10731455206"
 dependencies = [
  "enum-map",
  "flate2",

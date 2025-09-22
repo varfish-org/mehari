@@ -71,12 +71,11 @@ pub struct ConsequencePredictor {
     /// The internal transcript provider for locating transcripts.
     #[derivative(Debug = "ignore")]
     pub(crate) provider: Arc<MehariProvider>,
+
     /// Assembly mapper for variant consequence prediction.
     #[derivative(Debug = "ignore")]
     mapper: assembly::Mapper,
-    /// Mapping from chromosome name to accession.
-    #[derivative(Debug = "ignore")]
-    chrom_to_acc: HashMap<String, String>,
+
     /// Configuration for the predictor.
     #[derivative(Debug = "ignore")]
     config: Config,
@@ -92,7 +91,6 @@ pub type Consequences = BitFlags<Consequence>;
 impl ConsequencePredictor {
     pub fn new(provider: Arc<MehariProvider>, config: Config) -> Self {
         tracing::info!("Building transcript interval trees ...");
-        let chrom_to_acc = provider.build_chrom_to_acc(None);
 
         let reference_available = provider.reference_available();
 
@@ -110,7 +108,6 @@ impl ConsequencePredictor {
         ConsequencePredictor {
             provider,
             mapper,
-            chrom_to_acc,
             config,
         }
     }
@@ -147,7 +144,10 @@ impl ConsequencePredictor {
         }
 
         // Obtain accession from chromosome name.
-        let chrom_acc = self.chrom_to_acc.get(&norm_var.chromosome);
+        let chrom_acc = self
+            .provider
+            .contig_manager
+            .get_accession(&norm_var.chromosome);
         let chrom_acc = if let Some(chrom_acc) = chrom_acc {
             chrom_acc
         } else {
