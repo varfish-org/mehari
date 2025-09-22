@@ -6,8 +6,6 @@ use std::collections::HashMap;
 /// A manager for contig name harmonization.
 #[derive(Debug, Clone)]
 pub struct ContigNameManager {
-    /// The genome assembly.
-    assembly: Assembly,
     /// Mapping from any known alias (e.g., "1", "chr1", "NC_000001.10") to the RefSeq accession.
     alias_to_accession: HashMap<String, String>,
     /// Mapping from the RefSeq accession back to the primary sequence info.
@@ -45,7 +43,6 @@ impl ContigNameManager {
         name_to_chrom_no.insert("M".to_string(), 25); // Add "M" as an alias for mitochondrial
 
         Self {
-            assembly,
             alias_to_accession,
             accession_to_info,
             name_to_chrom_no,
@@ -64,24 +61,6 @@ impl ContigNameManager {
             .map(|info| &info.name)
     }
 
-    /// Get the contig name formatted in the style of the VCF header for the assembly (e.g., with "chr").
-    /// GRCh38 uses "chr" prefix, GRCh37 does not (except for chrM/MT).
-    pub fn get_assembly_name(&self, alias: &str) -> Option<String> {
-        self.get_accession(alias)
-            .and_then(|ac| self.accession_to_info.get(ac))
-            .map(|info| {
-                if self.assembly == Assembly::Grch38 {
-                    info.aliases
-                        .iter()
-                        .find(|a| a.starts_with("chr"))
-                        .cloned()
-                        .unwrap_or_else(|| info.name.clone())
-                } else {
-                    info.name.clone()
-                }
-            })
-    }
-
     /// Get the chromosome number (1-22, 23=X, 24=Y, 25=MT) for any given alias.
     pub fn get_chrom_no(&self, alias: &str) -> Option<u32> {
         self.get_primary_name(alias)
@@ -90,19 +69,17 @@ impl ContigNameManager {
 
     /// Check if the contig is chromosome X.
     pub fn is_chr_x(&self, alias: &str) -> bool {
-        self.get_primary_name(alias)
-            .map_or(false, |name| name == "X")
+        self.get_primary_name(alias).is_some_and(|name| name == "X")
     }
 
     /// Check if the contig is chromosome Y.
     pub fn is_chr_y(&self, alias: &str) -> bool {
-        self.get_primary_name(alias)
-            .map_or(false, |name| name == "Y")
+        self.get_primary_name(alias).is_some_and(|name| name == "Y")
     }
 
     /// Check if the contig is mitochondrial DNA.
     pub fn is_chr_mt(&self, alias: &str) -> bool {
         self.get_primary_name(alias)
-            .map_or(false, |name| name == "MT" || name == "M")
+            .is_some_and(|name| name == "MT" || name == "M")
     }
 }

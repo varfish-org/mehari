@@ -31,12 +31,6 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Mitochondrial accessions.
-const MITOCHONDRIAL_ACCESSIONS: &[&str] = &[
-    "NC_012920.1", // rCRS
-    "NC_001807.4", // CRS
-];
-
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
 
 pub struct TxIntervalTrees {
@@ -818,8 +812,9 @@ impl ProviderInterface for Provider {
             .collect::<Vec<(i32, i32)>>();
         tmp.sort();
 
-        let is_mitochondrial = MITOCHONDRIAL_ACCESSIONS
-            .contains(&tx.genome_alignments.first().unwrap().contig.as_str());
+        let is_mitochondrial = self
+            .contig_manager
+            .is_chr_mt(tx.genome_alignments.first().unwrap().contig.as_str());
 
         let lengths = tmp.into_iter().map(|(_, length)| length).collect();
         Ok(TxIdentityInfo {
