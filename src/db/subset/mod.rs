@@ -6,7 +6,6 @@ use crate::common::contig::ContigNameManager;
 use crate::db::TranscriptDatabase;
 use crate::pbs::txs::{TranscriptDb, TxSeqDatabase};
 use anyhow::{Error, Result};
-use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
 use clap::Parser;
 use indexmap::{IndexMap, IndexSet};
 use noodles::vcf::variant::Record;

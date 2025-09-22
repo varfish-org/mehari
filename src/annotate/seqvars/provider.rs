@@ -311,11 +311,12 @@ impl Provider {
 
         let reference_reader = match (reference, in_memory_reference) {
             (Some(path), false) => Some(ReferenceReaderImpl::Unbuffered(
-                UnbufferedIndexedFastaAccess::from_path(path)
+                UnbufferedIndexedFastaAccess::from_path(path, contig_manager.clone())
                     .expect("Failed to open reference FASTA file"),
             )),
             (Some(path), true) => Some(ReferenceReaderImpl::InMemory(
-                InMemoryFastaAccess::from_path(path).expect("Failed to open reference FASTA file"),
+                InMemoryFastaAccess::from_path(path, contig_manager.clone())
+                    .expect("Failed to open reference FASTA file"),
             )),
             (None, _) => None,
         };
@@ -537,12 +538,6 @@ impl Provider {
     pub fn reference_available(&self) -> bool {
         self.reference_reader.is_some()
     }
-
-    pub fn build_chrom_to_acc(&self, assembly: Option<Assembly>) -> HashMap<String, String> {
-        let acc_to_chrom: IndexMap<String, String> =
-            self.get_assembly_map(assembly.unwrap_or_else(|| self.assembly()));
-        _chrom_to_acc(&acc_to_chrom).into_iter().collect()
-    }
 }
 
 impl ProviderInterface for Provider {
@@ -556,8 +551,13 @@ impl ProviderInterface for Provider {
         &self.schema_version
     }
 
-    fn get_assembly_map(&self, assembly: Assembly) -> indexmap::IndexMap<String, String> {
-        _get_assembly_map(assembly)
+    fn get_assembly_map(&self, assembly: Assembly) -> IndexMap<String, String> {
+        IndexMap::from_iter(
+            ASSEMBLY_INFOS[assembly]
+                .sequences
+                .iter()
+                .map(|record| (record.refseq_ac.clone(), record.name.clone())),
+        )
     }
 
     fn get_gene_info(&self, _hgnc: &str) -> Result<hgvs::data::interface::GeneInfoRecord, Error> {
@@ -898,29 +898,6 @@ impl ProviderInterface for Provider {
             alt_aln_method: NCBI_ALN_METHOD.to_string(),
         }])
     }
-}
-
-fn _get_assembly_map(assembly: Assembly) -> IndexMap<String, String> {
-    IndexMap::from_iter(
-        ASSEMBLY_INFOS[assembly]
-            .sequences
-            .iter()
-            .map(|record| (record.refseq_ac.clone(), record.name.clone())),
-    )
-}
-
-fn _chrom_to_acc(acc_to_chrom: &IndexMap<String, String>) -> IndexMap<String, String> {
-    let mut chrom_to_acc = IndexMap::with_capacity(acc_to_chrom.len());
-    for (acc, chrom) in acc_to_chrom {
-        let chrom = if chrom.starts_with("chr") {
-            chrom.strip_prefix("chr").unwrap()
-        } else {
-            chrom
-        };
-        chrom_to_acc.insert(chrom.to_string(), acc.clone());
-        chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
-    }
-    chrom_to_acc
 }
 
 #[cfg(test)]

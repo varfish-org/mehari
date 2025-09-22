@@ -397,7 +397,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                 tracing::info!("Building strucvars predictors...");
                 data.strucvars_predictors.insert(
                     genome_release,
-                    StrucvarConsequencePredictor::new(provider.clone(), assembly),
+                    StrucvarConsequencePredictor::new(provider.clone()),
                 );
                 enabled_sources.push((genome_release, Endpoint::Transcripts));
                 tracing::info!(
