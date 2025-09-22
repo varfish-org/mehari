@@ -1,9 +1,11 @@
+use crate::common::contig::ContigNameManager;
 use anyhow::anyhow;
 use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub trait ReferenceReader {
     fn get(
