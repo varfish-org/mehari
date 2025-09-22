@@ -1606,6 +1606,7 @@ mod test {
         load_tx_db, run_with_writer, Args, AsyncAnnotatedVariantWriter, PathOutput,
     };
     use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
+    use crate::common::TsvContigStyle;
     use csv::ReaderBuilder;
     use futures::TryStreamExt;
     use pretty_assertions::assert_eq;
@@ -2116,6 +2117,7 @@ mod test {
                     frequencies: None,
                     clinvar: None,
                 },
+                tsv_contig_style: TsvContigStyle::Auto,
             },
         )
         .await?;

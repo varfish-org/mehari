@@ -22,6 +22,19 @@ pub struct Args {
     pub verbose: Verbosity<InfoLevel>,
 }
 
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TsvContigStyle {
+    /// Use contig name from input VCF as is.
+    Passthrough,
+    /// Enforce "chr" prefix, using canonical name from assembly info.
+    WithChr,
+    /// Enforce no "chr" prefix, using canonical name from assembly info.
+    WithoutChr,
+    /// Use canonical name, with "chr" prefix for GRCh38 and without for GRCh37.
+    #[default]
+    Auto,
+}
+
 /// Helper to print the current memory resident set size via `tracing`.
 pub fn trace_rss_now() {
     let me = procfs::process::Process::myself().unwrap();

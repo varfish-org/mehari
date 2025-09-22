@@ -1,4 +1,6 @@
 //! Annotation of sequence variants.
+use crate::common::TsvContigStyle;
+use clap::builder::ArgPredicate;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt::Display;
@@ -18,6 +20,7 @@ use crate::annotate::seqvars::csq::{
 use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
+use crate::common::contig::ContigNameManager;
 use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
 use crate::common::{guess_assembly_from_vcf, GenomeRelease};
 use crate::db::merge::merge_transcript_databases;
@@ -120,6 +123,16 @@ pub struct Args {
     /// Transcript annotation related settings
     #[command(flatten)]
     pub transcript_settings: TranscriptSettings,
+
+    /// Style for contig names in TSV output.
+    #[arg(
+        long,
+        value_enum,
+        default_value_if("path_output_vcf", ArgPredicate::IsPresent, "passthrough"),
+        default_value_if("path_output_tsv", ArgPredicate::IsPresent, "auto"),
+        required_unless_present("path_output_vcf")
+    )]
+    pub tsv_contig_style: TsvContigStyle,
 }
 
 #[derive(Debug, Display, Copy, Clone, clap::ValueEnum, PartialEq, Eq, parse_display::FromStr)]
@@ -480,6 +493,8 @@ struct VarFishSeqvarTsvWriter {
     pedigree: Option<PedigreeByName>,
     header: Option<VcfHeader>,
     hgnc_map: Option<FxHashMap<String, HgncRecord>>,
+    contig_manager: Option<ContigNameManager>,
+    tsv_contig_style: TsvContigStyle,
 }
 
 /// Entry with genotype (`gt`), coverage (`dp`), allele depth (`ad`), somatic quality (`sq`) and
@@ -565,7 +580,7 @@ impl GenotypeCalls {
 
 impl VarFishSeqvarTsvWriter {
     // Create new TSV writer from path.
-    pub fn with_path<P>(p: P) -> Self
+    pub fn with_path<P>(p: P, tsv_contig_style: TsvContigStyle) -> Self
     where
         P: AsRef<Path>,
     {
@@ -582,6 +597,8 @@ impl VarFishSeqvarTsvWriter {
             assembly: None,
             pedigree: None,
             header: None,
+            contig_manager: None,
+            tsv_contig_style,
         }
     }
 
@@ -602,28 +619,46 @@ impl VarFishSeqvarTsvWriter {
         &self,
         record: &VcfRecord,
         tsv_record: &mut VarFishSeqvarTsvRecord,
-    ) -> Result<bool, anyhow::Error> {
+    ) -> Result<bool, Error> {
         let assembly = self.assembly.expect("assembly must have been set");
+        let contig_manager = self
+            .contig_manager
+            .as_ref()
+            .expect("contig manager must be set");
+
         tsv_record.release = match assembly {
             Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
             Assembly::Grch38 => String::from("GRCh38"),
         };
         let name = record.reference_sequence_name();
-        // strip "chr" prefix from `name`
-        let name = if let Some(stripped) = name.strip_prefix("chr") {
-            stripped
-        } else {
-            name
-        };
-        // add back "chr" prefix if necessary (for GRCh38)
-        tsv_record.chromosome = if assembly == Assembly::Grch38 {
-            format!("chr{}", name)
-        } else {
-            name.to_string()
-        };
 
-        if let Some(chromosome_no) = CHROM_TO_CHROM_NO.get(&tsv_record.chromosome) {
-            tsv_record.chromosome_no = *chromosome_no;
+        if let Some(chromosome_no) = contig_manager.get_chrom_no(name) {
+            tsv_record.chromosome_no = chromosome_no;
+            let primary_name = contig_manager
+                .get_primary_name(name)
+                .expect("must exist if chrom_no exists");
+
+            tsv_record.chromosome = match self.tsv_contig_style {
+                TsvContigStyle::Passthrough => name.to_string(),
+                TsvContigStyle::WithChr => {
+                    if primary_name.starts_with("chr") {
+                        primary_name.clone()
+                    } else {
+                        format!("chr{}", primary_name)
+                    }
+                }
+                TsvContigStyle::WithoutChr => primary_name
+                    .strip_prefix("chr")
+                    .unwrap_or(primary_name)
+                    .to_string(),
+                TsvContigStyle::Auto => {
+                    if assembly == Assembly::Grch38 {
+                        format!("chr{}", primary_name)
+                    } else {
+                        primary_name.clone()
+                    }
+                }
+            };
         } else {
             return Ok(false);
         }
@@ -1382,7 +1417,8 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
     }
 
     fn set_assembly(&mut self, assembly: Assembly) {
-        self.assembly = Some(assembly)
+        self.assembly = Some(assembly);
+        self.contig_manager = Some(ContigNameManager::new(assembly));
     }
 
     fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
@@ -1983,7 +2019,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             .path_output_tsv
             .as_ref()
             .expect("tsv path must be set; vcf and tsv are mutually exclusive, vcf unset");
-        let mut writer = VarFishSeqvarTsvWriter::with_path(path_output_tsv);
+        let mut writer = VarFishSeqvarTsvWriter::with_path(path_output_tsv, args.tsv_contig_style);
 
         // Load the pedigree.
         tracing::info!("Loading pedigree...");
@@ -2293,6 +2329,7 @@ mod test {
     use super::{run, Args, PathOutput};
     use crate::annotate::cli::ConsequenceBy;
     use crate::annotate::cli::{Sources, TranscriptSettings};
+    use crate::common::TsvContigStyle;
     use clap_verbosity_flag::Verbosity;
     use pretty_assertions::assert_eq;
     use temp_testdir::TempDir;
@@ -2330,6 +2367,7 @@ mod test {
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: None,
+            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;
@@ -2379,6 +2417,7 @@ mod test {
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
+            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;
@@ -2434,6 +2473,7 @@ mod test {
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
+            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;
@@ -2483,6 +2523,7 @@ mod test {
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
+            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;
@@ -2534,6 +2575,7 @@ mod test {
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
+            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;
@@ -2585,6 +2627,7 @@ mod test {
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
             hgnc: Some(format!("{prefix}/hgnc.tsv")),
+            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;

@@ -55,7 +55,7 @@ impl ContigNameManager {
     }
 
     /// Get the primary display name (e.g., "1", "X", "MT") for any given alias.
-    fn get_primary_name(&self, alias: &str) -> Option<&String> {
+    pub(crate) fn get_primary_name(&self, alias: &str) -> Option<&String> {
         self.get_accession(alias)
             .and_then(|ac| self.accession_to_info.get(ac))
             .map(|info| &info.name)

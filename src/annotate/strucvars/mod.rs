@@ -13,7 +13,7 @@ use anyhow::Error;
 use bio::data_structures::interval_tree::IntervalTree;
 use biocommons_bioutils::assemblies::Assembly;
 use chrono::Utc;
-use clap::{Args as ClapArgs, Parser};
+use clap::{builder::ArgPredicate, Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use futures::TryStreamExt;
@@ -40,9 +40,9 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, IntoEnumIterator};
 use uuid::Uuid;
 
-use crate::common::guess_assembly_from_vcf;
 use crate::common::noodles::{open_variant_reader, NoodlesVariantReader};
 use crate::common::GenomeRelease;
+use crate::common::{guess_assembly_from_vcf, TsvContigStyle};
 use crate::finalize_buf_writer;
 use crate::ped::PedigreeByName;
 
@@ -101,6 +101,16 @@ pub struct Args {
     /// Optionally, value to write to `##fileDate`.
     #[arg(long)]
     pub file_date: Option<String>,
+
+    /// Style for contig names in TSV output.
+    #[arg(
+        long,
+        value_enum,
+        default_value_if("path_output_vcf", ArgPredicate::IsPresent, "passthrough"),
+        default_value_if("path_output_tsv", ArgPredicate::IsPresent, "auto"),
+        required_unless_present("path_output_vcf")
+    )]
+    pub tsv_contig_style: TsvContigStyle,
 }
 
 /// Command line arguments to enforce either `--path-output-vcf` or `--path-output-tsv`.
@@ -515,6 +525,7 @@ pub mod vcf_header {
 }
 
 use crate::annotate::strucvars::vcf_header::{FILE_FORMAT_MAJOR, FILE_FORMAT_MINOR};
+use crate::common::contig::ContigNameManager;
 
 /// Writing of structural variants to VarFish TSV files.
 struct VarFishStrucvarTsvWriter {
@@ -1728,6 +1739,15 @@ pub async fn guess_sv_caller(
 
 /// Trait that allows the conversion from a VCF record into a `VarFishStrucvarTsvRecord`.
 pub trait VcfRecordConverter {
+    /// Returns the assembly for the converter.
+    fn assembly(&self) -> Assembly;
+
+    /// Returns the TSV contig style.
+    fn tsv_contig_style(&self) -> TsvContigStyle;
+
+    /// Returns a reference to the contig name manager.
+    fn contig_manager(&self) -> &ContigNameManager;
+
     /// Convert the VCF record into a `VarFishStrucvarTsvRecord`.
     ///
     /// The UUID is passed separately to allow for deterministic UUIDs when necessary.
@@ -1751,12 +1771,11 @@ pub trait VcfRecordConverter {
         pedigree: &PedigreeByName,
         vcf_record: &VcfRecord,
         uuid: Uuid,
-        genome_release: GenomeRelease,
     ) -> Result<VarFishStrucvarTsvRecord, anyhow::Error> {
         let mut tsv_record = VarFishStrucvarTsvRecord::default();
 
         self.fill_sv_type(vcf_record, &mut tsv_record)?;
-        self.fill_coords(vcf_record, genome_release, &mut tsv_record)?;
+        self.fill_coords(vcf_record, &mut tsv_record)?;
         self.fill_callers_uuid(uuid, &mut tsv_record)?;
         self.fill_genotypes(pedigree, vcf_record, &mut tsv_record)?;
         self.fill_cis(vcf_record, &mut tsv_record)?;
@@ -1871,32 +1890,50 @@ pub trait VcfRecordConverter {
     fn fill_coords(
         &self,
         vcf_record: &VcfRecord,
-        genome_release: GenomeRelease,
         tsv_record: &mut VarFishStrucvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
+        let assembly = self.assembly();
+        let contig_manager = self.contig_manager();
+
+        let format_contig = |name: &str, primary: &str| -> String {
+            match self.tsv_contig_style() {
+                TsvContigStyle::Passthrough => name.to_string(),
+                TsvContigStyle::WithChr => {
+                    if primary.starts_with("chr") {
+                        primary.to_string()
+                    } else {
+                        format!("chr{}", primary)
+                    }
+                }
+                TsvContigStyle::WithoutChr => {
+                    primary.strip_prefix("chr").unwrap_or(primary).to_string()
+                }
+                TsvContigStyle::Auto => {
+                    if assembly == Assembly::Grch38 {
+                        format!("chr{}", primary)
+                    } else {
+                        primary.to_string()
+                    }
+                }
+            }
+        };
+
         // Genome release.
-        tsv_record.release = match genome_release {
-            GenomeRelease::Grch37 => String::from("GRCh37"),
-            GenomeRelease::Grch38 => String::from("GRCh38"),
+        tsv_record.release = match assembly {
+            Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
+            Assembly::Grch38 => String::from("GRCh38"),
         };
 
         // Chromosome (of start position if BND).
         let chrom = vcf_record.reference_sequence_name();
-        tsv_record.chromosome = chrom
-            .strip_prefix("chr")
-            .map(str::to_string)
-            .unwrap_or(chrom.to_string());
-        tsv_record.chromosome = if let Some(chrom) = chrom.strip_prefix("chr") {
-            chrom.to_string()
-        } else {
-            chrom.to_string()
-        };
+        let primary_name = contig_manager
+            .get_primary_name(chrom)
+            .ok_or_else(|| anyhow::anyhow!("chromosome {} not canonical", chrom))?;
+        tsv_record.chromosome = format_contig(chrom, primary_name);
         // Compute chromosome number.
-        tsv_record.chromosome_no = CHROM_TO_CHROM_NO
-            .get(&tsv_record.chromosome)
-            .copied()
-            .unwrap_or(0);
-
+        tsv_record.chromosome_no = contig_manager
+            .get_chrom_no(chrom)
+            .expect("must exist if primary name exists");
         // Start position.
         let start: usize = vcf_record
             .variant_start()
@@ -2006,6 +2043,11 @@ pub trait VcfRecordConverter {
 /// Conversion from VCF records to `VarFishStrucvarTsvRecord`.
 mod conv {
     use crate::annotate::genotype_string;
+    use crate::common::contig::ContigNameManager;
+    use crate::common::TsvContigStyle;
+    use crate::ped::PedigreeByName;
+    use crate::ped::Sex;
+    use biocommons_bioutils::assemblies::Assembly;
     use noodles::vcf::header::FileFormat;
     use noodles::vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, POSITION_CONFIDENCE_INTERVALS,
@@ -2014,9 +2056,6 @@ mod conv {
     use noodles::vcf::variant::record_buf::info::field::Value;
     use noodles::vcf::variant::record_buf::samples::sample;
     use noodles::vcf::variant::RecordBuf as VcfRecord;
-
-    use crate::ped::PedigreeByName;
-    use crate::ped::Sex;
 
     use super::GenotypeInfo;
     use super::VarFishStrucvarTsvRecord;
@@ -2058,20 +2097,47 @@ mod conv {
     pub struct ClinCnvVcfRecordConverter {
         /// The samples from the VCF file.
         pub samples: Vec<String>,
+
         /// The Delly caller version.
         pub version: String,
+
+        /// The assembly being used.
+        pub assembly: Assembly,
+
+        /// The style for contig names in TSV output.
+        pub tsv_contig_style: TsvContigStyle,
+
+        /// Manager for contig name harmonization.
+        pub contig_manager: ContigNameManager,
     }
 
     impl ClinCnvVcfRecordConverter {
-        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+        pub fn new<T: AsRef<str>>(
+            version: &str,
+            samples: &[T],
+            assembly: Assembly,
+            tsv_contig_style: TsvContigStyle,
+        ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
+                assembly,
+                tsv_contig_style,
+                contig_manager: ContigNameManager::new(assembly),
             }
         }
     }
 
     impl VcfRecordConverter for ClinCnvVcfRecordConverter {
+        fn assembly(&self) -> Assembly {
+            self.assembly
+        }
+        fn tsv_contig_style(&self) -> TsvContigStyle {
+            self.tsv_contig_style
+        }
+        fn contig_manager(&self) -> &ContigNameManager {
+            &self.contig_manager
+        }
         fn caller_version(&self) -> String {
             format!("ClinCNVv{}", self.version)
         }
@@ -2143,20 +2209,48 @@ mod conv {
     pub struct DellyVcfRecordConverter {
         /// The samples from the VCF file.
         pub samples: Vec<String>,
+
         /// The Delly caller version.
         pub version: String,
+
+        /// The assembly being used.
+        pub assembly: Assembly,
+
+        /// The style for contig names in TSV output.
+        pub tsv_contig_style: TsvContigStyle,
+
+        /// Manager for contig name harmonization.
+        pub contig_manager: ContigNameManager,
     }
 
     impl DellyVcfRecordConverter {
-        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+        pub fn new<T: AsRef<str>>(
+            version: &str,
+            samples: &[T],
+            assembly: Assembly,
+            tsv_contig_style: TsvContigStyle,
+        ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
+                assembly,
+                tsv_contig_style,
+                contig_manager: ContigNameManager::new(assembly),
             }
         }
     }
 
     impl VcfRecordConverter for DellyVcfRecordConverter {
+        fn assembly(&self) -> Assembly {
+            self.assembly
+        }
+        fn tsv_contig_style(&self) -> TsvContigStyle {
+            self.tsv_contig_style
+        }
+        fn contig_manager(&self) -> &ContigNameManager {
+            &self.contig_manager
+        }
+
         fn caller_version(&self) -> String {
             format!("DELLYv{}", self.version)
         }
@@ -2246,20 +2340,47 @@ mod conv {
     pub struct DragenCnvVcfRecordConverter {
         /// The samples from the VCF file.
         pub samples: Vec<String>,
+
         /// The Dragen SV caller version.
         pub version: String,
+
+        /// The assembly being used.
+        pub assembly: Assembly,
+
+        /// The style for contig names in TSV output.
+        pub tsv_contig_style: TsvContigStyle,
+
+        /// Manager for contig name harmonization.
+        pub contig_manager: ContigNameManager,
     }
 
     impl DragenCnvVcfRecordConverter {
-        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+        pub fn new<T: AsRef<str>>(
+            version: &str,
+            samples: &[T],
+            assembly: Assembly,
+            tsv_contig_style: TsvContigStyle,
+        ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
+                assembly,
+                tsv_contig_style,
+                contig_manager: ContigNameManager::new(assembly),
             }
         }
     }
 
     impl VcfRecordConverter for DragenCnvVcfRecordConverter {
+        fn assembly(&self) -> Assembly {
+            self.assembly
+        }
+        fn tsv_contig_style(&self) -> TsvContigStyle {
+            self.tsv_contig_style
+        }
+        fn contig_manager(&self) -> &ContigNameManager {
+            &self.contig_manager
+        }
         fn caller_version(&self) -> String {
             format!("DRAGEN_CNVv{}", self.version)
         }
@@ -2331,20 +2452,47 @@ mod conv {
     pub struct DragenSvVcfRecordConverter {
         /// The samples from the VCF file.
         pub samples: Vec<String>,
+
         /// The Dragen SV caller version.
         pub version: String,
+
+        /// The assembly being used.
+        pub assembly: Assembly,
+
+        /// The style for contig names in TSV output.
+        pub tsv_contig_style: TsvContigStyle,
+
+        /// Manager for contig name harmonization.
+        pub contig_manager: ContigNameManager,
     }
 
     impl DragenSvVcfRecordConverter {
-        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+        pub fn new<T: AsRef<str>>(
+            version: &str,
+            samples: &[T],
+            assembly: Assembly,
+            tsv_contig_style: TsvContigStyle,
+        ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
+                assembly,
+                tsv_contig_style,
+                contig_manager: ContigNameManager::new(assembly),
             }
         }
     }
 
     impl VcfRecordConverter for DragenSvVcfRecordConverter {
+        fn assembly(&self) -> Assembly {
+            self.assembly
+        }
+        fn tsv_contig_style(&self) -> TsvContigStyle {
+            self.tsv_contig_style
+        }
+        fn contig_manager(&self) -> &ContigNameManager {
+            &self.contig_manager
+        }
         fn caller_version(&self) -> String {
             format!("DRAGEN_SVv{}", self.version)
         }
@@ -2370,20 +2518,47 @@ mod conv {
     pub struct GcnvVcfRecordConverter {
         /// The samples from the VCF file.
         pub samples: Vec<String>,
+
         /// The Dragen SV caller version.
         pub version: String,
+
+        /// The assembly being used.
+        pub assembly: Assembly,
+
+        /// The style for contig names in TSV output.
+        pub tsv_contig_style: TsvContigStyle,
+
+        /// Manager for contig name harmonization.
+        pub contig_manager: ContigNameManager,
     }
 
     impl GcnvVcfRecordConverter {
-        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+        pub fn new<T: AsRef<str>>(
+            version: &str,
+            samples: &[T],
+            assembly: Assembly,
+            tsv_contig_style: TsvContigStyle,
+        ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
+                assembly,
+                tsv_contig_style,
+                contig_manager: ContigNameManager::new(assembly),
             }
         }
     }
 
     impl VcfRecordConverter for GcnvVcfRecordConverter {
+        fn assembly(&self) -> Assembly {
+            self.assembly
+        }
+        fn tsv_contig_style(&self) -> TsvContigStyle {
+            self.tsv_contig_style
+        }
+        fn contig_manager(&self) -> &ContigNameManager {
+            &self.contig_manager
+        }
         fn caller_version(&self) -> String {
             format!("GATK_GCNVv{}", self.version)
         }
@@ -2451,15 +2626,33 @@ mod conv {
     pub struct MantaVcfRecordConverter {
         /// The samples from the VCF file.
         pub samples: Vec<String>,
+
         /// The Manta caller version.
         pub version: String,
+
+        /// The assembly being used.
+        pub assembly: Assembly,
+
+        /// The style for contig names in TSV output.
+        pub tsv_contig_style: TsvContigStyle,
+
+        /// Manager for contig name harmonization.
+        pub contig_manager: ContigNameManager,
     }
 
     impl MantaVcfRecordConverter {
-        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+        pub fn new<T: AsRef<str>>(
+            version: &str,
+            samples: &[T],
+            assembly: Assembly,
+            tsv_contig_style: TsvContigStyle,
+        ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
+                assembly,
+                tsv_contig_style,
+                contig_manager: ContigNameManager::new(assembly),
             }
         }
     }
@@ -2530,6 +2723,15 @@ mod conv {
     }
 
     impl VcfRecordConverter for MantaVcfRecordConverter {
+        fn assembly(&self) -> Assembly {
+            self.assembly
+        }
+        fn tsv_contig_style(&self) -> TsvContigStyle {
+            self.tsv_contig_style
+        }
+        fn contig_manager(&self) -> &ContigNameManager {
+            &self.contig_manager
+        }
         fn caller_version(&self) -> String {
             format!("MANTAv{}", self.version)
         }
@@ -2555,20 +2757,48 @@ mod conv {
     pub struct MeltVcfRecordConverter {
         /// The samples from the VCF file.
         pub samples: Vec<String>,
+
         /// The Manta caller version.
         pub version: String,
+
+        /// The assembly being used.
+        pub assembly: Assembly,
+
+        /// The style for contig names in TSV output.
+        pub tsv_contig_style: TsvContigStyle,
+
+        /// Manager for contig name harmonization.
+        pub contig_manager: ContigNameManager,
     }
 
     impl MeltVcfRecordConverter {
-        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+        pub fn new<T: AsRef<str>>(
+            version: &str,
+            samples: &[T],
+            assembly: Assembly,
+            tsv_contig_style: TsvContigStyle,
+        ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
+                assembly,
+                tsv_contig_style,
+                contig_manager: ContigNameManager::new(assembly),
             }
         }
     }
 
     impl VcfRecordConverter for MeltVcfRecordConverter {
+        fn assembly(&self) -> Assembly {
+            self.assembly
+        }
+        fn tsv_contig_style(&self) -> TsvContigStyle {
+            self.tsv_contig_style
+        }
+        fn contig_manager(&self) -> &ContigNameManager {
+            &self.contig_manager
+        }
+
         fn fill_genotypes(
             &self,
             pedigree: &PedigreeByName,
@@ -2651,20 +2881,47 @@ mod conv {
     pub struct PopdelVcfRecordConverter {
         /// The samples from the VCF file.
         pub samples: Vec<String>,
+
         /// The Dragen SV caller version.
         pub version: String,
+
+        /// The assembly being used.
+        pub assembly: Assembly,
+
+        /// The style for contig names in TSV output.
+        pub tsv_contig_style: TsvContigStyle,
+
+        /// Manager for contig name harmonization.
+        pub contig_manager: ContigNameManager,
     }
 
     impl PopdelVcfRecordConverter {
-        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+        pub fn new<T: AsRef<str>>(
+            version: &str,
+            samples: &[T],
+            assembly: Assembly,
+            tsv_contig_style: TsvContigStyle,
+        ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
+                assembly,
+                tsv_contig_style,
+                contig_manager: ContigNameManager::new(assembly),
             }
         }
     }
 
     impl VcfRecordConverter for PopdelVcfRecordConverter {
+        fn assembly(&self) -> Assembly {
+            self.assembly
+        }
+        fn tsv_contig_style(&self) -> TsvContigStyle {
+            self.tsv_contig_style
+        }
+        fn contig_manager(&self) -> &ContigNameManager {
+            &self.contig_manager
+        }
         fn caller_version(&self) -> String {
             format!("POPDELv{}", self.version)
         }
@@ -2843,20 +3100,47 @@ mod conv {
     pub struct Sniffles2VcfRecordConverter {
         /// The samples from the VCF file.
         pub samples: Vec<String>,
+
         /// The Sniffles2 caller version.
         pub version: String,
+
+        /// The assembly being used.
+        pub assembly: Assembly,
+
+        /// The style for contig names in TSV output.
+        pub tsv_contig_style: TsvContigStyle,
+
+        /// Manager for contig name harmonization.
+        pub contig_manager: ContigNameManager,
     }
 
     impl Sniffles2VcfRecordConverter {
-        pub fn new<T: AsRef<str>>(version: &str, samples: &[T]) -> Self {
+        pub fn new<T: AsRef<str>>(
+            version: &str,
+            samples: &[T],
+            assembly: Assembly,
+            tsv_contig_style: TsvContigStyle,
+        ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
+                assembly,
+                tsv_contig_style,
+                contig_manager: ContigNameManager::new(assembly),
             }
         }
     }
 
     impl VcfRecordConverter for Sniffles2VcfRecordConverter {
+        fn assembly(&self) -> Assembly {
+            self.assembly
+        }
+        fn tsv_contig_style(&self) -> TsvContigStyle {
+            self.tsv_contig_style
+        }
+        fn contig_manager(&self) -> &ContigNameManager {
+            &self.contig_manager
+        }
         fn caller_version(&self) -> String {
             format!("SNIFFLESv{}", self.version)
         }
@@ -2938,31 +3222,64 @@ mod conv {
 pub fn build_vcf_record_converter<T: AsRef<str>>(
     caller: &SvCaller,
     samples: &[T],
+    assembly: Assembly,
+    tsv_contig_style: TsvContigStyle,
 ) -> Box<dyn VcfRecordConverter> {
     match caller {
-        SvCaller::ClinCnv { version } => {
-            Box::new(conv::ClinCnvVcfRecordConverter::new(version, samples))
-        }
-        SvCaller::Delly { version } => {
-            Box::new(conv::DellyVcfRecordConverter::new(version, samples))
-        }
-        SvCaller::Manta { version } => {
-            Box::new(conv::MantaVcfRecordConverter::new(version, samples))
-        }
-        SvCaller::Melt { version } => Box::new(conv::MeltVcfRecordConverter::new(version, samples)),
-        SvCaller::DragenSv { version } => {
-            Box::new(conv::DragenSvVcfRecordConverter::new(version, samples))
-        }
-        SvCaller::DragenCnv { version } => {
-            Box::new(conv::DragenCnvVcfRecordConverter::new(version, samples))
-        }
-        SvCaller::Gcnv { version } => Box::new(conv::GcnvVcfRecordConverter::new(version, samples)),
-        SvCaller::Popdel { version } => {
-            Box::new(conv::PopdelVcfRecordConverter::new(version, samples))
-        }
-        SvCaller::Sniffles2 { version } => {
-            Box::new(conv::Sniffles2VcfRecordConverter::new(version, samples))
-        }
+        SvCaller::ClinCnv { version } => Box::new(conv::ClinCnvVcfRecordConverter::new(
+            version,
+            samples,
+            assembly,
+            tsv_contig_style,
+        )),
+        SvCaller::Delly { version } => Box::new(conv::DellyVcfRecordConverter::new(
+            version,
+            samples,
+            assembly,
+            tsv_contig_style,
+        )),
+        SvCaller::Manta { version } => Box::new(conv::MantaVcfRecordConverter::new(
+            version,
+            samples,
+            assembly,
+            tsv_contig_style,
+        )),
+        SvCaller::Melt { version } => Box::new(conv::MeltVcfRecordConverter::new(
+            version,
+            samples,
+            assembly,
+            tsv_contig_style,
+        )),
+        SvCaller::DragenSv { version } => Box::new(conv::DragenSvVcfRecordConverter::new(
+            version,
+            samples,
+            assembly,
+            tsv_contig_style,
+        )),
+        SvCaller::DragenCnv { version } => Box::new(conv::DragenCnvVcfRecordConverter::new(
+            version,
+            samples,
+            assembly,
+            tsv_contig_style,
+        )),
+        SvCaller::Gcnv { version } => Box::new(conv::GcnvVcfRecordConverter::new(
+            version,
+            samples,
+            assembly,
+            tsv_contig_style,
+        )),
+        SvCaller::Popdel { version } => Box::new(conv::PopdelVcfRecordConverter::new(
+            version,
+            samples,
+            assembly,
+            tsv_contig_style,
+        )),
+        SvCaller::Sniffles2 { version } => Box::new(conv::Sniffles2VcfRecordConverter::new(
+            version,
+            samples,
+            assembly,
+            tsv_contig_style,
+        )),
     }
 }
 
@@ -2977,6 +3294,8 @@ pub async fn run_vcf_to_jsonl(
     tmp_dir: &tempfile::TempDir,
     cov_readers: &mut HashMap<String, maelstrom::Reader>,
     rng: &mut StdRng,
+    assembly: Assembly,
+    tsv_contig_style: TsvContigStyle,
 ) -> Result<(), anyhow::Error> {
     tracing::debug!("opening temporary files in {}", tmp_dir.path().display());
     let mut tmp_files = {
@@ -3001,7 +3320,7 @@ pub async fn run_vcf_to_jsonl(
         .iter()
         .map(|s| s.to_string())
         .collect::<Vec<_>>();
-    let converter = build_vcf_record_converter(sv_caller, &samples);
+    let converter = build_vcf_record_converter(sv_caller, &samples, assembly, tsv_contig_style);
 
     let mapping = CHROM_TO_CHROM_NO.deref();
     let mut uuid_buf = [0u8; 16];
@@ -3022,7 +3341,7 @@ pub async fn run_vcf_to_jsonl(
             tracing::warn!("skipping REF-only / empty ALT record {:?}", record);
             continue;
         }
-        let mut record = converter.convert(pedigree, &record, uuid, GenomeRelease::Grch37)?;
+        let mut record = converter.convert(pedigree, &record, uuid)?;
         annotate_cov_mq(&mut record, cov_readers)?;
         if let Some(chromosome_no) = mapping.get(&record.chromosome) {
             let out_jsonl = &mut tmp_files[*chromosome_no as usize - 1];
@@ -3242,6 +3561,10 @@ async fn run_with_writer(
             &tmp_dir,
             &mut cov_readers,
             &mut rng,
+            args.genome_release
+                .expect("genome release must be known here")
+                .into(),
+            args.tsv_contig_style,
         )
         .await?;
     }
@@ -3503,18 +3826,6 @@ mod test {
     use temp_testdir::TempDir;
     use uuid::Uuid;
 
-    use crate::{
-        annotate::{
-            seqvars::AsyncAnnotatedVariantWriter,
-            strucvars::{
-                GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvSubType, SvType,
-                VarFishStrucvarTsvRecord,
-            },
-        },
-        common::{noodles::open_variant_reader, GenomeRelease},
-        ped::{Disease, Individual, PedigreeByName, Sex},
-    };
-
     use super::{
         bnd::Breakend,
         build_vcf_record_converter,
@@ -3525,6 +3836,18 @@ mod test {
         },
         guess_sv_caller, run, vcf_header, Args, PathOutput, VarFishStrucvarTsvWriter, VcfHeader,
         VcfRecord, VcfRecordConverter,
+    };
+    use crate::common::TsvContigStyle;
+    use crate::{
+        annotate::{
+            seqvars::AsyncAnnotatedVariantWriter,
+            strucvars::{
+                GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvSubType, SvType,
+                VarFishStrucvarTsvRecord,
+            },
+        },
+        common::{noodles::open_variant_reader, GenomeRelease},
+        ped::{Disease, Individual, PedigreeByName, Sex},
     };
 
     /// Test for the parsing of breakend alleles.
@@ -3569,8 +3892,7 @@ mod test {
             match records.next() {
                 Some(record) => {
                     let uuid = Uuid::from_bytes(bytes);
-                    let record =
-                        converter.convert(pedigree, &record?, uuid, GenomeRelease::Grch37)?;
+                    let record = converter.convert(pedigree, &record?, uuid)?;
                     jsonl::write(&out_jsonl, &record)?;
                 }
                 _ => {
@@ -3653,7 +3975,12 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/clincnv-min.out.jsonl",
-            &ClinCnvVcfRecordConverter::new("1.17.0", &samples),
+            &ClinCnvVcfRecordConverter::new(
+                "1.17.0",
+                &samples,
+                Assembly::Grch37,
+                TsvContigStyle::Auto,
+            ),
         )
     }
 
@@ -3667,7 +3994,12 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/delly2-min.out.jsonl",
-            &DellyVcfRecordConverter::new("1.1.3", &samples),
+            &DellyVcfRecordConverter::new(
+                "1.1.3",
+                &samples,
+                Assembly::Grch37,
+                TsvContigStyle::Auto,
+            ),
         )
     }
 
@@ -3681,7 +4013,12 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/dragen-sv-min.out.jsonl",
-            &DragenSvVcfRecordConverter::new("07.021.624.3.10.4", &samples),
+            &DragenSvVcfRecordConverter::new(
+                "07.021.624.3.10.4",
+                &samples,
+                Assembly::Grch37,
+                TsvContigStyle::Auto,
+            ),
         )
     }
 
@@ -3695,7 +4032,12 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/dragen-cnv-min.out.jsonl",
-            &DragenCnvVcfRecordConverter::new("07.021.624.3.10.4", &samples),
+            &DragenCnvVcfRecordConverter::new(
+                "07.021.624.3.10.4",
+                &samples,
+                Assembly::Grch37,
+                TsvContigStyle::Auto,
+            ),
         )
     }
 
@@ -3709,7 +4051,12 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/gcnv-min.out.jsonl",
-            &GcnvVcfRecordConverter::new("4.3.0.0", &samples),
+            &GcnvVcfRecordConverter::new(
+                "4.3.0.0",
+                &samples,
+                Assembly::Grch37,
+                TsvContigStyle::Auto,
+            ),
         )
     }
 
@@ -3723,7 +4070,12 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/manta-min.out.jsonl",
-            &MantaVcfRecordConverter::new("1.6.0", &samples),
+            &MantaVcfRecordConverter::new(
+                "1.6.0",
+                &samples,
+                Assembly::Grch37,
+                TsvContigStyle::Auto,
+            ),
         )
     }
 
@@ -3737,7 +4089,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/melt-min.out.jsonl",
-            &MeltVcfRecordConverter::new("2.2.2", &samples),
+            &MeltVcfRecordConverter::new("2.2.2", &samples, Assembly::Grch37, TsvContigStyle::Auto),
         )
     }
 
@@ -3751,7 +4103,12 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/popdel-min.out.jsonl",
-            &PopdelVcfRecordConverter::new("1.1.2", &samples),
+            &PopdelVcfRecordConverter::new(
+                "1.1.2",
+                &samples,
+                Assembly::Grch37,
+                TsvContigStyle::Auto,
+            ),
         )
     }
 
@@ -3774,8 +4131,12 @@ mod test {
             let pedigree: PedigreeByName = sample_ped(&samples);
             let mut reader = open_variant_reader(&path_input_vcf).await?;
             let sv_caller = guess_sv_caller(&mut reader).await?;
-            let converter = build_vcf_record_converter(&sv_caller, &samples);
-
+            let converter = build_vcf_record_converter(
+                &sv_caller,
+                &samples,
+                Assembly::Grch37,
+                TsvContigStyle::Auto,
+            );
             run_test_vcf_to_jsonl(
                 &pedigree,
                 &path_input_vcf,
@@ -4240,6 +4601,7 @@ mod test {
             slack_bnd: 50,
             slack_ins: 50,
             rng_seed: Some(42),
+            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;
@@ -4285,6 +4647,7 @@ mod test {
             slack_bnd: 50,
             slack_ins: 50,
             rng_seed: Some(42),
+            tsv_contig_style: TsvContigStyle::Passthrough,
         };
 
         run(&args_common, &args).await?;
