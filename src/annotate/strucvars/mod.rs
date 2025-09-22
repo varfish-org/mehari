@@ -13,7 +13,7 @@ use anyhow::Error;
 use bio::data_structures::interval_tree::IntervalTree;
 use biocommons_bioutils::assemblies::Assembly;
 use chrono::Utc;
-use clap::{builder::ArgPredicate, Args as ClapArgs, Parser};
+use clap::{Args as ClapArgs, Parser};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use futures::TryStreamExt;
@@ -103,13 +103,7 @@ pub struct Args {
     pub file_date: Option<String>,
 
     /// Style for contig names in TSV output.
-    #[arg(
-        long,
-        value_enum,
-        default_value_if("path_output_vcf", ArgPredicate::IsPresent, "passthrough"),
-        default_value_if("path_output_tsv", ArgPredicate::IsPresent, "auto"),
-        required_unless_present("path_output_vcf")
-    )]
+    #[arg(long, value_enum, default_value_t=TsvContigStyle::Auto)]
     pub tsv_contig_style: TsvContigStyle,
 }
 

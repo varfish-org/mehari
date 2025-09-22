@@ -1,6 +1,5 @@
 //! Annotation of sequence variants.
 use crate::common::TsvContigStyle;
-use clap::builder::ArgPredicate;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt::Display;
@@ -125,13 +124,7 @@ pub struct Args {
     pub transcript_settings: TranscriptSettings,
 
     /// Style for contig names in TSV output.
-    #[arg(
-        long,
-        value_enum,
-        default_value_if("path_output_vcf", ArgPredicate::IsPresent, "passthrough"),
-        default_value_if("path_output_tsv", ArgPredicate::IsPresent, "auto"),
-        required_unless_present("path_output_vcf")
-    )]
+    #[arg(long, value_enum, default_value_t=TsvContigStyle::Auto)]
     pub tsv_contig_style: TsvContigStyle,
 }
 

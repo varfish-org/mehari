@@ -22,6 +22,13 @@ impl ContigNameManager {
         let mut name_to_chrom_no = HashMap::new();
 
         for seq in &ASSEMBLY_INFOS[assembly].sequences {
+            // Skip non-primary sequences, but keep chrMT.
+            if !["Primary Assembly", "non-nuclear"].contains(&&*seq.assembly_unit)
+                || seq.sequence_role != "assembled-molecule"
+            {
+                tracing::debug!("Skipping non-primary sequence: {:?}", seq);
+                continue;
+            }
             // Store mapping from accession to the full sequence info.
             accession_to_info.insert(seq.refseq_ac.clone(), seq.clone());
 
@@ -40,7 +47,14 @@ impl ContigNameManager {
         name_to_chrom_no.insert("X".to_string(), 23);
         name_to_chrom_no.insert("Y".to_string(), 24);
         name_to_chrom_no.insert("MT".to_string(), 25);
-        name_to_chrom_no.insert("M".to_string(), 25); // Add "M" as an alias for mitochondrial
+
+        // Add "M" as an alias for mitochondrial
+        name_to_chrom_no.insert("M".to_string(), 25);
+        let mt_acc = alias_to_accession.get("chrMT").cloned();
+        if let Some(ref mt_acc) = mt_acc {
+            alias_to_accession.insert("M".to_string(), mt_acc.clone());
+            alias_to_accession.insert("chrM".to_string(), mt_acc.clone());
+        }
 
         Self {
             alias_to_accession,
