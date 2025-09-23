@@ -4,6 +4,7 @@ use crate::annotate::seqvars::{
     initialize_clinvar_annotators_for_assembly, initialize_frequency_annotators_for_assembly,
     load_transcript_dbs_for_assembly, ConsequenceAnnotator,
 };
+use crate::common::contig::ContigNameManager;
 use crate::common::guess_assembly_from_fasta;
 use crate::db::merge::merge_transcript_databases;
 use crate::{
@@ -16,6 +17,7 @@ use crate::{
 use biocommons_bioutils::assemblies::Assembly;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 use strum::EnumString;
 
 /// Implementation of Actix server.
@@ -350,6 +352,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     let mut enabled_sources = vec![];
     for &genome_release in all_releases.iter() {
         let assembly: Assembly = genome_release.into();
+        let contig_manager = Arc::new(ContigNameManager::new(assembly));
         let reference_path = reference_paths.get(&assembly);
 
         tracing::info!("Loading data for assembly {:?}...", genome_release);
@@ -365,7 +368,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
             }
 
             tracing::info!("Building seqvars predictors for {:?}...", genome_release);
-            let tx_dbs = load_transcript_dbs_for_assembly(tx_db_paths, Some(assembly))?;
+            let tx_dbs = load_transcript_dbs_for_assembly(tx_db_paths, assembly)?;
             if tx_dbs.is_empty() {
                 tracing::warn!(
                     "No transcript databases loaded for {:?}, respective endpoints will be unavailable.",
@@ -411,7 +414,8 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
             tracing::info!("Loading frequency data for {:?}...", genome_release);
             let annotators = initialize_frequency_annotators_for_assembly(
                 std::slice::from_ref(freq_path),
-                Some(assembly),
+                assembly,
+                contig_manager.clone(),
             )?;
             if let Some(frequency_db) = annotators.into_iter().next() {
                 data.frequency_annotators
@@ -427,7 +431,8 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
             tracing::info!("Loading ClinVar data for {:?}...", genome_release);
             let annotators = initialize_clinvar_annotators_for_assembly(
                 std::slice::from_ref(clinvar_path),
-                Some(assembly),
+                assembly,
+                contig_manager.clone(),
             )?;
             if let Some(annotator) = annotators.into_iter().next() {
                 data.clinvar_annotators.insert(genome_release, annotator);

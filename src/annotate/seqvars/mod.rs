@@ -1,6 +1,5 @@
 //! Annotation of sequence variants.
 use crate::common::TsvContigStyle;
-use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt::Display;
 use std::fs::File;
@@ -25,7 +24,6 @@ use crate::common::{guess_assembly_from_vcf, GenomeRelease};
 use crate::db::merge::merge_transcript_databases;
 use crate::pbs::txs::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
-use annonars::common::cli::is_canonical;
 use annonars::common::keys;
 use annonars::freqs::serialized::{auto, mt, xy};
 use anyhow::{anyhow, Error};
@@ -48,7 +46,6 @@ use noodles::vcf::variant::record::AlternateBases;
 use noodles::vcf::variant::record_buf::info::field;
 use noodles::vcf::variant::RecordBuf as VcfRecord;
 use noodles::vcf::{header::record::value::map::Map, Header as VcfHeader};
-use once_cell::sync::Lazy;
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
 use rustc_hash::FxHashMap;
@@ -289,60 +286,6 @@ fn build_header(
 
     header_out
 }
-
-pub static CHROM_MT: Lazy<HashSet<&'static str>> =
-    Lazy::new(|| HashSet::from_iter(["M", "MT", "chrM", "chrMT"]));
-pub static CHROM_XY: Lazy<HashSet<&'static str>> =
-    Lazy::new(|| HashSet::from_iter(["X", "Y", "chrX", "chrY"]));
-
-pub static CHROM_X: Lazy<HashSet<&'static str>> = Lazy::new(|| HashSet::from_iter(["X", "chrX"]));
-
-pub static CHROM_Y: Lazy<HashSet<&'static str>> = Lazy::new(|| HashSet::from_iter(["Y", "chrY"]));
-
-pub static CHROM_AUTO: Lazy<HashSet<&'static str>> = Lazy::new(|| {
-    HashSet::from_iter([
-        "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
-        "17", "18", "19", "20", "21", "22", "chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7",
-        "chr8", "chr9", "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17",
-        "chr18", "chr19", "chr20", "chr21", "chr22",
-    ])
-});
-
-/// Mapping from chromosome name to chromsome number.
-pub static CHROM_TO_CHROM_NO: Lazy<HashMap<String, u32>> = Lazy::new(|| {
-    let mut m = HashMap::new();
-
-    for i in 1..=22 {
-        m.insert(format!("chr{}", i), i);
-        m.insert(format!("{}", i), i);
-    }
-    m.insert(String::from("X"), 23);
-    m.insert(String::from("chrX"), 23);
-    m.insert(String::from("Y"), 24);
-    m.insert(String::from("chrY"), 24);
-    m.insert(String::from("M"), 25);
-    m.insert(String::from("chrM"), 25);
-    m.insert(String::from("MT"), 25);
-    m.insert(String::from("chrMT"), 25);
-
-    m
-});
-
-/// Mapping from chromosome number to canonical chromosome name.
-///
-/// We use the names without `"chr"` prefix for the canonical name.  In the case of GRCh38,
-/// the the prefix must be prepended.
-pub static CHROM_NO_TO_NAME: Lazy<Vec<String>> = Lazy::new(|| {
-    let mut v = Vec::new();
-    v.push(String::from("")); // 0
-    for i in 1..=22 {
-        v.push(format!("{}", i));
-    }
-    v.push(String::from("X"));
-    v.push(String::from("Y"));
-    v.push(String::from("MT"));
-    v
-});
 
 /// Return path component for the assembly.
 pub fn path_component(assembly: Assembly) -> &'static str {
@@ -1453,13 +1396,20 @@ impl Annotator {
 #[derive(Debug)]
 pub struct FrequencyAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
+    contig_manager: Arc<ContigNameManager>,
 }
 impl FrequencyAnnotator {
-    pub fn new(db: DBWithThreadMode<MultiThreaded>) -> Self {
-        Self { db }
+    pub fn new(
+        db: DBWithThreadMode<MultiThreaded>,
+        contig_manager: Arc<ContigNameManager>,
+    ) -> Self {
+        Self { db, contig_manager }
     }
 
-    pub(crate) fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
+    pub(crate) fn from_path(
+        path: impl AsRef<Path> + Display,
+        contig_manager: Arc<ContigNameManager>,
+    ) -> anyhow::Result<Self> {
         // Open the frequency RocksDB database in read only mode.
         tracing::info!("Opening frequency database");
         tracing::debug!("RocksDB path = {}", &path);
@@ -1470,7 +1420,7 @@ impl FrequencyAnnotator {
             ["meta", "autosomal", "gonosomal", "mitochondrial"],
             false,
         )?;
-        Ok(Self::new(db_freq))
+        Ok(Self::new(db_freq, contig_manager))
     }
 
     /// Annotate record on autosomal chromosome with gnomAD exomes/genomes.
@@ -1621,17 +1571,18 @@ impl FrequencyAnnotator {
     }
 
     fn annotate(&self, vcf_var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
+        let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
-        if is_canonical(vcf_var.chrom.as_str()) {
+        if contig_manager.is_canonical(vcf_var.chrom.as_str()) {
             // Build key for RocksDB database from `vcf_var`.
             let key: Vec<u8> = vcf_var.clone().into();
 
             // Annotate with frequency.
-            if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
+            if contig_manager.is_autosomal(&vcf_var.chrom) {
                 self.annotate_record_auto(&key, record)?;
-            } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
+            } else if contig_manager.is_gonosomal(&vcf_var.chrom) {
                 self.annotate_record_xy(&key, record)?;
-            } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
+            } else if contig_manager.is_chr_mt(&vcf_var.chrom) {
                 self.annotate_record_mt(&key, record)?;
             } else {
                 tracing::trace!(
@@ -1649,8 +1600,9 @@ impl FrequencyAnnotator {
     ) -> anyhow::Result<
         Option<crate::server::run::actix_server::seqvars_frequencies::FrequencyResultEntry>,
     > {
+        let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
-        if !is_canonical(&vcf_var.chromosome) {
+        if !contig_manager.is_canonical(&vcf_var.chromosome) {
             return Ok(None);
         }
 
@@ -1664,7 +1616,7 @@ impl FrequencyAnnotator {
         let key: Vec<u8> = vcf_var.clone().into();
         use crate::server::run::actix_server::seqvars_frequencies::*;
         // Annotate with frequency.
-        if CHROM_AUTO.contains(vcf_var.chrom.as_str()) {
+        if contig_manager.is_autosomal(vcf_var.chrom.as_str()) {
             match self
                 .db
                 .get_cf(self.db.cf_handle("autosomal").as_ref().unwrap(), key)?
@@ -1684,7 +1636,7 @@ impl FrequencyAnnotator {
                 }
                 _ => Err(anyhow!("No frequency data found for variant {:?}", vcf_var)),
             }
-        } else if CHROM_XY.contains(vcf_var.chrom.as_str()) {
+        } else if contig_manager.is_gonosomal(vcf_var.chrom.as_str()) {
             match self
                 .db
                 .get_cf(self.db.cf_handle("gonosomal").as_ref().unwrap(), key)?
@@ -1706,7 +1658,7 @@ impl FrequencyAnnotator {
                 }
                 _ => Err(anyhow!("No frequency data found for variant {:?}", vcf_var)),
             }
-        } else if CHROM_MT.contains(vcf_var.chrom.as_str()) {
+        } else if contig_manager.is_mitochondrial(vcf_var.chrom.as_str()) {
             match self
                 .db
                 .get_cf(self.db.cf_handle("mitochondrial").as_ref().unwrap(), key)?
@@ -1739,20 +1691,27 @@ impl FrequencyAnnotator {
 #[derive(Debug)]
 pub struct ClinvarAnnotator {
     db: DBWithThreadMode<rocksdb::MultiThreaded>,
+    contig_manager: Arc<ContigNameManager>,
 }
 
 impl ClinvarAnnotator {
-    pub fn new(db: DBWithThreadMode<rocksdb::MultiThreaded>) -> Self {
-        Self { db }
+    pub fn new(
+        db: DBWithThreadMode<rocksdb::MultiThreaded>,
+        contig_manager: Arc<ContigNameManager>,
+    ) -> Self {
+        Self { db, contig_manager }
     }
 
-    pub(crate) fn from_path(path: impl AsRef<Path> + Display) -> anyhow::Result<Self> {
+    pub(crate) fn from_path(
+        path: impl AsRef<Path> + Display,
+        contig_manager: Arc<ContigNameManager>,
+    ) -> anyhow::Result<Self> {
         tracing::info!("Opening ClinVar database");
         tracing::debug!("RocksDB path = {}", &path);
         let options = rocksdb::Options::default();
         let db_clinvar =
             rocksdb::DB::open_cf_for_read_only(&options, &path, ["meta", "clinvar"], false)?;
-        Ok(Self::new(db_clinvar))
+        Ok(Self::new(db_clinvar, contig_manager))
     }
 
     /// Annotate record with ClinVar information
@@ -1810,8 +1769,9 @@ impl ClinvarAnnotator {
     }
 
     fn annotate(&self, vcf_var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
+        let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
-        if is_canonical(vcf_var.chrom.as_str()) {
+        if contig_manager.is_canonical(vcf_var.chrom.as_str()) {
             // Build key for RocksDB database from `vcf_var`.
             let key: Vec<u8> = vcf_var.clone().into();
 
@@ -1826,11 +1786,6 @@ impl ClinvarAnnotator {
         vcf_var: &VcfVariant,
     ) -> anyhow::Result<Option<crate::server::run::actix_server::seqvars_clinvar::ClinvarResultEntry>>
     {
-        // Only attempt lookups into RocksDB for canonical contigs.
-        if !is_canonical(&vcf_var.chromosome) {
-            return Ok(None);
-        }
-
         // Build key for RocksDB database
         let vcf_var = keys::Var::from(
             &vcf_var.chromosome,
@@ -2165,11 +2120,17 @@ pub(crate) fn setup_seqvars_annotator(
     transcript_settings: &TranscriptSettings,
     assembly: Option<Assembly>,
 ) -> Result<Annotator, Error> {
+    let assembly = assembly.expect("Assembly must be known to set up annotators");
+    let contig_manager = Arc::new(ContigNameManager::new(assembly));
     let mut annotators = vec![];
 
     // Add the frequency annotator if requested.
     if let Some(rocksdb_paths) = &sources.frequencies {
-        let freq_dbs = initialize_frequency_annotators_for_assembly(rocksdb_paths, assembly)?;
+        let freq_dbs = initialize_frequency_annotators_for_assembly(
+            rocksdb_paths,
+            assembly,
+            contig_manager.clone(),
+        )?;
         for freq_db in freq_dbs {
             annotators.push(AnnotatorEnum::Frequency(freq_db))
         }
@@ -2177,7 +2138,11 @@ pub(crate) fn setup_seqvars_annotator(
 
     // Add the ClinVar annotator if requested.
     if let Some(rocksdb_paths) = &sources.clinvar {
-        let clinvar_dbs = initialize_clinvar_annotators_for_assembly(rocksdb_paths, assembly)?;
+        let clinvar_dbs = initialize_clinvar_annotators_for_assembly(
+            rocksdb_paths,
+            assembly,
+            contig_manager.clone(),
+        )?;
         for clinvar_db in clinvar_dbs {
             annotators.push(AnnotatorEnum::Clinvar(clinvar_db))
         }
@@ -2215,19 +2180,23 @@ pub(crate) fn setup_seqvars_annotator(
 
 pub(crate) fn initialize_clinvar_annotators_for_assembly(
     rocksdb_paths: &[String],
-    assembly: Option<Assembly>,
+    assembly: Assembly,
+    contig_manager: Arc<ContigNameManager>,
 ) -> Result<Vec<ClinvarAnnotator>, Error> {
     rocksdb_paths
         .iter()
         .filter_map(|rocksdb_path| {
-            let skip = assembly.is_some_and(|a| !rocksdb_path.contains(path_component(a)));
+            let skip = !rocksdb_path.contains(path_component(assembly));
             if !skip {
                 tracing::info!(
                     "Loading ClinVar database for assembly {:?} from {}",
                     &assembly,
                     &rocksdb_path
                 );
-                Some(ClinvarAnnotator::from_path(rocksdb_path))
+                Some(ClinvarAnnotator::from_path(
+                    rocksdb_path,
+                    contig_manager.clone(),
+                ))
             } else {
                 tracing::warn!(
                 "Skipping ClinVar database as its assembly does not match the requested one ({:?})",
@@ -2241,17 +2210,18 @@ pub(crate) fn initialize_clinvar_annotators_for_assembly(
 
 pub(crate) fn initialize_frequency_annotators_for_assembly(
     rocksdb_paths: &[String],
-    assembly: Option<Assembly>,
+    assembly: Assembly,
+    contig_manager: Arc<ContigNameManager>,
 ) -> Result<Vec<FrequencyAnnotator>, Error> {
     rocksdb_paths.iter().filter_map(|rocksdb_path| {
-        let skip = assembly.is_some_and(|a| !rocksdb_path.contains(path_component(a)));
+        let skip = !rocksdb_path.contains(path_component(assembly));
         if !skip {
             tracing::info!(
                     "Loading frequency database for assembly {:?} from {}",
                     &assembly,
                     &rocksdb_path
                 );
-            Some(FrequencyAnnotator::from_path(rocksdb_path))
+            Some(FrequencyAnnotator::from_path(rocksdb_path, contig_manager.clone()))
         } else {
             tracing::warn!("Skipping frequency database as its assembly does not match the requested one ({:?})", &assembly);
             None
@@ -2261,9 +2231,9 @@ pub(crate) fn initialize_frequency_annotators_for_assembly(
 
 pub(crate) fn load_transcript_dbs_for_assembly(
     tx_sources: &[String],
-    assembly: Option<Assembly>,
+    assembly: Assembly,
 ) -> Result<Vec<TxSeqDatabase>, Error> {
-    let pb_assembly = assembly.as_ref().and_then(proto_assembly_from);
+    let pb_assembly = proto_assembly_from(&assembly);
 
     // Filter out any transcript databases that do not match the requested assembly.
     let check_assembly = |db: &TxSeqDatabase, assembly: crate::pbs::txs::Assembly| {

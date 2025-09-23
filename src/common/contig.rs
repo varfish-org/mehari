@@ -158,6 +158,13 @@ impl ContigNameManager {
             .is_some_and(|name| name == "MT" || name == "M")
     }
 
+    /// Check if the contig is a canonical chromosome (chr1-22, chrX, chrY, or chrMT).
+    #[inline]
+    pub fn is_canonical(&self, alias: &str) -> bool {
+        self.get_chrom_no(alias)
+            .is_some_and(|n| (1..=25).contains(&n))
+    }
+
     pub fn get_contig_info(&self, alias: &str) -> Option<ContigInfo> {
         let accession = self.get_accession(alias)?;
         let seq_info = self.accession_to_info.get(accession)?;
