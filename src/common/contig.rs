@@ -14,6 +14,20 @@ pub struct ContigNameManager {
     name_to_chrom_no: HashMap<String, u32>,
 }
 
+pub struct ContigInfo {
+    /// The name without a "chr" prefix (e.g., "1", "X", "MT").
+    pub name_without_chr: String,
+
+    /// The name with a "chr" prefix (e.g., "chr1", "chrX", "chrMT").
+    pub name_with_chr: String,
+
+    /// The RefSeq accession.
+    pub accession: String,
+
+    /// The chromosome number (1-25) only.
+    pub chrom_no: u32,
+}
+
 impl ContigNameManager {
     /// Create a new manager for a given assembly.
     pub fn new(assembly: Assembly) -> Self {
@@ -56,6 +70,27 @@ impl ContigNameManager {
             alias_to_accession.insert("chrM".to_string(), mt_acc.clone());
         }
 
+        let mut additional_aliases = HashMap::new();
+        for (accession, info) in &accession_to_info {
+            let name = &info.name;
+
+            // Case 1: "1", "X", etc. Add "chr1", "chrX" as an alias.
+            if !name.starts_with("chr") {
+                let chr_name = format!("chr{}", name);
+                if !alias_to_accession.contains_key(&chr_name) {
+                    additional_aliases.insert(chr_name, accession.clone());
+                }
+            }
+            // Case 2: "chr1", "chrX". Add "1", "X" as an alias.
+            else if let Some(stripped_name) = name.strip_prefix("chr") {
+                if !alias_to_accession.contains_key(stripped_name) {
+                    additional_aliases.insert(stripped_name.to_string(), accession.clone());
+                }
+            }
+        }
+
+        alias_to_accession.extend(additional_aliases);
+
         Self {
             alias_to_accession,
             accession_to_info,
@@ -95,5 +130,28 @@ impl ContigNameManager {
     pub fn is_chr_mt(&self, alias: &str) -> bool {
         self.get_primary_name(alias)
             .is_some_and(|name| name == "MT" || name == "M")
+    }
+
+    pub fn get_contig_info(&self, alias: &str) -> Option<ContigInfo> {
+        let accession = self.get_accession(alias)?;
+        let seq_info = self.accession_to_info.get(accession)?;
+        let chrom_no = self.get_chrom_no(alias)?;
+
+        let primary_name = &seq_info.name;
+        let (name_with_chr, name_without_chr) = if primary_name.starts_with("chr") {
+            (
+                primary_name.clone(),
+                primary_name.strip_prefix("chr").unwrap().to_string(),
+            )
+        } else {
+            (format!("chr{}", primary_name), primary_name.clone())
+        };
+
+        Some(ContigInfo {
+            name_without_chr,
+            name_with_chr,
+            accession: accession.clone(),
+            chrom_no,
+        })
     }
 }

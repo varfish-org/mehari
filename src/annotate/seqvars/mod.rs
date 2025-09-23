@@ -625,30 +625,17 @@ impl VarFishSeqvarTsvWriter {
         };
         let name = record.reference_sequence_name();
 
-        if let Some(chromosome_no) = contig_manager.get_chrom_no(name) {
-            tsv_record.chromosome_no = chromosome_no;
-            let primary_name = contig_manager
-                .get_primary_name(name)
-                .expect("must exist if chrom_no exists");
-
+        if let Some(contig_info) = contig_manager.get_contig_info(name) {
+            tsv_record.chromosome_no = contig_info.chrom_no;
             tsv_record.chromosome = match self.tsv_contig_style {
                 TsvContigStyle::Passthrough => name.to_string(),
-                TsvContigStyle::WithChr => {
-                    if primary_name.starts_with("chr") {
-                        primary_name.clone()
-                    } else {
-                        format!("chr{}", primary_name)
-                    }
-                }
-                TsvContigStyle::WithoutChr => primary_name
-                    .strip_prefix("chr")
-                    .unwrap_or(primary_name)
-                    .to_string(),
+                TsvContigStyle::WithChr => contig_info.name_with_chr,
+                TsvContigStyle::WithoutChr => contig_info.name_without_chr,
                 TsvContigStyle::Auto => {
                     if assembly == Assembly::Grch38 {
-                        format!("chr{}", primary_name)
+                        contig_info.name_with_chr
                     } else {
-                        primary_name.clone()
+                        contig_info.name_without_chr
                     }
                 }
             };

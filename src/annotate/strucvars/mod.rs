@@ -1889,29 +1889,6 @@ pub trait VcfRecordConverter {
         let assembly = self.assembly();
         let contig_manager = self.contig_manager();
 
-        let format_contig = |name: &str, primary: &str| -> String {
-            match self.tsv_contig_style() {
-                TsvContigStyle::Passthrough => name.to_string(),
-                TsvContigStyle::WithChr => {
-                    if primary.starts_with("chr") {
-                        primary.to_string()
-                    } else {
-                        format!("chr{}", primary)
-                    }
-                }
-                TsvContigStyle::WithoutChr => {
-                    primary.strip_prefix("chr").unwrap_or(primary).to_string()
-                }
-                TsvContigStyle::Auto => {
-                    if assembly == Assembly::Grch38 {
-                        format!("chr{}", primary)
-                    } else {
-                        primary.to_string()
-                    }
-                }
-            }
-        };
-
         // Genome release.
         tsv_record.release = match assembly {
             Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
@@ -1919,15 +1896,28 @@ pub trait VcfRecordConverter {
         };
 
         // Chromosome (of start position if BND).
-        let chrom = vcf_record.reference_sequence_name();
-        let primary_name = contig_manager
-            .get_primary_name(chrom)
-            .ok_or_else(|| anyhow::anyhow!("chromosome {} not canonical", chrom))?;
-        tsv_record.chromosome = format_contig(chrom, primary_name);
-        // Compute chromosome number.
-        tsv_record.chromosome_no = contig_manager
-            .get_chrom_no(chrom)
-            .expect("must exist if primary name exists");
+        let contig_name = vcf_record.reference_sequence_name();
+        if let Some(contig_info) = contig_manager.get_contig_info(contig_name) {
+            tsv_record.chromosome_no = contig_info.chrom_no;
+            tsv_record.chromosome = match self.tsv_contig_style() {
+                TsvContigStyle::Passthrough => contig_name.to_string(),
+                TsvContigStyle::WithChr => contig_info.name_with_chr,
+                TsvContigStyle::WithoutChr => contig_info.name_without_chr,
+                TsvContigStyle::Auto => {
+                    if assembly == Assembly::Grch38 {
+                        contig_info.name_with_chr
+                    } else {
+                        contig_info.name_without_chr
+                    }
+                }
+            };
+        } else {
+            return Err(anyhow::anyhow!(
+                "Contig {} not found in assembly",
+                contig_name
+            ));
+        }
+
         // Start position.
         let start: usize = vcf_record
             .variant_start()
@@ -1948,20 +1938,35 @@ pub trait VcfRecordConverter {
             let reference = vcf_record.reference_bases().to_string();
             let bnd = Breakend::from_ref_alt_str(&reference, allele)?;
 
-            tsv_record.chromosome2.clone_from(&bnd.chrom);
+            let contig2_name = bnd.chrom;
+
+            if let Some(contig_info) = contig_manager.get_contig_info(&contig2_name) {
+                tsv_record.chromosome_no2 = contig_info.chrom_no;
+                tsv_record.chromosome2 = match self.tsv_contig_style() {
+                    TsvContigStyle::Passthrough => contig2_name.to_string(),
+                    TsvContigStyle::WithChr => contig_info.name_with_chr,
+                    TsvContigStyle::WithoutChr => contig_info.name_without_chr,
+                    TsvContigStyle::Auto => {
+                        if assembly == Assembly::Grch38 {
+                            contig_info.name_with_chr
+                        } else {
+                            contig_info.name_without_chr
+                        }
+                    }
+                };
+            } else {
+                tsv_record.chromosome2 = contig2_name.to_string();
+                tsv_record.chromosome_no2 = 0;
+            }
+
             end = Some(bnd.pos);
 
             // Obtain paired-end orientation.
             tsv_record.pe_orientation = bnd.pe_orientation;
         } else {
             tsv_record.chromosome2.clone_from(&tsv_record.chromosome);
+            tsv_record.chromosome_no2 = tsv_record.chromosome_no;
         }
-
-        // Compute chromosome number of second chromosome.
-        tsv_record.chromosome_no2 = CHROM_TO_CHROM_NO
-            .get(&tsv_record.chromosome2)
-            .copied()
-            .unwrap_or(0);
 
         // End position.  If derived from alternative allele in the case of breakends, use this.
         // Otherwise, try to derive from INFO/END.  If this is not present, use start position
