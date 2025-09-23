@@ -28,6 +28,10 @@ pub struct ContigInfo {
     pub chrom_no: u32,
 }
 
+const CHR_X: u32 = 23;
+const CHR_Y: u32 = 24;
+const CHR_M: u32 = 25;
+
 impl ContigNameManager {
     /// Create a new manager for a given assembly.
     pub fn new(assembly: Assembly) -> Self {
@@ -59,16 +63,16 @@ impl ContigNameManager {
             name_to_chrom_no.insert(format!("{}", i), i);
             name_to_chrom_no.insert(format!("chr{}", i), i);
         }
-        name_to_chrom_no.insert("X".to_string(), 23);
-        name_to_chrom_no.insert("chrX".to_string(), 23);
-        name_to_chrom_no.insert("Y".to_string(), 24);
-        name_to_chrom_no.insert("chrY".to_string(), 24);
-        name_to_chrom_no.insert("MT".to_string(), 25);
-        name_to_chrom_no.insert("chrMT".to_string(), 25);
+        name_to_chrom_no.insert("X".to_string(), CHR_X);
+        name_to_chrom_no.insert("chrX".to_string(), CHR_X);
+        name_to_chrom_no.insert("Y".to_string(), CHR_Y);
+        name_to_chrom_no.insert("chrY".to_string(), CHR_Y);
+        name_to_chrom_no.insert("MT".to_string(), CHR_M);
+        name_to_chrom_no.insert("chrMT".to_string(), CHR_M);
 
         // Add "M" and "chrM" as aliases for mitochondrial
-        name_to_chrom_no.insert("M".to_string(), 25);
-        name_to_chrom_no.insert("chrM".to_string(), 25);
+        name_to_chrom_no.insert("M".to_string(), CHR_M);
+        name_to_chrom_no.insert("chrM".to_string(), CHR_M);
 
         let mt_acc = alias_to_accession.get("chrMT").cloned();
         if let Some(ref mt_acc) = mt_acc {
@@ -136,33 +140,26 @@ impl ContigNameManager {
     /// Check if the contig is a gonosome (chrX or chrY).
     #[inline]
     pub fn is_gonosomal(&self, alias: &str) -> bool {
-        self.get_chrom_no(alias).is_some_and(|n| n == 23 || n == 24)
-    }
-
-    /// Check if the contig is mitochondrial DNA.
-    #[inline]
-    pub fn is_chr_mt(&self, alias: &str) -> bool {
-        self.get_primary_name(alias)
-            .is_some_and(|name| name == "MT" || name == "M")
+        self.get_chrom_no(alias)
+            .is_some_and(|n| n == CHR_X || n == CHR_Y)
     }
 
     /// Check if the contig is chromosome X.
     #[inline]
     pub fn is_chr_x(&self, alias: &str) -> bool {
-        self.get_primary_name(alias).is_some_and(|name| name == "X")
+        self.get_chrom_no(alias).is_some_and(|n| n == CHR_X)
     }
 
     /// Check if the contig is chromosome Y.
     #[inline]
     pub fn is_chr_y(&self, alias: &str) -> bool {
-        self.get_primary_name(alias).is_some_and(|name| name == "Y")
+        self.get_chrom_no(alias).is_some_and(|n| n == CHR_Y)
     }
 
     /// Check if the contig is mitochondrial DNA.
     #[inline]
     pub fn is_mitochondrial(&self, alias: &str) -> bool {
-        self.get_primary_name(alias)
-            .is_some_and(|name| name == "MT" || name == "M")
+        self.get_chrom_no(alias).is_some_and(|n| n == CHR_M)
     }
 
     /// Check if the contig is a canonical chromosome (chr1-22, chrX, chrY, or chrMT).

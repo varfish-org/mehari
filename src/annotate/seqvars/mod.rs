@@ -1582,7 +1582,7 @@ impl FrequencyAnnotator {
                 self.annotate_record_auto(&key, record)?;
             } else if contig_manager.is_gonosomal(&vcf_var.chrom) {
                 self.annotate_record_xy(&key, record)?;
-            } else if contig_manager.is_chr_mt(&vcf_var.chrom) {
+            } else if contig_manager.is_mitochondrial(&vcf_var.chrom) {
                 self.annotate_record_mt(&key, record)?;
             } else {
                 tracing::trace!(
