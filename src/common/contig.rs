@@ -57,13 +57,19 @@ impl ContigNameManager {
         // Build chrom_no map based on the primary sequence names.
         for i in 1..=22 {
             name_to_chrom_no.insert(format!("{}", i), i);
+            name_to_chrom_no.insert(format!("chr{}", i), i);
         }
         name_to_chrom_no.insert("X".to_string(), 23);
+        name_to_chrom_no.insert("chrX".to_string(), 23);
         name_to_chrom_no.insert("Y".to_string(), 24);
+        name_to_chrom_no.insert("chrY".to_string(), 24);
         name_to_chrom_no.insert("MT".to_string(), 25);
+        name_to_chrom_no.insert("chrMT".to_string(), 25);
 
-        // Add "M" as an alias for mitochondrial
+        // Add "M" and "chrM" as aliases for mitochondrial
         name_to_chrom_no.insert("M".to_string(), 25);
+        name_to_chrom_no.insert("chrM".to_string(), 25);
+
         let mt_acc = alias_to_accession.get("chrMT").cloned();
         if let Some(ref mt_acc) = mt_acc {
             alias_to_accession.insert("M".to_string(), mt_acc.clone());
@@ -117,6 +123,7 @@ impl ContigNameManager {
     pub fn get_chrom_no(&self, alias: &str) -> Option<u32> {
         self.get_primary_name(alias)
             .and_then(|name| self.name_to_chrom_no.get(name).copied())
+            .or_else(|| self.name_to_chrom_no.get(alias).copied())
     }
 
     /// Check if the contig is an autosome (chr1-22).
