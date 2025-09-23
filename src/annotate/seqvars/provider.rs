@@ -814,7 +814,7 @@ impl ProviderInterface for Provider {
 
         let is_mitochondrial = self
             .contig_manager
-            .is_chr_mt(tx.genome_alignments.first().unwrap().contig.as_str());
+            .is_mitochondrial(tx.genome_alignments.first().unwrap().contig.as_str());
 
         let lengths = tmp.into_iter().map(|(_, length)| length).collect();
         Ok(TxIdentityInfo {

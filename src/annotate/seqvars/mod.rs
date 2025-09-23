@@ -676,6 +676,11 @@ impl VarFishSeqvarTsvWriter {
         use noodles::vcf::variant::record_buf::samples::sample::value::Array;
         use noodles::vcf::variant::record_buf::samples::sample::Value;
 
+        let contig_manager = self
+            .contig_manager
+            .as_ref()
+            .expect("contig manager must be set");
+
         // Extract genotype information.
         let hdr = self
             .header
@@ -785,7 +790,7 @@ impl VarFishSeqvarTsvWriter {
                     .get(name)
                     .unwrap_or_else(|| panic!("individual {} not found in pedigree", name));
                 // Update per-family counts.
-                if CHROM_X.contains(&tsv_record.chromosome.as_str()) {
+                if contig_manager.is_chr_x(&tsv_record.chromosome) {
                     match individual.sex {
                         Sex::Male => {
                             if gt.contains('1') {
@@ -807,7 +812,7 @@ impl VarFishSeqvarTsvWriter {
                             }
                         }
                     }
-                } else if CHROM_Y.contains(&tsv_record.chromosome.as_str()) {
+                } else if contig_manager.is_chr_y(&tsv_record.chromosome) {
                     if individual.sex == Sex::Male {
                         if gt.contains('1') {
                             tsv_record.num_hemi_alt += 1;

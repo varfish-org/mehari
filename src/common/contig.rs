@@ -99,11 +99,13 @@ impl ContigNameManager {
     }
 
     /// Get the RefSeq accession for any given contig name/alias.
+    #[inline]
     pub fn get_accession(&self, alias: &str) -> Option<&String> {
         self.alias_to_accession.get(alias)
     }
 
     /// Get the primary display name (e.g., "1", "X", "MT") for any given alias.
+    #[inline]
     pub(crate) fn get_primary_name(&self, alias: &str) -> Option<&String> {
         self.get_accession(alias)
             .and_then(|ac| self.accession_to_info.get(ac))
@@ -111,23 +113,47 @@ impl ContigNameManager {
     }
 
     /// Get the chromosome number (1-22, 23=X, 24=Y, 25=MT) for any given alias.
+    #[inline]
     pub fn get_chrom_no(&self, alias: &str) -> Option<u32> {
         self.get_primary_name(alias)
             .and_then(|name| self.name_to_chrom_no.get(name).copied())
     }
 
+    /// Check if the contig is an autosome (chr1-22).
+    #[inline]
+    pub fn is_autosomal(&self, alias: &str) -> bool {
+        self.get_chrom_no(alias)
+            .is_some_and(|n| (1..=22).contains(&n))
+    }
+
+    /// Check if the contig is a gonosome (chrX or chrY).
+    #[inline]
+    pub fn is_gonosomal(&self, alias: &str) -> bool {
+        self.get_chrom_no(alias).is_some_and(|n| n == 23 || n == 24)
+    }
+
+    /// Check if the contig is mitochondrial DNA.
+    #[inline]
+    pub fn is_chr_mt(&self, alias: &str) -> bool {
+        self.get_primary_name(alias)
+            .is_some_and(|name| name == "MT" || name == "M")
+    }
+
     /// Check if the contig is chromosome X.
+    #[inline]
     pub fn is_chr_x(&self, alias: &str) -> bool {
         self.get_primary_name(alias).is_some_and(|name| name == "X")
     }
 
     /// Check if the contig is chromosome Y.
+    #[inline]
     pub fn is_chr_y(&self, alias: &str) -> bool {
         self.get_primary_name(alias).is_some_and(|name| name == "Y")
     }
 
     /// Check if the contig is mitochondrial DNA.
-    pub fn is_chr_mt(&self, alias: &str) -> bool {
+    #[inline]
+    pub fn is_mitochondrial(&self, alias: &str) -> bool {
         self.get_primary_name(alias)
             .is_some_and(|name| name == "MT" || name == "M")
     }
