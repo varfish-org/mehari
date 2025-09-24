@@ -18,7 +18,7 @@ use crate::annotate::seqvars::csq::{
 use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
-use crate::common::contig::ContigNameManager;
+use crate::common::contig::ContigManager;
 use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
 use crate::common::{guess_assembly_from_vcf, GenomeRelease};
 use crate::db::merge::merge_transcript_databases;
@@ -429,7 +429,7 @@ struct VarFishSeqvarTsvWriter {
     pedigree: Option<PedigreeByName>,
     header: Option<VcfHeader>,
     hgnc_map: Option<FxHashMap<String, HgncRecord>>,
-    contig_manager: Option<ContigNameManager>,
+    contig_manager: Option<ContigManager>,
     tsv_contig_style: TsvContigStyle,
 }
 
@@ -619,11 +619,6 @@ impl VarFishSeqvarTsvWriter {
         use noodles::vcf::variant::record_buf::samples::sample::value::Array;
         use noodles::vcf::variant::record_buf::samples::sample::Value;
 
-        let contig_manager = self
-            .contig_manager
-            .as_ref()
-            .expect("contig manager must be set");
-
         // Extract genotype information.
         let hdr = self
             .header
@@ -733,7 +728,7 @@ impl VarFishSeqvarTsvWriter {
                     .get(name)
                     .unwrap_or_else(|| panic!("individual {} not found in pedigree", name));
                 // Update per-family counts.
-                if contig_manager.is_chr_x(&tsv_record.chromosome) {
+                if ContigManager::is_chr_x(tsv_record.chromosome_no) {
                     match individual.sex {
                         Sex::Male => {
                             if gt.contains('1') {
@@ -755,7 +750,7 @@ impl VarFishSeqvarTsvWriter {
                             }
                         }
                     }
-                } else if contig_manager.is_chr_y(&tsv_record.chromosome) {
+                } else if ContigManager::is_chr_y(tsv_record.chromosome_no) {
                     if individual.sex == Sex::Male {
                         if gt.contains('1') {
                             tsv_record.num_hemi_alt += 1;
@@ -1346,7 +1341,7 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
 
     fn set_assembly(&mut self, assembly: Assembly) {
         self.assembly = Some(assembly);
-        self.contig_manager = Some(ContigNameManager::new(assembly));
+        self.contig_manager = Some(ContigManager::new(assembly));
     }
 
     fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
@@ -1396,19 +1391,16 @@ impl Annotator {
 #[derive(Debug)]
 pub struct FrequencyAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
-    contig_manager: Arc<ContigNameManager>,
+    contig_manager: Arc<ContigManager>,
 }
 impl FrequencyAnnotator {
-    pub fn new(
-        db: DBWithThreadMode<MultiThreaded>,
-        contig_manager: Arc<ContigNameManager>,
-    ) -> Self {
+    pub fn new(db: DBWithThreadMode<MultiThreaded>, contig_manager: Arc<ContigManager>) -> Self {
         Self { db, contig_manager }
     }
 
     pub(crate) fn from_path(
         path: impl AsRef<Path> + Display,
-        contig_manager: Arc<ContigNameManager>,
+        contig_manager: Arc<ContigManager>,
     ) -> anyhow::Result<Self> {
         // Open the frequency RocksDB database in read only mode.
         tracing::info!("Opening frequency database");
@@ -1573,16 +1565,16 @@ impl FrequencyAnnotator {
     fn annotate(&self, vcf_var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
         let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
-        if contig_manager.is_canonical(vcf_var.chrom.as_str()) {
+        if contig_manager.is_canonical_alias(vcf_var.chrom.as_str()) {
             // Build key for RocksDB database from `vcf_var`.
             let key: Vec<u8> = vcf_var.clone().into();
 
             // Annotate with frequency.
-            if contig_manager.is_autosomal(&vcf_var.chrom) {
+            if contig_manager.is_autosomal_alias(&vcf_var.chrom) {
                 self.annotate_record_auto(&key, record)?;
-            } else if contig_manager.is_gonosomal(&vcf_var.chrom) {
+            } else if contig_manager.is_gonosomal_alias(&vcf_var.chrom) {
                 self.annotate_record_xy(&key, record)?;
-            } else if contig_manager.is_mitochondrial(&vcf_var.chrom) {
+            } else if contig_manager.is_mitochondrial_alias(&vcf_var.chrom) {
                 self.annotate_record_mt(&key, record)?;
             } else {
                 tracing::trace!(
@@ -1602,7 +1594,7 @@ impl FrequencyAnnotator {
     > {
         let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
-        if !contig_manager.is_canonical(&vcf_var.chromosome) {
+        if !contig_manager.is_canonical_alias(&vcf_var.chromosome) {
             return Ok(None);
         }
 
@@ -1616,7 +1608,7 @@ impl FrequencyAnnotator {
         let key: Vec<u8> = vcf_var.clone().into();
         use crate::server::run::actix_server::seqvars_frequencies::*;
         // Annotate with frequency.
-        if contig_manager.is_autosomal(vcf_var.chrom.as_str()) {
+        if contig_manager.is_autosomal_alias(vcf_var.chrom.as_str()) {
             match self
                 .db
                 .get_cf(self.db.cf_handle("autosomal").as_ref().unwrap(), key)?
@@ -1636,7 +1628,7 @@ impl FrequencyAnnotator {
                 }
                 _ => Err(anyhow!("No frequency data found for variant {:?}", vcf_var)),
             }
-        } else if contig_manager.is_gonosomal(vcf_var.chrom.as_str()) {
+        } else if contig_manager.is_gonosomal_alias(vcf_var.chrom.as_str()) {
             match self
                 .db
                 .get_cf(self.db.cf_handle("gonosomal").as_ref().unwrap(), key)?
@@ -1658,7 +1650,7 @@ impl FrequencyAnnotator {
                 }
                 _ => Err(anyhow!("No frequency data found for variant {:?}", vcf_var)),
             }
-        } else if contig_manager.is_mitochondrial(vcf_var.chrom.as_str()) {
+        } else if contig_manager.is_mitochondrial_alias(vcf_var.chrom.as_str()) {
             match self
                 .db
                 .get_cf(self.db.cf_handle("mitochondrial").as_ref().unwrap(), key)?
@@ -1691,20 +1683,20 @@ impl FrequencyAnnotator {
 #[derive(Debug)]
 pub struct ClinvarAnnotator {
     db: DBWithThreadMode<rocksdb::MultiThreaded>,
-    contig_manager: Arc<ContigNameManager>,
+    contig_manager: Arc<ContigManager>,
 }
 
 impl ClinvarAnnotator {
     pub fn new(
         db: DBWithThreadMode<rocksdb::MultiThreaded>,
-        contig_manager: Arc<ContigNameManager>,
+        contig_manager: Arc<ContigManager>,
     ) -> Self {
         Self { db, contig_manager }
     }
 
     pub(crate) fn from_path(
         path: impl AsRef<Path> + Display,
-        contig_manager: Arc<ContigNameManager>,
+        contig_manager: Arc<ContigManager>,
     ) -> anyhow::Result<Self> {
         tracing::info!("Opening ClinVar database");
         tracing::debug!("RocksDB path = {}", &path);
@@ -1771,7 +1763,7 @@ impl ClinvarAnnotator {
     fn annotate(&self, vcf_var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
         let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
-        if contig_manager.is_canonical(vcf_var.chrom.as_str()) {
+        if contig_manager.is_canonical_alias(vcf_var.chrom.as_str()) {
             // Build key for RocksDB database from `vcf_var`.
             let key: Vec<u8> = vcf_var.clone().into();
 
@@ -2121,7 +2113,7 @@ pub(crate) fn setup_seqvars_annotator(
     assembly: Option<Assembly>,
 ) -> Result<Annotator, Error> {
     let assembly = assembly.expect("Assembly must be known to set up annotators");
-    let contig_manager = Arc::new(ContigNameManager::new(assembly));
+    let contig_manager = Arc::new(ContigManager::new(assembly));
     let mut annotators = vec![];
 
     // Add the frequency annotator if requested.
@@ -2181,7 +2173,7 @@ pub(crate) fn setup_seqvars_annotator(
 pub(crate) fn initialize_clinvar_annotators_for_assembly(
     rocksdb_paths: &[String],
     assembly: Assembly,
-    contig_manager: Arc<ContigNameManager>,
+    contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<ClinvarAnnotator>, Error> {
     rocksdb_paths
         .iter()
@@ -2211,7 +2203,7 @@ pub(crate) fn initialize_clinvar_annotators_for_assembly(
 pub(crate) fn initialize_frequency_annotators_for_assembly(
     rocksdb_paths: &[String],
     assembly: Assembly,
-    contig_manager: Arc<ContigNameManager>,
+    contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<FrequencyAnnotator>, Error> {
     rocksdb_paths.iter().filter_map(|rocksdb_path| {
         let skip = !rocksdb_path.contains(path_component(assembly));

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 /// A manager for contig name harmonization.
 #[derive(Debug, Clone)]
-pub struct ContigNameManager {
+pub struct ContigManager {
     /// Mapping from any known alias (e.g., "1", "chr1", "NC_000001.10") to the RefSeq accession.
     alias_to_accession: HashMap<String, String>,
     /// Mapping from the RefSeq accession back to the primary sequence info.
@@ -32,7 +32,7 @@ const CHR_X: u32 = 23;
 const CHR_Y: u32 = 24;
 const CHR_M: u32 = 25;
 
-impl ContigNameManager {
+impl ContigManager {
     /// Create a new manager for a given assembly.
     pub fn new(assembly: Assembly) -> Self {
         let mut alias_to_accession = HashMap::new();
@@ -74,12 +74,6 @@ impl ContigNameManager {
         name_to_chrom_no.insert("M".to_string(), CHR_M);
         name_to_chrom_no.insert("chrM".to_string(), CHR_M);
 
-        let mt_acc = alias_to_accession.get("chrMT").cloned();
-        if let Some(ref mt_acc) = mt_acc {
-            alias_to_accession.insert("M".to_string(), mt_acc.clone());
-            alias_to_accession.insert("chrM".to_string(), mt_acc.clone());
-        }
-
         let mut additional_aliases = HashMap::new();
         for (accession, info) in &accession_to_info {
             let name = &info.name;
@@ -100,6 +94,12 @@ impl ContigNameManager {
         }
 
         alias_to_accession.extend(additional_aliases);
+
+        let mt_acc = alias_to_accession.get("chrMT").cloned();
+        if let Some(ref mt_acc) = mt_acc {
+            alias_to_accession.insert("M".to_string(), mt_acc.clone());
+            alias_to_accession.insert("chrM".to_string(), mt_acc.clone());
+        }
 
         Self {
             alias_to_accession,
@@ -132,41 +132,72 @@ impl ContigNameManager {
 
     /// Check if the contig is an autosome (chr1-22).
     #[inline]
-    pub fn is_autosomal(&self, alias: &str) -> bool {
-        self.get_chrom_no(alias)
-            .is_some_and(|n| (1..=22).contains(&n))
+    pub fn is_autosomal(chrom_no: u32) -> bool {
+        (1..=22).contains(&chrom_no)
     }
 
     /// Check if the contig is a gonosome (chrX or chrY).
     #[inline]
-    pub fn is_gonosomal(&self, alias: &str) -> bool {
-        self.get_chrom_no(alias)
-            .is_some_and(|n| n == CHR_X || n == CHR_Y)
+    pub fn is_gonosomal(chrom_no: u32) -> bool {
+        chrom_no == CHR_X || chrom_no == CHR_Y
     }
 
     /// Check if the contig is chromosome X.
     #[inline]
-    pub fn is_chr_x(&self, alias: &str) -> bool {
-        self.get_chrom_no(alias).is_some_and(|n| n == CHR_X)
+    pub fn is_chr_x(chrom_no: u32) -> bool {
+        chrom_no == CHR_X
     }
 
     /// Check if the contig is chromosome Y.
     #[inline]
-    pub fn is_chr_y(&self, alias: &str) -> bool {
-        self.get_chrom_no(alias).is_some_and(|n| n == CHR_Y)
+    pub fn is_chr_y(chrom_no: u32) -> bool {
+        chrom_no == CHR_Y
     }
 
     /// Check if the contig is mitochondrial DNA.
     #[inline]
-    pub fn is_mitochondrial(&self, alias: &str) -> bool {
-        self.get_chrom_no(alias).is_some_and(|n| n == CHR_M)
+    pub fn is_mitochondrial(chrom_no: u32) -> bool {
+        chrom_no == CHR_M
+    }
+
+    pub fn is_canonical(chrom_no: u32) -> bool {
+        (1..=25).contains(&chrom_no)
+    }
+
+    /// Check if the contig is an autosome (chr1-22).
+    #[inline]
+    pub fn is_autosomal_alias(&self, alias: &str) -> bool {
+        self.get_chrom_no(alias).is_some_and(Self::is_autosomal)
+    }
+
+    /// Check if the contig is a gonosome (chrX or chrY).
+    #[inline]
+    pub fn is_gonosomal_alias(&self, alias: &str) -> bool {
+        self.get_chrom_no(alias).is_some_and(Self::is_gonosomal)
+    }
+
+    /// Check if the contig is chromosome X.
+    #[inline]
+    pub fn is_chr_x_alias(&self, alias: &str) -> bool {
+        self.get_chrom_no(alias).is_some_and(Self::is_chr_x)
+    }
+
+    /// Check if the contig is chromosome Y.
+    #[inline]
+    pub fn is_chr_y_alias(&self, alias: &str) -> bool {
+        self.get_chrom_no(alias).is_some_and(Self::is_chr_y)
+    }
+
+    /// Check if the contig is mitochondrial DNA.
+    #[inline]
+    pub fn is_mitochondrial_alias(&self, alias: &str) -> bool {
+        self.get_chrom_no(alias).is_some_and(Self::is_mitochondrial)
     }
 
     /// Check if the contig is a canonical chromosome (chr1-22, chrX, chrY, or chrMT).
     #[inline]
-    pub fn is_canonical(&self, alias: &str) -> bool {
-        self.get_chrom_no(alias)
-            .is_some_and(|n| (1..=25).contains(&n))
+    pub fn is_canonical_alias(&self, alias: &str) -> bool {
+        self.get_chrom_no(alias).is_some_and(Self::is_canonical)
     }
 
     pub fn get_contig_info(&self, alias: &str) -> Option<ContigInfo> {

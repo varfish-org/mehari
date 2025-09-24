@@ -2,7 +2,7 @@
 
 use crate::annotate::seqvars::load_tx_db;
 use crate::annotate::seqvars::provider::TxIntervalTrees;
-use crate::common::contig::ContigNameManager;
+use crate::common::contig::ContigManager;
 use crate::db::TranscriptDatabase;
 use crate::pbs::txs::{TranscriptDb, TxSeqDatabase};
 use anyhow::{Error, Result};
@@ -192,7 +192,7 @@ fn _extract_transcripts_by_region(
     let container_tx_db = container.tx_db.as_ref().expect("no tx_db");
     let trees = TxIntervalTrees::new(container);
 
-    let contig_manager = ContigNameManager::new(container.assembly());
+    let contig_manager = ContigManager::new(container.assembly());
 
     let mut transcript_ids = IndexSet::<String>::new();
     let mut reader = noodles::vcf::io::reader::Builder::default().build_from_path(vcf)?;

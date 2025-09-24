@@ -4,7 +4,7 @@ use crate::annotate::seqvars::{
     initialize_clinvar_annotators_for_assembly, initialize_frequency_annotators_for_assembly,
     load_transcript_dbs_for_assembly, ConsequenceAnnotator,
 };
-use crate::common::contig::ContigNameManager;
+use crate::common::contig::ContigManager;
 use crate::common::guess_assembly_from_fasta;
 use crate::db::merge::merge_transcript_databases;
 use crate::{
@@ -352,7 +352,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     let mut enabled_sources = vec![];
     for &genome_release in all_releases.iter() {
         let assembly: Assembly = genome_release.into();
-        let contig_manager = Arc::new(ContigNameManager::new(assembly));
+        let contig_manager = Arc::new(ContigManager::new(assembly));
         let reference_path = reference_paths.get(&assembly);
 
         tracing::info!("Loading data for assembly {:?}...", genome_release);

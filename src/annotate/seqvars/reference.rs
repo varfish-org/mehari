@@ -1,4 +1,4 @@
-use crate::common::contig::ContigNameManager;
+use crate::common::contig::ContigManager;
 use anyhow::anyhow;
 use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ pub struct InMemoryFastaAccess {
 impl InMemoryFastaAccess {
     pub fn from_path(
         path: impl AsRef<Path>,
-        contig_manager: Arc<ContigNameManager>,
+        contig_manager: Arc<ContigManager>,
     ) -> anyhow::Result<Self> {
         tracing::info!(
             "Reading reference FASTA into memory from {}",
@@ -93,7 +93,7 @@ struct IndexRecord {
 impl UnbufferedIndexedFastaAccess {
     pub fn from_path(
         path: impl AsRef<Path>,
-        contig_manager: Arc<ContigNameManager>,
+        contig_manager: Arc<ContigManager>,
     ) -> anyhow::Result<Self> {
         let path = path.as_ref().to_path_buf();
         let index_path = format!("{}.fai", path.to_str().ok_or(anyhow!("Invalid path"))?);

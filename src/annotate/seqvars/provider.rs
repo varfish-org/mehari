@@ -4,7 +4,7 @@ use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType, TranscriptSou
 use crate::annotate::seqvars::reference::{
     InMemoryFastaAccess, ReferenceReader, UnbufferedIndexedFastaAccess,
 };
-use crate::common::contig::ContigNameManager;
+use crate::common::contig::ContigManager;
 use crate::db::create::Reason;
 use crate::db::TranscriptDatabase;
 use crate::{
@@ -169,7 +169,7 @@ pub struct Provider {
     pub tx_trees: TxIntervalTrees,
 
     /// The contig name manager.
-    pub contig_manager: Arc<ContigNameManager>,
+    pub contig_manager: Arc<ContigManager>,
 
     /// Mapping from gene identifier to index in `TxSeqDatabase::tx_db::gene_to_tx`.
     gene_map: HashMap<String, u32>,
@@ -242,7 +242,7 @@ impl Provider {
         config: Config,
     ) -> Self {
         let assembly = tx_seq_db.assembly();
-        let contig_manager = Arc::new(ContigNameManager::new(assembly));
+        let contig_manager = Arc::new(ContigManager::new(assembly));
 
         let tx_trees = TxIntervalTrees::new(&tx_seq_db);
         let gene_map = HashMap::from_iter(
@@ -814,7 +814,7 @@ impl ProviderInterface for Provider {
 
         let is_mitochondrial = self
             .contig_manager
-            .is_mitochondrial(tx.genome_alignments.first().unwrap().contig.as_str());
+            .is_mitochondrial_alias(tx.genome_alignments.first().unwrap().contig.as_str());
 
         let lengths = tmp.into_iter().map(|(_, length)| length).collect();
         Ok(TxIdentityInfo {

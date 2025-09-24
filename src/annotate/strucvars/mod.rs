@@ -512,7 +512,7 @@ pub mod vcf_header {
     }
 }
 
-use crate::common::contig::ContigNameManager;
+use crate::common::contig::ContigManager;
 
 /// Writing of structural variants to VarFish TSV files.
 struct VarFishStrucvarTsvWriter {
@@ -1534,7 +1534,7 @@ pub trait VcfRecordConverter {
     fn tsv_contig_style(&self) -> TsvContigStyle;
 
     /// Returns a reference to the contig name manager.
-    fn contig_manager(&self) -> &ContigNameManager;
+    fn contig_manager(&self) -> &ContigManager;
 
     /// Convert the VCF record into a `VarFishStrucvarTsvRecord`.
     ///
@@ -1836,7 +1836,7 @@ pub trait VcfRecordConverter {
 /// Conversion from VCF records to `VarFishStrucvarTsvRecord`.
 mod conv {
     use crate::annotate::genotype_string;
-    use crate::common::contig::ContigNameManager;
+    use crate::common::contig::ContigManager;
     use crate::common::TsvContigStyle;
     use crate::ped::PedigreeByName;
     use crate::ped::Sex;
@@ -1901,7 +1901,7 @@ mod conv {
         pub tsv_contig_style: TsvContigStyle,
 
         /// Manager for contig name harmonization.
-        pub contig_manager: ContigNameManager,
+        pub contig_manager: ContigManager,
     }
 
     impl ClinCnvVcfRecordConverter {
@@ -1916,7 +1916,7 @@ mod conv {
                 version: version.to_string(),
                 assembly,
                 tsv_contig_style,
-                contig_manager: ContigNameManager::new(assembly),
+                contig_manager: ContigManager::new(assembly),
             }
         }
     }
@@ -1928,7 +1928,7 @@ mod conv {
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
         }
-        fn contig_manager(&self) -> &ContigNameManager {
+        fn contig_manager(&self) -> &ContigManager {
             &self.contig_manager
         }
         fn caller_version(&self) -> String {
@@ -2013,7 +2013,7 @@ mod conv {
         pub tsv_contig_style: TsvContigStyle,
 
         /// Manager for contig name harmonization.
-        pub contig_manager: ContigNameManager,
+        pub contig_manager: ContigManager,
     }
 
     impl DellyVcfRecordConverter {
@@ -2028,7 +2028,7 @@ mod conv {
                 version: version.to_string(),
                 assembly,
                 tsv_contig_style,
-                contig_manager: ContigNameManager::new(assembly),
+                contig_manager: ContigManager::new(assembly),
             }
         }
     }
@@ -2040,7 +2040,7 @@ mod conv {
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
         }
-        fn contig_manager(&self) -> &ContigNameManager {
+        fn contig_manager(&self) -> &ContigManager {
             &self.contig_manager
         }
 
@@ -2144,7 +2144,7 @@ mod conv {
         pub tsv_contig_style: TsvContigStyle,
 
         /// Manager for contig name harmonization.
-        pub contig_manager: ContigNameManager,
+        pub contig_manager: ContigManager,
     }
 
     impl DragenCnvVcfRecordConverter {
@@ -2159,7 +2159,7 @@ mod conv {
                 version: version.to_string(),
                 assembly,
                 tsv_contig_style,
-                contig_manager: ContigNameManager::new(assembly),
+                contig_manager: ContigManager::new(assembly),
             }
         }
     }
@@ -2171,7 +2171,7 @@ mod conv {
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
         }
-        fn contig_manager(&self) -> &ContigNameManager {
+        fn contig_manager(&self) -> &ContigManager {
             &self.contig_manager
         }
         fn caller_version(&self) -> String {
@@ -2256,7 +2256,7 @@ mod conv {
         pub tsv_contig_style: TsvContigStyle,
 
         /// Manager for contig name harmonization.
-        pub contig_manager: ContigNameManager,
+        pub contig_manager: ContigManager,
     }
 
     impl DragenSvVcfRecordConverter {
@@ -2271,7 +2271,7 @@ mod conv {
                 version: version.to_string(),
                 assembly,
                 tsv_contig_style,
-                contig_manager: ContigNameManager::new(assembly),
+                contig_manager: ContigManager::new(assembly),
             }
         }
     }
@@ -2283,7 +2283,7 @@ mod conv {
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
         }
-        fn contig_manager(&self) -> &ContigNameManager {
+        fn contig_manager(&self) -> &ContigManager {
             &self.contig_manager
         }
         fn caller_version(&self) -> String {
@@ -2322,7 +2322,7 @@ mod conv {
         pub tsv_contig_style: TsvContigStyle,
 
         /// Manager for contig name harmonization.
-        pub contig_manager: ContigNameManager,
+        pub contig_manager: ContigManager,
     }
 
     impl GcnvVcfRecordConverter {
@@ -2337,7 +2337,7 @@ mod conv {
                 version: version.to_string(),
                 assembly,
                 tsv_contig_style,
-                contig_manager: ContigNameManager::new(assembly),
+                contig_manager: ContigManager::new(assembly),
             }
         }
     }
@@ -2349,7 +2349,7 @@ mod conv {
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
         }
-        fn contig_manager(&self) -> &ContigNameManager {
+        fn contig_manager(&self) -> &ContigManager {
             &self.contig_manager
         }
         fn caller_version(&self) -> String {
@@ -2430,7 +2430,7 @@ mod conv {
         pub tsv_contig_style: TsvContigStyle,
 
         /// Manager for contig name harmonization.
-        pub contig_manager: ContigNameManager,
+        pub contig_manager: ContigManager,
     }
 
     impl MantaVcfRecordConverter {
@@ -2445,7 +2445,7 @@ mod conv {
                 version: version.to_string(),
                 assembly,
                 tsv_contig_style,
-                contig_manager: ContigNameManager::new(assembly),
+                contig_manager: ContigManager::new(assembly),
             }
         }
     }
@@ -2522,7 +2522,7 @@ mod conv {
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
         }
-        fn contig_manager(&self) -> &ContigNameManager {
+        fn contig_manager(&self) -> &ContigManager {
             &self.contig_manager
         }
         fn caller_version(&self) -> String {
@@ -2561,7 +2561,7 @@ mod conv {
         pub tsv_contig_style: TsvContigStyle,
 
         /// Manager for contig name harmonization.
-        pub contig_manager: ContigNameManager,
+        pub contig_manager: ContigManager,
     }
 
     impl MeltVcfRecordConverter {
@@ -2576,7 +2576,7 @@ mod conv {
                 version: version.to_string(),
                 assembly,
                 tsv_contig_style,
-                contig_manager: ContigNameManager::new(assembly),
+                contig_manager: ContigManager::new(assembly),
             }
         }
     }
@@ -2588,7 +2588,7 @@ mod conv {
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
         }
-        fn contig_manager(&self) -> &ContigNameManager {
+        fn contig_manager(&self) -> &ContigManager {
             &self.contig_manager
         }
 
@@ -2685,7 +2685,7 @@ mod conv {
         pub tsv_contig_style: TsvContigStyle,
 
         /// Manager for contig name harmonization.
-        pub contig_manager: ContigNameManager,
+        pub contig_manager: ContigManager,
     }
 
     impl PopdelVcfRecordConverter {
@@ -2700,7 +2700,7 @@ mod conv {
                 version: version.to_string(),
                 assembly,
                 tsv_contig_style,
-                contig_manager: ContigNameManager::new(assembly),
+                contig_manager: ContigManager::new(assembly),
             }
         }
     }
@@ -2712,7 +2712,7 @@ mod conv {
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
         }
-        fn contig_manager(&self) -> &ContigNameManager {
+        fn contig_manager(&self) -> &ContigManager {
             &self.contig_manager
         }
         fn caller_version(&self) -> String {
@@ -2904,7 +2904,7 @@ mod conv {
         pub tsv_contig_style: TsvContigStyle,
 
         /// Manager for contig name harmonization.
-        pub contig_manager: ContigNameManager,
+        pub contig_manager: ContigManager,
     }
 
     impl Sniffles2VcfRecordConverter {
@@ -2919,7 +2919,7 @@ mod conv {
                 version: version.to_string(),
                 assembly,
                 tsv_contig_style,
-                contig_manager: ContigNameManager::new(assembly),
+                contig_manager: ContigManager::new(assembly),
             }
         }
     }
@@ -2931,7 +2931,7 @@ mod conv {
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
         }
-        fn contig_manager(&self) -> &ContigNameManager {
+        fn contig_manager(&self) -> &ContigManager {
             &self.contig_manager
         }
         fn caller_version(&self) -> String {
