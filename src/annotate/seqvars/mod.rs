@@ -2008,7 +2008,7 @@ async fn run_with_writer(
         args.reference.as_ref(),
         args.in_memory_reference,
         &args.transcript_settings,
-        Some(assembly),
+        assembly,
     )?;
 
     let mut additional_header_info = annotator.versions_for_vcf_header();
@@ -2110,9 +2110,8 @@ pub(crate) fn setup_seqvars_annotator(
     reference: Option<impl AsRef<Path>>,
     in_memory_reference: bool,
     transcript_settings: &TranscriptSettings,
-    assembly: Option<Assembly>,
+    assembly: Assembly,
 ) -> Result<Annotator, Error> {
-    let assembly = assembly.expect("Assembly must be known to set up annotators");
     let contig_manager = Arc::new(ContigManager::new(assembly));
     let mut annotators = vec![];
 
