@@ -576,7 +576,11 @@ impl VarFishSeqvarTsvWriter {
                 TsvContigStyle::WithoutChr => contig_info.name_without_chr,
                 TsvContigStyle::Auto => {
                     if assembly == Assembly::Grch38 {
-                        contig_info.name_with_chr
+                        if ContigManager::is_mitochondrial(contig_info.chrom_no) {
+                            "chrM".into()
+                        } else {
+                            contig_info.name_with_chr
+                        }
                     } else {
                         contig_info.name_without_chr
                     }
