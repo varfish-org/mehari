@@ -95,7 +95,10 @@ impl ContigManager {
 
         alias_to_accession.extend(additional_aliases);
 
-        let mt_acc = alias_to_accession.get("chrMT").cloned();
+        let mt_acc = alias_to_accession
+            .get("chrMT")
+            .or_else(|| alias_to_accession.get("MT"))
+            .cloned();
         if let Some(ref mt_acc) = mt_acc {
             alias_to_accession.insert("M".to_string(), mt_acc.clone());
             alias_to_accession.insert("chrM".to_string(), mt_acc.clone());
