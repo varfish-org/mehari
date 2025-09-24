@@ -150,8 +150,7 @@ pub mod vcf_header {
     /// # Arguments
     ///
     /// * `assembly` - Genome assembly to use. The canonical contigs will be taken from here.
-    /// * `pedigree` - Pedigree to use.  Will write out appropriate `META`, `SAMPLE`, and
-    ///    `PEDIGREE` header lines.
+    /// * `pedigree` - Pedigree to use.  Will write out appropriate `META`, `SAMPLE`, and `PEDIGREE` header lines.
     /// * `date` - Date to use for the `fileDate` header line.
     /// * `header` - VCF header from input.
     ///
