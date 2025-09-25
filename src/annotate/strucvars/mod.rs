@@ -2801,8 +2801,8 @@ mod conv {
             .get(&entries[sample_no].name)
             .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", &entries[sample_no].name))
             .sex;
-        let is_chr_x = tsv_record.chromosome.contains('X');
-        let is_chr_y = tsv_record.chromosome.contains('Y');
+        let is_chr_x = ContigManager::is_chr_x(tsv_record.chromosome_no);
+        let is_chr_y = ContigManager::is_chr_y(tsv_record.chromosome_no);
         let has_ref = entries[sample_no]
             .gt
             .as_ref()
@@ -2853,8 +2853,8 @@ mod conv {
     /// This is needed as callers such as GATK gCNV do not write out genotypes for duplications.
     /// This is understandable as the genotype is not well-defined for duplications.
     fn postproc_gt_cn(tsv_record: &mut VarFishStrucvarTsvRecord, pedigree: &PedigreeByName) {
-        let is_chr_x = tsv_record.chromosome.contains('X');
-        let is_chr_y = tsv_record.chromosome.contains('Y');
+        let is_chr_x = ContigManager::is_chr_x(tsv_record.chromosome_no);
+        let is_chr_y = ContigManager::is_chr_y(tsv_record.chromosome_no);
         for entry in &tsv_record.genotype.entries {
             let has_ref = entry.gt.as_ref().map(|s| s.contains('0')).unwrap_or(false);
             let has_alt = entry.gt.as_ref().map(|s| s.contains('1')).unwrap_or(false);
