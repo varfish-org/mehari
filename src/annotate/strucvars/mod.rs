@@ -619,7 +619,7 @@ impl GenotypeCalls {
                     result.push(',');
                 }
                 prev = true;
-                result.push_str(&format!("\"\"\"ad\"\"\":{}", gq));
+                result.push_str(&format!("\"\"\"gq\"\"\":{}", gq));
             }
 
             if let Some(pec) = &entry.pec {
