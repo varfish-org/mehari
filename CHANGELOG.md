@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.38.0](https://github.com/varfish-org/mehari/compare/v0.37.1...v0.38.0) (2025-09-25)
+
+
+### Features
+
+* include HGVS.n in Annotation ([#830](https://github.com/varfish-org/mehari/issues/830)) ([fa4d08d](https://github.com/varfish-org/mehari/commit/fa4d08d087c9e2e671c916b3cc66ed2fdb67d9c0))
+* introduce compression-level option for `mehari db create` ([#836](https://github.com/varfish-org/mehari/issues/836)) ([20638cc](https://github.com/varfish-org/mehari/commit/20638cc9cd2f7818f5367cf7395f2f20a1afe415))
+* introduce ContigManager to handle contig names consistently ([#848](https://github.com/varfish-org/mehari/issues/848)) ([ece4acb](https://github.com/varfish-org/mehari/commit/ece4acbf885c9ed3b537117e454f9a7d8de2228f))
+
+
+### Bug Fixes
+
+* clamp get sequence part end to seq length or wrap around for MT ([#853](https://github.com/varfish-org/mehari/issues/853)) ([8ec6639](https://github.com/varfish-org/mehari/commit/8ec6639cb0bbff8f92ac36b27bdff86279a5acb4))
+* refactor db check ([#822](https://github.com/varfish-org/mehari/issues/822)) ([0233177](https://github.com/varfish-org/mehari/commit/0233177a0afb49d434131580a5d6f8de15ace5c9))
+* strucvars TSV mixing up "ad" and "gq" ([#852](https://github.com/varfish-org/mehari/issues/852)) ([a0d3241](https://github.com/varfish-org/mehari/commit/a0d32413b0228a302406b871db92785417c5b5a4))
+
 ## [0.37.1](https://github.com/varfish-org/mehari/compare/v0.37.0...v0.37.1) (2025-08-13)
 
 
