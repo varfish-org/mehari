@@ -61,13 +61,24 @@ impl ReferenceReader for InMemoryFastaAccess {
     ) -> anyhow::Result<Option<Vec<u8>>> {
         if let Some(seq) = self.sequences.get(ac) {
             let seq_len = seq.len() as u64;
+
+            if let Some(s) = start {
+                if s >= seq_len {
+                    return Err(anyhow!(
+                        "Requested start ({}) is out of bounds for sequence {} of length {}",
+                        s,
+                        ac,
+                        seq_len
+                    ));
+                }
+            }
+
             let (start, end) = match (start, end) {
                 (Some(start), Some(end)) => (start, end),
                 (Some(start), None) => (start, seq_len),
                 (None, Some(end)) => (0, end),
                 (None, None) => (0, seq_len),
             };
-            let start = start.min(seq_len);
 
             // In the case of the circular mitochondrial genome, we need to check if the end (with padding)
             // is larger than the sequence length. If so, we need to wrap around.
@@ -180,6 +191,17 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
         end: Option<u64>,
     ) -> anyhow::Result<Option<Vec<u8>>> {
         if let Some(index_record) = self.accession_to_index.get(ac) {
+            if let Some(s) = start {
+                if s >= index_record.length {
+                    return Err(anyhow!(
+                        "Requested start ({}) is out of bounds for sequence {} of length {}",
+                        s,
+                        ac,
+                        index_record.length
+                    ));
+                }
+            }
+
             let (start, end) = match (start, end) {
                 (Some(start), Some(end)) => (start, end),
                 (Some(start), None) => (start, index_record.length),
@@ -190,9 +212,7 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
             let get_linear_slice = |sub_start: u64,
                                     sub_end: u64|
              -> Result<Vec<u8>, anyhow::Error> {
-                let length = index_record.length;
-                let sub_start = sub_start.min(length);
-                let sub_end = sub_end.min(length);
+                let sub_end = sub_end.min(index_record.length);
                 if sub_end <= sub_start {
                     return Err(anyhow!(
                         "Requested sequence part {ac}:{start}-{end} is invalid (start >= end)",
@@ -235,7 +255,6 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
             // is larger than the sequence length. If so, wrap around to the beginning.
             if ac == "NC_012920.1" && end > index_record.length {
                 let mut sequence = get_linear_slice(start, index_record.length)?;
-
                 let wrap_around_end = (end - index_record.length).min(index_record.length);
                 if wrap_around_end > 0 {
                     let wrapped_part = get_linear_slice(0, wrap_around_end)?;
