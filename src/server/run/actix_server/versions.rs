@@ -106,7 +106,7 @@ impl DataVersionEntry {
         let version_for = |source_name: i32| {
             let version = versions
                 .iter()
-                .filter(|&v| (v.source_name == source_name))
+                .filter(|&v| v.source_name == source_name)
                 .map(|v| v.source_version.clone())
                 .collect::<Vec<_>>()
                 .join(",");

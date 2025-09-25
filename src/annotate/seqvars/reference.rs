@@ -1,9 +1,11 @@
+use crate::common::contig::ContigManager;
 use anyhow::anyhow;
 use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub trait ReferenceReader {
     fn get(
@@ -14,23 +16,38 @@ pub trait ReferenceReader {
     ) -> anyhow::Result<Option<Vec<u8>>>;
 }
 
+/// In-memory reference sequence access.
 pub struct InMemoryFastaAccess {
+    /// Maps canonical RefSeq accession to the full sequence.
     sequences: HashMap<String, Vec<u8>>,
 }
-
 impl InMemoryFastaAccess {
-    pub fn from_path(path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        tracing::info!("Reading reference from {}", path.as_ref().display());
+    pub fn from_path(
+        path: impl AsRef<Path>,
+        contig_manager: Arc<ContigManager>,
+    ) -> anyhow::Result<Self> {
+        tracing::info!(
+            "Reading reference FASTA into memory from {}",
+            path.as_ref().display()
+        );
         let reference_path = path.as_ref().to_path_buf();
         let reference_reader = bio::io::fasta::Reader::from_file(&reference_path)
             .expect("Failed to create FASTA reader");
-        let sequences = reference_reader
-            .records()
-            .map(|r| {
-                let record = r.expect("Failed to read FASTA record");
-                (record.id().to_string(), record.seq().to_ascii_uppercase())
-            })
-            .collect();
+
+        let mut sequences = HashMap::new();
+        for record_result in reference_reader.records() {
+            let record = record_result?;
+            if let Some(accession) = contig_manager.get_accession(record.id()) {
+                sequences.insert(accession.clone(), record.seq().to_ascii_uppercase());
+            } else {
+                tracing::warn!(
+                    "Contig '{}' from FASTA file not found in assembly info; it will be ignored.",
+                    record.id()
+                );
+            }
+        }
+
+        tracing::info!("...done reading reference FASTA into memory.");
         Ok(Self { sequences })
     }
 }
@@ -55,11 +72,13 @@ impl ReferenceReader for InMemoryFastaAccess {
     }
 }
 
+/// Memory-mapped, indexed FASTA access.
 pub struct UnbufferedIndexedFastaAccess {
     #[allow(dead_code)]
     path: PathBuf,
     mmap: Mmap,
-    index: HashMap<String, IndexRecord>,
+    /// Maps the canonical RefSeq accession to the FAI index record.
+    accession_to_index: HashMap<String, IndexRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -72,27 +91,47 @@ struct IndexRecord {
 }
 
 impl UnbufferedIndexedFastaAccess {
-    pub fn from_path(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub fn from_path(
+        path: impl AsRef<Path>,
+        contig_manager: Arc<ContigManager>,
+    ) -> anyhow::Result<Self> {
         let path = path.as_ref().to_path_buf();
         let index_path = format!("{}.fai", path.to_str().ok_or(anyhow!("Invalid path"))?);
         tracing::info!("Reading reference index from {}", &index_path);
-        let index = csv::ReaderBuilder::new()
+        let index_records: Vec<IndexRecord> = csv::ReaderBuilder::new()
             .has_headers(false)
             .delimiter(b'\t')
             .from_path(index_path)?
             .deserialize()
             .map(|record| {
                 let record: IndexRecord = record.expect("Failed to read index record");
-                (record.name.clone(), record)
+                record
             })
             .collect();
+
+        let mut accession_to_index = HashMap::new();
+        for record in index_records {
+            if let Some(accession) = contig_manager.get_accession(&record.name) {
+                accession_to_index.insert(accession.clone(), record);
+            } else {
+                tracing::warn!(
+                    "Contig '{}' from FASTA index not found in assembly info; it will be ignored.",
+                    record.name
+                );
+            }
+        }
+
         let file = File::open(&path)?;
         // SAFETY: The file is opened in read-only mode;
         // however, if the underlying file is modified, this can still lead to undefined behavior.
         let mmap = unsafe { Mmap::map(&file)? };
         mmap.advise(memmap2::Advice::Sequential)?;
 
-        Ok(Self { path, mmap, index })
+        Ok(Self {
+            path,
+            mmap,
+            accession_to_index,
+        })
     }
 }
 
@@ -103,7 +142,7 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
         start: Option<u64>,
         end: Option<u64>,
     ) -> anyhow::Result<Option<Vec<u8>>> {
-        if let Some(index_record) = self.index.get(ac) {
+        if let Some(index_record) = self.accession_to_index.get(ac) {
             let (start, end) = match (start, end) {
                 (Some(start), Some(end)) => (start, end),
                 (Some(start), None) => (start, index_record.length),

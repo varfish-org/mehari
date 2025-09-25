@@ -34,8 +34,7 @@ use strum::Display;
 use thousands::Separable;
 
 /// Mitochondrial accessions.
-const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1"];
-const MITOCHONDRIAL_ACCESSION: &str = "NC_012920.1";
+const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1", "NC_001807.4"];
 
 /// Command line arguments for `db create txs` sub command.
 #[derive(Parser, Debug)]
@@ -655,7 +654,7 @@ impl TranscriptLoader {
         let start = Instant::now();
 
         let five_prime_truncated = |tx: &Transcript| -> bool {
-            let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
+            let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
             if tx.protein_coding() && !is_mt {
                 tx.genome_builds.iter().any(|(_release, alignment)| {
                     let cds_start = alignment.cds_start;
@@ -671,7 +670,7 @@ impl TranscriptLoader {
             }
         };
         let three_prime_truncated = |tx: &Transcript| -> bool {
-            let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
+            let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
             if tx.protein_coding() && !is_mt {
                 tx.genome_builds.iter().any(|(_release, alignment)| {
                     let cds_end = alignment.cds_end;
@@ -720,7 +719,7 @@ impl TranscriptLoader {
                     namespace: Some(namespace.clone()),
                 });
                 if let Ok(seq) = seq {
-                    let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
+                    let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
                     let is_seleno = tx.biotype.as_ref().map(|bt| bt.contains(&BioType::Selenoprotein)).unwrap_or(false);
                     if seq.is_empty() {
                         return Either::Left((

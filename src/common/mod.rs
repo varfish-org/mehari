@@ -1,7 +1,6 @@
 //! Commonly used code.
 
 use annonars::common::cli::CANONICAL;
-use annonars::freqs::cli::import::reading::ContigMap;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -11,6 +10,7 @@ use byte_unit::{Byte, UnitType};
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 
+pub mod contig;
 pub mod io;
 pub mod noodles;
 
@@ -20,6 +20,19 @@ pub struct Args {
     /// Verbosity of the program
     #[clap(flatten)]
     pub verbose: Verbosity<InfoLevel>,
+}
+
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TsvContigStyle {
+    /// Use contig name from input VCF as is.
+    Passthrough,
+    /// Enforce "chr" prefix, using canonical name from assembly info.
+    WithChr,
+    /// Enforce no "chr" prefix, using canonical name from assembly info.
+    WithoutChr,
+    /// Use canonical name, with "chr" prefix for GRCh38 and without for GRCh37.
+    #[default]
+    Auto,
 }
 
 /// Helper to print the current memory resident set size via `tracing`.
@@ -286,6 +299,7 @@ pub fn guess_assembly_from_vcf(
 }
 
 use ::noodles::fasta::fai;
+use annonars::freqs::cli::import::reading::ContigMap;
 use std::path::Path;
 
 /// Guess the assembly from the given FASTA file by reading its index (.fai).

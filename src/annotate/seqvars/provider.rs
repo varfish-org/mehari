@@ -4,6 +4,7 @@ use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType, TranscriptSou
 use crate::annotate::seqvars::reference::{
     InMemoryFastaAccess, ReferenceReader, UnbufferedIndexedFastaAccess,
 };
+use crate::common::contig::ContigManager;
 use crate::db::create::Reason;
 use crate::db::TranscriptDatabase;
 use crate::{
@@ -28,12 +29,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::Path;
-
-/// Mitochondrial accessions.
-const MITOCHONDRIAL_ACCESSIONS: &[&str] = &[
-    "NC_012920.1", // rCRS
-    "NC_001807.4", // CRS
-];
+use std::sync::Arc;
 
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
 
@@ -168,14 +164,22 @@ pub struct Config {
 pub struct Provider {
     /// Database of transcripts and sequences as deserialized from protobuf.
     pub tx_seq_db: TxSeqDatabase,
+
     /// Interval trees for the tanscripts.
     pub tx_trees: TxIntervalTrees,
+
+    /// The contig name manager.
+    pub contig_manager: Arc<ContigManager>,
+
     /// Mapping from gene identifier to index in `TxSeqDatabase::tx_db::gene_to_tx`.
     gene_map: HashMap<String, u32>,
+
     /// Mapping from transcript accession to index in `TxSeqDatabase::tx_db::transcripts`.
     tx_map: HashMap<String, u32>,
+
     /// Mapping from sequence accession to index in `TxSeqDatabase::seq_db::seqs`.
     seq_map: HashMap<String, u32>,
+
     /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
@@ -183,15 +187,9 @@ pub struct Provider {
     /// for reading parts of reference sequences
     reference_reader: Option<ReferenceReaderImpl>,
 
-    /// Mapping from chromosome to accession.
-    #[allow(dead_code)]
-    chrom_to_acc: IndexMap<String, String>,
-
-    /// Mapping from accession to chromosome.
-    acc_to_chrom: IndexMap<String, String>,
-
     /// The data version.
     data_version: String,
+
     /// The schema version.
     schema_version: String,
 }
@@ -243,6 +241,9 @@ impl Provider {
         in_memory_reference: bool,
         config: Config,
     ) -> Self {
+        let assembly = tx_seq_db.assembly();
+        let contig_manager = Arc::new(ContigManager::new(assembly));
+
         let tx_trees = TxIntervalTrees::new(&tx_seq_db);
         let gene_map = HashMap::from_iter(
             tx_seq_db
@@ -304,28 +305,25 @@ impl Provider {
 
         let reference_reader = match (reference, in_memory_reference) {
             (Some(path), false) => Some(ReferenceReaderImpl::Unbuffered(
-                UnbufferedIndexedFastaAccess::from_path(path)
+                UnbufferedIndexedFastaAccess::from_path(path, contig_manager.clone())
                     .expect("Failed to open reference FASTA file"),
             )),
             (Some(path), true) => Some(ReferenceReaderImpl::InMemory(
-                InMemoryFastaAccess::from_path(path).expect("Failed to open reference FASTA file"),
+                InMemoryFastaAccess::from_path(path, contig_manager.clone())
+                    .expect("Failed to open reference FASTA file"),
             )),
             (None, _) => None,
         };
 
-        let acc_to_chrom = _get_assembly_map(tx_seq_db.assembly());
-        let chrom_to_acc = _chrom_to_acc(&acc_to_chrom);
-
         Self {
             tx_seq_db,
             tx_trees,
+            contig_manager,
             gene_map,
             tx_map,
             seq_map,
             picked_gene_to_tx_id,
             reference_reader,
-            chrom_to_acc,
-            acc_to_chrom,
             data_version,
             schema_version,
         }
@@ -534,12 +532,6 @@ impl Provider {
     pub fn reference_available(&self) -> bool {
         self.reference_reader.is_some()
     }
-
-    pub fn build_chrom_to_acc(&self, assembly: Option<Assembly>) -> HashMap<String, String> {
-        let acc_to_chrom: IndexMap<String, String> =
-            self.get_assembly_map(assembly.unwrap_or_else(|| self.assembly()));
-        _chrom_to_acc(&acc_to_chrom).into_iter().collect()
-    }
 }
 
 impl ProviderInterface for Provider {
@@ -553,8 +545,13 @@ impl ProviderInterface for Provider {
         &self.schema_version
     }
 
-    fn get_assembly_map(&self, assembly: Assembly) -> indexmap::IndexMap<String, String> {
-        _get_assembly_map(assembly)
+    fn get_assembly_map(&self, assembly: Assembly) -> IndexMap<String, String> {
+        IndexMap::from_iter(
+            ASSEMBLY_INFOS[assembly]
+                .sequences
+                .iter()
+                .map(|record| (record.refseq_ac.clone(), record.name.clone())),
+        )
     }
 
     fn get_gene_info(&self, _hgnc: &str) -> Result<hgvs::data::interface::GeneInfoRecord, Error> {
@@ -588,17 +585,12 @@ impl ProviderInterface for Provider {
             || ac.starts_with("NT")
             || ac.starts_with("NW") && self.reference_available()
         {
-            let chrom = self.acc_to_chrom.get(ac).map_or(ac, |v| v);
             let reader = self.reference_reader.as_ref().unwrap();
-            let seq = reader.get(chrom, begin.map(|x| x as u64), end.map(|x| x as u64));
-            let seq = match seq.transpose() {
-                Some(Ok(seq)) => seq,
-                Some(Err(_)) => return Err(Error::NoSequenceRecord(chrom.to_string())),
-                None => reader
-                    .get(ac, begin.map(|x| x as u64), end.map(|x| x as u64))
-                    .map_err(|_| Error::NoSequenceRecord(ac.to_string()))?
-                    .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?,
-            };
+            let seq = reader
+                .get(ac, begin.map(|x| x as u64), end.map(|x| x as u64))
+                .map_err(|_| Error::NoSequenceRecord(ac.to_string()))?
+                .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?;
+
             return String::from_utf8(seq).map_err(|_| {
                 Error::NoSequenceRecord("Failed converting seq to UTF-8.".to_string())
             });
@@ -820,8 +812,9 @@ impl ProviderInterface for Provider {
             .collect::<Vec<(i32, i32)>>();
         tmp.sort();
 
-        let is_mitochondrial = MITOCHONDRIAL_ACCESSIONS
-            .contains(&tx.genome_alignments.first().unwrap().contig.as_str());
+        let is_mitochondrial = self
+            .contig_manager
+            .is_mitochondrial_alias(tx.genome_alignments.first().unwrap().contig.as_str());
 
         let lengths = tmp.into_iter().map(|(_, length)| length).collect();
         Ok(TxIdentityInfo {
@@ -900,29 +893,6 @@ impl ProviderInterface for Provider {
             alt_aln_method: NCBI_ALN_METHOD.to_string(),
         }])
     }
-}
-
-fn _get_assembly_map(assembly: Assembly) -> IndexMap<String, String> {
-    IndexMap::from_iter(
-        ASSEMBLY_INFOS[assembly]
-            .sequences
-            .iter()
-            .map(|record| (record.refseq_ac.clone(), record.name.clone())),
-    )
-}
-
-fn _chrom_to_acc(acc_to_chrom: &IndexMap<String, String>) -> IndexMap<String, String> {
-    let mut chrom_to_acc = IndexMap::with_capacity(acc_to_chrom.len());
-    for (acc, chrom) in acc_to_chrom {
-        let chrom = if chrom.starts_with("chr") {
-            chrom.strip_prefix("chr").unwrap()
-        } else {
-            chrom
-        };
-        chrom_to_acc.insert(chrom.to_string(), acc.clone());
-        chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
-    }
-    chrom_to_acc
 }
 
 #[cfg(test)]

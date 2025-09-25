@@ -2,11 +2,9 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use biocommons_bioutils::assemblies::Assembly;
-
 use crate::{
-    annotate::seqvars::provider::{Provider as MehariProvider, TxIntervalTrees},
-    pbs::txs::{Strand, Transcript, TxSeqDatabase},
+    annotate::seqvars::provider::Provider as MehariProvider,
+    pbs::txs::{Strand, Transcript},
 };
 
 /// Enumeration for effect on transcript.
@@ -326,30 +324,29 @@ fn gene_tx_effect_for_range(
 /// Helper that computes effects on transcripts for a single breakend, e.g., one side of BND or INS.
 fn compute_tx_effects_for_breakpoint(
     sv: &impl interface::StrucVar,
-    mehari_tx_db: &TxSeqDatabase,
-    mehari_tx_idx: &TxIntervalTrees,
-    chrom_to_acc: &HashMap<String, String>,
+    mehari_provider: &MehariProvider,
 ) -> Vec<StrucvarsGeneTranscriptEffects> {
     // Shortcut to the `TranscriptDb`.
-    let tx_db = mehari_tx_db
+    let tx_db = mehari_provider
+        .tx_seq_db
         .tx_db
         .as_ref()
         .expect("transcripts must be present");
     // Compute canonical chromosome name and map to accession.
-    let chrom = chrom_to_acc.get(&annonars::common::cli::canonicalize(&sv.chrom()));
-    if chrom.is_none() {
+    let chrom_acc = mehari_provider.contig_manager.get_accession(&sv.chrom());
+    if chrom_acc.is_none() {
         return Default::default();
     }
-    let chrom = chrom.expect("chromosome must be known at this point");
+    let chrom_acc = chrom_acc.expect("chromosome must be known at this point");
     // Create range to query the interval trees for.
     let query = (sv.start() - X_STREAM)..(sv.start() + X_STREAM);
 
-    if let Some(idx) = mehari_tx_idx.contig_to_idx.get(chrom) {
+    if let Some(idx) = mehari_provider.tx_trees.contig_to_idx.get(chrom_acc) {
         let mut effects_by_gene: HashMap<_, Vec<_>> = HashMap::new();
 
         // Collect all transcripts that overlap the INS and compute the effect of the INS on
         // the transcript.
-        let tree = &mehari_tx_idx.trees[*idx];
+        let tree = &mehari_provider.tx_trees.trees[*idx];
         for it in tree.find(query) {
             let tx = &tx_db.transcripts[*it.data() as usize];
             effects_by_gene
@@ -383,30 +380,29 @@ fn compute_tx_effects_for_breakpoint(
 /// Compute effect for linear SVs.
 fn compute_tx_effects_for_linear(
     sv: &impl interface::StrucVar,
-    mehari_tx_db: &TxSeqDatabase,
-    mehari_tx_idx: &TxIntervalTrees,
-    chrom_to_acc: &HashMap<String, String>,
+    mehari_provider: &MehariProvider,
 ) -> Vec<StrucvarsGeneTranscriptEffects> {
     // Shortcut to the `TranscriptDb`.
-    let tx_db = mehari_tx_db
+    let tx_db = mehari_provider
+        .tx_seq_db
         .tx_db
         .as_ref()
         .expect("transcripts must be present");
     // Compute canonical chromosome name and map to accession.
-    let chrom = chrom_to_acc.get(&annonars::common::cli::canonicalize(&sv.chrom()));
-    if chrom.is_none() {
+    let chrom_acc = mehari_provider.contig_manager.get_accession(&sv.chrom());
+    if chrom_acc.is_none() {
         return Default::default();
     }
-    let chrom = chrom.expect("chromosome must be known at this point");
+    let chrom_acc = chrom_acc.expect("chromosome must be known at this point");
     // Create range to query the interval trees for.
     let query = (sv.start() - X_STREAM)..(sv.stop() + X_STREAM);
 
-    if let Some(idx) = mehari_tx_idx.contig_to_idx.get(chrom) {
+    if let Some(idx) = mehari_provider.tx_trees.contig_to_idx.get(chrom_acc) {
         let mut effects_by_gene: HashMap<_, Vec<_>> = HashMap::new();
 
         // Collect all transcripts that overlap the SV and compute the effect of the SV on
         // the transcript.
-        let tree = &mehari_tx_idx.trees[*idx];
+        let tree = &mehari_provider.tx_trees.trees[*idx];
         for it in tree.find(query) {
             let tx = &tx_db.transcripts[*it.data() as usize];
             effects_by_gene
@@ -444,19 +440,11 @@ pub struct ConsequencePredictor {
     /// The internal transcript provider for locating transcripts.
     #[derivative(Debug = "ignore")]
     provider: Arc<MehariProvider>,
-    /// Mapping from chromosome name to accession.
-    #[derivative(Debug = "ignore")]
-    chrom_to_acc: HashMap<String, String>,
 }
 
 impl ConsequencePredictor {
-    pub fn new(provider: Arc<MehariProvider>, assembly: Assembly) -> Self {
-        let chrom_to_acc = provider.build_chrom_to_acc(Some(assembly));
-
-        ConsequencePredictor {
-            provider,
-            chrom_to_acc,
-        }
+    pub fn new(provider: Arc<MehariProvider>) -> Self {
+        ConsequencePredictor { provider }
     }
 
     /// Compute effect(s) of `sv` on transcript of genes.
@@ -469,21 +457,11 @@ impl ConsequencePredictor {
     ) -> Vec<StrucvarsGeneTranscriptEffects> {
         match sv.sv_type() {
             interface::StrucvarsSvType::Ins | interface::StrucvarsSvType::Bnd => {
-                compute_tx_effects_for_breakpoint(
-                    sv,
-                    &self.provider.tx_seq_db,
-                    &self.provider.tx_trees,
-                    &self.chrom_to_acc,
-                )
+                compute_tx_effects_for_breakpoint(sv, &self.provider)
             }
             interface::StrucvarsSvType::Del
             | interface::StrucvarsSvType::Dup
-            | interface::StrucvarsSvType::Inv => compute_tx_effects_for_linear(
-                sv,
-                &self.provider.tx_seq_db,
-                &self.provider.tx_trees,
-                &self.chrom_to_acc,
-            ),
+            | interface::StrucvarsSvType::Inv => compute_tx_effects_for_linear(sv, &self.provider),
         }
     }
 
