@@ -34,8 +34,7 @@ use strum::Display;
 use thousands::Separable;
 
 /// Mitochondrial accessions.
-const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1"];
-const MITOCHONDRIAL_ACCESSION: &str = "NC_012920.1";
+const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1", "NC_001807.4"];
 
 /// Command line arguments for `db create txs` sub command.
 #[derive(Parser, Debug)]
@@ -90,6 +89,10 @@ pub struct Args {
     /// Number of threads to use for steps supporting parallel processing.
     #[arg(long, default_value = "1")]
     pub threads: usize,
+
+    /// ZSTD compression level to use.
+    #[arg(long, default_value = "19")]
+    pub compression_level: i32,
 }
 
 /// Source of the transcripts.
@@ -651,7 +654,7 @@ impl TranscriptLoader {
         let start = Instant::now();
 
         let five_prime_truncated = |tx: &Transcript| -> bool {
-            let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
+            let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
             if tx.protein_coding() && !is_mt {
                 tx.genome_builds.iter().any(|(_release, alignment)| {
                     let cds_start = alignment.cds_start;
@@ -667,7 +670,7 @@ impl TranscriptLoader {
             }
         };
         let three_prime_truncated = |tx: &Transcript| -> bool {
-            let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
+            let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
             if tx.protein_coding() && !is_mt {
                 tx.genome_builds.iter().any(|(_release, alignment)| {
                     let cds_end = alignment.cds_end;
@@ -716,7 +719,7 @@ impl TranscriptLoader {
                     namespace: Some(namespace.clone()),
                 });
                 if let Ok(seq) = seq {
-                    let is_mt = tx.is_on_contig(MITOCHONDRIAL_ACCESSION);
+                    let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
                     let is_seleno = tx.biotype.as_ref().map(|bt| bt.contains(&BioType::Selenoprotein)).unwrap_or(false);
                     if seq.is_empty() {
                         return Either::Left((
@@ -1784,7 +1787,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         }
         trace_rss_now();
 
-        write_tx_db(tx_db, &args.path_out)?;
+        write_tx_db(tx_db, &args.path_out, args.compression_level)?;
 
         tracing::info!("Done building transcript and sequence database file");
         Ok(())
@@ -1824,7 +1827,11 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
     threadpool.install(|| _run(common, args))
 }
 
-pub(crate) fn write_tx_db(tx_db: TxSeqDatabase, path: impl AsRef<Path>) -> Result<(), Error> {
+pub(crate) fn write_tx_db(
+    tx_db: TxSeqDatabase,
+    path: impl AsRef<Path>,
+    compression_level: i32,
+) -> Result<(), Error> {
     tracing::info!("Writing out final database …");
     let path = path.as_ref();
     let mut buf = prost::bytes::BytesMut::with_capacity(tx_db.encoded_len());
@@ -1839,14 +1846,9 @@ pub(crate) fn write_tx_db(tx_db: TxSeqDatabase, path: impl AsRef<Path>) -> Resul
     let file = std::fs::File::create(path)
         .map_err(|e| anyhow!("failed to create file {}: {}", path.display(), e))?;
     let ext = path.extension().map(|s| s.to_str());
-    let mut writer: Box<dyn Write> = if ext == Some(Some("gz")) {
-        Box::new(flate2::write::GzEncoder::new(
-            file,
-            flate2::Compression::default(),
-        ))
-    } else if ext == Some(Some("zst")) {
+    let mut writer: Box<dyn Write> = if ext == Some(Some("zst")) {
         Box::new(
-            zstd::Encoder::new(file, 0)
+            zstd::Encoder::new(file, compression_level)
                 .map_err(|e| anyhow!("failed to open zstd encoder for {}: {}", path.display(), e))?
                 .auto_finish(),
         )
@@ -1932,6 +1934,7 @@ pub mod test {
             gene_symbols: None,
             threads: 1,
             cdot_version: "0.2.22".to_string(),
+            compression_level: 19,
         };
 
         run(&common_args, &args)?;
@@ -1971,6 +1974,7 @@ pub mod test {
             gene_symbols: None,
             threads: 1,
             cdot_version: "0.2.22".to_string(),
+            compression_level: 19,
         };
 
         run(&common_args, &args)?;
@@ -2011,6 +2015,7 @@ pub mod test {
             gene_symbols: None,
             threads: 1,
             cdot_version: "0.2.23".to_string(),
+            compression_level: 19,
         };
 
         run(&common_args, &args)?;

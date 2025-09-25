@@ -2,10 +2,10 @@
 
 use crate::annotate::seqvars::load_tx_db;
 use crate::annotate::seqvars::provider::TxIntervalTrees;
+use crate::common::contig::ContigManager;
 use crate::db::TranscriptDatabase;
 use crate::pbs::txs::{TranscriptDb, TxSeqDatabase};
 use anyhow::{Error, Result};
-use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
 use clap::Parser;
 use indexmap::{IndexMap, IndexSet};
 use noodles::vcf::variant::Record;
@@ -192,7 +192,7 @@ fn _extract_transcripts_by_region(
     let container_tx_db = container.tx_db.as_ref().expect("no tx_db");
     let trees = TxIntervalTrees::new(container);
 
-    let chrom_to_acc = _chrom_to_acc(container.assembly());
+    let contig_manager = ContigManager::new(container.assembly());
 
     let mut transcript_ids = IndexSet::<String>::new();
     let mut reader = noodles::vcf::io::reader::Builder::default().build_from_path(vcf)?;
@@ -201,16 +201,16 @@ fn _extract_transcripts_by_region(
         let record = result?;
         if let (Some(Ok(start)), Ok(end)) = (record.variant_start(), record.variant_end(&header)) {
             let chrom = record.reference_sequence_name().to_string();
-            let accession = chrom_to_acc.get(&chrom).unwrap_or(&chrom);
-
-            let txs = trees.get_tx_for_region(
-                container,
-                accession,
-                "splign",
-                usize::from(start).try_into()?,
-                usize::from(end).try_into()?,
-            )?;
-            transcript_ids.extend(txs.into_iter().map(|tx| tx.tx_ac));
+            if let Some(accession) = contig_manager.get_accession(&chrom) {
+                let txs = trees.get_tx_for_region(
+                    container,
+                    accession,
+                    "splign",
+                    usize::from(start).try_into()?,
+                    usize::from(end).try_into()?,
+                )?;
+                transcript_ids.extend(txs.into_iter().map(|tx| tx.tx_ac));
+            }
         }
     }
     if transcript_ids.is_empty() {
@@ -287,30 +287,6 @@ fn __extract_transcripts_from_db(
         }
     }
     (tx_idxs, gene_ids)
-}
-
-fn _acc_to_chrom(assembly: Assembly) -> IndexMap<String, String> {
-    IndexMap::from_iter(
-        ASSEMBLY_INFOS[assembly]
-            .sequences
-            .iter()
-            .map(|record| (record.refseq_ac.clone(), record.name.clone())),
-    )
-}
-
-fn _chrom_to_acc(assembly: Assembly) -> IndexMap<String, String> {
-    let acc_to_chrom = _acc_to_chrom(assembly);
-    let mut chrom_to_acc = IndexMap::new();
-    for (acc, chrom) in &acc_to_chrom {
-        let chrom = if chrom.starts_with("chr") {
-            chrom.strip_prefix("chr").unwrap()
-        } else {
-            chrom
-        };
-        chrom_to_acc.insert(chrom.to_string(), acc.clone());
-        chrom_to_acc.insert(format!("chr{}", chrom), acc.clone());
-    }
-    chrom_to_acc
 }
 
 #[cfg(test)]

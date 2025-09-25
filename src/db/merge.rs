@@ -17,6 +17,10 @@ pub struct Args {
     /// Output file to write the merged transcript database to.
     #[clap(long)]
     pub output: String,
+
+    /// ZSTD compression level to use.
+    #[arg(long, default_value = "19")]
+    compression_level: i32,
 }
 
 pub fn merge_transcript_databases(
@@ -118,7 +122,7 @@ pub fn run(_common_args: &common::Args, args: &Args) -> Result<(), anyhow::Error
     tracing::info!("Merging transcript databases");
     let tx_db = merge_transcript_databases(tx_dbs)?;
     tracing::info!("Writing merged transcript database");
-    write_tx_db(tx_db, &args.output)?;
+    write_tx_db(tx_db, &args.output, args.compression_level)?;
     tracing::info!("Done loading, merging and writing transcript databases");
     Ok(())
 }
