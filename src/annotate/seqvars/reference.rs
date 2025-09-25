@@ -59,7 +59,7 @@ impl ReferenceReader for InMemoryFastaAccess {
         start: Option<u64>,
         end: Option<u64>,
     ) -> anyhow::Result<Option<Vec<u8>>> {
-        Ok(self.sequences.get(ac).map(|seq| {
+        if let Some(seq) = self.sequences.get(ac) {
             let seq_len = seq.len() as u64;
             let (start, end) = match (start, end) {
                 (Some(start), Some(end)) => (start, end),
@@ -67,15 +67,18 @@ impl ReferenceReader for InMemoryFastaAccess {
                 (None, Some(end)) => (0, end),
                 (None, None) => (0, seq_len),
             };
+            let start = start.min(seq_len);
 
             // In the case of the circular mitochondrial genome, we need to check if the end (with padding)
             // is larger than the sequence length. If so, we need to wrap around.
             if ac == "NC_012920.1" && end > seq_len {
                 let mut result_seq = seq[start as usize..].to_vec();
-                let wrap_around_end = end - seq_len;
-                let wrapped_part = &seq[..wrap_around_end as usize];
-                result_seq.extend_from_slice(wrapped_part);
-                result_seq
+                let wrap_around_end = (end - seq_len).min(seq_len);
+                if wrap_around_end > 0 {
+                    let wrapped_part = &seq[..wrap_around_end as usize];
+                    result_seq.extend_from_slice(wrapped_part);
+                }
+                Ok(Some(result_seq))
             } else {
                 let clamped_end = end.min(seq_len);
                 if clamped_end != end {
@@ -89,9 +92,20 @@ impl ReferenceReader for InMemoryFastaAccess {
                     );
                 }
 
-                seq[start as usize..clamped_end as usize].to_vec()
+                if clamped_end <= start {
+                    Err(anyhow!(
+                        "Requested sequence part {ac}:{start}-{end} is invalid (start >= end)",
+                        ac = ac,
+                        start = start,
+                        end = end
+                    ))
+                } else {
+                    Ok(Some(seq[start as usize..clamped_end as usize].to_vec()))
+                }
             }
-        }))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -173,10 +187,23 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
                 (None, None) => (0, index_record.length),
             };
 
-            let get_linear_slice = |sub_start: u64, sub_end: u64| -> Vec<u8> {
+            let get_linear_slice = |sub_start: u64,
+                                    sub_end: u64|
+             -> Result<Vec<u8>, anyhow::Error> {
+                let length = index_record.length;
+                let sub_start = sub_start.min(length);
+                let sub_end = sub_end.min(length);
+                if sub_end <= sub_start {
+                    return Err(anyhow!(
+                        "Requested sequence part {ac}:{start}-{end} is invalid (start >= end)",
+                        ac = ac,
+                        start = sub_start,
+                        end = sub_end
+                    ));
+                }
                 let num_bases = sub_end - sub_start;
-                let start_line = sub_start / index_record.line_bases;
 
+                let start_line = sub_start / index_record.line_bases;
                 let end_line = (sub_end - 1) / index_record.line_bases;
 
                 let num_lines_spanned = end_line - start_line + 1;
@@ -192,7 +219,7 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
                 assert!(read_end <= self.mmap.len());
 
                 // Read the byte slice and filter out any newline characters.
-                self.mmap[read_start..read_end]
+                Ok(self.mmap[read_start..read_end]
                     .iter()
                     .filter_map(|&c| {
                         if c != b'\n' && c != b'\r' {
@@ -201,18 +228,19 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
                             None
                         }
                     })
-                    .collect()
+                    .collect())
             };
 
             // In the case of the circular mitochondrial genome, check if the requested end (with padding)
             // is larger than the sequence length. If so, wrap around to the beginning.
             if ac == "NC_012920.1" && end > index_record.length {
-                let mut sequence = get_linear_slice(start, index_record.length);
+                let mut sequence = get_linear_slice(start, index_record.length)?;
 
-                let wrap_around_end = end - index_record.length;
-                let wrapped_part = get_linear_slice(0, wrap_around_end);
-
-                sequence.extend(wrapped_part);
+                let wrap_around_end = (end - index_record.length).min(index_record.length);
+                if wrap_around_end > 0 {
+                    let wrapped_part = get_linear_slice(0, wrap_around_end)?;
+                    sequence.extend(wrapped_part);
+                }
 
                 return Ok(Some(sequence));
             }
@@ -230,7 +258,7 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
                 );
             }
 
-            let seq = get_linear_slice(start, clamped_end);
+            let seq = get_linear_slice(start, clamped_end)?;
             Ok(Some(seq))
         } else {
             Ok(None)
