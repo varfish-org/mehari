@@ -14,6 +14,7 @@ pub struct ContigManager {
     name_to_chrom_no: HashMap<String, u32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContigInfo {
     /// The name without a "chr" prefix (e.g., "1", "X", "MT").
     pub name_without_chr: String,
