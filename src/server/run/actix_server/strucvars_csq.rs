@@ -65,7 +65,8 @@ impl interface::StrucVar for Query {
             "INS" => interface::StrucvarsSvType::Ins,
             "BND" => interface::StrucvarsSvType::Bnd,
             "INV" => interface::StrucvarsSvType::Inv,
-            _ => interface::StrucvarsSvType::Del,
+            "CNV" => interface::StrucvarsSvType::Cnv,
+            _ => panic!("unexpected SVTYPE: {}", self.sv_type),
         }
     }
 

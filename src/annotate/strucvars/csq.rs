@@ -82,6 +82,8 @@ pub mod interface {
         Inv,
         #[serde(rename = "BND")]
         Bnd,
+        #[serde(rename = "CNV")]
+        Cnv,
     }
 
     /// Strand orientation of a structural variant.
@@ -451,9 +453,6 @@ impl ConsequencePredictor {
     pub fn compute_tx_effects(
         &self,
         sv: &impl interface::StrucVar,
-        // mehari_tx_db: &TxSeqDatabase,
-        // mehari_tx_idx: &TxIntervalTrees,
-        // chrom_to_acc: &HashMap<String, String>,
     ) -> Vec<StrucvarsGeneTranscriptEffects> {
         match sv.sv_type() {
             interface::StrucvarsSvType::Ins | interface::StrucvarsSvType::Bnd => {
@@ -461,7 +460,8 @@ impl ConsequencePredictor {
             }
             interface::StrucvarsSvType::Del
             | interface::StrucvarsSvType::Dup
-            | interface::StrucvarsSvType::Inv => compute_tx_effects_for_linear(sv, &self.provider),
+            | interface::StrucvarsSvType::Inv
+            | interface::StrucvarsSvType::Cnv => compute_tx_effects_for_linear(sv, &self.provider),
         }
     }
 
