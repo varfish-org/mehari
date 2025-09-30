@@ -31,7 +31,7 @@ actix-web = "4.11"
 annonars = "0.44.0"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
-bio = "2.3.0"
+bio = "3.0.0"
 biocommons-bioutils = "0.1.5"
 built = { version = "0.8", features = ["chrono", "semver"] }
 byte-unit = "5.1"
