@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.38.1](https://github.com/varfish-org/mehari/compare/v0.38.0...v0.38.1) (2025-10-06)
+
+
+### Bug Fixes
+
+* introduce CNV for SvType ([#854](https://github.com/varfish-org/mehari/issues/854)) ([b9df3b7](https://github.com/varfish-org/mehari/commit/b9df3b7b23fee78cb23dacf082e46b54e16caa38))
+
 ## [0.38.0](https://github.com/varfish-org/mehari/compare/v0.37.1...v0.38.0) (2025-09-25)
 
 
