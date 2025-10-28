@@ -28,7 +28,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = "4.11"
-annonars = "0.44.0"
+annonars = "0.44.1"
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bio = "3.0.0"
@@ -58,7 +58,7 @@ parse-display = "0.10"
 pbjson = "0.8"
 percent-encoding = "2.3"
 procfs = "0.18"
-prost = "0.13.4"
+prost = "0.14.1"
 quick_cache = "0.6.18"
 rand = "0.9"
 rayon = "1.11.0"
@@ -96,7 +96,7 @@ features = ["async", "bgzf", "core", "vcf", "bcf", "csi", "fasta", "tabix"]
 [build-dependencies]
 anyhow = "1.0"
 built = { version = "0.8", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
-pbjson-build = "0.7.0"
+pbjson-build = "0.8.0"
 prost-build = "0.14.1"
 
 [dev-dependencies]
