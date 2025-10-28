@@ -30,6 +30,7 @@ updates:
           - "utoipa*"
       prost:
         patterns:
+          - "annonars"
           - "pbjson"
           - "pbjson-types"
           - "pbjson-build"
