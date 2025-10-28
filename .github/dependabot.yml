@@ -28,3 +28,10 @@ updates:
       utoipa:
         patterns:
           - "utoipa*"
+      prost:
+        patterns:
+          - "pbjson"
+          - "pbjson-types"
+          - "pbjson-build"
+          - "prost"
+          - "prost-build"
