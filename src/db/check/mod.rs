@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::fs::File;
 use std::io::BufReader;
+use std::ops::Sub;
 use std::path::{Path, PathBuf};
 use strum::Display;
 
@@ -41,6 +42,14 @@ pub struct Args {
     #[arg(long)]
     pub known_issues: PathBuf,
 
+    /// Path to hgncId → count mapping
+    #[arg(long)]
+    pub clinvar_hgnc_counts: PathBuf,
+
+    /// Path to txAcc → count mapping
+    #[arg(long)]
+    pub clinvar_tx_acc_counts: PathBuf,
+
     /// Path to the output TSV file.
     #[arg(long)]
     pub output: PathBuf,
@@ -51,6 +60,20 @@ struct KnownIssue {
     id_type: String,
     id: String,
     description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ClinvarTxAccCount {
+    #[serde(rename = "txAcc")]
+    tx_acc: String,
+    count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ClinvarHgncIdCount {
+    #[serde(rename = "hgncId")]
+    hgnc_id: String,
+    count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord, Display)]
@@ -122,6 +145,8 @@ struct ComparisonDataContainer {
     hgnc_map: IdentifierMap,
     disease_genes: HashSet<Id>,
     known_issues: HashMap<Id, String>,
+    clinvar_hgnc_id_counts: HashMap<Id, usize>,
+    clinvar_tx_acc_counts: HashMap<Id, usize>,
 }
 
 impl ComparisonDataContainer {
@@ -131,6 +156,8 @@ impl ComparisonDataContainer {
         let hgnc_map = load_hgnc_set(&args.hgnc)?;
         let disease_gene_map = load_disease_gene_set(&args.disease_genes)?;
         let known_issues = load_known_issues(&args.known_issues)?;
+        let clinvar_hgnc_id_counts = load_clinvar_hgnc_id_counts(&args.clinvar_hgnc_counts)?;
+        let clinvar_tx_acc_counts = load_clinvar_tx_acc_counts(&args.clinvar_tx_acc_counts)?;
 
         Ok(ComparisonDataContainer::new(
             tx_db_data,
@@ -138,6 +165,8 @@ impl ComparisonDataContainer {
             hgnc_map,
             disease_gene_map.into_keys().collect(),
             known_issues,
+            clinvar_hgnc_id_counts,
+            clinvar_tx_acc_counts,
         ))
     }
 }
@@ -419,6 +448,34 @@ fn load_known_issues(path: impl AsRef<Path>) -> Result<HashMap<Id, String>> {
     Ok(issues)
 }
 
+fn load_clinvar_hgnc_id_counts(path: impl AsRef<Path>) -> Result<HashMap<Id, usize>> {
+    let reader = File::open(path).map(BufReader::new)?;
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(b'\t')
+        .from_reader(reader);
+    let mut counts = HashMap::new();
+    for result in rdr.deserialize() {
+        let record: ClinvarHgncIdCount = result?;
+        let id = Id::Hgnc(record.hgnc_id);
+        *counts.entry(id).or_default() += record.count;
+    }
+    Ok(counts)
+}
+
+fn load_clinvar_tx_acc_counts(path: impl AsRef<Path>) -> Result<HashMap<Id, usize>> {
+    let reader = File::open(path).map(BufReader::new)?;
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(b'\t')
+        .from_reader(reader);
+    let mut counts = HashMap::new();
+    for result in rdr.deserialize() {
+        let record: ClinvarTxAccCount = result?;
+        let id = Id::from(record.tx_acc);
+        *counts.entry(id).or_default() += record.count;
+    }
+    Ok(counts)
+}
+
 #[derive(Debug, Serialize, Display)]
 #[serde(rename_all = "snake_case")]
 enum Status {
@@ -527,6 +584,8 @@ impl DatabaseChecker {
         self.check_missing_cdot_entries(&data, &mut reporter);
         self.check_disease_genes_missing_from_cdot(&data, &mut reporter);
         self.check_disease_genes_covered_in_tx_db(&data, &mut reporter);
+        self.check_clinvar_hgnc_ids_covered(&data, &mut reporter);
+        self.check_clinvar_tx_acc_covered(&data, &mut reporter);
 
         reporter.write_to_file(&self.args.output)?;
         Ok(())
@@ -717,6 +776,51 @@ impl DatabaseChecker {
                     details,
                 );
             }
+        }
+    }
+
+    fn check_clinvar_hgnc_ids_covered(
+        &self,
+        data: &ComparisonDataContainer,
+        reporter: &mut Reporter,
+    ) {
+        let hgnc_ids_in_clinvar: HashSet<Id> =
+            data.clinvar_hgnc_id_counts.keys().cloned().collect();
+        let hgnc_ids_not_covered = hgnc_ids_in_clinvar.sub(&data.tx_db_data.all_ids);
+        for hgnc_id in hgnc_ids_not_covered {
+            let count = data
+                .clinvar_hgnc_id_counts
+                .get(&hgnc_id)
+                .expect("HgncId guaranteed to exist.");
+            reporter.add_entry(
+                Status::Err,
+                hgnc_id.clone(),
+                "Clinvar HgncId not contained in tx_db".to_string(),
+                BitFlags::empty(),
+                Some(format!("Count in clinvar: {count}")),
+            );
+        }
+    }
+
+    fn check_clinvar_tx_acc_covered(
+        &self,
+        data: &ComparisonDataContainer,
+        reporter: &mut Reporter,
+    ) {
+        let tx_accs_in_clinvar: HashSet<Id> = data.clinvar_tx_acc_counts.keys().cloned().collect();
+        let tx_accs_not_covered = tx_accs_in_clinvar.sub(&data.tx_db_data.all_ids);
+        for tx_acc in tx_accs_not_covered {
+            let count = data
+                .clinvar_tx_acc_counts
+                .get(&tx_acc)
+                .expect("TxAcc guaranteed to exist.");
+            reporter.add_entry(
+                Status::Err,
+                tx_acc.clone(),
+                "Clinvar TxAcc not contained in tx_db".to_string(),
+                BitFlags::empty(),
+                Some(format!("Count in clinvar: {count}")),
+            );
         }
     }
 }
