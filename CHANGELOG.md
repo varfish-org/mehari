@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.39.0](https://github.com/varfish-org/mehari/compare/v0.38.1...v0.39.0) (2025-11-07)
+
+
+### Features
+
+* add support for clinvar counts in `db check` ([#879](https://github.com/varfish-org/mehari/issues/879)) ([9111c1e](https://github.com/varfish-org/mehari/commit/9111c1ea61620c10a565dad1eb8f46e6e1a95aba))
+
 ## [0.38.1](https://github.com/varfish-org/mehari/compare/v0.38.0...v0.38.1) (2025-10-06)
 
 
