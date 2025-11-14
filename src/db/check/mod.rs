@@ -196,8 +196,26 @@ impl TxDbData {
             all_ids.insert(hgnc_id.clone());
 
             for tx_id in &g.tx_ids {
+                all_ids.insert(Id::from(
+                    tx_id
+                        .split_once('.')
+                        .map(|(acc, _version)| acc)
+                        .unwrap_or(tx_id),
+                ));
                 all_ids.insert(Id::from(tx_id));
             }
+        }
+
+        for t in &tx_db.transcripts {
+            let hgnc_id = Id::Hgnc(format!("HGNC:{}", t.gene_id));
+            all_ids.insert(hgnc_id);
+
+            all_ids.insert(Id::from(
+                t.id.split_once('.')
+                    .map(|(acc, _version)| acc)
+                    .unwrap_or(&t.id),
+            ));
+            all_ids.insert(Id::from(&t.id));
         }
 
         let filter_reasons = tx_db
