@@ -34,7 +34,7 @@ async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bio = "3.0.0"
 biocommons-bioutils = "0.1.5"
 built = { version = "0.8", features = ["chrono", "semver"] }
-byte-unit = "5.1"
+byte-unit = "5.2"
 chrono = "0.4"
 clap-verbosity-flag = "3.0"
 clap = { version = "4.5", features = ["derive"] }
