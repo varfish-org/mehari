@@ -75,7 +75,7 @@ thousands = "0.2"
 tokio = { version = "1.48", features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = "0.3"
 tracing = { version = "0.1", features = ["log"] }
-uuid = { version = "1.18", features = ["fast-rng", "serde"] }
+uuid = { version = "1.19", features = ["fast-rng", "serde"] }
 zstd = "0.13"
 utoipa = { version = "5.4.0", features = ["actix_extras", "chrono", "indexmap", "openapi_extensions", "preserve_order", "yaml"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"] }
