@@ -8,7 +8,7 @@ info:
   license:
     name: MIT
     identifier: MIT
-  version: 0.38.0
+  version: 0.38.1
 paths:
   /api/v1/genes/transcripts:
     get:
@@ -560,14 +560,50 @@ components:
         description: Member of GENCODE Primary
         enum:
         - gencode_primary
+      - type: string
+        description: Member of Ensembl basic (Backported).
+        enum:
+        - basic_backport
+      - type: string
+        description: Member of Ensembl canonical (Backported).
+        enum:
+        - ensembl_canonical_backport
+      - type: string
+        description: Member of MANE Select (Backported).
+        enum:
+        - mane_select_backport
+      - type: string
+        description: Member of MANE Plus Clinical (Backported).
+        enum:
+        - mane_plus_clinical_backport
+      - type: string
+        description: Member of RefSeq Select (Backported).
+        enum:
+        - ref_seq_select_backport
+      - type: string
+        description: Flagged as being a selenoprotein (Backported).
+        enum:
+        - selenoprotein_backport
+      - type: string
+        description: Member of GENCODE Primary (Backported)
+        enum:
+        - gencode_primary_backport
       - type: object
-        description: catchall for other tags
+        description: Catchall for other tags (Backported)
+        required:
+        - other_backport
+        properties:
+          other_backport:
+            type: string
+            description: Catchall for other tags (Backported)
+      - type: object
+        description: Catchall for other tags
         required:
         - other
         properties:
           other:
             type: string
-            description: catchall for other tags
+            description: Catchall for other tags
       description: Encode feature tags.
     FeatureType:
       oneOf:
