@@ -1461,9 +1461,6 @@ impl TranscriptLoader {
                     }
                     Tag::RefSeqSelect => crate::pbs::txs::TranscriptTag::RefSeqSelect.into(),
                     Tag::GencodePrimary => crate::pbs::txs::TranscriptTag::GencodePrimary.into(),
-                    Tag::Other(v) if v == "EnsemblGraft" => {
-                        crate::pbs::txs::TranscriptTag::EnsemblGraft.into()
-                    }
                     Tag::Other(v) => match v.as_str() {
                         "EnsemblGraft" => crate::pbs::txs::TranscriptTag::EnsemblGraft.into(),
                         "basic-backport" => crate::pbs::txs::TranscriptTag::BasicBackport.into(),
