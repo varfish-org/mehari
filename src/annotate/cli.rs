@@ -97,12 +97,18 @@ pub enum ConsequenceBy {
 )]
 pub enum TranscriptPickType {
     ManeSelect,
+    ManeSelectBackport,
     ManePlusClinical,
+    ManePlusClinicalBackport,
     Length,
     EnsemblCanonical,
+    EnsemblCanonicalBackport,
     RefSeqSelect,
+    RefSeqSelectBackport,
     GencodePrimary,
+    GencodePrimaryBackport,
     Basic,
+    BasicBackport,
 }
 
 #[derive(Debug, Copy, Clone, Display, clap::ValueEnum, Default)]

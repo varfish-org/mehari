@@ -871,17 +871,41 @@ impl TranscriptLoader {
                 // transfer MANE-related labels from TSV file
                 let tx_id_no_version = tx_id.without_version().unwrap();
                 if let Some(tags) = transcript_id_to_tags.get(&tx_id_no_version) {
+                    let mut any_change = false;
                     tx.genome_builds.iter_mut().for_each(|(_, alignment)| {
                         if let Some(alignment_tag) = &mut alignment.tag {
-                            alignment_tag.extend(tags.iter().cloned().map(Tag::from));
-                            alignment_tag.sort();
-                            alignment_tag.dedup();
+                            let tags_to_add: Vec<Tag> = tags
+                                .iter()
+                                .filter_map(|t| {
+                                    let standard = Tag::from(t.clone());
+                                    if alignment_tag.contains(&standard) {
+                                        None
+                                    } else {
+                                        let backported = Tag::from(t.to_backported());
+                                        if alignment_tag.contains(&backported) {
+                                            None
+                                        } else {
+                                            Some(backported)
+                                        }
+                                    }
+                                })
+                                .collect();
+
+                            if !tags_to_add.is_empty() {
+                                alignment_tag.extend(tags_to_add);
+                                alignment_tag.sort();
+                                alignment_tag.dedup();
+                                any_change = true;
+                            }
                         }
                     });
-                    self.fixes
-                        .entry(Identifier::TxId(tx_id.clone()))
-                        .or_default()
-                        .insert(Fix::Tags);
+
+                    if any_change {
+                        self.fixes
+                            .entry(Identifier::TxId(tx_id.clone()))
+                            .or_default()
+                            .insert(Fix::Tags);
+                    }
                 }
             });
     }
@@ -1440,7 +1464,29 @@ impl TranscriptLoader {
                     Tag::Other(v) if v == "EnsemblGraft" => {
                         crate::pbs::txs::TranscriptTag::EnsemblGraft.into()
                     }
-                    Tag::Other(_) => crate::pbs::txs::TranscriptTag::Other.into(),
+                    Tag::Other(v) => match v.as_str() {
+                        "EnsemblGraft" => crate::pbs::txs::TranscriptTag::EnsemblGraft.into(),
+                        "basic-backport" => crate::pbs::txs::TranscriptTag::BasicBackport.into(),
+                        "ensembl_canonical-backport" => {
+                            crate::pbs::txs::TranscriptTag::EnsemblCanonicalBackport.into()
+                        }
+                        "mane_select-backport" => {
+                            crate::pbs::txs::TranscriptTag::ManeSelectBackport.into()
+                        }
+                        "mane_plus_clinical-backport" => {
+                            crate::pbs::txs::TranscriptTag::ManePlusClinicalBackport.into()
+                        }
+                        "ref_seq_select-backport" => {
+                            crate::pbs::txs::TranscriptTag::RefSeqSelectBackport.into()
+                        }
+                        "selenoprotein-backport" => {
+                            crate::pbs::txs::TranscriptTag::SelenoproteinBackport.into()
+                        }
+                        "gencode_primary-backport" => {
+                            crate::pbs::txs::TranscriptTag::GencodePrimaryBackport.into()
+                        }
+                        _ => crate::pbs::txs::TranscriptTag::Other.into(),
+                    },
                 };
                 tags.insert(elem);
             }
