@@ -1915,6 +1915,7 @@ pub mod test {
 
     use clap_verbosity_flag::Verbosity;
     use itertools::Itertools;
+    use rstest::rstest;
     use temp_testdir::TempDir;
 
     use crate::common::{Args as CommonArgs, GenomeRelease};
@@ -1958,8 +1959,10 @@ pub mod test {
         Ok(())
     }
 
-    #[test]
-    fn run_smoke_brca1_opa1() -> Result<(), anyhow::Error> {
+    #[rstest]
+    #[case(GenomeRelease::Grch37)]
+    #[case(GenomeRelease::Grch38)]
+    fn run_smoke_brca1_opa1(#[case] assembly: GenomeRelease) -> Result<(), anyhow::Error> {
         let tmp_dir = TempDir::default();
 
         let common_args = CommonArgs {
@@ -1972,7 +1975,7 @@ pub mod test {
             )],
             path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
-            assembly: GenomeRelease::Grch38,
+            assembly,
             assembly_version: None,
             transcript_source: TxSource::Refseq,
             transcript_source_version: None,
@@ -1993,6 +1996,7 @@ pub mod test {
             },
             &mut buf,
         )?;
+        crate::common::set_snapshot_suffix!("{}", assembly.name().to_lowercase());
         insta::assert_snapshot!(String::from_utf8(buf)?);
 
         Ok(())
