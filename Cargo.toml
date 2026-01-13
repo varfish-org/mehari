@@ -58,7 +58,7 @@ parse-display = "0.10"
 pbjson = "0.9"
 percent-encoding = "2.3"
 procfs = "0.18"
-prost = "0.14.1"
+prost = "0.14.3"
 quick_cache = "0.6.18"
 rand = "0.9"
 rayon = "1.11.0"
@@ -97,7 +97,7 @@ features = ["async", "bgzf", "core", "vcf", "bcf", "csi", "fasta", "tabix"]
 anyhow = "1.0"
 built = { version = "0.8", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }
 pbjson-build = "0.9.0"
-prost-build = "0.14.1"
+prost-build = "0.14.3"
 
 [dev-dependencies]
 csv = "1.4"
