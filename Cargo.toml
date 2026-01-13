@@ -47,7 +47,7 @@ env_logger = "0.11"
 flate2 = "1.1"
 futures = "0.3"
 hgvs = "0.19.1"
-indexmap = { version = "2.12", features = ["serde"] }
+indexmap = { version = "2.13", features = ["serde"] }
 itertools = "0.14"
 jsonl = "4.0"
 log = "0.4"
