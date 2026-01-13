@@ -8,7 +8,7 @@ info:
   license:
     name: MIT
     identifier: MIT
-  version: 0.38.1
+  version: 0.39.0
 paths:
   /api/v1/genes/transcripts:
     get:
