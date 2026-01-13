@@ -1237,6 +1237,14 @@ components:
       - selenoprotein
       - gencode_primary
       - other
+      - basic_backport
+      - ensembl_canonical_backport
+      - mane_select_backport
+      - mane_plus_clinical_backport
+      - ref_seq_select_backport
+      - selenoprotein_backport
+      - gencode_primary_backport
+      - other_backport
     VersionsInfoResponse:
       type: object
       description: Response of the `/api/v1/version` endpoint.

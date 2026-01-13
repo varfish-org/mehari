@@ -153,6 +153,22 @@ pub(crate) enum TranscriptTag {
     GencodePrimary,
     /// Catchall for other tags.
     Other,
+    /// Member of Ensembl basic (Backport).
+    BasicBackport,
+    /// Member of Ensembl canonical (Backport).
+    EnsemblCanonicalBackport,
+    /// Member of MANE Select (Backport).
+    ManeSelectBackport,
+    /// Member of MANE Plus Clinical (Backport).
+    ManePlusClinicalBackport,
+    /// Member of RefSeq Select (Backport).
+    RefSeqSelectBackport,
+    /// Flagged as being a selenoprotein (UGA => selenon) (Backport).
+    SelenoproteinBackport,
+    /// Member of GENCODE Primary (Backport)
+    GencodePrimaryBackport,
+    /// Catchall for other tags (Backport).
+    OtherBackport,
 }
 
 impl TryFrom<pbs::txs::TranscriptTag> for TranscriptTag {
@@ -168,6 +184,24 @@ impl TryFrom<pbs::txs::TranscriptTag> for TranscriptTag {
             pbs::txs::TranscriptTag::Selenoprotein => Ok(TranscriptTag::Selenoprotein),
             pbs::txs::TranscriptTag::GencodePrimary => Ok(TranscriptTag::GencodePrimary),
             pbs::txs::TranscriptTag::Other => Ok(TranscriptTag::Other),
+            pbs::txs::TranscriptTag::BasicBackport => Ok(TranscriptTag::BasicBackport),
+            pbs::txs::TranscriptTag::EnsemblCanonicalBackport => {
+                Ok(TranscriptTag::EnsemblCanonicalBackport)
+            }
+            pbs::txs::TranscriptTag::ManeSelectBackport => Ok(TranscriptTag::ManeSelectBackport),
+            pbs::txs::TranscriptTag::ManePlusClinicalBackport => {
+                Ok(TranscriptTag::ManePlusClinicalBackport)
+            }
+            pbs::txs::TranscriptTag::RefSeqSelectBackport => {
+                Ok(TranscriptTag::RefSeqSelectBackport)
+            }
+            pbs::txs::TranscriptTag::SelenoproteinBackport => {
+                Ok(TranscriptTag::SelenoproteinBackport)
+            }
+            pbs::txs::TranscriptTag::GencodePrimaryBackport => {
+                Ok(TranscriptTag::GencodePrimaryBackport)
+            }
+            pbs::txs::TranscriptTag::OtherBackport => Ok(TranscriptTag::OtherBackport),
             _ => Err(anyhow::anyhow!("Invalid transcript tag: {:?}", value)),
         }
     }
