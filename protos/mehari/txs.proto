@@ -105,6 +105,16 @@ enum TranscriptTag {
     TRANSCRIPT_TAG_OTHER = 8;
     // Whether the transcript has been grafted from Ensembl.
     TRANSCRIPT_TAG_ENSEMBL_GRAFT = 9;
+    // Backport tags that indicate whether a tag has been backported from a later version of the input sources.
+    // e.g., if a transcript is marked as MANE Select in a later Ensembl/RefSeq version, but not in the older one.
+    TRANSCRIPT_TAG_BASIC_BACKPORT = 11;
+    TRANSCRIPT_TAG_ENSEMBL_CANONICAL_BACKPORT = 12;
+    TRANSCRIPT_TAG_MANE_SELECT_BACKPORT = 13;
+    TRANSCRIPT_TAG_MANE_PLUS_CLINICAL_BACKPORT = 14;
+    TRANSCRIPT_TAG_REF_SEQ_SELECT_BACKPORT = 15;
+    TRANSCRIPT_TAG_SELENOPROTEIN_BACKPORT = 16;
+    TRANSCRIPT_TAG_GENCODE_PRIMARY_BACKPORT = 17;
+    TRANSCRIPT_TAG_OTHER_BACKPORT = 18;
 }
 
 // Store information about a transcript.

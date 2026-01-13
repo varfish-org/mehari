@@ -344,7 +344,9 @@ impl Provider {
 
         fn tag_to_picktype(tag: &i32) -> Option<TranscriptPickType> {
             match TranscriptTag::try_from(*tag).unwrap() {
-                TranscriptTag::Unknown | TranscriptTag::Other => None,
+                TranscriptTag::Unknown | TranscriptTag::Other | TranscriptTag::OtherBackport => {
+                    None
+                }
                 TranscriptTag::Basic => Some(TranscriptPickType::Basic),
                 TranscriptTag::EnsemblCanonical => Some(TranscriptPickType::EnsemblCanonical),
                 TranscriptTag::ManeSelect => Some(TranscriptPickType::ManeSelect),
@@ -353,6 +355,21 @@ impl Provider {
                 TranscriptTag::Selenoprotein => None,
                 TranscriptTag::GencodePrimary => Some(TranscriptPickType::GencodePrimary),
                 TranscriptTag::EnsemblGraft => None,
+                TranscriptTag::BasicBackport => Some(TranscriptPickType::BasicBackport),
+                TranscriptTag::EnsemblCanonicalBackport => {
+                    Some(TranscriptPickType::EnsemblCanonicalBackport)
+                }
+                TranscriptTag::ManeSelectBackport => Some(TranscriptPickType::ManeSelectBackport),
+                TranscriptTag::ManePlusClinicalBackport => {
+                    Some(TranscriptPickType::ManePlusClinicalBackport)
+                }
+                TranscriptTag::RefSeqSelectBackport => {
+                    Some(TranscriptPickType::RefSeqSelectBackport)
+                }
+                TranscriptTag::SelenoproteinBackport => None,
+                TranscriptTag::GencodePrimaryBackport => {
+                    Some(TranscriptPickType::GencodePrimaryBackport)
+                }
             }
         }
 

@@ -596,9 +596,52 @@ pub enum FeatureTag {
     /// Is a graft feature from Ensembl.
     EnsemblGraft,
 
+    /// Member of Ensembl basic (Backported).
+    BasicBackport,
+
+    /// Member of Ensembl canonical (Backported).
+    EnsemblCanonicalBackport,
+
+    /// Member of MANE Select (Backported).
+    ManeSelectBackport,
+
+    /// Member of MANE Plus Clinical (Backported).
+    ManePlusClinicalBackport,
+
+    /// Member of RefSeq Select (Backported).
+    RefSeqSelectBackport,
+
+    /// Flagged as being a selenoprotein (Backported).
+    SelenoproteinBackport,
+
+    /// Member of GENCODE Primary (Backported)
+    GencodePrimaryBackport,
+
+    #[display("{0}-backport")]
+    /// Catchall for other tags (Backported)
+    OtherBackport(String),
+
     #[display("{0}")]
-    /// catchall for other tags
+    /// Catchall for other tags
     Other(String),
+}
+
+impl FeatureTag {
+    pub fn to_backported(&self) -> Self {
+        match self {
+            FeatureTag::Basic => FeatureTag::BasicBackport,
+            FeatureTag::EnsemblCanonical => FeatureTag::EnsemblCanonicalBackport,
+            FeatureTag::ManeSelect => FeatureTag::ManeSelectBackport,
+            FeatureTag::ManePlusClinical => FeatureTag::ManePlusClinicalBackport,
+            FeatureTag::RefSeqSelect => FeatureTag::RefSeqSelectBackport,
+            FeatureTag::Selenoprotein => FeatureTag::SelenoproteinBackport,
+            FeatureTag::GencodePrimary => FeatureTag::GencodePrimaryBackport,
+            FeatureTag::Unknown => FeatureTag::Unknown,
+            FeatureTag::EnsemblGraft => FeatureTag::OtherBackport("ensembl_graft".to_string()),
+            FeatureTag::Other(s) => FeatureTag::OtherBackport(s.clone()),
+            _ => self.clone(),
+        }
+    }
 }
 
 impl From<TranscriptTag> for FeatureTag {
@@ -614,6 +657,14 @@ impl From<TranscriptTag> for FeatureTag {
             TranscriptTag::GencodePrimary => FeatureTag::GencodePrimary,
             TranscriptTag::EnsemblGraft => FeatureTag::EnsemblGraft,
             TranscriptTag::Other => FeatureTag::Other("Other".to_string()),
+            TranscriptTag::BasicBackport => FeatureTag::BasicBackport,
+            TranscriptTag::EnsemblCanonicalBackport => FeatureTag::EnsemblCanonicalBackport,
+            TranscriptTag::ManeSelectBackport => FeatureTag::ManeSelectBackport,
+            TranscriptTag::ManePlusClinicalBackport => FeatureTag::ManePlusClinicalBackport,
+            TranscriptTag::RefSeqSelectBackport => FeatureTag::RefSeqSelectBackport,
+            TranscriptTag::SelenoproteinBackport => FeatureTag::SelenoproteinBackport,
+            TranscriptTag::GencodePrimaryBackport => FeatureTag::GencodePrimaryBackport,
+            TranscriptTag::OtherBackport => FeatureTag::OtherBackport("Other".to_string()),
         }
     }
 }
@@ -651,6 +702,20 @@ impl From<FeatureTag> for Tag {
             FeatureTag::EnsemblGraft => Tag::Other("EnsemblGraft".to_string()),
             FeatureTag::Unknown => Tag::Other("Unknown".to_string()),
             FeatureTag::Other(v) => Tag::Other(v),
+            FeatureTag::BasicBackport => Tag::Other("basic-backport".to_string()),
+            FeatureTag::ManeSelectBackport => Tag::Other("mane_select-backport".to_string()),
+            FeatureTag::EnsemblCanonicalBackport => {
+                Tag::Other("ensembl_canonical-backport".to_string())
+            }
+            FeatureTag::ManePlusClinicalBackport => {
+                Tag::Other("mane_plus_clinical-backport".to_string())
+            }
+            FeatureTag::RefSeqSelectBackport => Tag::Other("ref_seq_select-backport".to_string()),
+            FeatureTag::SelenoproteinBackport => Tag::Other("selenoprotein-backport".to_string()),
+            FeatureTag::GencodePrimaryBackport => {
+                Tag::Other("gencode_primary-backport".to_string())
+            }
+            FeatureTag::OtherBackport(v) => Tag::Other(format!("{}-backport", v)),
         }
     }
 }
