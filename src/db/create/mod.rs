@@ -1482,6 +1482,9 @@ impl TranscriptLoader {
                         "gencode_primary-backport" => {
                             crate::pbs::txs::TranscriptTag::GencodePrimaryBackport.into()
                         }
+                        x if x.ends_with("-backport") => {
+                            crate::pbs::txs::TranscriptTag::OtherBackport.into()
+                        }
                         _ => crate::pbs::txs::TranscriptTag::Other.into(),
                     },
                 };
