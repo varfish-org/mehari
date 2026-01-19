@@ -65,7 +65,7 @@ pub struct TranscriptSettings {
     #[arg(long, default_value = "false", hide = true)]
     pub do_not_normalize_variants: bool,
 
-    /// Whether to re-normalize var_g.
+    /// Whether to skip re-normalizing genomic variants.
     #[arg(long, default_value = "false", hide = true)]
     pub do_not_renormalize_g: bool,
 }
