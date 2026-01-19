@@ -807,13 +807,35 @@ impl DatabaseChecker {
         data: &ComparisonDataContainer,
         reporter: &mut Reporter,
     ) {
-        let tx_accs_in_clinvar: HashSet<Id> = data.clinvar_tx_acc_counts.keys().cloned().collect();
-        let tx_accs_not_covered = tx_accs_in_clinvar.sub(&data.tx_db_data.all_ids);
-        for tx_acc in tx_accs_not_covered {
-            let count = data
-                .clinvar_tx_acc_counts
-                .get(&tx_acc)
-                .expect("TxAcc guaranteed to exist.");
+        let db_base_accessions: HashSet<&str> = data
+            .tx_db_data
+            .all_ids
+            .iter()
+            .filter_map(|id| {
+                let s = match id {
+                    Id::NcbiTranscript(s) => s.as_str(),
+                    Id::EnsemblTranscript(s) => s.as_str(),
+                    _ => return None,
+                };
+                s.split_once('.').map(|(base, _)| base).or(Some(s))
+            })
+            .collect();
+
+        for (tx_acc, count) in &data.clinvar_tx_acc_counts {
+            if data.tx_db_data.all_ids.contains(tx_acc) {
+                continue;
+            }
+
+            let (_, id_value) = tx_acc.to_parts();
+            let query_base = id_value
+                .split_once('.')
+                .map(|(base, _)| base)
+                .unwrap_or(&id_value);
+
+            if db_base_accessions.contains(query_base) {
+                continue;
+            }
+
             reporter.add_entry(
                 Status::Err,
                 tx_acc.clone(),
