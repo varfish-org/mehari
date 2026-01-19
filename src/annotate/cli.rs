@@ -60,6 +60,14 @@ pub struct TranscriptSettings {
     /// Whether to do hgvs shifting for hgvs.g like vep does
     #[arg(long, default_value = "false", hide = true)]
     pub vep_hgvs_shift: bool,
+
+    /// Whether to skip HGVS normalization.
+    #[arg(long, default_value = "false", hide = true)]
+    pub do_not_normalize_variants: bool,
+
+    /// Whether to skip re-normalizing genomic variants.
+    #[arg(long, default_value = "false", hide = true)]
+    pub do_not_renormalize_g: bool,
 }
 
 #[derive(

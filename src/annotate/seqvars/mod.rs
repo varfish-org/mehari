@@ -1867,6 +1867,8 @@ impl ConsequenceAnnotator {
                 .keep_intergenic(args.keep_intergenic)
                 .discard_utr_splice_variants(args.discard_utr_splice_variants)
                 .vep_hgvs_shift(args.vep_hgvs_shift)
+                .normalize(!args.do_not_normalize_variants)
+                .renormalize_g(!args.do_not_renormalize_g)
                 .build()?,
         );
         Ok(Self::new(predictor))

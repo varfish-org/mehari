@@ -56,6 +56,14 @@ pub struct Config {
     /// Whether to do hgvs shifting for hgvs.g like vep does
     #[builder(default = "false")]
     pub vep_hgvs_shift: bool,
+
+    /// Whether to normalize HGVS variants.
+    #[builder(default = "true")]
+    pub normalize: bool,
+
+    /// Whether re-normalize genomic variants.
+    #[builder(default = "true")]
+    pub renormalize_g: bool,
 }
 
 impl Default for Config {
@@ -126,8 +134,9 @@ impl ConsequencePredictor {
             assembly: provider.assembly(),
             replace_reference: reference_available,
             strict_bounds: false,
-            renormalize_g: reference_available,
+            renormalize_g: reference_available && config.renormalize_g,
             genome_seq_available: reference_available,
+            normalize: config.normalize,
             ..Default::default()
         };
         let mapper = assembly::Mapper::new(mapper_config, provider.clone());
