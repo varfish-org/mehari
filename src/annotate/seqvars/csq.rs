@@ -61,7 +61,7 @@ pub struct Config {
     #[builder(default = "true")]
     pub normalize: bool,
 
-    /// Whether to skip re-normalizing genomic variants.
+    /// Whether re-normalize genomic variants.
     #[builder(default = "true")]
     pub renormalize_g: bool,
 }
