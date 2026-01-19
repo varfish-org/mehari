@@ -817,7 +817,7 @@ impl DatabaseChecker {
                     Id::EnsemblTranscript(s) => s.as_str(),
                     _ => return None,
                 };
-                s.split_once('.').map(|(base, _)| base).or(Some(s))
+                s.rsplit_once('.').map(|(base, _)| base).or(Some(s))
             })
             .collect();
 
@@ -828,7 +828,7 @@ impl DatabaseChecker {
 
             let (_, id_value) = tx_acc.to_parts();
             let query_base = id_value
-                .split_once('.')
+                .rsplit_once('.')
                 .map(|(base, _)| base)
                 .unwrap_or(&id_value);
 
