@@ -891,8 +891,9 @@ impl ConsequencePredictor {
             to_add |= IntronVariant;
         }
         if consequences.contains(ThreePrimeUtrIntronVariant) {
+            let only_3p_intron = *consequences == ThreePrimeUtrIntronVariant.into();
             to_remove |= ThreePrimeUtrIntronVariant;
-            if consequences.is_empty() {
+            if only_3p_intron {
                 to_add |= ThreePrimeUtrIntronVariant;
             } else {
                 to_add |= IntronVariant;
