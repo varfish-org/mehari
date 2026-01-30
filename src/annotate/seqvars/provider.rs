@@ -604,7 +604,10 @@ impl ProviderInterface for Provider {
             let reader = self.reference_reader.as_ref().unwrap();
             let seq = reader
                 .get(ac, begin.map(|x| x as u64), end.map(|x| x as u64))
-                .map_err(|_| Error::NoSequenceRecord(ac.to_string()))?
+                .map_err(|e| {
+                    tracing::error!("Failed to fetch sequence for {}: {}", ac, e);
+                    Error::NoSequenceRecord(format!("{} - {}", ac, e))
+                })?
                 .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?;
 
             return String::from_utf8(seq).map_err(|_| {
@@ -667,7 +670,7 @@ impl ProviderInterface for Provider {
             .transcripts[tx_idx];
         for genome_alignment in &tx.genome_alignments {
             if genome_alignment.contig == alt_ac {
-                return Ok(genome_alignment
+                let mut exons: Vec<_> = genome_alignment
                     .exons
                     .iter()
                     .map(|exon| TxExonsRecord {
@@ -696,7 +699,9 @@ impl ProviderInterface for Provider {
                         alt_exon_id: i32::MAX,
                         exon_aln_id: i32::MAX,
                     })
-                    .collect());
+                    .collect();
+                exons.sort_by_key(|e| e.alt_start_i);
+                return Ok(exons);
             }
         }
 
@@ -729,8 +734,8 @@ impl ProviderInterface for Provider {
                     if let Some(genome_alignment) = tx.genome_alignments.first() {
                         Some(Ok(TxInfoRecord {
                             hgnc: tx.gene_id.clone(),
-                            cds_start_i: genome_alignment.cds_start,
-                            cds_end_i: genome_alignment.cds_end,
+                            cds_start_i: tx.start_codon,
+                            cds_end_i: tx.stop_codon,
                             tx_ac: tx.id.clone(),
                             alt_ac: genome_alignment.contig.to_string(),
                             alt_aln_method: "splign".into(),
@@ -873,8 +878,8 @@ impl ProviderInterface for Provider {
             if genome_alignment.contig == alt_ac {
                 return Ok(TxInfoRecord {
                     hgnc: tx.gene_id.clone(),
-                    cds_start_i: genome_alignment.cds_start,
-                    cds_end_i: genome_alignment.cds_end,
+                    cds_start_i: tx.start_codon,
+                    cds_end_i: tx.stop_codon,
                     tx_ac: tx.id.clone(),
                     alt_ac: alt_ac.to_string(),
                     alt_aln_method: ALT_ALN_METHOD.to_string(),
