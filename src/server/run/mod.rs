@@ -1,4 +1,4 @@
-use crate::annotate::cli::{Sources, TranscriptSettings};
+use crate::annotate::cli::{PredictorSettings, Sources};
 use crate::annotate::seqvars::csq::ConfigBuilder;
 use crate::annotate::seqvars::{
     initialize_clinvar_annotators_for_assembly, initialize_frequency_annotators_for_assembly,
@@ -136,7 +136,7 @@ pub struct Args {
 
     /// Transcript related settings.
     #[command(flatten)]
-    pub transcript_settings: TranscriptSettings,
+    pub predictor_settings: PredictorSettings,
 
     /// Whether to suppress printing hints.
     #[arg(long, default_value_t = false)]
@@ -380,13 +380,19 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                     tx_db,
                     reference_path.cloned(),
                     args.in_memory_reference,
-                    &args.transcript_settings,
+                    &args.predictor_settings,
                 )?;
                 let config = ConfigBuilder::default()
                     .report_most_severe_consequence_by(
-                        args.transcript_settings.report_most_severe_consequence_by,
+                        args.predictor_settings
+                            .transcript_settings
+                            .report_most_severe_consequence_by,
                     )
-                    .transcript_source(args.transcript_settings.transcript_source)
+                    .transcript_source(
+                        args.predictor_settings
+                            .transcript_settings
+                            .transcript_source,
+                    )
                     .build()?;
 
                 let provider = annotator.predictor.provider.clone();
