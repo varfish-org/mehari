@@ -25,6 +25,16 @@ pub struct Sources {
     pub clinvar: Option<Vec<String>>,
 }
 
+#[derive(Debug, ClapArgs, Default, Clone)]
+pub struct PredictorSettings {
+    /// Enable vep compatibility mode.
+    /// This enables specific normalization flags and less fine-grained vep consequence terms.
+    #[arg(long, default_value_t = false, hide = true)]
+    pub vep_compatibility_mode: bool,
+
+    #[clap(flatten)]
+    pub transcript_settings: TranscriptSettings,
+
     #[clap(flatten)]
     pub reporting_settings: ReportingSettings,
 
@@ -69,6 +79,7 @@ pub struct TranscriptSettings {
     /// either keep the first one found or keep all that match.
     #[arg(long, default_value = "all")]
     pub pick_transcript_mode: TranscriptPickMode,
+}
 
 #[derive(Debug, ClapArgs, Default, Clone)]
 pub struct ReportingSettings {
@@ -77,7 +88,7 @@ pub struct ReportingSettings {
     pub keep_intergenic: bool,
 
     /// Whether to report splice variants in UTRs.
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     pub discard_utr_splice_variants: bool,
 
     /// Whether to use less fine-grained VEP consequence terms.
@@ -92,12 +103,12 @@ pub struct NormalizationSettings {
     vep_hgvs_shift: bool,
 
     /// Whether to skip HGVS normalization.
-    #[arg(long, default_value = "false", hide = true)]
-    pub do_not_normalize_variants: bool,
+    #[arg(long, default_value_t = false, hide = true)]
+    do_not_normalize_variants: bool,
 
     /// Whether to skip re-normalizing genomic variants.
-    #[arg(long, default_value = "false", hide = true)]
-    pub do_not_renormalize_g: bool,
+    #[arg(long, default_value_t = false, hide = true)]
+    do_not_renormalize_g: bool,
 }
 
 #[derive(
