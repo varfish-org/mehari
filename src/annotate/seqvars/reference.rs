@@ -37,13 +37,22 @@ impl InMemoryFastaAccess {
         let mut sequences = HashMap::new();
         for record_result in reference_reader.records() {
             let record = record_result?;
+            let mut stored = false;
+
+            // try canonical accession from ContigManager
             if let Some(accession) = contig_manager.get_accession(record.id()) {
                 sequences.insert(accession.clone(), record.seq().to_ascii_uppercase());
-            } else {
-                tracing::warn!(
-                    "Contig '{}' from FASTA file not found in assembly info; it will be ignored.",
-                    record.id()
-                );
+                stored = true;
+            }
+
+            // always store raw id (if it looks like an accession).
+            // fixes issues where ContigManager has a different patch version than the file.
+            if !stored
+                || record.id().starts_with("NC_")
+                || record.id().starts_with("NT_")
+                || record.id().starts_with("NW_")
+            {
+                sequences.insert(record.id().to_string(), record.seq().to_ascii_uppercase());
             }
         }
 
@@ -159,15 +168,25 @@ impl UnbufferedIndexedFastaAccess {
 
         let mut accession_to_index = HashMap::new();
         for record in index_records {
+            let mut stored = false;
+
+            // try getting accession from ContigManager
             if let Some(accession) = contig_manager.get_accession(&record.name) {
-                accession_to_index.insert(accession.clone(), record);
-            } else {
-                tracing::warn!(
-                    "Contig '{}' from FASTA index not found in assembly info; it will be ignored.",
-                    record.name
-                );
+                accession_to_index.insert(accession.clone(), record.clone());
+                stored = true;
+            }
+
+            // store by raw name (if it looks like an accession).
+            if !stored
+                || record.name.starts_with("NC_")
+                || record.name.starts_with("NT_")
+                || record.name.starts_with("NW_")
+            {
+                accession_to_index.insert(record.name.clone(), record.clone());
             }
         }
+
+        dbg!(&accession_to_index);
 
         let file = File::open(&path)?;
         // SAFETY: The file is opened in read-only mode;
@@ -214,8 +233,11 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
              -> Result<Vec<u8>, anyhow::Error> {
                 let sub_end = sub_end.min(index_record.length);
                 if sub_end <= sub_start {
+                    if sub_end == sub_start {
+                        return Ok(Vec::new());
+                    }
                     return Err(anyhow!(
-                        "Requested sequence part {ac}:{start}-{end} is invalid (start >= end)",
+                        "Requested sequence part {ac}:{start}-{end} is invalid (start > end)",
                         ac = ac,
                         start = sub_start,
                         end = sub_end
