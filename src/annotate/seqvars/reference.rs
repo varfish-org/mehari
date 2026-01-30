@@ -186,8 +186,6 @@ impl UnbufferedIndexedFastaAccess {
             }
         }
 
-        dbg!(&accession_to_index);
-
         let file = File::open(&path)?;
         // SAFETY: The file is opened in read-only mode;
         // however, if the underlying file is modified, this can still lead to undefined behavior.
