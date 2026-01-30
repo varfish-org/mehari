@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use self::ann::{AnnField, FeatureBiotype};
-use crate::annotate::cli::{Sources, TranscriptSettings};
+use crate::annotate::cli::{PredictorSettings, Sources};
 use crate::annotate::genotype_string;
 use crate::annotate::seqvars::csq::{
     ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
@@ -118,7 +118,7 @@ pub struct Args {
 
     /// Transcript annotation related settings
     #[command(flatten)]
-    pub transcript_settings: TranscriptSettings,
+    pub predictor_settings: PredictorSettings,
 
     /// Style for contig names in TSV output.
     #[arg(long, value_enum, default_value_t=TsvContigStyle::Auto)]
@@ -1846,29 +1846,31 @@ impl ConsequenceAnnotator {
         tx_db: TxSeqDatabase,
         reference: Option<impl AsRef<Path>>,
         in_memory_reference: bool,
-        transcript_settings: &TranscriptSettings,
+        predictor_settings: &PredictorSettings,
     ) -> anyhow::Result<Self> {
-        let args = transcript_settings;
+        let args = predictor_settings;
 
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             reference,
             in_memory_reference,
             MehariProviderConfigBuilder::default()
-                .pick_transcript(args.pick_transcript.clone())
-                .pick_transcript_mode(args.pick_transcript_mode)
+                .pick_transcript(args.transcript_settings.pick_transcript.clone())
+                .pick_transcript_mode(args.transcript_settings.pick_transcript_mode)
                 .build()?,
         ));
         let predictor = ConsequencePredictor::new(
             provider,
             ConsequencePredictorConfigBuilder::default()
-                .report_most_severe_consequence_by(args.report_most_severe_consequence_by)
-                .transcript_source(args.transcript_source)
-                .keep_intergenic(args.keep_intergenic)
-                .discard_utr_splice_variants(args.discard_utr_splice_variants)
-                .vep_hgvs_shift(args.vep_hgvs_shift)
-                .normalize(!args.do_not_normalize_variants)
-                .renormalize_g(!args.do_not_renormalize_g)
+                .report_most_severe_consequence_by(
+                    args.transcript_settings.report_most_severe_consequence_by,
+                )
+                .transcript_source(args.transcript_settings.transcript_source)
+                .keep_intergenic(args.reporting_settings.keep_intergenic)
+                .discard_utr_splice_variants(args.reporting_settings.discard_utr_splice_variants)
+                .normalize(!args.do_not_normalize_variants())
+                .renormalize_g(!args.do_not_renormalize_g())
+                .vep_consequence_terms(args.vep_consequence_terms())
                 .build()?,
         );
         Ok(Self::new(predictor))
@@ -2013,7 +2015,7 @@ async fn run_with_writer(
         &args.sources,
         args.reference.as_ref(),
         args.in_memory_reference,
-        &args.transcript_settings,
+        &args.predictor_settings,
         assembly,
     )?;
 
@@ -2115,7 +2117,7 @@ pub(crate) fn setup_seqvars_annotator(
     sources: &Sources,
     reference: Option<impl AsRef<Path>>,
     in_memory_reference: bool,
-    transcript_settings: &TranscriptSettings,
+    predictor_settings: &PredictorSettings,
     assembly: Assembly,
 ) -> Result<Annotator, Error> {
     let contig_manager = Arc::new(ContigManager::new(assembly));
@@ -2164,7 +2166,7 @@ pub(crate) fn setup_seqvars_annotator(
                     tx_db,
                     reference,
                     in_memory_reference,
-                    transcript_settings,
+                    predictor_settings,
                 )
                 .map(AnnotatorEnum::Consequence)?,
             );
@@ -2279,7 +2281,7 @@ pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usiz
 mod test {
     use super::binning::bin_from_range;
     use super::{run, Args, PathOutput};
-    use crate::annotate::cli::ConsequenceBy;
+    use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
     use crate::common::TsvContigStyle;
     use clap_verbosity_flag::Verbosity;
@@ -2300,8 +2302,11 @@ mod test {
             reference: None,
             in_memory_reference: true,
             genome_release: None,
-            transcript_settings: TranscriptSettings {
-                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+            predictor_settings: PredictorSettings {
+                transcript_settings: TranscriptSettings {
+                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
@@ -2350,8 +2355,11 @@ mod test {
             reference: None,
             in_memory_reference: true,
             genome_release: None,
-            transcript_settings: TranscriptSettings {
-                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+            predictor_settings: PredictorSettings {
+                transcript_settings: TranscriptSettings {
+                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
@@ -2406,8 +2414,11 @@ mod test {
             reference: None,
             in_memory_reference: true,
             genome_release: None,
-            transcript_settings: TranscriptSettings {
-                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+            predictor_settings: PredictorSettings {
+                transcript_settings: TranscriptSettings {
+                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
@@ -2456,8 +2467,11 @@ mod test {
             reference: None,
             in_memory_reference: true,
             genome_release: None,
-            transcript_settings: TranscriptSettings {
-                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+            predictor_settings: PredictorSettings {
+                transcript_settings: TranscriptSettings {
+                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"),
@@ -2508,8 +2522,11 @@ mod test {
             reference: None,
             in_memory_reference: true,
             genome_release: None,
-            transcript_settings: TranscriptSettings {
-                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+            predictor_settings: PredictorSettings {
+                transcript_settings: TranscriptSettings {
+                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"),
@@ -2560,8 +2577,11 @@ mod test {
             reference: None,
             in_memory_reference: true,
             genome_release: None,
-            transcript_settings: TranscriptSettings {
-                report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+            predictor_settings: PredictorSettings {
+                transcript_settings: TranscriptSettings {
+                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),

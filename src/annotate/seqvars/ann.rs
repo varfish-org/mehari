@@ -133,6 +133,10 @@ pub enum Consequence {
     /// SO:conservative_inframe_deletion, VEP:inframe_deletion
     ConservativeInframeDeletion,
 
+    InframeDeletion,
+
+    InframeInsertion,
+
     /// "A sequence variant, that changes one or more bases, resulting in a different amino acid sequence but where the length is preserved."
     /// SO:missense_variant, VEP:missense_variant
     MissenseVariant,
@@ -208,6 +212,10 @@ pub enum Consequence {
     #[serde(rename = "5_prime_UTR_intron_variant")]
     FivePrimeUtrIntronVariant,
 
+    #[display("5_prime_UTR_variant")]
+    #[serde(rename = "5_prime_UTR_variant")]
+    FivePrimeUtrVariant,
+
     /// "A UTR variant of exonic sequence of the 3' UTR."
     /// SO:3_prime_UTR_exon_variant, VEP:3_prime_UTR_variant
     #[display("3_prime_UTR_exon_variant")]
@@ -219,6 +227,10 @@ pub enum Consequence {
     #[display("3_prime_UTR_intron_variant")]
     #[serde(rename = "3_prime_UTR_intron_variant")]
     ThreePrimeUtrIntronVariant,
+
+    #[display("3_prime_UTR_variant")]
+    #[serde(rename = "3_prime_UTR_variant")]
+    ThreePrimeUtrVariant,
 
     /// "A sequence variant that changes non-coding exon sequence in a non-coding transcript."
     /// SO:non_coding_transcript_exon_variant, VEP:non_coding_transcript_variant
@@ -312,6 +324,8 @@ impl From<Consequence> for PutativeImpact {
             | DisruptiveInframeDeletion
             | ConservativeInframeInsertion
             | ConservativeInframeDeletion
+            | InframeInsertion
+            | InframeDeletion
             | ProteinAlteringVariant
             | MissenseVariant
             | RareAminoAcidVariant => PutativeImpact::Moderate,
@@ -327,8 +341,10 @@ impl From<Consequence> for PutativeImpact {
             | MatureMirnaVariant
             | FivePrimeUtrExonVariant
             | FivePrimeUtrIntronVariant
+            | FivePrimeUtrVariant
             | ThreePrimeUtrExonVariant
             | ThreePrimeUtrIntronVariant
+            | ThreePrimeUtrVariant
             | NonCodingTranscriptExonVariant
             | NonCodingTranscriptIntronVariant
             | CodingTranscriptIntronVariant
