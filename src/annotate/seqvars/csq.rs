@@ -871,117 +871,107 @@ impl ConsequencePredictor {
     fn adjust_vep_terms(&self, consequences: &mut Consequences) {
         use crate::annotate::seqvars::ann::Consequence::*;
 
-        let mut to_remove = Consequences::empty();
-        let mut to_add = Consequences::empty();
-
         // vep reports the umbrella intron variant term.
         if consequences.contains(CodingTranscriptIntronVariant) {
-            to_remove |= CodingTranscriptIntronVariant;
-            to_add |= IntronVariant;
+            consequences.remove(CodingTranscriptIntronVariant);
+            consequences.insert(IntronVariant);
         }
         if consequences.contains(NonCodingTranscriptIntronVariant) {
-            to_remove |= NonCodingTranscriptIntronVariant;
-            to_add |= IntronVariant;
+            consequences.remove(NonCodingTranscriptIntronVariant);
+            consequences.insert(IntronVariant);
         }
-
-        // vep does not _often_ report 5'/3' utr intron variants as such,
-        // uses umbrella intron variant term instead
         if consequences.contains(FivePrimeUtrIntronVariant) {
-            to_remove |= FivePrimeUtrIntronVariant;
-            to_add |= IntronVariant;
+            consequences.remove(FivePrimeUtrIntronVariant);
+            consequences.insert(IntronVariant);
         }
         if consequences.contains(ThreePrimeUtrIntronVariant) {
-            let only_3p_intron = *consequences == ThreePrimeUtrIntronVariant.into();
-            to_remove |= ThreePrimeUtrIntronVariant;
-            if only_3p_intron {
-                to_add |= ThreePrimeUtrIntronVariant;
-            } else {
-                to_add |= IntronVariant;
-            }
+            consequences.remove(ThreePrimeUtrIntronVariant);
+            consequences.insert(IntronVariant);
         }
 
         if consequences.contains(FivePrimeUtrExonVariant) {
-            to_remove |= FivePrimeUtrExonVariant;
-            to_add |= FivePrimeUtrVariant;
+            consequences.remove(FivePrimeUtrExonVariant);
+            consequences.insert(FivePrimeUtrVariant);
         }
-
         if consequences.contains(ThreePrimeUtrExonVariant) {
-            to_remove |= ThreePrimeUtrExonVariant;
-            to_add |= ThreePrimeUtrVariant;
+            consequences.remove(ThreePrimeUtrExonVariant);
+            consequences.insert(ThreePrimeUtrVariant);
         }
 
-        // technically, a splice donor 5th base variant is a splice (donor) region variant,
-        // but sequence ontology does not have an edge for this relationship,
-        // and vep only reports the splice donor 5th base variant
-        if consequences.contains(SpliceDonorRegionVariant)
-            && consequences.contains(SpliceDonorFifthBaseVariant)
-        {
-            to_remove |= SpliceDonorRegionVariant;
-        }
-        if consequences.contains(SpliceRegionVariant)
-            && consequences.contains(SpliceDonorFifthBaseVariant)
-        {
-            to_remove |= SpliceRegionVariant;
-        }
-
-        // vep does not report exonic_splice_region_variant but only coding_sequence_variant
         if consequences.contains(ExonicSpliceRegionVariant) {
-            to_remove |= ExonicSpliceRegionVariant;
-            to_add |= SpliceRegionVariant;
-            to_add |= CodingSequenceVariant;
+            consequences.remove(ExonicSpliceRegionVariant);
+            consequences.insert(SpliceRegionVariant);
+            consequences.insert(CodingSequenceVariant);
         }
 
-        // use less specific consequences
-        if consequences.contains(FrameshiftElongation) {
-            to_remove |= FrameshiftElongation;
-            to_add |= FrameshiftVariant;
+        if consequences.intersects(FrameshiftElongation | FrameshiftTruncation) {
+            consequences.remove(FrameshiftElongation | FrameshiftTruncation);
+            consequences.insert(FrameshiftVariant);
         }
 
-        if consequences.contains(FrameshiftTruncation) {
-            to_remove |= FrameshiftTruncation;
-            to_add |= FrameshiftVariant;
+        let inframe_specifics = DisruptiveInframeDeletion
+            | DisruptiveInframeInsertion
+            | ConservativeInframeDeletion
+            | ConservativeInframeInsertion;
+
+        if consequences.intersects(inframe_specifics) {
+            if consequences.intersects(DisruptiveInframeDeletion | ConservativeInframeDeletion) {
+                consequences.insert(InframeDeletion);
+            }
+            if consequences.intersects(DisruptiveInframeInsertion | ConservativeInframeInsertion) {
+                consequences.insert(InframeInsertion);
+            }
+            consequences.remove(inframe_specifics);
         }
 
-        // the following is a heuristic
-        if consequences.contains(DisruptiveInframeDeletion) {
-            to_remove |= DisruptiveInframeDeletion;
-            to_add |= InframeDeletion;
-        }
+        let is_inframe = consequences.intersects(InframeDeletion | InframeInsertion);
+        let essential_splice = SpliceDonorVariant | SpliceAcceptorVariant;
 
-        if consequences.contains(DisruptiveInframeInsertion) {
-            to_remove |= DisruptiveInframeInsertion;
-            to_add |= InframeInsertion;
-        }
-
-        if consequences.contains(ConservativeInframeDeletion) {
-            to_remove |= ConservativeInframeDeletion;
-            to_add |= InframeDeletion;
-        }
-
-        if consequences.contains(ConservativeInframeInsertion) {
-            to_remove |= ConservativeInframeInsertion;
-            to_add |= InframeInsertion;
-        }
-
-        if consequences.contains(InframeDeletion)
-            && consequences.intersects(
+        if is_inframe {
+            if consequences.intersects(essential_splice) {
+                consequences.remove(InframeDeletion | InframeInsertion);
+                consequences.insert(CodingSequenceVariant);
+            } else if consequences.intersects(
                 SpliceRegionVariant
-                    | SpliceAcceptorVariant
-                    | SpliceDonorVariant
                     | SpliceDonorFifthBaseVariant
                     | SpliceDonorRegionVariant
                     | SplicePolypyrimidineTractVariant,
-            )
-        {
-            to_add |= CodingSequenceVariant;
+            ) {
+                consequences.insert(CodingSequenceVariant);
+            }
         }
 
-        if consequences.contains(RareAminoAcidVariant) {
-            // can't fix this, would need a different and incorrect translation table
+        if consequences.contains(ExonLossVariant) {
+            consequences.remove(ExonLossVariant);
         }
 
-        *consequences &= !to_remove;
-        *consequences |= to_add;
+        if consequences.contains(FrameshiftVariant) {
+            consequences.remove(StopGained | StopLost);
+        }
+
+        let suppress_splice_region = SpliceDonorVariant
+            | SpliceAcceptorVariant
+            | SpliceDonorFifthBaseVariant
+            | SpliceDonorRegionVariant;
+
+        if consequences.intersects(suppress_splice_region) {
+            consequences.remove(SpliceRegionVariant);
+        }
+
+        if consequences.contains(SpliceDonorFifthBaseVariant) {
+            consequences.remove(SpliceDonorRegionVariant);
+        }
+
+        if consequences.contains(SpliceAcceptorVariant) {
+            consequences.remove(SplicePolypyrimidineTractVariant);
+        }
+
+        let suppress_intron =
+            SpliceDonorVariant | SpliceAcceptorVariant | SpliceDonorFifthBaseVariant;
+
+        if consequences.intersects(suppress_intron) {
+            consequences.remove(IntronVariant);
+        }
     }
 
     #[allow(clippy::too_many_arguments, unused_variables)]
