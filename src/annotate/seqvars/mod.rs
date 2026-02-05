@@ -2007,7 +2007,7 @@ async fn run_with_writer(
         GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
         GenomeRelease::Grch38 => Assembly::Grch38,
     });
-    let assembly = guess_assembly_from_vcf(&header_in, false, genome_release)?;
+    let assembly = guess_assembly_from_vcf(&header_in, genome_release.is_some(), genome_release)?;
     writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
