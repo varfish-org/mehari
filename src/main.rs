@@ -91,7 +91,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
-use clap::{command, Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 use mehari::{annotate, common, db, server, verify};
 

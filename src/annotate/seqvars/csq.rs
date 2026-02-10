@@ -53,10 +53,6 @@ pub struct Config {
     #[builder(default = "false")]
     pub discard_utr_splice_variants: bool,
 
-    /// Whether to do hgvs shifting for hgvs.g like vep does
-    #[builder(default = "false")]
-    pub vep_hgvs_shift: bool,
-
     /// Whether to normalize HGVS variants.
     #[builder(default = "true")]
     pub normalize: bool,
@@ -64,6 +60,10 @@ pub struct Config {
     /// Whether re-normalize genomic variants.
     #[builder(default = "true")]
     pub renormalize_g: bool,
+
+    /// Whether to report VEP consequence terms.
+    #[builder(default = "false")]
+    pub vep_consequence_terms: bool,
 }
 
 impl Default for Config {
@@ -198,27 +198,18 @@ impl ConsequencePredictor {
         // We follow hgvs conventions and therefore normalize input variants
         let var_g = Self::get_var_g(&norm_var, chrom_acc);
         let (var_g_fwd, var_g_rev) = if self.mapper.config.renormalize_g {
-            // if renormalize_g is enabled, always do at least 3' shifting
             let right = self
                 .mapper
                 .variant_mapper()
                 .right_normalizer()?
                 .normalize(&var_g)?;
-
-            (
-                right.clone(),
-                // if additionally vep_hgvs_shift is enabled, also do 5' shifting
-                if self.config.vep_hgvs_shift {
-                    self.mapper
-                        .variant_mapper()
-                        .left_normalizer()?
-                        .normalize(&var_g)?
-                } else {
-                    right
-                },
-            )
+            let left = self
+                .mapper
+                .variant_mapper()
+                .left_normalizer()?
+                .normalize(&var_g)?;
+            (right, left)
         } else {
-            // otherwise, do not do any shifting
             (var_g.clone(), var_g.clone())
         };
 
@@ -228,6 +219,7 @@ impl ConsequencePredictor {
 
         let qry_start = var_start_fwd.min(var_start_rev) - PADDING;
         let qry_end = var_end_fwd.max(var_end_rev) + PADDING;
+
         let txs = {
             let mut txs =
                 self.provider
@@ -827,6 +819,10 @@ impl ConsequencePredictor {
             consequences |= Consequence::GeneVariant;
         }
 
+        if self.config.vep_consequence_terms {
+            self.adjust_vep_terms(&mut consequences);
+        }
+
         let consequences = consequences.iter().collect_vec();
         let putative_impact = (*consequences.first().unwrap()).into();
 
@@ -870,6 +866,112 @@ impl ConsequencePredictor {
             distance: transcript_location.distance,
             messages: None,
         }))
+    }
+
+    fn adjust_vep_terms(&self, consequences: &mut Consequences) {
+        use crate::annotate::seqvars::ann::Consequence::*;
+
+        // vep reports the umbrella intron variant term.
+        if consequences.contains(CodingTranscriptIntronVariant) {
+            consequences.remove(CodingTranscriptIntronVariant);
+            consequences.insert(IntronVariant);
+        }
+        if consequences.contains(NonCodingTranscriptIntronVariant) {
+            consequences.remove(NonCodingTranscriptIntronVariant);
+            consequences.insert(IntronVariant);
+        }
+        if consequences.contains(FivePrimeUtrIntronVariant) {
+            consequences.remove(FivePrimeUtrIntronVariant);
+            consequences.insert(IntronVariant);
+        }
+        if consequences.contains(ThreePrimeUtrIntronVariant) {
+            consequences.remove(ThreePrimeUtrIntronVariant);
+            consequences.insert(IntronVariant);
+        }
+
+        if consequences.contains(FivePrimeUtrExonVariant) {
+            consequences.remove(FivePrimeUtrExonVariant);
+            consequences.insert(FivePrimeUtrVariant);
+        }
+        if consequences.contains(ThreePrimeUtrExonVariant) {
+            consequences.remove(ThreePrimeUtrExonVariant);
+            consequences.insert(ThreePrimeUtrVariant);
+        }
+
+        if consequences.contains(ExonicSpliceRegionVariant) {
+            consequences.remove(ExonicSpliceRegionVariant);
+            consequences.insert(SpliceRegionVariant);
+            consequences.insert(CodingSequenceVariant);
+        }
+
+        if consequences.intersects(FrameshiftElongation | FrameshiftTruncation) {
+            consequences.remove(FrameshiftElongation | FrameshiftTruncation);
+            consequences.insert(FrameshiftVariant);
+        }
+
+        let inframe_specifics = DisruptiveInframeDeletion
+            | DisruptiveInframeInsertion
+            | ConservativeInframeDeletion
+            | ConservativeInframeInsertion;
+
+        if consequences.intersects(inframe_specifics) {
+            if consequences.intersects(DisruptiveInframeDeletion | ConservativeInframeDeletion) {
+                consequences.insert(InframeDeletion);
+            }
+            if consequences.intersects(DisruptiveInframeInsertion | ConservativeInframeInsertion) {
+                consequences.insert(InframeInsertion);
+            }
+            consequences.remove(inframe_specifics);
+        }
+
+        let is_inframe = consequences.intersects(InframeDeletion | InframeInsertion);
+        let essential_splice = SpliceDonorVariant | SpliceAcceptorVariant;
+
+        if is_inframe {
+            if consequences.intersects(essential_splice) {
+                consequences.remove(InframeDeletion | InframeInsertion);
+                consequences.insert(CodingSequenceVariant);
+            } else if consequences.intersects(
+                SpliceRegionVariant
+                    | SpliceDonorFifthBaseVariant
+                    | SpliceDonorRegionVariant
+                    | SplicePolypyrimidineTractVariant,
+            ) {
+                consequences.insert(CodingSequenceVariant);
+            }
+        }
+
+        if consequences.contains(ExonLossVariant) {
+            consequences.remove(ExonLossVariant);
+        }
+
+        if consequences.contains(FrameshiftVariant) {
+            consequences.remove(StopGained | StopLost);
+        }
+
+        let suppress_splice_region = SpliceDonorVariant
+            | SpliceAcceptorVariant
+            | SpliceDonorFifthBaseVariant
+            | SpliceDonorRegionVariant;
+
+        if consequences.intersects(suppress_splice_region) {
+            consequences.remove(SpliceRegionVariant);
+        }
+
+        if consequences.contains(SpliceDonorFifthBaseVariant) {
+            consequences.remove(SpliceDonorRegionVariant);
+        }
+
+        if consequences.contains(SpliceAcceptorVariant) {
+            consequences.remove(SplicePolypyrimidineTractVariant);
+        }
+
+        let suppress_intron =
+            SpliceDonorVariant | SpliceAcceptorVariant | SpliceDonorFifthBaseVariant;
+
+        if consequences.intersects(suppress_intron) {
+            consequences.remove(IntronVariant);
+        }
     }
 
     #[allow(clippy::too_many_arguments, unused_variables)]
@@ -923,22 +1025,26 @@ impl ConsequencePredictor {
             }
         }
 
-        // If a frameshift/ins/del was predicted on the CDS level,
-        // but any relevant consequence (i.e. not just GeneVariant) was produced on the protein level,
-        // then it is likely that the frameshift induced a more specific consequence.
-        let check_cds_csqs: Consequences = Consequence::FrameshiftVariant.into();
-        let checked = consequences_cds & check_cds_csqs;
-        if checked != Consequences::empty()
-            // if the protein consequence is not effectively empty, we remove the CDS frameshift consequence
-            && !(consequences_protein.eq(&Consequence::GeneVariant) || consequences_protein.is_empty())
-            // if the protein consequence also includes a frameshift, then we keep it
-            && !consequences_protein.intersects(
+        // vep simply reports the frameshift on the protein level, irrespective of the
+        // actual outcome
+        // i.e., this depends on if you want to have the mechanism or the outcome described
+        if !self.config.vep_consequence_terms {
+            // If a frameshift/ins/del was predicted on the CDS level,
+            // but any relevant consequence (i.e. not just GeneVariant) was produced on the protein level,
+            // then it is likely that the frameshift induced a more specific consequence.
+            let check_cds_csqs: Consequences = Consequence::FrameshiftVariant.into();
+            let checked = consequences_cds & check_cds_csqs;
+            if checked != Consequences::empty()
+                // if the protein consequence is not effectively empty, we remove the CDS frameshift consequence
+                && !(consequences_protein.eq(&Consequence::GeneVariant) || consequences_protein.is_empty())
+                // if the protein consequence also includes a frameshift, then we keep it
+                && !consequences_protein.intersects(
                 Consequence::FrameshiftElongation
                     | Consequence::FrameshiftTruncation
                     | Consequence::FrameshiftVariant,
-            )
-        {
-            *consequences &= !checked;
+            ) {
+                *consequences &= !checked;
+            }
         }
 
         // In some cases, we predict a stop lost based on the cds variant
@@ -949,6 +1055,15 @@ impl ConsequencePredictor {
         if consequences_cds.contains(Consequence::StopLost)
             && !consequences_protein
                 .intersects(Consequence::StopLost | Consequence::ProteinAlteringVariant)
+            && projection.p.as_ref().is_some_and(|p| {
+                !matches!(
+                    p,
+                    HgvsVariant::ProtVariant {
+                        loc_edit: ProtLocEdit::NoProteinUncertain,
+                        ..
+                    }
+                )
+            })
         {
             *consequences &= !Consequence::StopLost;
         }
@@ -1458,10 +1573,12 @@ impl ConsequencePredictor {
                                                 consequences |= Consequence::FrameshiftTruncation;
                                             }
                                             Ordering::Equal => {
-                                                consequences |= Consequence::MissenseVariant;
-                                                // TODO: discuss stop_retained
-                                                // consequences |= Consequence::StopRetainedVariant;
-                                                consequences &= !Consequence::FrameshiftVariant;
+                                                if !self.config.vep_consequence_terms {
+                                                    consequences |= Consequence::MissenseVariant;
+                                                    // TODO: discuss stop_retained
+                                                    // consequences |= Consequence::StopRetainedVariant;
+                                                    consequences &= !Consequence::FrameshiftVariant;
+                                                }
                                             }
                                             Ordering::Greater => {
                                                 consequences |= Consequence::FrameshiftElongation;
@@ -1680,7 +1797,7 @@ impl ConsequencePredictor {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::annotate::cli::{TranscriptPickType, TranscriptSettings};
+    use crate::annotate::cli::{PredictorSettings, TranscriptPickType, TranscriptSettings};
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
         load_tx_db, run_with_writer, Args, AsyncAnnotatedVariantWriter, PathOutput,
@@ -2185,9 +2302,12 @@ mod test {
                     path_output_vcf: Some(output.as_ref().to_str().unwrap().into()),
                     path_output_tsv: None,
                 },
-                transcript_settings: TranscriptSettings {
-                    report_most_severe_consequence_by: Some(ConsequenceBy::Allele),
-                    pick_transcript: vec![TranscriptPickType::ManeSelect],
+                predictor_settings: PredictorSettings {
+                    transcript_settings: TranscriptSettings {
+                        report_most_severe_consequence_by: Some(ConsequenceBy::Allele),
+                        pick_transcript: vec![TranscriptPickType::ManeSelect],
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 max_var_count: None,

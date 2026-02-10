@@ -26,6 +26,37 @@ pub struct Sources {
 }
 
 #[derive(Debug, ClapArgs, Default, Clone)]
+pub struct PredictorSettings {
+    /// Enable vep compatibility mode.
+    /// This enables specific normalization flags and less fine-grained vep consequence terms.
+    #[arg(long, default_value_t = false, hide = true)]
+    pub vep_compatibility_mode: bool,
+
+    #[clap(flatten)]
+    pub transcript_settings: TranscriptSettings,
+
+    #[clap(flatten)]
+    pub reporting_settings: ReportingSettings,
+
+    #[clap(flatten)]
+    pub normalization_settings: NormalizationSettings,
+}
+
+impl PredictorSettings {
+    pub fn do_not_normalize_variants(&self) -> bool {
+        self.normalization_settings.do_not_normalize_variants
+    }
+
+    pub fn do_not_renormalize_g(&self) -> bool {
+        self.normalization_settings.do_not_renormalize_g
+    }
+
+    pub fn vep_consequence_terms(&self) -> bool {
+        self.reporting_settings.use_vep_consequence_terms || self.vep_compatibility_mode
+    }
+}
+
+#[derive(Debug, ClapArgs, Default, Clone)]
 pub struct TranscriptSettings {
     /// The transcript source.
     #[arg(long, value_enum, default_value_t = TranscriptSource::Both)]
@@ -48,26 +79,36 @@ pub struct TranscriptSettings {
     /// either keep the first one found or keep all that match.
     #[arg(long, default_value = "all")]
     pub pick_transcript_mode: TranscriptPickMode,
+}
 
+#[derive(Debug, ClapArgs, Default, Clone)]
+pub struct ReportingSettings {
     /// Whether to keep intergenic variants.
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     pub keep_intergenic: bool,
 
     /// Whether to report splice variants in UTRs.
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     pub discard_utr_splice_variants: bool,
 
+    /// Whether to use less fine-grained VEP consequence terms.
+    #[arg(long, default_value_t = false, hide = true)]
+    use_vep_consequence_terms: bool,
+}
+
+#[derive(Debug, ClapArgs, Default, Clone)]
+pub struct NormalizationSettings {
     /// Whether to do hgvs shifting for hgvs.g like vep does
-    #[arg(long, default_value = "false", hide = true)]
-    pub vep_hgvs_shift: bool,
+    #[arg(long, default_value_t = false, hide = true)]
+    vep_hgvs_shift: bool,
 
     /// Whether to skip HGVS normalization.
-    #[arg(long, default_value = "false", hide = true)]
-    pub do_not_normalize_variants: bool,
+    #[arg(long, default_value_t = false, hide = true)]
+    do_not_normalize_variants: bool,
 
     /// Whether to skip re-normalizing genomic variants.
-    #[arg(long, default_value = "false", hide = true)]
-    pub do_not_renormalize_g: bool,
+    #[arg(long, default_value_t = false, hide = true)]
+    do_not_renormalize_g: bool,
 }
 
 #[derive(
