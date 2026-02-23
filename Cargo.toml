@@ -60,7 +60,7 @@ percent-encoding = "2.3"
 procfs = "0.18"
 prost = "0.14.3"
 quick_cache = "0.6.18"
-rand = "0.9"
+rand = "0.10"
 rayon = "1.11.0"
 rocksdb = { version = "0.24.0", features = ["multi-threaded-cf"] }
 rustc-hash = "2.1.0"
