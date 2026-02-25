@@ -105,6 +105,47 @@ struct HgvsProjectionContext {
     p: Option<HgvsVariant>,
 }
 
+impl HgvsProjectionContext {
+    /// Check if the variant falls within the boundaries of the CDS (start to stop),
+    /// including intronic parts.
+    fn is_within_cds_bounds(&self) -> bool {
+        if let Some(HgvsVariant::CdsVariant { loc_edit, .. }) = &self.c {
+            let loc = loc_edit.loc.inner();
+            let start = &loc.start;
+            let end = &loc.end;
+
+            let is_5_prime = start.cds_from == CdsFrom::Start
+                && start.base < 0
+                && end.cds_from == CdsFrom::Start
+                && end.base < 0;
+
+            let is_3_prime = start.cds_from == CdsFrom::End && end.cds_from == CdsFrom::End;
+
+            !is_5_prime && !is_3_prime
+        } else {
+            false
+        }
+    }
+
+    /// Check if the variant is strictly within the coding sequence, i.e., not in UTRs or intronic.
+    fn is_within_coding_sequence(&self) -> bool {
+        if let Some(HgvsVariant::CdsVariant { loc_edit, .. }) = &self.c {
+            let loc = loc_edit.loc.inner();
+
+            if !self.is_within_cds_bounds() {
+                return false;
+            }
+
+            let start_offset = loc.start.offset.unwrap_or(0);
+            let end_offset = loc.end.offset.unwrap_or(0);
+
+            start_offset == 0 && end_offset == 0
+        } else {
+            false
+        }
+    }
+}
+
 #[derive(Debug)]
 struct TranscriptLocationContext {
     rank: Rank,
