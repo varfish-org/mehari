@@ -859,7 +859,7 @@ impl ConsequencePredictor {
         }
 
         if self.config.vep_consequence_terms {
-            self.adjust_vep_terms(&mut consequences);
+            self.adjust_vep_terms(&mut consequences, projection.as_ref());
         }
 
         let consequences = consequences.iter().collect_vec();
@@ -907,7 +907,11 @@ impl ConsequencePredictor {
         }))
     }
 
-    fn adjust_vep_terms(&self, consequences: &mut Consequences) {
+    fn adjust_vep_terms(
+        &self,
+        consequences: &mut Consequences,
+        projection_context: Option<&HgvsProjectionContext>,
+    ) {
         use crate::annotate::seqvars::ann::Consequence::*;
 
         // vep reports the umbrella intron variant term.
@@ -937,10 +941,17 @@ impl ConsequencePredictor {
             consequences.insert(ThreePrimeUtrVariant);
         }
 
+        // VEP marks some intronic variants as coding_sequence_variant,
+        // which is wrong, but we will mimic here for compatibility
+        let within_cds_bounds = projection_context
+            .map(|c| c.is_within_cds_bounds())
+            .unwrap_or(false);
         if consequences.contains(ExonicSpliceRegionVariant) {
             consequences.remove(ExonicSpliceRegionVariant);
             consequences.insert(SpliceRegionVariant);
-            consequences.insert(CodingSequenceVariant);
+            if within_cds_bounds {
+                consequences.insert(CodingSequenceVariant);
+            }
         }
 
         if consequences.intersects(FrameshiftElongation | FrameshiftTruncation) {
@@ -969,13 +980,16 @@ impl ConsequencePredictor {
         if is_inframe {
             if consequences.intersects(essential_splice) {
                 consequences.remove(InframeDeletion | InframeInsertion);
-                consequences.insert(CodingSequenceVariant);
+                if within_cds_bounds {
+                    consequences.insert(CodingSequenceVariant);
+                }
             } else if consequences.intersects(
                 SpliceRegionVariant
                     | SpliceDonorFifthBaseVariant
                     | SpliceDonorRegionVariant
                     | SplicePolypyrimidineTractVariant,
-            ) {
+            ) && within_cds_bounds
+            {
                 consequences.insert(CodingSequenceVariant);
             }
         }
