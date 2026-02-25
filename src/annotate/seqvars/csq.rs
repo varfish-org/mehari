@@ -765,66 +765,64 @@ impl ConsequencePredictor {
             }
         }
 
-        let (rank, hgvs_n, hgvs_c, hgvs_p, cdna_pos, cds_pos, protein_pos) =
-            if !transcript_location.is_upstream && !transcript_location.is_downstream {
-                let projection = self.project_hgvs(&var_g, tx, transcript_biotype)?;
-                if projection.n.is_none() {
-                    return Ok(None); // Early exit if g->n projection failed.
-                }
+        let (rank, projection, cdna_pos, cds_pos, protein_pos) = if !transcript_location.is_upstream
+            && !transcript_location.is_downstream
+        {
+            let projection = self.project_hgvs(&var_g, tx, transcript_biotype)?;
+            if projection.n.is_none() {
+                return Ok(None); // Early exit if g->n projection failed.
+            }
 
-                let consequence_ctx = self.analyze_transcript_consequences(
-                    &projection,
-                    tx,
-                    &tx_record,
-                    &transcript_location,
-                    tx_len,
-                    transcript_biotype,
-                )?;
+            let consequence_ctx = self.analyze_transcript_consequences(
+                &projection,
+                tx,
+                &tx_record,
+                &transcript_location,
+                tx_len,
+                transcript_biotype,
+            )?;
 
-                consequences |=
-                    consequence_ctx.cds_consequences | consequence_ctx.protein_consequences;
+            consequences |= consequence_ctx.cds_consequences | consequence_ctx.protein_consequences;
 
-                self.consequences_fix_special_cases(
-                    &mut consequences,
-                    // exon_alignment_consequences, // TODO include these as well
-                    consequence_ctx.cds_consequences,
-                    consequence_ctx.protein_consequences,
-                    &projection,
-                );
+            self.consequences_fix_special_cases(
+                &mut consequences,
+                // exon_alignment_consequences, // TODO include these as well
+                consequence_ctx.cds_consequences,
+                consequence_ctx.protein_consequences,
+                &projection,
+            );
 
-                let hgvs_n = projection.n.as_ref().map(|var_n| {
-                    format!("{}", &NoRef(var_n))
-                        .split(':')
-                        .nth(1)
-                        .unwrap()
-                        .to_owned()
-                });
+            (
+                Some(transcript_location.rank),
+                Some(projection),
+                consequence_ctx.cdna_pos,
+                consequence_ctx.cds_pos,
+                consequence_ctx.protein_pos,
+            )
+        } else {
+            (None, None, None, None, None)
+        };
 
-                let hgvs_c = projection.c.as_ref().map(|var_c| {
-                    format!("{}", &NoRef(var_c))
-                        .split(':')
-                        .nth(1)
-                        .unwrap()
-                        .to_owned()
-                });
+        let hgvs_n = projection.as_ref().and_then(|p| p.n.as_ref()).map(|var_n| {
+            format!("{}", &NoRef(var_n))
+                .split(':')
+                .nth(1)
+                .unwrap()
+                .to_owned()
+        });
 
-                let hgvs_p = projection
-                    .p
-                    .as_ref()
-                    .map(|var_p| format!("{}", var_p).split(':').nth(1).unwrap().to_owned());
+        let hgvs_c = projection.as_ref().and_then(|p| p.c.as_ref()).map(|var_c| {
+            format!("{}", &NoRef(var_c))
+                .split(':')
+                .nth(1)
+                .unwrap()
+                .to_owned()
+        });
 
-                (
-                    Some(transcript_location.rank),
-                    hgvs_n,
-                    hgvs_c,
-                    hgvs_p,
-                    consequence_ctx.cdna_pos,
-                    consequence_ctx.cds_pos,
-                    consequence_ctx.protein_pos,
-                )
-            } else {
-                (None, None, None, None, None, None, None)
-            };
+        let hgvs_p = projection
+            .as_ref()
+            .and_then(|p| p.p.as_ref())
+            .map(|var_p| format!("{}", var_p).split(':').nth(1).unwrap().to_owned());
 
         let feature_biotype = vec![match transcript_biotype {
             TranscriptBiotype::Coding => FeatureBiotype::Coding,
