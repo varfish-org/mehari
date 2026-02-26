@@ -941,6 +941,11 @@ impl ConsequencePredictor {
             consequences.insert(ThreePrimeUtrVariant);
         }
 
+        if consequences.contains(SelenocysteineGain | SelenocysteineLoss) {
+            consequences.remove(SelenocysteineGain | SelenocysteineLoss);
+            consequences.insert(MissenseVariant);
+        }
+
         // VEP marks some intronic variants as coding_sequence_variant,
         // which is wrong, but we will mimic here for compatibility
         let within_cds_bounds = projection_context
@@ -1668,11 +1673,21 @@ impl ConsequencePredictor {
                             } else {
                                 consequences |= Consequence::MissenseVariant;
                                 // Missense variants that affect selenocysteine are marked
-                                // as rare amino acid variants.
-                                if alternative.contains('U')
-                                    || (loc.start == loc.end) && loc.start.aa == "U"
-                                {
-                                    consequences |= Consequence::RareAminoAcidVariant;
+                                // as rare amino acid variants / selenocysteine gain/loss variants.
+                                let alt_has_selenocysteine = alternative.contains('U');
+                                let ref_has_selenocysteine =
+                                    (loc.start == loc.end) && loc.start.aa == "U";
+                                match (ref_has_selenocysteine, alt_has_selenocysteine) {
+                                    (true, false) => {
+                                        consequences |= Consequence::SelenocysteineLoss;
+                                    }
+                                    (false, true) => {
+                                        consequences |= Consequence::SelenocysteineGain;
+                                    }
+                                    (true, true) => {
+                                        consequences |= Consequence::RareAminoAcidVariant;
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
