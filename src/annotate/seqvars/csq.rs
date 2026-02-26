@@ -999,7 +999,9 @@ impl ConsequencePredictor {
             }
         }
 
-        if consequences.contains(ExonLossVariant) {
+        if consequences.contains(ExonLossVariant)
+            && *consequences != Into::<Consequences>::into(ExonLossVariant)
+        {
             consequences.remove(ExonLossVariant);
         }
 
