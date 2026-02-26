@@ -145,6 +145,14 @@ pub enum Consequence {
     /// SO:rare_amino_acid_variant
     RareAminoAcidVariant,
 
+    /// "A sequence variant whereby at least one base of a codon is changed, resulting in a selenocysteine."
+    /// SO: selenocysteine_gain
+    SelenocysteineGain,
+
+    /// "A sequence variant whereby at least one base of a codon encoding selenocysteine is changed, resulting in a different encoded amino acid."
+    /// SO: selenocysteine_loss
+    SelenocysteineLoss,
+
     /// "A sequence_variant which is predicted to change the protein encoded in the coding sequence."
     /// SO:protein_altering_variant, VEP:protein_altering_variant
     ProteinAlteringVariant,
@@ -328,7 +336,9 @@ impl From<Consequence> for PutativeImpact {
             | InframeDeletion
             | ProteinAlteringVariant
             | MissenseVariant
-            | RareAminoAcidVariant => PutativeImpact::Moderate,
+            | RareAminoAcidVariant
+            | SelenocysteineGain
+            | SelenocysteineLoss => PutativeImpact::Moderate,
             SpliceDonorFifthBaseVariant
             | SpliceRegionVariant
             | ExonicSpliceRegionVariant
