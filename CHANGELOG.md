@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.40.0](https://github.com/varfish-org/mehari/compare/v0.39.0...v0.40.0) (2026-01-19)
+
+
+### Features
+
+* introduce cli options to disable variant hgvs normalization ([#918](https://github.com/varfish-org/mehari/issues/918)) ([5117d10](https://github.com/varfish-org/mehari/commit/5117d10b25a67f85a2c25a8a342962fdca07b675))
+
+
+### Bug Fixes
+
+* clinvar tx acc in db check ([#919](https://github.com/varfish-org/mehari/issues/919)) ([b79e5c3](https://github.com/varfish-org/mehari/commit/b79e5c32c77c6c650f76397102708f31959bd8d3))
+
 ## [0.39.0](https://github.com/varfish-org/mehari/compare/v0.38.1...v0.39.0) (2026-01-13)
 
 
