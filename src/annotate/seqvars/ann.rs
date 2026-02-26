@@ -133,8 +133,12 @@ pub enum Consequence {
     /// SO:conservative_inframe_deletion, VEP:inframe_deletion
     ConservativeInframeDeletion,
 
+    /// "An inframe non synonymous variant that deletes bases from the coding sequence."
+    /// SO:inframe_deletion, VEP:inframe_deletion
     InframeDeletion,
 
+    /// "An inframe non synonymous variant that inserts bases into in the coding sequence."
+    /// SO:inframe_insertion, VEP:inframe_insertion
     InframeInsertion,
 
     /// "A sequence variant, that changes one or more bases, resulting in a different amino acid sequence but where the length is preserved."
