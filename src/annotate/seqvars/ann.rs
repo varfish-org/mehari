@@ -184,10 +184,10 @@ pub enum Consequence {
     /// SO:splice_polypyrimidine_tract_variant, VEP:splice_polypyrimidine_tract_variant
     SplicePolypyrimidineTractVariant,
 
-    // Not used by mehari, but by VEP
-    // /// "A sequence variant where at least one base of the final codon of an incompletely annotated transcript is changed."
-    // /// SO:incomplete_terminal_codon_variant, VEP:incomplete_terminal_codon_variant
-    // IncompleteTerminalCodonVariant
+    /// "A sequence variant where at least one base of the final codon of an incompletely annotated transcript is changed."
+    /// SO:incomplete_terminal_codon_variant, VEP:incomplete_terminal_codon_variant
+    IncompleteTerminalCodonVariant,
+
     /// "A sequence variant where at least one base in the start codon is changed, but the start remains."
     /// SO:start_retained_variant, VEP:start_retained_variant
     StartRetainedVariant,
@@ -350,7 +350,8 @@ impl From<Consequence> for PutativeImpact {
             | SplicePolypyrimidineTractVariant
             | StartRetainedVariant
             | StopRetainedVariant
-            | SynonymousVariant => PutativeImpact::Low,
+            | SynonymousVariant
+            | IncompleteTerminalCodonVariant => PutativeImpact::Low,
             CodingSequenceVariant
             | MatureMirnaVariant
             | FivePrimeUtrExonVariant

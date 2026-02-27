@@ -5,6 +5,7 @@ use super::{
 };
 use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
 use crate::annotate::seqvars::ann::FeatureTag;
+use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::pbs::txs::{GenomeAlignment, Strand, Transcript, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
 use hgvs::mapper::altseq::AltSeqBuilder;
@@ -616,9 +617,23 @@ impl ConsequencePredictor {
                 if transcript_biotype == TranscriptBiotype::Coding {
                     projection.p = self.mapper.c_to_p(var_c).map_or_else(
                         |e| {
-                            if e.to_string()
-                                .contains("is not supported because its sequence length of")
+                            if matches!(
+                                e,
+                                Error::TranscriptLengthInvalid(_, _)
+                                    | Error::CannotConvertIntervalEnd(_)
+                            ) {
+                                tracing::debug!("c_to_p failed gracefully for incomplete transcript (typed error): {}", e);
+                                return Ok(None);
+                            }
+
+                            let err_str = e.to_string();
+                            if err_str.contains("does not contain a stop codon")
+                                || err_str.contains("multiple of 3")
+                                || err_str.contains("multiple of three")
+                                || err_str.contains("out of bound")
+                                || err_str.contains("outside of sequence bounds")
                             {
+                                tracing::debug!("c_to_p failed gracefully for incomplete transcript (nested error string): {}", err_str);
                                 Ok(None)
                             } else {
                                 Err(e)
@@ -674,8 +689,15 @@ impl ConsequencePredictor {
                 });
 
                 let conservative = is_conservative_cds_variant(var_c);
-                context.cds_consequences =
-                    Self::analyze_cds_variant(var_c, transcript_location.is_exonic, conservative);
+                let incomplete_3p = tx.is_incomplete_3p();
+                let available_cds_len = tx.available_cds_len(tx_len);
+                context.cds_consequences = Self::analyze_cds_variant(
+                    var_c,
+                    transcript_location.is_exonic,
+                    conservative,
+                    incomplete_3p,
+                    available_cds_len,
+                );
 
                 if let Some(var_p) = &projection.p {
                     let prot_len = cds_len
@@ -698,6 +720,7 @@ impl ConsequencePredictor {
                         &context.protein_pos,
                         conservative,
                         &tx_record.tx_ac,
+                        incomplete_3p,
                     );
                 }
             }
@@ -1399,6 +1422,8 @@ impl ConsequencePredictor {
         var_c: &HgvsVariant,
         is_exonic: bool,
         conservative: bool,
+        incomplete_3p: bool,
+        available_cds_len: Option<i32>,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -1435,8 +1460,16 @@ impl ConsequencePredictor {
             // stop codon
             let starts_left_of_stop = start_cds_from == CdsFrom::Start;
             let ends_right_of_stop = end_cds_from == CdsFrom::End;
-            if starts_left_of_stop && ends_right_of_stop {
+            if starts_left_of_stop && ends_right_of_stop && !incomplete_3p {
                 consequences |= Consequence::StopLost;
+            }
+
+            if incomplete_3p {
+                if let Some(cds_len) = available_cds_len {
+                    if start_base <= cds_len && end_base >= cds_len - 2 {
+                        consequences |= Consequence::IncompleteTerminalCodonVariant;
+                    }
+                }
             }
 
             if (start_cds_from == CdsFrom::Start && start_base <= 0)
@@ -1577,6 +1610,7 @@ impl ConsequencePredictor {
         protein_pos: &Option<Pos>,
         conservative: bool,
         tx_accession: &str,
+        incomplete_3p: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -1649,7 +1683,9 @@ impl ConsequencePredictor {
                             }
                         }
                         ProteinEdit::Ext { .. } => {
-                            consequences |= Consequence::StopLost;
+                            if !incomplete_3p {
+                                consequences |= Consequence::StopLost;
+                            }
                             consequences |= Consequence::FeatureElongation;
                         }
                         ProteinEdit::Subst { alternative } => {
@@ -1658,7 +1694,7 @@ impl ConsequencePredictor {
                             } else if is_stop(alternative) {
                                 if loc.start == loc.end && is_stop(&loc.start.aa) {
                                     consequences |= Consequence::StopRetainedVariant;
-                                } else {
+                                } else if !incomplete_3p {
                                     consequences |= Consequence::StopGained;
                                     // if the substitution happens right before the stop codon
                                     // and if it is a conservative change
@@ -1709,11 +1745,12 @@ impl ConsequencePredictor {
 
                             if (is_stop(&loc.start.aa) || is_stop(&loc.end.aa))
                                 && !has_stop(alternative)
+                                && !incomplete_3p
                             {
                                 consequences |= Consequence::StopLost;
                             }
 
-                            if has_stop(alternative) {
+                            if has_stop(alternative) && !incomplete_3p {
                                 consequences |= Consequence::StopGained;
                             }
                         }
