@@ -30,6 +30,7 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use enumflags2::BitFlags;
 
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
 
@@ -142,14 +143,31 @@ impl TxIntervalTrees {
 }
 
 /// Extension trait to easily check the filter status of a transcript.
-pub trait FilterExt {
+pub trait PbsTranscriptExt {
     /// Returns true if the transcript has absolutely no filter flags (hard or soft).
     fn is_clean(&self) -> bool;
+
+    /// Returns true if the transcript is incomplete (e.g. missing stop codon).
+    fn is_incomplete_3p(&self) -> bool;
+
+    /// Computes the available CDS length. If the stop codon is missing,
+    /// it uses the provided transcript length to bound the remaining sequence.
+    fn available_cds_len(&self, tx_len: i32) -> Option<i32>;
 }
 
-impl FilterExt for Transcript {
+impl PbsTranscriptExt for Transcript {
     fn is_clean(&self) -> bool {
         self.filter_reason.unwrap_or(0) == 0
+    }
+
+    fn is_incomplete_3p(&self) -> bool {
+        let flags = BitFlags::<Reason>::from_bits_truncate(self.filter_reason.unwrap_or(0));
+        flags.intersects(Reason::MissingStopCodon | Reason::ThreePrimeEndTruncated)
+    }
+
+    fn available_cds_len(&self, tx_len: i32) -> Option<i32> {
+        self.start_codon
+            .map(|start| self.stop_codon.unwrap_or_else(|| tx_len) - start)
     }
 }
 
