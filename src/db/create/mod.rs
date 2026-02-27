@@ -1,13 +1,5 @@
 //! Transcript database.
 
-use std::cmp::{PartialEq, Reverse};
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Formatter};
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::Path;
-use std::{io::Write, path::PathBuf, time::Instant};
-
 use crate::annotate::seqvars::ann::FeatureTag;
 use crate::common::{trace_rss_now, GenomeRelease};
 use crate::pbs::txs::{Assembly, Source, SourceVersion, TxSeqDatabase};
@@ -30,6 +22,14 @@ use serde::Serialize;
 use serde_json::json;
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
+use std::cmp::{PartialEq, Reverse};
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Display, Formatter};
+use std::fs::File;
+use std::io::BufWriter;
+use std::ops::Not;
+use std::path::Path;
+use std::{io::Write, path::PathBuf, time::Instant};
 use strum::Display;
 use thousands::Separable;
 
@@ -1353,13 +1353,22 @@ impl TranscriptLoader {
             .unwrap_or_else(|| panic!("No transcript for id {:?}", tx_id));
 
         // Combine discard reasons for transcript and gene level.
-        let reason = self.discards.get(&Identifier::TxId(tx_id.clone()));
-        let filtered = reason.is_some_and(|reason| !reason.is_empty());
-        let filtered = filtered
-            | self
-                .discards
-                .get(&Identifier::Hgnc(*hgnc_id))
-                .is_some_and(|reason| !reason.is_empty());
+        let tx_reason = self
+            .discards
+            .get(&Identifier::TxId(tx_id.clone()))
+            .copied()
+            .unwrap_or_default();
+        let gene_reason = self
+            .discards
+            .get(&Identifier::Hgnc(*hgnc_id))
+            .copied()
+            .unwrap_or_default();
+        let combined_reason = tx_reason | gene_reason;
+
+        // Only filter out the transcript if it intersects with a "hard" reason.
+        // Soft-filtered transcripts will have `filtered = false`, but their `filter_reason`
+        // will still contain the bitmask for downstream inspection.
+        let filtered = combined_reason.intersects(Reason::hard());
 
         // ... build genome alignment for selected:
         let (genome_alignments, tags): (Vec<_>, Vec<_>) = tx
@@ -1423,7 +1432,10 @@ impl TranscriptLoader {
             stop_codon,
             genome_alignments,
             filtered: Some(filtered),
-            filter_reason: reason.map(|r| r.bits()),
+            filter_reason: combined_reason
+                .is_empty()
+                .not()
+                .then(|| combined_reason.bits()),
         }
     }
 
@@ -1577,6 +1589,23 @@ pub(crate) enum Reason {
     TranscriptPriority,
     UseNmTranscriptInsteadOfNr,
     CdsStartOrEndNotConfirmed,
+}
+
+impl Reason {
+    /// Reasons that make a transcript completely unusable (Hard Filter).
+    /// We define this as all reasons EXCEPT the soft ones.
+    pub fn hard() -> BitFlags<Reason> {
+        BitFlags::all() ^ Self::soft()
+    }
+
+    /// Reasons that mean the transcript is flawed but potentially salvageable (Soft Filter).
+    pub fn soft() -> BitFlags<Reason> {
+        Reason::MissingStopCodon
+            | Reason::InvalidCdsLength
+            | Reason::FivePrimeEndTruncated
+            | Reason::ThreePrimeEndTruncated
+            | Reason::CdsStartOrEndNotConfirmed
+    }
 }
 
 #[bitflags]

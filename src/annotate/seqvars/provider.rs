@@ -141,6 +141,18 @@ impl TxIntervalTrees {
     }
 }
 
+/// Extension trait to easily check the filter status of a transcript.
+pub trait FilterExt {
+    /// Returns true if the transcript has absolutely no filter flags (hard or soft).
+    fn is_clean(&self) -> bool;
+}
+
+impl FilterExt for Transcript {
+    fn is_clean(&self) -> bool {
+        self.filter_reason.unwrap_or(0) == 0
+    }
+}
+
 /// Configuration for constructing the `Provider`.
 #[derive(Debug, Clone, Default, derive_builder::Builder)]
 #[builder(pattern = "immutable")]
@@ -385,7 +397,8 @@ impl Provider {
 
         // Process each gene.
         for entry in tx_db.gene_to_tx.iter() {
-            let mut longest_tx_per_source: HashMap<TranscriptSource, (usize, i32)> = HashMap::new();
+            let mut longest_tx_per_source: HashMap<TranscriptSource, (bool, usize, i32)> =
+                HashMap::new();
             let mut tx_tags = entry
                 .tx_ids
                 .iter()
@@ -396,21 +409,24 @@ impl Provider {
                         let tags = tx.tags.iter().filter_map(tag_to_picktype).collect_vec();
                         let length = transcript_length(tx);
                         let source = transcript_id_to_source(tx_id);
+                        let is_clean = tx.is_clean();
 
                         longest_tx_per_source
                             .entry(source)
-                            .and_modify(|(_prev_i, prev_length)| {
-                                if length > *prev_length {
-                                    *_prev_i = i;
+                            .and_modify(|(prev_clean, prev_i, prev_length)| {
+                                if (is_clean, length) > (*prev_clean, *prev_length) {
+                                    *prev_clean = is_clean;
+                                    *prev_i = i;
                                     *prev_length = length;
                                 }
                             })
-                            .or_insert((i, length));
+                            .or_insert((is_clean, i, length));
                         (tx_id, tags, length)
                     })
                 })
                 .collect_vec();
-            for (_, (i, _)) in longest_tx_per_source.iter() {
+
+            for (_, (_, i, _)) in longest_tx_per_source.iter() {
                 tx_tags[*i].1.push(TranscriptPickType::Length);
             }
 
