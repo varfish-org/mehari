@@ -128,6 +128,7 @@ impl HgvsProjectionContext {
         }
     }
 
+    #[allow(dead_code)]
     /// Check if the variant is strictly within the coding sequence, i.e., not in UTRs or intronic.
     fn is_within_coding_sequence(&self) -> bool {
         if let Some(HgvsVariant::CdsVariant { loc_edit, .. }) = &self.c {
@@ -1223,23 +1224,21 @@ impl ConsequencePredictor {
             }
         }
 
-        if let Some(var_c) = projection.c.as_ref() {
-            if let HgvsVariant::CdsVariant { loc_edit, .. } = var_c {
-                let loc = loc_edit.loc.inner();
-                let start_base = loc.start.base;
-                let start_cds_from = loc.start.cds_from;
-                let end_base = loc.end.base;
-                let end_cds_from = loc.end.cds_from;
+        if let Some(HgvsVariant::CdsVariant { loc_edit, .. }) = projection.c.as_ref() {
+            let loc = loc_edit.loc.inner();
+            let start_base = loc.start.base;
+            let start_cds_from = loc.start.cds_from;
+            let end_base = loc.end.base;
+            let end_cds_from = loc.end.cds_from;
 
-                let starts_left_of_start = start_cds_from == CdsFrom::Start && start_base < 0;
-                let ends_left_of_start = end_cds_from == CdsFrom::Start && end_base < 0;
+            let starts_left_of_start = start_cds_from == CdsFrom::Start && start_base < 0;
+            let ends_left_of_start = end_cds_from == CdsFrom::Start && end_base < 0;
 
-                if consequences.contains(Consequence::ExonLossVariant)
-                    && starts_left_of_start
-                    && ends_left_of_start
-                {
-                    *consequences &= !Consequence::ExonLossVariant;
-                }
+            if consequences.contains(Consequence::ExonLossVariant)
+                && starts_left_of_start
+                && ends_left_of_start
+            {
+                *consequences &= !Consequence::ExonLossVariant;
             }
         }
     }
