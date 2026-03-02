@@ -112,13 +112,15 @@ impl ReferenceReader for InMemoryFastaAccess {
                     );
                 }
 
-                if clamped_end <= start {
+                if clamped_end < start {
                     Err(anyhow!(
-                        "Requested sequence part {ac}:{start}-{end} is invalid (start >= end)",
+                        "Requested sequence part {ac}:{start}-{end} is invalid (start > end)",
                         ac = ac,
                         start = start,
                         end = end
                     ))
+                } else if clamped_end == start {
+                    Ok(Some(Vec::new()))
                 } else {
                     Ok(Some(seq[start as usize..clamped_end as usize].to_vec()))
                 }
