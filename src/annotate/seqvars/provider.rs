@@ -14,6 +14,7 @@ use crate::{
 use annonars::common::cli::CANONICAL;
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
+use enumflags2::BitFlags;
 use hgvs::{
     data::error::Error,
     data::{
@@ -30,7 +31,6 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use enumflags2::BitFlags;
 
 type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
 
@@ -167,7 +167,7 @@ impl PbsTranscriptExt for Transcript {
 
     fn available_cds_len(&self, tx_len: i32) -> Option<i32> {
         self.start_codon
-            .map(|start| self.stop_codon.unwrap_or_else(|| tx_len) - start)
+            .map(|start| self.stop_codon.unwrap_or(tx_len) - start)
     }
 }
 
