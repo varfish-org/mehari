@@ -1914,7 +1914,6 @@ mod test {
     use csv::ReaderBuilder;
     use futures::TryStreamExt;
     use insta::assert_yaml_snapshot;
-    use noodles::vcf::variant::record::Info;
     use noodles::vcf::variant::record_buf::info::field::value::Array;
     use noodles::vcf::variant::record_buf::info::field::Value;
     use noodles::vcf::variant::Record as NoodlesRecord;
@@ -2458,7 +2457,7 @@ mod test {
 
             let ann_field = record.info().get("ANN").flatten().map(|v| match v {
                 Value::Array(Array::String(inner)) => inner
-                    .into_iter()
+                    .iter()
                     .map(|s| s.clone().unwrap_or_default())
                     .join("|"),
                 _ => "".into(),
