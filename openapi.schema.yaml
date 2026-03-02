@@ -427,12 +427,15 @@ components:
       - inframe_insertion
       - missense_variant
       - rare_amino_acid_variant
+      - selenocysteine_gain
+      - selenocysteine_loss
       - protein_altering_variant
       - splice_donor_5th_base_variant
       - splice_region_variant
       - exonic_splice_region_variant
       - splice_donor_region_variant
       - splice_polypyrimidine_tract_variant
+      - incomplete_terminal_codon_variant
       - start_retained_variant
       - stop_retained_variant
       - synonymous_variant
