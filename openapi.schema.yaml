@@ -447,6 +447,7 @@ components:
       - 3_prime_UTR_exon_variant
       - 3_prime_UTR_intron_variant
       - 3_prime_UTR_variant
+      - non_coding_transcript_variant
       - non_coding_transcript_exon_variant
       - non_coding_transcript_intron_variant
       - coding_transcript_intron_variant
