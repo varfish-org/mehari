@@ -244,6 +244,10 @@ pub enum Consequence {
     #[serde(rename = "3_prime_UTR_variant")]
     ThreePrimeUtrVariant,
 
+    /// "A transcript variant of a non coding RNA gene."
+    /// SO: non_coding_transcript_variant, VEP:non_coding_transcript_variant
+    NonCodingTranscriptVariant,
+
     /// "A sequence variant that changes non-coding exon sequence in a non-coding transcript."
     /// SO:non_coding_transcript_exon_variant, VEP:non_coding_transcript_variant
     NonCodingTranscriptExonVariant,
@@ -360,6 +364,7 @@ impl From<Consequence> for PutativeImpact {
             | ThreePrimeUtrExonVariant
             | ThreePrimeUtrIntronVariant
             | ThreePrimeUtrVariant
+            | NonCodingTranscriptVariant
             | NonCodingTranscriptExonVariant
             | NonCodingTranscriptIntronVariant
             | CodingTranscriptIntronVariant
