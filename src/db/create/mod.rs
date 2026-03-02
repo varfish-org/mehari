@@ -698,12 +698,12 @@ impl TranscriptLoader {
             }
         };
 
-        let (discards, keeps): (Vec<_>, HashMap<TranscriptId, String>) = self
+        let (discards, keeps_with_reasons): (Vec<_>, Vec<_>) = self
             .transcript_id_to_transcript
             .par_iter()
             .partition_map(|(tx_id, tx)| {
                 if let Some(d) = self.discards.get(&Identifier::TxId(tx_id.clone())) {
-                    if !d.is_empty() {
+                    if d.intersects(Reason::hard()) {
                         return Either::Left((Identifier::TxId(tx_id.clone()), *d));
                     }
                 }
@@ -760,16 +760,16 @@ impl TranscriptLoader {
                                 reason |= Reason::InvalidCdsLength;
                             }
                         }
-                        if reason.is_empty() {
-                            Either::Right((tx_id.clone(), seq))
-                        } else {
+                        if reason.intersects(Reason::hard()) {
                             Either::Left((Identifier::TxId(tx_id.clone()), reason))
+                        } else {
+                            Either::Right((tx_id.clone(), seq, reason))
                         }
                     } else {
-                        Either::Right((tx_id.clone(), seq))
+                        Either::Right((tx_id.clone(), seq, Reason::empty()))
                     }
                 } else {
-                    Either::Left((Identifier::TxId(tx_id.clone()), Reason::MissingSequence.into()))
+Either::Left((Identifier::TxId(tx_id.clone()), Reason::MissingSequence.into()))
                 }
             });
 
@@ -778,12 +778,20 @@ impl TranscriptLoader {
         }
         // self.discard()?;
 
+        let mut sequence_map = HashMap::new();
+        for (tx_id, seq, reason) in keeps_with_reasons {
+            if !reason.is_empty() {
+                self.mark_discarded(&Identifier::TxId(tx_id.clone()), reason)?;
+            }
+            sequence_map.insert(tx_id, seq);
+        }
+
         tracing::info!(
             "… done filtering transcripts with seqrepo in {:?}",
             start.elapsed()
         );
 
-        Ok(keeps)
+        Ok(sequence_map)
     }
 
     /// Remove all hgnc ids for which there are no transcripts left.
@@ -1179,7 +1187,6 @@ impl TranscriptLoader {
     /// (to avoid erroneously discarding hgnc entries for a non-important reason).
     fn propagate_discard_reasons(&mut self, raw: &Self) -> Result<(), Error> {
         // First check whether all transcripts of a gene have been marked as discarded.
-        let empty = BitFlags::empty();
         for (hgnc_id, _) in self.hgnc_id_to_gene.iter() {
             let tx_ids = self.hgnc_id_to_transcript_ids.get(hgnc_id).unwrap();
             if !tx_ids.is_empty()
@@ -1187,8 +1194,7 @@ impl TranscriptLoader {
                     !self
                         .discards
                         .get(&Identifier::TxId(tx_id.clone()))
-                        .unwrap_or(&empty)
-                        .is_empty()
+                        .is_some_and(|d| d.intersects(Reason::hard()))
                 })
             {
                 *self.discards.entry(Identifier::Hgnc(*hgnc_id)).or_default() |=
@@ -1248,9 +1254,7 @@ impl TranscriptLoader {
                 .filter(|&tx_id| {
                     self.discards
                         .get(&Identifier::TxId(tx_id.clone()))
-                        .map_or(true, |reason| {
-                            !reason.contains(Reason::MissingSequence | Reason::MissingHgncId)
-                        })
+                        .map_or(true, |reason| !reason.intersects(Reason::hard()))
                 })
                 .cloned()
                 .collect();
@@ -1605,6 +1609,8 @@ impl Reason {
             | Reason::FivePrimeEndTruncated
             | Reason::ThreePrimeEndTruncated
             | Reason::CdsStartOrEndNotConfirmed
+            | Reason::MissingGene
+            | Reason::MissingGeneSymbol
     }
 }
 
