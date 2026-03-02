@@ -1913,8 +1913,14 @@ mod test {
     use crate::common::TsvContigStyle;
     use csv::ReaderBuilder;
     use futures::TryStreamExt;
+    use insta::assert_yaml_snapshot;
+    use noodles::vcf::variant::record::Info;
+    use noodles::vcf::variant::record_buf::info::field::value::Array;
+    use noodles::vcf::variant::record_buf::info::field::Value;
+    use noodles::vcf::variant::Record as NoodlesRecord;
     use pretty_assertions::assert_eq;
     use serde::Deserialize;
+    use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
     use std::{fs::File, io::BufReader};
     use tempfile::NamedTempFile;
@@ -2394,7 +2400,6 @@ mod test {
             "tests/data/annotate/db/grch38/GRCh38-ensembl.disagreement-subset.txs.bin.zst";
 
         let path_input_vcf = "tests/data/annotate/seqvars/vep.disagreement-cases.vcf";
-        let expected_vcf = "tests/data/annotate/seqvars/vep.disagreement-cases.expected.vcf";
         let output = NamedTempFile::new()?;
         let mut writer = open_variant_writer(output.as_ref()).await?;
         run_with_writer(
@@ -2431,8 +2436,38 @@ mod test {
         writer.shutdown().await?;
 
         let records_written = read_vcf(output).await?;
-        let records_expected = read_vcf(expected_vcf).await?;
-        assert_eq!(records_expected, records_written);
+
+        let mut snapshot_data = BTreeMap::new();
+        let header = noodles::vcf::io::reader::Builder::default()
+            .build_from_path(path_input_vcf)?
+            .read_header()?;
+
+        for record in records_written {
+            let key = format!(
+                "{}:{}:{}:{}:{}",
+                record.reference_sequence_name(),
+                record
+                    .variant_start()
+                    .map_or_else(|| "0".into(), |s| s.to_string()),
+                record
+                    .variant_end(&header)
+                    .map_or_else(|_| "0".into(), |s| s.to_string()),
+                record.reference_bases(),
+                record.alternate_bases().as_ref().join(",")
+            );
+
+            let ann_field = record.info().get("ANN").flatten().map(|v| match v {
+                Value::Array(Array::String(inner)) => inner
+                    .into_iter()
+                    .map(|s| s.clone().unwrap_or_default())
+                    .join("|"),
+                _ => "".into(),
+            });
+
+            snapshot_data.insert(key, ann_field);
+        }
+
+        assert_yaml_snapshot!("vep_disagreement_cases_output", snapshot_data);
 
         Ok(())
     }
