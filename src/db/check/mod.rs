@@ -80,6 +80,7 @@ struct ClinvarHgncIdCount {
 #[serde(tag = "type", content = "id", rename_all = "snake_case")]
 enum Id {
     Hgnc(String),
+    PseudoId(String),
     GeneSymbol(String),
     GeneName(String),
     GeneAlias(String),
@@ -96,6 +97,7 @@ impl Id {
     pub fn to_parts(&self) -> (String, String) {
         match self {
             Id::Hgnc(s) => ("hgnc".into(), s.clone()),
+            Id::PseudoId(s) => ("pseudo_id".into(), s.clone()),
             Id::GeneSymbol(s) => ("gene_symbol".into(), s.clone()),
             Id::GeneName(s) => ("gene_name".into(), s.clone()),
             Id::GeneAlias(s) => ("gene_alias".into(), s.clone()),
@@ -118,6 +120,8 @@ where
         let value = value.as_ref().to_string();
         if value.starts_with("HGNC:") {
             Id::Hgnc(value)
+        } else if value.starts_with("PSEUDO:") {
+            Id::PseudoId(value)
         } else if value.starts_with("ENSG") {
             Id::EnsemblGene(value)
         } else if value.starts_with("ENST") {
@@ -182,6 +186,7 @@ struct TxDbData {
     /// The reason for filtering, for each hard filtered ID.
     hard_filter_reasons: HashMap<Id, BitFlags<FilterReason>>,
 
+    #[allow(dead_code)]
     /// The reason for filtering, for each soft filtered ID.
     soft_filter_reasons: HashMap<Id, BitFlags<FilterReason>>,
 
