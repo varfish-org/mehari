@@ -1627,12 +1627,24 @@ enum Fix {
 #[serde(tag = "type", content = "value")]
 enum ReportEntry {
     Discard(Discard),
+    SoftFilter(SoftFilter),
     Fix(LogFix),
     Log(serde_json::Value),
 }
 #[serde_as]
 #[derive(Debug, Clone, Serialize)]
 struct Discard {
+    source: String,
+    #[serde_as(as = "DisplayFromStr")]
+    reason: BitFlags<Reason>,
+    id: Identifier,
+    gene_name: Option<String>,
+    tags: Option<Vec<Tag>>,
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Serialize)]
+struct SoftFilter {
     source: String,
     #[serde_as(as = "DisplayFromStr")]
     reason: BitFlags<Reason>,
@@ -1858,13 +1870,25 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
 
         // List all discarded transcripts and genes.
         for (id, reason) in tx_data.discards.into_iter().sorted_unstable() {
-            report(ReportEntry::Discard(Discard {
-                source: "protobuf".into(),
-                reason,
-                id: id.clone(),
-                gene_name: raw_tx_data.gene_name(&id),
-                tags: raw_tx_data.tags(&id),
-            }))?;
+            if reason.intersects(Reason::hard()) {
+                // if it has at least one hard reason → actually discarded.
+                report(ReportEntry::Discard(Discard {
+                    source: "protobuf".into(),
+                    reason,
+                    id: id.clone(),
+                    gene_name: raw_tx_data.gene_name(&id),
+                    tags: raw_tx_data.tags(&id),
+                }))?;
+            } else {
+                // only soft reasons → kept but flagged
+                report(ReportEntry::SoftFilter(SoftFilter {
+                    source: "protobuf".into(),
+                    reason,
+                    id: id.clone(),
+                    gene_name: raw_tx_data.gene_name(&id),
+                    tags: raw_tx_data.tags(&id),
+                }))?;
+            }
         }
         trace_rss_now();
 
