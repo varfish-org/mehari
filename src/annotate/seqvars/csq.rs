@@ -1708,7 +1708,7 @@ impl ConsequencePredictor {
                             } else if is_stop(alternative) {
                                 if loc.start == loc.end && is_stop(&loc.start.aa) {
                                     consequences |= Consequence::StopRetainedVariant;
-                                } else if !incomplete_3p {
+                                } else {
                                     consequences |= Consequence::StopGained;
                                     // if the substitution happens right before the stop codon
                                     // and if it is a conservative change
@@ -1764,7 +1764,7 @@ impl ConsequencePredictor {
                                 consequences |= Consequence::StopLost;
                             }
 
-                            if has_stop(alternative) && !incomplete_3p {
+                            if has_stop(alternative) {
                                 consequences |= Consequence::StopGained;
                             }
                         }
