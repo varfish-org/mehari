@@ -1,7 +1,6 @@
 ---
 source: src/db/create/mod.rs
 expression: "String::from_utf8(buf)?"
-snapshot_kind: text
 ---
 txDb:
   transcripts:
@@ -92,11 +91,93 @@ txDb:
         altCdsEndI: 99
         cigar: 99M
     filtered: false
+  - id: NR_144512.1
+    geneSymbol: SELENOF
+    geneId: HGNC:17705
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000001.11
+      strand: STRAND_MINUS
+      exons:
+      - altStartI: 86862444
+        altEndI: 86863605
+        ord: 4
+        altCdsStartI: 444
+        altCdsEndI: 1604
+        cigar: 1161M
+      - altStartI: 86868052
+        altEndI: 86868102
+        ord: 3
+        altCdsStartI: 394
+        altCdsEndI: 443
+        cigar: 50M
+      - altStartI: 86880661
+        altEndI: 86880725
+        ord: 2
+        altCdsStartI: 330
+        altCdsEndI: 393
+        cigar: 64M
+      - altStartI: 86903280
+        altEndI: 86903448
+        ord: 1
+        altCdsStartI: 162
+        altCdsEndI: 329
+        cigar: 168M
+      - altStartI: 86914314
+        altEndI: 86914475
+        altCdsStartI: 1
+        altCdsEndI: 161
+        cigar: 161M
+    filtered: true
+    filterReason: 1049088
+  - id: NR_144513.1
+    geneSymbol: SELENOF
+    geneId: HGNC:17705
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000001.11
+      strand: STRAND_MINUS
+      exons:
+      - altStartI: 86862444
+        altEndI: 86863605
+        ord: 4
+        altCdsStartI: 428
+        altCdsEndI: 1588
+        cigar: 1161M
+      - altStartI: 86868052
+        altEndI: 86868102
+        ord: 3
+        altCdsStartI: 378
+        altCdsEndI: 427
+        cigar: 50M
+      - altStartI: 86880661
+        altEndI: 86880725
+        ord: 2
+        altCdsStartI: 314
+        altCdsEndI: 377
+        cigar: 64M
+      - altStartI: 86903280
+        altEndI: 86903448
+        ord: 1
+        altCdsStartI: 146
+        altCdsEndI: 313
+        cigar: 168M
+      - altStartI: 86914432
+        altEndI: 86914577
+        altCdsStartI: 1
+        altCdsEndI: 145
+        cigar: 145M
+    filtered: true
+    filterReason: 1049088
   geneToTx:
   - geneId: HGNC:17705
     txIds:
     - NM_004261.5
     - NM_203341.3
+    - NR_144512.1
+    - NR_144513.1
     filtered: false
 seqDb:
   aliases:

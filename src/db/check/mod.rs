@@ -80,7 +80,7 @@ struct ClinvarHgncIdCount {
 #[serde(tag = "type", content = "id", rename_all = "snake_case")]
 enum Id {
     Hgnc(String),
-    PseudoId(String),
+    Pseudo(String),
     GeneSymbol(String),
     GeneName(String),
     GeneAlias(String),
@@ -97,7 +97,7 @@ impl Id {
     pub fn to_parts(&self) -> (String, String) {
         match self {
             Id::Hgnc(s) => ("hgnc".into(), s.clone()),
-            Id::PseudoId(s) => ("pseudo_id".into(), s.clone()),
+            Id::Pseudo(s) => ("pseudo_id".into(), s.clone()),
             Id::GeneSymbol(s) => ("gene_symbol".into(), s.clone()),
             Id::GeneName(s) => ("gene_name".into(), s.clone()),
             Id::GeneAlias(s) => ("gene_alias".into(), s.clone()),
@@ -121,7 +121,7 @@ where
         if value.starts_with("HGNC:") {
             Id::Hgnc(value)
         } else if value.starts_with("PSEUDO:") {
-            Id::PseudoId(value)
+            Id::Pseudo(value)
         } else if value.starts_with("ENSG") {
             Id::EnsemblGene(value)
         } else if value.starts_with("ENST") {
@@ -776,7 +776,9 @@ impl DatabaseChecker {
                                 data.tx_db_data
                                     .hard_filter_reasons
                                     .get(&tx_id)
-                                    .map(|reason| format!("{} (hard-filtered: {})", tx_id, reason))
+                                    .map(|reason| {
+                                        format!("{:?} (hard-filtered: {})", tx_id, reason)
+                                    })
                             })
                             .collect();
                         write!(
@@ -852,8 +854,18 @@ impl DatabaseChecker {
             })
             .collect();
 
+        let is_ensembl = !data
+            .tx_db_data
+            .all_ids
+            .iter()
+            .any(|id| matches!(id, Id::NcbiTranscript(_)));
+
         for (tx_acc, count) in &data.clinvar_tx_acc_counts {
             if data.tx_db_data.all_ids.contains(tx_acc) {
+                continue;
+            }
+
+            if matches!(tx_acc, Id::NcbiTranscript(_)) && is_ensembl {
                 continue;
             }
 
