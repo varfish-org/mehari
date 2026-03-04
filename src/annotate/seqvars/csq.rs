@@ -626,6 +626,10 @@ impl ConsequencePredictor {
                                 tracing::debug!("c_to_p failed gracefully for incomplete transcript (typed error): {}", e);
                                 return Ok(None);
                             }
+                            else if matches!(e, Error::MultipleAAVariants) {
+                                tracing::warn!("MultipleAAVariants, skipping");
+                                return Ok(None);
+                            }
 
                             let err_str = e.to_string();
                             if err_str.contains("does not contain a stop codon")
@@ -948,11 +952,6 @@ impl ConsequencePredictor {
             consequences.insert(IntronVariant);
             consequences.insert(NonCodingTranscriptVariant);
         }
-        if consequences.contains(NonCodingTranscriptExonVariant) {
-            consequences.remove(NonCodingTranscriptExonVariant);
-            consequences.insert(IntronVariant);
-            consequences.insert(NonCodingTranscriptVariant);
-        }
         if consequences.contains(FivePrimeUtrIntronVariant) {
             consequences.remove(FivePrimeUtrIntronVariant);
             consequences.insert(IntronVariant);
@@ -1245,6 +1244,16 @@ impl ConsequencePredictor {
                 && ends_left_of_start
             {
                 *consequences &= !Consequence::ExonLossVariant;
+            }
+        }
+
+        if let Some(HgvsVariant::ProtVariant {
+            loc_edit: ProtLocEdit::Unknown,
+            ..
+        }) = projection.p.as_ref()
+        {
+            if consequences.is_empty() && projection.is_within_coding_sequence() {
+                *consequences |= Consequence::CodingSequenceVariant;
             }
         }
     }
@@ -1699,7 +1708,7 @@ impl ConsequencePredictor {
                             } else if is_stop(alternative) {
                                 if loc.start == loc.end && is_stop(&loc.start.aa) {
                                     consequences |= Consequence::StopRetainedVariant;
-                                } else if !incomplete_3p {
+                                } else {
                                     consequences |= Consequence::StopGained;
                                     // if the substitution happens right before the stop codon
                                     // and if it is a conservative change
@@ -1755,7 +1764,7 @@ impl ConsequencePredictor {
                                 consequences |= Consequence::StopLost;
                             }
 
-                            if has_stop(alternative) && !incomplete_3p {
+                            if has_stop(alternative) {
                                 consequences |= Consequence::StopGained;
                             }
                         }

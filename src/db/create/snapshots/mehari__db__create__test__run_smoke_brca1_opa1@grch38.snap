@@ -1,7 +1,6 @@
 ---
 source: src/db/create/mod.rs
 expression: "String::from_utf8(buf)?"
-snapshot_kind: text
 ---
 txDb:
   transcripts:
@@ -755,6 +754,154 @@ txDb:
         altCdsEndI: 94
         cigar: 94M
     filtered: false
+  - id: NR_027676.2
+    geneSymbol: BRCA1
+    geneId: HGNC:1100
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000017.11
+      strand: STRAND_MINUS
+      exons:
+      - altStartI: 43044294
+        altEndI: 43045802
+        ord: 22
+        altCdsStartI: 5645
+        altCdsEndI: 7152
+        cigar: 1508M
+      - altStartI: 43047642
+        altEndI: 43047703
+        ord: 21
+        altCdsStartI: 5584
+        altCdsEndI: 5644
+        cigar: 61M
+      - altStartI: 43049120
+        altEndI: 43049194
+        ord: 20
+        altCdsStartI: 5510
+        altCdsEndI: 5583
+        cigar: 74M
+      - altStartI: 43051062
+        altEndI: 43051117
+        ord: 19
+        altCdsStartI: 5455
+        altCdsEndI: 5509
+        cigar: 55M
+      - altStartI: 43057051
+        altEndI: 43057135
+        ord: 18
+        altCdsStartI: 5371
+        altCdsEndI: 5454
+        cigar: 84M
+      - altStartI: 43063332
+        altEndI: 43063373
+        ord: 17
+        altCdsStartI: 5330
+        altCdsEndI: 5370
+        cigar: 41M
+      - altStartI: 43063873
+        altEndI: 43063951
+        ord: 16
+        altCdsStartI: 5252
+        altCdsEndI: 5329
+        cigar: 78M
+      - altStartI: 43067607
+        altEndI: 43067695
+        ord: 15
+        altCdsStartI: 5164
+        altCdsEndI: 5251
+        cigar: 88M
+      - altStartI: 43070927
+        altEndI: 43071238
+        ord: 14
+        altCdsStartI: 4853
+        altCdsEndI: 5163
+        cigar: 311M
+      - altStartI: 43074330
+        altEndI: 43074521
+        ord: 13
+        altCdsStartI: 4662
+        altCdsEndI: 4852
+        cigar: 191M
+      - altStartI: 43076487
+        altEndI: 43076614
+        ord: 12
+        altCdsStartI: 4535
+        altCdsEndI: 4661
+        cigar: 127M
+      - altStartI: 43082403
+        altEndI: 43082575
+        ord: 11
+        altCdsStartI: 4363
+        altCdsEndI: 4534
+        cigar: 172M
+      - altStartI: 43090943
+        altEndI: 43091032
+        ord: 10
+        altCdsStartI: 4274
+        altCdsEndI: 4362
+        cigar: 89M
+      - altStartI: 43091434
+        altEndI: 43094860
+        ord: 9
+        altCdsStartI: 848
+        altCdsEndI: 4273
+        cigar: 3426M
+      - altStartI: 43095845
+        altEndI: 43095922
+        ord: 8
+        altCdsStartI: 771
+        altCdsEndI: 847
+        cigar: 77M
+      - altStartI: 43097243
+        altEndI: 43097289
+        ord: 7
+        altCdsStartI: 725
+        altCdsEndI: 770
+        cigar: 46M
+      - altStartI: 43099774
+        altEndI: 43099877
+        ord: 6
+        altCdsStartI: 622
+        altCdsEndI: 724
+        cigar: 103M
+      - altStartI: 43104121
+        altEndI: 43104261
+        ord: 5
+        altCdsStartI: 482
+        altCdsEndI: 621
+        cigar: 140M
+      - altStartI: 43104867
+        altEndI: 43104956
+        ord: 4
+        altCdsStartI: 393
+        altCdsEndI: 481
+        cigar: 89M
+      - altStartI: 43106477
+        altEndI: 43106533
+        ord: 3
+        altCdsStartI: 337
+        altCdsEndI: 392
+        cigar: 56M
+      - altStartI: 43115725
+        altEndI: 43115779
+        ord: 2
+        altCdsStartI: 283
+        altCdsEndI: 336
+        cigar: 54M
+      - altStartI: 43124016
+        altEndI: 43124115
+        ord: 1
+        altCdsStartI: 184
+        altCdsEndI: 282
+        cigar: 99M
+      - altStartI: 43125181
+        altEndI: 43125364
+        altCdsStartI: 1
+        altCdsEndI: 183
+        cigar: 183M
+    filtered: false
+    filterReason: 1048576
   - id: NM_001354663.2
     geneSymbol: OPA1
     geneId: HGNC:8140
@@ -2673,6 +2820,1800 @@ txDb:
         altCdsEndI: 6429
         cigar: 3206M
     filtered: false
+  - id: XM_047448206.1
+    geneSymbol: OPA1
+    geneId: HGNC:8140
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: XP_047304162.1
+    startCodon: 170
+    stopCodon: 3314
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000003.12
+      cdsStart: 193593377
+      cdsEnd: 193677987
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 193593207
+        altEndI: 193593409
+        altCdsStartI: 1
+        altCdsEndI: 202
+        cigar: 202M
+      - altStartI: 193614722
+        altEndI: 193615041
+        ord: 1
+        altCdsStartI: 203
+        altCdsEndI: 521
+        cigar: 319M
+      - altStartI: 193615673
+        altEndI: 193615770
+        ord: 2
+        altCdsStartI: 522
+        altCdsEndI: 618
+        cigar: 97M
+      - altStartI: 193617177
+        altEndI: 193617285
+        ord: 3
+        altCdsStartI: 619
+        altCdsEndI: 726
+        cigar: 108M
+      - altStartI: 193617783
+        altEndI: 193617837
+        ord: 4
+        altCdsStartI: 727
+        altCdsEndI: 780
+        cigar: 54M
+      - altStartI: 193618868
+        altEndI: 193618936
+        ord: 5
+        altCdsStartI: 781
+        altCdsEndI: 848
+        cigar: 68M
+      - altStartI: 193626091
+        altEndI: 193626202
+        ord: 6
+        altCdsStartI: 849
+        altCdsEndI: 959
+        cigar: 111M
+      - altStartI: 193631611
+        altEndI: 193631665
+        ord: 7
+        altCdsStartI: 960
+        altCdsEndI: 1013
+        cigar: 54M
+      - altStartI: 193635417
+        altEndI: 193635522
+        ord: 8
+        altCdsStartI: 1014
+        altCdsEndI: 1118
+        cigar: 105M
+      - altStartI: 193637194
+        altEndI: 193637281
+        ord: 9
+        altCdsStartI: 1119
+        altCdsEndI: 1205
+        cigar: 87M
+      - altStartI: 193637951
+        altEndI: 193638065
+        ord: 10
+        altCdsStartI: 1206
+        altCdsEndI: 1319
+        cigar: 114M
+      - altStartI: 193642764
+        altEndI: 193642845
+        ord: 11
+        altCdsStartI: 1320
+        altCdsEndI: 1400
+        cigar: 81M
+      - altStartI: 193642974
+        altEndI: 193643049
+        ord: 12
+        altCdsStartI: 1401
+        altCdsEndI: 1475
+        cigar: 75M
+      - altStartI: 193643372
+        altEndI: 193643444
+        ord: 13
+        altCdsStartI: 1476
+        altCdsEndI: 1547
+        cigar: 72M
+      - altStartI: 193643527
+        altEndI: 193643627
+        ord: 14
+        altCdsStartI: 1548
+        altCdsEndI: 1647
+        cigar: 100M
+      - altStartI: 193643974
+        altEndI: 193644105
+        ord: 15
+        altCdsStartI: 1648
+        altCdsEndI: 1778
+        cigar: 131M
+      - altStartI: 193645552
+        altEndI: 193645625
+        ord: 16
+        altCdsStartI: 1779
+        altCdsEndI: 1851
+        cigar: 73M
+      - altStartI: 193645727
+        altEndI: 193645800
+        ord: 17
+        altCdsStartI: 1852
+        altCdsEndI: 1924
+        cigar: 73M
+      - altStartI: 193647064
+        altEndI: 193647180
+        ord: 18
+        altCdsStartI: 1925
+        altCdsEndI: 2040
+        cigar: 116M
+      - altStartI: 193648069
+        altEndI: 193648134
+        ord: 19
+        altCdsStartI: 2041
+        altCdsEndI: 2105
+        cigar: 65M
+      - altStartI: 193648794
+        altEndI: 193648871
+        ord: 20
+        altCdsStartI: 2106
+        altCdsEndI: 2182
+        cigar: 77M
+      - altStartI: 193654861
+        altEndI: 193655027
+        ord: 21
+        altCdsStartI: 2183
+        altCdsEndI: 2348
+        cigar: 166M
+      - altStartI: 193657079
+        altEndI: 193657232
+        ord: 22
+        altCdsStartI: 2349
+        altCdsEndI: 2501
+        cigar: 153M
+      - altStartI: 193658886
+        altEndI: 193658995
+        ord: 23
+        altCdsStartI: 2502
+        altCdsEndI: 2610
+        cigar: 109M
+      - altStartI: 193659481
+        altEndI: 193659561
+        ord: 24
+        altCdsStartI: 2611
+        altCdsEndI: 2690
+        cigar: 80M
+      - altStartI: 193662821
+        altEndI: 193662962
+        ord: 25
+        altCdsStartI: 2691
+        altCdsEndI: 2831
+        cigar: 141M
+      - altStartI: 193664879
+        altEndI: 193664996
+        ord: 26
+        altCdsStartI: 2832
+        altCdsEndI: 2948
+        cigar: 117M
+      - altStartI: 193666295
+        altEndI: 193666389
+        ord: 27
+        altCdsStartI: 2949
+        altCdsEndI: 3042
+        cigar: 94M
+      - altStartI: 193667169
+        altEndI: 193667280
+        ord: 28
+        altCdsStartI: 3043
+        altCdsEndI: 3153
+        cigar: 111M
+      - altStartI: 193677826
+        altEndI: 193678011
+        ord: 29
+        altCdsStartI: 3154
+        altCdsEndI: 3338
+        cigar: 185M
+    filtered: false
+    filterReason: 32768
+  - id: XM_047448207.1
+    geneSymbol: OPA1
+    geneId: HGNC:8140
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: XP_047304163.1
+    startCodon: 170
+    stopCodon: 3260
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000003.12
+      cdsStart: 193593377
+      cdsEnd: 193677987
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 193593207
+        altEndI: 193593409
+        altCdsStartI: 1
+        altCdsEndI: 202
+        cigar: 202M
+      - altStartI: 193614722
+        altEndI: 193615041
+        ord: 1
+        altCdsStartI: 203
+        altCdsEndI: 521
+        cigar: 319M
+      - altStartI: 193615673
+        altEndI: 193615770
+        ord: 2
+        altCdsStartI: 522
+        altCdsEndI: 618
+        cigar: 97M
+      - altStartI: 193617177
+        altEndI: 193617285
+        ord: 3
+        altCdsStartI: 619
+        altCdsEndI: 726
+        cigar: 108M
+      - altStartI: 193618868
+        altEndI: 193618936
+        ord: 4
+        altCdsStartI: 727
+        altCdsEndI: 794
+        cigar: 68M
+      - altStartI: 193626091
+        altEndI: 193626202
+        ord: 5
+        altCdsStartI: 795
+        altCdsEndI: 905
+        cigar: 111M
+      - altStartI: 193631611
+        altEndI: 193631665
+        ord: 6
+        altCdsStartI: 906
+        altCdsEndI: 959
+        cigar: 54M
+      - altStartI: 193635417
+        altEndI: 193635522
+        ord: 7
+        altCdsStartI: 960
+        altCdsEndI: 1064
+        cigar: 105M
+      - altStartI: 193637194
+        altEndI: 193637281
+        ord: 8
+        altCdsStartI: 1065
+        altCdsEndI: 1151
+        cigar: 87M
+      - altStartI: 193637951
+        altEndI: 193638065
+        ord: 9
+        altCdsStartI: 1152
+        altCdsEndI: 1265
+        cigar: 114M
+      - altStartI: 193642764
+        altEndI: 193642845
+        ord: 10
+        altCdsStartI: 1266
+        altCdsEndI: 1346
+        cigar: 81M
+      - altStartI: 193642974
+        altEndI: 193643049
+        ord: 11
+        altCdsStartI: 1347
+        altCdsEndI: 1421
+        cigar: 75M
+      - altStartI: 193643372
+        altEndI: 193643444
+        ord: 12
+        altCdsStartI: 1422
+        altCdsEndI: 1493
+        cigar: 72M
+      - altStartI: 193643527
+        altEndI: 193643627
+        ord: 13
+        altCdsStartI: 1494
+        altCdsEndI: 1593
+        cigar: 100M
+      - altStartI: 193643974
+        altEndI: 193644105
+        ord: 14
+        altCdsStartI: 1594
+        altCdsEndI: 1724
+        cigar: 131M
+      - altStartI: 193645552
+        altEndI: 193645625
+        ord: 15
+        altCdsStartI: 1725
+        altCdsEndI: 1797
+        cigar: 73M
+      - altStartI: 193645727
+        altEndI: 193645800
+        ord: 16
+        altCdsStartI: 1798
+        altCdsEndI: 1870
+        cigar: 73M
+      - altStartI: 193647064
+        altEndI: 193647180
+        ord: 17
+        altCdsStartI: 1871
+        altCdsEndI: 1986
+        cigar: 116M
+      - altStartI: 193648069
+        altEndI: 193648134
+        ord: 18
+        altCdsStartI: 1987
+        altCdsEndI: 2051
+        cigar: 65M
+      - altStartI: 193648794
+        altEndI: 193648871
+        ord: 19
+        altCdsStartI: 2052
+        altCdsEndI: 2128
+        cigar: 77M
+      - altStartI: 193654861
+        altEndI: 193655027
+        ord: 20
+        altCdsStartI: 2129
+        altCdsEndI: 2294
+        cigar: 166M
+      - altStartI: 193657079
+        altEndI: 193657232
+        ord: 21
+        altCdsStartI: 2295
+        altCdsEndI: 2447
+        cigar: 153M
+      - altStartI: 193658886
+        altEndI: 193658995
+        ord: 22
+        altCdsStartI: 2448
+        altCdsEndI: 2556
+        cigar: 109M
+      - altStartI: 193659481
+        altEndI: 193659561
+        ord: 23
+        altCdsStartI: 2557
+        altCdsEndI: 2636
+        cigar: 80M
+      - altStartI: 193662821
+        altEndI: 193662962
+        ord: 24
+        altCdsStartI: 2637
+        altCdsEndI: 2777
+        cigar: 141M
+      - altStartI: 193664879
+        altEndI: 193664996
+        ord: 25
+        altCdsStartI: 2778
+        altCdsEndI: 2894
+        cigar: 117M
+      - altStartI: 193666295
+        altEndI: 193666389
+        ord: 26
+        altCdsStartI: 2895
+        altCdsEndI: 2988
+        cigar: 94M
+      - altStartI: 193667169
+        altEndI: 193667280
+        ord: 27
+        altCdsStartI: 2989
+        altCdsEndI: 3099
+        cigar: 111M
+      - altStartI: 193677826
+        altEndI: 193678011
+        ord: 28
+        altCdsStartI: 3100
+        altCdsEndI: 3284
+        cigar: 185M
+    filtered: false
+    filterReason: 32768
+  - id: XM_047448208.1
+    geneSymbol: OPA1
+    geneId: HGNC:8140
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: XP_047304164.1
+    startCodon: 170
+    stopCodon: 3203
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000003.12
+      cdsStart: 193593377
+      cdsEnd: 193677987
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 193593207
+        altEndI: 193593409
+        altCdsStartI: 1
+        altCdsEndI: 202
+        cigar: 202M
+      - altStartI: 193614722
+        altEndI: 193615041
+        ord: 1
+        altCdsStartI: 203
+        altCdsEndI: 521
+        cigar: 319M
+      - altStartI: 193615673
+        altEndI: 193615770
+        ord: 2
+        altCdsStartI: 522
+        altCdsEndI: 618
+        cigar: 97M
+      - altStartI: 193617177
+        altEndI: 193617285
+        ord: 3
+        altCdsStartI: 619
+        altCdsEndI: 726
+        cigar: 108M
+      - altStartI: 193617783
+        altEndI: 193617837
+        ord: 4
+        altCdsStartI: 727
+        altCdsEndI: 780
+        cigar: 54M
+      - altStartI: 193618868
+        altEndI: 193618936
+        ord: 5
+        altCdsStartI: 781
+        altCdsEndI: 848
+        cigar: 68M
+      - altStartI: 193631611
+        altEndI: 193631665
+        ord: 6
+        altCdsStartI: 849
+        altCdsEndI: 902
+        cigar: 54M
+      - altStartI: 193635417
+        altEndI: 193635522
+        ord: 7
+        altCdsStartI: 903
+        altCdsEndI: 1007
+        cigar: 105M
+      - altStartI: 193637194
+        altEndI: 193637281
+        ord: 8
+        altCdsStartI: 1008
+        altCdsEndI: 1094
+        cigar: 87M
+      - altStartI: 193637951
+        altEndI: 193638065
+        ord: 9
+        altCdsStartI: 1095
+        altCdsEndI: 1208
+        cigar: 114M
+      - altStartI: 193642764
+        altEndI: 193642845
+        ord: 10
+        altCdsStartI: 1209
+        altCdsEndI: 1289
+        cigar: 81M
+      - altStartI: 193642974
+        altEndI: 193643049
+        ord: 11
+        altCdsStartI: 1290
+        altCdsEndI: 1364
+        cigar: 75M
+      - altStartI: 193643372
+        altEndI: 193643444
+        ord: 12
+        altCdsStartI: 1365
+        altCdsEndI: 1436
+        cigar: 72M
+      - altStartI: 193643527
+        altEndI: 193643627
+        ord: 13
+        altCdsStartI: 1437
+        altCdsEndI: 1536
+        cigar: 100M
+      - altStartI: 193643974
+        altEndI: 193644105
+        ord: 14
+        altCdsStartI: 1537
+        altCdsEndI: 1667
+        cigar: 131M
+      - altStartI: 193645552
+        altEndI: 193645625
+        ord: 15
+        altCdsStartI: 1668
+        altCdsEndI: 1740
+        cigar: 73M
+      - altStartI: 193645727
+        altEndI: 193645800
+        ord: 16
+        altCdsStartI: 1741
+        altCdsEndI: 1813
+        cigar: 73M
+      - altStartI: 193647064
+        altEndI: 193647180
+        ord: 17
+        altCdsStartI: 1814
+        altCdsEndI: 1929
+        cigar: 116M
+      - altStartI: 193648069
+        altEndI: 193648134
+        ord: 18
+        altCdsStartI: 1930
+        altCdsEndI: 1994
+        cigar: 65M
+      - altStartI: 193648794
+        altEndI: 193648871
+        ord: 19
+        altCdsStartI: 1995
+        altCdsEndI: 2071
+        cigar: 77M
+      - altStartI: 193654861
+        altEndI: 193655027
+        ord: 20
+        altCdsStartI: 2072
+        altCdsEndI: 2237
+        cigar: 166M
+      - altStartI: 193657079
+        altEndI: 193657232
+        ord: 21
+        altCdsStartI: 2238
+        altCdsEndI: 2390
+        cigar: 153M
+      - altStartI: 193658886
+        altEndI: 193658995
+        ord: 22
+        altCdsStartI: 2391
+        altCdsEndI: 2499
+        cigar: 109M
+      - altStartI: 193659481
+        altEndI: 193659561
+        ord: 23
+        altCdsStartI: 2500
+        altCdsEndI: 2579
+        cigar: 80M
+      - altStartI: 193662821
+        altEndI: 193662962
+        ord: 24
+        altCdsStartI: 2580
+        altCdsEndI: 2720
+        cigar: 141M
+      - altStartI: 193664879
+        altEndI: 193664996
+        ord: 25
+        altCdsStartI: 2721
+        altCdsEndI: 2837
+        cigar: 117M
+      - altStartI: 193666295
+        altEndI: 193666389
+        ord: 26
+        altCdsStartI: 2838
+        altCdsEndI: 2931
+        cigar: 94M
+      - altStartI: 193667169
+        altEndI: 193667280
+        ord: 27
+        altCdsStartI: 2932
+        altCdsEndI: 3042
+        cigar: 111M
+      - altStartI: 193677826
+        altEndI: 193678011
+        ord: 28
+        altCdsStartI: 3043
+        altCdsEndI: 3227
+        cigar: 185M
+    filtered: false
+    filterReason: 32768
+  - id: XM_047448209.1
+    geneSymbol: OPA1
+    geneId: HGNC:8140
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: XP_047304165.1
+    startCodon: 170
+    stopCodon: 3152
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000003.12
+      cdsStart: 193593377
+      cdsEnd: 193677987
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 193593207
+        altEndI: 193593409
+        altCdsStartI: 1
+        altCdsEndI: 202
+        cigar: 202M
+      - altStartI: 193614722
+        altEndI: 193615041
+        ord: 1
+        altCdsStartI: 203
+        altCdsEndI: 521
+        cigar: 319M
+      - altStartI: 193615673
+        altEndI: 193615770
+        ord: 2
+        altCdsStartI: 522
+        altCdsEndI: 618
+        cigar: 97M
+      - altStartI: 193618868
+        altEndI: 193618936
+        ord: 3
+        altCdsStartI: 619
+        altCdsEndI: 686
+        cigar: 68M
+      - altStartI: 193626091
+        altEndI: 193626202
+        ord: 4
+        altCdsStartI: 687
+        altCdsEndI: 797
+        cigar: 111M
+      - altStartI: 193631611
+        altEndI: 193631665
+        ord: 5
+        altCdsStartI: 798
+        altCdsEndI: 851
+        cigar: 54M
+      - altStartI: 193635417
+        altEndI: 193635522
+        ord: 6
+        altCdsStartI: 852
+        altCdsEndI: 956
+        cigar: 105M
+      - altStartI: 193637194
+        altEndI: 193637281
+        ord: 7
+        altCdsStartI: 957
+        altCdsEndI: 1043
+        cigar: 87M
+      - altStartI: 193637951
+        altEndI: 193638065
+        ord: 8
+        altCdsStartI: 1044
+        altCdsEndI: 1157
+        cigar: 114M
+      - altStartI: 193642764
+        altEndI: 193642845
+        ord: 9
+        altCdsStartI: 1158
+        altCdsEndI: 1238
+        cigar: 81M
+      - altStartI: 193642974
+        altEndI: 193643049
+        ord: 10
+        altCdsStartI: 1239
+        altCdsEndI: 1313
+        cigar: 75M
+      - altStartI: 193643372
+        altEndI: 193643444
+        ord: 11
+        altCdsStartI: 1314
+        altCdsEndI: 1385
+        cigar: 72M
+      - altStartI: 193643527
+        altEndI: 193643627
+        ord: 12
+        altCdsStartI: 1386
+        altCdsEndI: 1485
+        cigar: 100M
+      - altStartI: 193643974
+        altEndI: 193644105
+        ord: 13
+        altCdsStartI: 1486
+        altCdsEndI: 1616
+        cigar: 131M
+      - altStartI: 193645552
+        altEndI: 193645625
+        ord: 14
+        altCdsStartI: 1617
+        altCdsEndI: 1689
+        cigar: 73M
+      - altStartI: 193645727
+        altEndI: 193645800
+        ord: 15
+        altCdsStartI: 1690
+        altCdsEndI: 1762
+        cigar: 73M
+      - altStartI: 193647064
+        altEndI: 193647180
+        ord: 16
+        altCdsStartI: 1763
+        altCdsEndI: 1878
+        cigar: 116M
+      - altStartI: 193648069
+        altEndI: 193648134
+        ord: 17
+        altCdsStartI: 1879
+        altCdsEndI: 1943
+        cigar: 65M
+      - altStartI: 193648794
+        altEndI: 193648871
+        ord: 18
+        altCdsStartI: 1944
+        altCdsEndI: 2020
+        cigar: 77M
+      - altStartI: 193654861
+        altEndI: 193655027
+        ord: 19
+        altCdsStartI: 2021
+        altCdsEndI: 2186
+        cigar: 166M
+      - altStartI: 193657079
+        altEndI: 193657232
+        ord: 20
+        altCdsStartI: 2187
+        altCdsEndI: 2339
+        cigar: 153M
+      - altStartI: 193658886
+        altEndI: 193658995
+        ord: 21
+        altCdsStartI: 2340
+        altCdsEndI: 2448
+        cigar: 109M
+      - altStartI: 193659481
+        altEndI: 193659561
+        ord: 22
+        altCdsStartI: 2449
+        altCdsEndI: 2528
+        cigar: 80M
+      - altStartI: 193662821
+        altEndI: 193662962
+        ord: 23
+        altCdsStartI: 2529
+        altCdsEndI: 2669
+        cigar: 141M
+      - altStartI: 193664879
+        altEndI: 193664996
+        ord: 24
+        altCdsStartI: 2670
+        altCdsEndI: 2786
+        cigar: 117M
+      - altStartI: 193666295
+        altEndI: 193666389
+        ord: 25
+        altCdsStartI: 2787
+        altCdsEndI: 2880
+        cigar: 94M
+      - altStartI: 193667169
+        altEndI: 193667280
+        ord: 26
+        altCdsStartI: 2881
+        altCdsEndI: 2991
+        cigar: 111M
+      - altStartI: 193677826
+        altEndI: 193678011
+        ord: 27
+        altCdsStartI: 2992
+        altCdsEndI: 3176
+        cigar: 185M
+    filtered: false
+    filterReason: 32768
+  - id: XM_047448210.1
+    geneSymbol: OPA1
+    geneId: HGNC:8140
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: XP_047304166.1
+    startCodon: 170
+    stopCodon: 3149
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000003.12
+      cdsStart: 193593377
+      cdsEnd: 193677987
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 193593207
+        altEndI: 193593409
+        altCdsStartI: 1
+        altCdsEndI: 202
+        cigar: 202M
+      - altStartI: 193614722
+        altEndI: 193615041
+        ord: 1
+        altCdsStartI: 203
+        altCdsEndI: 521
+        cigar: 319M
+      - altStartI: 193615673
+        altEndI: 193615770
+        ord: 2
+        altCdsStartI: 522
+        altCdsEndI: 618
+        cigar: 97M
+      - altStartI: 193617177
+        altEndI: 193617285
+        ord: 3
+        altCdsStartI: 619
+        altCdsEndI: 726
+        cigar: 108M
+      - altStartI: 193618868
+        altEndI: 193618936
+        ord: 4
+        altCdsStartI: 727
+        altCdsEndI: 794
+        cigar: 68M
+      - altStartI: 193631611
+        altEndI: 193631665
+        ord: 5
+        altCdsStartI: 795
+        altCdsEndI: 848
+        cigar: 54M
+      - altStartI: 193635417
+        altEndI: 193635522
+        ord: 6
+        altCdsStartI: 849
+        altCdsEndI: 953
+        cigar: 105M
+      - altStartI: 193637194
+        altEndI: 193637281
+        ord: 7
+        altCdsStartI: 954
+        altCdsEndI: 1040
+        cigar: 87M
+      - altStartI: 193637951
+        altEndI: 193638065
+        ord: 8
+        altCdsStartI: 1041
+        altCdsEndI: 1154
+        cigar: 114M
+      - altStartI: 193642764
+        altEndI: 193642845
+        ord: 9
+        altCdsStartI: 1155
+        altCdsEndI: 1235
+        cigar: 81M
+      - altStartI: 193642974
+        altEndI: 193643049
+        ord: 10
+        altCdsStartI: 1236
+        altCdsEndI: 1310
+        cigar: 75M
+      - altStartI: 193643372
+        altEndI: 193643444
+        ord: 11
+        altCdsStartI: 1311
+        altCdsEndI: 1382
+        cigar: 72M
+      - altStartI: 193643527
+        altEndI: 193643627
+        ord: 12
+        altCdsStartI: 1383
+        altCdsEndI: 1482
+        cigar: 100M
+      - altStartI: 193643974
+        altEndI: 193644105
+        ord: 13
+        altCdsStartI: 1483
+        altCdsEndI: 1613
+        cigar: 131M
+      - altStartI: 193645552
+        altEndI: 193645625
+        ord: 14
+        altCdsStartI: 1614
+        altCdsEndI: 1686
+        cigar: 73M
+      - altStartI: 193645727
+        altEndI: 193645800
+        ord: 15
+        altCdsStartI: 1687
+        altCdsEndI: 1759
+        cigar: 73M
+      - altStartI: 193647064
+        altEndI: 193647180
+        ord: 16
+        altCdsStartI: 1760
+        altCdsEndI: 1875
+        cigar: 116M
+      - altStartI: 193648069
+        altEndI: 193648134
+        ord: 17
+        altCdsStartI: 1876
+        altCdsEndI: 1940
+        cigar: 65M
+      - altStartI: 193648794
+        altEndI: 193648871
+        ord: 18
+        altCdsStartI: 1941
+        altCdsEndI: 2017
+        cigar: 77M
+      - altStartI: 193654861
+        altEndI: 193655027
+        ord: 19
+        altCdsStartI: 2018
+        altCdsEndI: 2183
+        cigar: 166M
+      - altStartI: 193657079
+        altEndI: 193657232
+        ord: 20
+        altCdsStartI: 2184
+        altCdsEndI: 2336
+        cigar: 153M
+      - altStartI: 193658886
+        altEndI: 193658995
+        ord: 21
+        altCdsStartI: 2337
+        altCdsEndI: 2445
+        cigar: 109M
+      - altStartI: 193659481
+        altEndI: 193659561
+        ord: 22
+        altCdsStartI: 2446
+        altCdsEndI: 2525
+        cigar: 80M
+      - altStartI: 193662821
+        altEndI: 193662962
+        ord: 23
+        altCdsStartI: 2526
+        altCdsEndI: 2666
+        cigar: 141M
+      - altStartI: 193664879
+        altEndI: 193664996
+        ord: 24
+        altCdsStartI: 2667
+        altCdsEndI: 2783
+        cigar: 117M
+      - altStartI: 193666295
+        altEndI: 193666389
+        ord: 25
+        altCdsStartI: 2784
+        altCdsEndI: 2877
+        cigar: 94M
+      - altStartI: 193667169
+        altEndI: 193667280
+        ord: 26
+        altCdsStartI: 2878
+        altCdsEndI: 2988
+        cigar: 111M
+      - altStartI: 193677826
+        altEndI: 193678011
+        ord: 27
+        altCdsStartI: 2989
+        altCdsEndI: 3173
+        cigar: 185M
+    filtered: false
+    filterReason: 32768
+  - id: XM_047448211.1
+    geneSymbol: OPA1
+    geneId: HGNC:8140
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: XP_047304167.1
+    startCodon: 170
+    stopCodon: 3041
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000003.12
+      cdsStart: 193593377
+      cdsEnd: 193677987
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 193593207
+        altEndI: 193593409
+        altCdsStartI: 1
+        altCdsEndI: 202
+        cigar: 202M
+      - altStartI: 193614722
+        altEndI: 193615041
+        ord: 1
+        altCdsStartI: 203
+        altCdsEndI: 521
+        cigar: 319M
+      - altStartI: 193615673
+        altEndI: 193615770
+        ord: 2
+        altCdsStartI: 522
+        altCdsEndI: 618
+        cigar: 97M
+      - altStartI: 193618868
+        altEndI: 193618936
+        ord: 3
+        altCdsStartI: 619
+        altCdsEndI: 686
+        cigar: 68M
+      - altStartI: 193631611
+        altEndI: 193631665
+        ord: 4
+        altCdsStartI: 687
+        altCdsEndI: 740
+        cigar: 54M
+      - altStartI: 193635417
+        altEndI: 193635522
+        ord: 5
+        altCdsStartI: 741
+        altCdsEndI: 845
+        cigar: 105M
+      - altStartI: 193637194
+        altEndI: 193637281
+        ord: 6
+        altCdsStartI: 846
+        altCdsEndI: 932
+        cigar: 87M
+      - altStartI: 193637951
+        altEndI: 193638065
+        ord: 7
+        altCdsStartI: 933
+        altCdsEndI: 1046
+        cigar: 114M
+      - altStartI: 193642764
+        altEndI: 193642845
+        ord: 8
+        altCdsStartI: 1047
+        altCdsEndI: 1127
+        cigar: 81M
+      - altStartI: 193642974
+        altEndI: 193643049
+        ord: 9
+        altCdsStartI: 1128
+        altCdsEndI: 1202
+        cigar: 75M
+      - altStartI: 193643372
+        altEndI: 193643444
+        ord: 10
+        altCdsStartI: 1203
+        altCdsEndI: 1274
+        cigar: 72M
+      - altStartI: 193643527
+        altEndI: 193643627
+        ord: 11
+        altCdsStartI: 1275
+        altCdsEndI: 1374
+        cigar: 100M
+      - altStartI: 193643974
+        altEndI: 193644105
+        ord: 12
+        altCdsStartI: 1375
+        altCdsEndI: 1505
+        cigar: 131M
+      - altStartI: 193645552
+        altEndI: 193645625
+        ord: 13
+        altCdsStartI: 1506
+        altCdsEndI: 1578
+        cigar: 73M
+      - altStartI: 193645727
+        altEndI: 193645800
+        ord: 14
+        altCdsStartI: 1579
+        altCdsEndI: 1651
+        cigar: 73M
+      - altStartI: 193647064
+        altEndI: 193647180
+        ord: 15
+        altCdsStartI: 1652
+        altCdsEndI: 1767
+        cigar: 116M
+      - altStartI: 193648069
+        altEndI: 193648134
+        ord: 16
+        altCdsStartI: 1768
+        altCdsEndI: 1832
+        cigar: 65M
+      - altStartI: 193648794
+        altEndI: 193648871
+        ord: 17
+        altCdsStartI: 1833
+        altCdsEndI: 1909
+        cigar: 77M
+      - altStartI: 193654861
+        altEndI: 193655027
+        ord: 18
+        altCdsStartI: 1910
+        altCdsEndI: 2075
+        cigar: 166M
+      - altStartI: 193657079
+        altEndI: 193657232
+        ord: 19
+        altCdsStartI: 2076
+        altCdsEndI: 2228
+        cigar: 153M
+      - altStartI: 193658886
+        altEndI: 193658995
+        ord: 20
+        altCdsStartI: 2229
+        altCdsEndI: 2337
+        cigar: 109M
+      - altStartI: 193659481
+        altEndI: 193659561
+        ord: 21
+        altCdsStartI: 2338
+        altCdsEndI: 2417
+        cigar: 80M
+      - altStartI: 193662821
+        altEndI: 193662962
+        ord: 22
+        altCdsStartI: 2418
+        altCdsEndI: 2558
+        cigar: 141M
+      - altStartI: 193664879
+        altEndI: 193664996
+        ord: 23
+        altCdsStartI: 2559
+        altCdsEndI: 2675
+        cigar: 117M
+      - altStartI: 193666295
+        altEndI: 193666389
+        ord: 24
+        altCdsStartI: 2676
+        altCdsEndI: 2769
+        cigar: 94M
+      - altStartI: 193667169
+        altEndI: 193667280
+        ord: 25
+        altCdsStartI: 2770
+        altCdsEndI: 2880
+        cigar: 111M
+      - altStartI: 193677826
+        altEndI: 193678011
+        ord: 26
+        altCdsStartI: 2881
+        altCdsEndI: 3065
+        cigar: 185M
+    filtered: false
+    filterReason: 32768
+  - id: XM_047448212.1
+    geneSymbol: OPA1
+    geneId: HGNC:8140
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: XP_047304168.1
+    startCodon: 600
+    stopCodon: 3372
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000003.12
+      cdsStart: 193615694
+      cdsEnd: 193677987
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 193593207
+        altEndI: 193593409
+        altCdsStartI: 1
+        altCdsEndI: 202
+        cigar: 202M
+      - altStartI: 193603499
+        altEndI: 193603557
+        ord: 1
+        altCdsStartI: 203
+        altCdsEndI: 260
+        cigar: 58M
+      - altStartI: 193614722
+        altEndI: 193615041
+        ord: 2
+        altCdsStartI: 261
+        altCdsEndI: 579
+        cigar: 319M
+      - altStartI: 193615673
+        altEndI: 193615770
+        ord: 3
+        altCdsStartI: 580
+        altCdsEndI: 676
+        cigar: 97M
+      - altStartI: 193617177
+        altEndI: 193617285
+        ord: 4
+        altCdsStartI: 677
+        altCdsEndI: 784
+        cigar: 108M
+      - altStartI: 193617783
+        altEndI: 193617837
+        ord: 5
+        altCdsStartI: 785
+        altCdsEndI: 838
+        cigar: 54M
+      - altStartI: 193618868
+        altEndI: 193618936
+        ord: 6
+        altCdsStartI: 839
+        altCdsEndI: 906
+        cigar: 68M
+      - altStartI: 193626091
+        altEndI: 193626202
+        ord: 7
+        altCdsStartI: 907
+        altCdsEndI: 1017
+        cigar: 111M
+      - altStartI: 193631611
+        altEndI: 193631665
+        ord: 8
+        altCdsStartI: 1018
+        altCdsEndI: 1071
+        cigar: 54M
+      - altStartI: 193635417
+        altEndI: 193635522
+        ord: 9
+        altCdsStartI: 1072
+        altCdsEndI: 1176
+        cigar: 105M
+      - altStartI: 193637194
+        altEndI: 193637281
+        ord: 10
+        altCdsStartI: 1177
+        altCdsEndI: 1263
+        cigar: 87M
+      - altStartI: 193637951
+        altEndI: 193638065
+        ord: 11
+        altCdsStartI: 1264
+        altCdsEndI: 1377
+        cigar: 114M
+      - altStartI: 193642764
+        altEndI: 193642845
+        ord: 12
+        altCdsStartI: 1378
+        altCdsEndI: 1458
+        cigar: 81M
+      - altStartI: 193642974
+        altEndI: 193643049
+        ord: 13
+        altCdsStartI: 1459
+        altCdsEndI: 1533
+        cigar: 75M
+      - altStartI: 193643372
+        altEndI: 193643444
+        ord: 14
+        altCdsStartI: 1534
+        altCdsEndI: 1605
+        cigar: 72M
+      - altStartI: 193643527
+        altEndI: 193643627
+        ord: 15
+        altCdsStartI: 1606
+        altCdsEndI: 1705
+        cigar: 100M
+      - altStartI: 193643974
+        altEndI: 193644105
+        ord: 16
+        altCdsStartI: 1706
+        altCdsEndI: 1836
+        cigar: 131M
+      - altStartI: 193645552
+        altEndI: 193645625
+        ord: 17
+        altCdsStartI: 1837
+        altCdsEndI: 1909
+        cigar: 73M
+      - altStartI: 193645727
+        altEndI: 193645800
+        ord: 18
+        altCdsStartI: 1910
+        altCdsEndI: 1982
+        cigar: 73M
+      - altStartI: 193647064
+        altEndI: 193647180
+        ord: 19
+        altCdsStartI: 1983
+        altCdsEndI: 2098
+        cigar: 116M
+      - altStartI: 193648069
+        altEndI: 193648134
+        ord: 20
+        altCdsStartI: 2099
+        altCdsEndI: 2163
+        cigar: 65M
+      - altStartI: 193648794
+        altEndI: 193648871
+        ord: 21
+        altCdsStartI: 2164
+        altCdsEndI: 2240
+        cigar: 77M
+      - altStartI: 193654861
+        altEndI: 193655027
+        ord: 22
+        altCdsStartI: 2241
+        altCdsEndI: 2406
+        cigar: 166M
+      - altStartI: 193657079
+        altEndI: 193657232
+        ord: 23
+        altCdsStartI: 2407
+        altCdsEndI: 2559
+        cigar: 153M
+      - altStartI: 193658886
+        altEndI: 193658995
+        ord: 24
+        altCdsStartI: 2560
+        altCdsEndI: 2668
+        cigar: 109M
+      - altStartI: 193659481
+        altEndI: 193659561
+        ord: 25
+        altCdsStartI: 2669
+        altCdsEndI: 2748
+        cigar: 80M
+      - altStartI: 193662821
+        altEndI: 193662962
+        ord: 26
+        altCdsStartI: 2749
+        altCdsEndI: 2889
+        cigar: 141M
+      - altStartI: 193664879
+        altEndI: 193664996
+        ord: 27
+        altCdsStartI: 2890
+        altCdsEndI: 3006
+        cigar: 117M
+      - altStartI: 193666295
+        altEndI: 193666389
+        ord: 28
+        altCdsStartI: 3007
+        altCdsEndI: 3100
+        cigar: 94M
+      - altStartI: 193667169
+        altEndI: 193667280
+        ord: 29
+        altCdsStartI: 3101
+        altCdsEndI: 3211
+        cigar: 111M
+      - altStartI: 193677826
+        altEndI: 193678011
+        ord: 30
+        altCdsStartI: 3212
+        altCdsEndI: 3396
+        cigar: 185M
+    filtered: false
+    filterReason: 32768
+  - id: XM_047448213.1
+    geneSymbol: OPA1
+    geneId: HGNC:8140
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: XP_047304169.1
+    startCodon: 170
+    stopCodon: 2360
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000003.12
+      cdsStart: 193593377
+      cdsEnd: 193655039
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 193593207
+        altEndI: 193593409
+        altCdsStartI: 1
+        altCdsEndI: 202
+        cigar: 202M
+      - altStartI: 193614722
+        altEndI: 193615041
+        ord: 1
+        altCdsStartI: 203
+        altCdsEndI: 521
+        cigar: 319M
+      - altStartI: 193615673
+        altEndI: 193615770
+        ord: 2
+        altCdsStartI: 522
+        altCdsEndI: 618
+        cigar: 97M
+      - altStartI: 193617177
+        altEndI: 193617285
+        ord: 3
+        altCdsStartI: 619
+        altCdsEndI: 726
+        cigar: 108M
+      - altStartI: 193617783
+        altEndI: 193617837
+        ord: 4
+        altCdsStartI: 727
+        altCdsEndI: 780
+        cigar: 54M
+      - altStartI: 193618868
+        altEndI: 193618936
+        ord: 5
+        altCdsStartI: 781
+        altCdsEndI: 848
+        cigar: 68M
+      - altStartI: 193626091
+        altEndI: 193626202
+        ord: 6
+        altCdsStartI: 849
+        altCdsEndI: 959
+        cigar: 111M
+      - altStartI: 193631611
+        altEndI: 193631665
+        ord: 7
+        altCdsStartI: 960
+        altCdsEndI: 1013
+        cigar: 54M
+      - altStartI: 193635417
+        altEndI: 193635522
+        ord: 8
+        altCdsStartI: 1014
+        altCdsEndI: 1118
+        cigar: 105M
+      - altStartI: 193637194
+        altEndI: 193637281
+        ord: 9
+        altCdsStartI: 1119
+        altCdsEndI: 1205
+        cigar: 87M
+      - altStartI: 193637951
+        altEndI: 193638065
+        ord: 10
+        altCdsStartI: 1206
+        altCdsEndI: 1319
+        cigar: 114M
+      - altStartI: 193642764
+        altEndI: 193642845
+        ord: 11
+        altCdsStartI: 1320
+        altCdsEndI: 1400
+        cigar: 81M
+      - altStartI: 193642974
+        altEndI: 193643049
+        ord: 12
+        altCdsStartI: 1401
+        altCdsEndI: 1475
+        cigar: 75M
+      - altStartI: 193643372
+        altEndI: 193643444
+        ord: 13
+        altCdsStartI: 1476
+        altCdsEndI: 1547
+        cigar: 72M
+      - altStartI: 193643527
+        altEndI: 193643627
+        ord: 14
+        altCdsStartI: 1548
+        altCdsEndI: 1647
+        cigar: 100M
+      - altStartI: 193643974
+        altEndI: 193644105
+        ord: 15
+        altCdsStartI: 1648
+        altCdsEndI: 1778
+        cigar: 131M
+      - altStartI: 193645552
+        altEndI: 193645625
+        ord: 16
+        altCdsStartI: 1779
+        altCdsEndI: 1851
+        cigar: 73M
+      - altStartI: 193645727
+        altEndI: 193645800
+        ord: 17
+        altCdsStartI: 1852
+        altCdsEndI: 1924
+        cigar: 73M
+      - altStartI: 193647064
+        altEndI: 193647180
+        ord: 18
+        altCdsStartI: 1925
+        altCdsEndI: 2040
+        cigar: 116M
+      - altStartI: 193648069
+        altEndI: 193648134
+        ord: 19
+        altCdsStartI: 2041
+        altCdsEndI: 2105
+        cigar: 65M
+      - altStartI: 193648794
+        altEndI: 193648871
+        ord: 20
+        altCdsStartI: 2106
+        altCdsEndI: 2182
+        cigar: 77M
+      - altStartI: 193654861
+        altEndI: 193655052
+        ord: 21
+        altCdsStartI: 2183
+        altCdsEndI: 2373
+        cigar: 191M
+      - altStartI: 193657079
+        altEndI: 193657170
+        ord: 22
+        altCdsStartI: 2374
+        altCdsEndI: 2464
+        cigar: 91M
+    filtered: false
+    filterReason: 32768
+  - id: XM_047448214.1
+    geneSymbol: OPA1
+    geneId: HGNC:8140
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: XP_047304170.1
+    startCodon: 274
+    stopCodon: 2455
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000003.12
+      cdsStart: 193637209
+      cdsEnd: 193677987
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 193628516
+        altEndI: 193628616
+        altCdsStartI: 1
+        altCdsEndI: 100
+        cigar: 100M
+      - altStartI: 193631611
+        altEndI: 193631665
+        ord: 1
+        altCdsStartI: 101
+        altCdsEndI: 154
+        cigar: 54M
+      - altStartI: 193635417
+        altEndI: 193635522
+        ord: 2
+        altCdsStartI: 155
+        altCdsEndI: 259
+        cigar: 105M
+      - altStartI: 193637194
+        altEndI: 193637281
+        ord: 3
+        altCdsStartI: 260
+        altCdsEndI: 346
+        cigar: 87M
+      - altStartI: 193637951
+        altEndI: 193638065
+        ord: 4
+        altCdsStartI: 347
+        altCdsEndI: 460
+        cigar: 114M
+      - altStartI: 193642764
+        altEndI: 193642845
+        ord: 5
+        altCdsStartI: 461
+        altCdsEndI: 541
+        cigar: 81M
+      - altStartI: 193642974
+        altEndI: 193643049
+        ord: 6
+        altCdsStartI: 542
+        altCdsEndI: 616
+        cigar: 75M
+      - altStartI: 193643372
+        altEndI: 193643444
+        ord: 7
+        altCdsStartI: 617
+        altCdsEndI: 688
+        cigar: 72M
+      - altStartI: 193643527
+        altEndI: 193643627
+        ord: 8
+        altCdsStartI: 689
+        altCdsEndI: 788
+        cigar: 100M
+      - altStartI: 193643974
+        altEndI: 193644105
+        ord: 9
+        altCdsStartI: 789
+        altCdsEndI: 919
+        cigar: 131M
+      - altStartI: 193645552
+        altEndI: 193645625
+        ord: 10
+        altCdsStartI: 920
+        altCdsEndI: 992
+        cigar: 73M
+      - altStartI: 193645727
+        altEndI: 193645800
+        ord: 11
+        altCdsStartI: 993
+        altCdsEndI: 1065
+        cigar: 73M
+      - altStartI: 193647064
+        altEndI: 193647180
+        ord: 12
+        altCdsStartI: 1066
+        altCdsEndI: 1181
+        cigar: 116M
+      - altStartI: 193648069
+        altEndI: 193648134
+        ord: 13
+        altCdsStartI: 1182
+        altCdsEndI: 1246
+        cigar: 65M
+      - altStartI: 193648794
+        altEndI: 193648871
+        ord: 14
+        altCdsStartI: 1247
+        altCdsEndI: 1323
+        cigar: 77M
+      - altStartI: 193654861
+        altEndI: 193655027
+        ord: 15
+        altCdsStartI: 1324
+        altCdsEndI: 1489
+        cigar: 166M
+      - altStartI: 193657079
+        altEndI: 193657232
+        ord: 16
+        altCdsStartI: 1490
+        altCdsEndI: 1642
+        cigar: 153M
+      - altStartI: 193658886
+        altEndI: 193658995
+        ord: 17
+        altCdsStartI: 1643
+        altCdsEndI: 1751
+        cigar: 109M
+      - altStartI: 193659481
+        altEndI: 193659561
+        ord: 18
+        altCdsStartI: 1752
+        altCdsEndI: 1831
+        cigar: 80M
+      - altStartI: 193662821
+        altEndI: 193662962
+        ord: 19
+        altCdsStartI: 1832
+        altCdsEndI: 1972
+        cigar: 141M
+      - altStartI: 193664879
+        altEndI: 193664996
+        ord: 20
+        altCdsStartI: 1973
+        altCdsEndI: 2089
+        cigar: 117M
+      - altStartI: 193666295
+        altEndI: 193666389
+        ord: 21
+        altCdsStartI: 2090
+        altCdsEndI: 2183
+        cigar: 94M
+      - altStartI: 193667169
+        altEndI: 193667280
+        ord: 22
+        altCdsStartI: 2184
+        altCdsEndI: 2294
+        cigar: 111M
+      - altStartI: 193677826
+        altEndI: 193678011
+        ord: 23
+        altCdsStartI: 2295
+        altCdsEndI: 2479
+        cigar: 185M
+    filtered: false
+    filterReason: 32768
+  - id: XM_047448216.1
+    geneSymbol: OPA1
+    geneId: HGNC:8140
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: XP_047304172.1
+    startCodon: 272
+    stopCodon: 2357
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH38
+      contig: NC_000003.12
+      cdsStart: 193637209
+      cdsEnd: 193692127
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 193628518
+        altEndI: 193628616
+        altCdsStartI: 1
+        altCdsEndI: 98
+        cigar: 98M
+      - altStartI: 193631611
+        altEndI: 193631665
+        ord: 1
+        altCdsStartI: 99
+        altCdsEndI: 152
+        cigar: 54M
+      - altStartI: 193635417
+        altEndI: 193635522
+        ord: 2
+        altCdsStartI: 153
+        altCdsEndI: 257
+        cigar: 105M
+      - altStartI: 193637194
+        altEndI: 193637281
+        ord: 3
+        altCdsStartI: 258
+        altCdsEndI: 344
+        cigar: 87M
+      - altStartI: 193637951
+        altEndI: 193638065
+        ord: 4
+        altCdsStartI: 345
+        altCdsEndI: 458
+        cigar: 114M
+      - altStartI: 193642764
+        altEndI: 193642845
+        ord: 5
+        altCdsStartI: 459
+        altCdsEndI: 539
+        cigar: 81M
+      - altStartI: 193642974
+        altEndI: 193643049
+        ord: 6
+        altCdsStartI: 540
+        altCdsEndI: 614
+        cigar: 75M
+      - altStartI: 193643372
+        altEndI: 193643444
+        ord: 7
+        altCdsStartI: 615
+        altCdsEndI: 686
+        cigar: 72M
+      - altStartI: 193643527
+        altEndI: 193643627
+        ord: 8
+        altCdsStartI: 687
+        altCdsEndI: 786
+        cigar: 100M
+      - altStartI: 193643974
+        altEndI: 193644105
+        ord: 9
+        altCdsStartI: 787
+        altCdsEndI: 917
+        cigar: 131M
+      - altStartI: 193645552
+        altEndI: 193645625
+        ord: 10
+        altCdsStartI: 918
+        altCdsEndI: 990
+        cigar: 73M
+      - altStartI: 193645727
+        altEndI: 193645800
+        ord: 11
+        altCdsStartI: 991
+        altCdsEndI: 1063
+        cigar: 73M
+      - altStartI: 193647064
+        altEndI: 193647180
+        ord: 12
+        altCdsStartI: 1064
+        altCdsEndI: 1179
+        cigar: 116M
+      - altStartI: 193648069
+        altEndI: 193648134
+        ord: 13
+        altCdsStartI: 1180
+        altCdsEndI: 1244
+        cigar: 65M
+      - altStartI: 193648794
+        altEndI: 193648871
+        ord: 14
+        altCdsStartI: 1245
+        altCdsEndI: 1321
+        cigar: 77M
+      - altStartI: 193654861
+        altEndI: 193655027
+        ord: 15
+        altCdsStartI: 1322
+        altCdsEndI: 1487
+        cigar: 166M
+      - altStartI: 193657079
+        altEndI: 193657232
+        ord: 16
+        altCdsStartI: 1488
+        altCdsEndI: 1640
+        cigar: 153M
+      - altStartI: 193658886
+        altEndI: 193658995
+        ord: 17
+        altCdsStartI: 1641
+        altCdsEndI: 1749
+        cigar: 109M
+      - altStartI: 193659481
+        altEndI: 193659561
+        ord: 18
+        altCdsStartI: 1750
+        altCdsEndI: 1829
+        cigar: 80M
+      - altStartI: 193662821
+        altEndI: 193662962
+        ord: 19
+        altCdsStartI: 1830
+        altCdsEndI: 1970
+        cigar: 141M
+      - altStartI: 193664879
+        altEndI: 193664996
+        ord: 20
+        altCdsStartI: 1971
+        altCdsEndI: 2087
+        cigar: 117M
+      - altStartI: 193666295
+        altEndI: 193666389
+        ord: 21
+        altCdsStartI: 2088
+        altCdsEndI: 2181
+        cigar: 94M
+      - altStartI: 193667169
+        altEndI: 193667280
+        ord: 22
+        altCdsStartI: 2182
+        altCdsEndI: 2292
+        cigar: 111M
+      - altStartI: 193692062
+        altEndI: 193692132
+        ord: 23
+        altCdsStartI: 2293
+        altCdsEndI: 2362
+        cigar: 70M
+      - altStartI: 193694605
+        altEndI: 193697811
+        ord: 24
+        altCdsStartI: 2363
+        altCdsEndI: 5568
+        cigar: 3206M
+    filtered: false
+    filterReason: 32768
   geneToTx:
   - geneId: HGNC:1100
     txIds:
@@ -2681,6 +4622,7 @@ txDb:
     - NM_007298.3
     - NM_007299.4
     - NM_007300.4
+    - NR_027676.2
     filtered: false
   - geneId: HGNC:8140
     txIds:
@@ -2694,6 +4636,16 @@ txDb:
     - NM_130835.3
     - NM_130836.3
     - NM_130837.3
+    - XM_047448206.1
+    - XM_047448207.1
+    - XM_047448208.1
+    - XM_047448209.1
+    - XM_047448210.1
+    - XM_047448211.1
+    - XM_047448212.1
+    - XM_047448213.1
+    - XM_047448214.1
+    - XM_047448216.1
     filtered: false
 seqDb:
   aliases:
@@ -2712,6 +4664,17 @@ seqDb:
   - NM_130835.3
   - NM_130836.3
   - NM_130837.3
+  - NR_027676.2
+  - XM_047448206.1
+  - XM_047448207.1
+  - XM_047448208.1
+  - XM_047448209.1
+  - XM_047448210.1
+  - XM_047448211.1
+  - XM_047448212.1
+  - XM_047448213.1
+  - XM_047448214.1
+  - XM_047448216.1
   aliasesIdx:
   - 0
   - 1
@@ -2728,6 +4691,17 @@ seqDb:
   - 12
   - 13
   - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
+  - 20
+  - 21
+  - 22
+  - 23
+  - 24
+  - 25
   seqs:
   - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGGATAGCAGAAAGGAGCTCATCTGTTTGGAGTCCATTTTTGATGGGGATCCCACTAGAGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGGTCTGCTTGGTGAGCTCATTCTCTTACAACAACAAATTCAAGAGCATGAAGAGGAAGCGCGCAGAGCCGCTGGCCAATATAGCACGAGCTATGCCCAACAGAAGCGCAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCAAGAAAGTTAGAGAAATTCAAGAAAAACTTGATGCTTTCATTGAAGCTCTTCATCAGGAGAAATAAATTAAAATCGTACTCATAATCAGCTCTGCATACATCTGAAGAACAAAAACATCAACGTCTTTTGTCCAGCCTCTTTTTCTTCTGCTGTTCCACCTTTCTAAACATACAATAAAGTCATGGGATAAAAATAATCGATGTATGTTACGGGCGCTTTAACCATCAGCTGCCTCTCGAATGGAAGAACAGTGGTAATGGATTAACATCCTATTTTGTTGTACTAAAGTGACAAATCGGAATAATATAATTGGTATGGCCATTAGGTTCAGTCCTTGAAGATAAGAAACTTGTTCTCTGTTTGTTGTCTTATTTGTGGTGGCACTCGTTTAATGGATTAACTGAGGTTGCTCAATGTTCAGTTTCTTTTCCAGAAATACAATGCTAGGTGTTTTGAAATAAAACTTATATAGCAATTGTTTAAAGTTATCAATTGTATATAAAATCACAGTAGCCTGCTAAATCATTGTATGTGTCTGTAGTATTCTATTCCCAGAAACTATTTGACCATGATAATTCAGTTTATATTCACCACATGAAAGAAAAATGGGTAACAGAAGAACCCTTAAAACAGGTTAATTTGGATTGTAACGTTCAGTGAAAGAAATTTCAACCCTTCATAGCCAGCGAAGAAATTTGCCTTGGAAGCCAAGTCAGTACCAGCTTACCTATTTGATTCAGTTGCTGTTTTCTCACTCTCTATATCCATTTGAAATTGATTTATTTTAGATGTTGTATACTTACGTTAGGCTTTCTGTTAATAGTGGTTTTTCTCCTGTTGACAGAGCCACCGGATTATGACACAGGATGAGGAAGATTAAGGATAATCAATTGACTAATTTCATTTAGAATATTATCAAACATTTCAACTAGGTATCAGAAAAAGGCTTTCTTTCATAAGACTATTTTAAATAGAAATTATTTCAACAATTAAAGTAATGTTGACCATCCCCCTCTCAGCTGAATAAAGAAAAATTTAGTTCAATTTATTGCAATTTAATTACAATACTACCTTCACAACATTTTCATGTGTTTTAAATAAATATTTTTTAATTGGCTAAAGGACATTCAAGCAAAGAAATGCTTTCTTTACTTAAAATGTCTATCTCATTTGCTGCCTTTTCACTAAGCCTTTACTTTGTTAATAAAAGTGTCCATTGTGTGATGTTTTTGATTTTACAGTTTGCTAAATCTTATTTTCTTGGAGTTGCTTTTTGGTAACAGCCCCATTGCTACTCCCCATTTTATTGTTTTACATCAATGCATGCTTCGTTGTGATCCCTCAAGATGTAACACTTGGTATGCTCGGTTGAGGATATGAAAAAATACTTCCGAAACCAGGAATTCAATGTATGTTTGTTTTATACTGTTTGATAAGAAAAGTAGGTCCAGCCTTAAGCAGCACAGATGCGCTGGTAGATGCATAGTCAGGAACTTTTTTTATTTCTTTTAGGTCTAGGGACAGGAGTGAATAGAAAGGGAGGAGAGCTCTATTATGTTCTATACACAGATTAGGAGATGACCTTACTGGGTACACCCCTCTAACCAGTGCTTACAGGTTAATGCATGTTAATGAATATTTTTGCAGTTGTAAAGCATAACAATTACAACTACACATCTATTTCTAAAGAATAAAACAGGACCATATTTATTTACTTCTGTCAACTATAGAAAGAAAGACCTTCAGCTGTATTTCCACAGATTTCTCCCAAGGAAAAGGCTAATATTAGTCACTACTGTTATCACATCCCTTTGTATAAGTTTTAAAAAGAGATGGAGGGAGATCTTCATTTCTTTGAGGAGATCAGTATTGTAACGTATGTGAATAGATGATAACAATTAATATTACTAAAAGTCCCACATGAGAGTCCTGACGCCCTCTCCATGCCCCACAGTAATGTGGCTTCTTTCATGGGTTTTTTTTTCTTCTTTTTAGCTGATCTCATCCTAAGCATGCTTTATTTTTCCTTGAAAGCTAGGTATTTATCAACTGCAGATGTTATTGAAAGAAAATAAAATTCAGTCTCAAGAGTAAACCCTGTGTCTTGTGTCTGTAGTTCAAAAGTCAGAAATGATTCTAATTTAAACAAAAAGATACTAAATATACAGAAGTTAAATTCGAACTAGCCACAGAATCATTTGTTTTTATGTCAGAATTTGCAAAGAGTGGAGTGGACAAAGCTCTGTATGGAAGACTGAACAACTGTAAATAGATGATATCCAAACTTAATTTGGCTAGGACTTCAATTTTAAAAATCAGTGTACCTAGGCAGTGCACAGCACGAAATAAGTGGCCCTTGCAGCTTCCCCGTTTAACCCACTGTGCTATAGTTGCGGGTGGAACAGTCAACCTTTCTAGTAGTTTATGATATTGCCCTCTTTGTATTCCCATTTTCTACAGTTTTTTCCGCAGACTTCTTTCTGCAAATTATTCAGCCTCCAAATGCAAATGAATGATATAAAAATAAGTAGGGAACATGGCAGAGAGTGGTGCTTCCCAGCCTCACAATGTGGGAATTTGACATAGGATGAGAGTCAGAGTATAGGTTTAAAAGATAAAATCTTTAGTTAATAATTTTGTATTTATTTATTCTAGATGTATGTATCTGAGGAAAGAAATCTGGTATTTTTGCTTTCCAATAAAGGGGATCAAAGTAATGGTTTTTCTCTCAGTTCTCTAAGCTGGTCTATGTTATAGCTCTAGCAGTATGGAAATGTGCTTTAAAATATGCTTACCTTTTGAATGATCATGGCTATATGTTGTTGAGATATTTGAAACTTACCTTGTTTTCACTTGTGCACTGTGAATGAACTTTGTATTATTTTTTTAAAACCTTCACATTACGTGTAGATATTATTGCAACTTATATTTTGCCTGAGCTTGATCAAAGGTCATTTGTGTAGATGAGTAATTAAAAAATATTTAAATCACATTATAATTCTATTATTGGAGAGCATCTTTTAAATTTTTTTCTGTTTTAACGAGGGAAAGAGAAACCTGTATACCTAGGGTCATTATTTGACCCCATAGTATAACCAGATTCATGGTCTAACAAGCTCTCAGTGTGGCTTTTCTCTGAATGCTTGAATTTCACATGCCTTGCATTTCACAGTTGTACTCCATGGTCAACCGGTGCTTTTTTTCACATCGTGGTACTTGTCAAAACATTTTGTTATTTTCCTTGGTAAAATATATAAAAAAGGTTTTCTAATTTCAAAA
   - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGGATAGCAGAAAGGAGCTCATCTGTTTGGAGTCCATTTTTGATGGGGATCCCACTAGAGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGAGAAAATTAGAAAAGCCCTTCCTAGTTCAGAAGACCTTGTAAAGTTAGCACCAGACTTTGACAAGATTGTTGAAAGCCTTAGCTTATTGAAGGACTTTTTTACCTCAGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCAAGAAAGTTAGAGAAATTCAAGAAAAACTTGATGCTTTCATTGAAGCTCTTCATCAGGAGAAATAAATTAAAATCGTACTCATAATCAGCTCTGCATACATCTGAAGAACAAAAACATCAACGTCTTTTGTCCAGCCTCTTTTTCTTCTGCTGTTCCACCTTTCTAAACATACAATAAAGTCATGGGATAAAAATAATCGATGTATGTTACGGGCGCTTTAACCATCAGCTGCCTCTCGAATGGAAGAACAGTGGTAATGGATTAACATCCTATTTTGTTGTACTAAAGTGACAAATCGGAATAATATAATTGGTATGGCCATTAGGTTCAGTCCTTGAAGATAAGAAACTTGTTCTCTGTTTGTTGTCTTATTTGTGGTGGCACTCGTTTAATGGATTAACTGAGGTTGCTCAATGTTCAGTTTCTTTTCCAGAAATACAATGCTAGGTGTTTTGAAATAAAACTTATATAGCAATTGTTTAAAGTTATCAATTGTATATAAAATCACAGTAGCCTGCTAAATCATTGTATGTGTCTGTAGTATTCTATTCCCAGAAACTATTTGACCATGATAATTCAGTTTATATTCACCACATGAAAGAAAAATGGGTAACAGAAGAACCCTTAAAACAGGTTAATTTGGATTGTAACGTTCAGTGAAAGAAATTTCAACCCTTCATAGCCAGCGAAGAAATTTGCCTTGGAAGCCAAGTCAGTACCAGCTTACCTATTTGATTCAGTTGCTGTTTTCTCACTCTCTATATCCATTTGAAATTGATTTATTTTAGATGTTGTATACTTACGTTAGGCTTTCTGTTAATAGTGGTTTTTCTCCTGTTGACAGAGCCACCGGATTATGACACAGGATGAGGAAGATTAAGGATAATCAATTGACTAATTTCATTTAGAATATTATCAAACATTTCAACTAGGTATCAGAAAAAGGCTTTCTTTCATAAGACTATTTTAAATAGAAATTATTTCAACAATTAAAGTAATGTTGACCATCCCCCTCTCAGCTGAATAAAGAAAAATTTAGTTCAATTTATTGCAATTTAATTACAATACTACCTTCACAACATTTTCATGTGTTTTAAATAAATATTTTTTAATTGGCTAAAGGACATTCAAGCAAAGAAATGCTTTCTTTACTTAAAATGTCTATCTCATTTGCTGCCTTTTCACTAAGCCTTTACTTTGTTAATAAAAGTGTCCATTGTGTGATGTTTTTGATTTTACAGTTTGCTAAATCTTATTTTCTTGGAGTTGCTTTTTGGTAACAGCCCCATTGCTACTCCCCATTTTATTGTTTTACATCAATGCATGCTTCGTTGTGATCCCTCAAGATGTAACACTTGGTATGCTCGGTTGAGGATATGAAAAAATACTTCCGAAACCAGGAATTCAATGTATGTTTGTTTTATACTGTTTGATAAGAAAAGTAGGTCCAGCCTTAAGCAGCACAGATGCGCTGGTAGATGCATAGTCAGGAACTTTTTTTATTTCTTTTAGGTCTAGGGACAGGAGTGAATAGAAAGGGAGGAGAGCTCTATTATGTTCTATACACAGATTAGGAGATGACCTTACTGGGTACACCCCTCTAACCAGTGCTTACAGGTTAATGCATGTTAATGAATATTTTTGCAGTTGTAAAGCATAACAATTACAACTACACATCTATTTCTAAAGAATAAAACAGGACCATATTTATTTACTTCTGTCAACTATAGAAAGAAAGACCTTCAGCTGTATTTCCACAGATTTCTCCCAAGGAAAAGGCTAATATTAGTCACTACTGTTATCACATCCCTTTGTATAAGTTTTAAAAAGAGATGGAGGGAGATCTTCATTTCTTTGAGGAGATCAGTATTGTAACGTATGTGAATAGATGATAACAATTAATATTACTAAAAGTCCCACATGAGAGTCCTGACGCCCTCTCCATGCCCCACAGTAATGTGGCTTCTTTCATGGGTTTTTTTTTCTTCTTTTTAGCTGATCTCATCCTAAGCATGCTTTATTTTTCCTTGAAAGCTAGGTATTTATCAACTGCAGATGTTATTGAAAGAAAATAAAATTCAGTCTCAAGAGTAAACCCTGTGTCTTGTGTCTGTAGTTCAAAAGTCAGAAATGATTCTAATTTAAACAAAAAGATACTAAATATACAGAAGTTAAATTCGAACTAGCCACAGAATCATTTGTTTTTATGTCAGAATTTGCAAAGAGTGGAGTGGACAAAGCTCTGTATGGAAGACTGAACAACTGTAAATAGATGATATCCAAACTTAATTTGGCTAGGACTTCAATTTTAAAAATCAGTGTACCTAGGCAGTGCACAGCACGAAATAAGTGGCCCTTGCAGCTTCCCCGTTTAACCCACTGTGCTATAGTTGCGGGTGGAACAGTCAACCTTTCTAGTAGTTTATGATATTGCCCTCTTTGTATTCCCATTTTCTACAGTTTTTTCCGCAGACTTCTTTCTGCAAATTATTCAGCCTCCAAATGCAAATGAATGATATAAAAATAAGTAGGGAACATGGCAGAGAGTGGTGCTTCCCAGCCTCACAATGTGGGAATTTGACATAGGATGAGAGTCAGAGTATAGGTTTAAAAGATAAAATCTTTAGTTAATAATTTTGTATTTATTTATTCTAGATGTATGTATCTGAGGAAAGAAATCTGGTATTTTTGCTTTCCAATAAAGGGGATCAAAGTAATGGTTTTTCTCTCAGTTCTCTAAGCTGGTCTATGTTATAGCTCTAGCAGTATGGAAATGTGCTTTAAAATATGCTTACCTTTTGAATGATCATGGCTATATGTTGTTGAGATATTTGAAACTTACCTTGTTTTCACTTGTGCACTGTGAATGAACTTTGTATTATTTTTTTAAAACCTTCACATTACGTGTAGATATTATTGCAACTTATATTTTGCCTGAGCTTGATCAAAGGTCATTTGTGTAGATGAGTAATTAAAAAATATTTAAATCACATTATAATTCTATTATTGGAGAGCATCTTTTAAATTTTTTTCTGTTTTAACGAGGGAAAGAGAAACCTGTATACCTAGGGTCATTATTTGACCCCATAGTATAACCAGATTCATGGTCTAACAAGCTCTCAGTGTGGCTTTTCTCTGAATGCTTGAATTTCACATGCCTTGCATTTCACAGTTGTACTCCATGGTCAACCGGTGCTTTTTTTCACATCGTGGTACTTGTCAAAACATTTTGTTATTTTCCTTGGTAAAATATATAAAAAAGGTTTTCTAATTTCAAAA
@@ -2744,6 +4718,17 @@ seqDb:
   - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGGTCACAAATTGGTTAGTGAAGTCATAGGAGCTTCTGACCTACTTCTCTTGTTAGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGGTCTGCTTGGTGAGCTCATTCTCTTACAACAACAAATTCAAGAGCATGAAGAGGAAGCGCGCAGAGCCGCTGGCCAATATAGCACGAGCTATGCCCAACAGAAGCGCAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCAAGAAAGTTAGAGAAATTCAAGAAAAACTTGATGCTTTCATTGAAGCTCTTCATCAGGAGAAATAAATTAAAATCGTACTCATAATCAGCTCTGCATACATCTGAAGAACAAAAACATCAACGTCTTTTGTCCAGCCTCTTTTTCTTCTGCTGTTCCACCTTTCTAAACATACAATAAAGTCATGGGATAAAAATAATCGATGTATGTTACGGGCGCTTTAACCATCAGCTGCCTCTCGAATGGAAGAACAGTGGTAATGGATTAACATCCTATTTTGTTGTACTAAAGTGACAAATCGGAATAATATAATTGGTATGGCCATTAGGTTCAGTCCTTGAAGATAAGAAACTTGTTCTCTGTTTGTTGTCTTATTTGTGGTGGCACTCGTTTAATGGATTAACTGAGGTTGCTCAATGTTCAGTTTCTTTTCCAGAAATACAATGCTAGGTGTTTTGAAATAAAACTTATATAGCAATTGTTTAAAGTTATCAATTGTATATAAAATCACAGTAGCCTGCTAAATCATTGTATGTGTCTGTAGTATTCTATTCCCAGAAACTATTTGACCATGATAATTCAGTTTATATTCACCACATGAAAGAAAAATGGGTAACAGAAGAACCCTTAAAACAGGTTAATTTGGATTGTAACGTTCAGTGAAAGAAATTTCAACCCTTCATAGCCAGCGAAGAAATTTGCCTTGGAAGCCAAGTCAGTACCAGCTTACCTATTTGATTCAGTTGCTGTTTTCTCACTCTCTATATCCATTTGAAATTGATTTATTTTAGATGTTGTATACTTACGTTAGGCTTTCTGTTAATAGTGGTTTTTCTCCTGTTGACAGAGCCACCGGATTATGACACAGGATGAGGAAGATTAAGGATAATCAATTGACTAATTTCATTTAGAATATTATCAAACATTTCAACTAGGTATCAGAAAAAGGCTTTCTTTCATAAGACTATTTTAAATAGAAATTATTTCAACAATTAAAGTAATGTTGACCATCCCCCTCTCAGCTGAATAAAGAAAAATTTAGTTCAATTTATTGCAATTTAATTACAATACTACCTTCACAACATTTTCATGTGTTTTAAATAAATATTTTTTAATTGGCTAAAGGACATTCAAGCAAAGAAATGCTTTCTTTACTTAAAATGTCTATCTCATTTGCTGCCTTTTCACTAAGCCTTTACTTTGTTAATAAAAGTGTCCATTGTGTGATGTTTTTGATTTTACAGTTTGCTAAATCTTATTTTCTTGGAGTTGCTTTTTGGTAACAGCCCCATTGCTACTCCCCATTTTATTGTTTTACATCAATGCATGCTTCGTTGTGATCCCTCAAGATGTAACACTTGGTATGCTCGGTTGAGGATATGAAAAAATACTTCCGAAACCAGGAATTCAATGTATGTTTGTTTTATACTGTTTGATAAGAAAAGTAGGTCCAGCCTTAAGCAGCACAGATGCGCTGGTAGATGCATAGTCAGGAACTTTTTTTATTTCTTTTAGGTCTAGGGACAGGAGTGAATAGAAAGGGAGGAGAGCTCTATTATGTTCTATACACAGATTAGGAGATGACCTTACTGGGTACACCCCTCTAACCAGTGCTTACAGGTTAATGCATGTTAATGAATATTTTTGCAGTTGTAAAGCATAACAATTACAACTACACATCTATTTCTAAAGAATAAAACAGGACCATATTTATTTACTTCTGTCAACTATAGAAAGAAAGACCTTCAGCTGTATTTCCACAGATTTCTCCCAAGGAAAAGGCTAATATTAGTCACTACTGTTATCACATCCCTTTGTATAAGTTTTAAAAAGAGATGGAGGGAGATCTTCATTTCTTTGAGGAGATCAGTATTGTAACGTATGTGAATAGATGATAACAATTAATATTACTAAAAGTCCCACATGAGAGTCCTGACGCCCTCTCCATGCCCCACAGTAATGTGGCTTCTTTCATGGGTTTTTTTTTCTTCTTTTTAGCTGATCTCATCCTAAGCATGCTTTATTTTTCCTTGAAAGCTAGGTATTTATCAACTGCAGATGTTATTGAAAGAAAATAAAATTCAGTCTCAAGAGTAAACCCTGTGTCTTGTGTCTGTAGTTCAAAAGTCAGAAATGATTCTAATTTAAACAAAAAGATACTAAATATACAGAAGTTAAATTCGAACTAGCCACAGAATCATTTGTTTTTATGTCAGAATTTGCAAAGAGTGGAGTGGACAAAGCTCTGTATGGAAGACTGAACAACTGTAAATAGATGATATCCAAACTTAATTTGGCTAGGACTTCAATTTTAAAAATCAGTGTACCTAGGCAGTGCACAGCACGAAATAAGTGGCCCTTGCAGCTTCCCCGTTTAACCCACTGTGCTATAGTTGCGGGTGGAACAGTCAACCTTTCTAGTAGTTTATGATATTGCCCTCTTTGTATTCCCATTTTCTACAGTTTTTTCCGCAGACTTCTTTCTGCAAATTATTCAGCCTCCAAATGCAAATGAATGATATAAAAATAAGTAGGGAACATGGCAGAGAGTGGTGCTTCCCAGCCTCACAATGTGGGAATTTGACATAGGATGAGAGTCAGAGTATAGGTTTAAAAGATAAAATCTTTAGTTAATAATTTTGTATTTATTTATTCTAGATGTATGTATCTGAGGAAAGAAATCTGGTATTTTTGCTTTCCAATAAAGGGGATCAAAGTAATGGTTTTTCTCTCAGTTCTCTAAGCTGGTCTATGTTATAGCTCTAGCAGTATGGAAATGTGCTTTAAAATATGCTTACCTTTTGAATGATCATGGCTATATGTTGTTGAGATATTTGAAACTTACCTTGTTTTCACTTGTGCACTGTGAATGAACTTTGTATTATTTTTTTAAAACCTTCACATTACGTGTAGATATTATTGCAACTTATATTTTGCCTGAGCTTGATCAAAGGTCATTTGTGTAGATGAGTAATTAAAAAATATTTAAATCACATTATAATTCTATTATTGGAGAGCATCTTTTAAATTTTTTTCTGTTTTAACGAGGGAAAGAGAAACCTGTATACCTAGGGTCATTATTTGACCCCATAGTATAACCAGATTCATGGTCTAACAAGCTCTCAGTGTGGCTTTTCTCTGAATGCTTGAATTTCACATGCCTTGCATTTCACAGTTGTACTCCATGGTCAACCGGTGCTTTTTTTCACATCGTGGTACTTGTCAAAACATTTTGTTATTTTCCTTGGTAAAATATATAAAAAAGGTTTTCTAATTTCAAAA
   - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGAGAAAATTAGAAAAGCCCTTCCTAGTTCAGAAGACCTTGTAAAGTTAGCACCAGACTTTGACAAGATTGTTGAAAGCCTTAGCTTATTGAAGGACTTTTTTACCTCAGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGGTCTGCTTGGTGAGCTCATTCTCTTACAACAACAAATTCAAGAGCATGAAGAGGAAGCGCGCAGAGCCGCTGGCCAATATAGCACGAGCTATGCCCAACAGAAGCGCAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCAAGAAAGTTAGAGAAATTCAAGAAAAACTTGATGCTTTCATTGAAGCTCTTCATCAGGAGAAATAAATTAAAATCGTACTCATAATCAGCTCTGCATACATCTGAAGAACAAAAACATCAACGTCTTTTGTCCAGCCTCTTTTTCTTCTGCTGTTCCACCTTTCTAAACATACAATAAAGTCATGGGATAAAAATAATCGATGTATGTTACGGGCGCTTTAACCATCAGCTGCCTCTCGAATGGAAGAACAGTGGTAATGGATTAACATCCTATTTTGTTGTACTAAAGTGACAAATCGGAATAATATAATTGGTATGGCCATTAGGTTCAGTCCTTGAAGATAAGAAACTTGTTCTCTGTTTGTTGTCTTATTTGTGGTGGCACTCGTTTAATGGATTAACTGAGGTTGCTCAATGTTCAGTTTCTTTTCCAGAAATACAATGCTAGGTGTTTTGAAATAAAACTTATATAGCAATTGTTTAAAGTTATCAATTGTATATAAAATCACAGTAGCCTGCTAAATCATTGTATGTGTCTGTAGTATTCTATTCCCAGAAACTATTTGACCATGATAATTCAGTTTATATTCACCACATGAAAGAAAAATGGGTAACAGAAGAACCCTTAAAACAGGTTAATTTGGATTGTAACGTTCAGTGAAAGAAATTTCAACCCTTCATAGCCAGCGAAGAAATTTGCCTTGGAAGCCAAGTCAGTACCAGCTTACCTATTTGATTCAGTTGCTGTTTTCTCACTCTCTATATCCATTTGAAATTGATTTATTTTAGATGTTGTATACTTACGTTAGGCTTTCTGTTAATAGTGGTTTTTCTCCTGTTGACAGAGCCACCGGATTATGACACAGGATGAGGAAGATTAAGGATAATCAATTGACTAATTTCATTTAGAATATTATCAAACATTTCAACTAGGTATCAGAAAAAGGCTTTCTTTCATAAGACTATTTTAAATAGAAATTATTTCAACAATTAAAGTAATGTTGACCATCCCCCTCTCAGCTGAATAAAGAAAAATTTAGTTCAATTTATTGCAATTTAATTACAATACTACCTTCACAACATTTTCATGTGTTTTAAATAAATATTTTTTAATTGGCTAAAGGACATTCAAGCAAAGAAATGCTTTCTTTACTTAAAATGTCTATCTCATTTGCTGCCTTTTCACTAAGCCTTTACTTTGTTAATAAAAGTGTCCATTGTGTGATGTTTTTGATTTTACAGTTTGCTAAATCTTATTTTCTTGGAGTTGCTTTTTGGTAACAGCCCCATTGCTACTCCCCATTTTATTGTTTTACATCAATGCATGCTTCGTTGTGATCCCTCAAGATGTAACACTTGGTATGCTCGGTTGAGGATATGAAAAAATACTTCCGAAACCAGGAATTCAATGTATGTTTGTTTTATACTGTTTGATAAGAAAAGTAGGTCCAGCCTTAAGCAGCACAGATGCGCTGGTAGATGCATAGTCAGGAACTTTTTTTATTTCTTTTAGGTCTAGGGACAGGAGTGAATAGAAAGGGAGGAGAGCTCTATTATGTTCTATACACAGATTAGGAGATGACCTTACTGGGTACACCCCTCTAACCAGTGCTTACAGGTTAATGCATGTTAATGAATATTTTTGCAGTTGTAAAGCATAACAATTACAACTACACATCTATTTCTAAAGAATAAAACAGGACCATATTTATTTACTTCTGTCAACTATAGAAAGAAAGACCTTCAGCTGTATTTCCACAGATTTCTCCCAAGGAAAAGGCTAATATTAGTCACTACTGTTATCACATCCCTTTGTATAAGTTTTAAAAAGAGATGGAGGGAGATCTTCATTTCTTTGAGGAGATCAGTATTGTAACGTATGTGAATAGATGATAACAATTAATATTACTAAAAGTCCCACATGAGAGTCCTGACGCCCTCTCCATGCCCCACAGTAATGTGGCTTCTTTCATGGGTTTTTTTTTCTTCTTTTTAGCTGATCTCATCCTAAGCATGCTTTATTTTTCCTTGAAAGCTAGGTATTTATCAACTGCAGATGTTATTGAAAGAAAATAAAATTCAGTCTCAAGAGTAAACCCTGTGTCTTGTGTCTGTAGTTCAAAAGTCAGAAATGATTCTAATTTAAACAAAAAGATACTAAATATACAGAAGTTAAATTCGAACTAGCCACAGAATCATTTGTTTTTATGTCAGAATTTGCAAAGAGTGGAGTGGACAAAGCTCTGTATGGAAGACTGAACAACTGTAAATAGATGATATCCAAACTTAATTTGGCTAGGACTTCAATTTTAAAAATCAGTGTACCTAGGCAGTGCACAGCACGAAATAAGTGGCCCTTGCAGCTTCCCCGTTTAACCCACTGTGCTATAGTTGCGGGTGGAACAGTCAACCTTTCTAGTAGTTTATGATATTGCCCTCTTTGTATTCCCATTTTCTACAGTTTTTTCCGCAGACTTCTTTCTGCAAATTATTCAGCCTCCAAATGCAAATGAATGATATAAAAATAAGTAGGGAACATGGCAGAGAGTGGTGCTTCCCAGCCTCACAATGTGGGAATTTGACATAGGATGAGAGTCAGAGTATAGGTTTAAAAGATAAAATCTTTAGTTAATAATTTTGTATTTATTTATTCTAGATGTATGTATCTGAGGAAAGAAATCTGGTATTTTTGCTTTCCAATAAAGGGGATCAAAGTAATGGTTTTTCTCTCAGTTCTCTAAGCTGGTCTATGTTATAGCTCTAGCAGTATGGAAATGTGCTTTAAAATATGCTTACCTTTTGAATGATCATGGCTATATGTTGTTGAGATATTTGAAACTTACCTTGTTTTCACTTGTGCACTGTGAATGAACTTTGTATTATTTTTTTAAAACCTTCACATTACGTGTAGATATTATTGCAACTTATATTTTGCCTGAGCTTGATCAAAGGTCATTTGTGTAGATGAGTAATTAAAAAATATTTAAATCACATTATAATTCTATTATTGGAGAGCATCTTTTAAATTTTTTTCTGTTTTAACGAGGGAAAGAGAAACCTGTATACCTAGGGTCATTATTTGACCCCATAGTATAACCAGATTCATGGTCTAACAAGCTCTCAGTGTGGCTTTTCTCTGAATGCTTGAATTTCACATGCCTTGCATTTCACAGTTGTACTCCATGGTCAACCGGTGCTTTTTTTCACATCGTGGTACTTGTCAAAACATTTTGTTATTTTCCTTGGTAAAATATATAAAAAAGGTTTTCTAATTTCAAAA
   - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGAGAAAATTAGAAAAGCCCTTCCTAGTTCAGAAGACCTTGTAAAGTTAGCACCAGACTTTGACAAGATTGTTGAAAGCCTTAGCTTATTGAAGGACTTTTTTACCTCAGGTCACAAATTGGTTAGTGAAGTCATAGGAGCTTCTGACCTACTTCTCTTGTTAGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGGTCTGCTTGGTGAGCTCATTCTCTTACAACAACAAATTCAAGAGCATGAAGAGGAAGCGCGCAGAGCCGCTGGCCAATATAGCACGAGCTATGCCCAACAGAAGCGCAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCAAGAAAGTTAGAGAAATTCAAGAAAAACTTGATGCTTTCATTGAAGCTCTTCATCAGGAGAAATAAATTAAAATCGTACTCATAATCAGCTCTGCATACATCTGAAGAACAAAAACATCAACGTCTTTTGTCCAGCCTCTTTTTCTTCTGCTGTTCCACCTTTCTAAACATACAATAAAGTCATGGGATAAAAATAATCGATGTATGTTACGGGCGCTTTAACCATCAGCTGCCTCTCGAATGGAAGAACAGTGGTAATGGATTAACATCCTATTTTGTTGTACTAAAGTGACAAATCGGAATAATATAATTGGTATGGCCATTAGGTTCAGTCCTTGAAGATAAGAAACTTGTTCTCTGTTTGTTGTCTTATTTGTGGTGGCACTCGTTTAATGGATTAACTGAGGTTGCTCAATGTTCAGTTTCTTTTCCAGAAATACAATGCTAGGTGTTTTGAAATAAAACTTATATAGCAATTGTTTAAAGTTATCAATTGTATATAAAATCACAGTAGCCTGCTAAATCATTGTATGTGTCTGTAGTATTCTATTCCCAGAAACTATTTGACCATGATAATTCAGTTTATATTCACCACATGAAAGAAAAATGGGTAACAGAAGAACCCTTAAAACAGGTTAATTTGGATTGTAACGTTCAGTGAAAGAAATTTCAACCCTTCATAGCCAGCGAAGAAATTTGCCTTGGAAGCCAAGTCAGTACCAGCTTACCTATTTGATTCAGTTGCTGTTTTCTCACTCTCTATATCCATTTGAAATTGATTTATTTTAGATGTTGTATACTTACGTTAGGCTTTCTGTTAATAGTGGTTTTTCTCCTGTTGACAGAGCCACCGGATTATGACACAGGATGAGGAAGATTAAGGATAATCAATTGACTAATTTCATTTAGAATATTATCAAACATTTCAACTAGGTATCAGAAAAAGGCTTTCTTTCATAAGACTATTTTAAATAGAAATTATTTCAACAATTAAAGTAATGTTGACCATCCCCCTCTCAGCTGAATAAAGAAAAATTTAGTTCAATTTATTGCAATTTAATTACAATACTACCTTCACAACATTTTCATGTGTTTTAAATAAATATTTTTTAATTGGCTAAAGGACATTCAAGCAAAGAAATGCTTTCTTTACTTAAAATGTCTATCTCATTTGCTGCCTTTTCACTAAGCCTTTACTTTGTTAATAAAAGTGTCCATTGTGTGATGTTTTTGATTTTACAGTTTGCTAAATCTTATTTTCTTGGAGTTGCTTTTTGGTAACAGCCCCATTGCTACTCCCCATTTTATTGTTTTACATCAATGCATGCTTCGTTGTGATCCCTCAAGATGTAACACTTGGTATGCTCGGTTGAGGATATGAAAAAATACTTCCGAAACCAGGAATTCAATGTATGTTTGTTTTATACTGTTTGATAAGAAAAGTAGGTCCAGCCTTAAGCAGCACAGATGCGCTGGTAGATGCATAGTCAGGAACTTTTTTTATTTCTTTTAGGTCTAGGGACAGGAGTGAATAGAAAGGGAGGAGAGCTCTATTATGTTCTATACACAGATTAGGAGATGACCTTACTGGGTACACCCCTCTAACCAGTGCTTACAGGTTAATGCATGTTAATGAATATTTTTGCAGTTGTAAAGCATAACAATTACAACTACACATCTATTTCTAAAGAATAAAACAGGACCATATTTATTTACTTCTGTCAACTATAGAAAGAAAGACCTTCAGCTGTATTTCCACAGATTTCTCCCAAGGAAAAGGCTAATATTAGTCACTACTGTTATCACATCCCTTTGTATAAGTTTTAAAAAGAGATGGAGGGAGATCTTCATTTCTTTGAGGAGATCAGTATTGTAACGTATGTGAATAGATGATAACAATTAATATTACTAAAAGTCCCACATGAGAGTCCTGACGCCCTCTCCATGCCCCACAGTAATGTGGCTTCTTTCATGGGTTTTTTTTTCTTCTTTTTAGCTGATCTCATCCTAAGCATGCTTTATTTTTCCTTGAAAGCTAGGTATTTATCAACTGCAGATGTTATTGAAAGAAAATAAAATTCAGTCTCAAGAGTAAACCCTGTGTCTTGTGTCTGTAGTTCAAAAGTCAGAAATGATTCTAATTTAAACAAAAAGATACTAAATATACAGAAGTTAAATTCGAACTAGCCACAGAATCATTTGTTTTTATGTCAGAATTTGCAAAGAGTGGAGTGGACAAAGCTCTGTATGGAAGACTGAACAACTGTAAATAGATGATATCCAAACTTAATTTGGCTAGGACTTCAATTTTAAAAATCAGTGTACCTAGGCAGTGCACAGCACGAAATAAGTGGCCCTTGCAGCTTCCCCGTTTAACCCACTGTGCTATAGTTGCGGGTGGAACAGTCAACCTTTCTAGTAGTTTATGATATTGCCCTCTTTGTATTCCCATTTTCTACAGTTTTTTCCGCAGACTTCTTTCTGCAAATTATTCAGCCTCCAAATGCAAATGAATGATATAAAAATAAGTAGGGAACATGGCAGAGAGTGGTGCTTCCCAGCCTCACAATGTGGGAATTTGACATAGGATGAGAGTCAGAGTATAGGTTTAAAAGATAAAATCTTTAGTTAATAATTTTGTATTTATTTATTCTAGATGTATGTATCTGAGGAAAGAAATCTGGTATTTTTGCTTTCCAATAAAGGGGATCAAAGTAATGGTTTTTCTCTCAGTTCTCTAAGCTGGTCTATGTTATAGCTCTAGCAGTATGGAAATGTGCTTTAAAATATGCTTACCTTTTGAATGATCATGGCTATATGTTGTTGAGATATTTGAAACTTACCTTGTTTTCACTTGTGCACTGTGAATGAACTTTGTATTATTTTTTTAAAACCTTCACATTACGTGTAGATATTATTGCAACTTATATTTTGCCTGAGCTTGATCAAAGGTCATTTGTGTAGATGAGTAATTAAAAAATATTTAAATCACATTATAATTCTATTATTGGAGAGCATCTTTTAAATTTTTTTCTGTTTTAACGAGGGAAAGAGAAACCTGTATACCTAGGGTCATTATTTGACCCCATAGTATAACCAGATTCATGGTCTAACAAGCTCTCAGTGTGGCTTTTCTCTGAATGCTTGAATTTCACATGCCTTGCATTTCACAGTTGTACTCCATGGTCAACCGGTGCTTTTTTTCACATCGTGGTACTTGTCAAAACATTTTGTTATTTTCCTTGGTAAAATATATAAAAAAGGTTTTCTAATTTCAAAA
+  - GCTGAGACTTCCTGGACGGGGGACAGGCTGTGGGGTTTCTCAGATAACTGGGCCCCTGCGCTCAGGAGGCCTTCACCCTCTGCTCTGGGTAAAGGTAGTAGAGTCCCGGGAAAGGGACAGGGGGCCCAAGTGATGCTCTGGGGTACTGGCGTGGGAGAGTGGATTTCCGAAGCTGACAGATGGTTCATTGGAACAGAAAGAAATGGATTTATCTGCTCTTCGCGTTGAAGAAGTACAAAATGTCATTAATGCTATGCAGAAAATCTTAGAGTGTCCCATCTGTCTGGAGTTGATCAAGGAACCTGTCTCCACAAAGTGTGACCACATATTTTGCAAATTTTGCATGCTGAAACTTCTCAACCAGAAGAAAGGGCCTTCACAGTGTCCTTTATGAGCCTACAAGAAAGTACGAGATTTAGTCAACTTGTTGAAGAGCTATTGAAAATCATTTGTGCTTTTCAGCTTGACACAGGTTTGGAGTATGCAAACAGCTATAATTTTGCAAAAAAGGAAAATAACTCTCCTGAACATCTAAAAGATGAAGTTTCTATCATCCAAAGTATGGGCTACAGAAACCGTGCCAAAAGACTTCTACAGAGTGAACCCGAAAATCCTTCCTTGGAAACCAGTCTCAGTGTCCAACTCTCTAACCTTGGAACTGTGAGAACTCTGAGGACAAAGCAGCGGATACAACCTCAAAAGACGTCTGTCTACATTGAATTGGGATCTGATTCTTCTGAAGATACCGTTAATAAGGCAACTTATTGCAGTGTGGGAGATCAAGAATTGTTACAAATCACCCCTCAAGGAACCAGGGATGAAATCAGTTTGGATTCTGCAAAAAAGGCTGCTTGTGAATTTTCTGAGACGGATGTAACAAATACTGAACATCATCAACCCAGTAATAATGATTTGAACACCACTGAGAAGCGTGCAGCTGAGAGGCATCCAGAAAAGTATCAGGGTAGTTCTGTTTCAAACTTGCATGTGGAGCCATGTGGCACAAATACTCATGCCAGCTCATTACAGCATGAGAACAGCAGTTTATTACTCACTAAAGACAGAATGAATGTAGAAAAGGCTGAATTCTGTAATAAAAGCAAACAGCCTGGCTTAGCAAGGAGCCAACATAACAGATGGGCTGGAAGTAAGGAAACATGTAATGATAGGCGGACTCCCAGCACAGAAAAAAAGGTAGATCTGAATGCTGATCCCCTGTGTGAGAGAAAAGAATGGAATAAGCAGAAACTGCCATGCTCAGAGAATCCTAGAGATACTGAAGATGTTCCTTGGATAACACTAAATAGCAGCATTCAGAAAGTTAATGAGTGGTTTTCCAGAAGTGATGAACTGTTAGGTTCTGATGACTCACATGATGGGGAGTCTGAATCAAATGCCAAAGTAGCTGATGTATTGGACGTTCTAAATGAGGTAGATGAATATTCTGGTTCTTCAGAGAAAATAGACTTACTGGCCAGTGATCCTCATGAGGCTTTAATATGTAAAAGTGAAAGAGTTCACTCCAAATCAGTAGAGAGTAATATTGAAGACAAAATATTTGGGAAAACCTATCGGAAGAAGGCAAGCCTCCCCAACTTAAGCCATGTAACTGAAAATCTAATTATAGGAGCATTTGTTACTGAGCCACAGATAATACAAGAGCGTCCCCTCACAAATAAATTAAAGCGTAAAAGGAGACCTACATCAGGCCTTCATCCTGAGGATTTTATCAAGAAAGCAGATTTGGCAGTTCAAAAGACTCCTGAAATGATAAATCAGGGAACTAACCAAACGGAGCAGAATGGTCAAGTGATGAATATTACTAATAGTGGTCATGAGAATAAAACAAAAGGTGATTCTATTCAGAATGAGAAAAATCCTAACCCAATAGAATCACTCGAAAAAGAATCTGCTTTCAAAACGAAAGCTGAACCTATAAGCAGCAGTATAAGCAATATGGAACTCGAATTAAATATCCACAATTCAAAAGCACCTAAAAAGAATAGGCTGAGGAGGAAGTCTTCTACCAGGCATATTCATGCGCTTGAACTAGTAGTCAGTAGAAATCTAAGCCCACCTAATTGTACTGAATTGCAAATTGATAGTTGTTCTAGCAGTGAAGAGATAAAGAAAAAAAAGTACAACCAAATGCCAGTCAGGCACAGCAGAAACCTACAACTCATGGAAGGTAAAGAACCTGCAACTGGAGCCAAGAAGAGTAACAAGCCAAATGAACAGACAAGTAAAAGACATGACAGCGATACTTTCCCAGAGCTGAAGTTAACAAATGCACCTGGTTCTTTTACTAAGTGTTCAAATACCAGTGAACTTAAAGAATTTGTCAATCCTAGCCTTCCAAGAGAAGAAAAAGAAGAGAAACTAGAAACAGTTAAAGTGTCTAATAATGCTGAAGACCCCAAAGATCTCATGTTAAGTGGAGAAAGGGTTTTGCAAACTGAAAGATCTGTAGAGAGTAGCAGTATTTCATTGGTACCTGGTACTGATTATGGCACTCAGGAAAGTATCTCGTTACTGGAAGTTAGCACTCTAGGGAAGGCAAAAACAGAACCAAATAAATGTGTGAGTCAGTGTGCAGCATTTGAAAACCCCAAGGGACTAATTCATGGTTGTTCCAAAGATAATAGAAATGACACAGAAGGCTTTAAGTATCCATTGGGACATGAAGTTAACCACAGTCGGGAAACAAGCATAGAAATGGAAGAAAGTGAACTTGATGCTCAGTATTTGCAGAATACATTCAAGGTTTCAAAGCGCCAGTCATTTGCTCCGTTTTCAAATCCAGGAAATGCAGAAGAGGAATGTGCAACATTCTCTGCCCACTCTGGGTCCTTAAAGAAACAAAGTCCAAAAGTCACTTTTGAATGTGAACAAAAGGAAGAAAATCAAGGAAAGAATGAGTCTAATATCAAGCCTGTACAGACAGTTAATATCACTGCAGGCTTTCCTGTGGTTGGTCAGAAAGATAAGCCAGTTGATAATGCCAAATGTAGTATCAAAGGAGGCTCTAGGTTTTGTCTATCATCTCAGTTCAGAGGCAACGAAACTGGACTCATTACTCCAAATAAACATGGACTTTTACAAAACCCATATCGTATACCACCACTTTTTCCCATCAAGTCATTTGTTAAAACTAAATGTAAGAAAAATCTGCTAGAGGAAAACTTTGAGGAACATTCAATGTCACCTGAAAGAGAAATGGGAAATGAGAACATTCCAAGTACAGTGAGCACAATTAGCCGTAATAACATTAGAGAAAATGTTTTTAAAGAAGCCAGCTCAAGCAATATTAATGAAGTAGGTTCCAGTACTAATGAAGTGGGCTCCAGTATTAATGAAATAGGTTCCAGTGATGAAAACATTCAAGCAGAACTAGGTAGAAACAGAGGGCCAAAATTGAATGCTATGCTTAGATTAGGGGTTTTGCAACCTGAGGTCTATAAACAAAGTCTTCCTGGAAGTAATTGTAAGCATCCTGAAATAAAAAAGCAAGAATATGAAGAAGTAGTTCAGACTGTTAATACAGATTTCTCTCCATATCTGATTTCAGATAACTTAGAACAGCCTATGGGAAGTAGTCATGCATCTCAGGTTTGTTCTGAGACACCTGATGACCTGTTAGATGATGGTGAAATAAAGGAAGATACTAGTTTTGCTGAAAATGACATTAAGGAAAGTTCTGCTGTTTTTAGCAAAAGCGTCCAGAAAGGAGAGCTTAGCAGGAGTCCTAGCCCTTTCACCCATACACATTTGGCTCAGGGTTACCGAAGAGGGGCCAAGAAATTAGAGTCCTCAGAAGAGAACTTATCTAGTGAGGATGAAGAGCTTCCCTGCTTCCAACACTTGTTATTTGGTAAAGTAAACAATATACCTTCTCAGTCTACTAGGCATAGCACCGTTGCTACCGAGTGTCTGTCTAAGAACACAGAGGAGAATTTATTATCATTGAAGAATAGCTTAAATGACTGCAGTAACCAGGTAATATTGGCAAAGGCATCTCAGGAACATCACCTTAGTGAGGAAACAAAATGTTCTGCTAGCTTGTTTTCTTCACAGTGCAGTGAATTGGAAGACTTGACTGCAAATACAAACACCCAGGATCCTTTCTTGATTGGTTCTTCCAAACAAATGAGGCATCAGTCTGAAAGCCAGGGAGTTGGTCTGAGTGACAAGGAATTGGTTTCAGATGATGAAGAAAGAGGAACGGGCTTGGAAGAAAATAATCAAGAAGAGCAAAGCATGGATTCAAACTTAGGTGAAGCAGCATCTGGGTGTGAGAGTGAAACAAGCGTCTCTGAAGACTGCTCAGGGCTATCCTCTCAGAGTGACATTTTAACCACTCAGCAGAGGGATACCATGCAACATAACCTGATAAAGCTCCAGCAGGAAATGGCTGAACTAGAAGCTGTGTTAGAACAGCATGGGAGCCAGCCTTCTAACAGCTACCCTTCCATCATAAGTGACTCTTCTGCCCTTGAGGACCTGCGAAATCCAGAACAAAGCACATCAGAAAAAGCAGTATTAACTTCACAGAAAAGTAGTGAATACCCTATAAGCCAGAATCCAGAAGGCCTTTCTGCTGACAAGTTTGAGGTGTCTGCAGATAGTTCTACCAGTAAAAATAAAGAACCAGGAGTGGAAAGGTCATCCCCTTCTAAATGCCCATCATTAGATGATAGGTGGTACATGCACAGTTGCTCTGGGAGTCTTCAGAATAGAAACTACCCATCTCAAGAGGAGCTCATTAAGGTTGTTGATGTGGAGGAGCAACAGCTGGAAGAGTCTGGGCCACACGATTTGACGGAAACATCTTACTTGCCAAGGCAAGATCTAGAGGGAACCCCTTACCTGGAATCTGGAATCAGCCTCTTCTCTGATGACCCTGAATCTGATCCTTCTGAAGACAGAGCCCCAGAGTCAGCTCGTGTTGGCAACATACCATCTTCAACCTCTGCATTGAAAGTTCCCCAATTGAAAGTTGCAGAATCTGCCCAGAGTCCAGCTGCTGCTCATACTACTGATACTGCTGGGTATAATGCAATGGAAGAAAGTGTGAGCAGGGAGAAGCCAGAATTGACAGCTTCAACAGAAAGGGTCAACAAAAGAATGTCCATGGTGGTGTCTGGCCTGACCCCAGAAGAATTTATGCTCGTGTACAAGTTTGCCAGAAAACACCACATCACTTTAACTAATCTAATTACTGAAGAGACTACTCATGTTGTTATGAAAACAGATGCTGAGTTTGTGTGTGAACGGACACTGAAATATTTTCTAGGAATTGCGGGAGGAAAATGGGTAGTTAGCTATTTCTGGGTGACCCAGTCTATTAAAGAAAGAAAAATGCTGAATGAGCATGATTTTGAAGTCAGAGGAGATGTGGTCAATGGAAGAAACCACCAAGGTCCAAAGCGAGCAAGAGAATCCCAGGACAGAAAGATCTTCAGGGGGCTAGAAATCTGTTGCTATGGGCCCTTCACCAACATGCCCACAGATCAACTGGAATGGATGGTACAGCTGTGTGGTGCTTCTGTGGTGAAGGAGCTTTCATCATTCACCCTTGGCACAGGTGTCCACCCAATTGTGGTTGTGCAGCCAGATGCCTGGACAGAGGACAATGGCTTCCATGCAATTGGGCAGATGTGTGAGGCACCTGTGGTGACCCGAGAGTGGGTGTTGGACAGTGTAGCACTCTACCAGTGCCAGGAGCTGGACACCTACCTGATACCCCAGATCCCCCACAGCCACTACTGACTGCAGCCAGCCACAGGTACAGAGCCACAGGACCCCAAGAATGAGCTTACAAAGTGGCCTTTCCAGGCCCTGGGAGCTCCTCTCACTCTTCAGTCCTTCTACTGTCCTGGCTACTAAATATTTTATGTACATCAGCCTGAAAAGGACTTCTGGCTATGCAAGGGTCCCTTAAAGATTTTCTGCTTGAAGTCTCCCTTGGAAATCTGCCATGAGCACAAAATTATGGTAATTTTTCACCTGAGAAGATTTTAAAACCATTTAAACGCCACCAATTGAGCAAGATGCTGATTCATTATTTATCAGCCCTATTCTTTCTATTCAGGCTGTTGTTGGCTTAGGGCTGGAAGCACAGAGTGGCTTGGCCTCAAGAGAATAGCTGGTTTCCCTAAGTTTACTTCTCTAAAACCCTGTGTTCACAAAGGCAGAGAGTCAGACCCTTCAATGGAAGGAGAGTGCTTGGGATCGATTATGTGACTTAAAGTCAGAATAGTCCTTGGGCAGTTCTCAAATGTTGGAGTGGAACATTGGGGAGGAAATTCTGAGGCAGGTATTAGAAATGAAAAGGAAACTTGAAACCTGGGCATGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCAAGGTGGGCAGATCACTGGAGGTCAGGAGTTCGAAACCAGCCTGGCCAACATGGTGAAACCCCATCTCTACTAAAAATACAGAAATTAGCCGGTCATGGTGGTGGACACCTGTAATCCCAGCTACTCAGGTGGCTAAGGCAGGAGAATCACTTCAGCCCGGGAGGTGGAGGTTGCAGTGAGCCAAGATCATACCACGGCACTCCAGCCTGGGTGACAGTGAGACTGTGGCTCAAAAAAAAAAAAAAAAAAAGGAAAATGAAACTAGAAGAGATTTCTAAAAGTCTGAGATATATTTGCTAGATTTCTAAAGAATGTGTTCTAAAACAGCAGAAGATTTTCAAGAACCGGTTTCCAAAGACAGTCTTCTAATTCCTCATTAGTAATAAGTAAAATGTTTATTGTTGTAGCTCTGGTATATAATCCATTCCTCTTAAAATATAAGACCTCTGGCATGAATATTTCATATCTATAAAATGACAGATCCCACCAGGAAGGAAGCTGTTGCTTTCTTTGAGGTGATTTTTTTCCTTTGCTCCCTGTTGCTGAAACCATACAGCTTCATAAATAATTTTGCTTGCTGAAGGAAGAAAAAGTGTTTTTCATAAACCCATTATCCAGGACTGTTTATAGCTGTTGGAAGGACTAGGTCTTCCCTAGCCCCCCCAGTGTGCAAGGGCAGTGAAGACTTGATTGTACAAAATACGTTTTGTAAATGTTGTGCTGTTAACACTGCAAATAAACTTGGTAGCAAACACTTCCA
+  - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGAGAAAATTAGAAAAGCCCTTCCTAGTTCAGAAGACCTTGTAAAGTTAGCACCAGACTTTGACAAGATTGTTGAAAGCCTTAGCTTATTGAAGGACTTTTTTACCTCAGGTCACAAATTGGTTAGTGAAGTCATAGGAGCTTCTGACCTACTTCTCTTGTTAGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGGTCTGCTTGGTGAGCTCATTCTCTTACAACAACAAATTCAAGAGCATGAAGAGGAAGCGCGCAGAGCCGCTGGCCAATATAGCACGAGCTATGCCCAACAGAAGCGCAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCATAACAGATATTTTCCCAAGTAACCTACTGCTGGTTGTGATGCTGAGGGACATTTCATGGGACTGCATGGTCGTTGCTCATCGTGATACCATCCTCAGTGGTTGGGGGATTCACAGTGAATTCTCATATCCTGTAACTATGCATCATGGATCTATCATCTGAAAATAAATCAAAATCTTTGTTGAAAAA
+  - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGAGAAAATTAGAAAAGCCCTTCCTAGTTCAGAAGACCTTGTAAAGTTAGCACCAGACTTTGACAAGATTGTTGAAAGCCTTAGCTTATTGAAGGACTTTTTTACCTCAGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGGTCTGCTTGGTGAGCTCATTCTCTTACAACAACAAATTCAAGAGCATGAAGAGGAAGCGCGCAGAGCCGCTGGCCAATATAGCACGAGCTATGCCCAACAGAAGCGCAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCATAACAGATATTTTCCCAAGTAACCTACTGCTGGTTGTGATGCTGAGGGACATTTCATGGGACTGCATGGTCGTTGCTCATCGTGATACCATCCTCAGTGGTTGGGGGATTCACAGTGAATTCTCATATCCTGTAACTATGCATCATGGATCTATCATCTGAAAATAAATCAAAATCTTTGTTGAAAAA
+  - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGAGAAAATTAGAAAAGCCCTTCCTAGTTCAGAAGACCTTGTAAAGTTAGCACCAGACTTTGACAAGATTGTTGAAAGCCTTAGCTTATTGAAGGACTTTTTTACCTCAGGTCACAAATTGGTTAGTGAAGTCATAGGAGCTTCTGACCTACTTCTCTTGTTAGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCATAACAGATATTTTCCCAAGTAACCTACTGCTGGTTGTGATGCTGAGGGACATTTCATGGGACTGCATGGTCGTTGCTCATCGTGATACCATCCTCAGTGGTTGGGGGATTCACAGTGAATTCTCATATCCTGTAACTATGCATCATGGATCTATCATCTGAAAATAAATCAAAATCTTTGTTGAAAAA
+  - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGGTCTGCTTGGTGAGCTCATTCTCTTACAACAACAAATTCAAGAGCATGAAGAGGAAGCGCGCAGAGCCGCTGGCCAATATAGCACGAGCTATGCCCAACAGAAGCGCAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCATAACAGATATTTTCCCAAGTAACCTACTGCTGGTTGTGATGCTGAGGGACATTTCATGGGACTGCATGGTCGTTGCTCATCGTGATACCATCCTCAGTGGTTGGGGGATTCACAGTGAATTCTCATATCCTGTAACTATGCATCATGGATCTATCATCTGAAAATAAATCAAAATCTTTGTTGAAAAA
+  - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGAGAAAATTAGAAAAGCCCTTCCTAGTTCAGAAGACCTTGTAAAGTTAGCACCAGACTTTGACAAGATTGTTGAAAGCCTTAGCTTATTGAAGGACTTTTTTACCTCAGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCATAACAGATATTTTCCCAAGTAACCTACTGCTGGTTGTGATGCTGAGGGACATTTCATGGGACTGCATGGTCGTTGCTCATCGTGATACCATCCTCAGTGGTTGGGGGATTCACAGTGAATTCTCATATCCTGTAACTATGCATCATGGATCTATCATCTGAAAATAAATCAAAATCTTTGTTGAAAAA
+  - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCATAACAGATATTTTCCCAAGTAACCTACTGCTGGTTGTGATGCTGAGGGACATTTCATGGGACTGCATGGTCGTTGCTCATCGTGATACCATCCTCAGTGGTTGGGGGATTCACAGTGAATTCTCATATCCTGTAACTATGCATCATGGATCTATCATCTGAAAATAAATCAAAATCTTTGTTGAAAAA
+  - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGGATAGCAGAAAGGAGCTCATCTGTTTGGAGTCCATTTTTGATGGGGATCCCACTAGAGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGAGAAAATTAGAAAAGCCCTTCCTAGTTCAGAAGACCTTGTAAAGTTAGCACCAGACTTTGACAAGATTGTTGAAAGCCTTAGCTTATTGAAGGACTTTTTTACCTCAGGTCACAAATTGGTTAGTGAAGTCATAGGAGCTTCTGACCTACTTCTCTTGTTAGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGGTCTGCTTGGTGAGCTCATTCTCTTACAACAACAAATTCAAGAGCATGAAGAGGAAGCGCGCAGAGCCGCTGGCCAATATAGCACGAGCTATGCCCAACAGAAGCGCAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCATAACAGATATTTTCCCAAGTAACCTACTGCTGGTTGTGATGCTGAGGGACATTTCATGGGACTGCATGGTCGTTGCTCATCGTGATACCATCCTCAGTGGTTGGGGGATTCACAGTGAATTCTCATATCCTGTAACTATGCATCATGGATCTATCATCTGAAAATAAATCAAAATCTTTGTTGAAAAA
+  - AGGCTCTTGCGGAAGTCCATGCGCCATTGGGAGGGCCTCGGCCGCGGCTCTGTGCCCTTGCTGCTGAGGGCCACTTCCTGGGTCATTCCTGGACCGGGAGCCGGGCTGGGGCTCACACGGGGGCTCCCGCGTGGCCGTCTCGGCGCCTGCGTGACCTCCCCGCCGGCGGGATGTGGCGACTACGTCGGGCCGCTGTGGCCTGTGAGGTCTGCCAGTCTTTAGTGAAACACAGCTCTGGAATAAAAGGAAGTTTACCACTACAAAAACTACATCTGGTTTCACGAAGCATTTATCATTCACATCATCCTACCTTAAAGCTTCAACGACCCCAATTAAGGACATCCTTTCAGCAGTTCTCTTCTCTGACAAACCTTCCTTTACGTAAACTGAAATTCTCTCCAATTAAATATGGCTACCAGCCTCGCAGGAATTTTTGGCCAGCAAGATTAGCTACGAGACTCTTAAAACTTCGCTATCTCATACTAGGATCGGCTGTTGGGGGTGGCTACACAGCCAAAAAGACTTTTGATCAGTGGAAAGATATGATACCGGACCTTAGTGAATATAAATGGATTGTGCCTGACATTGTGTGGGAAATTGATGAGTATATCGATTTTGAGAAAATTAGAAAAGCCCTTCCTAGTTCAGAAGACCTTGTAAAGTTAGCACCAGACTTTGACAAGATTGTTGAAAGCCTTAGCTTATTGAAGGACTTTTTTACCTCAGGTCACAAATTGGTTAGTGAAGTCATAGGAGCTTCTGACCTACTTCTCTTGTTAGGTTCTCCGGAAGAAACGGCGTTTAGAGCAACAGATCGTGGATCTGAAAGTGACAAGCATTTTAGAAAGGGTCTGCTTGGTGAGCTCATTCTCTTACAACAACAAATTCAAGAGCATGAAGAGGAAGCGCGCAGAGCCGCTGGCCAATATAGCACGAGCTATGCCCAACAGAAGCGCAAGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTAGGATATAATTTAATTAAATGGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAAA
+  - TGTTTCTGCGGAGGATTCCGCTCTTTCTCCATCAGTTTCATAGCCCTGGAATTGTAGAAAAGCTCTGGTTTCAAGACCATTGATATCCATTTCTGTCAGGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCATAACAGATATTTTCCCAAGTAACCTACTGCTGGTTGTGATGCTGAGGGACATTTCATGGGACTGCATGGTCGTTGCTCATCGTGATACCATCCTCAGTGGTTGGGGGATTCACAGTGAATTCTCATATCCTGTAACTATGCATCATGGATCTATCATCTGAAAATAAATCAAAATCTTTGTTGAAAAA
+  - TTTCTGCGGAGGATTCCGCTCTTTCTCCATCAGTTTCATAGCCCTGGAATTGTAGAAAAGCTCTGGTTTCAAGACCATTGATATCCATTTCTGTCAGGGTGTCAGACAAAGAGAAAATTGACCAACTTCAGGAAGAACTTCTGCACACTCAGTTGAAGTATCAGAGAATCTTGGAACGATTAGAAAAGGAGAACAAAGAATTGAGAAAATTAGTATTGCAGAAAGATGACAAAGGCATTCATCATAGAAAGCTTAAGAAATCTTTGATTGACATGTATTCTGAAGTTCTTGATGTTCTCTCTGATTATGATGCCAGTTATAATACGCAAGATCATCTGCCACGGGTTGTTGTGGTTGGAGATCAGAGTGCTGGAAAGACTAGTGTGTTGGAAATGATTGCCCAAGCTCGAATATTCCCAAGAGGATCTGGGGAGATGATGACACGTTCTCCAGTTAAGGTGACTCTGAGTGAAGGTCCTCACCATGTGGCCCTATTTAAAGATAGTTCTCGGGAGTTTGATCTTACCAAAGAAGAAGATCTTGCAGCATTAAGACATGAAATAGAACTTCGAATGAGGAAAAATGTGAAAGAAGGCTGTACCGTTAGCCCTGAGACCATATCCTTAAATGTAAAAGGCCCTGGACTACAGAGGATGGTGCTTGTTGACTTACCAGGTGTGATTAATACTGTGACATCAGGCATGGCTCCTGACACAAAGGAAACTATTTTCAGTATCAGCAAAGCTTACATGCAGAATCCTAATGCCATCATACTGTGTATTCAAGATGGATCTGTGGATGCTGAACGCAGTATTGTTACAGACTTGGTCAGTCAAATGGACCCTCATGGAAGGAGAACCATATTCGTTTTGACCAAAGTAGACCTGGCAGAGAAAAATGTAGCCAGTCCAAGCAGGATTCAGCAGATAATTGAAGGAAAGCTCTTCCCAATGAAAGCTTTAGGTTATTTTGCTGTTGTAACAGGAAAAGGGAACAGCTCTGAAAGCATTGAAGCTATAAGAGAATATGAAGAAGAGTTTTTTCAGAATTCAAAGCTCCTAAAGACAAGCATGCTAAAGGCACACCAAGTGACTACAAGAAATTTAAGCCTTGCAGTATCAGACTGCTTTTGGAAAATGGTACGAGAGTCTGTTGAACAACAGGCTGATAGTTTCAAAGCAACACGTTTTAACCTTGAAACTGAATGGAAGAATAACTATCCTCGCCTGCGGGAACTTGACCGGAATGAACTATTTGAAAAAGCTAAAAATGAAATCCTTGATGAAGTTATCAGTCTGAGCCAGGTTACACCAAAACATTGGGAGGAAATCCTTCAACAATCTTTGTGGGAAAGAGTATCAACTCATGTGATTGAAAACATCTACCTTCCAGCTGCGCAGACCATGAATTCAGGAACTTTTAACACCACAGTGGATATCAAGCTTAAACAGTGGACTGATAAACAACTTCCTAATAAAGCAGTAGAGGTTGCTTGGGAGACCCTACAAGAAGAATTTTCCCGCTTTATGACAGAACCGAAAGGGAAAGAGCATGATGACATATTTGATAAACTTAAAGAGGCTGTTAAGGAAGAAAGTATTAAACGACACAAGTGGAATGACTTTGCGGAGGACAGCTTGAGGGTTATTCAACACAATGCTTTGGAAGACCGATCCATATCTGATAAACAGCAATGGGATGCAGCTATTTATTTTATGGAAGAGGCTCTGCAGGCTCGTCTCAAGGATACTGAAAATGCAATTGAAAACATGGTGGGTCCAGACTGGAAAAAGAGGTGGTTATACTGGAAGAATCGGACCCAAGAACAGTGTGTTCACAATGAAACCAAGAATGAATTGGAGAAGATGTTGAAATGTAATGAGGAGCACCCAGCTTATCTTGCAAGTGATGAAATAACCACAGTCCGGAAGAACCTTGAATCCCGAGGAGTAGAAGTAGATCCAAGCTTGATTAAGGATACTTGGCATCAAGTTTATAGAAGACATTTTTTAAAAACAGCTCTAAACCATTGTAACCTTTGTCGAAGAGGTTTTTATTACTACCAAAGGCATTTTGTAGATTCTGAGTTGGAATGCAATGATGTGGTCTTGTTTTGGCGTATACAGCGCATGCTTGCTATCACCGCAAATACTTTAAGGCAACAACTTACAAATACTGAAGTTAGGCGATTAGAGAAAAATGTTAAAGAGGTATTGGAAGATTTTGCTGAAGATGGTGAGAAGAAGATTAAATTGCTTACTGGTAAACGCGTTCAACTGGCGGAAGACCTCAAGAAAGTTAGAGAAATTCAAGAAAAACTTGATGCTTTCATTGAAGCTCTTCATCAGGAGAAATAAATTAAAATCGTACTCATAATCAGCTCTGCATACATCTGAAGAACAAAAACATCAACGTCTTTTGTCCAGCCTCTTTTTCTTCTGCTGTTCCACCTTTCTAAACATACAATAAAGTCATGGGATAAAAATAATCGATGTATGTTACGGGCGCTTTAACCATCAGCTGCCTCTCGAATGGAAGAACAGTGGTAATGGATTAACATCCTATTTTGTTGTACTAAAGTGACAAATCGGAATAATATAATTGGTATGGCCATTAGGTTCAGTCCTTGAAGATAAGAAACTTGTTCTCTGTTTGTTGTCTTATTTGTGGTGGCACTCGTTTAATGGATTAACTGAGGTTGCTCAATGTTCAGTTTCTTTTCCAGAAATACAATGCTAGGTGTTTTGAAATAAAACTTATATAGCAATTGTTTAAAGTTATCAATTGTATATAAAATCACAGTAGCCTGCTAAATCATTGTATGTGTCTGTAGTATTCTATTCCCAGAAACTATTTGACCATGATAATTCAGTTTATATTCACCACATGAAAGAAAAATGGGTAACAGAAGAACCCTTAAAACAGGTTAATTTGGATTGTAACGTTCAGTGAAAGAAATTTCAACCCTTCATAGCCAGCGAAGAAATTTGCCTTGGAAGCCAAGTCAGTACCAGCTTACCTATTTGATTCAGTTGCTGTTTTCTCACTCTCTATATCCATTTGAAATTGATTTATTTTAGATGTTGTATACTTACGTTAGGCTTTCTGTTAATAGTGGTTTTTCTCCTGTTGACAGAGCCACCGGATTATGACACAGGATGAGGAAGATTAAGGATAATCAATTGACTAATTTCATTTAGAATATTATCAAACATTTCAACTAGGTATCAGAAAAAGGCTTTCTTTCATAAGACTATTTTAAATAGAAATTATTTCAACAATTAAAGTAATGTTGACCATCCCCCTCTCAGCTGAATAAAGAAAAATTTAGTTCAATTTATTGCAATTTAATTACAATACTACCTTCACAACATTTTCATGTGTTTTAAATAAATATTTTTTAATTGGCTAAAGGACATTCAAGCAAAGAAATGCTTTCTTTACTTAAAATGTCTATCTCATTTGCTGCCTTTTCACTAAGCCTTTACTTTGTTAATAAAAGTGTCCATTGTGTGATGTTTTTGATTTTACAGTTTGCTAAATCTTATTTTCTTGGAGTTGCTTTTTGGTAACAGCCCCATTGCTACTCCCCATTTTATTGTTTTACATCAATGCATGCTTCGTTGTGATCCCTCAAGATGTAACACTTGGTATGCTCGGTTGAGGATATGAAAAAATACTTCCGAAACCAGGAATTCAATGTATGTTTGTTTTATACTGTTTGATAAGAAAAGTAGGTCCAGCCTTAAGCAGCACAGATGCGCTGGTAGATGCATAGTCAGGAACTTTTTTTATTTCTTTTAGGTCTAGGGACAGGAGTGAATAGAAAGGGAGGAGAGCTCTATTATGTTCTATACACAGATTAGGAGATGACCTTACTGGGTACACCCCTCTAACCAGTGCTTACAGGTTAATGCATGTTAATGAATATTTTTGCAGTTGTAAAGCATAACAATTACAACTACACATCTATTTCTAAAGAATAAAACAGGACCATATTTATTTACTTCTGTCAACTATAGAAAGAAAGACCTTCAGCTGTATTTCCACAGATTTCTCCCAAGGAAAAGGCTAATATTAGTCACTACTGTTATCACATCCCTTTGTATAAGTTTTAAAAAGAGATGGAGGGAGATCTTCATTTCTTTGAGGAGATCAGTATTGTAACGTATGTGAATAGATGATAACAATTAATATTACTAAAAGTCCCACATGAGAGTCCTGACGCCCTCTCCATGCCCCACAGTAATGTGGCTTCTTTCATGGGTTTTTTTTTCTTCTTTTTAGCTGATCTCATCCTAAGCATGCTTTATTTTTCCTTGAAAGCTAGGTATTTATCAACTGCAGATGTTATTGAAAGAAAATAAAATTCAGTCTCAAGAGTAAACCCTGTGTCTTGTGTCTGTAGTTCAAAAGTCAGAAATGATTCTAATTTAAACAAAAAGATACTAAATATACAGAAGTTAAATTCGAACTAGCCACAGAATCATTTGTTTTTATGTCAGAATTTGCAAAGAGTGGAGTGGACAAAGCTCTGTATGGAAGACTGAACAACTGTAAATAGATGATATCCAAACTTAATTTGGCTAGGACTTCAATTTTAAAAATCAGTGTACCTAGGCAGTGCACAGCACGAAATAAGTGGCCCTTGCAGCTTCCCCGTTTAACCCACTGTGCTATAGTTGCGGGTGGAACAGTCAACCTTTCTAGTAGTTTATGATATTGCCCTCTTTGTATTCCCATTTTCTACAGTTTTTTCCGCAGACTTCTTTCTGCAAATTATTCAGCCTCCAAATGCAAATGAATGATATAAAAATAAGTAGGGAACATGGCAGAGAGTGGTGCTTCCCAGCCTCACAATGTGGGAATTTGACATAGGATGAGAGTCAGAGTATAGGTTTAAAAGATAAAATCTTTAGTTAATAATTTTGTATTTATTTATTCTAGATGTATGTATCTGAGGAAAGAAATCTGGTATTTTTGCTTTCCAATAAAGGGGATCAAAGTAATGGTTTTTCTCTCAGTTCTCTAAGCTGGTCTATGTTATAGCTCTAGCAGTATGGAAATGTGCTTTAAAATATGCTTACCTTTTGAATGATCATGGCTATATGTTGTTGAGATATTTGAAACTTACCTTGTTTTCACTTGTGCACTGTGAATGAACTTTGTATTATTTTTTTAAAACCTTCACATTACGTGTAGATATTATTGCAACTTATATTTTGCCTGAGCTTGATCAAAGGTCATTTGTGTAGATGAGTAATTAAAAAATATTTAAATCACATTATAATTCTATTATTGGAGAGCATCTTTTAAATTTTTTTCTGTTTTAACGAGGGAAAGAGAAACCTGTATACCTAGGGTCATTATTTGACCCCATAGTATAACCAGATTCATGGTCTAACAAGCTCTCAGTGTGGCTTTTCTCTGAATGCTTGAATTTCACATGCCTTGCATTTCACAGTTGTACTCCATGGTCAACCGGTGCTTTTTTTCACATCGTGGTACTTGTCAAAACATTTTGTTATTTTCCTTGGTAAAATATATAAAAAAGGTTTTCTAATTTCAAAA
 version: 0.0.0
 sourceVersion:
 - mehariVersion: 0.0.0

@@ -247,7 +247,7 @@ static DISCARD_BIOTYPES_GENES: Lazy<HashSet<BioType>> = Lazy::new(|| {
     ])
 });
 
-/// Generates a stable, deterministic ID from a string using the FNV-1a algorithm.
+/// Basic hash to produce stable PSEUDO gene ids in case of missing hgnc id.
 fn generate_pseudo_id(identifier: &str) -> usize {
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in identifier.bytes() {
@@ -358,9 +358,11 @@ impl TranscriptLoader {
             let gene_id = match gene_id {
                 Some(id) => id,
                 None => {
+                    // group by gene_name if available, otherwise fall back to transcript id
                     let grouping_key = tx.gene_name.as_deref().unwrap_or(tx.id.as_str());
                     let fake_id = GeneId::PseudoId(generate_pseudo_id(grouping_key));
 
+                    // only insert the dummy gene if we haven't seen this PseudoId before
                     self.gene_id_to_gene.entry(fake_id).or_insert_with(|| Gene {
                         hgnc: Some(fake_id.to_string()),
                         gene_symbol: tx.gene_name.clone(),
@@ -1209,6 +1211,7 @@ impl TranscriptLoader {
                     let gene_id: GeneId = hgnc.parse().expect("Invalid GeneId");
 
                     if remove {
+    if remove {
                         let txs = self.gene_id_to_transcript_ids.get_mut(&gene_id);
                         if let Some(txs) = txs {
                             txs.retain(|tx| tx != tx_id);
