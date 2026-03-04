@@ -626,6 +626,10 @@ impl ConsequencePredictor {
                                 tracing::debug!("c_to_p failed gracefully for incomplete transcript (typed error): {}", e);
                                 return Ok(None);
                             }
+                            else if matches!(e, Error::MultipleAAVariants) {
+                                tracing::warn!("MultipleAAVariants, skipping");
+                                return Ok(None);
+                            }
 
                             let err_str = e.to_string();
                             if err_str.contains("does not contain a stop codon")
