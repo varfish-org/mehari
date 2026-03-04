@@ -952,11 +952,6 @@ impl ConsequencePredictor {
             consequences.insert(IntronVariant);
             consequences.insert(NonCodingTranscriptVariant);
         }
-        if consequences.contains(NonCodingTranscriptExonVariant) {
-            consequences.remove(NonCodingTranscriptExonVariant);
-            consequences.insert(IntronVariant);
-            consequences.insert(NonCodingTranscriptVariant);
-        }
         if consequences.contains(FivePrimeUtrIntronVariant) {
             consequences.remove(FivePrimeUtrIntronVariant);
             consequences.insert(IntronVariant);
