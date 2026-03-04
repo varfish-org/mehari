@@ -1246,6 +1246,16 @@ impl ConsequencePredictor {
                 *consequences &= !Consequence::ExonLossVariant;
             }
         }
+
+        if let Some(HgvsVariant::ProtVariant {
+            loc_edit: ProtLocEdit::Unknown,
+            ..
+        }) = projection.p.as_ref()
+        {
+            if consequences.is_empty() && projection.is_within_coding_sequence() {
+                *consequences |= Consequence::CodingSequenceVariant;
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
