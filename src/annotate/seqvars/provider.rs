@@ -14,6 +14,7 @@ use crate::{
 use annonars::common::cli::CANONICAL;
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
+use enumflags2::BitFlags;
 use hgvs::{
     data::error::Error,
     data::{
@@ -138,6 +139,35 @@ impl TxIntervalTrees {
                 }
             })
             .collect())
+    }
+}
+
+/// Extension trait to easily check the filter status of a transcript.
+pub trait PbsTranscriptExt {
+    /// Returns true if the transcript has absolutely no filter flags (hard or soft).
+    fn is_clean(&self) -> bool;
+
+    /// Returns true if the transcript is incomplete (e.g. missing stop codon).
+    fn is_incomplete_3p(&self) -> bool;
+
+    /// Computes the available CDS length. If the stop codon is missing,
+    /// it uses the provided transcript length to bound the remaining sequence.
+    fn available_cds_len(&self, tx_len: i32) -> Option<i32>;
+}
+
+impl PbsTranscriptExt for Transcript {
+    fn is_clean(&self) -> bool {
+        self.filter_reason.unwrap_or(0) == 0
+    }
+
+    fn is_incomplete_3p(&self) -> bool {
+        let flags = BitFlags::<Reason>::from_bits_truncate(self.filter_reason.unwrap_or(0));
+        flags.intersects(Reason::MissingStopCodon | Reason::ThreePrimeEndTruncated)
+    }
+
+    fn available_cds_len(&self, tx_len: i32) -> Option<i32> {
+        self.start_codon
+            .map(|start| self.stop_codon.unwrap_or(tx_len) - start)
     }
 }
 
@@ -385,7 +415,8 @@ impl Provider {
 
         // Process each gene.
         for entry in tx_db.gene_to_tx.iter() {
-            let mut longest_tx_per_source: HashMap<TranscriptSource, (usize, i32)> = HashMap::new();
+            let mut longest_tx_per_source: HashMap<TranscriptSource, (bool, usize, i32)> =
+                HashMap::new();
             let mut tx_tags = entry
                 .tx_ids
                 .iter()
@@ -396,21 +427,24 @@ impl Provider {
                         let tags = tx.tags.iter().filter_map(tag_to_picktype).collect_vec();
                         let length = transcript_length(tx);
                         let source = transcript_id_to_source(tx_id);
+                        let is_clean = tx.is_clean();
 
                         longest_tx_per_source
                             .entry(source)
-                            .and_modify(|(_prev_i, prev_length)| {
-                                if length > *prev_length {
-                                    *_prev_i = i;
+                            .and_modify(|(prev_clean, prev_i, prev_length)| {
+                                if (is_clean, length) > (*prev_clean, *prev_length) {
+                                    *prev_clean = is_clean;
+                                    *prev_i = i;
                                     *prev_length = length;
                                 }
                             })
-                            .or_insert((i, length));
+                            .or_insert((is_clean, i, length));
                         (tx_id, tags, length)
                     })
                 })
                 .collect_vec();
-            for (_, (i, _)) in longest_tx_per_source.iter() {
+
+            for (_, (_, i, _)) in longest_tx_per_source.iter() {
                 tx_tags[*i].1.push(TranscriptPickType::Length);
             }
 
@@ -604,7 +638,10 @@ impl ProviderInterface for Provider {
             let reader = self.reference_reader.as_ref().unwrap();
             let seq = reader
                 .get(ac, begin.map(|x| x as u64), end.map(|x| x as u64))
-                .map_err(|_| Error::NoSequenceRecord(ac.to_string()))?
+                .map_err(|e| {
+                    tracing::error!("Failed to fetch sequence for {}: {}", ac, e);
+                    Error::NoSequenceRecord(format!("{} - {}", ac, e))
+                })?
                 .ok_or_else(|| Error::NoSequenceRecord(ac.to_string()))?;
 
             return String::from_utf8(seq).map_err(|_| {
@@ -667,7 +704,7 @@ impl ProviderInterface for Provider {
             .transcripts[tx_idx];
         for genome_alignment in &tx.genome_alignments {
             if genome_alignment.contig == alt_ac {
-                return Ok(genome_alignment
+                let mut exons: Vec<_> = genome_alignment
                     .exons
                     .iter()
                     .map(|exon| TxExonsRecord {
@@ -696,7 +733,9 @@ impl ProviderInterface for Provider {
                         alt_exon_id: i32::MAX,
                         exon_aln_id: i32::MAX,
                     })
-                    .collect());
+                    .collect();
+                exons.sort_by_key(|e| e.alt_start_i);
+                return Ok(exons);
             }
         }
 
@@ -729,8 +768,8 @@ impl ProviderInterface for Provider {
                     if let Some(genome_alignment) = tx.genome_alignments.first() {
                         Some(Ok(TxInfoRecord {
                             hgnc: tx.gene_id.clone(),
-                            cds_start_i: genome_alignment.cds_start,
-                            cds_end_i: genome_alignment.cds_end,
+                            cds_start_i: tx.start_codon,
+                            cds_end_i: tx.stop_codon,
                             tx_ac: tx.id.clone(),
                             alt_ac: genome_alignment.contig.to_string(),
                             alt_aln_method: "splign".into(),
@@ -873,8 +912,8 @@ impl ProviderInterface for Provider {
             if genome_alignment.contig == alt_ac {
                 return Ok(TxInfoRecord {
                     hgnc: tx.gene_id.clone(),
-                    cds_start_i: genome_alignment.cds_start,
-                    cds_end_i: genome_alignment.cds_end,
+                    cds_start_i: tx.start_codon,
+                    cds_end_i: tx.stop_codon,
                     tx_ac: tx.id.clone(),
                     alt_ac: alt_ac.to_string(),
                     alt_aln_method: ALT_ALN_METHOD.to_string(),

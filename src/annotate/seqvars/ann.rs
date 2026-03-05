@@ -133,6 +133,14 @@ pub enum Consequence {
     /// SO:conservative_inframe_deletion, VEP:inframe_deletion
     ConservativeInframeDeletion,
 
+    /// "An inframe non synonymous variant that deletes bases from the coding sequence."
+    /// SO:inframe_deletion, VEP:inframe_deletion
+    InframeDeletion,
+
+    /// "An inframe non synonymous variant that inserts bases into in the coding sequence."
+    /// SO:inframe_insertion, VEP:inframe_insertion
+    InframeInsertion,
+
     /// "A sequence variant, that changes one or more bases, resulting in a different amino acid sequence but where the length is preserved."
     /// SO:missense_variant, VEP:missense_variant
     MissenseVariant,
@@ -140,6 +148,14 @@ pub enum Consequence {
     /// "A sequence variant whereby at least one base of a codon encoding a rare amino acid is changed, resulting in a different encoded amino acid."
     /// SO:rare_amino_acid_variant
     RareAminoAcidVariant,
+
+    /// "A sequence variant whereby at least one base of a codon is changed, resulting in a selenocysteine."
+    /// SO: selenocysteine_gain
+    SelenocysteineGain,
+
+    /// "A sequence variant whereby at least one base of a codon encoding selenocysteine is changed, resulting in a different encoded amino acid."
+    /// SO: selenocysteine_loss
+    SelenocysteineLoss,
 
     /// "A sequence_variant which is predicted to change the protein encoded in the coding sequence."
     /// SO:protein_altering_variant, VEP:protein_altering_variant
@@ -168,10 +184,10 @@ pub enum Consequence {
     /// SO:splice_polypyrimidine_tract_variant, VEP:splice_polypyrimidine_tract_variant
     SplicePolypyrimidineTractVariant,
 
-    // Not used by mehari, but by VEP
-    // /// "A sequence variant where at least one base of the final codon of an incompletely annotated transcript is changed."
-    // /// SO:incomplete_terminal_codon_variant, VEP:incomplete_terminal_codon_variant
-    // IncompleteTerminalCodonVariant
+    /// "A sequence variant where at least one base of the final codon of an incompletely annotated transcript is changed."
+    /// SO:incomplete_terminal_codon_variant, VEP:incomplete_terminal_codon_variant
+    IncompleteTerminalCodonVariant,
+
     /// "A sequence variant where at least one base in the start codon is changed, but the start remains."
     /// SO:start_retained_variant, VEP:start_retained_variant
     StartRetainedVariant,
@@ -208,6 +224,10 @@ pub enum Consequence {
     #[serde(rename = "5_prime_UTR_intron_variant")]
     FivePrimeUtrIntronVariant,
 
+    #[display("5_prime_UTR_variant")]
+    #[serde(rename = "5_prime_UTR_variant")]
+    FivePrimeUtrVariant,
+
     /// "A UTR variant of exonic sequence of the 3' UTR."
     /// SO:3_prime_UTR_exon_variant, VEP:3_prime_UTR_variant
     #[display("3_prime_UTR_exon_variant")]
@@ -219,6 +239,14 @@ pub enum Consequence {
     #[display("3_prime_UTR_intron_variant")]
     #[serde(rename = "3_prime_UTR_intron_variant")]
     ThreePrimeUtrIntronVariant,
+
+    #[display("3_prime_UTR_variant")]
+    #[serde(rename = "3_prime_UTR_variant")]
+    ThreePrimeUtrVariant,
+
+    /// "A transcript variant of a non coding RNA gene."
+    /// SO: non_coding_transcript_variant, VEP:non_coding_transcript_variant
+    NonCodingTranscriptVariant,
 
     /// "A sequence variant that changes non-coding exon sequence in a non-coding transcript."
     /// SO:non_coding_transcript_exon_variant, VEP:non_coding_transcript_variant
@@ -312,9 +340,13 @@ impl From<Consequence> for PutativeImpact {
             | DisruptiveInframeDeletion
             | ConservativeInframeInsertion
             | ConservativeInframeDeletion
+            | InframeInsertion
+            | InframeDeletion
             | ProteinAlteringVariant
             | MissenseVariant
-            | RareAminoAcidVariant => PutativeImpact::Moderate,
+            | RareAminoAcidVariant
+            | SelenocysteineGain
+            | SelenocysteineLoss => PutativeImpact::Moderate,
             SpliceDonorFifthBaseVariant
             | SpliceRegionVariant
             | ExonicSpliceRegionVariant
@@ -322,13 +354,17 @@ impl From<Consequence> for PutativeImpact {
             | SplicePolypyrimidineTractVariant
             | StartRetainedVariant
             | StopRetainedVariant
-            | SynonymousVariant => PutativeImpact::Low,
+            | SynonymousVariant
+            | IncompleteTerminalCodonVariant => PutativeImpact::Low,
             CodingSequenceVariant
             | MatureMirnaVariant
             | FivePrimeUtrExonVariant
             | FivePrimeUtrIntronVariant
+            | FivePrimeUtrVariant
             | ThreePrimeUtrExonVariant
             | ThreePrimeUtrIntronVariant
+            | ThreePrimeUtrVariant
+            | NonCodingTranscriptVariant
             | NonCodingTranscriptExonVariant
             | NonCodingTranscriptIntronVariant
             | CodingTranscriptIntronVariant
