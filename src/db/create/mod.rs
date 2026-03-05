@@ -118,17 +118,17 @@ struct LabelEntry {
     /// Label to transfer.
     label: String,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub enum GeneId {
     Hgnc(usize),
-    PseudoId(usize),
+    Fallback(String),
 }
 
 impl Display for GeneId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             GeneId::Hgnc(id) => write!(f, "HGNC:{}", id),
-            GeneId::PseudoId(id) => write!(f, "PSEUDO:{}", id),
+            GeneId::Fallback(id) => write!(f, "FALLBACK:{}", id),
         }
     }
 }
@@ -139,8 +139,8 @@ impl FromStr for GeneId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(num_str) = s.strip_prefix("HGNC:") {
             num_str.parse::<usize>().map(GeneId::Hgnc)
-        } else if let Some(num_str) = s.strip_prefix("PSEUDO:") {
-            num_str.parse::<usize>().map(GeneId::PseudoId)
+        } else if let Some(fallback_str) = s.strip_prefix("FALLBACK:") {
+            Ok(GeneId::Fallback(fallback_str.to_string()))
         } else {
             s.parse::<usize>().map(GeneId::Hgnc)
         }
@@ -247,16 +247,6 @@ static DISCARD_BIOTYPES_GENES: Lazy<HashSet<BioType>> = Lazy::new(|| {
     ])
 });
 
-/// Basic hash to produce stable PSEUDO gene ids in case of missing hgnc id.
-fn generate_pseudo_id(identifier: &str) -> usize {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in identifier.bytes() {
-        hash ^= byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    (hash & 0x7FFFFFFF) as usize
-}
-
 #[derive(Debug, Clone, Default)]
 struct TranscriptLoader {
     genome_release: GenomeRelease,
@@ -279,11 +269,11 @@ impl TranscriptLoader {
     fn merge(&mut self, other: &mut Self) -> &mut Self {
         assert_eq!(self.genome_release, other.genome_release);
         assert_eq!(self.cdot_version, other.cdot_version);
-        for (hgnc_id, gene) in other.gene_id_to_gene.drain() {
-            if let Some(old_gene) = self.gene_id_to_gene.insert(hgnc_id, gene.clone()) {
+        for (gene_id, gene) in other.gene_id_to_gene.drain() {
+            if let Some(old_gene) = self.gene_id_to_gene.insert(gene_id.clone(), gene.clone()) {
                 tracing::warn!(
                     "Overwriting gene: {}\n{:?},\n{:?}",
-                    &hgnc_id,
+                    &gene_id,
                     &old_gene,
                     &gene
                 );
@@ -301,8 +291,8 @@ impl TranscriptLoader {
             }
         }
 
-        for (hgnc_id, mut tx_ids) in other.gene_id_to_transcript_ids.drain() {
-            let ids = self.gene_id_to_transcript_ids.entry(hgnc_id).or_default();
+        for (gene_id, mut tx_ids) in other.gene_id_to_transcript_ids.drain() {
+            let ids = self.gene_id_to_transcript_ids.entry(gene_id).or_default();
             ids.append(&mut tx_ids);
             ids.sort_unstable();
             ids.dedup();
@@ -341,14 +331,14 @@ impl TranscriptLoader {
         self.cdot_version = cdot_version;
 
         for (_, gene) in cdot_genes {
-            if let Some(hgnc_id) = gene.hgnc.as_ref() {
-                let gene_id: GeneId = hgnc_id.parse()?;
-                self.gene_id_to_gene.insert(gene_id, gene);
+            if let Some(gene_id) = gene.hgnc.as_ref() {
+                let gene_id: GeneId = gene_id.parse()?;
+                self.gene_id_to_gene.insert(gene_id.clone(), gene);
                 self.gene_id_to_transcript_ids.entry(gene_id).or_default();
             }
         }
 
-        for (tx_id, tx) in cdot_transcripts {
+        for (tx_id, mut tx) in cdot_transcripts {
             let gene_id = if let Some(hgnc_str) = tx.hgnc.as_ref() {
                 hgnc_str.parse().ok()
             } else {
@@ -359,20 +349,27 @@ impl TranscriptLoader {
                 Some(id) => id,
                 None => {
                     // group by gene_name if available, otherwise fall back to transcript id
-                    let grouping_key = tx.gene_name.as_deref().unwrap_or(tx.id.as_str());
-                    let fake_id = GeneId::PseudoId(generate_pseudo_id(grouping_key));
+                    let grouping_key = if !tx.gene_version.is_empty() {
+                        tx.gene_version.as_str()
+                    } else {
+                        tx.gene_name.as_deref().unwrap_or(tx.id.as_str())
+                    };
+                    let fake_id = GeneId::Fallback(grouping_key.to_string());
 
                     // only insert the dummy gene if we haven't seen this PseudoId before
-                    self.gene_id_to_gene.entry(fake_id).or_insert_with(|| Gene {
-                        hgnc: Some(fake_id.to_string()),
-                        gene_symbol: tx.gene_name.clone(),
-                        aliases: None,
-                        biotype: None,
-                        description: None,
-                        map_location: None,
-                        summary: None,
-                        url: "".into(),
-                    });
+                    self.gene_id_to_gene
+                        .entry(fake_id.clone())
+                        .or_insert_with(|| Gene {
+                            hgnc: Some(fake_id.clone().to_string()),
+                            gene_symbol: tx.gene_name.clone(),
+                            aliases: None,
+                            biotype: None,
+                            description: None,
+                            map_location: None,
+                            summary: None,
+                            url: "".into(),
+                        });
+                    tx.hgnc = Some(fake_id.clone().to_string());
 
                     fake_id
                 }
@@ -390,23 +387,29 @@ impl TranscriptLoader {
 
     fn filter_initial_hgnc_entries(&mut self) -> Result<(), Error> {
         tracing::info!("Filtering Hgnc entries …");
-        for (hgnc_id, tx_ids) in &self.gene_id_to_transcript_ids {
+        for (gene_id, tx_ids) in &self.gene_id_to_transcript_ids {
             if tx_ids.is_empty() {
-                *self.discards.entry(Identifier::Gene(*hgnc_id)).or_default() |=
-                    Reason::NoTranscripts;
+                *self
+                    .discards
+                    .entry(Identifier::Gene(gene_id.clone()))
+                    .or_default() |= Reason::NoTranscripts;
             }
-            if let Some(gene) = self.gene_id_to_gene.get(hgnc_id) {
+            if let Some(gene) = self.gene_id_to_gene.get(gene_id) {
                 if gene
                     .biotype
                     .as_ref()
                     .is_some_and(|bt| bt.iter().any(|b| DISCARD_BIOTYPES_GENES.contains(b)))
                 {
-                    *self.discards.entry(Identifier::Gene(*hgnc_id)).or_default() |=
-                        Reason::Biotype;
+                    *self
+                        .discards
+                        .entry(Identifier::Gene(gene_id.clone()))
+                        .or_default() |= Reason::Biotype;
                 }
             } else {
-                *self.discards.entry(Identifier::Gene(*hgnc_id)).or_default() |=
-                    Reason::MissingGene;
+                *self
+                    .discards
+                    .entry(Identifier::Gene(gene_id.clone()))
+                    .or_default() |= Reason::MissingGene;
             }
         }
         // self.discard()?;
@@ -428,18 +431,18 @@ impl TranscriptLoader {
     fn filter_genes(&mut self) -> Result<(), Error> {
         tracing::info!("Filtering genes …");
         // Check whether the gene has a gene symbol.
-        let missing_symbol = |_hgnc_id: GeneId, gene: &Gene, _txs: &[&Transcript]| -> bool {
+        let missing_symbol = |_gene_id: GeneId, gene: &Gene, _txs: &[&Transcript]| -> bool {
             gene.gene_symbol.is_none() || gene.gene_symbol.as_ref().unwrap().is_empty()
         };
         // Check whether the gene has a biotype that should be discarded.
-        let biotype = |_hgnc_id: GeneId, gene: &Gene, _txs: &[&Transcript]| -> bool {
+        let biotype = |_gene_id: GeneId, gene: &Gene, _txs: &[&Transcript]| -> bool {
             gene.biotype
                 .as_ref()
                 .map(|bt| bt.iter().any(|bt| DISCARD_BIOTYPES_GENES.contains(bt)))
                 .unwrap_or(false)
         };
         // Check whether all transcripts for a gene are predicted.
-        let predicted_only = |_hgnc_id: GeneId, _gene: &Gene, txs: &[&Transcript]| -> bool {
+        let predicted_only = |_gene_id: GeneId, _gene: &Gene, txs: &[&Transcript]| -> bool {
             !txs.is_empty() && txs.iter().all(|tx| tx.id.starts_with('X'))
         };
         type Filter = fn(GeneId, &Gene, &[&Transcript]) -> bool;
@@ -452,17 +455,17 @@ impl TranscriptLoader {
         let discarded_genes = self
             .gene_id_to_gene
             .iter()
-            .filter_map(|(hgnc_id, gene)| {
-                let txs = self.gene_id_to_transcript_ids[hgnc_id]
+            .filter_map(|(gene_id, gene)| {
+                let txs = self.gene_id_to_transcript_ids[gene_id]
                     .iter()
                     .map(|tx_id| &self.transcript_id_to_transcript[tx_id])
                     .collect_vec();
                 let reason = filters
                     .iter()
-                    .filter_map(|(f, r)| f(*hgnc_id, gene, &txs).then_some(*r))
+                    .filter_map(|(f, r)| f(gene_id.clone(), gene, &txs).then_some(*r))
                     .fold(BitFlags::<Reason>::default(), |a, b| a | b);
                 let empty = reason.is_empty();
-                (!empty).then_some((Identifier::Gene(*hgnc_id), reason))
+                (!empty).then_some((Identifier::Gene(gene_id.clone()), reason))
             })
             .collect_vec();
 
@@ -479,8 +482,8 @@ impl TranscriptLoader {
         for id in selected_ids {
             self.mark_discarded(id, Reason::DeselectedGene.into())?;
             match id {
-                Identifier::Gene(hgnc_id) => {
-                    for tx_id in self.gene_id_to_transcript_ids.get(hgnc_id).unwrap() {
+                Identifier::Gene(gene_id) => {
+                    for tx_id in self.gene_id_to_transcript_ids.get(gene_id).unwrap() {
                         *self
                             .discards
                             .entry(Identifier::Transcript(tx_id.clone()))
@@ -515,8 +518,11 @@ impl TranscriptLoader {
         }
 
         // Check whether the transcript has an HGNC id.
-        let missing_hgnc =
-            |p: &Params| -> bool { p.tx.hgnc.is_none() || p.tx.hgnc.as_ref().unwrap().is_empty() };
+        let missing_hgnc = |p: &Params| -> bool {
+            p.tx.hgnc.is_none()
+                || p.tx.hgnc.as_ref().unwrap().is_empty()
+                || p.tx.hgnc.as_ref().unwrap().starts_with("FALLBACK:")
+        };
 
         // Check whether the transcript has any genome builds.
         let empty_genome_builds = |p: &Params| -> bool { p.tx.genome_builds.is_empty() };
@@ -654,7 +660,7 @@ impl TranscriptLoader {
         let discarded = self
             .gene_id_to_transcript_ids
             .iter()
-            .filter_map(|(_hgnc_id, tx_ids)| {
+            .filter_map(|(_gene_id, tx_ids)| {
                 let txs = tx_ids
                     .iter()
                     .map(|tx_id| self.transcript_id_to_transcript.get(tx_id).unwrap())
@@ -845,21 +851,29 @@ impl TranscriptLoader {
     /// Remove all hgnc ids for which there are no transcripts left.
     fn filter_empty_hgnc_mappings(&mut self) -> Result<(), Error> {
         tracing::info!("Removing empty HGNC mappings …");
-        let hgnc_ids_gene: HashSet<_> = self.gene_id_to_gene.keys().collect();
-        let hgnc_ids_tx: HashSet<_> = self.gene_id_to_transcript_ids.keys().collect();
-        let hgnc_gene_but_no_tx = &hgnc_ids_gene - &hgnc_ids_tx;
-        let hgnc_tx_but_no_gene = &hgnc_ids_tx - &hgnc_ids_gene;
-        for hgnc_id in hgnc_gene_but_no_tx {
-            *self.discards.entry(Identifier::Gene(*hgnc_id)).or_default() |= Reason::NoTranscripts;
+        let gene_ids_gene: HashSet<_> = self.gene_id_to_gene.keys().collect();
+        let gene_ids_tx: HashSet<_> = self.gene_id_to_transcript_ids.keys().collect();
+        let gene_id_but_no_tx_id = &gene_ids_gene - &gene_ids_tx;
+        let tx_id_but_no_gene_id = &gene_ids_tx - &gene_ids_gene;
+        for gene_id in gene_id_but_no_tx_id {
+            *self
+                .discards
+                .entry(Identifier::Gene(gene_id.clone()))
+                .or_default() |= Reason::NoTranscripts;
         }
-        for hgnc_id in hgnc_tx_but_no_gene {
-            *self.discards.entry(Identifier::Gene(*hgnc_id)).or_default() |= Reason::MissingGene;
+        for gene_id in tx_id_but_no_gene_id {
+            *self
+                .discards
+                .entry(Identifier::Gene(gene_id.clone()))
+                .or_default() |= Reason::MissingGene;
         }
 
-        for (hgnc_id, txs) in self.gene_id_to_transcript_ids.iter() {
+        for (gene_id, txs) in self.gene_id_to_transcript_ids.iter() {
             if txs.is_empty() {
-                *self.discards.entry(Identifier::Gene(*hgnc_id)).or_default() |=
-                    Reason::NoTranscriptLeft;
+                *self
+                    .discards
+                    .entry(Identifier::Gene(gene_id.clone()))
+                    .or_default() |= Reason::NoTranscriptLeft;
             }
         }
         // self.discard()?;
@@ -869,10 +883,10 @@ impl TranscriptLoader {
 
     fn update_pseudogene_status(&mut self) -> Result<(), Error> {
         let empty = Reason::empty();
-        for (hgnc_id, gene) in &self.gene_id_to_gene {
+        for (gene_id, gene) in &self.gene_id_to_gene {
             if !self
                 .discards
-                .get(&Identifier::Gene(*hgnc_id))
+                .get(&Identifier::Gene(gene_id.clone()))
                 .unwrap_or(&empty)
                 .contains(Reason::NoTranscriptLeft)
             {
@@ -883,7 +897,10 @@ impl TranscriptLoader {
                 .as_ref()
                 .is_some_and(|bt| bt.contains(&BioType::Pseudogene))
             {
-                *self.discards.entry(Identifier::Gene(*hgnc_id)).or_default() |= Reason::Pseudogene;
+                *self
+                    .discards
+                    .entry(Identifier::Gene(gene_id.clone()))
+                    .or_default() |= Reason::Pseudogene;
             }
         }
         Ok(())
@@ -1025,21 +1042,21 @@ impl TranscriptLoader {
         gene_symbols
             .iter()
             .map(|symbol| {
-                let (hgnc_id, _) = self
+                let (gene_id, _) = self
                     .gene_id_to_gene
                     .iter()
                     .find(|(_, gene)| gene.gene_symbol == Some(symbol.clone()))
                     .unwrap_or_else(|| panic!("Gene symbol not found: {}", symbol));
-                Identifier::Gene(*hgnc_id)
+                Identifier::Gene(gene_id.clone())
             })
             .collect()
     }
 
     fn gene_name(&self, id: &Identifier) -> Option<String> {
         match id {
-            Identifier::Gene(hgnc_id) => self
+            Identifier::Gene(gene_id) => self
                 .gene_id_to_gene
-                .get(hgnc_id)
+                .get(gene_id)
                 .and_then(|gene| gene.gene_symbol.clone()),
             Identifier::Transcript(tx_id) => self
                 .transcript_id_to_transcript
@@ -1061,8 +1078,8 @@ impl TranscriptLoader {
                         .collect()
                 })
             }
-            Identifier::Gene(hgnc_id) => {
-                self.gene_id_to_transcript_ids.get(hgnc_id).map(|tx_ids| {
+            Identifier::Gene(gene_id) => {
+                self.gene_id_to_transcript_ids.get(gene_id).map(|tx_ids| {
                     tx_ids
                         .iter()
                         .flat_map(|tx_id| {
@@ -1216,8 +1233,10 @@ impl TranscriptLoader {
                         if let Some(txs) = txs {
                             txs.retain(|tx| tx != tx_id);
                             if txs.is_empty() {
-                                *self.discards.entry(Identifier::Gene(gene_id)).or_default() |=
-                                    Reason::NoTranscriptLeft;
+                                *self
+                                    .discards
+                                    .entry(Identifier::Gene(gene_id.clone()))
+                                    .or_default() |= Reason::NoTranscriptLeft;
                                 self.gene_id_to_transcript_ids.remove(&gene_id);
                                 self.gene_id_to_gene.remove(&gene_id);
                             }
@@ -1241,8 +1260,8 @@ impl TranscriptLoader {
     /// (to avoid erroneously discarding hgnc entries for a non-important reason).
     fn propagate_discard_reasons(&mut self, _raw: &Self) -> Result<(), Error> {
         // First check whether all transcripts of a gene have been marked as discarded.
-        for (hgnc_id, _) in self.gene_id_to_gene.iter() {
-            let tx_ids = self.gene_id_to_transcript_ids.get(hgnc_id).unwrap();
+        for (gene_id, _) in self.gene_id_to_gene.iter() {
+            let tx_ids = self.gene_id_to_transcript_ids.get(gene_id).unwrap();
             if !tx_ids.is_empty()
                 && tx_ids.iter().all(|tx_id| {
                     self.discards
@@ -1250,8 +1269,10 @@ impl TranscriptLoader {
                         .is_some_and(|d| d.intersects(Reason::hard()))
                 })
             {
-                *self.discards.entry(Identifier::Gene(*hgnc_id)).or_default() |=
-                    Reason::NoTranscriptLeft;
+                *self
+                    .discards
+                    .entry(Identifier::Gene(gene_id.clone()))
+                    .or_default() |= Reason::NoTranscriptLeft;
             }
         }
 
@@ -1269,10 +1290,10 @@ impl TranscriptLoader {
         tracing::info!("Constructing protobuf data structures …");
         let start = Instant::now();
 
-        let (hgnc_ids, tx_ids): (Vec<GeneId>, Vec<TranscriptId>) = {
+        let (gene_ids, tx_ids): (Vec<GeneId>, Vec<TranscriptId>) = {
             // ensure we use all hgnc_ids that are available to us;
             // this includes hgnc_ids for which we only have transcripts but no genes or vice versa
-            let hgnc_ids = self
+            let gene_ids = self
                 .gene_id_to_gene
                 .keys()
                 .cloned()
@@ -1295,7 +1316,7 @@ impl TranscriptLoader {
                 })
                 .cloned()
                 .collect();
-            (hgnc_ids, tx_ids)
+            (gene_ids, tx_ids)
         };
 
         // Construct sequence database.
@@ -1321,17 +1342,17 @@ impl TranscriptLoader {
         };
 
         tracing::info!("  Creating transcript records for each gene…");
-        let data_transcripts = hgnc_ids
+        let data_transcripts = gene_ids
             .iter()
-            .flat_map(|hgnc_id| {
+            .flat_map(|gene_id| {
                 let tx_ids = self
                     .gene_id_to_transcript_ids
-                    .get(hgnc_id)
-                    .unwrap_or_else(|| panic!("No transcripts for hgnc id {:?}", &hgnc_id));
+                    .get(gene_id)
+                    .unwrap_or_else(|| panic!("No transcripts for hgnc id {:?}", &gene_id));
                 tx_ids
                     .iter()
                     .sorted_unstable()
-                    .map(|tx_id| self.protobuf_transcript(hgnc_id, tx_id))
+                    .map(|tx_id| self.protobuf_transcript(gene_id, tx_id))
             })
             .collect();
 
@@ -1340,17 +1361,17 @@ impl TranscriptLoader {
         // Build mapping of gene HGNC symbol to transcript IDs.
         tracing::info!("  Build gene symbol to transcript ID mapping …");
         let empty = vec![];
-        let gene_to_tx = hgnc_ids
+        let gene_to_tx = gene_ids
             .iter()
-            .map(|hgnc_id| {
+            .map(|gene_id| {
                 let tx_ids = self
                     .gene_id_to_transcript_ids
-                    .get(hgnc_id)
+                    .get(gene_id)
                     .unwrap_or(&empty);
-                let hgnc_reason = self.discards.get(&Identifier::Gene(*hgnc_id));
+                let hgnc_reason = self.discards.get(&Identifier::Gene(gene_id.clone()));
                 let filtered = hgnc_reason.is_some_and(|reason| reason.intersects(Reason::hard()));
                 crate::pbs::txs::GeneToTxId {
-                    gene_id: hgnc_id.to_string(),
+                    gene_id: gene_id.to_string(),
                     tx_ids: tx_ids
                         .iter()
                         .sorted_unstable()
@@ -1385,7 +1406,7 @@ impl TranscriptLoader {
 
     fn protobuf_transcript(
         &self,
-        hgnc_id: &GeneId,
+        gene_id: &GeneId,
         tx_id: &TranscriptId,
     ) -> crate::pbs::txs::Transcript {
         let tx = self
@@ -1401,7 +1422,7 @@ impl TranscriptLoader {
             .unwrap_or_default();
         let gene_reason = self
             .discards
-            .get(&Identifier::Gene(*hgnc_id))
+            .get(&Identifier::Gene(gene_id.clone()))
             .copied()
             .unwrap_or_default();
         let combined_reason = tx_reason | gene_reason;
@@ -1437,14 +1458,14 @@ impl TranscriptLoader {
         // Now, just obtain the basic properties and create a new `data::Transcript`.
         let Gene { gene_symbol, .. } =
             self.gene_id_to_gene
-                .get(hgnc_id)
+                .get(gene_id)
                 .cloned()
                 .unwrap_or_else(|| Gene {
                     aliases: None,
                     biotype: None,
                     description: None,
                     gene_symbol: None,
-                    hgnc: Some(hgnc_id.to_string()),
+                    hgnc: Some(gene_id.to_string()),
                     map_location: None,
                     summary: None,
                     url: "".to_string(),
@@ -1465,7 +1486,7 @@ impl TranscriptLoader {
         crate::pbs::txs::Transcript {
             id: (*tx_id).to_string(),
             gene_symbol: gene_symbol.unwrap_or("<MISSING>".to_string()),
-            gene_id: hgnc_id.to_string(),
+            gene_id: gene_id.to_string(),
             biotype,
             tags,
             protein,

@@ -311,135 +311,9 @@ txDb:
         altCdsEndI: 1559
         cigar: 1559M
     filtered: false
-  - id: ENST00000387459.1
-    geneSymbol: <MISSING>
-    geneId: PSEUDO:15061744
-    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
-    tags:
-    - TRANSCRIPT_TAG_BASIC
-    genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
-      contig: NC_012920.1
-      strand: STRAND_MINUS
-      exons:
-      - altStartI: 14673
-        altEndI: 14742
-        altCdsStartI: 1
-        altCdsEndI: 69
-        cigar: 69M
-    filtered: false
-    filterReason: 384
-  - id: ENST00000387377.1
-    geneSymbol: <MISSING>
-    geneId: PSEUDO:94132853
-    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
-    tags:
-    - TRANSCRIPT_TAG_BASIC
-    genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
-      contig: NC_012920.1
-      strand: STRAND_PLUS
-      exons:
-      - altStartI: 4401
-        altEndI: 4469
-        altCdsStartI: 1
-        altCdsEndI: 68
-        cigar: 68M
-    filtered: false
-    filterReason: 384
-  - id: ENST00000387456.1
-    geneSymbol: <MISSING>
-    geneId: PSEUDO:95847769
-    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
-    tags:
-    - TRANSCRIPT_TAG_BASIC
-    genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
-      contig: NC_012920.1
-      strand: STRAND_PLUS
-      exons:
-      - altStartI: 12265
-        altEndI: 12336
-        altCdsStartI: 1
-        altCdsEndI: 71
-        cigar: 71M
-    filtered: false
-    filterReason: 384
-  - id: ENST00000387429.1
-    geneSymbol: <MISSING>
-    geneId: PSEUDO:236221015
-    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
-    tags:
-    - TRANSCRIPT_TAG_BASIC
-    genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
-      contig: NC_012920.1
-      strand: STRAND_PLUS
-      exons:
-      - altStartI: 9990
-        altEndI: 10058
-        altCdsStartI: 1
-        altCdsEndI: 68
-        cigar: 68M
-    filtered: false
-    filterReason: 384
-  - id: ENST00000387314.1
-    geneSymbol: <MISSING>
-    geneId: PSEUDO:248995090
-    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
-    tags:
-    - TRANSCRIPT_TAG_BASIC
-    genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
-      contig: NC_012920.1
-      strand: STRAND_PLUS
-      exons:
-      - altStartI: 576
-        altEndI: 647
-        altCdsStartI: 1
-        altCdsEndI: 71
-        cigar: 71M
-    filtered: false
-    filterReason: 384
-  - id: ENST00000387365.1
-    geneSymbol: <MISSING>
-    geneId: PSEUDO:435835462
-    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
-    tags:
-    - TRANSCRIPT_TAG_BASIC
-    genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
-      contig: NC_012920.1
-      strand: STRAND_PLUS
-      exons:
-      - altStartI: 4262
-        altEndI: 4331
-        altCdsStartI: 1
-        altCdsEndI: 69
-        cigar: 69M
-    filtered: false
-    filterReason: 384
-  - id: ENST00000387449.1
-    geneSymbol: <MISSING>
-    geneId: PSEUDO:464793753
-    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
-    tags:
-    - TRANSCRIPT_TAG_BASIC
-    genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
-      contig: NC_012920.1
-      strand: STRAND_PLUS
-      exons:
-      - altStartI: 12206
-        altEndI: 12265
-        altCdsStartI: 1
-        altCdsEndI: 59
-        cigar: 59M
-    filtered: false
-    filterReason: 384
   - id: ENST00000386347.1
     geneSymbol: <MISSING>
-    geneId: PSEUDO:614719287
+    geneId: FALLBACK:ENSG00000209082
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -455,9 +329,9 @@ txDb:
         cigar: 75M
     filtered: false
     filterReason: 384
-  - id: ENST00000387439.1
+  - id: ENST00000387314.1
     geneSymbol: <MISSING>
-    geneId: PSEUDO:629090974
+    geneId: FALLBACK:ENSG00000210049
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -466,16 +340,52 @@ txDb:
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
-      - altStartI: 10404
-        altEndI: 10469
+      - altStartI: 576
+        altEndI: 647
         altCdsStartI: 1
-        altCdsEndI: 65
-        cigar: 65M
+        altCdsEndI: 71
+        cigar: 71M
     filtered: false
     filterReason: 384
-  - id: ENST00000387409.1
+  - id: ENST00000387342.1
     geneSymbol: <MISSING>
-    geneId: PSEUDO:648866085
+    geneId: FALLBACK:ENSG00000210077
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    tags:
+    - TRANSCRIPT_TAG_BASIC
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH37
+      contig: NC_012920.1
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 1601
+        altEndI: 1670
+        altCdsStartI: 1
+        altCdsEndI: 69
+        cigar: 69M
+    filtered: false
+    filterReason: 384
+  - id: ENST00000387365.1
+    geneSymbol: <MISSING>
+    geneId: FALLBACK:ENSG00000210100
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    tags:
+    - TRANSCRIPT_TAG_BASIC
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH37
+      contig: NC_012920.1
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 4262
+        altEndI: 4331
+        altCdsStartI: 1
+        altCdsEndI: 69
+        cigar: 69M
+    filtered: false
+    filterReason: 384
+  - id: ENST00000387372.1
+    geneSymbol: <MISSING>
+    geneId: FALLBACK:ENSG00000210107
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -484,26 +394,26 @@ txDb:
       contig: NC_012920.1
       strand: STRAND_MINUS
       exons:
-      - altStartI: 5825
-        altEndI: 5891
+      - altStartI: 4328
+        altEndI: 4400
         altCdsStartI: 1
-        altCdsEndI: 66
-        cigar: 66M
+        altCdsEndI: 72
+        cigar: 72M
     filtered: false
     filterReason: 384
-  - id: ENST00000387461.2
+  - id: ENST00000387377.1
     geneSymbol: <MISSING>
-    geneId: PSEUDO:731873158
+    geneId: FALLBACK:ENSG00000210112
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
     - genomeBuild: GENOME_BUILD_GRCH37
       contig: NC_012920.1
-      strand: STRAND_MINUS
+      strand: STRAND_PLUS
       exons:
-      - altStartI: 15955
-        altEndI: 16023
+      - altStartI: 4401
+        altEndI: 4469
         altCdsStartI: 1
         altCdsEndI: 68
         cigar: 68M
@@ -511,7 +421,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387382.1
     geneSymbol: <MISSING>
-    geneId: PSEUDO:771497433
+    geneId: FALLBACK:ENSG00000210117
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -527,63 +437,9 @@ txDb:
         cigar: 68M
     filtered: false
     filterReason: 384
-  - id: ENST00000387460.2
-    geneSymbol: <MISSING>
-    geneId: PSEUDO:819498253
-    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
-    tags:
-    - TRANSCRIPT_TAG_BASIC
-    genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
-      contig: NC_012920.1
-      strand: STRAND_PLUS
-      exons:
-      - altStartI: 15887
-        altEndI: 15953
-        altCdsStartI: 1
-        altCdsEndI: 66
-        cigar: 66M
-    filtered: false
-    filterReason: 384
-  - id: ENST00000387405.1
-    geneSymbol: <MISSING>
-    geneId: PSEUDO:967520985
-    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
-    tags:
-    - TRANSCRIPT_TAG_BASIC
-    genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
-      contig: NC_012920.1
-      strand: STRAND_MINUS
-      exons:
-      - altStartI: 5760
-        altEndI: 5826
-        altCdsStartI: 1
-        altCdsEndI: 66
-        cigar: 66M
-    filtered: false
-    filterReason: 384
-  - id: ENST00000387419.1
-    geneSymbol: <MISSING>
-    geneId: PSEUDO:1017515244
-    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
-    tags:
-    - TRANSCRIPT_TAG_BASIC
-    genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
-      contig: NC_012920.1
-      strand: STRAND_PLUS
-      exons:
-      - altStartI: 7517
-        altEndI: 7585
-        altCdsStartI: 1
-        altCdsEndI: 68
-        cigar: 68M
-    filtered: false
-    filterReason: 384
   - id: ENST00000387392.1
     geneSymbol: <MISSING>
-    geneId: PSEUDO:1086053224
+    geneId: FALLBACK:ENSG00000210127
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -601,7 +457,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387400.1
     geneSymbol: <MISSING>
-    geneId: PSEUDO:1379883150
+    geneId: FALLBACK:ENSG00000210135
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -617,45 +473,45 @@ txDb:
         cigar: 73M
     filtered: false
     filterReason: 384
-  - id: ENST00000387421.1
+  - id: ENST00000387405.1
     geneSymbol: <MISSING>
-    geneId: PSEUDO:1728243183
+    geneId: FALLBACK:ENSG00000210140
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
     - genomeBuild: GENOME_BUILD_GRCH37
       contig: NC_012920.1
-      strand: STRAND_PLUS
+      strand: STRAND_MINUS
       exons:
-      - altStartI: 8294
-        altEndI: 8364
+      - altStartI: 5760
+        altEndI: 5826
         altCdsStartI: 1
-        altCdsEndI: 70
-        cigar: 70M
+        altCdsEndI: 66
+        cigar: 66M
     filtered: false
     filterReason: 384
-  - id: ENST00000387342.1
+  - id: ENST00000387409.1
     geneSymbol: <MISSING>
-    geneId: PSEUDO:1767960517
+    geneId: FALLBACK:ENSG00000210144
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
     - genomeBuild: GENOME_BUILD_GRCH37
       contig: NC_012920.1
-      strand: STRAND_PLUS
+      strand: STRAND_MINUS
       exons:
-      - altStartI: 1601
-        altEndI: 1670
+      - altStartI: 5825
+        altEndI: 5891
         altCdsStartI: 1
-        altCdsEndI: 69
-        cigar: 69M
+        altCdsEndI: 66
+        cigar: 66M
     filtered: false
     filterReason: 384
   - id: ENST00000387416.2
     geneSymbol: <MISSING>
-    geneId: PSEUDO:1771954884
+    geneId: FALLBACK:ENSG00000210151
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -671,9 +527,81 @@ txDb:
         cigar: 69M
     filtered: false
     filterReason: 384
+  - id: ENST00000387419.1
+    geneSymbol: <MISSING>
+    geneId: FALLBACK:ENSG00000210154
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    tags:
+    - TRANSCRIPT_TAG_BASIC
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH37
+      contig: NC_012920.1
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 7517
+        altEndI: 7585
+        altCdsStartI: 1
+        altCdsEndI: 68
+        cigar: 68M
+    filtered: false
+    filterReason: 384
+  - id: ENST00000387421.1
+    geneSymbol: <MISSING>
+    geneId: FALLBACK:ENSG00000210156
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    tags:
+    - TRANSCRIPT_TAG_BASIC
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH37
+      contig: NC_012920.1
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 8294
+        altEndI: 8364
+        altCdsStartI: 1
+        altCdsEndI: 70
+        cigar: 70M
+    filtered: false
+    filterReason: 384
+  - id: ENST00000387429.1
+    geneSymbol: <MISSING>
+    geneId: FALLBACK:ENSG00000210164
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    tags:
+    - TRANSCRIPT_TAG_BASIC
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH37
+      contig: NC_012920.1
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 9990
+        altEndI: 10058
+        altCdsStartI: 1
+        altCdsEndI: 68
+        cigar: 68M
+    filtered: false
+    filterReason: 384
+  - id: ENST00000387439.1
+    geneSymbol: <MISSING>
+    geneId: FALLBACK:ENSG00000210174
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    tags:
+    - TRANSCRIPT_TAG_BASIC
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH37
+      contig: NC_012920.1
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 10404
+        altEndI: 10469
+        altCdsStartI: 1
+        altCdsEndI: 65
+        cigar: 65M
+    filtered: false
+    filterReason: 384
   - id: ENST00000387441.1
     geneSymbol: <MISSING>
-    geneId: PSEUDO:1968940241
+    geneId: FALLBACK:ENSG00000210176
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -689,9 +617,45 @@ txDb:
         cigar: 69M
     filtered: false
     filterReason: 384
-  - id: ENST00000387372.1
+  - id: ENST00000387449.1
     geneSymbol: <MISSING>
-    geneId: PSEUDO:1986351106
+    geneId: FALLBACK:ENSG00000210184
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    tags:
+    - TRANSCRIPT_TAG_BASIC
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH37
+      contig: NC_012920.1
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 12206
+        altEndI: 12265
+        altCdsStartI: 1
+        altCdsEndI: 59
+        cigar: 59M
+    filtered: false
+    filterReason: 384
+  - id: ENST00000387456.1
+    geneSymbol: <MISSING>
+    geneId: FALLBACK:ENSG00000210191
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    tags:
+    - TRANSCRIPT_TAG_BASIC
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH37
+      contig: NC_012920.1
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 12265
+        altEndI: 12336
+        altCdsStartI: 1
+        altCdsEndI: 71
+        cigar: 71M
+    filtered: false
+    filterReason: 384
+  - id: ENST00000387459.1
+    geneSymbol: <MISSING>
+    geneId: FALLBACK:ENSG00000210194
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -700,11 +664,47 @@ txDb:
       contig: NC_012920.1
       strand: STRAND_MINUS
       exons:
-      - altStartI: 4328
-        altEndI: 4400
+      - altStartI: 14673
+        altEndI: 14742
         altCdsStartI: 1
-        altCdsEndI: 72
-        cigar: 72M
+        altCdsEndI: 69
+        cigar: 69M
+    filtered: false
+    filterReason: 384
+  - id: ENST00000387460.2
+    geneSymbol: <MISSING>
+    geneId: FALLBACK:ENSG00000210195
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    tags:
+    - TRANSCRIPT_TAG_BASIC
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH37
+      contig: NC_012920.1
+      strand: STRAND_PLUS
+      exons:
+      - altStartI: 15887
+        altEndI: 15953
+        altCdsStartI: 1
+        altCdsEndI: 66
+        cigar: 66M
+    filtered: false
+    filterReason: 384
+  - id: ENST00000387461.2
+    geneSymbol: <MISSING>
+    geneId: FALLBACK:ENSG00000210196
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    tags:
+    - TRANSCRIPT_TAG_BASIC
+    genomeAlignments:
+    - genomeBuild: GENOME_BUILD_GRCH37
+      contig: NC_012920.1
+      strand: STRAND_MINUS
+      exons:
+      - altStartI: 15955
+        altEndI: 16023
+        altCdsStartI: 1
+        altCdsEndI: 68
+        cigar: 68M
     filtered: false
     filterReason: 384
   geneToTx:
@@ -768,114 +768,114 @@ txDb:
     txIds:
     - ENST00000387347.2
     filtered: false
-  - geneId: PSEUDO:15061744
-    txIds:
-    - ENST00000387459.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:94132853
-    txIds:
-    - ENST00000387377.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:95847769
-    txIds:
-    - ENST00000387456.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:236221015
-    txIds:
-    - ENST00000387429.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:248995090
-    txIds:
-    - ENST00000387314.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:435835462
-    txIds:
-    - ENST00000387365.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:464793753
-    txIds:
-    - ENST00000387449.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:614719287
+  - geneId: FALLBACK:ENSG00000209082
     txIds:
     - ENST00000386347.1
     filtered: false
     filterReason: 128
-  - geneId: PSEUDO:629090974
+  - geneId: FALLBACK:ENSG00000210049
     txIds:
-    - ENST00000387439.1
+    - ENST00000387314.1
     filtered: false
     filterReason: 128
-  - geneId: PSEUDO:648866085
-    txIds:
-    - ENST00000387409.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:731873158
-    txIds:
-    - ENST00000387461.2
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:771497433
-    txIds:
-    - ENST00000387382.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:819498253
-    txIds:
-    - ENST00000387460.2
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:967520985
-    txIds:
-    - ENST00000387405.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:1017515244
-    txIds:
-    - ENST00000387419.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:1086053224
-    txIds:
-    - ENST00000387392.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:1379883150
-    txIds:
-    - ENST00000387400.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:1728243183
-    txIds:
-    - ENST00000387421.1
-    filtered: false
-    filterReason: 128
-  - geneId: PSEUDO:1767960517
+  - geneId: FALLBACK:ENSG00000210077
     txIds:
     - ENST00000387342.1
     filtered: false
     filterReason: 128
-  - geneId: PSEUDO:1771954884
+  - geneId: FALLBACK:ENSG00000210100
+    txIds:
+    - ENST00000387365.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210107
+    txIds:
+    - ENST00000387372.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210112
+    txIds:
+    - ENST00000387377.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210117
+    txIds:
+    - ENST00000387382.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210127
+    txIds:
+    - ENST00000387392.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210135
+    txIds:
+    - ENST00000387400.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210140
+    txIds:
+    - ENST00000387405.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210144
+    txIds:
+    - ENST00000387409.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210151
     txIds:
     - ENST00000387416.2
     filtered: false
     filterReason: 128
-  - geneId: PSEUDO:1968940241
+  - geneId: FALLBACK:ENSG00000210154
+    txIds:
+    - ENST00000387419.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210156
+    txIds:
+    - ENST00000387421.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210164
+    txIds:
+    - ENST00000387429.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210174
+    txIds:
+    - ENST00000387439.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210176
     txIds:
     - ENST00000387441.1
     filtered: false
     filterReason: 128
-  - geneId: PSEUDO:1986351106
+  - geneId: FALLBACK:ENSG00000210184
     txIds:
-    - ENST00000387372.1
+    - ENST00000387449.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210191
+    txIds:
+    - ENST00000387456.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210194
+    txIds:
+    - ENST00000387459.1
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210195
+    txIds:
+    - ENST00000387460.2
+    filtered: false
+    filterReason: 128
+  - geneId: FALLBACK:ENSG00000210196
+    txIds:
+    - ENST00000387461.2
     filtered: false
     filterReason: 128
 seqDb:
