@@ -13,3 +13,14 @@ perf.*
 ## Protocolbuffers library
 
 utils/var
+
+**.jsonl
+**.vcf
+**.gz
+**.bgz
+**.fai
+**.gzi
+**.fasta
+**.ped
+*/
+!.gitignore
