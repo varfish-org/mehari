@@ -1228,7 +1228,6 @@ impl TranscriptLoader {
                     let gene_id: GeneId = hgnc.parse().expect("Invalid GeneId");
 
                     if remove {
-    if remove {
                         let txs = self.gene_id_to_transcript_ids.get_mut(&gene_id);
                         if let Some(txs) = txs {
                             txs.retain(|tx| tx != tx_id);
