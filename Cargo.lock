@@ -2694,7 +2694,7 @@ dependencies = [
  "prost",
  "prost-build",
  "quick_cache",
- "rand 0.9.2",
+ "rand 0.10.0",
  "rayon",
  "rocksdb 0.24.0",
  "rstest",
