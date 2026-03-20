@@ -43,11 +43,8 @@ jobs:
           sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         if: ${{ needs.release-please.outputs.release_created }}
-        with:
-          toolchain: stable
-          override: true
 
       - name: Setup protoc
         uses: arduino/setup-protoc@v3.0.0
