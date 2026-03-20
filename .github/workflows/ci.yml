@@ -18,6 +18,7 @@ jobs:
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           components: rustfmt
 
       - name: Check format
@@ -40,6 +41,7 @@ jobs:
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           components: clippy
 
       - name: Setup protoc
@@ -96,6 +98,8 @@ jobs:
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Setup protoc
         uses: arduino/setup-protoc@v3.0.0
@@ -161,6 +165,8 @@ jobs:
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Setup protoc
         uses: arduino/setup-protoc@v3.0.0
