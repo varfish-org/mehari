@@ -80,6 +80,7 @@ struct ClinvarHgncIdCount {
 #[serde(tag = "type", content = "id", rename_all = "snake_case")]
 enum Id {
     Hgnc(String),
+    Pseudo(String),
     GeneSymbol(String),
     GeneName(String),
     GeneAlias(String),
@@ -96,6 +97,7 @@ impl Id {
     pub fn to_parts(&self) -> (String, String) {
         match self {
             Id::Hgnc(s) => ("hgnc".into(), s.clone()),
+            Id::Pseudo(s) => ("pseudo_id".into(), s.clone()),
             Id::GeneSymbol(s) => ("gene_symbol".into(), s.clone()),
             Id::GeneName(s) => ("gene_name".into(), s.clone()),
             Id::GeneAlias(s) => ("gene_alias".into(), s.clone()),
@@ -118,6 +120,8 @@ where
         let value = value.as_ref().to_string();
         if value.starts_with("HGNC:") {
             Id::Hgnc(value)
+        } else if value.starts_with("PSEUDO:") {
+            Id::Pseudo(value)
         } else if value.starts_with("ENSG") {
             Id::EnsemblGene(value)
         } else if value.starts_with("ENST") {
@@ -179,11 +183,18 @@ struct TxDbData {
     /// All gene and transcript IDs present in the database.
     all_ids: HashSet<Id>,
 
-    /// The reason for filtering, for each filtered ID.
-    filter_reasons: HashMap<Id, BitFlags<FilterReason>>,
+    /// The reason for filtering, for each hard filtered ID.
+    hard_filter_reasons: HashMap<Id, BitFlags<FilterReason>>,
+
+    #[allow(dead_code)]
+    /// The reason for filtering, for each soft filtered ID.
+    soft_filter_reasons: HashMap<Id, BitFlags<FilterReason>>,
 
     /// Discarded MANE transcripts and the reason for their exclusion.
     discarded_mane_entries: HashMap<Id, BitFlags<FilterReason>>,
+
+    /// Soft-filtered MANE transcripts (kept, but flagged).
+    soft_filtered_mane_entries: HashMap<Id, BitFlags<FilterReason>>,
 }
 
 impl TxDbData {
@@ -200,51 +211,57 @@ impl TxDbData {
             }
         }
 
-        let filter_reasons = tx_db
-            .transcripts
-            .iter()
-            .filter(|tx| tx.filtered.unwrap_or(false))
-            .map(|tx| {
-                (
-                    Id::from(&tx.id),
-                    BitFlags::<FilterReason>::from_bits(tx.filter_reason.unwrap()).unwrap(),
-                )
-            })
-            .chain(
-                tx_db
-                    .gene_to_tx
-                    .iter()
-                    .filter(|g| g.filtered.unwrap_or(false))
-                    .map(|g| {
-                        (
-                            Id::Hgnc(g.gene_id.clone()),
-                            BitFlags::<FilterReason>::from_bits(g.filter_reason.unwrap()).unwrap(),
-                        )
-                    }),
-            )
-            .collect();
+        let mut hard_filter_reasons = HashMap::new();
+        let mut soft_filter_reasons = HashMap::new();
+        let mut discarded_mane_entries = HashMap::new();
+        let mut soft_filtered_mane_entries = HashMap::new();
 
-        let discarded_mane_entries = tx_db
-            .transcripts
-            .iter()
-            .filter(|tx| {
-                tx.filtered.unwrap_or(false)
-                    && (tx.tags.contains(&(TranscriptTag::ManeSelect as i32))
-                        || tx.tags.contains(&(TranscriptTag::ManePlusClinical as i32)))
-            })
-            .map(|tx| {
-                (
-                    Id::from(&tx.id),
-                    BitFlags::<FilterReason>::from_bits(tx.filter_reason.unwrap()).unwrap(),
-                )
-            })
-            .collect();
+        // Process Transcripts
+        for tx in &tx_db.transcripts {
+            let id = Id::from(&tx.id);
+            let is_mane = tx.tags.contains(&(TranscriptTag::ManeSelect as i32))
+                || tx.tags.contains(&(TranscriptTag::ManePlusClinical as i32));
+
+            if let Some(bits) = tx.filter_reason {
+                if bits != 0 {
+                    let reason = BitFlags::<FilterReason>::from_bits_truncate(bits);
+                    if tx.filtered.unwrap_or(false) {
+                        hard_filter_reasons.insert(id.clone(), reason);
+                        if is_mane {
+                            discarded_mane_entries.insert(id, reason);
+                        }
+                    } else {
+                        soft_filter_reasons.insert(id.clone(), reason);
+                        if is_mane {
+                            soft_filtered_mane_entries.insert(id, reason);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process Genes
+        for g in &tx_db.gene_to_tx {
+            let id = Id::Hgnc(g.gene_id.clone());
+            if let Some(bits) = g.filter_reason {
+                if bits != 0 {
+                    let reason = BitFlags::<FilterReason>::from_bits_truncate(bits);
+                    if g.filtered.unwrap_or(false) {
+                        hard_filter_reasons.insert(id, reason);
+                    } else {
+                        soft_filter_reasons.insert(id, reason);
+                    }
+                }
+            }
+        }
 
         Ok(TxDbData {
             tx_db,
             all_ids,
-            filter_reasons,
+            hard_filter_reasons,
+            soft_filter_reasons,
             discarded_mane_entries,
+            soft_filtered_mane_entries,
         })
     }
 }
@@ -601,6 +618,18 @@ impl DatabaseChecker {
                 None,
             );
         }
+
+        // Log soft-filtered MANE transcripts. We use Status::Ok so it doesn't fail
+        // pipelines, but flags the transcript as biologically anomalous in the report!
+        for (id, &reason) in &data.tx_db_data.soft_filtered_mane_entries {
+            reporter.add_entry(
+                Status::Ok,
+                id.clone(),
+                "Soft-filtered MANE transcript".to_string(),
+                reason,
+                None,
+            );
+        }
     }
 
     fn check_unexpected_filtered_genes(
@@ -616,12 +645,13 @@ impl DatabaseChecker {
             | FilterReason::UseNmTranscriptInsteadOfNr
             | FilterReason::CdsStartOrEndNotConfirmed;
 
-        for (id, &reason) in &data.tx_db_data.filter_reasons {
+        // Check against HARD reasons
+        for (id, &reason) in &data.tx_db_data.hard_filter_reasons {
             if matches!(id, Id::Hgnc(_)) && !reason.intersects(uninteresting_reasons) {
                 reporter.add_entry(
                     Status::Err,
                     id.clone(),
-                    "Gene filtered for unexpected reason".to_string(),
+                    "Gene hard-filtered for unexpected reason".to_string(),
                     reason,
                     None,
                 );
@@ -633,7 +663,7 @@ impl DatabaseChecker {
         for id in data.cdot_genes.difference(&data.tx_db_data.all_ids) {
             let reason = data
                 .tx_db_data
-                .filter_reasons
+                .hard_filter_reasons
                 .get(id)
                 .cloned()
                 .unwrap_or_default();
@@ -721,16 +751,17 @@ impl DatabaseChecker {
                 // The gene exists in the database. Now check its transcripts.
                 let db_tx_ids = &gene_entry.tx_ids;
 
-                let has_unfiltered_tx = db_tx_ids.iter().any(|tx_id_str| {
+                // Any transcript that is not hard-filtered counts as coverage (including soft-filtered ones)
+                let has_usable_tx = db_tx_ids.iter().any(|tx_id_str| {
                     let tx_id = Id::from(tx_id_str.as_str());
-                    !data.tx_db_data.filter_reasons.contains_key(&tx_id)
+                    !data.tx_db_data.hard_filter_reasons.contains_key(&tx_id)
                 });
 
-                if has_unfiltered_tx {
+                if has_usable_tx {
                     (true, None)
                 } else {
                     let mut details_str =
-                        "Gene is in db, but has no unfiltered transcripts. ".to_string();
+                        "Gene is in db, but has no usable transcripts. ".to_string();
                     if db_tx_ids.is_empty() {
                         write!(
                             details_str,
@@ -743,14 +774,16 @@ impl DatabaseChecker {
                             .filter_map(|tx_id_str| {
                                 let tx_id = Id::from(tx_id_str.as_str());
                                 data.tx_db_data
-                                    .filter_reasons
+                                    .hard_filter_reasons
                                     .get(&tx_id)
-                                    .map(|reason| format!("{} (filtered: {})", tx_id, reason))
+                                    .map(|reason| {
+                                        format!("{:?} (hard-filtered: {})", tx_id, reason)
+                                    })
                             })
                             .collect();
                         write!(
                             details_str,
-                            "All associated transcripts were filtered: [{}]",
+                            "All associated transcripts were discarded: [{}]",
                             filtered_txs.join(", ")
                         )
                         .unwrap();
@@ -771,7 +804,7 @@ impl DatabaseChecker {
                 reporter.add_entry(
                     Status::Err,
                     disease_gene_id.clone(),
-                    "Disease gene not covered by any transcript in tx_db".to_string(),
+                    "Disease gene not covered by any usable transcript in tx_db".to_string(),
                     BitFlags::empty(),
                     details,
                 );
@@ -821,8 +854,18 @@ impl DatabaseChecker {
             })
             .collect();
 
+        let is_ensembl = !data
+            .tx_db_data
+            .all_ids
+            .iter()
+            .any(|id| matches!(id, Id::NcbiTranscript(_)));
+
         for (tx_acc, count) in &data.clinvar_tx_acc_counts {
             if data.tx_db_data.all_ids.contains(tx_acc) {
+                continue;
+            }
+
+            if matches!(tx_acc, Id::NcbiTranscript(_)) && is_ensembl {
                 continue;
             }
 
