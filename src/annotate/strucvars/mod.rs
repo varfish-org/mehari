@@ -30,8 +30,7 @@ use noodles::vcf::variant::record_buf::Samples;
 use noodles::vcf::variant::RecordBuf as VcfRecord;
 use noodles::vcf::Header as VcfHeader;
 use rand::rngs::StdRng;
-use rand::RngCore;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, IntoEnumIterator};
 use uuid::Uuid;
@@ -3335,7 +3334,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     let mut rng = if let Some(rng_seed) = args.rng_seed {
         StdRng::seed_from_u64(rng_seed)
     } else {
-        StdRng::from_os_rng()
+        rand::make_rng()
     };
 
     // Load maelstrom coverage tracks if given.
