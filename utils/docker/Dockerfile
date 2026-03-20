@@ -28,19 +28,21 @@ RUN PREFIX=/usr/local bash /tmp/install-protoc.sh
 # Set the working directory.
 WORKDIR /usr/src/mehari
 
-# Copy in the rest of the sources.
-COPY build.rs Cargo.toml Cargo.lock /usr/src/mehari/
-COPY src /usr/src/mehari/src/
-COPY protos /usr/src/mehari/protos/
-COPY utils/alpine-linker-script.sh /usr/src/mehari/utils/
-RUN chmod a+rx /usr/src/mehari/utils/alpine-linker-script.sh
-COPY .cargo /usr/src/mehari/.cargo/
+COPY Cargo.toml Cargo.lock ./
+COPY mehari/Cargo.toml mehari/build.rs ./mehari/
+COPY mehari/src ./mehari/src/
+COPY mehari/protos ./mehari/protos/
+COPY mehari-python/Cargo.toml ./mehari-python/
+COPY utils/alpine-linker-script.sh ./utils/
+RUN chmod a+rx ./utils/alpine-linker-script.sh
+COPY .cargo ./.cargo/
+
 
 # Touch main.rs to prevent cached release build.
-RUN touch /usr/src/mehari/src/main.rs
+RUN touch ./mehari/src/main.rs
 
 # Build the application
-RUN /root/.cargo/bin/cargo build --release
+RUN /root/.cargo/bin/cargo build --release -p mehari
 
 # ---------------------------------------------------------------------------
 # Runtime
