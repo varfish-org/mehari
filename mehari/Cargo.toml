@@ -81,6 +81,9 @@ serde-aux = "4.7.0"
 version = "0.97.0"
 features = ["async", "bgzf", "core", "vcf", "bcf", "csi", "fasta", "tabix"]
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { version = "0.6", optional = true }
+
 [build-dependencies]
 anyhow = "1.0"
 built = { version = "0.8", features = ["cargo-lock", "dependency-tree", "git2", "chrono", "semver"] }

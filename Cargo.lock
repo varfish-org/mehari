@@ -2743,6 +2743,7 @@ dependencies = [
  "temp_testdir",
  "tempfile",
  "thousands",
+ "tikv-jemallocator",
  "tokio",
  "tracing",
  "tracing-subscriber",
