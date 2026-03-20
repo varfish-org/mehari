@@ -2,35 +2,46 @@ use arrow::array::{Array, Int32Array, RecordBatch, StringArray};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
-use mehari::annotate::seqvars::VariantAnnotation;
-use mehari::annotate::seqvars::ann::{
-    Allele, Consequence, FeatureBiotype, FeatureTag, Message, Pos, PutativeImpact, Rank,
-};
+use mehari::annotate::seqvars::ann::{Consequence, Pos, PutativeImpact, Rank};
 use mehari::annotate::seqvars::csq::{Config, ConsequencePredictor, VcfVariant};
 use mehari::annotate::seqvars::load_tx_db;
 use mehari::annotate::seqvars::provider::{
     ConfigBuilder as ProviderConfigBuilder, Provider as MehariProvider,
 };
+use mehari::annotate::seqvars::VariantAnnotation;
 use mehari::db::merge::merge_transcript_databases;
 use pyo3::prelude::*;
 use pythonize::pythonize;
 use rayon::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use std::path::PathBuf;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 
-#[derive(Serialize)]
+/// Export the Consequence variants directly to Python
+#[pyfunction]
+fn consequence_variants() -> Vec<String> {
+    Consequence::iter().map(|c: Consequence| c.to_string()).collect()
+}
+
+/// Export the PutativeImpact variants directly to Python
+#[pyfunction]
+fn putative_impact_variants() -> Vec<String> {
+    PutativeImpact::iter().map(|i: PutativeImpact| i.to_string()).collect()
+}
+
+#[derive(Deserialize, Serialize)]
 struct ArrowAnnField {
     pub allele: String,
-    pub consequences: Vec<Consequence>,
-    pub putative_impact: PutativeImpact,
+    pub consequences: Vec<String>,
+    pub putative_impact: String,
     pub gene_symbol: String,
     pub gene_id: String,
     pub feature_type: String,
     pub feature_id: String,
-    pub feature_biotype: Vec<FeatureBiotype>,
-    pub feature_tags: Vec<FeatureTag>,
+    pub feature_biotype: Vec<String>,
+    pub feature_tags: Vec<String>,
     pub rank: Option<Rank>,
     pub hgvs_g: Option<String>,
     pub hgvs_n: Option<String>,
@@ -41,10 +52,10 @@ struct ArrowAnnField {
     pub protein_pos: Option<Pos>,
     pub distance: Option<i32>,
     pub strand: i32,
-    pub messages: Option<Vec<Message>>,
+    pub messages: Option<Vec<String>>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct ArrowResult {
     pub chromosome: String,
     pub position: i32,
@@ -167,7 +178,6 @@ impl PySeqvarsAnnotator {
             Ok(string_arr.clone())
         };
 
-        // Automatically converts Int64 (Python default) into Int32Array
         let get_i32_col = |name: &str| -> PyResult<Int32Array> {
             let col = record_batch.column_by_name(name).ok_or_else(|| {
                 pyo3::exceptions::PyValueError::new_err(format!("Missing column '{}'", name))
@@ -192,6 +202,7 @@ impl PySeqvarsAnnotator {
 
             Ok(int_arr.clone())
         };
+
         let chrom_arr = get_string_col("chromosome")?;
         let pos_arr = get_i32_col("position")?;
         let ref_arr = get_string_col("reference")?;
@@ -203,16 +214,11 @@ impl PySeqvarsAnnotator {
         let results: Vec<ArrowResult> = indices
             .par_iter()
             .map(|&i| {
-                let chromosome = chrom_arr.value(i).to_string();
-                let position = pos_arr.value(i);
-                let reference = ref_arr.value(i).to_string();
-                let alternative = alt_arr.value(i).to_string();
-
                 let variant = VcfVariant {
-                    chromosome: chromosome.clone(),
-                    position,
-                    reference: reference.clone(),
-                    alternative: alternative.clone(),
+                    chromosome: chrom_arr.value(i).to_string(),
+                    position: pos_arr.value(i),
+                    reference: ref_arr.value(i).to_string(),
+                    alternative: alt_arr.value(i).to_string(),
                 };
 
                 let ann_fields = self
@@ -224,18 +230,15 @@ impl PySeqvarsAnnotator {
                 let arrow_anns = ann_fields
                     .into_iter()
                     .map(|f| ArrowAnnField {
-                        allele: match f.allele {
-                            Allele::Alt { alternative } => alternative,
-                            _ => "unknown".to_string(),
-                        },
-                        consequences: f.consequences,
-                        putative_impact: f.putative_impact,
+                        allele: f.allele.to_string(),
+                        consequences: f.consequences.iter().map(|c| c.to_string()).collect(),
+                        putative_impact: f.putative_impact.to_string(),
                         gene_symbol: f.gene_symbol,
                         gene_id: f.gene_id,
                         feature_type: f.feature_type.to_string(),
                         feature_id: f.feature_id,
-                        feature_biotype: f.feature_biotype,
-                        feature_tags: f.feature_tags,
+                        feature_biotype: f.feature_biotype.iter().map(|b| b.to_string()).collect(),
+                        feature_tags: f.feature_tags.iter().map(|t| t.to_string()).collect(),
                         rank: f.rank,
                         hgvs_g: f.hgvs_g,
                         hgvs_n: f.hgvs_n,
@@ -246,15 +249,17 @@ impl PySeqvarsAnnotator {
                         protein_pos: f.protein_pos,
                         distance: f.distance,
                         strand: f.strand,
-                        messages: f.messages,
+                        messages: f
+                            .messages
+                            .map(|msgs| msgs.iter().map(|m| m.to_string()).collect()),
                     })
                     .collect();
 
                 ArrowResult {
-                    chromosome,
-                    position,
-                    reference,
-                    alternative,
+                    chromosome: variant.chromosome,
+                    position: variant.position,
+                    reference: variant.reference,
+                    alternative: variant.alternative,
                     consequences: arrow_anns,
                 }
             })
@@ -262,10 +267,9 @@ impl PySeqvarsAnnotator {
 
         let options = TracingOptions::default()
             .allow_null_fields(true)
-            .enums_without_data_as_strings(true)
             .string_dictionary_encoding(true);
 
-        let fields = Vec::<FieldRef>::from_samples(&results, options).map_err(|e| {
+        let fields = Vec::<FieldRef>::from_type::<ArrowResult>(options).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Schema error: {}", e))
         })?;
 
@@ -277,8 +281,10 @@ impl PySeqvarsAnnotator {
     }
 }
 
-#[pymodule(name = "mehari")]
+#[pymodule(name = "_mehari")]
 fn mehari_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySeqvarsAnnotator>()?;
+    m.add_function(wrap_pyfunction!(consequence_variants, m)?)?;
+    m.add_function(wrap_pyfunction!(putative_impact_variants, m)?)?;
     Ok(())
 }

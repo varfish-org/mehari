@@ -1,60 +1,73 @@
 import os
 
-import mehari
 import polars as pl
 import pytest
 
+from mehari import SeqvarsAnnotator
+
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(TEST_DIR, "..", ".."))
-DB_DIR = os.path.join(PROJECT_ROOT, "mehari", "tests", "data", "annotate", "db", "grch37")
+DB_DIR = os.path.join(
+    PROJECT_ROOT, "mehari", "tests", "data", "annotate", "db", "grch37"
+)
 
 
 @pytest.fixture(scope="module")
 def annotator():
     """
-    Initializes the Mehari annotator once for the entire test module
-    to avoid reloading the .zst databases for every test.
+    Initializes the Mehari annotator once for the entire test module.
     """
     tx_db_path = os.path.join(DB_DIR, "txs.bin.zst")
-
     assert os.path.exists(tx_db_path), f"Transcript DB not found at {tx_db_path}"
 
-    return mehari.SeqvarsAnnotator(
-        transcript_db_paths=[tx_db_path], reference_path=None
+    return SeqvarsAnnotator(tx_dbs=tx_db_path, ref_path=None)
+
+
+@pytest.fixture
+def sample_variants() -> pl.DataFrame:
+    """Provides a standard eager Polars DataFrame for batch testing."""
+    return pl.DataFrame(
+        {
+            "chromosome": ["17", "3"],
+            "position": [41197701, 193332511],
+            "reference": ["G", "G"],
+            "alternative": ["C", "T"],
+        },
+        schema={
+            "chromosome": pl.String,
+            "position": pl.Int32,
+            "reference": pl.String,
+            "alternative": pl.String,
+        },
     )
 
 
-def test_annotate_brca1_exonic(annotator):
+def test_annotate_string_format(annotator):
     """
-    Port of `annotate_snv_brca1_one_variant` from csq.rs.
-    Tests coordinate: 17:41197701:G:C (exonic)
+    Tests the single variant string routing ('chr:pos:ref:alt').
+    Tests coordinate: 17:41197701:G:C (exonic BRCA1)
     """
-    result = annotator.annotate(
-        chrom="17", position=41197701, reference="G", alternative="C"
-    )
+    result = annotator.annotate("17:41197701:G:C")
 
     assert "consequences" in result
     csqs = result["consequences"]
-
     assert len(csqs) > 0
 
     nm_007294 = next((c for c in csqs if c.get("feature_id") == "NM_007294.4"), None)
     assert nm_007294 is not None
-
     assert nm_007294["distance"] == 0
-
-    assert nm_007294["strand"] == -1  # BRCA1 is on the minus strand
-    assert nm_007294["putative_impact"] == "moderate"
+    assert nm_007294["strand"] == -1
+    assert nm_007294["putative_impact"] == "MODERATE"
     assert "missense_variant" in nm_007294["consequences"]
 
 
-def test_annotate_opa1_intronic(annotator):
+def test_annotate_kwargs(annotator):
     """
-    Port of `annotate_snv_opa1_csq` from csq.rs.
-    Tests coordinate: 3:193332511:G:T (-1bp intronic)
+    Tests the explicit kwargs routing.
+    Tests coordinate: 3:193332511:G:T (-1bp intronic OPA1)
     """
     result = annotator.annotate(
-        chrom="3", position=193332511, reference="G", alternative="T"
+        chromosome="3", position=193332511, reference="G", alternative="T"
     )
 
     csqs = result["consequences"]
@@ -62,41 +75,52 @@ def test_annotate_opa1_intronic(annotator):
 
     nm_130837 = next((c for c in csqs if c.get("feature_id") == "NM_130837.3"), None)
     assert nm_130837 is not None
-
     assert nm_130837["distance"] == -1
-
     assert "splice_acceptor_variant" in nm_130837["consequences"]
     assert "coding_transcript_intron_variant" in nm_130837["consequences"]
 
 
-def test_annotate_batch_polars(annotator):
-    df = pl.DataFrame(
-        {
-            "chromosome": ["17", "3"],
-            "position": [41197701, 193332511],
-            "reference": ["G", "G"],
-            "alternative": ["C", "T"],
-        }
-    ).with_columns(pl.col("position").cast(pl.Int32))
+def test_annotate_eager_dataframe(annotator, sample_variants):
+    """
+    Tests the batch processing routing using an eager Polars DataFrame.
+    """
+    result_df = annotator.annotate(sample_variants)
 
-    arrow_batch = df.to_arrow().to_batches()[0]
-    result_batch = annotator.annotate_batch(arrow_batch)
-    result_df = pl.from_arrow(result_batch)
-
+    assert isinstance(result_df, pl.DataFrame)
     assert "consequences" in result_df.columns
     assert len(result_df) == 2
 
-    brca1_csqs = result_df["consequences"][0]
-    assert len(brca1_csqs) > 0
+    brca1_row = result_df.row(0, named=True)
+    brca1_csqs = brca1_row["consequences"]
+
     nm_007294 = next(
         (c for c in brca1_csqs if c.get("feature_id") == "NM_007294.4"), None
     )
     assert nm_007294 is not None
-    assert nm_007294["putative_impact"] == "moderate"
+    assert nm_007294["putative_impact"] == "MODERATE"
     assert "missense_variant" in nm_007294["consequences"]
 
-    opa1_csqs = result_df["consequences"][1]
-    assert len(opa1_csqs) > 0
+
+def test_annotate_lazy_streaming(annotator, sample_variants):
+    """
+    Tests the batch processing routing using a LazyFrame to ensure schema mapping
+    is configured correctly for out-of-core streaming.
+    """
+    lazy_df = sample_variants.lazy()
+
+    # This should not compute anything yet, just build the query plan
+    result_lazy = annotator.annotate(lazy_df)
+
+    # Verify it is still lazy
+    assert isinstance(result_lazy, pl.LazyFrame)
+
+    # Trigger computation
+    result_df = result_lazy.collect()
+
+    # Verify OPA1 logic (Row 1)
+    opa1_row = result_df.row(1, named=True)
+    opa1_csqs = opa1_row["consequences"]
+
     nm_130837 = next(
         (c for c in opa1_csqs if c.get("feature_id") == "NM_130837.3"), None
     )

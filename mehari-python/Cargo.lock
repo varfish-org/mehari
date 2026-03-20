@@ -2762,6 +2762,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_arrow",
+ "strum 0.28.0",
 ]
 
 [[package]]
