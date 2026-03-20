@@ -2,14 +2,12 @@ use arrow::array::{Array, Int32Array, RecordBatch, StringArray};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
-use mehari::annotate::seqvars::ann::{Consequence, Pos, PutativeImpact, Rank};
+use mehari::annotate::seqvars::ann::{AnnField, Consequence, Pos, PutativeImpact, Rank};
 use mehari::annotate::seqvars::csq::{Config, ConsequencePredictor, VcfVariant};
 use mehari::annotate::seqvars::load_tx_db;
 use mehari::annotate::seqvars::provider::{
     ConfigBuilder as ProviderConfigBuilder, Provider as MehariProvider,
 };
-use mehari::annotate::seqvars::VariantAnnotation;
-use mehari::db::merge::merge_transcript_databases;
 use pyo3::prelude::*;
 use pythonize::pythonize;
 use rayon::prelude::*;
@@ -19,16 +17,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 
-/// Export the Consequence variants directly to Python
 #[pyfunction]
 fn consequence_variants() -> Vec<String> {
-    Consequence::iter().map(|c: Consequence| c.to_string()).collect()
+    Consequence::iter()
+        .map(|c: Consequence| c.to_string())
+        .collect()
 }
 
-/// Export the PutativeImpact variants directly to Python
 #[pyfunction]
 fn putative_impact_variants() -> Vec<String> {
-    PutativeImpact::iter().map(|i: PutativeImpact| i.to_string()).collect()
+    PutativeImpact::iter()
+        .map(|i: PutativeImpact| i.to_string())
+        .collect()
 }
 
 #[derive(Deserialize, Serialize)]
@@ -55,6 +55,35 @@ struct ArrowAnnField {
     pub messages: Option<Vec<String>>,
 }
 
+impl From<AnnField> for ArrowAnnField {
+    fn from(f: AnnField) -> Self {
+        Self {
+            allele: f.allele.to_string(),
+            consequences: f.consequences.iter().map(|c| c.to_string()).collect(),
+            putative_impact: f.putative_impact.to_string(),
+            gene_symbol: f.gene_symbol,
+            gene_id: f.gene_id,
+            feature_type: f.feature_type.to_string(),
+            feature_id: f.feature_id,
+            feature_biotype: f.feature_biotype.iter().map(|b| b.to_string()).collect(),
+            feature_tags: f.feature_tags.iter().map(|t| t.to_string()).collect(),
+            rank: f.rank,
+            hgvs_g: f.hgvs_g,
+            hgvs_n: f.hgvs_n,
+            hgvs_c: f.hgvs_c,
+            hgvs_p: f.hgvs_p,
+            cdna_pos: f.cdna_pos,
+            cds_pos: f.cds_pos,
+            protein_pos: f.protein_pos,
+            distance: f.distance,
+            strand: f.strand,
+            messages: f
+                .messages
+                .map(|msgs| msgs.iter().map(|m| m.to_string()).collect()),
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 struct ArrowResult {
     pub chromosome: String,
@@ -71,7 +100,6 @@ pub struct PySeqvarsAnnotator {
 
 #[pymethods]
 impl PySeqvarsAnnotator {
-    /// Initialize the annotator with transcript databases and an optional FASTA reference.
     #[new]
     #[pyo3(signature = (transcript_db_paths, reference_path=None))]
     fn new(transcript_db_paths: Vec<String>, reference_path: Option<String>) -> PyResult<Self> {
@@ -86,7 +114,7 @@ impl PySeqvarsAnnotator {
             tx_dbs.push(db);
         }
 
-        let merged_tx_db = merge_transcript_databases(tx_dbs).map_err(|e| {
+        let merged_tx_db = mehari::db::merge::merge_transcript_databases(tx_dbs).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("Failed to merge databases: {}", e))
         })?;
 
@@ -128,13 +156,24 @@ impl PySeqvarsAnnotator {
             .predict(&variant)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        let annotation = VariantAnnotation {
-            consequences: ann_fields_opt.unwrap_or_default(),
-            frequencies: None,
-            clinvar: None,
-        };
+        let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
+            .unwrap_or_default()
+            .into_iter()
+            .map(ArrowAnnField::from)
+            .collect();
 
-        let py_dict = pythonize(py, &annotation).map_err(|e| {
+        #[derive(Serialize)]
+        struct SingleResult {
+            consequences: Vec<ArrowAnnField>,
+        }
+
+        let py_dict = pythonize(
+            py,
+            &SingleResult {
+                consequences: arrow_anns,
+            },
+        )
+        .map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Serialization error: {}", e))
         })?;
 
@@ -227,33 +266,8 @@ impl PySeqvarsAnnotator {
                     .unwrap_or(None)
                     .unwrap_or_default();
 
-                let arrow_anns = ann_fields
-                    .into_iter()
-                    .map(|f| ArrowAnnField {
-                        allele: f.allele.to_string(),
-                        consequences: f.consequences.iter().map(|c| c.to_string()).collect(),
-                        putative_impact: f.putative_impact.to_string(),
-                        gene_symbol: f.gene_symbol,
-                        gene_id: f.gene_id,
-                        feature_type: f.feature_type.to_string(),
-                        feature_id: f.feature_id,
-                        feature_biotype: f.feature_biotype.iter().map(|b| b.to_string()).collect(),
-                        feature_tags: f.feature_tags.iter().map(|t| t.to_string()).collect(),
-                        rank: f.rank,
-                        hgvs_g: f.hgvs_g,
-                        hgvs_n: f.hgvs_n,
-                        hgvs_c: f.hgvs_c,
-                        hgvs_p: f.hgvs_p,
-                        cdna_pos: f.cdna_pos,
-                        cds_pos: f.cds_pos,
-                        protein_pos: f.protein_pos,
-                        distance: f.distance,
-                        strand: f.strand,
-                        messages: f
-                            .messages
-                            .map(|msgs| msgs.iter().map(|m| m.to_string()).collect()),
-                    })
-                    .collect();
+                let arrow_anns: Vec<ArrowAnnField> =
+                    ann_fields.into_iter().map(ArrowAnnField::from).collect();
 
                 ArrowResult {
                     chromosome: variant.chromosome,
