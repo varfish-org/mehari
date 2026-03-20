@@ -113,13 +113,30 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Build and publish Python wheels
+      - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
-          command: publish
-          args: --manifest-path mehari-python/Cargo.toml --out dist
+          target: x86_64
+          args: --release --out dist --find-interpreter --manifest-path mehari-python/Cargo.toml
+          manylinux: auto
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist --manifest-path mehari-python/Cargo.toml
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
