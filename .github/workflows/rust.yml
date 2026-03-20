@@ -56,6 +56,11 @@ jobs:
           cache-directories: |
             ~/.cargo/registry/src/**/librocksdb-sys-*
 
+      - name: Set up Python for PyO3
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - name: Lint with clippy
         uses: actions-rs/clippy-check@v1
         with:
@@ -109,6 +114,11 @@ jobs:
           cache-directories: |
             ~/.cargo/registry/src/**/librocksdb-sys-*
 
+      - name: Set up Python for PyO3
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - name: cargo build
         run: cargo build --verbose
 
@@ -155,7 +165,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Write schema
-        run: cargo run -- server schema --output-file /tmp/openapi.schema.yaml-gen
+        run: cargo run --bin mehari -- server schema --output-file /tmp/openapi.schema.yaml-gen
 
       - name: Copy repo schema and strip versions
         run: |

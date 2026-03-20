@@ -102,3 +102,24 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           push: true
+
+  pypi-release:
+    needs: release-please
+    runs-on: ubuntu-24.04
+    if: ${{ needs.release-please.outputs.release_created }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build and publish Python wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          command: publish
+          args: --manifest-path mehari-python/Cargo.toml --out dist
