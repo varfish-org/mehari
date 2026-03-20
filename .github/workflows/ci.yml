@@ -132,7 +132,6 @@ jobs:
         working-directory: mehari-python
         run: |
           uv sync
-          uv run maturin develop
           uv run pytest tests/ -v
 
       - uses: Swatinem/rust-cache@v2
