@@ -88,8 +88,7 @@ impl PySeqvarsAnnotator {
     }
 }
 
-/// The Python module definition
-#[pymodule]
+#[pymodule(name = "mehari")]
 fn mehari_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySeqvarsAnnotator>()?;
     Ok(())
