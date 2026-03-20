@@ -1,10 +1,12 @@
 import os
-import pytest
+
 import mehari
+import polars as pl
+import pytest
 
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(TEST_DIR, "..", ".."))
-DB_DIR = os.path.join(PROJECT_ROOT, "tests", "data", "annotate", "db", "grch37")
+DB_DIR = os.path.join(PROJECT_ROOT, "mehari", "tests", "data", "annotate", "db", "grch37")
 
 
 @pytest.fixture(scope="module")
@@ -65,3 +67,38 @@ def test_annotate_opa1_intronic(annotator):
 
     assert "splice_acceptor_variant" in nm_130837["consequences"]
     assert "coding_transcript_intron_variant" in nm_130837["consequences"]
+
+
+def test_annotate_batch_polars(annotator):
+    df = pl.DataFrame(
+        {
+            "chromosome": ["17", "3"],
+            "position": [41197701, 193332511],
+            "reference": ["G", "G"],
+            "alternative": ["C", "T"],
+        }
+    ).with_columns(pl.col("position").cast(pl.Int32))
+
+    arrow_batch = df.to_arrow().to_batches()[0]
+    result_batch = annotator.annotate_batch(arrow_batch)
+    result_df = pl.from_arrow(result_batch)
+
+    assert "consequences" in result_df.columns
+    assert len(result_df) == 2
+
+    brca1_csqs = result_df["consequences"][0]
+    assert len(brca1_csqs) > 0
+    nm_007294 = next(
+        (c for c in brca1_csqs if c.get("feature_id") == "NM_007294.4"), None
+    )
+    assert nm_007294 is not None
+    assert nm_007294["putative_impact"] == "moderate"
+    assert "missense_variant" in nm_007294["consequences"]
+
+    opa1_csqs = result_df["consequences"][1]
+    assert len(opa1_csqs) > 0
+    nm_130837 = next(
+        (c for c in opa1_csqs if c.get("feature_id") == "NM_130837.3"), None
+    )
+    assert nm_130837 is not None
+    assert "splice_acceptor_variant" in nm_130837["consequences"]

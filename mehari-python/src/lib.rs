@@ -1,4 +1,11 @@
+use arrow::array::{Array, Int32Array, RecordBatch, StringArray};
+use arrow::compute::cast;
+use arrow::datatypes::{DataType, FieldRef};
+use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use mehari::annotate::seqvars::VariantAnnotation;
+use mehari::annotate::seqvars::ann::{
+    Allele, Consequence, FeatureBiotype, FeatureTag, Message, Pos, PutativeImpact, Rank,
+};
 use mehari::annotate::seqvars::csq::{Config, ConsequencePredictor, VcfVariant};
 use mehari::annotate::seqvars::load_tx_db;
 use mehari::annotate::seqvars::provider::{
@@ -7,8 +14,44 @@ use mehari::annotate::seqvars::provider::{
 use mehari::db::merge::merge_transcript_databases;
 use pyo3::prelude::*;
 use pythonize::pythonize;
+use rayon::prelude::*;
+use serde::Serialize;
+use serde_arrow::schema::{SchemaLike, TracingOptions};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[derive(Serialize)]
+struct ArrowAnnField {
+    pub allele: String,
+    pub consequences: Vec<Consequence>,
+    pub putative_impact: PutativeImpact,
+    pub gene_symbol: String,
+    pub gene_id: String,
+    pub feature_type: String,
+    pub feature_id: String,
+    pub feature_biotype: Vec<FeatureBiotype>,
+    pub feature_tags: Vec<FeatureTag>,
+    pub rank: Option<Rank>,
+    pub hgvs_g: Option<String>,
+    pub hgvs_n: Option<String>,
+    pub hgvs_c: Option<String>,
+    pub hgvs_p: Option<String>,
+    pub cdna_pos: Option<Pos>,
+    pub cds_pos: Option<Pos>,
+    pub protein_pos: Option<Pos>,
+    pub distance: Option<i32>,
+    pub strand: i32,
+    pub messages: Option<Vec<Message>>,
+}
+
+#[derive(Serialize)]
+struct ArrowResult {
+    pub chromosome: String,
+    pub position: i32,
+    pub reference: String,
+    pub alternative: String,
+    pub consequences: Vec<ArrowAnnField>,
+}
 
 #[pyclass(name = "SeqvarsAnnotator")]
 pub struct PySeqvarsAnnotator {
@@ -85,6 +128,152 @@ impl PySeqvarsAnnotator {
         })?;
 
         Ok(py_dict)
+    }
+
+    /// Batch annotation via arrow (e.g., for use with polars).
+    /// Expects an RecordBatch with columns: 'chromosome', 'position', 'reference', 'alternative'
+    #[pyo3(signature = (batch))]
+    fn annotate_batch<'py>(
+        &self,
+        py: Python<'py>,
+        batch: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let record_batch = RecordBatch::from_pyarrow_bound(batch).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("Invalid Arrow batch: {}", e))
+        })?;
+
+        let get_string_col = |name: &str| -> PyResult<StringArray> {
+            let col = record_batch.column_by_name(name).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!("Missing column '{}'", name))
+            })?;
+
+            let cast_col = cast(col, &DataType::Utf8).map_err(|e| {
+                pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Cannot cast '{}' to string: {}",
+                    name, e
+                ))
+            })?;
+
+            let string_arr = cast_col
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| {
+                    pyo3::exceptions::PyTypeError::new_err(format!(
+                        "Downcast failed for string column '{}'",
+                        name
+                    ))
+                })?;
+
+            Ok(string_arr.clone())
+        };
+
+        // Automatically converts Int64 (Python default) into Int32Array
+        let get_i32_col = |name: &str| -> PyResult<Int32Array> {
+            let col = record_batch.column_by_name(name).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!("Missing column '{}'", name))
+            })?;
+
+            let cast_col = cast(col, &DataType::Int32).map_err(|e| {
+                pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Cannot cast '{}' to Int32: {}",
+                    name, e
+                ))
+            })?;
+
+            let int_arr = cast_col
+                .as_any()
+                .downcast_ref::<Int32Array>()
+                .ok_or_else(|| {
+                    pyo3::exceptions::PyTypeError::new_err(format!(
+                        "Downcast failed for int column '{}'",
+                        name
+                    ))
+                })?;
+
+            Ok(int_arr.clone())
+        };
+        let chrom_arr = get_string_col("chromosome")?;
+        let pos_arr = get_i32_col("position")?;
+        let ref_arr = get_string_col("reference")?;
+        let alt_arr = get_string_col("alternative")?;
+
+        let num_rows = record_batch.num_rows();
+        let indices: Vec<usize> = (0..num_rows).collect();
+
+        let results: Vec<ArrowResult> = indices
+            .par_iter()
+            .map(|&i| {
+                let chromosome = chrom_arr.value(i).to_string();
+                let position = pos_arr.value(i);
+                let reference = ref_arr.value(i).to_string();
+                let alternative = alt_arr.value(i).to_string();
+
+                let variant = VcfVariant {
+                    chromosome: chromosome.clone(),
+                    position,
+                    reference: reference.clone(),
+                    alternative: alternative.clone(),
+                };
+
+                let ann_fields = self
+                    .predictor
+                    .predict(&variant)
+                    .unwrap_or(None)
+                    .unwrap_or_default();
+
+                let arrow_anns = ann_fields
+                    .into_iter()
+                    .map(|f| ArrowAnnField {
+                        allele: match f.allele {
+                            Allele::Alt { alternative } => alternative,
+                            _ => "unknown".to_string(),
+                        },
+                        consequences: f.consequences,
+                        putative_impact: f.putative_impact,
+                        gene_symbol: f.gene_symbol,
+                        gene_id: f.gene_id,
+                        feature_type: f.feature_type.to_string(),
+                        feature_id: f.feature_id,
+                        feature_biotype: f.feature_biotype,
+                        feature_tags: f.feature_tags,
+                        rank: f.rank,
+                        hgvs_g: f.hgvs_g,
+                        hgvs_n: f.hgvs_n,
+                        hgvs_c: f.hgvs_c,
+                        hgvs_p: f.hgvs_p,
+                        cdna_pos: f.cdna_pos,
+                        cds_pos: f.cds_pos,
+                        protein_pos: f.protein_pos,
+                        distance: f.distance,
+                        strand: f.strand,
+                        messages: f.messages,
+                    })
+                    .collect();
+
+                ArrowResult {
+                    chromosome,
+                    position,
+                    reference,
+                    alternative,
+                    consequences: arrow_anns,
+                }
+            })
+            .collect();
+
+        let options = TracingOptions::default()
+            .allow_null_fields(true)
+            .enums_without_data_as_strings(true)
+            .string_dictionary_encoding(true);
+
+        let fields = Vec::<FieldRef>::from_samples(&results, options).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Schema error: {}", e))
+        })?;
+
+        let out_batch = serde_arrow::to_record_batch(&fields, &results).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Serialization error: {}", e))
+        })?;
+
+        Ok(out_batch.to_pyarrow(py)?)
     }
 }
 

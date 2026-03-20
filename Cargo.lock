@@ -322,7 +322,7 @@ dependencies = [
  "rayon",
  "rocksdb 0.23.0",
  "rocksdb-utils-lookup",
- "rustc-hash",
+ "rustc-hash 2.1.1",
  "serde",
  "serde_json",
  "serde_with",
@@ -523,7 +523,7 @@ dependencies = [
  "proc-macro2 1.0.106",
  "quote 1.0.45",
  "regex",
- "rustc-hash",
+ "rustc-hash 2.1.1",
  "shlex",
  "syn 2.0.117",
 ]
@@ -1428,6 +1428,22 @@ dependencies = [
  "quote 1.0.45",
  "syn 2.0.117",
  "unicode-xid 0.2.6",
+]
+
+[[package]]
+name = "dhat"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98cd11d84628e233de0ce467de10b8633f4ddaecafadefc86e13b84b8739b827"
+dependencies = [
+ "backtrace",
+ "lazy_static",
+ "mintex",
+ "parking_lot",
+ "rustc-hash 1.1.0",
+ "serde",
+ "serde_json",
+ "thousands",
 ]
 
 [[package]]
@@ -2702,6 +2718,7 @@ dependencies = [
  "derivative",
  "derive-new 0.7.0",
  "derive_builder",
+ "dhat",
  "enumflags2",
  "env_logger",
  "flate2",
@@ -2732,7 +2749,7 @@ dependencies = [
  "rayon",
  "rocksdb 0.24.0",
  "rstest",
- "rustc-hash",
+ "rustc-hash 2.1.1",
  "seqrepo",
  "serde",
  "serde-aux",
@@ -2800,6 +2817,12 @@ dependencies = [
  "adler2",
  "simd-adler32",
 ]
+
+[[package]]
+name = "mintex"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c505b3e17ed6b70a7ed2e67fbb2c560ee327353556120d6e72f5232b6880d536"
 
 [[package]]
 name = "mio"
@@ -4219,6 +4242,12 @@ name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b50b8869d9fc858ce7266cce0194bd74df58b9d0e3f6df3a9fc8eb470d95c09d"
+
+[[package]]
+name = "rustc-hash"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc-hash"

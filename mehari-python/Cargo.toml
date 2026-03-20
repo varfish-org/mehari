@@ -8,9 +8,12 @@ name = "mehari_python"
 crate-type = ["cdylib"]
 
 [dependencies]
+arrow = { version = "58.0.0", features = ["pyarrow"] }
 mehari = { path = "../mehari", default-features = false }
 pyo3 = { version = "0.28", features = ["extension-module"] }
 pythonize = "0.28"
+rayon = "1.11.0"
 serde = { version = "1.0", features = ["derive"] }
+serde_arrow = { version = "0.14.0", features = ["arrow-58"] }
 
 [workspace]  # workaround to avoid pulling in jemalloc

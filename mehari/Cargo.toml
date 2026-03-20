@@ -11,7 +11,8 @@ rust-version = "1.75.0"
 
 [features]
 default = ["jemalloc"]
-jemalloc = ["rocksdb/jemalloc", "annonars/jemalloc"]
+jemalloc = ["dep:tikv-jemallocator", "rocksdb/jemalloc", "annonars/jemalloc"]
+dhat-heap = ["dep:dhat"]  # for heap profiling with dhats
 documentation = []
 
 [package.metadata.docs.rs]
@@ -83,6 +84,10 @@ features = ["async", "bgzf", "core", "vcf", "bcf", "csi", "fasta", "tabix"]
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
+
+[dependencies.dhat]
+version = "0.3.3"
+optional = true
 
 [build-dependencies]
 anyhow = "1.0"
