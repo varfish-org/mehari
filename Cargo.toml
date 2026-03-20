@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["mehari", "mehari-cli"]  # do not include mehari-python here to avoid pulling in jemalloc for python bindings
+members = ["mehari"]  # do not include mehari-python here to avoid pulling in jemalloc for python bindings
 
 # Compile insta with full optimization.
 [profile.dev.package.insta]

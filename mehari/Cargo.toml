@@ -10,7 +10,7 @@ readme = "README.md"
 rust-version = "1.75.0"
 
 [features]
-default = []
+default = ["jemalloc"]
 jemalloc = ["rocksdb/jemalloc", "annonars/jemalloc"]
 documentation = []
 

@@ -22,7 +22,6 @@ utils/var
 **.gzi
 **.fasta
 **.ped
-*/
 !.gitignore
 
 mehari-python/.venv
