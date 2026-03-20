@@ -178,7 +178,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Write schema
-        run: cargo run --bin mehari -- server schema --output-file /tmp/openapi.schema.yaml-gen
+        run: cargo run -p mehari --bin mehari -- server schema --output-file /tmp/openapi.schema.yaml-gen
 
       - name: Copy repo schema and strip versions
         run: |
