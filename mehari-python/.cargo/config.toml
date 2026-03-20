@@ -1,0 +1,5 @@
+[build]
+rustflags = ["-C", "tls-model=global-dynamic"]
+
+[env]
+RUSTFLAGS = "-C tls-model=global-dynamic"

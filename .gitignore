@@ -24,3 +24,5 @@ utils/var
 **.ped
 */
 !.gitignore
+
+mehari-python/.venv
