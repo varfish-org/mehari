@@ -1,6 +1,6 @@
 # mehari
 
-Python bindings for the `mehari` Rust library. It predicts molecular consequences for genetic sequence variants.
+Python bindings for the `mehari` Rust library.
 
 ## Features
 
