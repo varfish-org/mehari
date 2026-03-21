@@ -1,6 +1,6 @@
 # mehari
 
-Python bindings for the `mehari` Rust library.
+Python bindings for the [`mehari`](https://github.com/varfish-org/mehari) Rust library.
 
 ## Features
 
