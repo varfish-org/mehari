@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.40.0](https://github.com/varfish-org/mehari/compare/v0.39.0...v0.40.0) (2026-03-20)
+
+
+### Features
+
+* introduce cli options to disable variant hgvs normalization ([#918](https://github.com/varfish-org/mehari/issues/918)) ([5117d10](https://github.com/varfish-org/mehari/commit/5117d10b25a67f85a2c25a8a342962fdca07b675))
+* update hgvs-rs to 0.20.0 ([#946](https://github.com/varfish-org/mehari/issues/946)) ([53071e0](https://github.com/varfish-org/mehari/commit/53071e0785f22bfcbae638cbae28114f03ecc81e))
+* vep compatibility mode, additional annotation terms, refactoring ([#924](https://github.com/varfish-org/mehari/issues/924)) ([d314765](https://github.com/varfish-org/mehari/commit/d3147656bcd5e8e59cb40b7b5eba7a302e9100d3))
+
+
+### Bug Fixes
+
+* `provider.get_seq_part` without reference available ([#947](https://github.com/varfish-org/mehari/issues/947)) ([7d882bd](https://github.com/varfish-org/mehari/commit/7d882bd912ed4517798f0483aa37d614d2bc83e7))
+* clinvar tx acc in db check ([#919](https://github.com/varfish-org/mehari/issues/919)) ([b79e5c3](https://github.com/varfish-org/mehari/commit/b79e5c32c77c6c650f76397102708f31959bd8d3))
+
 ## [0.39.0](https://github.com/varfish-org/mehari/compare/v0.38.1...v0.39.0) (2026-01-13)
 
 
