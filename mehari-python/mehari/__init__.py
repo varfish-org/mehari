@@ -18,24 +18,26 @@ class SeqvarsAnnotator:
 
     def _process_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
         """Internal helper to stream Arrow RecordBatches to Rust."""
-        if df.is_empty():
-            schema = pa.schema(
-                [
-                    ("chromosome", pa.string()),
-                    ("position", pa.int32()),
-                    ("reference", pa.string()),
-                    ("alternative", pa.string()),
-                ]
-            )
-            dummy_batch = pa.RecordBatch.from_pylist([], schema=schema)
-            result_batch = self._annotator.annotate_batch(dummy_batch)
-            return pl.from_arrow(pa.Table.from_batches([result_batch]))
-
         pa_table = df.to_arrow()
-        result_batches = [
-            self._annotator.annotate_batch(b) for b in pa_table.to_batches()
-        ]
-        return pl.from_arrow(pa.Table.from_batches(result_batches))
+        batches = pa_table.to_batches()
+
+        if not batches:
+            batches = [pa.RecordBatch.from_pylist([], schema=pa_table.schema)]
+
+        result_batches = [self._annotator.annotate_batch(b) for b in batches]
+        res_df = pl.from_arrow(pa.Table.from_batches(result_batches))
+        return df.with_columns(
+            res_df.get_column("annotation")
+            .list.eval(
+                pl.element().struct.with_fields(
+                    pl.element().struct.field("putative_impact").cast(ImpactEnum),
+                    pl.element()
+                    .struct.field("consequences")
+                    .cast(pl.List(ConsequenceEnum)),
+                )
+            )
+            .alias("annotation")
+        )
 
     @typing.overload
     def annotate(self, data: str) -> dict[str, typing.Any]: ...

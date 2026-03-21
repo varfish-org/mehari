@@ -39,7 +39,7 @@ df = pl.DataFrame(
         "alternative": ["C", "T"],
     },
     schema={
-        "chromosome": pl.String, "position": pl.Int32,
+        "chromosome": pl.Categorical, "position": pl.Int32,
         "reference": pl.String, "alternative": pl.String
     }
 )

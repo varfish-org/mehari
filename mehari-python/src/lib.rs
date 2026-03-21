@@ -86,10 +86,6 @@ impl From<AnnField> for ArrowAnnField {
 
 #[derive(Deserialize, Serialize)]
 struct ArrowResult {
-    pub chromosome: String,
-    pub position: i32,
-    pub reference: String,
-    pub alternative: String,
     pub annotation: Vec<ArrowAnnField>,
 }
 
@@ -270,17 +266,12 @@ impl PySeqvarsAnnotator {
                     ann_fields.into_iter().map(ArrowAnnField::from).collect();
 
                 ArrowResult {
-                    chromosome: variant.chromosome,
-                    position: variant.position,
-                    reference: variant.reference,
-                    alternative: variant.alternative,
                     annotation: arrow_anns,
                 }
             })
             .collect();
 
-        let options = TracingOptions::default()
-            .allow_null_fields(true);
+        let options = TracingOptions::default().allow_null_fields(true);
 
         let fields = Vec::<FieldRef>::from_type::<ArrowResult>(options).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Schema error: {}", e))
