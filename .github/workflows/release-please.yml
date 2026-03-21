@@ -25,8 +25,6 @@ jobs:
       - uses: GoogleCloudPlatform/release-please-action@v4
         id: release
         with:
-          release-type: rust
-          package-name: ${{ env.PACKAGE_NAME}}
           token: ${{ secrets.BOT_TOKEN }}
 
   cargo-release:
