@@ -2277,6 +2277,19 @@ pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usiz
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FreqResult {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClinvarResult {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariantAnnotation {
+    pub consequences: Vec<AnnField>,
+    pub frequencies: Option<FreqResult>,
+    pub clinvar: Option<ClinvarResult>,
+}
+
 #[cfg(test)]
 mod test {
     use super::binning::bin_from_range;

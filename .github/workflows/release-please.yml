@@ -25,8 +25,6 @@ jobs:
       - uses: GoogleCloudPlatform/release-please-action@v4
         id: release
         with:
-          release-type: rust
-          package-name: ${{ env.PACKAGE_NAME}}
           token: ${{ secrets.BOT_TOKEN }}
 
   cargo-release:
@@ -43,11 +41,10 @@ jobs:
           sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         if: ${{ needs.release-please.outputs.release_created }}
         with:
           toolchain: stable
-          override: true
 
       - name: Setup protoc
         uses: arduino/setup-protoc@v3.0.0
@@ -102,3 +99,41 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           push: true
+
+  pypi-release:
+    needs: release-please
+    runs-on: ubuntu-24.04
+    if: ${{ needs.release-please.outputs.release_created }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          args: --release --out dist --find-interpreter --manifest-path mehari-python/Cargo.toml
+          manylinux: auto
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist --manifest-path mehari-python/Cargo.toml
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

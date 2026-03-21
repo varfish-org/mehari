@@ -16,10 +16,9 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
           components: rustfmt
 
       - name: Check format
@@ -40,10 +39,9 @@ jobs:
           sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
           components: clippy
 
       - name: Setup protoc
@@ -55,6 +53,11 @@ jobs:
         with:
           cache-directories: |
             ~/.cargo/registry/src/**/librocksdb-sys-*
+
+      - name: Set up Python for PyO3
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
       - name: Lint with clippy
         uses: actions-rs/clippy-check@v1
@@ -94,10 +97,9 @@ jobs:
           sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
 
       - name: Setup protoc
         uses: arduino/setup-protoc@v3.0.0
@@ -109,11 +111,28 @@ jobs:
           cache-directories: |
             ~/.cargo/registry/src/**/librocksdb-sys-*
 
+      - name: Set up Python for PyO3
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - name: cargo build
         run: cargo build --verbose
 
       - name: cargo test
         run: cargo test --verbose
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "mehari-python/uv.lock"
+
+      - name: Test Python Bindings
+        working-directory: mehari-python
+        run: |
+          uv sync
+          uv run pytest tests/ -v
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -144,10 +163,9 @@ jobs:
           sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
 
       - name: Setup protoc
         uses: arduino/setup-protoc@v3.0.0
@@ -155,7 +173,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Write schema
-        run: cargo run -- server schema --output-file /tmp/openapi.schema.yaml-gen
+        run: cargo run -p mehari --bin mehari -- server schema --output-file /tmp/openapi.schema.yaml-gen
 
       - name: Copy repo schema and strip versions
         run: |
