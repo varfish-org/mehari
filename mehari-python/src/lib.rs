@@ -90,7 +90,7 @@ struct ArrowResult {
     pub position: i32,
     pub reference: String,
     pub alternative: String,
-    pub consequences: Vec<ArrowAnnField>,
+    pub annotation: Vec<ArrowAnnField>,
 }
 
 #[pyclass(name = "SeqvarsAnnotator")]
@@ -135,17 +135,17 @@ impl PySeqvarsAnnotator {
     }
 
     /// Annotate a single variant. Returns a Python dictionary.
-    #[pyo3(signature = (chrom, position, reference, alternative))]
+    #[pyo3(signature = (chromosome, position, reference, alternative))]
     fn annotate<'py>(
         &self,
         py: Python<'py>,
-        chrom: &str,
+        chromosome: &str,
         position: i32,
         reference: &str,
         alternative: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
         let variant = VcfVariant {
-            chromosome: chrom.to_string(),
+            chromosome: chromosome.to_string(),
             position,
             reference: reference.to_string(),
             alternative: alternative.to_string(),
@@ -164,13 +164,13 @@ impl PySeqvarsAnnotator {
 
         #[derive(Serialize)]
         struct SingleResult {
-            consequences: Vec<ArrowAnnField>,
+            annotation: Vec<ArrowAnnField>,
         }
 
         let py_dict = pythonize(
             py,
             &SingleResult {
-                consequences: arrow_anns,
+                annotation: arrow_anns,
             },
         )
         .map_err(|e| {
@@ -274,14 +274,13 @@ impl PySeqvarsAnnotator {
                     position: variant.position,
                     reference: variant.reference,
                     alternative: variant.alternative,
-                    consequences: arrow_anns,
+                    annotation: arrow_anns,
                 }
             })
             .collect();
 
         let options = TracingOptions::default()
-            .allow_null_fields(true)
-            .string_dictionary_encoding(true);
+            .allow_null_fields(true);
 
         let fields = Vec::<FieldRef>::from_type::<ArrowResult>(options).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Schema error: {}", e))

@@ -20,7 +20,7 @@ def annotator():
     tx_db_path = os.path.join(DB_DIR, "txs.bin.zst")
     assert os.path.exists(tx_db_path), f"Transcript DB not found at {tx_db_path}"
 
-    return SeqvarsAnnotator(tx_dbs=tx_db_path, ref_path=None)
+    return SeqvarsAnnotator(transcript_db_paths=tx_db_path, reference_path=None)
 
 
 @pytest.fixture
@@ -49,11 +49,13 @@ def test_annotate_string_format(annotator):
     """
     result = annotator.annotate("17:41197701:G:C")
 
-    assert "consequences" in result
-    csqs = result["consequences"]
-    assert len(csqs) > 0
+    assert "annotation" in result
+    annotations = result["annotation"]
+    assert len(annotations) > 0
 
-    nm_007294 = next((c for c in csqs if c.get("feature_id") == "NM_007294.4"), None)
+    nm_007294 = next(
+        (c for c in annotations if c.get("feature_id") == "NM_007294.4"), None
+    )
     assert nm_007294 is not None
     assert nm_007294["distance"] == 0
     assert nm_007294["strand"] == -1
@@ -70,10 +72,12 @@ def test_annotate_kwargs(annotator):
         chromosome="3", position=193332511, reference="G", alternative="T"
     )
 
-    csqs = result["consequences"]
-    assert len(csqs) > 0
+    annotations = result["annotation"]
+    assert len(annotations) > 0
 
-    nm_130837 = next((c for c in csqs if c.get("feature_id") == "NM_130837.3"), None)
+    nm_130837 = next(
+        (c for c in annotations if c.get("feature_id") == "NM_130837.3"), None
+    )
     assert nm_130837 is not None
     assert nm_130837["distance"] == -1
     assert "splice_acceptor_variant" in nm_130837["consequences"]
@@ -87,14 +91,14 @@ def test_annotate_eager_dataframe(annotator, sample_variants):
     result_df = annotator.annotate(sample_variants)
 
     assert isinstance(result_df, pl.DataFrame)
-    assert "consequences" in result_df.columns
+    assert "annotation" in result_df.columns
     assert len(result_df) == 2
 
     brca1_row = result_df.row(0, named=True)
-    brca1_csqs = brca1_row["consequences"]
+    brca1_annotations = brca1_row["annotation"]
 
     nm_007294 = next(
-        (c for c in brca1_csqs if c.get("feature_id") == "NM_007294.4"), None
+        (c for c in brca1_annotations if c.get("feature_id") == "NM_007294.4"), None
     )
     assert nm_007294 is not None
     assert nm_007294["putative_impact"] == "MODERATE"
@@ -119,10 +123,10 @@ def test_annotate_lazy_streaming(annotator, sample_variants):
 
     # Verify OPA1 logic (Row 1)
     opa1_row = result_df.row(1, named=True)
-    opa1_csqs = opa1_row["consequences"]
+    opa1_annotations = opa1_row["annotation"]
 
     nm_130837 = next(
-        (c for c in opa1_csqs if c.get("feature_id") == "NM_130837.3"), None
+        (c for c in opa1_annotations if c.get("feature_id") == "NM_130837.3"), None
     )
     assert nm_130837 is not None
     assert "splice_acceptor_variant" in nm_130837["consequences"]

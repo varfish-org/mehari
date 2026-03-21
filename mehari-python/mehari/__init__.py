@@ -9,27 +9,32 @@ ImpactEnum = pl.Enum(putative_impact_variants())
 
 
 class SeqvarsAnnotator:
-    def __init__(self, tx_dbs: str | list[str], ref_path: str | None = None):
-        if isinstance(tx_dbs, str):
-            tx_dbs = [tx_dbs]
-        self._annotator = _SeqvarsAnnotator(tx_dbs, ref_path)
+    def __init__(
+        self, transcript_db_paths: str | list[str], reference_path: str | None = None
+    ):
+        if isinstance(transcript_db_paths, str):
+            transcript_db_paths = [transcript_db_paths]
+        self._annotator = _SeqvarsAnnotator(transcript_db_paths, reference_path)
 
     def _process_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
         """Internal helper to stream Arrow RecordBatches to Rust."""
         if df.is_empty():
-            schema = pa.schema([
-                ("chromosome", pa.string()),
-                ("position", pa.int32()),
-                ("reference", pa.string()),
-                ("alternative", pa.string()),
-            ])
+            schema = pa.schema(
+                [
+                    ("chromosome", pa.string()),
+                    ("position", pa.int32()),
+                    ("reference", pa.string()),
+                    ("alternative", pa.string()),
+                ]
+            )
             dummy_batch = pa.RecordBatch.from_pylist([], schema=schema)
             result_batch = self._annotator.annotate_batch(dummy_batch)
             return pl.from_arrow(pa.Table.from_batches([result_batch]))
 
-        # Normal execution for populated dataframes
         pa_table = df.to_arrow()
-        result_batches = [self._annotator.annotate_batch(b) for b in pa_table.to_batches()]
+        result_batches = [
+            self._annotator.annotate_batch(b) for b in pa_table.to_batches()
+        ]
         return pl.from_arrow(pa.Table.from_batches(result_batches))
 
     @typing.overload
