@@ -17,7 +17,7 @@
     }
   },
   "plugins": [
-    "rust-workspace",
+    "cargo-workspace",
     {
       "type": "linked-versions",
       "groupName": "mehari-sync",
