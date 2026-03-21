@@ -19,8 +19,8 @@ jobs:
     if: github.repository_owner == 'varfish-org'
     runs-on: ubuntu-24.04
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      release_name: ${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}
+      release_created: ${{ steps.release.outputs.releases_created }}
+      release_name: release_name: ${{ steps.release.outputs['mehari--version'] || steps.release.outputs['mehari-python--version'] }}
     steps:
       - uses: GoogleCloudPlatform/release-please-action@v4
         id: release
