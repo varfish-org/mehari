@@ -59,10 +59,9 @@ jobs:
 
       - name: Publish crate
         if: ${{ needs.release-please.outputs.release_created }}
-        uses: actions-rs/cargo@v1
-        with:
-          command: publish
-          args: --token ${{ secrets.CRATES_IO_TOKEN }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish
 
   container-release:
     needs: release-please

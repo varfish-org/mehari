@@ -60,9 +60,7 @@ jobs:
           python-version: '3.12'
 
       - name: Lint with clippy
-        uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo clippy --workspace --all-features
 
   Testing:
     needs: Formatting
