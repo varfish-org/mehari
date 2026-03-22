@@ -30,10 +30,10 @@ jobs:
   cargo-release:
     needs: release-please
     runs-on: ubuntu-24.04
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
     steps:
       - uses: actions/checkout@v6
-        if: ${{ needs.release-please.outputs.release_created }}
+        if: ${{ needs.release-please.outputs.release_created == 'true' }}
 
       - name: Install dependencies
         run: |
@@ -67,7 +67,7 @@ jobs:
   container-release:
     needs: release-please
     runs-on: ubuntu-24.04
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -103,7 +103,7 @@ jobs:
   pypi-release:
     needs: release-please
     runs-on: ubuntu-24.04
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
     permissions:
       id-token: write
       contents: read
