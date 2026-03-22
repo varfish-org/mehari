@@ -123,6 +123,7 @@ jobs:
         with:
           command: publish
           args: --manifest-path mehari-python/Cargo.toml --out dist
+          manylinux: 2_28
           before-script-linux: |
             if command -v dnf > /dev/null; then
               dnf install -y clang sqlite-devel zlib-devel wget unzip
