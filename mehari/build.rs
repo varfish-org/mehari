@@ -1,6 +1,7 @@
 // The custom build script, used to (1) generate the Rust classes for the
 // protobuf implementation and (2) use pbjson for proto3 JSON serialization.
 
+use std::io::Write;
 use std::{env, path::PathBuf};
 
 fn main() -> Result<(), anyhow::Error> {
@@ -47,6 +48,16 @@ fn main() -> Result<(), anyhow::Error> {
 
         built::write_built_file_with_opts(None, &dst)
             .map_err(|e| anyhow::anyhow!("Failed to write built file: {}", e))?;
+
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&dst)
+            .expect("Failed to open built.rs for appending");
+        writeln!(
+            file,
+            "pub const DEPENDENCIES: [(&str, &str); 1] = [(\"hgvs\", \"unknown-sdist\")];"
+        )
+        .expect("Failed to append dummy dependencies");
     }
 
     Ok(())
