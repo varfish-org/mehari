@@ -22,8 +22,12 @@ wheels = [
 
 [[package]]
 name = "mehari"
-version = "0.39.0"
+version = "0.41.0"
 source = { editable = "." }
+dependencies = [
+    { name = "polars" },
+    { name = "pyarrow" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -34,6 +38,10 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [
+    { name = "polars", specifier = ">=1.39.3" },
+    { name = "pyarrow", specifier = ">=23.0.1" },
+]
 
 [package.metadata.requires-dev]
 dev = [
