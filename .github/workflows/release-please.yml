@@ -125,8 +125,8 @@ jobs:
           args: --manifest-path mehari-python/Cargo.toml --out dist
           before-script-linux: |
             if command -v dnf > /dev/null; then
-              dnf install -y clang sqlite-devel zlib-devel
+              dnf install -y clang sqlite-devel zlib-devel wget unzip
             else
-              yum install -y clang sqlite-devel zlib-devel
+              yum install -y clang sqlite-devel zlib-devel wget unzip
             fi
             PREFIX=/usr/local bash utils/install-protoc.sh
