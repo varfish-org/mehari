@@ -21,6 +21,7 @@ use hgvs::{
 };
 use itertools::Itertools;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::{collections::HashMap, sync::Arc};
 
 /// A variant description how VCF would do it.
@@ -101,7 +102,7 @@ pub struct ConsequencePredictor {
 
     /// Configuration for the predictor.
     #[derivative(Debug = "ignore")]
-    config: Config,
+    pub(crate) config: Config,
 }
 
 /// Padding to look for genes upstream/downstream.
@@ -317,7 +318,7 @@ impl ConsequencePredictor {
                 protein_pos: None,
                 gene_symbol: "".to_string(),
                 messages: None,
-                custom_fields: HashMap::with_capacity(0),
+                custom_fields: BTreeMap::new(),
             }])));
         }
 
@@ -846,7 +847,7 @@ impl ConsequencePredictor {
             (None, None, None, None, None)
         };
 
-        let mut custom_fields = HashMap::new();
+        let mut custom_fields = BTreeMap::new();
 
         let c_ref = self.config.report_cdna_sequence.includes_ref();
         let c_alt = self.config.report_cdna_sequence.includes_alt();

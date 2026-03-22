@@ -1856,6 +1856,21 @@ impl ConsequenceAnnotator {
         predictor_settings: &PredictorSettings,
     ) -> anyhow::Result<Self> {
         let args = predictor_settings;
+        let s = &args.reporting_settings;
+
+        let mut custom_columns = Vec::new();
+        if s.report_cdna_sequence.includes_ref() {
+            custom_columns.push(ANN_TX_SEQ_REF.to_string());
+        }
+        if s.report_cdna_sequence.includes_alt() {
+            custom_columns.push(ANN_TX_SEQ_ALT.to_string());
+        }
+        if s.report_protein_sequence.includes_ref() {
+            custom_columns.push(ANN_AA_SEQ_REF.to_string());
+        }
+        if s.report_protein_sequence.includes_alt() {
+            custom_columns.push(ANN_AA_SEQ_ALT.to_string());
+        }
 
         let provider = Arc::new(MehariProvider::new(
             tx_db,
@@ -1878,6 +1893,9 @@ impl ConsequenceAnnotator {
                 .normalize(!args.do_not_normalize_variants())
                 .renormalize_g(!args.do_not_renormalize_g())
                 .vep_consequence_terms(args.vep_consequence_terms())
+                .report_cdna_sequence(s.report_cdna_sequence)
+                .report_protein_sequence(s.report_protein_sequence)
+                .custom_columns(custom_columns)
                 .build()?,
         );
         Ok(Self::new(predictor))
@@ -1902,7 +1920,10 @@ impl ConsequenceAnnotator {
                 record.info_mut().insert(
                     "ANN".into(),
                     Some(field::Value::Array(field::value::Array::String(
-                        ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
+                        ann_fields
+                            .iter()
+                            .map(|ann| Some(ann.format(&self.predictor.config)))
+                            .collect(),
                     ))),
                 );
             }

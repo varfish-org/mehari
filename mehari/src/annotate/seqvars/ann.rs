@@ -17,7 +17,7 @@ use nom::{
     IResult,
 };
 use parse_display::{Display, FromStr};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
@@ -979,8 +979,8 @@ pub struct AnnField {
     pub messages: Option<Vec<Message>>,
 
     /// Container for custom fields / extensions / plugins.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub custom_fields: HashMap<String, Option<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub custom_fields: BTreeMap<String, Option<String>>,
 }
 
 impl AnnField {
@@ -1121,7 +1121,7 @@ impl AnnField {
         let (i, strand) = parse_parsed(i)?;
         let (i, messages) = parse_opt_list(i)?;
 
-        let mut custom_fields = HashMap::with_capacity(config.custom_columns.len());
+        let mut custom_fields = BTreeMap::new();
         let mut current_i = i;
 
         for col_name in &config.custom_columns {
@@ -1574,7 +1574,7 @@ mod test {
             distance: Some(1),
             strand: 0,
             messages: Some(vec![Message::ErrorChromosomeNotFound]),
-            custom_fields: HashMap::with_capacity(0),
+            custom_fields: BTreeMap::new(),
         };
 
         assert_eq!(
@@ -1703,7 +1703,6 @@ mod test {
             .insert("CustomScore".into(), Some("99".to_string()));
 
         let formatted = field.format(&config);
-        let pipe_count = formatted.chars().filter(|c| *c == '|').count();
         let names = AnnField::ann_field_names(&config);
         let parts: Vec<&str> = formatted.split('|').collect();
 

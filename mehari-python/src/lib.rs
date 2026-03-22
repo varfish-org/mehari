@@ -3,7 +3,10 @@ use arrow::compute::cast;
 use arrow::datatypes::{DataType, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use mehari::annotate::cli::SequenceReporting;
-use mehari::annotate::seqvars::ann::{AnnField, Consequence, Pos, PutativeImpact, Rank};
+use mehari::annotate::seqvars::ann::{
+    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, AnnField, Consequence, Pos,
+    PutativeImpact, Rank,
+};
 use mehari::annotate::seqvars::csq::{ConfigBuilder, ConsequencePredictor, VcfVariant};
 use mehari::annotate::seqvars::load_tx_db;
 use mehari::annotate::seqvars::provider::{
@@ -55,6 +58,7 @@ struct ArrowAnnField {
     pub distance: Option<i32>,
     pub strand: i32,
     pub messages: Option<Vec<String>>,
+    pub custom_fields: std::collections::BTreeMap<String, Option<String>>,
 }
 
 impl From<AnnField> for ArrowAnnField {
@@ -82,6 +86,7 @@ impl From<AnnField> for ArrowAnnField {
             messages: f
                 .messages
                 .map(|msgs| msgs.iter().map(|m| m.to_string()).collect()),
+            custom_fields: f.custom_fields,
         }
     }
 }
@@ -121,14 +126,6 @@ impl PySeqvarsAnnotator {
             pyo3::exceptions::PyValueError::new_err(format!("Failed to merge databases: {}", e))
         })?;
 
-        let report_cdna = SequenceReporting::from_str(report_cdna_sequence).map_err(|_| {
-            pyo3::exceptions::PyValueError::new_err("Invalid cdna sequence reporting option")
-        })?;
-        let report_protein =
-            SequenceReporting::from_str(report_protein_sequence).map_err(|_| {
-                pyo3::exceptions::PyValueError::new_err("Invalid protein sequence reporting option")
-            })?;
-
         let provider_config = ProviderConfigBuilder::default()
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
@@ -140,9 +137,32 @@ impl PySeqvarsAnnotator {
             provider_config,
         ));
 
+        let report_cdna = SequenceReporting::from_str(report_cdna_sequence).map_err(|_| {
+            pyo3::exceptions::PyValueError::new_err("Invalid cdna sequence reporting option")
+        })?;
+        let report_protein =
+            SequenceReporting::from_str(report_protein_sequence).map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err("Invalid protein sequence reporting option")
+            })?;
+
+        let mut custom_columns = Vec::new();
+        if report_cdna.includes_ref() {
+            custom_columns.push(ANN_TX_SEQ_REF.to_string());
+        }
+        if report_cdna.includes_alt() {
+            custom_columns.push(ANN_TX_SEQ_ALT.to_string());
+        }
+        if report_protein.includes_ref() {
+            custom_columns.push(ANN_AA_SEQ_REF.to_string());
+        }
+        if report_protein.includes_alt() {
+            custom_columns.push(ANN_AA_SEQ_ALT.to_string());
+        }
+
         let config = ConfigBuilder::default()
             .report_cdna_sequence(report_cdna)
             .report_protein_sequence(report_protein)
+            .custom_columns(custom_columns)
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
