@@ -997,7 +997,7 @@ impl AnnField {
         // FIXME: serde_introspect returns all aliases and the original name,
         //   we rely on the order being consistent.
         let names = serde_aux::serde_introspection::serde_introspect::<Self>();
-        let mut result: Vec<&'static str> = names.into_iter().step_by(2).copied().collect();
+        let mut result: Vec<&'static str> = names.iter().step_by(2).copied().collect();
 
         let c_ref = matches!(
             config.report_cdna_sequence,
@@ -1016,18 +1016,12 @@ impl AnnField {
             SequenceReporting::Alternative | SequenceReporting::Both
         );
 
-        result.retain(|&x| {
-            if x == "cDNA.seq_ref" {
-                c_ref
-            } else if x == "cDNA.seq_alt" {
-                c_alt
-            } else if x == "AA.seq_ref" {
-                p_ref
-            } else if x == "AA.seq_alt" {
-                p_alt
-            } else {
-                true
-            }
+        result.retain(|&x| match x {
+            "cDNA.seq_ref" => c_ref,
+            "cDNA.seq_alt" => c_alt,
+            "AA.seq_ref" => p_ref,
+            "AA.seq_alt" => p_alt,
+            _ => true,
         });
 
         result
@@ -1084,14 +1078,7 @@ fn parse_string(i: &str) -> IResult<&str, String> {
 /// Parses an optional string (empty "" becomes None)
 fn parse_opt_string(i: &str) -> IResult<&str, Option<String>> {
     let (i, val) = parse_pipe_field(i)?;
-    Ok((
-        i,
-        if val.is_empty() {
-            None
-        } else {
-            Some(val.to_string())
-        },
-    ))
+    Ok((i, (!val.is_empty()).then(|| val.to_string())))
 }
 
 /// Parses a required generic type using FromStr
@@ -1102,17 +1089,14 @@ fn parse_parsed<T: FromStr>(i: &str) -> IResult<&str, T> {
 /// Parses an optional generic type using FromStr
 fn parse_opt_parsed<T: FromStr>(i: &str) -> IResult<&str, Option<T>> {
     let (i, val) = parse_pipe_field(i)?;
-    if val.is_empty() {
-        Ok((i, None))
-    } else {
-        match val.parse::<T>() {
-            Ok(parsed) => Ok((i, Some(parsed))),
-            Err(_) => Err(nom::Err::Error(nom::error::Error::new(
-                i,
-                nom::error::ErrorKind::Verify,
-            ))),
-        }
-    }
+    let parsed = (!val.is_empty())
+        .then(|| {
+            val.parse::<T>().map_err(|_| {
+                nom::Err::Error(nom::error::Error::new(i, nom::error::ErrorKind::Verify))
+            })
+        })
+        .transpose()?;
+    Ok((i, parsed))
 }
 
 /// Idiomatic nom parsing for `&` separated lists
@@ -1183,26 +1167,22 @@ impl AnnField {
             SequenceReporting::Alternative | SequenceReporting::Both
         );
 
-        let (i, cdna_seq_ref) = if c_ref {
-            parse_opt_string(i)?
-        } else {
-            (i, None)
-        };
-        let (i, cdna_seq_alt) = if c_alt {
-            parse_opt_string(i)?
-        } else {
-            (i, None)
-        };
-        let (i, aa_seq_ref) = if p_ref {
-            parse_opt_string(i)?
-        } else {
-            (i, None)
-        };
-        let (i, aa_seq_alt) = if p_alt {
-            parse_opt_string(i)?
-        } else {
-            (i, None)
-        };
+        let (i, cdna_seq_ref) = c_ref
+            .then(|| parse_opt_string(i))
+            .transpose()?
+            .unwrap_or((i, None));
+        let (i, cdna_seq_alt) = c_alt
+            .then(|| parse_opt_string(i))
+            .transpose()?
+            .unwrap_or((i, None));
+        let (i, aa_seq_ref) = p_ref
+            .then(|| parse_opt_string(i))
+            .transpose()?
+            .unwrap_or((i, None));
+        let (i, aa_seq_alt) = p_alt
+            .then(|| parse_opt_string(i))
+            .transpose()?
+            .unwrap_or((i, None));
 
         Ok((
             i,
@@ -1261,7 +1241,7 @@ impl AnnField {
                 .join("&")
         }
         fn opt_vec_fmt<T: ToString>(o: &Option<Vec<T>>) -> String {
-            o.as_ref().map(|v| vec_fmt(&v)).unwrap_or_default()
+            o.as_ref().map(|v| vec_fmt(v)).unwrap_or_default()
         }
 
         let mut parts = vec![
@@ -1304,19 +1284,10 @@ impl AnnField {
             SequenceReporting::Alternative | SequenceReporting::Both
         );
 
-        // Conditionally append sequences ONLY if requested (prevents |||||)
-        if c_ref {
-            parts.push(opt_str(&self.cdna_seq_ref));
-        }
-        if c_alt {
-            parts.push(opt_str(&self.cdna_seq_alt));
-        }
-        if p_ref {
-            parts.push(opt_str(&self.aa_seq_ref));
-        }
-        if p_alt {
-            parts.push(opt_str(&self.aa_seq_alt));
-        }
+        parts.extend(c_ref.then(|| opt_str(&self.cdna_seq_ref)));
+        parts.extend(c_alt.then(|| opt_str(&self.cdna_seq_alt)));
+        parts.extend(p_ref.then(|| opt_str(&self.aa_seq_ref)));
+        parts.extend(p_alt.then(|| opt_str(&self.aa_seq_alt)));
 
         parts.join("|")
     }

@@ -848,56 +848,40 @@ impl ConsequencePredictor {
         let mut aa_seq_ref = None;
         let mut aa_seq_alt = None;
 
-        if self.config.report_cdna_sequence != SequenceReporting::None
-            || self.config.report_protein_sequence != SequenceReporting::None
-        {
+        let c_ref = matches!(
+            self.config.report_cdna_sequence,
+            SequenceReporting::Reference | SequenceReporting::Both
+        );
+        let c_alt = matches!(
+            self.config.report_cdna_sequence,
+            SequenceReporting::Alternative | SequenceReporting::Both
+        );
+        let p_ref = matches!(
+            self.config.report_protein_sequence,
+            SequenceReporting::Reference | SequenceReporting::Both
+        );
+        let p_alt = matches!(
+            self.config.report_protein_sequence,
+            SequenceReporting::Alternative | SequenceReporting::Both
+        );
+
+        if c_ref || c_alt || p_ref || p_alt {
             if let Some(var_c) = projection.as_ref().and_then(|p| p.c.as_ref()) {
-                if matches!(var_c, HgvsVariant::CdsVariant { .. }) {
-                    if let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
-                        self.provider.clone(),
-                        &tx.id,
-                        None,
-                    ) {
-                        if matches!(
-                            self.config.report_cdna_sequence,
-                            SequenceReporting::Reference | SequenceReporting::Both
-                        ) {
-                            cdna_seq_ref = Some(ref_data.transcript_sequence.clone());
-                        }
-                        if matches!(
-                            self.config.report_protein_sequence,
-                            SequenceReporting::Reference | SequenceReporting::Both
-                        ) {
-                            aa_seq_ref = Some(ref_data.aa_sequence.clone());
-                        }
+                if let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
+                    self.provider.clone(),
+                    &tx.id,
+                    None,
+                ) {
+                    cdna_seq_ref = c_ref.then(|| ref_data.transcript_sequence.clone());
+                    aa_seq_ref = p_ref.then(|| ref_data.aa_sequence.clone());
 
-                        let needs_alt = matches!(
-                            self.config.report_cdna_sequence,
-                            SequenceReporting::Alternative | SequenceReporting::Both
-                        ) || matches!(
-                            self.config.report_protein_sequence,
-                            SequenceReporting::Alternative | SequenceReporting::Both
-                        );
-
-                        if needs_alt {
-                            if let Ok(mut alt_data_vec) =
-                                hgvs::mapper::altseq::AltSeqBuilder::new(var_c.clone(), ref_data)
-                                    .build_altseq()
-                            {
-                                if let Some(alt_data) = alt_data_vec.pop() {
-                                    if matches!(
-                                        self.config.report_cdna_sequence,
-                                        SequenceReporting::Alternative | SequenceReporting::Both
-                                    ) {
-                                        cdna_seq_alt = Some(alt_data.transcript_sequence.clone());
-                                    }
-                                    if matches!(
-                                        self.config.report_protein_sequence,
-                                        SequenceReporting::Alternative | SequenceReporting::Both
-                                    ) {
-                                        aa_seq_alt = Some(alt_data.aa_sequence.clone());
-                                    }
-                                }
+                    if (c_alt || p_alt) && matches!(var_c, HgvsVariant::CdsVariant { .. }) {
+                        if let Ok(mut alt_data_vec) =
+                            AltSeqBuilder::new(var_c.clone(), ref_data).build_altseq()
+                        {
+                            if let Some(alt_data) = alt_data_vec.pop() {
+                                cdna_seq_alt = c_alt.then_some(alt_data.transcript_sequence);
+                                aa_seq_alt = p_alt.then_some(alt_data.aa_sequence);
                             }
                         }
                     }
