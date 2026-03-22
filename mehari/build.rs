@@ -36,21 +36,16 @@ fn main() -> Result<(), anyhow::Error> {
     // Integration of `built`. Workaround for python bindings via maturin in mehari-python
     let src = env::var("CARGO_MANIFEST_DIR").unwrap();
     let dst = PathBuf::from(env::var("OUT_DIR").unwrap()).join("built.rs");
+    let manifest_path = std::path::Path::new(&src);
 
-    let mut built_opts = built::Options::default();
-    built_opts.set_dependencies(true);
-
-    if let Err(e) = built::write_built_file_with_options(&built_opts, src.as_ref(), &dst) {
+    if let Err(e) = built::write_built_file_with_opts(Some(manifest_path), &dst) {
         println!(
-            "cargo:warning=Failed to write built file with dependencies: {}",
+            "cargo:warning=Failed to write built file with manifest: {}",
             e
         );
-        println!(
-            "cargo:warning=Falling back to building without dependencies (likely Python sdist)"
-        );
+        println!("cargo:warning=Falling back to building without manifest (likely Python sdist)");
 
-        built_opts.set_dependencies(false);
-        built::write_built_file_with_options(&built_opts, src.as_ref(), &dst)
+        built::write_built_file_with_opts(None, &dst)
             .map_err(|e| anyhow::anyhow!("Failed to write built file: {}", e))?;
     }
 
