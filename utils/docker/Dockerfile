@@ -28,6 +28,7 @@ RUN PREFIX=/usr/local bash /tmp/install-protoc.sh
 # Set the working directory.
 WORKDIR /usr/src/mehari
 
+COPY README.md /usr/src/
 COPY Cargo.toml Cargo.lock ./
 COPY mehari/Cargo.toml mehari/build.rs ./mehari/
 COPY mehari/src ./mehari/src/

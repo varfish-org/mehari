@@ -6,7 +6,7 @@ authors = ["Manuel Holtgrewe <manuel.holtgrewe@bih-charite.de>"]
 description = "Variant effect prediction all in Rust"
 license = "MIT"
 repository = "https://github.com/varfish-org/mehari"
-readme = "README.md"
+readme = "../README.md"
 rust-version = "1.75.0"
 
 [features]
