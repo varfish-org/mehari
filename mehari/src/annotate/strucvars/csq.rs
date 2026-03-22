@@ -9,17 +9,9 @@ use crate::{
 
 /// Enumeration for effect on transcript.
 #[derive(
-    serde::Serialize,
-    serde::Deserialize,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Debug,
-    Clone,
-    Copy,
-    utoipa::ToSchema,
+    serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy,
 )]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 // #[schema(as=StrucvarsTranscriptEffect)] // TODO: rename back to TranscriptEffect once utoipa's as= is fixed.
 pub enum StrucvarsTranscriptEffect {
@@ -68,8 +60,8 @@ pub mod interface {
         PartialOrd,
         Ord,
         Hash,
-        utoipa::ToSchema,
     )]
+    #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
     // #[schema(as=StrucvarsSvType)] // TODO: rename back to StrucVarType once utoipa's as= is fixed.
     pub enum StrucvarsSvType {
         #[serde(rename = "DEL")]
@@ -149,7 +141,8 @@ struct TxRegion {
 }
 
 /// Explanation of transcript effect per individual gene.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, utoipa::ToSchema)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 // #[schema(as=StrucvarsGeneTranscriptEffects)] // TODO: rename back to GeneTranscriptEffects once utoipa's as= is fixed.
 pub struct StrucvarsGeneTranscriptEffects {
     /// HGNC identifier

@@ -2692,7 +2692,6 @@ dependencies = [
 name = "mehari"
 version = "0.41.1"
 dependencies = [
- "actix-web",
  "annonars",
  "anyhow",
  "async-compression",
@@ -2745,8 +2744,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "utoipa",
- "utoipa-swagger-ui",
  "uuid",
  "zstd",
 ]

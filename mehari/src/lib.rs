@@ -24,6 +24,7 @@ pub mod common;
 pub mod db;
 pub mod pbs;
 pub mod ped;
+#[cfg(feature = "server")]
 pub mod server;
 pub mod verify;
 
