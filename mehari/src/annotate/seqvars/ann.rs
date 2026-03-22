@@ -1,6 +1,5 @@
 //! Code for annotating variants based on molecular consequence.
 
-use crate::annotate::cli::SequenceReporting;
 use crate::annotate::seqvars::csq::Config;
 use crate::pbs::txs::TranscriptTag;
 use enumflags2::bitflags;
@@ -18,6 +17,7 @@ use nom::{
     IResult,
 };
 use parse_display::{Display, FromStr};
+use std::collections::HashMap;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
@@ -973,56 +973,25 @@ pub struct AnnField {
     #[serde(alias = "ERRORS / WARNINGS / INFO")]
     pub messages: Option<Vec<Message>>,
 
-    /// cDNA sequence (reference).
-    #[serde(alias = "cDNA.seq_ref")]
-    pub cdna_seq_ref: Option<String>,
-
-    /// cDNA sequence (alternative).
-    #[serde(alias = "cDNA.seq_alt")]
-    pub cdna_seq_alt: Option<String>,
-
-    /// Protein sequence (reference).
-    #[serde(alias = "AA.seq_ref")]
-    pub aa_seq_ref: Option<String>,
-
-    /// Protein sequence (alternative).
-    #[serde(alias = "AA.seq_alt")]
-    pub aa_seq_alt: Option<String>,
+    /// Container for custom fields / extensions / plugins.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub custom_fields: HashMap<String, Option<String>>,
 }
 
 impl AnnField {
     /// Return vector of all field names in the `ANN` field,
     /// as they appear in the VCF INFO ANN header description.
-    pub fn ann_field_names(config: &Config) -> Vec<&'static str> {
+    pub fn ann_field_names(config: &Config) -> Vec<String> {
         // FIXME: serde_introspect returns all aliases and the original name,
         //   we rely on the order being consistent.
         let names = serde_aux::serde_introspection::serde_introspect::<Self>();
-        let mut result: Vec<&'static str> = names.iter().step_by(2).copied().collect();
-
-        let c_ref = matches!(
-            config.report_cdna_sequence,
-            SequenceReporting::Reference | SequenceReporting::Both
-        );
-        let c_alt = matches!(
-            config.report_cdna_sequence,
-            SequenceReporting::Alternative | SequenceReporting::Both
-        );
-        let p_ref = matches!(
-            config.report_protein_sequence,
-            SequenceReporting::Reference | SequenceReporting::Both
-        );
-        let p_alt = matches!(
-            config.report_protein_sequence,
-            SequenceReporting::Alternative | SequenceReporting::Both
-        );
-
-        result.retain(|&x| match x {
-            "cDNA.seq_ref" => c_ref,
-            "cDNA.seq_alt" => c_alt,
-            "AA.seq_ref" => p_ref,
-            "AA.seq_alt" => p_alt,
-            _ => true,
-        });
+        let mut result: Vec<_> = names
+            .iter()
+            .step_by(2)
+            .filter(|&x| *x != "custom_fields")
+            .map(|s| s.to_string())
+            .collect();
+        result.extend(config.custom_columns.clone());
 
         result
     }
@@ -1055,10 +1024,7 @@ impl Default for AnnField {
             distance: Default::default(),
             strand: Default::default(),
             messages: Default::default(),
-            cdna_seq_ref: None,
-            cdna_seq_alt: None,
-            aa_seq_ref: None,
-            aa_seq_alt: None,
+            custom_fields: Default::default(),
         }
     }
 }
@@ -1150,39 +1116,14 @@ impl AnnField {
         let (i, strand) = parse_parsed(i)?;
         let (i, messages) = parse_opt_list(i)?;
 
-        let c_ref = matches!(
-            config.report_cdna_sequence,
-            SequenceReporting::Reference | SequenceReporting::Both
-        );
-        let c_alt = matches!(
-            config.report_cdna_sequence,
-            SequenceReporting::Alternative | SequenceReporting::Both
-        );
-        let p_ref = matches!(
-            config.report_protein_sequence,
-            SequenceReporting::Reference | SequenceReporting::Both
-        );
-        let p_alt = matches!(
-            config.report_protein_sequence,
-            SequenceReporting::Alternative | SequenceReporting::Both
-        );
+        let mut custom_fields = HashMap::with_capacity(config.custom_columns.len());
+        let mut current_i = i;
 
-        let (i, cdna_seq_ref) = c_ref
-            .then(|| parse_opt_string(i))
-            .transpose()?
-            .unwrap_or((i, None));
-        let (i, cdna_seq_alt) = c_alt
-            .then(|| parse_opt_string(i))
-            .transpose()?
-            .unwrap_or((i, None));
-        let (i, aa_seq_ref) = p_ref
-            .then(|| parse_opt_string(i))
-            .transpose()?
-            .unwrap_or((i, None));
-        let (i, aa_seq_alt) = p_alt
-            .then(|| parse_opt_string(i))
-            .transpose()?
-            .unwrap_or((i, None));
+        for col_name in &config.custom_columns {
+            let (next_i, val) = parse_opt_string(current_i)?;
+            current_i = next_i;
+            custom_fields.insert(col_name.clone(), val);
+        }
 
         Ok((
             i,
@@ -1207,10 +1148,7 @@ impl AnnField {
                 distance,
                 strand,
                 messages,
-                cdna_seq_ref,
-                cdna_seq_alt,
-                aa_seq_ref,
-                aa_seq_alt,
+                custom_fields,
             },
         ))
     }
@@ -1267,27 +1205,10 @@ impl AnnField {
             opt_vec_fmt(&self.messages),
         ];
 
-        let c_ref = matches!(
-            config.report_cdna_sequence,
-            SequenceReporting::Reference | SequenceReporting::Both
-        );
-        let c_alt = matches!(
-            config.report_cdna_sequence,
-            SequenceReporting::Alternative | SequenceReporting::Both
-        );
-        let p_ref = matches!(
-            config.report_protein_sequence,
-            SequenceReporting::Reference | SequenceReporting::Both
-        );
-        let p_alt = matches!(
-            config.report_protein_sequence,
-            SequenceReporting::Alternative | SequenceReporting::Both
-        );
-
-        parts.extend(c_ref.then(|| opt_str(&self.cdna_seq_ref)));
-        parts.extend(c_alt.then(|| opt_str(&self.cdna_seq_alt)));
-        parts.extend(p_ref.then(|| opt_str(&self.aa_seq_ref)));
-        parts.extend(p_alt.then(|| opt_str(&self.aa_seq_alt)));
+        for col_name in &config.custom_columns {
+            let val = self.custom_fields.get(col_name).and_then(|v| v.clone());
+            parts.push(opt_str(&val));
+        }
 
         parts.join("|")
     }
@@ -1648,10 +1569,7 @@ mod test {
             distance: Some(1),
             strand: 0,
             messages: Some(vec![Message::ErrorChromosomeNotFound]),
-            cdna_seq_ref: None,
-            cdna_seq_alt: None,
-            aa_seq_ref: None,
-            aa_seq_alt: None,
+            custom_fields: HashMap::with_capacity(0),
         };
 
         assert_eq!(

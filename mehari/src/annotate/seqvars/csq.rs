@@ -73,6 +73,10 @@ pub struct Config {
     /// Whether to report protein sequence.
     #[builder(default)]
     pub report_protein_sequence: SequenceReporting,
+
+    /// Ordered list of extra columns registered by plugins/features.
+    #[builder(default)]
+    pub custom_columns: Vec<String>,
 }
 
 impl Default for Config {
@@ -311,10 +315,7 @@ impl ConsequencePredictor {
                 protein_pos: None,
                 gene_symbol: "".to_string(),
                 messages: None,
-                cdna_seq_ref: None,
-                cdna_seq_alt: None,
-                aa_seq_ref: None,
-                aa_seq_alt: None,
+                custom_fields: HashMap::with_capacity(0),
             }])));
         }
 
@@ -843,27 +844,12 @@ impl ConsequencePredictor {
             (None, None, None, None, None)
         };
 
-        let mut cdna_seq_ref = None;
-        let mut cdna_seq_alt = None;
-        let mut aa_seq_ref = None;
-        let mut aa_seq_alt = None;
+        let mut custom_fields = HashMap::new();
 
-        let c_ref = matches!(
-            self.config.report_cdna_sequence,
-            SequenceReporting::Reference | SequenceReporting::Both
-        );
-        let c_alt = matches!(
-            self.config.report_cdna_sequence,
-            SequenceReporting::Alternative | SequenceReporting::Both
-        );
-        let p_ref = matches!(
-            self.config.report_protein_sequence,
-            SequenceReporting::Reference | SequenceReporting::Both
-        );
-        let p_alt = matches!(
-            self.config.report_protein_sequence,
-            SequenceReporting::Alternative | SequenceReporting::Both
-        );
+        let c_ref = self.config.report_cdna_sequence.includes_ref();
+        let c_alt = self.config.report_cdna_sequence.includes_alt();
+        let p_ref = self.config.report_protein_sequence.includes_ref();
+        let p_alt = self.config.report_protein_sequence.includes_alt();
 
         if c_ref || c_alt || p_ref || p_alt {
             if let Some(var_c) = projection.as_ref().and_then(|p| p.c.as_ref()) {
@@ -872,16 +858,32 @@ impl ConsequencePredictor {
                     &tx.id,
                     None,
                 ) {
-                    cdna_seq_ref = c_ref.then(|| ref_data.transcript_sequence.clone());
-                    aa_seq_ref = p_ref.then(|| ref_data.aa_sequence.clone());
+                    if c_ref {
+                        custom_fields.insert(
+                            "cDNA.seq_ref".into(),
+                            Some(ref_data.transcript_sequence.clone()),
+                        );
+                    }
+                    if p_ref {
+                        custom_fields
+                            .insert("AA.seq_ref".into(), Some(ref_data.aa_sequence.clone()));
+                    }
 
                     if (c_alt || p_alt) && matches!(var_c, HgvsVariant::CdsVariant { .. }) {
                         if let Ok(mut alt_data_vec) =
                             AltSeqBuilder::new(var_c.clone(), ref_data).build_altseq()
                         {
                             if let Some(alt_data) = alt_data_vec.pop() {
-                                cdna_seq_alt = c_alt.then_some(alt_data.transcript_sequence);
-                                aa_seq_alt = p_alt.then_some(alt_data.aa_sequence);
+                                if c_alt {
+                                    custom_fields.insert(
+                                        "cDNA.seq_alt".into(),
+                                        Some(alt_data.transcript_sequence),
+                                    );
+                                }
+                                if p_alt {
+                                    custom_fields
+                                        .insert("AA.seq_alt".into(), Some(alt_data.aa_sequence));
+                                }
                             }
                         }
                     }
@@ -990,10 +992,7 @@ impl ConsequencePredictor {
             strand,
             distance: transcript_location.distance,
             messages: None,
-            cdna_seq_ref,
-            cdna_seq_alt,
-            aa_seq_ref,
-            aa_seq_alt,
+            custom_fields,
         }))
     }
 

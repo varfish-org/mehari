@@ -2039,19 +2039,27 @@ async fn run_with_writer(
         .is_some_and(|v| !v.is_empty());
     let with_clinvar = args.sources.clinvar.as_ref().is_some_and(|v| !v.is_empty());
 
+    let mut custom_columns = Vec::new();
+    let c = &args.predictor_settings.reporting_settings;
+    if c.report_cdna_sequence.includes_ref() {
+        custom_columns.push("cDNA.seq_ref".to_string());
+    }
+    if c.report_cdna_sequence.includes_alt() {
+        custom_columns.push("cDNA.seq_alt".to_string());
+    }
+    if c.report_protein_sequence.includes_ref() {
+        custom_columns.push("AA.seq_ref".to_string());
+    }
+    if c.report_protein_sequence.includes_alt() {
+        custom_columns.push("AA.seq_alt".to_string());
+    }
+
     // TODO: manually rebuilding Config here so we can automatically build the VCF ANN header
     //   is not the best way of doing things.
     let csq_config = ConfigBuilder::default()
-        .report_cdna_sequence(
-            args.predictor_settings
-                .reporting_settings
-                .report_cdna_sequence,
-        )
-        .report_protein_sequence(
-            args.predictor_settings
-                .reporting_settings
-                .report_protein_sequence,
-        )
+        .report_cdna_sequence(c.report_cdna_sequence)
+        .report_protein_sequence(c.report_protein_sequence)
+        .custom_columns(custom_columns)
         .build()?;
 
     let header_out = build_header(
