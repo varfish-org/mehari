@@ -1006,6 +1006,10 @@ impl Default for AnnField {
             distance: Default::default(),
             strand: Default::default(),
             messages: Default::default(),
+            cdna_seq_ref: None,
+            cdna_seq_alt: None,
+            aa_seq_ref: None,
+            aa_seq_alt: None,
         }
     }
 }

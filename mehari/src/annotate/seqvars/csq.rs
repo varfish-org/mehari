@@ -3,7 +3,7 @@ use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
     provider::Provider as MehariProvider,
 };
-use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
+use crate::annotate::cli::{ConsequenceBy, SequenceReporting, TranscriptSource};
 use crate::annotate::seqvars::ann::FeatureTag;
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::pbs::txs::{GenomeAlignment, Strand, Transcript, TranscriptBiotype, TranscriptTag};
@@ -65,6 +65,14 @@ pub struct Config {
     /// Whether to report VEP consequence terms.
     #[builder(default = "false")]
     pub vep_consequence_terms: bool,
+
+    /// Whether to report cDNA sequence.
+    #[builder(default)]
+    pub report_cdna_sequence: SequenceReporting,
+
+    /// Whether to report protein sequence.
+    #[builder(default)]
+    pub report_protein_sequence: SequenceReporting,
 }
 
 impl Default for Config {
@@ -831,6 +839,68 @@ impl ConsequencePredictor {
             (None, None, None, None, None)
         };
 
+        let mut cdna_seq_ref = None;
+        let mut cdna_seq_alt = None;
+        let mut aa_seq_ref = None;
+        let mut aa_seq_alt = None;
+
+        if self.config.report_cdna_sequence != SequenceReporting::None
+            || self.config.report_protein_sequence != SequenceReporting::None
+        {
+            if let Some(var_c) = projection.as_ref().and_then(|p| p.c.as_ref()) {
+                if matches!(var_c, HgvsVariant::CdsVariant { .. }) {
+                    if let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
+                        self.provider.clone(),
+                        &tx.id,
+                        None,
+                    ) {
+                        if matches!(
+                            self.config.report_cdna_sequence,
+                            SequenceReporting::Reference | SequenceReporting::Both
+                        ) {
+                            cdna_seq_ref = Some(ref_data.transcript_sequence.clone());
+                        }
+                        if matches!(
+                            self.config.report_protein_sequence,
+                            SequenceReporting::Reference | SequenceReporting::Both
+                        ) {
+                            aa_seq_ref = Some(ref_data.aa_sequence.clone());
+                        }
+
+                        let needs_alt = matches!(
+                            self.config.report_cdna_sequence,
+                            SequenceReporting::Alternative | SequenceReporting::Both
+                        ) || matches!(
+                            self.config.report_protein_sequence,
+                            SequenceReporting::Alternative | SequenceReporting::Both
+                        );
+
+                        if needs_alt {
+                            if let Ok(mut alt_data_vec) =
+                                hgvs::mapper::altseq::AltSeqBuilder::new(var_c.clone(), ref_data)
+                                    .build_altseq()
+                            {
+                                if let Some(alt_data) = alt_data_vec.pop() {
+                                    if matches!(
+                                        self.config.report_cdna_sequence,
+                                        SequenceReporting::Alternative | SequenceReporting::Both
+                                    ) {
+                                        cdna_seq_alt = Some(alt_data.transcript_sequence.clone());
+                                    }
+                                    if matches!(
+                                        self.config.report_protein_sequence,
+                                        SequenceReporting::Alternative | SequenceReporting::Both
+                                    ) {
+                                        aa_seq_alt = Some(alt_data.aa_sequence.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let hgvs_n = projection.as_ref().and_then(|p| p.n.as_ref()).map(|var_n| {
             format!("{}", &NoRef(var_n))
                 .split(':')
@@ -932,6 +1002,10 @@ impl ConsequencePredictor {
             strand,
             distance: transcript_location.distance,
             messages: None,
+            cdna_seq_ref,
+            cdna_seq_alt,
+            aa_seq_ref,
+            aa_seq_alt,
         }))
     }
 

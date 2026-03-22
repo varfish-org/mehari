@@ -81,6 +81,35 @@ pub struct TranscriptSettings {
     pub pick_transcript_mode: TranscriptPickMode,
 }
 
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    clap::ValueEnum,
+    parse_display::FromStr,
+    parse_display::Display,
+)]
+#[display(style = "kebab-case")]
+pub enum SequenceReporting {
+    #[default]
+    None,
+    Reference,
+    Alternative,
+    Both,
+}
+
+impl SequenceReporting {
+    pub fn includes_ref(&self) -> bool {
+        matches!(self, Self::Reference | Self::Both)
+    }
+    pub fn includes_alt(&self) -> bool {
+        matches!(self, Self::Alternative | Self::Both)
+    }
+}
+
 #[derive(Debug, ClapArgs, Default, Clone)]
 pub struct ReportingSettings {
     /// Whether to keep intergenic variants.
@@ -94,6 +123,14 @@ pub struct ReportingSettings {
     /// Whether to use less fine-grained VEP consequence terms.
     #[arg(long, default_value_t = false, hide = true)]
     use_vep_consequence_terms: bool,
+
+    /// Whether to report cDNA sequence.
+    #[arg(long, value_enum, default_value_t = SequenceReporting::None)]
+    pub report_cdna_sequence: SequenceReporting,
+
+    /// Whether to report protein sequence.
+    #[arg(long, value_enum, default_value_t = SequenceReporting::None)]
+    pub report_protein_sequence: SequenceReporting,
 }
 
 #[derive(Debug, ClapArgs, Default, Clone)]

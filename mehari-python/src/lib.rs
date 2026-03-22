@@ -3,7 +3,7 @@ use arrow::compute::cast;
 use arrow::datatypes::{DataType, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use mehari::annotate::seqvars::ann::{AnnField, Consequence, Pos, PutativeImpact, Rank};
-use mehari::annotate::seqvars::csq::{Config, ConsequencePredictor, VcfVariant};
+use mehari::annotate::seqvars::csq::{Config, ConfigBuilder, ConsequencePredictor, VcfVariant};
 use mehari::annotate::seqvars::load_tx_db;
 use mehari::annotate::seqvars::provider::{
     ConfigBuilder as ProviderConfigBuilder, Provider as MehariProvider,
@@ -97,8 +97,13 @@ pub struct PySeqvarsAnnotator {
 #[pymethods]
 impl PySeqvarsAnnotator {
     #[new]
-    #[pyo3(signature = (transcript_db_paths, reference_path=None))]
-    fn new(transcript_db_paths: Vec<String>, reference_path: Option<String>) -> PyResult<Self> {
+    #[pyo3(signature = (transcript_db_paths, reference_path=None, report_cdna_sequence="none", report_protein_sequence="none"))]
+    fn new(
+        transcript_db_paths: Vec<String>,
+        reference_path: Option<String>,
+        report_cdna_sequence: &str,
+        report_protein_sequence: &str,
+    ) -> PyResult<Self> {
         let mut tx_dbs = Vec::new();
         for path in transcript_db_paths {
             let db = load_tx_db(&path).map_err(|e| {
@@ -114,6 +119,14 @@ impl PySeqvarsAnnotator {
             pyo3::exceptions::PyValueError::new_err(format!("Failed to merge databases: {}", e))
         })?;
 
+        let report_cdna = SequenceReporting::from_str(report_cdna_sequence).map_err(|_| {
+            pyo3::exceptions::PyValueError::new_err("Invalid cdna sequence reporting option")
+        })?;
+        let report_protein =
+            SequenceReporting::from_str(report_protein_sequence).map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err("Invalid protein sequence reporting option")
+            })?;
+
         let provider_config = ProviderConfigBuilder::default()
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
@@ -125,7 +138,13 @@ impl PySeqvarsAnnotator {
             provider_config,
         ));
 
-        let predictor = ConsequencePredictor::new(provider, Config::default());
+        let config = ConfigBuilder::default()
+            .report_cdna_sequence(report_cdna)
+            .report_protein_sequence(report_protein)
+            .build()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let predictor = ConsequencePredictor::new(provider, config);
 
         Ok(Self { predictor })
     }
