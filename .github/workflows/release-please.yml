@@ -61,7 +61,7 @@ jobs:
         if: ${{ needs.release-please.outputs.release_created }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-        run: cargo publish
+        run: cargo publish -p mehari
 
   container-release:
     needs: release-please
