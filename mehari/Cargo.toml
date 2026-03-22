@@ -11,7 +11,7 @@ rust-version = "1.75.0"
 
 [features]
 default = ["jemalloc", "server"]
-server = ["dep:actix-web", "dep:utoipa", "dep:utoipa-swagger-ui"]
+server = ["dep:actix-web", "dep:utoipa", "dep:utoipa-swagger-ui", "annonars/server"]
 jemalloc = ["dep:tikv-jemallocator", "rocksdb/jemalloc", "annonars/jemalloc"]
 dhat-heap = ["dep:dhat"]  # for heap profiling with dhats
 documentation = []
@@ -29,7 +29,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = { version = "4.12", optional = true }
-annonars = { version = "0.44.1", default-features = false }
+annonars = { version = "0.44.2", default-features = false }
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bio = "3.0.0"

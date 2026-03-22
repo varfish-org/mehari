@@ -21,9 +21,9 @@ dependencies = [
 
 [[package]]
 name = "actix-http"
-version = "3.11.2"
+version = "3.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7926860314cbe2fb5d1f13731e387ab43bd32bca224e82e6e2db85de0a3dba49"
+checksum = "f860ee6746d0c5b682147b2f7f8ef036d4f92fe518251a3a35ffa3650eafdf0e"
 dependencies = [
  "actix-codec",
  "actix-rt",
@@ -132,9 +132,9 @@ dependencies = [
 
 [[package]]
 name = "actix-web"
-version = "4.12.1"
+version = "4.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1654a77ba142e37f049637a3e5685f864514af11fcbc51cb51eb6596afe5b8d6"
+checksum = "ff87453bc3b56e9b2b23c1cc0b1be8797184accf51d2abe0f8a33ec275d316bf"
 dependencies = [
  "actix-codec",
  "actix-http",
@@ -289,9 +289,9 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "annonars"
-version = "0.44.1"
+version = "0.44.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b96c94005ec29053f1037bd85781949d37f20a48d465502c8a70a1f7a60460d"
+checksum = "154dea7a24451841f7bc558a127a7a98395f6b9bcf807a48a863e4b8d9e833f6"
 dependencies = [
  "actix-web",
  "anyhow",
@@ -314,20 +314,20 @@ dependencies = [
  "log",
  "lru",
  "noodles 0.97.0",
- "pbjson 0.8.0",
- "pbjson-build 0.8.0",
+ "pbjson",
+ "pbjson-build",
  "pbjson-types",
  "prost",
  "prost-build",
  "rayon",
- "rocksdb 0.23.0",
+ "rocksdb",
  "rocksdb-utils-lookup",
  "rustc-hash 2.1.1",
  "serde",
  "serde_json",
  "serde_with",
  "serde_yaml",
- "strum 0.27.2",
+ "strum 0.28.0",
  "tempfile",
  "thiserror 2.0.18",
  "tikv-jemallocator",
@@ -2736,8 +2736,8 @@ dependencies = [
  "nutype",
  "once_cell",
  "parse-display",
- "pbjson 0.9.0",
- "pbjson-build 0.9.0",
+ "pbjson",
+ "pbjson-build",
  "percent-encoding",
  "pprof",
  "pretty_assertions",
@@ -2747,7 +2747,7 @@ dependencies = [
  "quick_cache",
  "rand 0.10.0",
  "rayon",
- "rocksdb 0.24.0",
+ "rocksdb",
  "rstest",
  "rustc-hash 2.1.1",
  "seqrepo",
@@ -3409,34 +3409,12 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pbjson"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "898bac3fa00d0ba57a4e8289837e965baa2dee8c3749f3b11d45a64b4223d9c3"
-dependencies = [
- "base64",
- "serde",
-]
-
-[[package]]
-name = "pbjson"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8edd1efdd8ab23ba9cb9ace3d9987a72663d5d7c9f74fa00b51d6213645cf6c"
 dependencies = [
  "base64",
  "serde",
-]
-
-[[package]]
-name = "pbjson-build"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af22d08a625a2213a78dbb0ffa253318c5c79ce3133d32d296655a7bdfb02095"
-dependencies = [
- "heck",
- "itertools 0.14.0",
- "prost",
- "prost-types",
 ]
 
 [[package]]
@@ -3453,14 +3431,14 @@ dependencies = [
 
 [[package]]
 name = "pbjson-types"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e748e28374f10a330ee3bb9f29b828c0ac79831a32bab65015ad9b661ead526"
+checksum = "a14e2757d877c0f607a82ce1b8560e224370f159d66c5d52eb55ea187ef0350e"
 dependencies = [
  "bytes",
  "chrono",
- "pbjson 0.8.0",
- "pbjson-build 0.8.0",
+ "pbjson",
+ "pbjson-build",
  "prost",
  "prost-build",
  "serde",
@@ -4115,16 +4093,6 @@ dependencies = [
 
 [[package]]
 name = "rocksdb"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26ec73b20525cb235bad420f911473b69f9fe27cc856c5461bccd7e4af037f43"
-dependencies = [
- "libc",
- "librocksdb-sys",
-]
-
-[[package]]
-name = "rocksdb"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddb7af00d2b17dbd07d82c0063e25411959748ff03e8d4f96134c2ff41fce34f"
@@ -4135,12 +4103,12 @@ dependencies = [
 
 [[package]]
 name = "rocksdb-utils-lookup"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "058bcb0f36c80d36c6b5a31ec8f16eb5613c2e39fde363f4929c3d660f447db8"
+checksum = "e03a8180cdfef47f2fc00cd2e7dd034021d7ac8632aab988d25013d7fe7ec420"
 dependencies = [
- "rocksdb 0.23.0",
- "thiserror 1.0.69",
+ "rocksdb",
+ "thiserror 2.0.18",
  "tracing",
 ]
 
@@ -4707,15 +4675,6 @@ checksum = "8fec0f0aef304996cf250b31b5a10dee7980c85da9d759361292b8bca5a18f06"
 
 [[package]]
 name = "strum"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
-dependencies = [
- "strum_macros 0.27.2",
-]
-
-[[package]]
-name = "strum"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9628de9b8791db39ceda2b119bbe13134770b56c138ec1d3af810d045c04f9bd"
@@ -4733,18 +4692,6 @@ dependencies = [
  "proc-macro2 1.0.106",
  "quote 1.0.45",
  "rustversion",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "strum_macros"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
-dependencies = [
- "heck",
- "proc-macro2 1.0.106",
- "quote 1.0.45",
  "syn 2.0.117",
 ]
 
