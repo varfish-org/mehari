@@ -12,6 +12,9 @@ use std::time::Instant;
 use self::ann::{AnnField, FeatureBiotype};
 use crate::annotate::cli::{PredictorSettings, Sources};
 use crate::annotate::genotype_string;
+use crate::annotate::seqvars::ann::{
+    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
+};
 use crate::annotate::seqvars::csq::{
     Config, ConfigBuilder as ConsequencePredictorConfigBuilder, ConfigBuilder,
     ConsequencePredictor, VcfVariant,
@@ -2042,16 +2045,16 @@ async fn run_with_writer(
     let mut custom_columns = Vec::new();
     let c = &args.predictor_settings.reporting_settings;
     if c.report_cdna_sequence.includes_ref() {
-        custom_columns.push("cDNA.seq_ref".to_string());
+        custom_columns.push(ANN_TX_SEQ_REF.to_string());
     }
     if c.report_cdna_sequence.includes_alt() {
-        custom_columns.push("cDNA.seq_alt".to_string());
+        custom_columns.push(ANN_TX_SEQ_ALT.to_string());
     }
     if c.report_protein_sequence.includes_ref() {
-        custom_columns.push("AA.seq_ref".to_string());
+        custom_columns.push(ANN_AA_SEQ_REF.to_string());
     }
     if c.report_protein_sequence.includes_alt() {
-        custom_columns.push("AA.seq_alt".to_string());
+        custom_columns.push(ANN_AA_SEQ_ALT.to_string());
     }
 
     // TODO: manually rebuilding Config here so we can automatically build the VCF ANN header

@@ -21,6 +21,11 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
+pub const ANN_TX_SEQ_REF: &str = "tx_sequence_ref";
+pub const ANN_TX_SEQ_ALT: &str = "tx_sequence_alt";
+pub const ANN_AA_SEQ_REF: &str = "aa_sequence_ref";
+pub const ANN_AA_SEQ_ALT: &str = "aa_sequence_alt";
+
 /// Putative impact level.
 #[derive(
     Debug,
@@ -1599,6 +1604,137 @@ mod test {
         assert_eq!(format!("{}", &field), value);
 
         Ok(())
+    }
+
+    fn dummy_ann_string() -> &'static str {
+        "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
+         Coding|Other|1/2|HGVS.g|HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
+    }
+
+    fn full_sequence_config() -> Config {
+        Config {
+            custom_columns: vec![
+                ANN_TX_SEQ_REF.to_string(),
+                ANN_TX_SEQ_ALT.to_string(),
+                ANN_AA_SEQ_REF.to_string(),
+                ANN_AA_SEQ_ALT.to_string(),
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn parse_and_format_with_all_sequences_present() -> Result<(), anyhow::Error> {
+        let config = full_sequence_config();
+
+        let value = format!("{}|ACG|TCG|T|S", dummy_ann_string());
+        let field = AnnField::parse(&value, &config)?;
+        assert_eq!(
+            field.custom_fields.get(ANN_TX_SEQ_REF),
+            Some(&Some("ACG".to_string()))
+        );
+        assert_eq!(
+            field.custom_fields.get(ANN_TX_SEQ_ALT),
+            Some(&Some("TCG".to_string()))
+        );
+        assert_eq!(
+            field.custom_fields.get(ANN_AA_SEQ_REF),
+            Some(&Some("T".to_string()))
+        );
+        assert_eq!(
+            field.custom_fields.get(ANN_AA_SEQ_ALT),
+            Some(&Some("S".to_string()))
+        );
+
+        assert_eq!(field.format(&config), value);
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_fallback_to_empty_when_expected_columns_are_missing() -> Result<(), anyhow::Error> {
+        let config = full_sequence_config();
+
+        let value = dummy_ann_string();
+        let field = AnnField::parse(value, &config)?;
+
+        assert_eq!(field.custom_fields.get(ANN_TX_SEQ_REF), Some(&None));
+        assert_eq!(field.custom_fields.get(ANN_TX_SEQ_ALT), Some(&None));
+        assert_eq!(field.custom_fields.get(ANN_AA_SEQ_REF), Some(&None));
+        assert_eq!(field.custom_fields.get(ANN_AA_SEQ_ALT), Some(&None));
+        let expected_output = format!("{}||||", dummy_ann_string());
+        assert_eq!(field.format(&config), expected_output);
+
+        Ok(())
+    }
+
+    #[test]
+    fn parse_and_format_with_empty_trailing_pipes() -> Result<(), anyhow::Error> {
+        let config = full_sequence_config();
+
+        let value = format!("{}||||", dummy_ann_string());
+        let field = AnnField::parse(&value, &config)?;
+        assert_eq!(field.custom_fields.get(ANN_TX_SEQ_REF), Some(&None));
+        assert_eq!(field.custom_fields.get(ANN_TX_SEQ_ALT), Some(&None));
+        assert_eq!(field.custom_fields.get(ANN_AA_SEQ_REF), Some(&None));
+        assert_eq!(field.custom_fields.get(ANN_AA_SEQ_ALT), Some(&None));
+        assert_eq!(field.format(&config), value);
+
+        Ok(())
+    }
+
+    #[test]
+    fn format_follows_config_schema() -> Result<(), anyhow::Error> {
+        let config = Config {
+            custom_columns: vec![ANN_TX_SEQ_REF.to_string()],
+            ..Default::default()
+        };
+
+        let mut field = AnnField::parse(dummy_ann_string(), &config)?;
+
+        field
+            .custom_fields
+            .insert(ANN_TX_SEQ_REF.into(), Some("ACG".to_string()));
+        field
+            .custom_fields
+            .insert(ANN_TX_SEQ_ALT.into(), Some("TCG".to_string()));
+        field
+            .custom_fields
+            .insert("CustomScore".into(), Some("99".to_string()));
+
+        let formatted = field.format(&config);
+        let pipe_count = formatted.chars().filter(|c| *c == '|').count();
+        let names = AnnField::ann_field_names(&config);
+        let parts: Vec<&str> = formatted.split('|').collect();
+
+        assert_eq!(
+            parts.len(),
+            names.len(),
+            "Formatted field count must match header name count"
+        );
+        assert_eq!(parts.last(), Some(&"ACG"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn dynamic_header_names_match_config() {
+        let config = Config {
+            custom_columns: vec![
+                ANN_TX_SEQ_ALT.to_string(),
+                ANN_AA_SEQ_REF.to_string(),
+                ANN_AA_SEQ_ALT.to_string(),
+            ],
+            ..Default::default()
+        };
+
+        let names = AnnField::ann_field_names(&config);
+
+        assert!(!names.contains(&ANN_TX_SEQ_REF.to_string()));
+        assert!(names.contains(&ANN_TX_SEQ_ALT.to_string()));
+        assert!(names.contains(&ANN_AA_SEQ_REF.to_string()));
+        assert!(names.contains(&ANN_AA_SEQ_ALT.to_string()));
+        assert_eq!(names.last(), Some(&ANN_AA_SEQ_ALT.to_string()));
     }
 
     #[test]

@@ -4,7 +4,9 @@ use super::{
     provider::Provider as MehariProvider,
 };
 use crate::annotate::cli::{ConsequenceBy, SequenceReporting, TranscriptSource};
-use crate::annotate::seqvars::ann::FeatureTag;
+use crate::annotate::seqvars::ann::{
+    FeatureTag, ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
+};
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::pbs::txs::{GenomeAlignment, Strand, Transcript, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
@@ -860,13 +862,13 @@ impl ConsequencePredictor {
                 ) {
                     if c_ref {
                         custom_fields.insert(
-                            "cDNA.seq_ref".into(),
+                            ANN_TX_SEQ_REF.into(),
                             Some(ref_data.transcript_sequence.clone()),
                         );
                     }
                     if p_ref {
                         custom_fields
-                            .insert("AA.seq_ref".into(), Some(ref_data.aa_sequence.clone()));
+                            .insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.clone()));
                     }
 
                     if (c_alt || p_alt) && matches!(var_c, HgvsVariant::CdsVariant { .. }) {
@@ -876,13 +878,13 @@ impl ConsequencePredictor {
                             if let Some(alt_data) = alt_data_vec.pop() {
                                 if c_alt {
                                     custom_fields.insert(
-                                        "cDNA.seq_alt".into(),
+                                        ANN_TX_SEQ_ALT.into(),
                                         Some(alt_data.transcript_sequence),
                                     );
                                 }
                                 if p_alt {
                                     custom_fields
-                                        .insert("AA.seq_alt".into(), Some(alt_data.aa_sequence));
+                                        .insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence));
                                 }
                             }
                         }
