@@ -33,8 +33,26 @@ fn main() -> Result<(), anyhow::Error> {
         .register_descriptors(&descriptor_set)?
         .build(&[".mehari"])?;
 
-    // Integration of `built`.
-    built::write_built_file().map_err(|e| anyhow::anyhow!("Failed to write built file: {}", e))?;
+    // Integration of `built`. Workaround for python bindings via maturin in mehari-python
+    let src = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let dst = PathBuf::from(env::var("OUT_DIR").unwrap()).join("built.rs");
+
+    let mut built_opts = built::Options::default();
+    built_opts.set_dependencies(true);
+
+    if let Err(e) = built::write_built_file_with_options(&built_opts, src.as_ref(), &dst) {
+        println!(
+            "cargo:warning=Failed to write built file with dependencies: {}",
+            e
+        );
+        println!(
+            "cargo:warning=Falling back to building without dependencies (likely Python sdist)"
+        );
+
+        built_opts.set_dependencies(false);
+        built::write_built_file_with_options(&built_opts, src.as_ref(), &dst)
+            .map_err(|e| anyhow::anyhow!("Failed to write built file: {}", e))?;
+    }
 
     Ok(())
 }
