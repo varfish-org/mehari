@@ -1590,6 +1590,7 @@ impl FrequencyAnnotator {
         Ok(())
     }
 
+    #[cfg(feature = "server")]
     pub(crate) fn annotate_variant(
         &self,
         vcf_var: &VcfVariant,
@@ -1777,6 +1778,7 @@ impl ClinvarAnnotator {
         Ok(())
     }
 
+    #[cfg(feature = "server")]
     pub(crate) fn annotate_variant(
         &self,
         vcf_var: &VcfVariant,

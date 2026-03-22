@@ -10,7 +10,8 @@ readme = "../README.md"
 rust-version = "1.75.0"
 
 [features]
-default = ["jemalloc"]
+default = ["jemalloc", "server"]
+server = ["dep:actix-web", "dep:utoipa", "dep:utoipa-swagger-ui"]
 jemalloc = ["dep:tikv-jemallocator", "rocksdb/jemalloc", "annonars/jemalloc"]
 dhat-heap = ["dep:dhat"]  # for heap profiling with dhats
 documentation = []
@@ -27,7 +28,7 @@ name = "mehari"
 path = "src/main.rs"
 
 [dependencies]
-actix-web = "4.12"
+actix-web = { version = "4.12", optional = true }
 annonars = { version = "0.44.1", default-features = false }
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
@@ -77,8 +78,8 @@ tracing-subscriber = "0.3"
 tracing = { version = "0.1", features = ["log"] }
 uuid = { version = "1.22", features = ["fast-rng", "serde"] }
 zstd = "0.13"
-utoipa = { version = "5.4.0", features = ["actix_extras", "chrono", "indexmap", "openapi_extensions", "preserve_order", "yaml"] }
-utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"] }
+utoipa = { version = "5.4.0", features = ["actix_extras", "chrono", "indexmap", "openapi_extensions", "preserve_order", "yaml"], optional = true }
+utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"], optional = true }
 memmap2 = "0.9.10"
 serde-aux = "4.7.0"
 

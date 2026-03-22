@@ -92,8 +92,9 @@ static GLOBAL: Jemalloc = Jemalloc;
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Args, Parser, Subcommand};
-
-use mehari::{annotate, common, db, server, verify};
+#[cfg(feature = "server")]
+use mehari::server;
+use mehari::{annotate, common, db, verify};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -117,10 +118,14 @@ struct Cli {
 enum Commands {
     /// Database-related commands.
     Db(Db),
+
     /// Annotation related commands.
     Annotate(Annotate),
+
+    #[cfg(feature = "server")]
     /// Server related commands.
     Server(Server),
+
     /// Verification related commands.
     Verify(Verify),
 }
@@ -160,6 +165,7 @@ enum AnnotateCommands {
     Strucvars(annotate::strucvars::Args),
 }
 
+#[cfg(feature = "server")]
 /// Parsing of "server *" sub commands.
 #[derive(Debug, Args)]
 #[command(args_conflicts_with_subcommands = true)]
@@ -169,6 +175,7 @@ struct Server {
     command: ServerCommands,
 }
 
+#[cfg(feature = "server")]
 /// Enum supporting the parsing of "server *" sub commands.
 #[derive(Debug, Subcommand)]
 enum ServerCommands {
@@ -233,6 +240,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 annotate::strucvars::run(&cli.common, args).await?
             }
         },
+        #[cfg(feature = "server")]
         Commands::Server(server) => match &server.command {
             ServerCommands::Run(args) => server::run::run(&cli.common, args).await?,
             ServerCommands::Schema(args) => server::schema::run(&cli.common, args)?,

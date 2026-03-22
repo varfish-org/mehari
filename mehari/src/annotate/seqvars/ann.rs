@@ -30,8 +30,8 @@ use strum::IntoEnumIterator;
     serde::Deserialize,
     serde::Serialize,
     strum::EnumIter,
-    utoipa::ToSchema,
 )]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[display(style = "UPPERCASE")]
 #[serde(rename_all = "snake_case")]
 pub enum PutativeImpact {
@@ -58,8 +58,8 @@ pub enum PutativeImpact {
     serde::Deserialize,
     serde::Serialize,
     strum::EnumIter,
-    utoipa::ToSchema,
 )]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[display(style = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum Consequence {
@@ -512,8 +512,8 @@ impl FromStr for Allele {
     FromStr,
     serde::Deserialize,
     serde::Serialize,
-    utoipa::ToSchema,
 )]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[display(style = "snake_case")]
 pub enum SoFeature {
     Transcript,
@@ -521,17 +521,9 @@ pub enum SoFeature {
 
 /// Enum for `AnnField::feature_type`.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Display,
-    serde::Deserialize,
-    serde::Serialize,
-    utoipa::ToSchema,
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Display, serde::Deserialize, serde::Serialize,
 )]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum FeatureType {
     #[display("{term}")]
@@ -569,8 +561,8 @@ impl FromStr for FeatureType {
     serde::Deserialize,
     serde::Serialize,
     strum::EnumIter,
-    utoipa::ToSchema,
 )]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum FeatureBiotype {
     /// Is coding transcript.
@@ -600,8 +592,8 @@ impl FeatureBiotype {
     serde::Deserialize,
     serde::Serialize,
     strum::EnumIter,
-    utoipa::ToSchema,
 )]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum FeatureTag {
     Unknown,
@@ -770,8 +762,8 @@ impl From<FeatureTag> for Tag {
     Default,
     serde::Deserialize,
     serde::Serialize,
-    utoipa::ToSchema,
 )]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[display("{ord}/{total}")]
 pub struct Rank {
     pub ord: i32,
@@ -792,17 +784,9 @@ impl Rank {
 
 /// Position, optionally with total length.
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Default,
-    serde::Deserialize,
-    serde::Serialize,
-    utoipa::ToSchema,
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default, serde::Deserialize, serde::Serialize,
 )]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub struct Pos {
     pub ord: i32,
     pub total: Option<i32>,
@@ -883,8 +867,8 @@ impl FromStr for Pos {
     FromStr,
     serde::Deserialize,
     serde::Serialize,
-    utoipa::ToSchema,
 )]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 #[display(style = "SNAKE_CASE")]
 #[serde(rename_all = "snake_case")]
 pub enum Message {
