@@ -2,8 +2,9 @@ use arrow::array::{Array, Int32Array, RecordBatch, StringArray};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
+use mehari::annotate::cli::SequenceReporting;
 use mehari::annotate::seqvars::ann::{AnnField, Consequence, Pos, PutativeImpact, Rank};
-use mehari::annotate::seqvars::csq::{Config, ConfigBuilder, ConsequencePredictor, VcfVariant};
+use mehari::annotate::seqvars::csq::{ConfigBuilder, ConsequencePredictor, VcfVariant};
 use mehari::annotate::seqvars::load_tx_db;
 use mehari::annotate::seqvars::provider::{
     ConfigBuilder as ProviderConfigBuilder, Provider as MehariProvider,
@@ -14,6 +15,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 

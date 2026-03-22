@@ -13,7 +13,8 @@ use self::ann::{AnnField, FeatureBiotype};
 use crate::annotate::cli::{PredictorSettings, Sources};
 use crate::annotate::genotype_string;
 use crate::annotate::seqvars::csq::{
-    ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
+    Config, ConfigBuilder as ConsequencePredictorConfigBuilder, ConfigBuilder,
+    ConsequencePredictor, VcfVariant,
 };
 use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
@@ -151,6 +152,7 @@ fn build_header(
     with_frequencies: bool,
     with_clinvar: bool,
     additional_records: &[(String, String)],
+    csq_config: &Config,
 ) -> VcfHeader {
     let mut header_out = header_in.clone();
     *header_out.file_format_mut() = FileFormat::default();
@@ -249,7 +251,7 @@ fn build_header(
     }
 
     if with_annotations {
-        let fields = AnnField::ann_field_names().join(" | ");
+        let fields = AnnField::ann_field_names(csq_config).join(" | ");
         header_out.infos_mut().insert(
             "ANN".into(),
             Map::<Info>::new(
@@ -2037,12 +2039,28 @@ async fn run_with_writer(
         .is_some_and(|v| !v.is_empty());
     let with_clinvar = args.sources.clinvar.as_ref().is_some_and(|v| !v.is_empty());
 
+    // TODO: manually rebuilding Config here so we can automatically build the VCF ANN header
+    //   is not the best way of doing things.
+    let csq_config = ConfigBuilder::default()
+        .report_cdna_sequence(
+            args.predictor_settings
+                .reporting_settings
+                .report_cdna_sequence,
+        )
+        .report_protein_sequence(
+            args.predictor_settings
+                .reporting_settings
+                .report_protein_sequence,
+        )
+        .build()?;
+
     let header_out = build_header(
         &header_in,
         with_annotations,
         with_frequencies,
         with_clinvar,
         &additional_header_info,
+        &csq_config,
     );
 
     // Perform the VCF annotation.

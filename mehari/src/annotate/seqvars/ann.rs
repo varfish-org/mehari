@@ -1,8 +1,14 @@
 //! Code for annotating variants based on molecular consequence.
 
+use crate::annotate::cli::SequenceReporting;
+use crate::annotate::seqvars::csq::Config;
 use crate::pbs::txs::TranscriptTag;
 use enumflags2::bitflags;
 use hgvs::data::cdot::json::models::Tag;
+use nom::bytes::complete::take_until;
+use nom::character::char;
+use nom::combinator::{map_res, opt, rest};
+use nom::multi::separated_list1;
 use nom::Parser;
 use nom::{
     branch::alt,
@@ -966,16 +972,65 @@ pub struct AnnField {
     /// Optional list of warnings and error messages.
     #[serde(alias = "ERRORS / WARNINGS / INFO")]
     pub messages: Option<Vec<Message>>,
+
+    /// cDNA sequence (reference).
+    #[serde(alias = "cDNA.seq_ref")]
+    pub cdna_seq_ref: Option<String>,
+
+    /// cDNA sequence (alternative).
+    #[serde(alias = "cDNA.seq_alt")]
+    pub cdna_seq_alt: Option<String>,
+
+    /// Protein sequence (reference).
+    #[serde(alias = "AA.seq_ref")]
+    pub aa_seq_ref: Option<String>,
+
+    /// Protein sequence (alternative).
+    #[serde(alias = "AA.seq_alt")]
+    pub aa_seq_alt: Option<String>,
 }
 
 impl AnnField {
     /// Return vector of all field names in the `ANN` field,
     /// as they appear in the VCF INFO ANN header description.
-    pub fn ann_field_names() -> Vec<&'static str> {
+    pub fn ann_field_names(config: &Config) -> Vec<&'static str> {
         // FIXME: serde_introspect returns all aliases and the original name,
         //   we rely on the order being consistent.
         let names = serde_aux::serde_introspection::serde_introspect::<Self>();
-        names.iter().step_by(2).copied().collect()
+        let mut result: Vec<&'static str> = names.into_iter().step_by(2).copied().collect();
+
+        let c_ref = matches!(
+            config.report_cdna_sequence,
+            SequenceReporting::Reference | SequenceReporting::Both
+        );
+        let c_alt = matches!(
+            config.report_cdna_sequence,
+            SequenceReporting::Alternative | SequenceReporting::Both
+        );
+        let p_ref = matches!(
+            config.report_protein_sequence,
+            SequenceReporting::Reference | SequenceReporting::Both
+        );
+        let p_alt = matches!(
+            config.report_protein_sequence,
+            SequenceReporting::Alternative | SequenceReporting::Both
+        );
+
+        result.retain(|&x| {
+            if x == "cDNA.seq_ref" {
+                c_ref
+            } else if x == "cDNA.seq_alt" {
+                c_alt
+            } else if x == "AA.seq_ref" {
+                p_ref
+            } else if x == "AA.seq_alt" {
+                p_alt
+            } else {
+                true
+            }
+        });
+
+        result
     }
 }
 
@@ -1014,217 +1069,270 @@ impl Default for AnnField {
     }
 }
 
-fn parse_list<T: std::str::FromStr>(raw: &str) -> anyhow::Result<Vec<T>>
-where
-    <T as std::str::FromStr>::Err: std::fmt::Debug,
-{
-    Ok(if raw.is_empty() {
-        vec![]
+/// Extracts everything up to the next '|' (or EOF) and consumes the '|'.
+fn parse_pipe_field(i: &str) -> IResult<&str, &str> {
+    let (i, val) = alt((take_until("|"), rest)).parse(i)?;
+    let (i, _) = opt(char('|')).parse(i)?;
+    Ok((i, val))
+}
+
+/// Parses a required string
+fn parse_string(i: &str) -> IResult<&str, String> {
+    map(parse_pipe_field, String::from).parse(i)
+}
+
+/// Parses an optional string (empty "" becomes None)
+fn parse_opt_string(i: &str) -> IResult<&str, Option<String>> {
+    let (i, val) = parse_pipe_field(i)?;
+    Ok((
+        i,
+        if val.is_empty() {
+            None
+        } else {
+            Some(val.to_string())
+        },
+    ))
+}
+
+/// Parses a required generic type using FromStr
+fn parse_parsed<T: FromStr>(i: &str) -> IResult<&str, T> {
+    map_res(parse_pipe_field, |s| s.parse::<T>()).parse(i)
+}
+
+/// Parses an optional generic type using FromStr
+fn parse_opt_parsed<T: FromStr>(i: &str) -> IResult<&str, Option<T>> {
+    let (i, val) = parse_pipe_field(i)?;
+    if val.is_empty() {
+        Ok((i, None))
     } else {
-        raw.split('&')
-            .map(|s| s.parse::<T>())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow::anyhow!("could not parse list: {:?}", e))?
-    })
+        match val.parse::<T>() {
+            Ok(parsed) => Ok((i, Some(parsed))),
+            Err(_) => Err(nom::Err::Error(nom::error::Error::new(
+                i,
+                nom::error::ErrorKind::Verify,
+            ))),
+        }
+    }
+}
+
+/// Idiomatic nom parsing for `&` separated lists
+fn parse_item_list<T: FromStr>(i: &str) -> IResult<&str, Vec<T>> {
+    let (i, field) = parse_pipe_field(i)?;
+    if field.is_empty() {
+        return Ok((i, vec![]));
+    }
+    let (_, items) = separated_list1(
+        char('&'),
+        map_res(alt((take_until("&"), rest)), |s: &str| s.parse::<T>()),
+    )
+    .parse(field)?;
+    Ok((i, items))
+}
+
+/// Idiomatic nom parsing for optional `&` separated lists
+fn parse_opt_list<T: FromStr>(i: &str) -> IResult<&str, Option<Vec<T>>> {
+    let (i, field) = parse_pipe_field(i)?;
+    if field.is_empty() {
+        return Ok((i, None));
+    }
+    let (_, items) = separated_list1(
+        char('&'),
+        map_res(alt((take_until("&"), rest)), |s: &str| s.parse::<T>()),
+    )
+    .parse(field)?;
+    Ok((i, Some(items)))
+}
+
+impl AnnField {
+    fn parse_nom<'a>(i: &'a str, config: &Config) -> IResult<&'a str, Self> {
+        let (i, allele) = parse_parsed(i)?;
+        let (i, consequences) = parse_item_list(i)?;
+        let (i, putative_impact) = parse_parsed(i)?;
+        let (i, gene_symbol) = parse_string(i)?;
+        let (i, gene_id) = parse_string(i)?;
+        let (i, feature_type) = parse_parsed(i)?;
+        let (i, feature_id) = parse_string(i)?;
+        let (i, feature_biotype) = parse_item_list(i)?;
+        let (i, feature_tags) = parse_item_list(i)?;
+        let (i, rank) = parse_opt_parsed(i)?;
+        let (i, hgvs_g) = parse_opt_string(i)?;
+        let (i, hgvs_n) = parse_opt_string(i)?;
+        let (i, hgvs_c) = parse_opt_string(i)?;
+        let (i, hgvs_p) = parse_opt_string(i)?;
+        let (i, cdna_pos) = parse_opt_parsed(i)?;
+        let (i, cds_pos) = parse_opt_parsed(i)?;
+        let (i, protein_pos) = parse_opt_parsed(i)?;
+        let (i, distance) = parse_opt_parsed(i)?;
+        let (i, strand) = parse_parsed(i)?;
+        let (i, messages) = parse_opt_list(i)?;
+
+        let c_ref = matches!(
+            config.report_cdna_sequence,
+            SequenceReporting::Reference | SequenceReporting::Both
+        );
+        let c_alt = matches!(
+            config.report_cdna_sequence,
+            SequenceReporting::Alternative | SequenceReporting::Both
+        );
+        let p_ref = matches!(
+            config.report_protein_sequence,
+            SequenceReporting::Reference | SequenceReporting::Both
+        );
+        let p_alt = matches!(
+            config.report_protein_sequence,
+            SequenceReporting::Alternative | SequenceReporting::Both
+        );
+
+        let (i, cdna_seq_ref) = if c_ref {
+            parse_opt_string(i)?
+        } else {
+            (i, None)
+        };
+        let (i, cdna_seq_alt) = if c_alt {
+            parse_opt_string(i)?
+        } else {
+            (i, None)
+        };
+        let (i, aa_seq_ref) = if p_ref {
+            parse_opt_string(i)?
+        } else {
+            (i, None)
+        };
+        let (i, aa_seq_alt) = if p_alt {
+            parse_opt_string(i)?
+        } else {
+            (i, None)
+        };
+
+        Ok((
+            i,
+            Self {
+                allele,
+                consequences,
+                putative_impact,
+                gene_symbol,
+                gene_id,
+                feature_type,
+                feature_id,
+                feature_biotype,
+                feature_tags,
+                rank,
+                hgvs_g,
+                hgvs_n,
+                hgvs_c,
+                hgvs_p,
+                cdna_pos,
+                cds_pos,
+                protein_pos,
+                distance,
+                strand,
+                messages,
+                cdna_seq_ref,
+                cdna_seq_alt,
+                aa_seq_ref,
+                aa_seq_alt,
+            },
+        ))
+    }
+
+    pub fn parse(s: &str, config: &Config) -> Result<Self, anyhow::Error> {
+        match Self::parse_nom(s, config) {
+            Ok((_, ann)) => Ok(ann),
+            Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
+                Err(anyhow::anyhow!("nom parsing error: {:?}", e.code))
+            }
+            Err(nom::Err::Incomplete(_)) => {
+                Err(anyhow::anyhow!("nom parsing error: incomplete string"))
+            }
+        }
+    }
+
+    pub fn format(&self, config: &Config) -> String {
+        fn opt_str(o: &Option<String>) -> String {
+            o.clone().unwrap_or_default()
+        }
+        fn opt_fmt<T: ToString>(o: &Option<T>) -> String {
+            o.as_ref().map(|v| v.to_string()).unwrap_or_default()
+        }
+        fn vec_fmt<T: ToString>(v: &[T]) -> String {
+            v.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join("&")
+        }
+        fn opt_vec_fmt<T: ToString>(o: &Option<Vec<T>>) -> String {
+            o.as_ref().map(|v| vec_fmt(&v)).unwrap_or_default()
+        }
+
+        let mut parts = vec![
+            self.allele.to_string(),
+            vec_fmt(&self.consequences),
+            self.putative_impact.to_string(),
+            self.gene_symbol.clone(),
+            self.gene_id.clone(),
+            self.feature_type.to_string(),
+            self.feature_id.clone(),
+            vec_fmt(&self.feature_biotype),
+            vec_fmt(&self.feature_tags),
+            opt_fmt(&self.rank),
+            opt_str(&self.hgvs_g),
+            opt_str(&self.hgvs_n),
+            opt_str(&self.hgvs_c),
+            opt_str(&self.hgvs_p),
+            opt_fmt(&self.cdna_pos),
+            opt_fmt(&self.cds_pos),
+            opt_fmt(&self.protein_pos),
+            opt_fmt(&self.distance),
+            self.strand.to_string(),
+            opt_vec_fmt(&self.messages),
+        ];
+
+        let c_ref = matches!(
+            config.report_cdna_sequence,
+            SequenceReporting::Reference | SequenceReporting::Both
+        );
+        let c_alt = matches!(
+            config.report_cdna_sequence,
+            SequenceReporting::Alternative | SequenceReporting::Both
+        );
+        let p_ref = matches!(
+            config.report_protein_sequence,
+            SequenceReporting::Reference | SequenceReporting::Both
+        );
+        let p_alt = matches!(
+            config.report_protein_sequence,
+            SequenceReporting::Alternative | SequenceReporting::Both
+        );
+
+        // Conditionally append sequences ONLY if requested (prevents |||||)
+        if c_ref {
+            parts.push(opt_str(&self.cdna_seq_ref));
+        }
+        if c_alt {
+            parts.push(opt_str(&self.cdna_seq_alt));
+        }
+        if p_ref {
+            parts.push(opt_str(&self.aa_seq_ref));
+        }
+        if p_alt {
+            parts.push(opt_str(&self.aa_seq_alt));
+        }
+
+        parts.join("|")
+    }
 }
 
 impl FromStr for AnnField {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut fields = s.split('|');
-        let allele = fields.next().unwrap().parse()?;
-        let consequences = parse_list(fields.next().unwrap())?;
-        let putative_impact = fields.next().unwrap().parse()?;
-        let gene_symbol = fields.next().unwrap().to_string();
-        let gene_id = fields.next().unwrap().to_string();
-        let feature_type = fields.next().unwrap().parse()?;
-        let feature_id = fields.next().unwrap().to_string();
-        let feature_biotype = parse_list(fields.next().unwrap())?;
-        let feature_tags = parse_list(fields.next().unwrap())?;
-        let rank = fields.next().unwrap();
-        let rank = if rank.is_empty() {
-            None
-        } else {
-            Some(rank.parse()?)
-        };
-        let hgvs_g = fields.next().unwrap();
-        let hgvs_g = if hgvs_g.is_empty() {
-            None
-        } else {
-            Some(hgvs_g.to_string())
-        };
-        let hgvs_n = fields.next().unwrap();
-        let hgvs_n = if hgvs_n.is_empty() {
-            None
-        } else {
-            Some(hgvs_n.to_string())
-        };
-        let hgvs_c = fields.next().unwrap();
-        let hgvs_c = if hgvs_c.is_empty() {
-            None
-        } else {
-            Some(hgvs_c.to_string())
-        };
-        let hgvs_p = fields.next().unwrap();
-        let hgvs_p = if hgvs_p.is_empty() {
-            None
-        } else {
-            Some(hgvs_p.to_string())
-        };
-        let cdna_pos = fields.next().unwrap();
-        let cdna_pos = if cdna_pos.is_empty() {
-            None
-        } else {
-            Some(cdna_pos.parse()?)
-        };
-        let cds_pos = fields.next().unwrap();
-        let cds_pos = if cds_pos.is_empty() {
-            None
-        } else {
-            Some(cds_pos.parse()?)
-        };
-        let protein_pos = fields.next().unwrap();
-        let protein_pos = if protein_pos.is_empty() {
-            None
-        } else {
-            Some(protein_pos.parse()?)
-        };
-        let distance = fields.next().unwrap();
-        let distance = if distance.is_empty() {
-            None
-        } else {
-            Some(distance.parse()?)
-        };
-        let strand = fields.next().unwrap();
-        let strand = strand.parse()?;
-        let messages = fields.next().unwrap();
-        let messages = if messages.is_empty() {
-            None
-        } else {
-            Some(
-                messages
-                    .split('&')
-                    .map(|s| s.parse())
-                    .collect::<Result<Vec<_>, _>>()?,
-            )
-        };
-        Ok(AnnField {
-            allele,
-            consequences,
-            putative_impact,
-            gene_symbol,
-            gene_id,
-            feature_type,
-            feature_id,
-            feature_biotype,
-            feature_tags,
-            rank,
-            hgvs_g,
-            hgvs_n,
-            hgvs_c,
-            hgvs_p,
-            cdna_pos,
-            cds_pos,
-            protein_pos,
-            distance,
-            strand,
-            messages,
-        })
+        Self::parse(s, &Config::default())
     }
 }
 
 impl std::fmt::Display for AnnField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.allele)?;
-        write!(f, "|")?;
-        for (i, csq) in self.consequences.iter().enumerate() {
-            if i > 0 {
-                write!(f, "&{}", csq)?;
-            } else {
-                write!(f, "{}", csq)?;
-            }
-        }
-        write!(f, "|")?;
-        write!(f, "{}", self.putative_impact)?;
-        write!(f, "|")?;
-        write!(f, "{}", self.gene_symbol)?;
-        write!(f, "|")?;
-        write!(f, "{}", self.gene_id)?;
-        write!(f, "|")?;
-        write!(f, "{}", self.feature_type)?;
-        write!(f, "|")?;
-        write!(f, "{}", self.feature_id)?;
-        write!(f, "|")?;
-        write!(
-            f,
-            "{}",
-            self.feature_biotype
-                .iter()
-                .map(|t| format!("{}", t))
-                .collect::<Vec<_>>()
-                .join("&")
-        )?;
-        write!(f, "|")?;
-        write!(
-            f,
-            "{}",
-            self.feature_tags
-                .iter()
-                .map(|t| format!("{}", t))
-                .collect::<Vec<_>>()
-                .join("&")
-        )?;
-        write!(f, "|")?;
-        if let Some(rank) = &self.rank {
-            write!(f, "{}", rank)?;
-        }
-        write!(f, "|")?;
-        if let Some(hgvs_g) = &self.hgvs_g {
-            write!(f, "{}", hgvs_g)?;
-        }
-        write!(f, "|")?;
-        if let Some(hgvs_n) = &self.hgvs_n {
-            write!(f, "{}", hgvs_n)?;
-        }
-        write!(f, "|")?;
-        if let Some(hgvs_c) = &self.hgvs_c {
-            write!(f, "{}", hgvs_c)?;
-        }
-        write!(f, "|")?;
-        if let Some(hgvs_p) = &self.hgvs_p {
-            write!(f, "{}", hgvs_p)?;
-        }
-        write!(f, "|")?;
-        if let Some(cdna_pos) = &self.cdna_pos {
-            write!(f, "{}", cdna_pos)?;
-        }
-        write!(f, "|")?;
-        if let Some(cds_pos) = &self.cds_pos {
-            write!(f, "{}", cds_pos)?;
-        }
-        write!(f, "|")?;
-        if let Some(protein_pos) = &self.protein_pos {
-            write!(f, "{}", protein_pos)?;
-        }
-        write!(f, "|")?;
-        if let Some(distance) = self.distance {
-            write!(f, "{}", distance)?;
-        }
-        write!(f, "|")?;
-        write!(f, "{}", self.strand)?;
-        write!(f, "|")?;
-        if let Some(messages) = &self.messages {
-            for (i, csq) in messages.iter().enumerate() {
-                if i > 0 {
-                    write!(f, "&{}", csq)?;
-                } else {
-                    write!(f, "{}", csq)?;
-                }
-            }
-        }
-
-        Ok(())
+        write!(f, "{}", self.format(&Config::default()))
     }
 }
 
@@ -1569,6 +1677,10 @@ mod test {
             distance: Some(1),
             strand: 0,
             messages: Some(vec![Message::ErrorChromosomeNotFound]),
+            cdna_seq_ref: None,
+            cdna_seq_alt: None,
+            aa_seq_ref: None,
+            aa_seq_alt: None,
         };
 
         assert_eq!(
@@ -1602,7 +1714,7 @@ mod test {
 
     #[test]
     fn automatic_ann_header_names() -> Result<(), anyhow::Error> {
-        let ann_names = AnnField::ann_field_names();
+        let ann_names = AnnField::ann_field_names(&Config::default());
         assert_eq!(
             ann_names,
             [

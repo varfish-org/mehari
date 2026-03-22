@@ -311,6 +311,10 @@ impl ConsequencePredictor {
                 protein_pos: None,
                 gene_symbol: "".to_string(),
                 messages: None,
+                cdna_seq_ref: None,
+                cdna_seq_alt: None,
+                aa_seq_ref: None,
+                aa_seq_alt: None,
             }])));
         }
 
