@@ -1,0 +1,41 @@
+name: Sync Cargo Lockfiles
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - 'mehari/Cargo.toml'
+      - 'mehari-python/Cargo.toml'
+
+jobs:
+  update-lockfiles:
+    if: startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ secrets.BOT_TOKEN }}
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Update Lockfiles
+        run: |
+          # update root Cargo.lock
+          cargo generate-lockfile
+          
+          # update (isolated) mehari-python/Cargo.lock
+          cd mehari-python
+          cargo generate-lockfile
+
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: sync Cargo.lock files"
+          file_pattern: "Cargo.lock mehari-python/Cargo.lock"
