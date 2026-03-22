@@ -5,7 +5,7 @@ use crate::pbs::txs::TranscriptTag;
 use enumflags2::bitflags;
 use hgvs::data::cdot::json::models::Tag;
 use nom::bytes::complete::take_until;
-use nom::character::char;
+use nom::character::complete::char;
 use nom::combinator::{map_res, opt, rest};
 use nom::multi::separated_list1;
 use nom::Parser;
