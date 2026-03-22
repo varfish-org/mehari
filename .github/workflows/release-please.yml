@@ -122,7 +122,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: publish
-          args: --manifest-path mehari-python/Cargo.toml --out dist
+          args: --manifest-path mehari-python/Cargo.toml --out dist -i python3.11 python3.12 python3.13
           manylinux: 2_28
           before-script-linux: |
             if command -v dnf > /dev/null; then
