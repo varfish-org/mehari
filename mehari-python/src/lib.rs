@@ -2,11 +2,11 @@ use arrow::array::{Array, Int32Array, RecordBatch, StringArray};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
-use mehari::annotate::cli::SequenceReporting;
 use mehari::annotate::seqvars::ann::{
     ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, AnnField, Consequence, Pos,
     PutativeImpact, Rank,
 };
+use mehari::annotate::seqvars::csq::SequenceReporting;
 use mehari::annotate::seqvars::csq::{ConfigBuilder, ConsequencePredictor, VcfVariant};
 use mehari::annotate::seqvars::load_tx_db;
 use mehari::annotate::seqvars::provider::{
@@ -84,11 +84,21 @@ struct ArrowAnnField {
     pub distance: Option<i32>,
     pub strand: i32,
     pub messages: Option<Vec<String>>,
-    pub custom_fields: std::collections::BTreeMap<String, Option<String>>,
+    pub custom_fields: Option<std::collections::BTreeMap<String, Option<String>>>,
 }
 
-impl From<AnnField> for ArrowAnnField {
-    fn from(f: AnnField) -> Self {
+impl ArrowAnnField {
+    fn from_ann_field(f: AnnField, custom_columns: &[String]) -> Self {
+        let custom_fields = if custom_columns.is_empty() {
+            None
+        } else {
+            let mut map = f.custom_fields;
+            for col in custom_columns {
+                map.entry(col.clone()).or_insert(None);
+            }
+            Some(map)
+        };
+
         Self {
             allele: f.allele.to_string(),
             consequences: f.consequences.iter().map(|c| c.to_string()).collect(),
@@ -112,7 +122,7 @@ impl From<AnnField> for ArrowAnnField {
             messages: f
                 .messages
                 .map(|msgs| msgs.iter().map(|m| m.to_string()).collect()),
-            custom_fields: f.custom_fields,
+            custom_fields,
         }
     }
 }
@@ -254,7 +264,7 @@ impl PySeqvarsAnnotator {
         let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
             .unwrap_or_default()
             .into_iter()
-            .map(ArrowAnnField::from)
+            .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
             .collect();
 
         #[derive(Serialize)]
@@ -361,14 +371,10 @@ impl PySeqvarsAnnotator {
                     .unwrap_or_default()
                     .unwrap_or_default();
 
-                let mut arrow_anns = Vec::new();
-                for f in ann_fields {
-                    let mut arrow_f = ArrowAnnField::from(f);
-                    for col in &self.custom_columns {
-                        arrow_f.custom_fields.entry(col.clone()).or_insert(None);
-                    }
-                    arrow_anns.push(arrow_f);
-                }
+                let arrow_anns: Vec<ArrowAnnField> = ann_fields
+                    .into_iter()
+                    .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
+                    .collect();
 
                 ArrowResult {
                     annotation: arrow_anns,

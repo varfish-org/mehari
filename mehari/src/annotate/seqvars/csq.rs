@@ -3,7 +3,7 @@ use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
     provider::Provider as MehariProvider,
 };
-use crate::annotate::cli::{ConsequenceBy, SequenceReporting, TranscriptSource};
+use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
 use crate::annotate::seqvars::ann::{
     FeatureTag, ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
 };
@@ -873,10 +873,10 @@ impl ConsequencePredictor {
                     }
 
                     if (c_alt || p_alt) && matches!(var_c, HgvsVariant::CdsVariant { .. }) {
-                        if let Ok(mut alt_data_vec) =
+                        if let Ok(alt_data_vec) =
                             AltSeqBuilder::new(var_c.clone(), ref_data).build_altseq()
                         {
-                            if let Some(alt_data) = alt_data_vec.pop() {
+                            if let Some(alt_data) = alt_data_vec.into_iter().next() {
                                 if c_alt {
                                     custom_fields.insert(
                                         ANN_TX_SEQ_ALT.into(),
@@ -2917,5 +2917,34 @@ mod test {
         }
 
         Ok(())
+    }
+}
+
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    clap::ValueEnum,
+    parse_display::FromStr,
+    parse_display::Display,
+)]
+#[display(style = "kebab-case")]
+pub enum SequenceReporting {
+    #[default]
+    None,
+    Reference,
+    Alternative,
+    Both,
+}
+
+impl SequenceReporting {
+    pub fn includes_ref(&self) -> bool {
+        matches!(self, Self::Reference | Self::Both)
+    }
+    pub fn includes_alt(&self) -> bool {
+        matches!(self, Self::Alternative | Self::Both)
     }
 }

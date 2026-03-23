@@ -1131,7 +1131,7 @@ impl AnnField {
         }
 
         Ok((
-            i,
+            current_i,
             Self {
                 allele,
                 consequences,

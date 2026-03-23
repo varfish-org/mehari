@@ -1,3 +1,4 @@
+use crate::annotate::seqvars::csq::SequenceReporting;
 use clap::Args as ClapArgs;
 use strum::{Display, VariantArray};
 
@@ -79,35 +80,6 @@ pub struct TranscriptSettings {
     /// either keep the first one found or keep all that match.
     #[arg(long, default_value = "all")]
     pub pick_transcript_mode: TranscriptPickMode,
-}
-
-#[derive(
-    Debug,
-    Default,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    clap::ValueEnum,
-    parse_display::FromStr,
-    parse_display::Display,
-)]
-#[display(style = "kebab-case")]
-pub enum SequenceReporting {
-    #[default]
-    None,
-    Reference,
-    Alternative,
-    Both,
-}
-
-impl SequenceReporting {
-    pub fn includes_ref(&self) -> bool {
-        matches!(self, Self::Reference | Self::Both)
-    }
-    pub fn includes_alt(&self) -> bool {
-        matches!(self, Self::Alternative | Self::Both)
-    }
 }
 
 #[derive(Debug, ClapArgs, Default, Clone)]
