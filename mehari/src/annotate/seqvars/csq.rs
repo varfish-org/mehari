@@ -2112,6 +2112,7 @@ impl ConsequencePredictor {
 
         Ok(Some(projections))
     }
+
     /// Assembles the compound `delins` sequence and constructs the final annotation field.
     fn predict_multiple_for_transcript(
         &self,
@@ -2150,8 +2151,10 @@ impl ConsequencePredictor {
         };
 
         struct NEdit {
-            start_base: i32,
-            end_base: i32,
+            n_loc_start: i32,
+            n_loc_end: i32,
+            replace_start: usize,
+            replace_end: usize,
             alt: String,
         }
         let mut n_edits = Vec::new();
@@ -2159,38 +2162,66 @@ impl ConsequencePredictor {
         for proj in &projections {
             if let Some(HgvsVariant::TxVariant { loc_edit, .. }) = &proj.n {
                 let loc = loc_edit.loc.inner();
-                let alt = match loc_edit.edit.inner() {
-                    NaEdit::RefAlt { alternative, .. }
-                    | NaEdit::NumAlt { alternative, .. }
-                    | NaEdit::Ins { alternative } => alternative.clone(),
-                    NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => "".to_string(),
+                let edit = loc_edit.edit.inner();
+
+                let n_loc_start = loc.start.base;
+                let n_loc_end = loc.end.base;
+                let replace_start;
+                let replace_end;
+                let alt;
+
+                match edit {
+                    NaEdit::RefAlt { alternative, .. } | NaEdit::NumAlt { alternative, .. } => {
+                        replace_start = (n_loc_start - 1) as usize;
+                        replace_end = n_loc_end as usize;
+                        alt = alternative.clone();
+                    }
+                    NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => {
+                        replace_start = (n_loc_start - 1) as usize;
+                        replace_end = n_loc_end as usize;
+                        alt = "".to_string();
+                    }
+                    NaEdit::Dup { reference } => {
+                        replace_start = (n_loc_start - 1) as usize;
+                        replace_end = n_loc_end as usize;
+                        alt = format!("{}{}", reference, reference);
+                    }
+                    NaEdit::Ins { alternative } => {
+                        replace_start = n_loc_start as usize;
+                        replace_end = n_loc_start as usize;
+                        alt = alternative.clone();
+                    }
                     _ => {
-                        tracing::warn!("Unsupported NaEdit type in multi-assembly. Skipping.");
+                        tracing::warn!(
+                            "Unsupported NaEdit type {:?} in multi-assembly. Skipping.",
+                            edit
+                        );
                         return Ok(None);
                     }
-                };
+                }
+
                 n_edits.push(NEdit {
-                    start_base: loc.start.base,
-                    end_base: loc.end.base,
+                    n_loc_start,
+                    n_loc_end,
+                    replace_start,
+                    replace_end,
                     alt,
                 });
             }
         }
 
-        // construct new assembly from right to left
-        n_edits.sort_by(|a, b| b.start_base.cmp(&a.start_base));
+        n_edits.sort_by(|a, b| b.replace_start.cmp(&a.replace_start));
 
         let tx_len = ref_data.transcript_sequence.len() as i32;
         let mut alt_seq = ref_data.transcript_sequence.clone();
-        let n_min = n_edits.iter().map(|e| e.start_base).min().unwrap();
-        let n_max = n_edits.iter().map(|e| e.end_base).max().unwrap();
+        let n_min = n_edits.iter().map(|e| e.n_loc_start).min().unwrap();
+        let n_max = n_edits.iter().map(|e| e.n_loc_end).max().unwrap();
 
-        let mut total_delta = 0;
+        let mut total_delta = 0i32;
         for edit in &n_edits {
-            let start = (edit.start_base - 1) as usize;
-            let end = edit.end_base as usize;
-            alt_seq.replace_range(start..end, &edit.alt);
-            total_delta += edit.alt.len() as i32 - (edit.end_base - edit.start_base + 1);
+            alt_seq.replace_range(edit.replace_start..edit.replace_end, &edit.alt);
+            let orig_len = edit.replace_end - edit.replace_start;
+            total_delta += edit.alt.len() as i32 - orig_len as i32;
         }
 
         let new_length = (n_max - n_min + 1) + total_delta;
@@ -2215,6 +2246,8 @@ impl ConsequencePredictor {
             .unwrap();
 
         // build pseudo variant
+        let ref_substring = &ref_data.transcript_sequence[(n_min - 1) as usize..n_max as usize];
+
         let compound_var_c = HgvsVariant::CdsVariant {
             accession: projections[0].c.as_ref().unwrap().accession().clone(),
             gene_symbol: projections[0].c.as_ref().unwrap().gene_symbol().clone(),
@@ -2231,8 +2264,8 @@ impl ConsequencePredictor {
                         cds_from: CdsFrom::Start,
                     },
                 }),
-                edit: Mu::Certain(NaEdit::NumAlt {
-                    count: c_max - c_min + 1,
+                edit: Mu::Certain(NaEdit::RefAlt {
+                    reference: ref_substring.to_string(),
                     alternative: new_substring.to_string(),
                 }),
             },
@@ -2252,8 +2285,8 @@ impl ConsequencePredictor {
                         offset: None,
                     },
                 }),
-                edit: Mu::Certain(NaEdit::NumAlt {
-                    count: n_max - n_min + 1,
+                edit: Mu::Certain(NaEdit::RefAlt {
+                    reference: ref_substring.to_string(),
                     alternative: new_substring.to_string(),
                 }),
             },
