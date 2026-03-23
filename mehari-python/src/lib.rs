@@ -355,7 +355,7 @@ impl PySeqvarsAnnotator {
         let num_rows = record_batch.num_rows();
         let indices: Vec<usize> = (0..num_rows).collect();
 
-        let results: Vec<ArrowResult> = indices
+        let results: Result<Vec<ArrowResult>, anyhow::Error> = indices
             .par_iter()
             .map(|&i| {
                 let variant = VcfVariant {
@@ -365,22 +365,25 @@ impl PySeqvarsAnnotator {
                     alternative: alt_arr.value(i).to_string(),
                 };
 
-                let ann_fields = self
-                    .predictor
-                    .predict(&variant)
-                    .unwrap_or_default()
-                    .unwrap_or_default();
+                let ann_fields = self.predictor.predict(&variant)?.unwrap_or_default();
 
                 let arrow_anns: Vec<ArrowAnnField> = ann_fields
                     .into_iter()
                     .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
                     .collect();
 
-                ArrowResult {
+                Ok(ArrowResult {
                     annotation: arrow_anns,
-                }
+                })
             })
             .collect();
+
+        let results = results.map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "Prediction failed during batch processing: {}",
+                e
+            ))
+        })?;
 
         let out_batch = serde_arrow::to_record_batch(&self.fields, &results).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Serialization error: {}", e))
