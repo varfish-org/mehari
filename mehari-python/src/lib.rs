@@ -386,7 +386,7 @@ impl PySeqvarsAnnotator {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Serialization error: {}", e))
         })?;
 
-        Ok(out_batch.to_pyarrow(py)?)
+        out_batch.to_pyarrow(py)
     }
 }
 
