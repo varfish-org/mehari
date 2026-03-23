@@ -109,3 +109,36 @@ class SeqvarsAnnotator:
             "Invalid input. Provide a Polars DataFrame/LazyFrame, a variant string ('chr:pos:ref:alt'), "
             "or explicit kwargs (chromosome=..., position=..., reference=..., alternative=...)."
         )
+
+    def annotate_multiple(self, variants: list[str | dict[str, typing.Any]]) -> dict[str, typing.Any]:
+        """
+        Annotate multiple phased variants together as a single compound event.
+        All variants must be on the same chromosome and must not overlap.
+
+        Args:
+            variants: A list of 'chr:pos:ref:alt' strings OR dictionaries with
+                      'chromosome', 'position', 'reference', 'alternative' keys.
+        """
+        parsed_variants = []
+
+        for var in variants:
+            if isinstance(var, str):
+                try:
+                    c, p, r, a = var.split(":")
+                    parsed_variants.append((c, int(p), r, a))
+                except ValueError:
+                    raise ValueError(f"Invalid format '{var}'. Expected 'chr:pos:ref:alt'")
+            elif isinstance(var, dict):
+                try:
+                    parsed_variants.append((
+                        str(var["chromosome"]),
+                        int(var["position"]),
+                        str(var["reference"]),
+                        str(var["alternative"])
+                    ))
+                except KeyError as e:
+                    raise ValueError(f"Variant dict missing required key: {e}")
+            else:
+                raise TypeError("Variants must be strings or dictionaries.")
+
+        return self._annotator.annotate_multiple(parsed_variants)

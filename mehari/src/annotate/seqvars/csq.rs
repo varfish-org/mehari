@@ -1943,6 +1943,465 @@ impl ConsequencePredictor {
 
         result
     }
+
+    /// Predict the combined consequence of multiple (phased) variants.
+    /// This is an _experimental_ feature.
+    pub fn predict_multiple(
+        &self,
+        variants: &[VcfVariant],
+    ) -> Result<Option<Vec<AnnField>>, anyhow::Error> {
+        let sorted_vars = Self::validate_and_sort_variant_group(variants)?;
+        if sorted_vars.is_empty() {
+            return Ok(None);
+        }
+
+        let chrom_acc = self
+            .provider
+            .contig_manager
+            .get_accession(&sorted_vars[0].chromosome)
+            .ok_or_else(|| anyhow::anyhow!("Could not determine chromosome accession"))?;
+
+        let txs = self.get_transcripts_for_variant_group(&sorted_vars, chrom_acc)?;
+        if txs.is_empty() {
+            return Ok(None);
+        }
+
+        let mut multi_anns = Vec::new();
+
+        for tx_record in txs {
+            if let Some(ann) =
+                self.predict_multiple_for_transcript(&sorted_vars, &tx_record, chrom_acc)?
+            {
+                multi_anns.push(ann);
+            }
+        }
+
+        Ok(Some(self.filter_ann_fields(multi_anns)))
+    }
+
+    /// Ensures variants don't overlap and are in the correct order.
+    fn validate_and_sort_variant_group(
+        variants: &[VcfVariant],
+    ) -> Result<Vec<VcfVariant>, anyhow::Error> {
+        if variants.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let chrom = &variants[0].chromosome;
+        if !variants.iter().all(|v| v.chromosome == *chrom) {
+            anyhow::bail!("All phased variants must be on the same chromosome.");
+        }
+
+        let mut sorted_vars = variants.to_vec();
+        sorted_vars.sort_by_key(|v| v.position);
+
+        for window in sorted_vars.windows(2) {
+            let v1 = &window[0];
+            let v2 = &window[1];
+            let v1_end = v1.position + v1.reference.len() as i32 - 1;
+
+            if v1_end >= v2.position {
+                anyhow::bail!(
+                    "Overlapping variants detected at pos {} and {}.",
+                    v1.position,
+                    v2.position
+                );
+            }
+        }
+
+        Ok(sorted_vars)
+    }
+
+    /// Fetches all relevant transcripts for the group of variants.
+    fn get_transcripts_for_variant_group(
+        &self,
+        sorted_vars: &[VcfVariant],
+        chrom_acc: &str,
+    ) -> Result<Vec<TxForRegionRecord>, anyhow::Error> {
+        let min_pos = sorted_vars.first().unwrap().position;
+        let max_pos = sorted_vars.last().unwrap().position
+            + sorted_vars.last().unwrap().reference.len() as i32
+            - 1;
+
+        let mut txs = self.provider.get_tx_for_region(
+            chrom_acc,
+            ALT_ALN_METHOD,
+            min_pos - PADDING,
+            max_pos + PADDING,
+        )?;
+        txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
+        Ok(self.filter_picked_sourced_txs(txs))
+    }
+
+    /// Evaluates a cluster for a specific transcript, skipping purely intronic variants,
+    /// and projecting the remaining exonic variants into HGVS contexts.
+    fn get_cluster_projections(
+        &self,
+        sorted_vars: &[VcfVariant],
+        tx: &Transcript,
+        chrom_acc: &str,
+        transcript_biotype: TranscriptBiotype,
+    ) -> Result<Option<Vec<HgvsProjectionContext>>, anyhow::Error> {
+        let alignment = tx.genome_alignments.first().unwrap();
+        let strand = Strand::try_from(alignment.strand).expect("invalid strand");
+
+        let splice_csqs = Consequence::SpliceAcceptorVariant
+            | Consequence::SpliceDonorVariant
+            | Consequence::SpliceRegionVariant
+            | Consequence::SplicePolypyrimidineTractVariant
+            | Consequence::SpliceDonorRegionVariant
+            | Consequence::SpliceDonorFifthBaseVariant
+            | Consequence::ExonicSpliceRegionVariant;
+
+        let mut projections = Vec::new();
+
+        for var in sorted_vars {
+            let var_g = Self::get_var_g(var, chrom_acc);
+            let (var_start, var_end) = Self::get_var_start_end(&var_g);
+            let (tx_loc, tx_csqs, _) =
+                self.determine_transcript_context(alignment, strand, &var_g, var_start, var_end);
+
+            if tx_csqs.intersects(splice_csqs) {
+                tracing::warn!(
+                    "Phased variant {:?} affects splicing on {}. Skipping multi-variant assembly.",
+                    var,
+                    tx.id
+                );
+                return Ok(None);
+            }
+
+            if tx_loc.is_intronic && !tx_loc.is_exonic {
+                tracing::debug!(
+                    "Skipping purely intronic variant {:?} for multi-assembly on {}",
+                    var,
+                    tx.id
+                );
+                continue;
+            }
+
+            if !tx_loc.is_exonic {
+                tracing::warn!(
+                    "Phased variant {:?} is non-exonic on {}. Skipping multi-variant assembly.",
+                    var,
+                    tx.id
+                );
+                return Ok(None);
+            }
+
+            let proj = self.project_hgvs(&var_g, tx, transcript_biotype)?;
+            if proj.n.is_none() || proj.c.is_none() {
+                tracing::warn!(
+                    "Failed to project exonic variant {:?} on {}. Skipping.",
+                    var,
+                    tx.id
+                );
+                return Ok(None);
+            }
+
+            if !proj.is_within_cds_bounds() {
+                tracing::warn!(
+                    "Phased variant {:?} is outside CDS bounds (e.g., UTR) on {}. Skipping.",
+                    var,
+                    tx.id
+                );
+                return Ok(None);
+            }
+
+            projections.push(proj);
+        }
+
+        Ok(Some(projections))
+    }
+    /// Assembles the compound `delins` sequence and constructs the final annotation field.
+    fn predict_multiple_for_transcript(
+        &self,
+        sorted_vars: &[VcfVariant],
+        tx_record: &TxForRegionRecord,
+        chrom_acc: &str,
+    ) -> Result<Option<AnnField>, anyhow::Error> {
+        let tx = match self.provider.get_tx(&tx_record.tx_ac) {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        let transcript_biotype = TranscriptBiotype::try_from(tx.biotype).unwrap();
+        if transcript_biotype != TranscriptBiotype::Coding || tx.start_codon.is_none() {
+            return Ok(None);
+        }
+
+        let projections =
+            match self.get_cluster_projections(sorted_vars, &tx, chrom_acc, transcript_biotype)? {
+                Some(p) => p,
+                None => return Ok(None),
+            };
+
+        if projections.is_empty() {
+            // All variants in this group were purely intronic and thus skipped.
+            return Ok(None);
+        }
+
+        let ref_data = match hgvs::mapper::altseq::ref_transcript_data_cached(
+            self.provider.clone(),
+            &tx.id,
+            None,
+        ) {
+            Ok(r) => r,
+            Err(_) => return Ok(None),
+        };
+
+        struct NEdit {
+            start_base: i32,
+            end_base: i32,
+            alt: String,
+        }
+        let mut n_edits = Vec::new();
+
+        for proj in &projections {
+            if let Some(HgvsVariant::TxVariant { loc_edit, .. }) = &proj.n {
+                let loc = loc_edit.loc.inner();
+                let alt = match loc_edit.edit.inner() {
+                    NaEdit::RefAlt { alternative, .. }
+                    | NaEdit::NumAlt { alternative, .. }
+                    | NaEdit::Ins { alternative } => alternative.clone(),
+                    NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => "".to_string(),
+                    _ => {
+                        tracing::warn!("Unsupported NaEdit type in multi-assembly. Skipping.");
+                        return Ok(None);
+                    }
+                };
+                n_edits.push(NEdit {
+                    start_base: loc.start.base,
+                    end_base: loc.end.base,
+                    alt,
+                });
+            }
+        }
+
+        // construct new assembly from right to left
+        n_edits.sort_by(|a, b| b.start_base.cmp(&a.start_base));
+
+        let tx_len = ref_data.transcript_sequence.len() as i32;
+        let mut alt_seq = ref_data.transcript_sequence.clone();
+        let n_min = n_edits.iter().map(|e| e.start_base).min().unwrap();
+        let n_max = n_edits.iter().map(|e| e.end_base).max().unwrap();
+
+        let mut total_delta = 0;
+        for edit in &n_edits {
+            let start = (edit.start_base - 1) as usize;
+            let end = edit.end_base as usize;
+            alt_seq.replace_range(start..end, &edit.alt);
+            total_delta += edit.alt.len() as i32 - (edit.end_base - edit.start_base + 1);
+        }
+
+        let new_length = (n_max - n_min + 1) + total_delta;
+        let new_substring = &alt_seq[(n_min - 1) as usize..((n_min - 1) + new_length) as usize];
+
+        let c_min = projections
+            .iter()
+            .map(|p| match p.c.as_ref().unwrap() {
+                HgvsVariant::CdsVariant { loc_edit, .. } => loc_edit.loc.inner().start.base,
+                _ => unreachable!(),
+            })
+            .min()
+            .unwrap();
+
+        let c_max = projections
+            .iter()
+            .map(|p| match p.c.as_ref().unwrap() {
+                HgvsVariant::CdsVariant { loc_edit, .. } => loc_edit.loc.inner().end.base,
+                _ => unreachable!(),
+            })
+            .max()
+            .unwrap();
+
+        // build pseudo variant
+        let compound_var_c = HgvsVariant::CdsVariant {
+            accession: projections[0].c.as_ref().unwrap().accession().clone(),
+            gene_symbol: projections[0].c.as_ref().unwrap().gene_symbol().clone(),
+            loc_edit: hgvs::parser::CdsLocEdit {
+                loc: Mu::Certain(hgvs::parser::CdsInterval {
+                    start: hgvs::parser::CdsPos {
+                        base: c_min,
+                        offset: None,
+                        cds_from: CdsFrom::Start,
+                    },
+                    end: hgvs::parser::CdsPos {
+                        base: c_max,
+                        offset: None,
+                        cds_from: CdsFrom::Start,
+                    },
+                }),
+                edit: Mu::Certain(NaEdit::NumAlt {
+                    count: c_max - c_min + 1,
+                    alternative: new_substring.to_string(),
+                }),
+            },
+        };
+
+        let compound_var_n = HgvsVariant::TxVariant {
+            accession: projections[0].n.as_ref().unwrap().accession().clone(),
+            gene_symbol: projections[0].n.as_ref().unwrap().gene_symbol().clone(),
+            loc_edit: hgvs::parser::TxLocEdit {
+                loc: Mu::Certain(hgvs::parser::TxInterval {
+                    start: hgvs::parser::TxPos {
+                        base: n_min,
+                        offset: None,
+                    },
+                    end: hgvs::parser::TxPos {
+                        base: n_max,
+                        offset: None,
+                    },
+                }),
+                edit: Mu::Certain(NaEdit::NumAlt {
+                    count: n_max - n_min + 1,
+                    alternative: new_substring.to_string(),
+                }),
+            },
+        };
+
+        let compound_var_p = self.mapper.c_to_p(&compound_var_c).ok();
+
+        let compound_proj = HgvsProjectionContext {
+            g: projections[0].g.clone(),
+            n: Some(compound_var_n),
+            c: Some(compound_var_c.clone()),
+            p: compound_var_p,
+        };
+
+        let mut custom_fields = BTreeMap::new();
+        let c_ref = self.config.report_cdna_sequence.includes_ref();
+        let c_alt = self.config.report_cdna_sequence.includes_alt();
+        let p_ref = self.config.report_protein_sequence.includes_ref();
+        let p_alt = self.config.report_protein_sequence.includes_alt();
+
+        if c_ref || c_alt || p_ref || p_alt {
+            if c_ref {
+                custom_fields.insert(
+                    ANN_TX_SEQ_REF.into(),
+                    Some(ref_data.transcript_sequence.clone()),
+                );
+            }
+            if p_ref {
+                custom_fields.insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.clone()));
+            }
+            if c_alt || p_alt {
+                if let Ok(alt_data_vec) =
+                    AltSeqBuilder::new(compound_var_c.clone(), ref_data).build_altseq()
+                {
+                    if let Some(alt_data) = alt_data_vec.into_iter().next() {
+                        if c_alt {
+                            custom_fields
+                                .insert(ANN_TX_SEQ_ALT.into(), Some(alt_data.transcript_sequence));
+                        }
+                        if p_alt {
+                            custom_fields.insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence));
+                        }
+                    }
+                }
+            }
+        }
+
+        let tlc = TranscriptLocationContext {
+            rank: Rank { ord: 1, total: 1 }, // dummy rank since we potentially span multiple exons
+            distance: Some(0),
+            is_exonic: true,
+            is_intronic: false,
+            is_upstream: false,
+            is_downstream: false,
+        };
+
+        let c_ctx = self.analyze_transcript_consequences(
+            &compound_proj,
+            &tx,
+            tx_record,
+            &tlc,
+            tx_len,
+            transcript_biotype,
+        )?;
+
+        let mut consequences = c_ctx.cds_consequences | c_ctx.protein_consequences;
+        self.consequences_fix_special_cases(
+            &mut consequences,
+            c_ctx.cds_consequences,
+            c_ctx.protein_consequences,
+            &compound_proj,
+        );
+
+        if self.config.vep_consequence_terms {
+            self.adjust_vep_terms(&mut consequences, Some(&compound_proj));
+        }
+        if consequences.is_empty() {
+            consequences |= Consequence::GeneVariant;
+        }
+
+        let consequences_vec = consequences.iter().collect_vec();
+        let putative_impact = (*consequences_vec.first().unwrap()).into();
+
+        let hgvs_c = Some(
+            format!("{}", &NoRef(compound_proj.c.as_ref().unwrap()))
+                .split(':')
+                .nth(1)
+                .unwrap()
+                .to_owned(),
+        );
+        let hgvs_p = compound_proj
+            .p
+            .as_ref()
+            .map(|p| format!("{}", p).split(':').nth(1).unwrap().to_owned());
+        let allele_str = sorted_vars
+            .iter()
+            .map(|v| v.alternative.clone())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let strand = match tx.genome_alignments.first().unwrap().strand {
+            1 => 1,
+            -1 => -1,
+            _ => 0,
+        };
+
+        let feature_tags = tx
+            .tags
+            .iter()
+            .map(|tag| TranscriptTag::try_from(*tag).expect("invalid transcript tag"))
+            .filter(|tag| !matches!(tag, TranscriptTag::EnsemblGraft))
+            .filter_map(|t| {
+                if !matches!(FeatureTag::from(t), FeatureTag::Other(_)) {
+                    Some(FeatureTag::from(t))
+                } else {
+                    None
+                }
+            })
+            .collect_vec();
+
+        Ok(Some(AnnField {
+            allele: Allele::Alt {
+                alternative: allele_str,
+            },
+            consequences: consequences_vec,
+            putative_impact,
+            gene_symbol: tx.gene_symbol.clone(),
+            gene_id: tx.gene_id.clone(),
+            feature_type: FeatureType::SoTerm {
+                term: SoFeature::Transcript,
+            },
+            feature_id: tx.id.clone(),
+            feature_biotype: vec![FeatureBiotype::Coding],
+            feature_tags,
+            rank: None,
+            hgvs_g: None,
+            hgvs_n: None,
+            hgvs_c,
+            hgvs_p,
+            cdna_pos: c_ctx.cdna_pos,
+            cds_pos: c_ctx.cds_pos,
+            protein_pos: c_ctx.protein_pos,
+            strand,
+            distance: Some(0),
+            messages: None,
+            custom_fields,
+        }))
+    }
 }
 
 fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {

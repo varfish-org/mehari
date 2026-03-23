@@ -391,6 +391,52 @@ impl PySeqvarsAnnotator {
 
         out_batch.to_pyarrow(py)
     }
+
+    /// Annotate a cluster of phased variants. Returns a Python dictionary.
+    #[pyo3(signature = (variants))]
+    fn annotate_multiple<'py>(
+        &self,
+        py: Python<'py>,
+        variants: Vec<(String, i32, String, String)>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let vcf_variants: Vec<VcfVariant> = variants
+            .into_iter()
+            .map(|(chrom, pos, ref_seq, alt_seq)| VcfVariant {
+                chromosome: chrom,
+                position: pos,
+                reference: ref_seq,
+                alternative: alt_seq,
+            })
+            .collect();
+
+        let ann_fields_opt = self
+            .predictor
+            .predict_multiple(&vcf_variants)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
+            .unwrap_or_default()
+            .into_iter()
+            .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
+            .collect();
+
+        #[derive(Serialize)]
+        struct SingleResult {
+            annotation: Vec<ArrowAnnField>,
+        }
+
+        let py_dict = pythonize(
+            py,
+            &SingleResult {
+                annotation: arrow_anns,
+            },
+        )
+        .map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Serialization error: {}", e))
+        })?;
+
+        Ok(py_dict)
+    }
 }
 
 #[pymodule(name = "_mehari")]
