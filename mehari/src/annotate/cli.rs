@@ -1,3 +1,4 @@
+use crate::annotate::seqvars::csq::SequenceReporting;
 use clap::Args as ClapArgs;
 use strum::{Display, VariantArray};
 
@@ -94,6 +95,14 @@ pub struct ReportingSettings {
     /// Whether to use less fine-grained VEP consequence terms.
     #[arg(long, default_value_t = false, hide = true)]
     use_vep_consequence_terms: bool,
+
+    /// Whether to report cDNA sequence.
+    #[arg(long, value_enum, default_value_t = SequenceReporting::None)]
+    pub report_cdna_sequence: SequenceReporting,
+
+    /// Whether to report protein sequence.
+    #[arg(long, value_enum, default_value_t = SequenceReporting::None)]
+    pub report_protein_sequence: SequenceReporting,
 }
 
 #[derive(Debug, ClapArgs, Default, Clone)]

@@ -1,9 +1,13 @@
 use arrow::array::{Array, Int32Array, RecordBatch, StringArray};
 use arrow::compute::cast;
-use arrow::datatypes::{DataType, FieldRef};
+use arrow::datatypes::{DataType, Field, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
-use mehari::annotate::seqvars::ann::{AnnField, Consequence, Pos, PutativeImpact, Rank};
-use mehari::annotate::seqvars::csq::{Config, ConsequencePredictor, VcfVariant};
+use mehari::annotate::seqvars::ann::{
+    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, AnnField, Consequence, Pos,
+    PutativeImpact, Rank,
+};
+use mehari::annotate::seqvars::csq::SequenceReporting;
+use mehari::annotate::seqvars::csq::{ConfigBuilder, ConsequencePredictor, VcfVariant};
 use mehari::annotate::seqvars::load_tx_db;
 use mehari::annotate::seqvars::provider::{
     ConfigBuilder as ProviderConfigBuilder, Provider as MehariProvider,
@@ -14,6 +18,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
 
@@ -29,6 +34,32 @@ fn putative_impact_variants() -> Vec<String> {
     PutativeImpact::iter()
         .map(|i: PutativeImpact| i.to_string())
         .collect()
+}
+
+// _TraceAnnField is the same as ArrowAnnField but without the custom_fields field,
+// to enable static tracing of the schema.
+#[derive(Deserialize, Serialize)]
+struct _TraceAnnField {
+    pub allele: String,
+    pub consequences: Vec<String>,
+    pub putative_impact: String,
+    pub gene_symbol: String,
+    pub gene_id: String,
+    pub feature_type: String,
+    pub feature_id: String,
+    pub feature_biotype: Vec<String>,
+    pub feature_tags: Vec<String>,
+    pub rank: Option<Rank>,
+    pub hgvs_g: Option<String>,
+    pub hgvs_n: Option<String>,
+    pub hgvs_c: Option<String>,
+    pub hgvs_p: Option<String>,
+    pub cdna_pos: Option<Pos>,
+    pub cds_pos: Option<Pos>,
+    pub protein_pos: Option<Pos>,
+    pub distance: Option<i32>,
+    pub strand: i32,
+    pub messages: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -53,10 +84,21 @@ struct ArrowAnnField {
     pub distance: Option<i32>,
     pub strand: i32,
     pub messages: Option<Vec<String>>,
+    pub custom_fields: Option<std::collections::BTreeMap<String, Option<String>>>,
 }
 
-impl From<AnnField> for ArrowAnnField {
-    fn from(f: AnnField) -> Self {
+impl ArrowAnnField {
+    fn from_ann_field(f: AnnField, custom_columns: &[String]) -> Self {
+        let custom_fields = if custom_columns.is_empty() {
+            None
+        } else {
+            let mut map = f.custom_fields;
+            for col in custom_columns {
+                map.entry(col.clone()).or_insert(None);
+            }
+            Some(map)
+        };
+
         Self {
             allele: f.allele.to_string(),
             consequences: f.consequences.iter().map(|c| c.to_string()).collect(),
@@ -80,6 +122,7 @@ impl From<AnnField> for ArrowAnnField {
             messages: f
                 .messages
                 .map(|msgs| msgs.iter().map(|m| m.to_string()).collect()),
+            custom_fields,
         }
     }
 }
@@ -92,13 +135,20 @@ struct ArrowResult {
 #[pyclass(name = "SeqvarsAnnotator")]
 pub struct PySeqvarsAnnotator {
     predictor: ConsequencePredictor,
+    fields: Vec<FieldRef>,
+    custom_columns: Vec<String>,
 }
 
 #[pymethods]
 impl PySeqvarsAnnotator {
     #[new]
-    #[pyo3(signature = (transcript_db_paths, reference_path=None))]
-    fn new(transcript_db_paths: Vec<String>, reference_path: Option<String>) -> PyResult<Self> {
+    #[pyo3(signature = (transcript_db_paths, reference_path=None, report_cdna_sequence="none", report_protein_sequence="none"))]
+    fn new(
+        transcript_db_paths: Vec<String>,
+        reference_path: Option<String>,
+        report_cdna_sequence: &str,
+        report_protein_sequence: &str,
+    ) -> PyResult<Self> {
         let mut tx_dbs = Vec::new();
         for path in transcript_db_paths {
             let db = load_tx_db(&path).map_err(|e| {
@@ -125,9 +175,68 @@ impl PySeqvarsAnnotator {
             provider_config,
         ));
 
-        let predictor = ConsequencePredictor::new(provider, Config::default());
+        let report_cdna = SequenceReporting::from_str(report_cdna_sequence).map_err(|_| {
+            pyo3::exceptions::PyValueError::new_err("Invalid cdna sequence reporting option")
+        })?;
+        let report_protein =
+            SequenceReporting::from_str(report_protein_sequence).map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err("Invalid protein sequence reporting option")
+            })?;
 
-        Ok(Self { predictor })
+        let mut custom_columns = Vec::new();
+        if report_cdna.includes_ref() {
+            custom_columns.push(ANN_TX_SEQ_REF.to_string());
+        }
+        if report_cdna.includes_alt() {
+            custom_columns.push(ANN_TX_SEQ_ALT.to_string());
+        }
+        if report_protein.includes_ref() {
+            custom_columns.push(ANN_AA_SEQ_REF.to_string());
+        }
+        if report_protein.includes_alt() {
+            custom_columns.push(ANN_AA_SEQ_ALT.to_string());
+        }
+
+        let config = ConfigBuilder::default()
+            .report_cdna_sequence(report_cdna)
+            .report_protein_sequence(report_protein)
+            .custom_columns(custom_columns.clone())
+            .build()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let options = TracingOptions::default().allow_null_fields(true);
+        let mut ann_field_inner_fields = Vec::<FieldRef>::from_type::<_TraceAnnField>(options)
+            .map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Schema trace error: {}", e))
+            })?;
+        let custom_fields_data_type = DataType::Struct(
+            custom_columns
+                .iter()
+                .map(|name| Field::new(name, DataType::Utf8, true))
+                .collect::<Vec<_>>()
+                .into(),
+        );
+        ann_field_inner_fields.push(Arc::new(Field::new(
+            "custom_fields",
+            custom_fields_data_type,
+            true,
+        )));
+
+        let ann_field_struct = DataType::Struct(ann_field_inner_fields.into());
+        let annotation_list_field = Field::new("item", ann_field_struct, true);
+        let fields = vec![Arc::new(Field::new(
+            "annotation",
+            DataType::List(Arc::new(annotation_list_field)),
+            true,
+        ))];
+
+        let predictor = ConsequencePredictor::new(provider, config);
+
+        Ok(Self {
+            predictor,
+            fields,
+            custom_columns,
+        })
     }
 
     /// Annotate a single variant. Returns a Python dictionary.
@@ -155,7 +264,7 @@ impl PySeqvarsAnnotator {
         let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
             .unwrap_or_default()
             .into_iter()
-            .map(ArrowAnnField::from)
+            .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
             .collect();
 
         #[derive(Serialize)]
@@ -246,7 +355,7 @@ impl PySeqvarsAnnotator {
         let num_rows = record_batch.num_rows();
         let indices: Vec<usize> = (0..num_rows).collect();
 
-        let results: Vec<ArrowResult> = indices
+        let results: Result<Vec<ArrowResult>, anyhow::Error> = indices
             .par_iter()
             .map(|&i| {
                 let variant = VcfVariant {
@@ -256,32 +365,31 @@ impl PySeqvarsAnnotator {
                     alternative: alt_arr.value(i).to_string(),
                 };
 
-                let ann_fields = self
-                    .predictor
-                    .predict(&variant)
-                    .unwrap_or(None)
-                    .unwrap_or_default();
+                let ann_fields = self.predictor.predict(&variant)?.unwrap_or_default();
 
-                let arrow_anns: Vec<ArrowAnnField> =
-                    ann_fields.into_iter().map(ArrowAnnField::from).collect();
+                let arrow_anns: Vec<ArrowAnnField> = ann_fields
+                    .into_iter()
+                    .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
+                    .collect();
 
-                ArrowResult {
+                Ok(ArrowResult {
                     annotation: arrow_anns,
-                }
+                })
             })
             .collect();
 
-        let options = TracingOptions::default().allow_null_fields(true);
-
-        let fields = Vec::<FieldRef>::from_type::<ArrowResult>(options).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Schema error: {}", e))
+        let results = results.map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "Prediction failed during batch processing: {}",
+                e
+            ))
         })?;
 
-        let out_batch = serde_arrow::to_record_batch(&fields, &results).map_err(|e| {
+        let out_batch = serde_arrow::to_record_batch(&self.fields, &results).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Serialization error: {}", e))
         })?;
 
-        Ok(out_batch.to_pyarrow(py)?)
+        out_batch.to_pyarrow(py)
     }
 }
 

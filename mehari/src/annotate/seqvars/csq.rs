@@ -4,7 +4,9 @@ use super::{
     provider::Provider as MehariProvider,
 };
 use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
-use crate::annotate::seqvars::ann::FeatureTag;
+use crate::annotate::seqvars::ann::{
+    FeatureTag, ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
+};
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::pbs::txs::{GenomeAlignment, Strand, Transcript, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
@@ -19,6 +21,7 @@ use hgvs::{
 };
 use itertools::Itertools;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::{collections::HashMap, sync::Arc};
 
 /// A variant description how VCF would do it.
@@ -65,6 +68,18 @@ pub struct Config {
     /// Whether to report VEP consequence terms.
     #[builder(default = "false")]
     pub vep_consequence_terms: bool,
+
+    /// Whether to report cDNA sequence.
+    #[builder(default)]
+    pub report_cdna_sequence: SequenceReporting,
+
+    /// Whether to report protein sequence.
+    #[builder(default)]
+    pub report_protein_sequence: SequenceReporting,
+
+    /// Ordered list of extra columns registered by plugins/features.
+    #[builder(default)]
+    pub custom_columns: Vec<String>,
 }
 
 impl Default for Config {
@@ -87,7 +102,7 @@ pub struct ConsequencePredictor {
 
     /// Configuration for the predictor.
     #[derivative(Debug = "ignore")]
-    config: Config,
+    pub(crate) config: Config,
 }
 
 /// Padding to look for genes upstream/downstream.
@@ -303,6 +318,7 @@ impl ConsequencePredictor {
                 protein_pos: None,
                 gene_symbol: "".to_string(),
                 messages: None,
+                custom_fields: BTreeMap::new(),
             }])));
         }
 
@@ -831,6 +847,53 @@ impl ConsequencePredictor {
             (None, None, None, None, None)
         };
 
+        let mut custom_fields = BTreeMap::new();
+
+        let c_ref = self.config.report_cdna_sequence.includes_ref();
+        let c_alt = self.config.report_cdna_sequence.includes_alt();
+        let p_ref = self.config.report_protein_sequence.includes_ref();
+        let p_alt = self.config.report_protein_sequence.includes_alt();
+
+        if c_ref || c_alt || p_ref || p_alt {
+            if let Some(var_c) = projection.as_ref().and_then(|p| p.c.as_ref()) {
+                if let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
+                    self.provider.clone(),
+                    &tx.id,
+                    None,
+                ) {
+                    if c_ref {
+                        custom_fields.insert(
+                            ANN_TX_SEQ_REF.into(),
+                            Some(ref_data.transcript_sequence.clone()),
+                        );
+                    }
+                    if p_ref {
+                        custom_fields
+                            .insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.clone()));
+                    }
+
+                    if (c_alt || p_alt) && matches!(var_c, HgvsVariant::CdsVariant { .. }) {
+                        if let Ok(alt_data_vec) =
+                            AltSeqBuilder::new(var_c.clone(), ref_data).build_altseq()
+                        {
+                            if let Some(alt_data) = alt_data_vec.into_iter().next() {
+                                if c_alt {
+                                    custom_fields.insert(
+                                        ANN_TX_SEQ_ALT.into(),
+                                        Some(alt_data.transcript_sequence),
+                                    );
+                                }
+                                if p_alt {
+                                    custom_fields
+                                        .insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let hgvs_n = projection.as_ref().and_then(|p| p.n.as_ref()).map(|var_n| {
             format!("{}", &NoRef(var_n))
                 .split(':')
@@ -932,6 +995,7 @@ impl ConsequencePredictor {
             strand,
             distance: transcript_location.distance,
             messages: None,
+            custom_fields,
         }))
     }
 
@@ -2853,5 +2917,34 @@ mod test {
         }
 
         Ok(())
+    }
+}
+
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    clap::ValueEnum,
+    parse_display::FromStr,
+    parse_display::Display,
+)]
+#[display(style = "kebab-case")]
+pub enum SequenceReporting {
+    #[default]
+    None,
+    Reference,
+    Alternative,
+    Both,
+}
+
+impl SequenceReporting {
+    pub fn includes_ref(&self) -> bool {
+        matches!(self, Self::Reference | Self::Both)
+    }
+    pub fn includes_alt(&self) -> bool {
+        matches!(self, Self::Alternative | Self::Both)
     }
 }

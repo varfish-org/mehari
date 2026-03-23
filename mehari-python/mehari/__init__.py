@@ -10,11 +10,26 @@ ImpactEnum = pl.Enum(putative_impact_variants())
 
 class SeqvarsAnnotator:
     def __init__(
-        self, transcript_db_paths: str | list[str], reference_path: str | None = None
+        self,
+        transcript_db_paths: str | list[str],
+        reference_path: str | None = None,
+        *,
+        report_cdna_sequence: typing.Literal[
+            "none", "reference", "alternative", "both"
+        ] = "none",
+        report_protein_sequence: typing.Literal[
+            "none", "reference", "alternative", "both"
+        ] = "none",
     ):
         if isinstance(transcript_db_paths, str):
             transcript_db_paths = [transcript_db_paths]
-        self._annotator = _SeqvarsAnnotator(transcript_db_paths, reference_path)
+
+        self._annotator = _SeqvarsAnnotator(
+            transcript_db_paths,
+            reference_path,
+            report_cdna_sequence,
+            report_protein_sequence,
+        )
 
     def _process_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
         """Internal helper to stream Arrow RecordBatches to Rust."""

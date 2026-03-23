@@ -2378,6 +2378,7 @@ dependencies = [
 name = "mehari-python"
 version = "0.41.2"
 dependencies = [
+ "anyhow",
  "arrow",
  "mehari",
  "pyo3",

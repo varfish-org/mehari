@@ -12,8 +12,12 @@ use std::time::Instant;
 use self::ann::{AnnField, FeatureBiotype};
 use crate::annotate::cli::{PredictorSettings, Sources};
 use crate::annotate::genotype_string;
+use crate::annotate::seqvars::ann::{
+    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
+};
 use crate::annotate::seqvars::csq::{
-    ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
+    Config, ConfigBuilder as ConsequencePredictorConfigBuilder, ConfigBuilder,
+    ConsequencePredictor, VcfVariant,
 };
 use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
@@ -151,6 +155,7 @@ fn build_header(
     with_frequencies: bool,
     with_clinvar: bool,
     additional_records: &[(String, String)],
+    csq_config: &Config,
 ) -> VcfHeader {
     let mut header_out = header_in.clone();
     *header_out.file_format_mut() = FileFormat::default();
@@ -249,7 +254,7 @@ fn build_header(
     }
 
     if with_annotations {
-        let fields = AnnField::ann_field_names().join(" | ");
+        let fields = AnnField::ann_field_names(csq_config).join(" | ");
         header_out.infos_mut().insert(
             "ANN".into(),
             Map::<Info>::new(
@@ -1851,6 +1856,21 @@ impl ConsequenceAnnotator {
         predictor_settings: &PredictorSettings,
     ) -> anyhow::Result<Self> {
         let args = predictor_settings;
+        let s = &args.reporting_settings;
+
+        let mut custom_columns = Vec::new();
+        if s.report_cdna_sequence.includes_ref() {
+            custom_columns.push(ANN_TX_SEQ_REF.to_string());
+        }
+        if s.report_cdna_sequence.includes_alt() {
+            custom_columns.push(ANN_TX_SEQ_ALT.to_string());
+        }
+        if s.report_protein_sequence.includes_ref() {
+            custom_columns.push(ANN_AA_SEQ_REF.to_string());
+        }
+        if s.report_protein_sequence.includes_alt() {
+            custom_columns.push(ANN_AA_SEQ_ALT.to_string());
+        }
 
         let provider = Arc::new(MehariProvider::new(
             tx_db,
@@ -1873,6 +1893,9 @@ impl ConsequenceAnnotator {
                 .normalize(!args.do_not_normalize_variants())
                 .renormalize_g(!args.do_not_renormalize_g())
                 .vep_consequence_terms(args.vep_consequence_terms())
+                .report_cdna_sequence(s.report_cdna_sequence)
+                .report_protein_sequence(s.report_protein_sequence)
+                .custom_columns(custom_columns)
                 .build()?,
         );
         Ok(Self::new(predictor))
@@ -1897,7 +1920,10 @@ impl ConsequenceAnnotator {
                 record.info_mut().insert(
                     "ANN".into(),
                     Some(field::Value::Array(field::value::Array::String(
-                        ann_fields.iter().map(|ann| Some(ann.to_string())).collect(),
+                        ann_fields
+                            .iter()
+                            .map(|ann| Some(ann.format(&self.predictor.config)))
+                            .collect(),
                     ))),
                 );
             }
@@ -2037,12 +2063,36 @@ async fn run_with_writer(
         .is_some_and(|v| !v.is_empty());
     let with_clinvar = args.sources.clinvar.as_ref().is_some_and(|v| !v.is_empty());
 
+    let mut custom_columns = Vec::new();
+    let c = &args.predictor_settings.reporting_settings;
+    if c.report_cdna_sequence.includes_ref() {
+        custom_columns.push(ANN_TX_SEQ_REF.to_string());
+    }
+    if c.report_cdna_sequence.includes_alt() {
+        custom_columns.push(ANN_TX_SEQ_ALT.to_string());
+    }
+    if c.report_protein_sequence.includes_ref() {
+        custom_columns.push(ANN_AA_SEQ_REF.to_string());
+    }
+    if c.report_protein_sequence.includes_alt() {
+        custom_columns.push(ANN_AA_SEQ_ALT.to_string());
+    }
+
+    // TODO: manually rebuilding Config here so we can automatically build the VCF ANN header
+    //   is not the best way of doing things.
+    let csq_config = ConfigBuilder::default()
+        .report_cdna_sequence(c.report_cdna_sequence)
+        .report_protein_sequence(c.report_protein_sequence)
+        .custom_columns(custom_columns)
+        .build()?;
+
     let header_out = build_header(
         &header_in,
         with_annotations,
         with_frequencies,
         with_clinvar,
         &additional_header_info,
+        &csq_config,
     );
 
     // Perform the VCF annotation.
