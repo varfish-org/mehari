@@ -5,12 +5,16 @@ Python bindings for the [`mehari`](https://github.com/varfish-org/mehari) Rust l
 ## Features
 
 * **Single variants:** Annotate a single variant using a format string (`chr:pos:ref:alt`) or keyword arguments.
+* **Multiple variants (_experimental_):** Evaluate the compound effect of multiple variants.
 * **DataFrames:** Process batches of variants by passing a `polars.DataFrame`.
-* **LazyFrames:** Support for `polars.LazyFrame` to process large datasets (like Parquet files) without loading everything into memory.
+* **LazyFrames:** Support for `polars.LazyFrame` to process large datasets (like Parquet files) without loading
+  everything into memory.
 
 ## Usage
 
-Initialize `SeqvarsAnnotator` with your transcript database (see [`mehari-data-tx`](https://github.com/varfish-org/mehari-data-tx/releases)) and a reference genome (FASTA, uncompressed, with index).
+Initialize `SeqvarsAnnotator` with your transcript database (see [
+`mehari-data-tx`](https://github.com/varfish-org/mehari-data-tx/releases)) and a reference genome (FASTA, uncompressed,
+with index).
 
 ```python
 from mehari import SeqvarsAnnotator
@@ -22,12 +26,28 @@ annotator = SeqvarsAnnotator(
 ```
 
 To annotate a single variant either use colon separated format string or keyword arguments:
+
 ```python
 result1 = annotator.annotate("17:41197701:G:C")
 result2 = annotator.annotate(chromosome="3", position=193332511, reference="G", alternative="T")
 ```
 
+To annotate multiple phased variants together as a single compound event (Experimental):
+> **Note:** Mehari does not infer phasing.
+> When using `annotate_multiple`, mehari assumes all provided variants are on the same chromosome, exist on the same
+> haplotype, and do not overlap.
+
+```python
+result1 = annotator.annotate_multiple(["1:37799635:TA:A", "1:37799639:C:CG"])
+
+result2 = annotator.annotate_multiple([
+    {"chromosome": "1", "position": 37799635, "reference": "TA", "alternative": "A"},
+    {"chromosome": "1", "position": 37799639, "reference": "C", "alternative": "CG"}
+])
+```
+
 To annotate a batch of variants, pass a `polars.DataFrame` or `polars.LazyFrame`.
+
 ```python
 import polars as pl
 
@@ -50,7 +70,9 @@ annotated_df = annotator.annotate(df)
 ## Schemas and types
 
 ### Enums
+
 Mehari exports its internal enums to Python so you can use them for filtering or comparisons:
+
 ```python
 from mehari import ConsequenceEnum, ImpactEnum
 ```
@@ -59,6 +81,7 @@ from mehari import ConsequenceEnum, ImpactEnum
 
 When annotating a DataFrame or LazyFrame, mehari appends an "annotation" column.
 This column is a polars `List(Struct)` with the following fields:
+
 - `allele`: `String`
 - `consequences`: `List(ConsequenceEnum)`
 - `putative_impact`: `ImpactEnum`
