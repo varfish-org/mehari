@@ -2225,6 +2225,22 @@ impl ConsequencePredictor {
         }
 
         let new_length = (n_max - n_min + 1) + total_delta;
+        if new_length < 0 {
+            tracing::warn!("Calculated new_length {} is negative.", new_length);
+            return Ok(None);
+        }
+        let start_idx = (n_min - 1) as usize;
+        let end_idx = start_idx + new_length as usize;
+
+        if end_idx > alt_seq.len() {
+            tracing::warn!(
+                "Slice index out of bounds: {} > {} (alt_seq length). Cannot assemble variant.",
+                end_idx,
+                alt_seq.len()
+            );
+            return Ok(None);
+        }
+
         let new_substring = &alt_seq[(n_min - 1) as usize..((n_min - 1) + new_length) as usize];
 
         let c_min = projections
@@ -2381,6 +2397,9 @@ impl ConsequencePredictor {
             .p
             .as_ref()
             .map(|p| format!("{}", p).split(':').nth(1).unwrap().to_owned());
+
+        // Deliberately concatenate all alternative alleles with comma (e.g., "A,CG")
+        // to represent the group event.
         let allele_str = sorted_vars
             .iter()
             .map(|v| v.alternative.clone())
@@ -3407,6 +3426,40 @@ mod test {
                 }
             }
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_predict_multiple_bounds_checking() -> Result<(), anyhow::Error> {
+        let alt_seq = String::from("ATGCGTACGTAGCTAGCT");
+        let n_min = 5;
+        let n_max = 7;
+
+        let total_delta_negative = -10;
+        let new_length_negative = (n_max - n_min + 1) + total_delta_negative;
+        assert!(
+            new_length_negative < 0,
+            "Length should be negative and caught by the guard"
+        );
+
+        let total_delta_past_end = 100;
+        let new_length = (n_max - n_min + 1) + total_delta_past_end;
+        let start_idx = (n_min - 1) as usize;
+        let end_idx = start_idx + new_length as usize;
+
+        assert!(
+            end_idx > alt_seq.len(),
+            "End index should exceed alt_seq length and be caught by the guard"
+        );
+
+        let total_delta_valid = 2; // e.g., del 1 base, ins 3 bases
+        let new_length_valid = (n_max - n_min + 1) + total_delta_valid;
+        let end_idx_valid = start_idx + new_length_valid as usize;
+
+        assert!(new_length_valid >= 0);
+        assert!(end_idx_valid <= alt_seq.len());
+        let _new_substring = &alt_seq[start_idx..end_idx_valid];
 
         Ok(())
     }
