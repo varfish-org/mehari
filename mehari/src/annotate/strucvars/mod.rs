@@ -806,7 +806,7 @@ impl From<SvType> for PeOrientation {
 }
 
 impl FromStr for PeOrientation {
-    type Err = anyhow::Error;
+    type Err = crate::errors::StrucvarsError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -815,7 +815,9 @@ impl FromStr for PeOrientation {
             "3to5" => Ok(PeOrientation::ThreeToFive),
             "5to3" => Ok(PeOrientation::FiveToThree),
             "NtoN" => Ok(PeOrientation::Other),
-            _ => Err(anyhow::anyhow!("Invalid PE orientation: {}", s)),
+            _ => Err(crate::errors::StrucvarsError::InvalidPeOrientation(
+                s.to_string(),
+            )),
         }
     }
 }
@@ -859,7 +861,7 @@ pub enum SvType {
 }
 
 impl FromStr for SvType {
-    type Err = anyhow::Error;
+    type Err = crate::errors::StrucvarsError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -869,7 +871,7 @@ impl FromStr for SvType {
             "INS" => Ok(SvType::Ins),
             "BND" => Ok(SvType::Bnd),
             "CNV" => Ok(SvType::Cnv),
-            _ => Err(anyhow::anyhow!("Invalid SV type: {}", s)),
+            _ => Err(crate::errors::StrucvarsError::InvalidSvType(s.to_string())),
         }
     }
 }
@@ -960,7 +962,7 @@ impl From<SvSubType> for SvType {
 }
 
 impl FromStr for SvSubType {
-    type Err = anyhow::Error;
+    type Err = crate::errors::StrucvarsError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -984,7 +986,9 @@ impl FromStr for SvSubType {
             "ALU" => Ok(SvSubType::InsMeAlu),
             "SVA" => Ok(SvSubType::InsMeSva),
             "LINE1" => Ok(SvSubType::InsMeL1),
-            _ => Err(anyhow::anyhow!("Invalid SV sub type: {}", s)),
+            _ => Err(crate::errors::StrucvarsError::InvalidSvSubType(
+                s.to_string(),
+            )),
         }
     }
 }
