@@ -261,10 +261,13 @@ impl PySeqvarsAnnotator {
             alternative: alternative.to_string(),
         };
 
-        let ann_fields_opt = self
-            .predictor
-            .predict(&variant)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let ann_fields_opt = self.predictor.predict(&variant).map_err(|e| match e {
+            mehari::errors::SeqvarsError::UnknownChromosomeAccession
+            | mehari::errors::SeqvarsError::InvalidCoordinates(_, _) => {
+                pyo3::exceptions::PyValueError::new_err(e.to_string())
+            }
+            _ => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
+        })?;
 
         let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
             .unwrap_or_default()
@@ -414,10 +417,15 @@ impl PySeqvarsAnnotator {
             })
             .collect();
 
-        let ann_fields_opt = self
-            .predictor
-            .predict_multiple(&vcf_variants)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let ann_fields_opt =
+            self.predictor
+                .predict_multiple(&vcf_variants)
+                .map_err(|e| match e {
+                    mehari::errors::SeqvarsError::GroupValidation(_) => {
+                        pyo3::exceptions::PyValueError::new_err(e.to_string())
+                    }
+                    _ => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
+                })?;
 
         let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
             .unwrap_or_default()
