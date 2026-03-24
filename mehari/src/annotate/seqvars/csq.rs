@@ -8,6 +8,7 @@ use crate::annotate::seqvars::ann::{
     FeatureTag, ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
 };
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
+use crate::errors::{GroupValidationError, SeqvarsError};
 use crate::pbs::txs::{GenomeAlignment, Strand, Transcript, TranscriptBiotype, TranscriptTag};
 use enumflags2::BitFlags;
 use hgvs::mapper::altseq::AltSeqBuilder;
@@ -227,7 +228,7 @@ impl ConsequencePredictor {
     /// # Errors
     ///
     /// If there was any error during the prediction.
-    pub fn predict(&self, var: &VcfVariant) -> Result<Option<Vec<AnnField>>, anyhow::Error> {
+    pub fn predict(&self, var: &VcfVariant) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
         // Normalize variant by stripping common prefix and suffix.
         let mut norm_var = self.normalize_variant(var);
 
@@ -279,9 +280,10 @@ impl ConsequencePredictor {
         let qry_end = var_end_fwd.max(var_end_rev) + PADDING;
 
         let txs = {
-            let mut txs =
-                self.provider
-                    .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)?;
+            let mut txs = self
+                .provider
+                .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)
+                .map_err(|e| SeqvarsError::Provider(e.to_string()))?;
             txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
             // Filter transcripts to the picked ones from the selected
             // transcript source.
@@ -604,7 +606,7 @@ impl ConsequencePredictor {
         var_g: &HgvsVariant,
         tx: &Transcript,
         transcript_biotype: TranscriptBiotype,
-    ) -> Result<HgvsProjectionContext, anyhow::Error> {
+    ) -> Result<HgvsProjectionContext, SeqvarsError> {
         let mut projection = HgvsProjectionContext {
             g: var_g.clone(),
             n: None,
@@ -618,14 +620,18 @@ impl ConsequencePredictor {
                     tracing::warn!("{}, {}: NonAdjacentExons, skipping", &tx.id, var_g);
                     Ok(None)
                 }
-                _ => Err(e),
+                _ => Err(crate::errors::SeqvarsError::from(e)),
             },
             |v| Ok(Some(v)),
         )?;
 
         if let Some(var_n) = &projection.n {
             projection.c = match transcript_biotype {
-                TranscriptBiotype::Coding => self.mapper.n_to_c(var_n).map(Some)?,
+                TranscriptBiotype::Coding => self
+                    .mapper
+                    .n_to_c(var_n)
+                    .map(Some)
+                    .map_err(|e| SeqvarsError::Provider(e.to_string()))?,
                 TranscriptBiotype::NonCoding => Some(var_n.clone()),
                 _ => None,
             };
@@ -648,7 +654,7 @@ impl ConsequencePredictor {
         transcript_location: &TranscriptLocationContext,
         tx_len: i32,
         transcript_biotype: TranscriptBiotype,
-    ) -> Result<ConsequenceContext, anyhow::Error> {
+    ) -> Result<ConsequenceContext, SeqvarsError> {
         let mut context = ConsequenceContext {
             cds_consequences: Consequences::empty(),
             protein_consequences: Consequences::empty(),
@@ -728,7 +734,7 @@ impl ConsequencePredictor {
         tx_record: TxForRegionRecord,
         var_start: i32,
         var_end: i32,
-    ) -> Result<Option<AnnField>, anyhow::Error> {
+    ) -> Result<Option<AnnField>, SeqvarsError> {
         let tx = match self.provider.get_tx(&tx_record.tx_ac) {
             Some(tx) => {
                 if TranscriptBiotype::try_from(tx.biotype).expect("invalid tx biotype")
@@ -1920,7 +1926,7 @@ impl ConsequencePredictor {
     pub fn predict_multiple(
         &self,
         variants: &[VcfVariant],
-    ) -> Result<Option<Vec<AnnField>>, anyhow::Error> {
+    ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
         // Run each input variant through single-variant normalization first.
         let normalized_variants: Vec<VcfVariant> = variants
             .iter()
@@ -1951,7 +1957,7 @@ impl ConsequencePredictor {
             .provider
             .contig_manager
             .get_accession(&sorted_vars[0].chromosome)
-            .ok_or_else(|| anyhow::anyhow!("Could not determine chromosome accession"))?;
+            .ok_or_else(|| SeqvarsError::UnknownChromosomeAccession)?;
 
         let txs = self.get_transcripts_for_variant_group(&sorted_vars, chrom_acc)?;
         if txs.is_empty() {
@@ -1974,14 +1980,16 @@ impl ConsequencePredictor {
     /// Ensures variants don't overlap and are in the correct order.
     fn validate_and_sort_variant_group(
         variants: &[VcfVariant],
-    ) -> Result<Vec<VcfVariant>, anyhow::Error> {
+    ) -> Result<Vec<VcfVariant>, SeqvarsError> {
         if variants.is_empty() {
             return Ok(Vec::new());
         }
 
         let chrom = &variants[0].chromosome;
         if !variants.iter().all(|v| v.chromosome == *chrom) {
-            anyhow::bail!("All phased variants must be on the same chromosome.");
+            return Err(SeqvarsError::GroupValidation(
+                GroupValidationError::DifferentChromosomes,
+            ));
         }
 
         let mut sorted_vars = variants.to_vec();
@@ -1993,11 +2001,9 @@ impl ConsequencePredictor {
             let v1_end = v1.position + v1.reference.len() as i32 - 1;
 
             if v1_end >= v2.position {
-                anyhow::bail!(
-                    "Overlapping variants detected at pos {} and {}.",
-                    v1.position,
-                    v2.position
-                );
+                return Err(SeqvarsError::GroupValidation(
+                    GroupValidationError::OverlappingVariants(v1.position, v2.position),
+                ));
             }
         }
 
@@ -2009,18 +2015,21 @@ impl ConsequencePredictor {
         &self,
         sorted_vars: &[VcfVariant],
         chrom_acc: &str,
-    ) -> Result<Vec<TxForRegionRecord>, anyhow::Error> {
+    ) -> Result<Vec<TxForRegionRecord>, SeqvarsError> {
         let min_pos = sorted_vars.first().unwrap().position;
         let max_pos = sorted_vars.last().unwrap().position
             + sorted_vars.last().unwrap().reference.len() as i32
             - 1;
 
-        let mut txs = self.provider.get_tx_for_region(
-            chrom_acc,
-            ALT_ALN_METHOD,
-            min_pos - PADDING,
-            max_pos + PADDING,
-        )?;
+        let mut txs = self
+            .provider
+            .get_tx_for_region(
+                chrom_acc,
+                ALT_ALN_METHOD,
+                min_pos - PADDING,
+                max_pos + PADDING,
+            )
+            .map_err(|e| SeqvarsError::Provider(e.to_string()))?;
         txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
         Ok(self.filter_picked_sourced_txs(txs))
     }
@@ -2034,7 +2043,7 @@ impl ConsequencePredictor {
         tx: &Transcript,
         chrom_acc: &str,
         transcript_biotype: TranscriptBiotype,
-    ) -> Result<Option<(Vec<HgvsProjectionContext>, Consequences)>, anyhow::Error> {
+    ) -> Result<Option<(Vec<HgvsProjectionContext>, Consequences)>, SeqvarsError> {
         let alignment = tx.genome_alignments.first().unwrap();
         let strand = Strand::try_from(alignment.strand).expect("invalid strand");
 
@@ -2096,7 +2105,7 @@ impl ConsequencePredictor {
         sorted_vars: &[VcfVariant],
         tx_record: &TxForRegionRecord,
         chrom_acc: &str,
-    ) -> Result<Option<AnnField>, anyhow::Error> {
+    ) -> Result<Option<AnnField>, SeqvarsError> {
         let tx = match self.provider.get_tx(&tx_record.tx_ac) {
             Some(t) => t,
             None => return Ok(None),
@@ -2438,7 +2447,7 @@ impl ConsequencePredictor {
     fn safe_project_c_to_p(
         &self,
         var_c: &HgvsVariant,
-    ) -> Result<Option<HgvsVariant>, anyhow::Error> {
+    ) -> Result<Option<HgvsVariant>, SeqvarsError> {
         self.mapper.c_to_p(var_c).map_or_else(
             |e| {
                 if matches!(
@@ -2464,7 +2473,10 @@ impl ConsequencePredictor {
                     );
                     Ok(None)
                 } else {
-                    Err(anyhow::anyhow!("c_to_p mapping failed: {}", e))
+                    Err(SeqvarsError::HgvsProjection(format!(
+                        "c_to_p mapping failed: {}",
+                        e
+                    )))
                 }
             },
             |v| Ok(Some(v)),
