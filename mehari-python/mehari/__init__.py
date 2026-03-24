@@ -168,7 +168,7 @@ class SeqvarsAnnotator:
 
     def annotate_multiple(
         self, variants: typing.Iterable[str | VariantDict]
-    ) -> dict[str, typing.Any]:
+    ) -> AnnotationResultDict:
         """
         Annotate multiple phased variants together as a single compound event.
         All variants must be on the same chromosome and must not overlap.
@@ -184,10 +184,10 @@ class SeqvarsAnnotator:
                 try:
                     c, p, r, a = var.split(":")
                     parsed_variants.append((c, int(p), r, a))
-                except ValueError:
+                except ValueError as e:
                     raise ValueError(
                         f"Invalid format '{var}'. Expected 'chr:pos:ref:alt'"
-                    )
+                    ) from e
             elif isinstance(var, dict):
                 try:
                     parsed_variants.append(
