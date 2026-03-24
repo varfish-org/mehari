@@ -1,11 +1,19 @@
 import typing
+
 import polars as pl
 import pyarrow as pa
+
 from ._mehari import SeqvarsAnnotator as _SeqvarsAnnotator
-from ._mehari import consequence_variants, putative_impact_variants
+from ._mehari import (
+    consequence_variants,
+    putative_impact_variants,
+    feature_biotype_variants,
+)
 
 ConsequenceEnum = pl.Enum(consequence_variants())
 ImpactEnum = pl.Enum(putative_impact_variants())
+FeatureBiotypeEnum = pl.Enum(feature_biotype_variants())
+FeatureBiotypeType = typing.Literal["Coding", "Noncoding"]
 
 
 class VariantDict(typing.TypedDict):
@@ -13,6 +21,44 @@ class VariantDict(typing.TypedDict):
     position: int
     reference: str
     alternative: str
+
+
+class RankDict(typing.TypedDict):
+    ord: int
+    total: int
+
+
+class PosDict(typing.TypedDict):
+    ord: int
+    total: int
+
+
+class AnnotationDict(typing.TypedDict):
+    allele: str
+    consequences: list[str]
+    putative_impact: str
+    gene_symbol: str
+    gene_id: str
+    feature_type: str
+    feature_id: str
+    feature_biotype: list[FeatureBiotypeType]
+    feature_tags: list[str]
+    rank: RankDict | None
+    hgvs_g: str | None
+    hgvs_n: str | None
+    hgvs_c: str | None
+    hgvs_p: str | None
+    cdna_pos: PosDict | None
+    cds_pos: PosDict | None
+    protein_pos: PosDict | None
+    distance: int | None
+    strand: int
+    messages: list[str] | None
+    custom_fields: dict[str, str | None] | None
+
+
+class AnnotationResultDict(typing.TypedDict):
+    annotation: list[AnnotationDict]
 
 
 class SeqvarsAnnotator:
@@ -56,13 +102,16 @@ class SeqvarsAnnotator:
                     pl.element()
                     .struct.field("consequences")
                     .cast(pl.List(ConsequenceEnum)),
+                    pl.element()
+                    .struct.field("feature_biotype")
+                    .cast(pl.List(FeatureBiotypeEnum)),
                 )
             )
             .alias("annotation")
         )
 
     @typing.overload
-    def annotate(self, data: str) -> dict[str, typing.Any]: ...
+    def annotate(self, data: str) -> AnnotationResultDict: ...
 
     @typing.overload
     def annotate(self, data: pl.DataFrame) -> pl.DataFrame: ...
@@ -73,7 +122,7 @@ class SeqvarsAnnotator:
     @typing.overload
     def annotate(
         self, *, chromosome: str, position: int, reference: str, alternative: str
-    ) -> dict[str, typing.Any]: ...
+    ) -> AnnotationResultDict: ...
 
     def annotate(
         self,

@@ -3,8 +3,8 @@ use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use mehari::annotate::seqvars::ann::{
-    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, AnnField, Consequence, Pos,
-    PutativeImpact, Rank,
+    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, AnnField, Consequence,
+    FeatureBiotype, Pos, PutativeImpact, Rank,
 };
 use mehari::annotate::seqvars::csq::SequenceReporting;
 use mehari::annotate::seqvars::csq::{ConfigBuilder, ConsequencePredictor, VcfVariant};
@@ -34,6 +34,11 @@ fn putative_impact_variants() -> Vec<String> {
     PutativeImpact::iter()
         .map(|i: PutativeImpact| i.to_string())
         .collect()
+}
+
+#[pyfunction]
+fn feature_biotype_variants() -> Vec<String> {
+    FeatureBiotype::iter().map(|b| b.to_string()).collect()
 }
 
 // _TraceAnnField is the same as ArrowAnnField but without the custom_fields field,
@@ -444,5 +449,6 @@ fn mehari_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySeqvarsAnnotator>()?;
     m.add_function(wrap_pyfunction!(consequence_variants, m)?)?;
     m.add_function(wrap_pyfunction!(putative_impact_variants, m)?)?;
+    m.add_function(wrap_pyfunction!(feature_biotype_variants, m)?)?;
     Ok(())
 }
