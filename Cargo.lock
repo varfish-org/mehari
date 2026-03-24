@@ -2759,6 +2759,7 @@ dependencies = [
  "strum 0.28.0",
  "temp_testdir",
  "tempfile",
+ "thiserror 1.0.69",
  "thousands",
  "tikv-jemallocator",
  "tokio",

@@ -82,6 +82,7 @@ utoipa = { version = "5.4.0", features = ["actix_extras", "chrono", "indexmap", 
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"], optional = true }
 memmap2 = "0.9.10"
 serde-aux = "4.7.0"
+thiserror = "1.0.69"
 
 [dependencies.noodles]
 version = "0.97.0"

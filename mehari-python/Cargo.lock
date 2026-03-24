@@ -2366,6 +2366,7 @@ dependencies = [
  "serde_yaml",
  "strum 0.28.0",
  "tempfile",
+ "thiserror 1.0.69",
  "thousands",
  "tokio",
  "tracing",
