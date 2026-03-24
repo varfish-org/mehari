@@ -397,7 +397,7 @@ impl PySeqvarsAnnotator {
         out_batch.to_pyarrow(py)
     }
 
-    /// Annotate a cluster of phased variants. Returns a Python dictionary.
+    /// Annotate a group of phased variants. Returns a Python dictionary.
     #[pyo3(signature = (variants))]
     fn annotate_multiple<'py>(
         &self,

@@ -2033,9 +2033,9 @@ impl ConsequencePredictor {
         Ok(self.filter_picked_sourced_txs(txs))
     }
 
-    /// Evaluates a cluster for a specific transcript, skipping purely intronic variants,
+    /// Evaluates a group for a specific transcript, skipping purely intronic variants,
     /// and projecting the remaining exonic variants into HGVS contexts.
-    fn get_cluster_projections(
+    fn get_group_projections(
         &self,
         sorted_vars: &[VcfVariant],
         tx: &Transcript,
@@ -2131,7 +2131,7 @@ impl ConsequencePredictor {
         }
 
         let projections =
-            match self.get_cluster_projections(sorted_vars, &tx, chrom_acc, transcript_biotype)? {
+            match self.get_group_projections(sorted_vars, &tx, chrom_acc, transcript_biotype)? {
                 Some(p) => p,
                 None => return Ok(None),
             };
