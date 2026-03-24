@@ -8,6 +8,13 @@ ConsequenceEnum = pl.Enum(consequence_variants())
 ImpactEnum = pl.Enum(putative_impact_variants())
 
 
+class VariantDict(typing.TypedDict):
+    chromosome: str
+    position: int
+    reference: str
+    alternative: str
+
+
 class SeqvarsAnnotator:
     def __init__(
         self,
@@ -110,14 +117,16 @@ class SeqvarsAnnotator:
             "or explicit kwargs (chromosome=..., position=..., reference=..., alternative=...)."
         )
 
-    def annotate_multiple(self, variants: list[str | dict[str, typing.Any]]) -> dict[str, typing.Any]:
+    def annotate_multiple(
+        self, variants: typing.Iterable[str | VariantDict]
+    ) -> dict[str, typing.Any]:
         """
         Annotate multiple phased variants together as a single compound event.
         All variants must be on the same chromosome and must not overlap.
 
         Args:
-            variants: A list of 'chr:pos:ref:alt' strings OR dictionaries with
-                      'chromosome', 'position', 'reference', 'alternative' keys.
+            variants: An iterable of 'chr:pos:ref:alt' strings OR dictionaries strictly matching
+                      the VariantDict type ({'chromosome': str, 'position': int, 'reference': str, 'alternative': str}).
         """
         parsed_variants = []
 
@@ -127,18 +136,25 @@ class SeqvarsAnnotator:
                     c, p, r, a = var.split(":")
                     parsed_variants.append((c, int(p), r, a))
                 except ValueError:
-                    raise ValueError(f"Invalid format '{var}'. Expected 'chr:pos:ref:alt'")
+                    raise ValueError(
+                        f"Invalid format '{var}'. Expected 'chr:pos:ref:alt'"
+                    )
             elif isinstance(var, dict):
                 try:
-                    parsed_variants.append((
-                        str(var["chromosome"]),
-                        int(var["position"]),
-                        str(var["reference"]),
-                        str(var["alternative"])
-                    ))
+                    parsed_variants.append(
+                        (
+                            str(var["chromosome"]),
+                            int(var["position"]),
+                            str(var["reference"]),
+                            str(var["alternative"]),
+                        )
+                    )
                 except KeyError as e:
-                    raise ValueError(f"Variant dict missing required key: {e}")
+                    raise ValueError(
+                        f"Variant dict missing required key: {e}. "
+                        "Expected keys: 'chromosome', 'position', 'reference', 'alternative'."
+                    )
             else:
-                raise TypeError("Variants must be strings or dictionaries.")
+                raise TypeError("Variants must be strings or VariantDict dictionaries.")
 
         return self._annotator.annotate_multiple(parsed_variants)
