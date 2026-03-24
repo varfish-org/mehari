@@ -27,6 +27,7 @@ pub mod ped;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod verify;
+pub mod errors;
 
 /// Information about the build.
 pub mod built_info {
