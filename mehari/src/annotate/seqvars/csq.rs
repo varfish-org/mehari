@@ -632,36 +632,7 @@ impl ConsequencePredictor {
 
             if let Some(var_c) = &projection.c {
                 if transcript_biotype == TranscriptBiotype::Coding {
-                    projection.p = self.mapper.c_to_p(var_c).map_or_else(
-                        |e| {
-                            if matches!(
-                                e,
-                                Error::TranscriptLengthInvalid(_, _)
-                                    | Error::CannotConvertIntervalEnd(_)
-                            ) {
-                                tracing::debug!("c_to_p failed gracefully for incomplete transcript (typed error): {}", e);
-                                return Ok(None);
-                            }
-                            else if matches!(e, Error::MultipleAAVariants) {
-                                tracing::warn!("MultipleAAVariants, skipping");
-                                return Ok(None);
-                            }
-
-                            let err_str = e.to_string();
-                            if err_str.contains("does not contain a stop codon")
-                                || err_str.contains("multiple of 3")
-                                || err_str.contains("multiple of three")
-                                || err_str.contains("out of bound")
-                                || err_str.contains("outside of sequence bounds")
-                            {
-                                tracing::debug!("c_to_p failed gracefully for incomplete transcript (nested error string): {}", err_str);
-                                Ok(None)
-                            } else {
-                                Err(e)
-                            }
-                        },
-                        |v| Ok(Some(v)),
-                    )?;
+                    projection.p = self.safe_project_c_to_p(var_c)?;
                 }
             }
         }
@@ -1950,6 +1921,27 @@ impl ConsequencePredictor {
         &self,
         variants: &[VcfVariant],
     ) -> Result<Option<Vec<AnnField>>, anyhow::Error> {
+        // Run each input variant through single-variant normalization first.
+        let normalized_variants: Vec<VcfVariant> = variants
+            .iter()
+            .map(|v| {
+                let (_, r1, a1) =
+                    hgvs::sequences::trim_common_suffixes(&v.reference, &v.alternative);
+                let (prefix_trim, r2, a2) = hgvs::sequences::trim_common_prefixes(&r1, &a1);
+                VcfVariant {
+                    chromosome: v.chromosome.clone(),
+                    position: v.position + prefix_trim as i32,
+                    reference: r2,
+                    alternative: a2,
+                }
+            })
+            .collect();
+
+        let sorted_vars = Self::validate_and_sort_variant_group(&normalized_variants)?;
+        if sorted_vars.is_empty() {
+            return Ok(None);
+        }
+
         let sorted_vars = Self::validate_and_sort_variant_group(variants)?;
         if sorted_vars.is_empty() {
             return Ok(None);
@@ -2033,15 +2025,16 @@ impl ConsequencePredictor {
         Ok(self.filter_picked_sourced_txs(txs))
     }
 
-    /// Evaluates a group for a specific transcript, skipping purely intronic variants,
-    /// and projecting the remaining exonic variants into HGVS contexts.
+    /// Evaluates a group of variants for a specific transcript.
+    /// Returns a tuple of projections for exonic variants (used for cDNA sequence assembly)
+    /// and the combined baseline consequences of all variants in the group.
     fn get_group_projections(
         &self,
         sorted_vars: &[VcfVariant],
         tx: &Transcript,
         chrom_acc: &str,
         transcript_biotype: TranscriptBiotype,
-    ) -> Result<Option<Vec<HgvsProjectionContext>>, anyhow::Error> {
+    ) -> Result<Option<(Vec<HgvsProjectionContext>, Consequences)>, anyhow::Error> {
         let alignment = tx.genome_alignments.first().unwrap();
         let strand = Strand::try_from(alignment.strand).expect("invalid strand");
 
@@ -2054,12 +2047,15 @@ impl ConsequencePredictor {
             | Consequence::ExonicSpliceRegionVariant;
 
         let mut projections = Vec::new();
+        let mut group_consequences = Consequences::empty();
 
         for var in sorted_vars {
             let var_g = Self::get_var_g(var, chrom_acc);
             let (var_start, var_end) = Self::get_var_start_end(&var_g);
             let (tx_loc, tx_csqs, _) =
                 self.determine_transcript_context(alignment, strand, &var_g, var_start, var_end);
+
+            group_consequences |= tx_csqs;
 
             if tx_csqs.intersects(splice_csqs) {
                 tracing::warn!(
@@ -2072,7 +2068,7 @@ impl ConsequencePredictor {
 
             if tx_loc.is_intronic && !tx_loc.is_exonic {
                 tracing::debug!(
-                    "Skipping purely intronic variant {:?} for multi-assembly on {}",
+                    "Skipping purely intronic variant {:?} for sequence assembly on {}",
                     var,
                     tx.id
                 );
@@ -2080,37 +2076,18 @@ impl ConsequencePredictor {
             }
 
             if !tx_loc.is_exonic {
-                tracing::warn!(
-                    "Phased variant {:?} is non-exonic on {}. Skipping multi-variant assembly.",
-                    var,
-                    tx.id
-                );
                 return Ok(None);
             }
 
             let proj = self.project_hgvs(&var_g, tx, transcript_biotype)?;
-            if proj.n.is_none() || proj.c.is_none() {
-                tracing::warn!(
-                    "Failed to project exonic variant {:?} on {}. Skipping.",
-                    var,
-                    tx.id
-                );
-                return Ok(None);
-            }
-
-            if !proj.is_within_cds_bounds() {
-                tracing::warn!(
-                    "Phased variant {:?} is outside CDS bounds (e.g., UTR) on {}. Skipping.",
-                    var,
-                    tx.id
-                );
+            if proj.n.is_none() || proj.c.is_none() || !proj.is_within_cds_bounds() {
                 return Ok(None);
             }
 
             projections.push(proj);
         }
 
-        Ok(Some(projections))
+        Ok(Some((projections, group_consequences)))
     }
 
     /// Assembles the compound `delins` sequence and constructs the final annotation field.
@@ -2130,9 +2107,9 @@ impl ConsequencePredictor {
             return Ok(None);
         }
 
-        let projections =
+        let (projections, base_group_consequences) =
             match self.get_group_projections(sorted_vars, &tx, chrom_acc, transcript_biotype)? {
-                Some(p) => p,
+                Some((p, csqs)) => (p, csqs),
                 None => return Ok(None),
             };
 
@@ -2308,7 +2285,7 @@ impl ConsequencePredictor {
             },
         };
 
-        let compound_var_p = self.mapper.c_to_p(&compound_var_c).ok();
+        let compound_var_p = self.safe_project_c_to_p(&compound_var_c)?;
 
         let compound_proj = HgvsProjectionContext {
             g: projections[0].g.clone(),
@@ -2368,7 +2345,8 @@ impl ConsequencePredictor {
             transcript_biotype,
         )?;
 
-        let mut consequences = c_ctx.cds_consequences | c_ctx.protein_consequences;
+        let mut consequences =
+            c_ctx.cds_consequences | c_ctx.protein_consequences | base_group_consequences;
         self.consequences_fix_special_cases(
             &mut consequences,
             c_ctx.cds_consequences,
@@ -2453,6 +2431,44 @@ impl ConsequencePredictor {
             messages: None,
             custom_fields,
         }))
+    }
+
+    /// Safely projects a CDS variant to a Protein variant, gracefully catching
+    /// and swallowing expected incomplete-transcript errors as `None`.
+    fn safe_project_c_to_p(
+        &self,
+        var_c: &HgvsVariant,
+    ) -> Result<Option<HgvsVariant>, anyhow::Error> {
+        self.mapper.c_to_p(var_c).map_or_else(
+            |e| {
+                if matches!(
+                    e,
+                    Error::TranscriptLengthInvalid(_, _)
+                        | Error::CannotConvertIntervalEnd(_)
+                        | Error::MultipleAAVariants
+                ) {
+                    tracing::debug!("c_to_p failed gracefully (typed error): {}", e);
+                    return Ok(None);
+                }
+
+                let err_str = e.to_string();
+                if err_str.contains("does not contain a stop codon")
+                    || err_str.contains("multiple of 3")
+                    || err_str.contains("multiple of three")
+                    || err_str.contains("out of bound")
+                    || err_str.contains("outside of sequence bounds")
+                {
+                    tracing::debug!(
+                        "c_to_p failed gracefully (nested error string): {}",
+                        err_str
+                    );
+                    Ok(None)
+                } else {
+                    Err(anyhow::anyhow!("c_to_p mapping failed: {}", e))
+                }
+            },
+            |v| Ok(Some(v)),
+        )
     }
 }
 
