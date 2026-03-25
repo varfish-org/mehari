@@ -60,35 +60,32 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
             vcf::variant::record_buf::info::field::value::Array::String(ann_array),
         ))) = record.info().get("ANN")
         {
-            for ann_str_opt in ann_array {
-                if let Some(ann_str) = ann_str_opt {
-                    let fields: Vec<&str> = ann_str.split('|').collect();
+            for ann_str in ann_array.iter().flatten() {
+                let fields: Vec<&str> = ann_str.split('|').collect();
 
-                    if fields.len() > aa_seq_idx {
-                        let aa_seq = fields[aa_seq_idx].trim();
+                if fields.len() > aa_seq_idx {
+                    let aa_seq = fields[aa_seq_idx].trim();
 
-                        if !aa_seq.is_empty() && aa_seq != "." {
-                            let feature_id =
-                                fields.get(feature_id_idx).unwrap_or(&"UnknownFeature");
-                            let gene_name = fields.get(gene_name_idx).unwrap_or(&"UnknownGene");
-                            let hgvs_p = fields.get(hgvs_p_idx).unwrap_or(&"");
+                    if !aa_seq.is_empty() && aa_seq != "." {
+                        let feature_id = fields.get(feature_id_idx).unwrap_or(&"UnknownFeature");
+                        let gene_name = fields.get(gene_name_idx).unwrap_or(&"UnknownGene");
+                        let hgvs_p = fields.get(hgvs_p_idx).unwrap_or(&"");
 
-                            let header_string =
-                                format!("{}|{} variant={}", gene_name, feature_id, hgvs_p);
+                        let header_string =
+                            format!("{}|{} variant={}", gene_name, feature_id, hgvs_p);
 
-                            if seen_headers.insert(header_string.clone()) {
-                                let definition = fasta::record::Definition::new(
-                                    format!("{}|{}", gene_name, feature_id),
-                                    Some(format!("variant={}", hgvs_p).into()),
-                                );
+                        if seen_headers.insert(header_string.clone()) {
+                            let definition = fasta::record::Definition::new(
+                                format!("{}|{}", gene_name, feature_id),
+                                Some(format!("variant={}", hgvs_p).into()),
+                            );
 
-                                let sequence =
-                                    fasta::record::Sequence::from(aa_seq.as_bytes().to_vec());
-                                let fasta_record = fasta::Record::new(definition, sequence);
+                            let sequence =
+                                fasta::record::Sequence::from(aa_seq.as_bytes().to_vec());
+                            let fasta_record = fasta::Record::new(definition, sequence);
 
-                                fasta_writer.write_record(&fasta_record)?;
-                                sequences_written += 1;
-                            }
+                            fasta_writer.write_record(&fasta_record)?;
+                            sequences_written += 1;
                         }
                     }
                 }
