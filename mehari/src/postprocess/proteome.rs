@@ -75,8 +75,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
                     let aa_seq = fields[aa_seq_idx].trim();
 
                     if !aa_seq.is_empty() && aa_seq != "." {
-                        let feature_id =
-                            fields.get(feature_id_idx).unwrap_or(&"UnknownFeature");
+                        let feature_id = fields.get(feature_id_idx).unwrap_or(&"UnknownFeature");
                         let gene_name = fields.get(gene_name_idx).unwrap_or(&"UnknownGene");
                         let hgvs_p = fields.get(hgvs_p_idx).unwrap_or(&"");
 
