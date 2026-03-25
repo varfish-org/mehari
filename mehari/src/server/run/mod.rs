@@ -1,8 +1,8 @@
 use crate::annotate::cli::{PredictorSettings, Sources};
 use crate::annotate::seqvars::csq::ConfigBuilder;
 use crate::annotate::seqvars::{
-    initialize_clinvar_annotators_for_assembly, initialize_frequency_annotators_for_assembly,
-    load_transcript_dbs_for_assembly, ConsequenceAnnotator,
+    ConsequenceAnnotator, initialize_clinvar_annotators_for_assembly,
+    initialize_frequency_annotators_for_assembly, load_transcript_dbs_for_assembly,
 };
 use crate::common::contig::ContigManager;
 use crate::common::guess_assembly_from_fasta;
@@ -55,8 +55,8 @@ pub mod openapi {
     };
 
     use super::actix_server::{
-        gene_txs, seqvars_clinvar, seqvars_csq, seqvars_frequencies, strucvars_csq, versions,
-        CustomError,
+        CustomError, gene_txs, seqvars_clinvar, seqvars_csq, seqvars_frequencies, strucvars_csq,
+        versions,
     };
 
     /// Utoipa-based `OpenAPI` generation helper.

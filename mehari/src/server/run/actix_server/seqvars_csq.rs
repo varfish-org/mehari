@@ -7,7 +7,7 @@ use actix_web::{
     web::{self, Data, Json, Path},
 };
 
-use super::{versions::VersionsInfoResponse, CustomError};
+use super::{CustomError, versions::VersionsInfoResponse};
 use crate::annotate::seqvars::ann::FeatureTag;
 use crate::{
     annotate::seqvars::{

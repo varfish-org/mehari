@@ -1,6 +1,6 @@
 //! Contig name harmonization.
 
-use biocommons_bioutils::assemblies::{Assembly, Sequence, ASSEMBLY_INFOS};
+use biocommons_bioutils::assemblies::{ASSEMBLY_INFOS, Assembly, Sequence};
 use std::collections::HashMap;
 
 /// A manager for contig name harmonization.
@@ -87,10 +87,10 @@ impl ContigManager {
                 }
             }
             // Case 2: "chr1", "chrX". Add "1", "X" as an alias.
-            else if let Some(stripped_name) = name.strip_prefix("chr") {
-                if !alias_to_accession.contains_key(stripped_name) {
-                    additional_aliases.insert(stripped_name.to_string(), accession.clone());
-                }
+            else if let Some(stripped_name) = name.strip_prefix("chr")
+                && !alias_to_accession.contains_key(stripped_name)
+            {
+                additional_aliases.insert(stripped_name.to_string(), accession.clone());
             }
         }
 

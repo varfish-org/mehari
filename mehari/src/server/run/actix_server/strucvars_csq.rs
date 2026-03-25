@@ -3,15 +3,14 @@
 //! Also includes the implementation of the `/strucvars/csq` endpoint (deprecated).
 
 use actix_web::{
-    get,
+    Responder, get,
     web::{self, Data, Json, Path},
-    Responder,
 };
 
 use crate::{
     annotate::strucvars::csq::{
-        interface::{self, StrucvarsSvType},
         StrucvarsGeneTranscriptEffects,
+        interface::{self, StrucvarsSvType},
     },
     common::GenomeRelease,
     server::run::actix_server::CustomError,

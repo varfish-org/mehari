@@ -9,7 +9,7 @@ use actix_web::{
 
 use crate::{annotate::seqvars::csq::VcfVariant, common::GenomeRelease};
 
-use super::{versions::VersionsInfoResponse, CustomError};
+use super::{CustomError, versions::VersionsInfoResponse};
 
 /// Query parameters of the `/api/v1/seqvars/clinvar` endpoint.
 #[derive(

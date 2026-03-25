@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use flate2::{bufread::MultiGzDecoder, write::GzEncoder, Compression};
+use flate2::{Compression, bufread::MultiGzDecoder, write::GzEncoder};
 
 /// Returns whether the path looks like a gzip or bgzip file.
 pub fn is_gz<P>(path: P) -> bool

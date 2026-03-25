@@ -23,33 +23,33 @@ use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
 use crate::common::contig::ContigManager;
-use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
-use crate::common::{guess_assembly_from_vcf, GenomeRelease};
+use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
+use crate::common::{GenomeRelease, guess_assembly_from_vcf};
 use crate::db::merge::merge_transcript_databases;
 use crate::pbs::txs::TxSeqDatabase;
 use crate::ped::{PedigreeByName, Sex};
 use annonars::common::keys;
 use annonars::freqs::serialized::{auto, mt, xy};
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 use biocommons_bioutils::assemblies::Assembly;
 use clap::{Args as ClapArgs, Parser};
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use itertools::Itertools;
+use noodles::vcf::header::FileFormat;
 use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
 use noodles::vcf::header::record::value::map::format::Type as FormatType;
 use noodles::vcf::header::record::value::map::info::Number;
-use noodles::vcf::header::record::value::map::{info::Type as InfoType, Info};
-use noodles::vcf::header::FileFormat;
+use noodles::vcf::header::record::value::map::{Info, info::Type as InfoType};
 use noodles::vcf::io::writer::Writer as VcfWriter;
+use noodles::vcf::variant::RecordBuf as VcfRecord;
 use noodles::vcf::variant::io::Write as VcfWrite;
+use noodles::vcf::variant::record::AlternateBases;
 use noodles::vcf::variant::record::samples::keys::key::{
     CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH,
 };
-use noodles::vcf::variant::record::AlternateBases;
 use noodles::vcf::variant::record_buf::info::field;
-use noodles::vcf::variant::RecordBuf as VcfRecord;
-use noodles::vcf::{header::record::value::map::Map, Header as VcfHeader};
+use noodles::vcf::{Header as VcfHeader, header::record::value::map::Map};
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
 use rustc_hash::FxHashMap;
@@ -626,8 +626,8 @@ impl VarFishSeqvarTsvWriter {
         record: &VcfRecord,
         tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
-        use noodles::vcf::variant::record_buf::samples::sample::value::Array;
         use noodles::vcf::variant::record_buf::samples::sample::Value;
+        use noodles::vcf::variant::record_buf::samples::sample::value::Array;
 
         // Extract genotype information.
         let hdr = self
@@ -1916,18 +1916,17 @@ impl ConsequenceAnnotator {
             position: pos,
             reference,
             alternative,
-        })? {
-            if !ann_fields.is_empty() {
-                record.info_mut().insert(
-                    "ANN".into(),
-                    Some(field::Value::Array(field::value::Array::String(
-                        ann_fields
-                            .iter()
-                            .map(|ann| Some(ann.format(&self.predictor.config)))
-                            .collect(),
-                    ))),
-                );
-            }
+        })? && !ann_fields.is_empty()
+        {
+            record.info_mut().insert(
+                "ANN".into(),
+                Some(field::Value::Array(field::value::Array::String(
+                    ann_fields
+                        .iter()
+                        .map(|ann| Some(ann.format(&self.predictor.config)))
+                        .collect(),
+                ))),
+            );
         }
 
         Ok(())
@@ -2112,10 +2111,10 @@ async fn run_with_writer(
                 // We currently can only process records with one alternate allele.
                 if vcf_record.alternate_bases().len() != 1 {
                     tracing::error!(
-                    "Found record with more than one alternate allele.  This is currently not supported. \
+                        "Found record with more than one alternate allele.  This is currently not supported. \
                     Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
-                    &vcf_record
-                );
+                        &vcf_record
+                    );
                     anyhow::bail!("multi-allelic records not supported");
                 }
 
@@ -2137,14 +2136,14 @@ async fn run_with_writer(
         }
 
         total_written += 1;
-        if let Some(max_var_count) = args.max_var_count {
-            if total_written >= max_var_count {
-                tracing::warn!(
-                    "Stopping after {} records as requested by --max-var-count",
-                    total_written
-                );
-                break;
-            }
+        if let Some(max_var_count) = args.max_var_count
+            && total_written >= max_var_count
+        {
+            tracing::warn!(
+                "Stopping after {} records as requested by --max-var-count",
+                total_written
+            );
+            break;
         }
     }
     tracing::info!(
@@ -2207,7 +2206,10 @@ pub(crate) fn setup_seqvars_annotator(
         let databases = load_transcript_dbs_for_assembly(tx_sources, assembly)?;
 
         if databases.is_empty() {
-            tracing::warn!("No suitable transcript databases found for requested assembly {:?}, therefore no consequence prediction will occur.", &assembly);
+            tracing::warn!(
+                "No suitable transcript databases found for requested assembly {:?}, therefore no consequence prediction will occur.",
+                &assembly
+            );
         } else {
             let tx_db = merge_transcript_databases(databases)?;
             tracing::info!(
@@ -2346,7 +2348,7 @@ pub struct VariantAnnotation {
 #[cfg(test)]
 mod test {
     use super::binning::bin_from_range;
-    use super::{run, Args, PathOutput};
+    use super::{Args, PathOutput, run};
     use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
     use crate::common::TsvContigStyle;

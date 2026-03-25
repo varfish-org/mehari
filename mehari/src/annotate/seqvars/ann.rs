@@ -4,17 +4,17 @@ use crate::annotate::seqvars::csq::Config;
 use crate::pbs::txs::TranscriptTag;
 use enumflags2::bitflags;
 use hgvs::data::cdot::json::models::Tag;
+use nom::Parser;
 use nom::bytes::complete::take_until;
 use nom::character::complete::char;
 use nom::combinator::{map_res, opt, rest};
 use nom::multi::separated_list1;
-use nom::Parser;
 use nom::{
+    IResult,
     branch::alt,
     bytes::complete::tag,
     character::complete::{alphanumeric1, digit1},
     combinator::{all_consuming, map},
-    IResult,
 };
 use parse_display::{Display, FromStr};
 use std::collections::BTreeMap;
@@ -462,8 +462,8 @@ impl std::str::FromStr for GroupedAlleles {
 }
 
 mod parse {
-    use nom::bytes::complete::take_while1;
     use nom::Parser;
+    use nom::bytes::complete::take_while1;
 
     pub static NA_IUPAC: &str = "ACGTURYMKWSBDHVNacgturymkwsbdhvn";
 
@@ -863,11 +863,7 @@ impl Pos {
     fn parse_number_neg(input: &str) -> IResult<&str, i32> {
         map((tag("-"), digit1::<&str, _>), |(sign, num)| {
             let num = num.parse::<i32>().unwrap();
-            if sign == "-" {
-                -num
-            } else {
-                num
-            }
+            if sign == "-" { -num } else { num }
         })
         .parse(input)
     }
