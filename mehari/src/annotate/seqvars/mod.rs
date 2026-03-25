@@ -35,6 +35,7 @@ use biocommons_bioutils::assemblies::Assembly;
 use clap::{Args as ClapArgs, Parser};
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use hgvs::data::interface::Provider;
 use itertools::Itertools;
 use noodles::vcf::header::FileFormat;
 use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
@@ -60,8 +61,8 @@ use tokio::io::AsyncWriteExt;
 
 pub mod ann;
 pub mod binning;
+mod compound;
 pub mod csq;
-mod mnv;
 pub mod provider;
 pub(crate) mod reference;
 
@@ -262,6 +263,15 @@ fn build_header(
                 Number::Unknown,
                 InfoType::String,
                 format!("Functional annotations: '{fields}'"),
+            ),
+        );
+
+        header_out.infos_mut().insert(
+            "COMPOUND_IDS".into(),
+            Map::<Info>::new(
+                Number::Unknown,
+                InfoType::String,
+                "Identifier(s) of the compound variant group(s) a record belongs to",
             ),
         );
     }
@@ -1953,6 +1963,13 @@ impl Annotator {
 
         Ok(())
     }
+
+    pub(crate) fn consequence_predictor(&self) -> Option<&ConsequencePredictor> {
+        self.annotators.iter().find_map(|a| match a {
+            AnnotatorEnum::Consequence(c) => Some(&c.predictor),
+            _ => None,
+        })
+    }
 }
 
 /// Main entry point for `annotate seqvars` sub command.
@@ -2096,6 +2113,16 @@ async fn run_with_writer(
     );
 
     // Perform the VCF annotation.
+    let enable_compound = args
+        .predictor_settings
+        .compound_settings
+        .enable_compound_variants;
+    let mut processor = VariantProcessor::new(
+        &annotator,
+        header_in.clone(),
+        &args.predictor_settings.compound_settings,
+    );
+
     tracing::info!("Annotating VCF ...");
     let start = Instant::now();
     let mut prev = Instant::now();
@@ -2125,10 +2152,16 @@ async fn run_with_writer(
                     prev = Instant::now();
                 }
 
-                // Write out the record.
-                writer
-                    .write_noodles_record(&header_out, &vcf_record)
-                    .await?;
+                if enable_compound {
+                    let ready_records = processor.process_annotated_record(vcf_record)?;
+                    for rec in ready_records {
+                        writer.write_noodles_record(&header_out, &rec).await?;
+                    }
+                } else {
+                    writer
+                        .write_noodles_record(&header_out, &vcf_record)
+                        .await?;
+                }
             }
             _ => {
                 break; // all done
@@ -2146,6 +2179,14 @@ async fn run_with_writer(
             break;
         }
     }
+
+    if enable_compound {
+        let final_records = processor.flush()?;
+        for rec in final_records {
+            writer.write_noodles_record(&header_out, &rec).await?;
+        }
+    }
+
     tracing::info!(
         "... annotated {} records in {:?}",
         total_written.separate_with_commas(),
@@ -2343,6 +2384,176 @@ pub struct VariantAnnotation {
     pub consequences: Vec<AnnField>,
     pub frequencies: Option<FreqResult>,
     pub clinvar: Option<ClinvarResult>,
+}
+
+/// Helper to find the maximum genomic bounds of all transcripts overlapping a variant.
+fn get_transcript_boundaries(
+    predictor: &ConsequencePredictor,
+    chrom: &str,
+    pos: i32,
+    ref_len: usize,
+) -> (std::collections::HashSet<String>, i32, i32) {
+    let mut accessions = std::collections::HashSet::new();
+    let mut min_start = i32::MAX;
+    let mut max_end = -1;
+
+    if let Some(chrom_acc) = predictor.provider.contig_manager.get_accession(chrom) {
+        let txs = predictor
+            .provider
+            .get_tx_for_region(
+                chrom_acc,
+                csq::ALT_ALN_METHOD,
+                pos - csq::PADDING,
+                pos + ref_len as i32 + csq::PADDING,
+            )
+            .unwrap_or_default();
+
+        for tx_record in txs {
+            accessions.insert(tx_record.tx_ac.clone());
+            if let Some(tx_details) = predictor.provider.get_tx(&tx_record.tx_ac)
+                && let Some(aln) = tx_details.genome_alignments.first()
+            {
+                for exon in &aln.exons {
+                    min_start = std::cmp::min(min_start, exon.alt_start_i);
+                    max_end = std::cmp::max(max_end, exon.alt_end_i);
+                }
+            }
+        }
+    }
+
+    (accessions, min_start, max_end)
+}
+
+struct VariantProcessor<'a> {
+    annotator: &'a Annotator,
+    buffer: crate::annotate::seqvars::compound::VariantBuffer,
+    header: noodles::vcf::Header,
+    next_group_id: usize,
+}
+
+impl<'a> VariantProcessor<'a> {
+    pub fn new(
+        annotator: &'a Annotator,
+        header: noodles::vcf::Header,
+        compound_settings: &crate::annotate::cli::CompoundSettings,
+    ) -> Self {
+        Self {
+            annotator,
+            buffer: crate::annotate::seqvars::compound::VariantBuffer::new(
+                compound_settings.phasing_strategy,
+            ),
+            header,
+            next_group_id: 0,
+        }
+    }
+
+    /// Takes an already-annotated record, buffers it, and returns any records ready to be written.
+    pub fn process_annotated_record(
+        &mut self,
+        record: VcfRecord,
+    ) -> anyhow::Result<Vec<VcfRecord>> {
+        let mut ready_records = Vec::new();
+        let vcf_var = from_vcf_allele(&record, 0);
+
+        if self.buffer.should_flush(&vcf_var.chrom, vcf_var.pos) {
+            ready_records.extend(self.process_buffer_flush()?);
+        }
+
+        let (tx_accessions, min_start, max_end) =
+            if let Some(predictor) = self.annotator.consequence_predictor() {
+                get_transcript_boundaries(
+                    predictor,
+                    &vcf_var.chrom,
+                    vcf_var.pos,
+                    vcf_var.reference.len(),
+                )
+            } else {
+                (std::collections::HashSet::new(), i32::MAX, -1)
+            };
+
+        let csq_var = VcfVariant {
+            chromosome: vcf_var.chrom,
+            position: vcf_var.pos,
+            reference: vcf_var.reference,
+            alternative: vcf_var.alternative,
+        };
+
+        // Note: We don't support multi allelic records at the moment, so this is a constant 1.
+        let alt_allele_idx = 1;
+        // Currently, phasing is evaluated based on the first sample in the VCF only.
+        let sample_idx = 0;
+
+        self.buffer.push(
+            &self.header,
+            csq_var,
+            record,
+            tx_accessions,
+            min_start,
+            max_end,
+            sample_idx,
+            alt_allele_idx,
+        );
+
+        Ok(ready_records)
+    }
+
+    pub fn flush(&mut self) -> anyhow::Result<Vec<VcfRecord>> {
+        self.process_buffer_flush()
+    }
+
+    fn process_buffer_flush(&mut self) -> anyhow::Result<Vec<VcfRecord>> {
+        let (mut variants, compound_groups) = self.buffer.flush();
+        let predictor = self.annotator.consequence_predictor();
+
+        for group_indices in compound_groups {
+            if let Some(predictor) = predictor {
+                let vcf_vars: Vec<_> = group_indices
+                    .iter()
+                    .map(|&i| variants[i].vcf_var.clone())
+                    .collect();
+
+                if let Ok(Some(ann_fields)) = predictor.predict_multiple(&vcf_vars) {
+                    self.next_group_id += 1;
+                    let group_id_str = format!("comp_{}", self.next_group_id);
+
+                    let new_ann_strings: Vec<Option<String>> = ann_fields
+                        .iter()
+                        .map(|ann| Some(ann.format(&predictor.config)))
+                        .collect();
+
+                    for &i in &group_indices {
+                        let record = &mut variants[i].record;
+
+                        let mut all_anns = Vec::new();
+                        if let Some(Some(field::Value::Array(field::value::Array::String(arr)))) =
+                            record.info().get("ANN")
+                        {
+                            all_anns.extend(arr.iter().cloned());
+                        }
+                        all_anns.extend(new_ann_strings.clone());
+                        record.info_mut().insert(
+                            "ANN".into(),
+                            Some(field::Value::Array(field::value::Array::String(all_anns))),
+                        );
+
+                        let mut group_ids = Vec::new();
+                        if let Some(Some(field::Value::Array(field::value::Array::String(arr)))) =
+                            record.info().get("COMPOUND_IDS")
+                        {
+                            group_ids.extend(arr.iter().cloned());
+                        }
+                        group_ids.push(Some(group_id_str.clone()));
+                        record.info_mut().insert(
+                            "COMPOUND_IDS".into(),
+                            Some(field::Value::Array(field::value::Array::String(group_ids))),
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(variants.into_iter().map(|b| b.record).collect())
+    }
 }
 
 #[cfg(test)]

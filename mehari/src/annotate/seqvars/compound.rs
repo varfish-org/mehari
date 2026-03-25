@@ -1,16 +1,7 @@
+use crate::annotate::cli::PhasingStrategy;
 use noodles::vcf::variant::RecordBuf;
 use noodles::vcf::variant::record_buf::samples::sample::Value;
 use std::collections::{HashMap, HashSet};
-
-/// Strategy used to evaluate compound variants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
-pub enum PhasingStrategy {
-    /// Variants are only grouped if explicitly phased ('|') and sharing a Phase Set (PS).
-    #[default]
-    Strict,
-    /// Variants in the same transcript on the same haplotype are grouped, ignoring missing or incompatible phasing metadata.
-    Ignore,
-}
 
 /// Phasing profile for a variant allele.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -98,104 +89,54 @@ impl VariantBuffer {
         });
     }
 
-    /// Flush the buffer, group eligible variants into compound variants, and return remaining single variants.
-    pub fn flush(&mut self) -> Vec<Vec<BufferedVariant>> {
+    /// Flush the buffer, return ordered variants and a list of grouped indices
+    pub fn flush(&mut self) -> (Vec<BufferedVariant>, Vec<Vec<usize>>) {
         let all_variants = std::mem::take(&mut self.buffer);
-        let mut transcript_buckets: HashMap<String, Vec<BufferedVariant>> = HashMap::new();
+        let mut transcript_buckets: HashMap<String, Vec<usize>> = HashMap::new();
 
-        for b_var in &all_variants {
+        for (idx, b_var) in all_variants.iter().enumerate() {
             for tx in &b_var.tx_accessions {
-                transcript_buckets
-                    .entry(tx.clone())
-                    .or_default()
-                    .push(b_var.clone());
+                transcript_buckets.entry(tx.clone()).or_default().push(idx);
             }
         }
 
-        let mut final_groups: Vec<Vec<BufferedVariant>> = Vec::new();
-        let mut consumed_singles: HashSet<String> = HashSet::new();
-        let mut unique_mnv_signatures: HashSet<String> = HashSet::new();
+        let mut compound_groups = Vec::new();
+        let mut unique_signatures = HashSet::new();
 
-        for (_, variants) in transcript_buckets {
-            if variants.len() == 1 {
+        for (_, indices) in transcript_buckets {
+            if indices.len() <= 1 {
                 continue;
             }
 
-            let mut phase_buckets: HashMap<PhaseGroup, Vec<BufferedVariant>> = HashMap::new();
-            for var in variants {
-                for pg in &var.phase_groups {
-                    phase_buckets
-                        .entry(pg.clone())
-                        .or_default()
-                        .push(var.clone());
+            let mut phase_buckets: HashMap<PhaseGroup, Vec<usize>> = HashMap::new();
+            for &idx in &indices {
+                for pg in &all_variants[idx].phase_groups {
+                    phase_buckets.entry(pg.clone()).or_default().push(idx);
                 }
             }
 
-            for (phase_group, cis_variants) in phase_buckets {
-                if cis_variants.len() > 1 && matches!(phase_group, PhaseGroup::Phased { .. }) {
-                    let mut group_ids: Vec<String> = cis_variants
+            for (phase_group, mut grouped_indices) in phase_buckets {
+                if grouped_indices.len() > 1 && matches!(phase_group, PhaseGroup::Phased { .. }) {
+                    grouped_indices.sort_unstable();
+                    grouped_indices.dedup();
+
+                    let signature = grouped_indices
                         .iter()
-                        .map(|v| {
-                            format!(
-                                "{}:{}:{}:{}",
-                                v.vcf_var.chromosome,
-                                v.vcf_var.position,
-                                v.vcf_var.reference,
-                                v.vcf_var.alternative
-                            )
-                        })
-                        .collect();
-                    group_ids.sort();
-                    let signature = group_ids.join("|");
+                        .map(|i| i.to_string())
+                        .collect::<Vec<_>>()
+                        .join("|");
 
-                    if !unique_mnv_signatures.contains(&signature) {
-                        unique_mnv_signatures.insert(signature);
-
-                        for id in group_ids {
-                            consumed_singles.insert(id);
-                        }
-
-                        let mut unique_vars = Vec::new();
-                        let mut seen = HashSet::new();
-                        for v in cis_variants {
-                            let id = format!(
-                                "{}:{}:{}:{}",
-                                v.vcf_var.chromosome,
-                                v.vcf_var.position,
-                                v.vcf_var.reference,
-                                v.vcf_var.alternative
-                            );
-                            if !seen.contains(&id) {
-                                seen.insert(id);
-                                unique_vars.push(v);
-                            }
-                        }
-
-                        unique_vars.sort_by_key(|v| v.vcf_var.position);
-                        final_groups.push(unique_vars);
+                    if unique_signatures.insert(signature) {
+                        compound_groups.push(grouped_indices);
                     }
                 }
             }
         }
 
-        for b_var in all_variants {
-            let id = format!(
-                "{}:{}:{}:{}",
-                b_var.vcf_var.chromosome,
-                b_var.vcf_var.position,
-                b_var.vcf_var.reference,
-                b_var.vcf_var.alternative
-            );
-            if !consumed_singles.contains(&id) {
-                final_groups.push(vec![b_var]);
-                consumed_singles.insert(id);
-            }
-        }
-
         self.min_tx_start = i32::MAX;
         self.max_tx_end = -1;
-        final_groups.sort_by_key(|g| g[0].vcf_var.position);
-        final_groups
+
+        (all_variants, compound_groups)
     }
 
     /// Extract Genotype and Phase Set to determine phasing of an allele.
