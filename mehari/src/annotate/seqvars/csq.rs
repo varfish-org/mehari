@@ -1943,7 +1943,15 @@ impl ConsequencePredictor {
             })
             .collect();
 
-        let sorted_vars = Self::validate_and_sort_variant_group(&normalized_variants)?;
+        let mut paired_vars: Vec<_> = variants.iter().cloned().zip(normalized_variants).collect();
+        paired_vars.sort_by_key(|(_, norm)| norm.position);
+
+        let sorted_originals: Vec<VcfVariant> =
+            paired_vars.iter().map(|(orig, _)| orig.clone()).collect();
+        let sorted_normalized: Vec<VcfVariant> =
+            paired_vars.into_iter().map(|(_, norm)| norm).collect();
+
+        let sorted_vars = Self::validate_and_sort_variant_group(&sorted_normalized)?;
         if sorted_vars.is_empty() {
             return Ok(None);
         }
@@ -2014,6 +2022,7 @@ impl ConsequencePredictor {
         for tx_record in txs {
             if let Some(ann) = self.predict_multiple_for_transcript(
                 &sorted_vars,
+                &sorted_originals,
                 &tx_record,
                 chrom_acc,
                 hgvs_g.clone(),
@@ -2151,6 +2160,7 @@ impl ConsequencePredictor {
     fn predict_multiple_for_transcript(
         &self,
         sorted_vars: &[VcfVariant],
+        sorted_originals: &[VcfVariant],
         tx_record: &TxForRegionRecord,
         chrom_acc: &str,
         hgvs_g: Option<String>,
@@ -2422,6 +2432,13 @@ impl ConsequencePredictor {
         let consequences_vec = consequences.iter().collect_vec();
         let putative_impact = (*consequences_vec.first().unwrap()).into();
 
+        let hgvs_n = compound_proj.n.as_ref().map(|n| {
+            format!("{}", &NoRef(n))
+                .split(':')
+                .nth(1)
+                .unwrap()
+                .to_owned()
+        });
         let hgvs_c = Some(
             format!("{}", &NoRef(compound_proj.c.as_ref().unwrap()))
                 .split(':')
@@ -2434,8 +2451,14 @@ impl ConsequencePredictor {
             .as_ref()
             .map(|p| format!("{}", p).split(':').nth(1).unwrap().to_owned());
 
-        let ref_alts = sorted_vars.iter().map(|v| v.reference.clone()).collect();
-        let alt_alts = sorted_vars.iter().map(|v| v.alternative.clone()).collect();
+        let ref_alts = sorted_originals
+            .iter()
+            .map(|v| v.reference.clone())
+            .collect();
+        let alt_alts = sorted_originals
+            .iter()
+            .map(|v| v.alternative.clone())
+            .collect();
 
         let strand = match tx.genome_alignments.first().unwrap().strand {
             1 => 1,
@@ -2474,7 +2497,7 @@ impl ConsequencePredictor {
             feature_tags,
             rank: None,
             hgvs_g,
-            hgvs_n: None,
+            hgvs_n,
             hgvs_c,
             hgvs_p,
             cdna_pos: c_ctx.cdna_pos,
