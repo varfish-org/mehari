@@ -1874,6 +1874,10 @@ impl ConsequenceAnnotator {
         if s.report_protein_sequence.includes_alt() {
             custom_columns.push(ANN_AA_SEQ_ALT.to_string());
         }
+        if args.compound_settings.enable_compound_variants {
+            custom_columns.push(ANN_COMPOUND_IDS.to_string());
+            custom_columns.push(ANN_COMPOUND_VARIANTS.to_string());
+        }
 
         let provider = Arc::new(MehariProvider::new(
             tx_db,
