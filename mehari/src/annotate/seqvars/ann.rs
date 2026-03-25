@@ -431,6 +431,22 @@ pub enum Allele {
         other_ref: String,
         other_alt: String,
     },
+    /// Multiple variants grouped together into a single compound event.
+    #[display("{0}")]
+    Grouped(GroupedAlleles),
+}
+
+/// Wrapper around multiple grouped alleles storing both references and alternatives.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize)]
+pub struct GroupedAlleles {
+    pub references: Vec<String>,
+    pub alternatives: Vec<String>,
+}
+
+impl std::fmt::Display for GroupedAlleles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.alternatives.join("+"))
+    }
 }
 
 mod parse {

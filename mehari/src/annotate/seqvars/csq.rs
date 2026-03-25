@@ -5,7 +5,7 @@ use super::{
 };
 use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
 use crate::annotate::seqvars::ann::{
-    FeatureTag, ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
+    FeatureTag, GroupedAlleles, ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
 };
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::errors::{GroupValidationError, SeqvarsError};
@@ -1954,6 +1954,56 @@ impl ConsequencePredictor {
             .get_accession(&sorted_vars[0].chromosome)
             .ok_or_else(|| SeqvarsError::UnknownChromosomeAccession)?;
 
+        // build a pseudo hgvs.g description
+        let min_pos = sorted_vars.first().unwrap().position;
+        let max_var = sorted_vars.last().unwrap();
+        let max_pos = max_var.position + max_var.reference.len() as i32 - 1;
+
+        let mut hgvs_g = None;
+        if let Ok(ref_seq_g) = self.provider.get_seq_part(
+            chrom_acc,
+            Some((min_pos as usize).saturating_sub(1)),
+            Some(max_pos as usize),
+        ) {
+            let mut alt_seq_g = ref_seq_g.clone();
+
+            let mut g_edits: Vec<_> = sorted_vars
+                .iter()
+                .map(|var| {
+                    let start = (var.position - min_pos) as usize;
+                    let end = start + var.reference.len();
+                    (start, end, var.alternative.clone())
+                })
+                .collect();
+
+            g_edits.sort_by(|a, b| b.0.cmp(&a.0));
+            for (start, end, alt) in g_edits {
+                alt_seq_g.replace_range(start..end, &alt);
+            }
+
+            let compound_var_g = HgvsVariant::GenomeVariant {
+                accession: Accession::new(chrom_acc),
+                gene_symbol: None,
+                loc_edit: GenomeLocEdit {
+                    loc: Mu::Certain(GenomeInterval {
+                        start: Some(min_pos),
+                        end: Some(max_pos),
+                    }),
+                    edit: Mu::Certain(NaEdit::RefAlt {
+                        reference: ref_seq_g,
+                        alternative: alt_seq_g,
+                    }),
+                },
+            };
+            hgvs_g = Some(
+                format!("{}", &NoRef(&compound_var_g))
+                    .split(':')
+                    .nth(1)
+                    .unwrap()
+                    .to_owned(),
+            );
+        }
+
         let txs = self.get_transcripts_for_variant_group(&sorted_vars, chrom_acc)?;
         if txs.is_empty() {
             return Ok(None);
@@ -1962,9 +2012,12 @@ impl ConsequencePredictor {
         let mut multi_anns = Vec::new();
 
         for tx_record in txs {
-            if let Some(ann) =
-                self.predict_multiple_for_transcript(&sorted_vars, &tx_record, chrom_acc)?
-            {
+            if let Some(ann) = self.predict_multiple_for_transcript(
+                &sorted_vars,
+                &tx_record,
+                chrom_acc,
+                hgvs_g.clone(),
+            )? {
                 multi_anns.push(ann);
             }
         }
@@ -2100,6 +2153,7 @@ impl ConsequencePredictor {
         sorted_vars: &[VcfVariant],
         tx_record: &TxForRegionRecord,
         chrom_acc: &str,
+        hgvs_g: Option<String>,
     ) -> Result<Option<AnnField>, SeqvarsError> {
         let tx = match self.provider.get_tx(&tx_record.tx_ac) {
             Some(t) => t,
@@ -2112,7 +2166,7 @@ impl ConsequencePredictor {
         }
 
         let (projections, base_group_consequences) =
-            match self.get_group_projections(sorted_vars, &tx, chrom_acc, transcript_biotype)? {
+            match self.get_group_projections(sorted_vars, tx, chrom_acc, transcript_biotype)? {
                 Some((p, csqs)) => (p, csqs),
                 None => return Ok(None),
             };
@@ -2342,7 +2396,7 @@ impl ConsequencePredictor {
 
         let c_ctx = self.analyze_transcript_consequences(
             &compound_proj,
-            &tx,
+            tx,
             tx_record,
             &tlc,
             tx_len,
@@ -2380,13 +2434,8 @@ impl ConsequencePredictor {
             .as_ref()
             .map(|p| format!("{}", p).split(':').nth(1).unwrap().to_owned());
 
-        // Deliberately concatenate all alternative alleles with comma (e.g., "A,CG")
-        // to represent the group event.
-        let allele_str = sorted_vars
-            .iter()
-            .map(|v| v.alternative.clone())
-            .collect::<Vec<_>>()
-            .join(",");
+        let ref_alts = sorted_vars.iter().map(|v| v.reference.clone()).collect();
+        let alt_alts = sorted_vars.iter().map(|v| v.alternative.clone()).collect();
 
         let strand = match tx.genome_alignments.first().unwrap().strand {
             1 => 1,
@@ -2409,9 +2458,10 @@ impl ConsequencePredictor {
             .collect_vec();
 
         Ok(Some(AnnField {
-            allele: Allele::Alt {
-                alternative: allele_str,
-            },
+            allele: Allele::Grouped(GroupedAlleles {
+                references: ref_alts,
+                alternatives: alt_alts,
+            }),
             consequences: consequences_vec,
             putative_impact,
             gene_symbol: tx.gene_symbol.clone(),
@@ -2423,7 +2473,7 @@ impl ConsequencePredictor {
             feature_biotype: vec![FeatureBiotype::Coding],
             feature_tags,
             rank: None,
-            hgvs_g: None,
+            hgvs_g,
             hgvs_n: None,
             hgvs_c,
             hgvs_p,
