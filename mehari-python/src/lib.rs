@@ -421,7 +421,9 @@ impl PySeqvarsAnnotator {
             self.predictor
                 .predict_multiple(&vcf_variants)
                 .map_err(|e| match e {
-                    mehari::errors::SeqvarsError::GroupValidation(_) => {
+                    mehari::errors::SeqvarsError::GroupValidation(_)
+                    | mehari::errors::SeqvarsError::UnknownChromosomeAccession
+                    | mehari::errors::SeqvarsError::InvalidCoordinates(_, _) => {
                         pyo3::exceptions::PyValueError::new_err(e.to_string())
                     }
                     _ => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
