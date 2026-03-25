@@ -128,6 +128,9 @@ enum Commands {
 
     /// Verification related commands.
     Verify(Verify),
+
+    /// Post-processing utilities for Mehari-annotated files.
+    Postprocess(Postprocess),
 }
 
 /// Parsing of "db *" sub commands.
@@ -198,6 +201,19 @@ enum VerifyCommands {
     Seqvars(verify::seqvars::Args),
 }
 
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
+struct Postprocess {
+    #[command(subcommand)]
+    command: PostprocessCommands,
+}
+
+/// Enum supporting the parsing of "postprocess *" sub commands.
+#[derive(Debug, Subcommand)]
+enum PostprocessCommands {
+    Proteome(mehari::postprocess::proteome::Args),
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     #[cfg(feature = "dhat-heap")]
@@ -247,6 +263,11 @@ async fn main() -> Result<(), anyhow::Error> {
         },
         Commands::Verify(verify) => match &verify.command {
             VerifyCommands::Seqvars(args) => verify::seqvars::run(&cli.common, args)?,
+        },
+        Commands::Postprocess(postprocess) => match &postprocess.command {
+            PostprocessCommands::Proteome(args) => {
+                mehari::postprocess::proteome::run(&cli.common, args).await?
+            }
         },
     }
 
