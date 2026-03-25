@@ -620,7 +620,7 @@ impl ConsequencePredictor {
                     tracing::warn!("{}, {}: NonAdjacentExons, skipping", &tx.id, var_g);
                     Ok(None)
                 }
-                _ => Err(crate::errors::SeqvarsError::from(e)),
+                _ => Err(SeqvarsError::from(e)),
             },
             |v| Ok(Some(v)),
         )?;
@@ -631,7 +631,7 @@ impl ConsequencePredictor {
                     .mapper
                     .n_to_c(var_n)
                     .map(Some)
-                    .map_err(|e| SeqvarsError::Provider(e.to_string()))?,
+                    .map_err(|e| SeqvarsError::HgvsProjection(e.to_string()))?,
                 TranscriptBiotype::NonCoding => Some(var_n.clone()),
                 _ => None,
             };
