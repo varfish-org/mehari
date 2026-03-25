@@ -202,7 +202,7 @@ class SeqvarsAnnotator:
                     raise ValueError(
                         f"Variant dict missing required key: {e}. "
                         "Expected keys: 'chromosome', 'position', 'reference', 'alternative'."
-                    )
+                    ) from e
             else:
                 raise TypeError("Variants must be strings or VariantDict dictionaries.")
 

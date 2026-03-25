@@ -1948,11 +1948,6 @@ impl ConsequencePredictor {
             return Ok(None);
         }
 
-        let sorted_vars = Self::validate_and_sort_variant_group(variants)?;
-        if sorted_vars.is_empty() {
-            return Ok(None);
-        }
-
         let chrom_acc = self
             .provider
             .contig_manager
@@ -2227,7 +2222,7 @@ impl ConsequencePredictor {
             return Ok(None);
         }
 
-        let new_substring = &alt_seq[(n_min - 1) as usize..((n_min - 1) + new_length) as usize];
+        let new_substring = &alt_seq[start_idx..end_idx];
 
         let c_min = projections
             .iter()
