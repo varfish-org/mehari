@@ -432,7 +432,7 @@ pub enum Allele {
         other_alt: String,
     },
     /// Multiple variants grouped together into a single compound event.
-    #[display("{0}")]
+    #[display("grouped({0})")]
     Grouped(GroupedAlleles),
 }
 
@@ -446,6 +446,18 @@ pub struct GroupedAlleles {
 impl std::fmt::Display for GroupedAlleles {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.alternatives.join("+"))
+    }
+}
+
+impl std::str::FromStr for GroupedAlleles {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(GroupedAlleles {
+            // during parsing from INFO/ANN, references aren't available, so leave them empty.
+            references: Vec::new(),
+            alternatives: s.split('+').map(|a| a.to_string()).collect(),
+        })
     }
 }
 
@@ -463,10 +475,28 @@ mod parse {
 impl Allele {
     pub fn parse(input: &str) -> IResult<&str, Self> {
         all_consuming(alt((
+            Self::parse_grouped,
             Self::parse_compound,
             Self::parse_alt_ref,
             Self::parse_alt,
         )))
+        .parse(input)
+    }
+
+    fn parse_grouped(input: &str) -> IResult<&str, Self> {
+        map(
+            (
+                tag("grouped("),
+                separated_list1(tag("+"), parse::na1),
+                tag(")"),
+            ),
+            |(_, alternatives, _)| {
+                Allele::Grouped(GroupedAlleles {
+                    references: Vec::new(),
+                    alternatives: alternatives.into_iter().map(|s| s.to_string()).collect(),
+                })
+            },
+        )
         .parse(input)
     }
 
