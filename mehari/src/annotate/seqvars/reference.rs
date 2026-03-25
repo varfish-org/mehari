@@ -71,15 +71,15 @@ impl ReferenceReader for InMemoryFastaAccess {
         if let Some(seq) = self.sequences.get(ac) {
             let seq_len = seq.len() as u64;
 
-            if let Some(s) = start {
-                if s >= seq_len {
-                    return Err(anyhow!(
-                        "Requested start ({}) is out of bounds for sequence {} of length {}",
-                        s,
-                        ac,
-                        seq_len
-                    ));
-                }
+            if let Some(s) = start
+                && s >= seq_len
+            {
+                return Err(anyhow!(
+                    "Requested start ({}) is out of bounds for sequence {} of length {}",
+                    s,
+                    ac,
+                    seq_len
+                ));
             }
 
             let (start, end) = match (start, end) {
@@ -210,15 +210,15 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
         end: Option<u64>,
     ) -> anyhow::Result<Option<Vec<u8>>> {
         if let Some(index_record) = self.accession_to_index.get(ac) {
-            if let Some(s) = start {
-                if s >= index_record.length {
-                    return Err(anyhow!(
-                        "Requested start ({}) is out of bounds for sequence {} of length {}",
-                        s,
-                        ac,
-                        index_record.length
-                    ));
-                }
+            if let Some(s) = start
+                && s >= index_record.length
+            {
+                return Err(anyhow!(
+                    "Requested start ({}) is out of bounds for sequence {} of length {}",
+                    s,
+                    ac,
+                    index_record.length
+                ));
             }
 
             let (start, end) = match (start, end) {

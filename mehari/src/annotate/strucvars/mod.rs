@@ -12,35 +12,35 @@ use bio::data_structures::interval_tree::IntervalTree;
 use biocommons_bioutils::assemblies::Assembly;
 use chrono::Utc;
 use clap::{Args as ClapArgs, Parser};
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use futures::TryStreamExt;
 use noodles::core::Position;
+use noodles::vcf::Header as VcfHeader;
 use noodles::vcf::io::reader::Builder as VariantReaderBuilder;
+use noodles::vcf::variant::RecordBuf as VcfRecord;
+use noodles::vcf::variant::record::AlternateBases as _;
 use noodles::vcf::variant::record::info::field::key::{END_POSITION, SV_TYPE};
 use noodles::vcf::variant::record::samples::keys::key::{
     CONDITIONAL_GENOTYPE_QUALITY, FILTER, GENOTYPE, GENOTYPE_COPY_NUMBER,
 };
-use noodles::vcf::variant::record::AlternateBases as _;
-use noodles::vcf::variant::record_buf::info::field;
-use noodles::vcf::variant::record_buf::samples::sample;
-use noodles::vcf::variant::record_buf::samples::Keys;
 use noodles::vcf::variant::record_buf::AlternateBases;
 use noodles::vcf::variant::record_buf::Samples;
-use noodles::vcf::variant::RecordBuf as VcfRecord;
-use noodles::vcf::Header as VcfHeader;
+use noodles::vcf::variant::record_buf::info::field;
+use noodles::vcf::variant::record_buf::samples::Keys;
+use noodles::vcf::variant::record_buf::samples::sample;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, IntoEnumIterator};
 use uuid::Uuid;
 
-use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
 use crate::common::GenomeRelease;
-use crate::common::{guess_assembly_from_vcf, TsvContigStyle};
+use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
+use crate::common::{TsvContigStyle, guess_assembly_from_vcf};
 use crate::ped::PedigreeByName;
 
-use super::seqvars::{binning, AsyncAnnotatedVariantWriter};
+use super::seqvars::{AsyncAnnotatedVariantWriter, binning};
 
 use self::bnd::Breakend;
 
@@ -116,12 +116,12 @@ pub struct PathOutput {
 /// Code for building the VCF header to be written out.
 pub mod vcf_header {
     use annonars::common::cli::is_canonical;
-    use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
+    use biocommons_bioutils::assemblies::{ASSEMBLY_INFOS, Assembly};
     use noodles::vcf::header;
+    use noodles::vcf::header::record::value::Map;
     use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
     use noodles::vcf::header::record::value::map::info::Number;
     use noodles::vcf::header::record::value::map::{Contig, Filter, Format, Info, Other};
-    use noodles::vcf::header::record::value::Map;
     use noodles::vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, END_POSITION, POSITION_CONFIDENCE_INTERVALS, SV_TYPE,
     };
@@ -131,8 +131,8 @@ pub mod vcf_header {
         CONDITIONAL_GENOTYPE_QUALITY, FILTER, GENOTYPE, GENOTYPE_COPY_NUMBER,
     };
     use noodles::vcf::{
-        header::{Builder, FileFormat},
         Header,
+        header::{Builder, FileFormat},
     };
 
     use crate::ped::{Disease, PedigreeByName, Sex};
@@ -1130,21 +1130,21 @@ impl VarFishStrucvarTsvRecord {
             let rhs = other.genotype.entries.get(i).expect("vecs have same size");
 
             if let Some(lhs_gq) = lhs.gq {
-                if let Some(rhs_gq) = rhs.gq {
-                    if lhs_gq < rhs_gq {
-                        lhs.gq = rhs.gq;
-                    }
+                if let Some(rhs_gq) = rhs.gq
+                    && lhs_gq < rhs_gq
+                {
+                    lhs.gq = rhs.gq;
                 }
             } else {
                 lhs.gq = rhs.gq;
             }
 
             if let (Some(_), Some(lhs_pev)) = (lhs.pec, lhs.pec) {
-                if let (Some(_), Some(rhs_pev)) = (rhs.pec, rhs.pec) {
-                    if lhs_pev < rhs_pev {
-                        lhs.pec = rhs.pec;
-                        lhs.pev = rhs.pev;
-                    }
+                if let (Some(_), Some(rhs_pev)) = (rhs.pec, rhs.pec)
+                    && lhs_pev < rhs_pev
+                {
+                    lhs.pec = rhs.pec;
+                    lhs.pev = rhs.pev;
                 }
             } else {
                 lhs.pec = rhs.pec;
@@ -1152,11 +1152,11 @@ impl VarFishStrucvarTsvRecord {
             }
 
             if let (Some(_), Some(lhs_srv)) = (lhs.src, lhs.src) {
-                if let (Some(_), Some(rhs_srv)) = (rhs.src, rhs.src) {
-                    if lhs_srv < rhs_srv {
-                        lhs.src = rhs.src;
-                        lhs.srv = rhs.srv;
-                    }
+                if let (Some(_), Some(rhs_srv)) = (rhs.src, rhs.src)
+                    && lhs_srv < rhs_srv
+                {
+                    lhs.src = rhs.src;
+                    lhs.srv = rhs.srv;
                 }
             } else {
                 lhs.src = rhs.src;
@@ -1171,9 +1171,9 @@ impl TryInto<VcfRecord> for VarFishStrucvarTsvRecord {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<VcfRecord, Self::Error> {
-        use noodles::vcf::variant::record_buf::info::field::value::Array;
-        use noodles::vcf::variant::record_buf::info::field::Value;
         use noodles::vcf::variant::record_buf::Info;
+        use noodles::vcf::variant::record_buf::info::field::Value;
+        use noodles::vcf::variant::record_buf::info::field::value::Array;
 
         let mut genotypes = Vec::new();
         for genotype in &self.genotype.entries {
@@ -1387,17 +1387,14 @@ impl SvCaller {
             },
             SvCaller::Melt { .. } => {
                 for (key, values) in header.other_records() {
-                    if key.as_ref() == "source" {
-                        if let noodles::vcf::header::record::value::Collection::Unstructured(
-                            inner,
-                        ) = values
-                        {
-                            if let Some(version) = inner[0].split('v').next_back() {
-                                return Ok(SvCaller::Melt {
-                                    version: version.to_string(),
-                                });
-                            }
-                        }
+                    if key.as_ref() == "source"
+                        && let noodles::vcf::header::record::value::Collection::Unstructured(inner) =
+                            values
+                        && let Some(version) = inner[0].split('v').next_back()
+                    {
+                        return Ok(SvCaller::Melt {
+                            version: version.to_string(),
+                        });
                     }
                 }
 
@@ -1433,13 +1430,11 @@ impl SvCaller {
         splitter: char,
     ) -> Result<String, anyhow::Error> {
         for (key, values) in header.other_records() {
-            if key.as_ref() == "source" {
-                if let noodles::vcf::header::record::value::Collection::Unstructured(inner) = values
-                {
-                    if let Some(version) = inner[0].split(splitter).next_back() {
-                        return Ok(version.to_string());
-                    }
-                }
+            if key.as_ref() == "source"
+                && let noodles::vcf::header::record::value::Collection::Unstructured(inner) = values
+                && let Some(version) = inner[0].split(splitter).next_back()
+            {
+                return Ok(version.to_string());
             }
         }
 
@@ -1453,12 +1448,12 @@ impl SvCaller {
         row_key: &str,
     ) -> Result<String, anyhow::Error> {
         for (key, values) in header.other_records() {
-            if key.as_ref() == row_key {
-                if let noodles::vcf::header::record::value::Collection::Structured(inner) = values {
-                    for (_, inner2) in inner.iter() {
-                        if let Some(version) = inner2.other_fields().get("Version") {
-                            return Ok(version.to_string());
-                        }
+            if key.as_ref() == row_key
+                && let noodles::vcf::header::record::value::Collection::Structured(inner) = values
+            {
+                for (_, inner2) in inner.iter() {
+                    if let Some(version) = inner2.other_fields().get("Version") {
+                        return Ok(version.to_string());
                     }
                 }
             }
@@ -1492,13 +1487,11 @@ impl SvCaller {
     /// Returns whether a `##source=` line's value starts with `prefix`.
     fn source_starts_with(&self, header: &VcfHeader, prefix: &str) -> bool {
         for (key, values) in header.other_records() {
-            if key.as_ref() == "source" {
-                if let noodles::vcf::header::record::value::Collection::Unstructured(inner) = values
-                {
-                    if inner[0].starts_with(prefix) {
-                        return true;
-                    }
-                }
+            if key.as_ref() == "source"
+                && let noodles::vcf::header::record::value::Collection::Unstructured(inner) = values
+                && inner[0].starts_with(prefix)
+            {
+                return true;
             }
         }
 
@@ -1730,7 +1723,11 @@ pub trait VcfRecordConverter {
         let mut end: Option<i32> = None;
         let alleles = vcf_record.alternate_bases().as_ref();
         if alleles.len() != 1 {
-            panic!("Only one alternative allele is supported for SVs, got {} alternative alleles ({:?})", alleles.len(), alleles);
+            panic!(
+                "Only one alternative allele is supported for SVs, got {} alternative alleles ({:?})",
+                alleles.len(),
+                alleles
+            );
         }
         let allele = &alleles[0];
         // TODO find out how to handle this properly (via noodles?)
@@ -1846,19 +1843,19 @@ pub trait VcfRecordConverter {
 /// Conversion from VCF records to `VarFishStrucvarTsvRecord`.
 mod conv {
     use crate::annotate::genotype_string;
-    use crate::common::contig::ContigManager;
     use crate::common::TsvContigStyle;
+    use crate::common::contig::ContigManager;
     use crate::ped::PedigreeByName;
     use crate::ped::Sex;
     use biocommons_bioutils::assemblies::Assembly;
     use noodles::vcf::header::FileFormat;
+    use noodles::vcf::variant::RecordBuf as VcfRecord;
     use noodles::vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, POSITION_CONFIDENCE_INTERVALS,
     };
-    use noodles::vcf::variant::record_buf::info::field::value::Array;
     use noodles::vcf::variant::record_buf::info::field::Value;
+    use noodles::vcf::variant::record_buf::info::field::value::Array;
     use noodles::vcf::variant::record_buf::samples::sample;
-    use noodles::vcf::variant::RecordBuf as VcfRecord;
 
     use super::GenotypeInfo;
     use super::VarFishStrucvarTsvRecord;
@@ -3595,6 +3592,7 @@ mod test {
     use uuid::Uuid;
 
     use super::{
+        Args, PathOutput, VarFishStrucvarTsvWriter, VcfHeader, VcfRecord, VcfRecordConverter,
         bnd::Breakend,
         build_vcf_record_converter,
         conv::{
@@ -3602,8 +3600,7 @@ mod test {
             DragenSvVcfRecordConverter, GcnvVcfRecordConverter, MantaVcfRecordConverter,
             MeltVcfRecordConverter, PopdelVcfRecordConverter,
         },
-        guess_sv_caller, run, vcf_header, Args, PathOutput, VarFishStrucvarTsvWriter, VcfHeader,
-        VcfRecord, VcfRecordConverter,
+        guess_sv_caller, run, vcf_header,
     };
     use crate::common::TsvContigStyle;
     use crate::{
@@ -3611,7 +3608,7 @@ mod test {
             GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvSubType, SvType,
             VarFishStrucvarTsvRecord,
         },
-        common::{noodles::open_variant_reader, GenomeRelease},
+        common::{GenomeRelease, noodles::open_variant_reader},
         ped::{Disease, Individual, PedigreeByName, Sex},
     };
 

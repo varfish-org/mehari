@@ -5,15 +5,15 @@ use crate::annotate::seqvars::reference::{
     InMemoryFastaAccess, ReferenceReader, UnbufferedIndexedFastaAccess,
 };
 use crate::common::contig::ContigManager;
-use crate::db::create::Reason;
 use crate::db::TranscriptDatabase;
+use crate::db::create::Reason;
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
     pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
 use annonars::common::cli::CANONICAL;
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
-use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
+use biocommons_bioutils::assemblies::{ASSEMBLY_INFOS, Assembly};
 use enumflags2::BitFlags;
 use hgvs::{
     data::error::Error,
@@ -24,7 +24,7 @@ use hgvs::{
             TxInfoRecord, TxMappingOptionsRecord,
         },
     },
-    sequences::{seq_md5, TranslationTable},
+    sequences::{TranslationTable, seq_md5},
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -489,7 +489,11 @@ impl Provider {
                     filter_reason: None,
                 }
             } else {
-                tracing::trace!("no transcript found for gene {} with the chosen transcript picking strategy: {:?}", &entry.gene_id, &config.pick_transcript);
+                tracing::trace!(
+                    "no transcript found for gene {} with the chosen transcript picking strategy: {:?}",
+                    &entry.gene_id,
+                    &config.pick_transcript
+                );
                 GeneToTxId {
                     gene_id: entry.gene_id.clone(),
                     tx_ids: vec![],

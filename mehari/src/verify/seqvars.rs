@@ -338,10 +338,10 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         }
 
         // Break after `args.max_var_count` if provided.
-        if let Some(max_var_count) = args.max_var_count {
-            if i + 1 >= max_var_count {
-                break;
-            }
+        if let Some(max_var_count) = args.max_var_count
+            && i + 1 >= max_var_count
+        {
+            break;
         }
     }
     tracing::info!("... done processing input TSV");

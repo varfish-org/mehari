@@ -5,7 +5,7 @@ use super::{
 };
 use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
 use crate::annotate::seqvars::ann::{
-    FeatureTag, GroupedAlleles, ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
+    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, FeatureTag, GroupedAlleles,
 };
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::errors::{GroupValidationError, SeqvarsError};
@@ -15,7 +15,7 @@ use hgvs::mapper::altseq::AltSeqBuilder;
 use hgvs::parser::{NoRef, ProteinEdit};
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
-    mapper::{assembly, Error},
+    mapper::{Error, assembly},
     parser::{
         Accession, CdsFrom, GenomeInterval, GenomeLocEdit, HgvsVariant, Mu, NaEdit, ProtLocEdit,
     },
@@ -511,28 +511,30 @@ impl ConsequencePredictor {
                 consequences |= Self::analyze_exonic_variant(
                     strand, var_start, var_end, exon_start, exon_end, &rank, is_utr,
                 );
-            } else if let Some(intron_start) = prev_end {
-                if var_start >= intron_start && var_end <= exon_end && !is_exonic {
-                    rank = Rank {
-                        ord: exon_alignment.ord + 1,
-                        total: alignment.exons.len() as i32 - 1,
-                    };
-                    is_intronic = true;
+            } else if let Some(intron_start) = prev_end
+                && var_start >= intron_start
+                && var_end <= exon_end
+                && !is_exonic
+            {
+                rank = Rank {
+                    ord: exon_alignment.ord + 1,
+                    total: alignment.exons.len() as i32 - 1,
+                };
+                is_intronic = true;
 
-                    // We compute the "distance" with "+1", the first base of the
-                    // intron is "+1", the last one is "-1".
-                    let dist_start: i32 = var_start + 1 - intron_start;
-                    let dist_end: i32 = -(exon_start + 1 - var_end);
-                    let dist_start_end = if dist_start.abs() <= dist_end.abs() {
-                        dist_start
-                    } else {
-                        dist_end
-                    };
-                    if distance.is_none()
-                        || dist_start_end.abs() <= distance.expect("cannot be None").abs()
-                    {
-                        distance = Some(dist_start_end);
-                    }
+                // We compute the "distance" with "+1", the first base of the
+                // intron is "+1", the last one is "-1".
+                let dist_start: i32 = var_start + 1 - intron_start;
+                let dist_end: i32 = -(exon_start + 1 - var_end);
+                let dist_start_end = if dist_start.abs() <= dist_end.abs() {
+                    dist_start
+                } else {
+                    dist_end
+                };
+                if distance.is_none()
+                    || dist_start_end.abs() <= distance.expect("cannot be None").abs()
+                {
+                    distance = Some(dist_start_end);
                 }
             }
 
@@ -636,10 +638,10 @@ impl ConsequencePredictor {
                 _ => None,
             };
 
-            if let Some(var_c) = &projection.c {
-                if transcript_biotype == TranscriptBiotype::Coding {
-                    projection.p = self.safe_project_c_to_p(var_c)?;
-                }
+            if let Some(var_c) = &projection.c
+                && transcript_biotype == TranscriptBiotype::Coding
+            {
+                projection.p = self.safe_project_c_to_p(var_c)?;
             }
         }
 
@@ -673,54 +675,54 @@ impl ConsequencePredictor {
             });
         }
 
-        if let Some(var_c) = &projection.c {
-            if transcript_biotype == TranscriptBiotype::Coding {
-                // If there's no stop codon, we can't compute the cds_len.
-                // We can, however, still analyze any consequences before the (missing) stop codon.
-                let cds_len = tx.stop_codon.map(|stop| stop - tx.start_codon.unwrap());
-                context.cds_pos = transcript_location.is_exonic.then_some(match var_c {
-                    HgvsVariant::CdsVariant { loc_edit, .. } => Pos {
-                        ord: loc_edit.loc.inner().start.base,
-                        total: cds_len,
+        if let Some(var_c) = &projection.c
+            && transcript_biotype == TranscriptBiotype::Coding
+        {
+            // If there's no stop codon, we can't compute the cds_len.
+            // We can, however, still analyze any consequences before the (missing) stop codon.
+            let cds_len = tx.stop_codon.map(|stop| stop - tx.start_codon.unwrap());
+            context.cds_pos = transcript_location.is_exonic.then_some(match var_c {
+                HgvsVariant::CdsVariant { loc_edit, .. } => Pos {
+                    ord: loc_edit.loc.inner().start.base,
+                    total: cds_len,
+                },
+                _ => panic!("Invalid CDS position: {:?}", var_c),
+            });
+
+            let conservative = is_conservative_cds_variant(var_c);
+            let incomplete_3p = tx.is_incomplete_3p();
+            let available_cds_len = tx.available_cds_len(tx_len);
+            context.cds_consequences = Self::analyze_cds_variant(
+                var_c,
+                transcript_location.is_exonic,
+                conservative,
+                incomplete_3p,
+                available_cds_len,
+            );
+
+            if let Some(var_p) = &projection.p {
+                let prot_len = cds_len
+                    .expect("cds_len cannot be None if hgvs.p projection has been successful")
+                    / 3;
+                context.protein_pos = match var_p {
+                    HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
+                        ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
+                            ord: loc.inner().start.number,
+                            total: Some(prot_len),
+                        }),
+                        _ => None,
                     },
-                    _ => panic!("Invalid CDS position: {:?}", var_c),
-                });
+                    _ => panic!("Not a protein position: {:?}", var_p),
+                };
 
-                let conservative = is_conservative_cds_variant(var_c);
-                let incomplete_3p = tx.is_incomplete_3p();
-                let available_cds_len = tx.available_cds_len(tx_len);
-                context.cds_consequences = Self::analyze_cds_variant(
+                context.protein_consequences = self.analyze_protein_variant(
                     var_c,
-                    transcript_location.is_exonic,
+                    var_p,
+                    &context.protein_pos,
                     conservative,
+                    &tx_record.tx_ac,
                     incomplete_3p,
-                    available_cds_len,
                 );
-
-                if let Some(var_p) = &projection.p {
-                    let prot_len = cds_len
-                        .expect("cds_len cannot be None if hgvs.p projection has been successful")
-                        / 3;
-                    context.protein_pos = match var_p {
-                        HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
-                            ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
-                                ord: loc.inner().start.number,
-                                total: Some(prot_len),
-                            }),
-                            _ => None,
-                        },
-                        _ => panic!("Not a protein position: {:?}", var_p),
-                    };
-
-                    context.protein_consequences = self.analyze_protein_variant(
-                        var_c,
-                        var_p,
-                        &context.protein_pos,
-                        conservative,
-                        &tx_record.tx_ac,
-                        incomplete_3p,
-                    );
-                }
             }
         }
 
@@ -831,42 +833,34 @@ impl ConsequencePredictor {
         let p_ref = self.config.report_protein_sequence.includes_ref();
         let p_alt = self.config.report_protein_sequence.includes_alt();
 
-        if c_ref || c_alt || p_ref || p_alt {
-            if let Some(var_c) = projection.as_ref().and_then(|p| p.c.as_ref()) {
-                if let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
-                    self.provider.clone(),
-                    &tx.id,
-                    None,
-                ) {
-                    if c_ref {
-                        custom_fields.insert(
-                            ANN_TX_SEQ_REF.into(),
-                            Some(ref_data.transcript_sequence.clone()),
-                        );
-                    }
-                    if p_ref {
-                        custom_fields
-                            .insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.clone()));
-                    }
+        if (c_ref || c_alt || p_ref || p_alt)
+            && let Some(var_c) = projection.as_ref().and_then(|p| p.c.as_ref())
+            && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
+                self.provider.clone(),
+                &tx.id,
+                None,
+            )
+        {
+            if c_ref {
+                custom_fields.insert(
+                    ANN_TX_SEQ_REF.into(),
+                    Some(ref_data.transcript_sequence.clone()),
+                );
+            }
+            if p_ref {
+                custom_fields.insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.clone()));
+            }
 
-                    if (c_alt || p_alt) && matches!(var_c, HgvsVariant::CdsVariant { .. }) {
-                        if let Ok(alt_data_vec) =
-                            AltSeqBuilder::new(var_c.clone(), ref_data).build_altseq()
-                        {
-                            if let Some(alt_data) = alt_data_vec.into_iter().next() {
-                                if c_alt {
-                                    custom_fields.insert(
-                                        ANN_TX_SEQ_ALT.into(),
-                                        Some(alt_data.transcript_sequence),
-                                    );
-                                }
-                                if p_alt {
-                                    custom_fields
-                                        .insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence));
-                                }
-                            }
-                        }
-                    }
+            if (c_alt || p_alt)
+                && matches!(var_c, HgvsVariant::CdsVariant { .. })
+                && let Ok(alt_data_vec) = AltSeqBuilder::new(var_c.clone(), ref_data).build_altseq()
+                && let Some(alt_data) = alt_data_vec.into_iter().next()
+            {
+                if c_alt {
+                    custom_fields.insert(ANN_TX_SEQ_ALT.into(), Some(alt_data.transcript_sequence));
+                }
+                if p_alt {
+                    custom_fields.insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence));
                 }
             }
         }
@@ -1210,8 +1204,8 @@ impl ConsequencePredictor {
             *consequences &= !Consequence::StartLost;
         }
 
-        if consequences.contains(Consequence::StartLost) {
-            if let (
+        if consequences.contains(Consequence::StartLost)
+            && let (
                 Some(HgvsVariant::TxVariant {
                     loc_edit: n_loc_edit,
                     accession,
@@ -1222,49 +1216,45 @@ impl ConsequencePredictor {
                     ..
                 }),
             ) = (&projection.n, &projection.c)
-            {
-                let n_loc = n_loc_edit.loc.inner();
-                let c_edit = c_loc_edit.edit.inner();
-                let c_loc = c_loc_edit.loc.inner();
+        {
+            let n_loc = n_loc_edit.loc.inner();
+            let c_edit = c_loc_edit.edit.inner();
+            let c_loc = c_loc_edit.loc.inner();
 
-                // If edit occurs within the first 3 bases of the CDS,
-                let (start, end) = (c_loc.start.base, c_loc.end.base);
-                if start >= 1
-                    && end <= 3
-                    && c_loc.start.cds_from == CdsFrom::Start
-                    && c_loc.end.cds_from == CdsFrom::Start
-                {
-                    // … then we need to check whether this is a start lost or a start retained.
-                    // To that end, extract the first 3 bases plus/minus 3 bases …
-                    if let Ok(first_codon_pm1) = self.provider.get_seq_part(
-                        &accession.value,
-                        Some(
-                            usize::try_from(n_loc.start.base - start + 1)
-                                .unwrap()
-                                .saturating_sub(4),
-                        ),
-                        Some(usize::try_from(n_loc.end.base - start + 1).unwrap() + 5),
-                    ) {
-                        // … and introduce the change into the sequence.
-                        let mut first_codon = first_codon_pm1.clone();
-                        let (start, end) = (start as usize, end as usize);
-                        let start_retained = match c_edit {
-                            NaEdit::DelRef { .. } => {
-                                first_codon.replace_range(3 + start - 1..=3 + end - 1, "");
-                                // If the first codon is still a start codon, then it is a start retained.
-                                first_codon[2..5].contains("ATG")
-                            }
-                            // TODO: handle other cases
-                            _ => false,
-                        };
-                        if start_retained {
-                            tracing::trace!(
-                                "Fixing StartLost → StartRetained for {:?}",
-                                &projection,
-                            );
-                            *consequences &= !Consequence::StartLost;
-                            *consequences |= Consequence::StartRetainedVariant;
+            // If edit occurs within the first 3 bases of the CDS,
+            let (start, end) = (c_loc.start.base, c_loc.end.base);
+            if start >= 1
+                && end <= 3
+                && c_loc.start.cds_from == CdsFrom::Start
+                && c_loc.end.cds_from == CdsFrom::Start
+            {
+                // … then we need to check whether this is a start lost or a start retained.
+                // To that end, extract the first 3 bases plus/minus 3 bases …
+                if let Ok(first_codon_pm1) = self.provider.get_seq_part(
+                    &accession.value,
+                    Some(
+                        usize::try_from(n_loc.start.base - start + 1)
+                            .unwrap()
+                            .saturating_sub(4),
+                    ),
+                    Some(usize::try_from(n_loc.end.base - start + 1).unwrap() + 5),
+                ) {
+                    // … and introduce the change into the sequence.
+                    let mut first_codon = first_codon_pm1.clone();
+                    let (start, end) = (start as usize, end as usize);
+                    let start_retained = match c_edit {
+                        NaEdit::DelRef { .. } => {
+                            first_codon.replace_range(3 + start - 1..=3 + end - 1, "");
+                            // If the first codon is still a start codon, then it is a start retained.
+                            first_codon[2..5].contains("ATG")
                         }
+                        // TODO: handle other cases
+                        _ => false,
+                    };
+                    if start_retained {
+                        tracing::trace!("Fixing StartLost → StartRetained for {:?}", &projection,);
+                        *consequences &= !Consequence::StartLost;
+                        *consequences |= Consequence::StartRetainedVariant;
                     }
                 }
             }
@@ -1292,10 +1282,10 @@ impl ConsequencePredictor {
             loc_edit: ProtLocEdit::Unknown,
             ..
         }) = projection.p.as_ref()
+            && consequences.is_empty()
+            && projection.is_within_coding_sequence()
         {
-            if consequences.is_empty() && projection.is_within_coding_sequence() {
-                *consequences |= Consequence::CodingSequenceVariant;
-            }
+            *consequences |= Consequence::CodingSequenceVariant;
         }
     }
 
@@ -1456,21 +1446,17 @@ impl ConsequencePredictor {
         // For insertions, we need to consider the case of the insertion being right at
         // the exon/intron junction.  We can express this with a shift of 1 for using
         // "< / >" X +/- shift and meaning <= / >= X.
-        let ins_shift = match var_g {
+
+        match var_g {
             HgvsVariant::GenomeVariant {
                 loc_edit: GenomeLocEdit { edit, .. },
                 ..
             } => {
                 let edit = edit.inner();
-                if edit.is_ins() || edit.is_dup() {
-                    1
-                } else {
-                    0
-                }
+                if edit.is_ins() || edit.is_dup() { 1 } else { 0 }
             }
             _ => unreachable!(),
-        };
-        ins_shift
+        }
     }
 
     fn analyze_cds_variant(
@@ -1519,12 +1505,12 @@ impl ConsequencePredictor {
                 consequences |= Consequence::StopLost;
             }
 
-            if incomplete_3p {
-                if let Some(cds_len) = available_cds_len {
-                    if start_base <= cds_len && end_base >= cds_len - 2 {
-                        consequences |= Consequence::IncompleteTerminalCodonVariant;
-                    }
-                }
+            if incomplete_3p
+                && let Some(cds_len) = available_cds_len
+                && start_base <= cds_len
+                && end_base >= cds_len - 2
+            {
+                consequences |= Consequence::IncompleteTerminalCodonVariant;
             }
 
             if (start_cds_from == CdsFrom::Start && start_base <= 0)
@@ -1699,39 +1685,38 @@ impl ConsequencePredictor {
                                 let original_sequence_len = reference_data.aa_sequence.len();
                                 if let Ok(alt_data) =
                                     AltSeqBuilder::new(var_c.clone(), reference_data).build_altseq()
+                                    && let Some(alt_data) = alt_data.first()
                                 {
-                                    if let Some(alt_data) = alt_data.first() {
-                                        let altered_sequence = &alt_data.aa_sequence;
+                                    let altered_sequence = &alt_data.aa_sequence;
 
-                                        // trim altered sequence to the first stop encountered
-                                        let altered_sequence =
-                                            if let Some(pos) = altered_sequence.find('*') {
-                                                // do not use the 'X' fallback here,
-                                                // as that is _usually_ only added
-                                                // when the number of bases is not divisible by 3.
-                                                // We only want to identify cases where a new/later
-                                                // stop codon is encountered
-                                                // .or_else(|| altered_sequence.find('X'))
-                                                &altered_sequence[..=pos]
-                                            } else {
-                                                altered_sequence
-                                            };
+                                    // trim altered sequence to the first stop encountered
+                                    let altered_sequence =
+                                        if let Some(pos) = altered_sequence.find('*') {
+                                            // do not use the 'X' fallback here,
+                                            // as that is _usually_ only added
+                                            // when the number of bases is not divisible by 3.
+                                            // We only want to identify cases where a new/later
+                                            // stop codon is encountered
+                                            // .or_else(|| altered_sequence.find('X'))
+                                            &altered_sequence[..=pos]
+                                        } else {
+                                            altered_sequence
+                                        };
 
-                                        match altered_sequence.len().cmp(&original_sequence_len) {
-                                            Ordering::Less => {
-                                                consequences |= Consequence::FrameshiftTruncation;
+                                    match altered_sequence.len().cmp(&original_sequence_len) {
+                                        Ordering::Less => {
+                                            consequences |= Consequence::FrameshiftTruncation;
+                                        }
+                                        Ordering::Equal => {
+                                            if !self.config.vep_consequence_terms {
+                                                consequences |= Consequence::MissenseVariant;
+                                                // TODO: discuss stop_retained
+                                                // consequences |= Consequence::StopRetainedVariant;
+                                                consequences &= !Consequence::FrameshiftVariant;
                                             }
-                                            Ordering::Equal => {
-                                                if !self.config.vep_consequence_terms {
-                                                    consequences |= Consequence::MissenseVariant;
-                                                    // TODO: discuss stop_retained
-                                                    // consequences |= Consequence::StopRetainedVariant;
-                                                    consequences &= !Consequence::FrameshiftVariant;
-                                                }
-                                            }
-                                            Ordering::Greater => {
-                                                consequences |= Consequence::FrameshiftElongation;
-                                            }
+                                        }
+                                        Ordering::Greater => {
+                                            consequences |= Consequence::FrameshiftElongation;
                                         }
                                     }
                                 }
@@ -1755,12 +1740,12 @@ impl ConsequencePredictor {
                                     // and if it is a conservative change
                                     // then it is not a stop gained
                                     // cf. 1:43450470:GCCT:G, ENST00000634258.3:c.10294_10296del/p.Leu3432Ter
-                                    if let Some(p) = protein_pos {
-                                        if p.total.is_some_and(|t| p.ord == t - 1) && conservative {
-                                            consequences &= !Consequence::StopGained;
-                                            consequences |=
-                                                Consequence::ConservativeInframeDeletion;
-                                        }
+                                    if let Some(p) = protein_pos
+                                        && p.total.is_some_and(|t| p.ord == t - 1)
+                                        && conservative
+                                    {
+                                        consequences &= !Consequence::StopGained;
+                                        consequences |= Consequence::ConservativeInframeDeletion;
                                     }
                                 }
                             } else {
@@ -2378,19 +2363,16 @@ impl ConsequencePredictor {
             if p_ref {
                 custom_fields.insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.clone()));
             }
-            if c_alt || p_alt {
-                if let Ok(alt_data_vec) =
+            if (c_alt || p_alt)
+                && let Ok(alt_data_vec) =
                     AltSeqBuilder::new(compound_var_c.clone(), ref_data).build_altseq()
-                {
-                    if let Some(alt_data) = alt_data_vec.into_iter().next() {
-                        if c_alt {
-                            custom_fields
-                                .insert(ANN_TX_SEQ_ALT.into(), Some(alt_data.transcript_sequence));
-                        }
-                        if p_alt {
-                            custom_fields.insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence));
-                        }
-                    }
+                && let Some(alt_data) = alt_data_vec.into_iter().next()
+            {
+                if c_alt {
+                    custom_fields.insert(ANN_TX_SEQ_ALT.into(), Some(alt_data.transcript_sequence));
+                }
+                if p_alt {
+                    custom_fields.insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence));
                 }
             }
         }
@@ -2592,16 +2574,16 @@ mod test {
     use crate::annotate::cli::{PredictorSettings, TranscriptPickType, TranscriptSettings};
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
-        load_tx_db, run_with_writer, Args, AsyncAnnotatedVariantWriter, PathOutput,
+        Args, AsyncAnnotatedVariantWriter, PathOutput, load_tx_db, run_with_writer,
     };
-    use crate::common::noodles::{open_variant_reader, open_variant_writer, NoodlesVariantReader};
     use crate::common::TsvContigStyle;
+    use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
     use csv::ReaderBuilder;
     use futures::TryStreamExt;
     use insta::assert_yaml_snapshot;
-    use noodles::vcf::variant::record_buf::info::field::value::Array;
-    use noodles::vcf::variant::record_buf::info::field::Value;
     use noodles::vcf::variant::Record as NoodlesRecord;
+    use noodles::vcf::variant::record_buf::info::field::Value;
+    use noodles::vcf::variant::record_buf::info::field::value::Array;
     use pretty_assertions::assert_eq;
     use serde::Deserialize;
     use std::collections::BTreeMap;
@@ -3309,7 +3291,9 @@ mod test {
             // Because for this variant our highest impact is "HIGH" and vep's is not (and because we filter for the highest impact), skip it.
             // We predict FrameshiftVariant, FrameshiftTruncation, SpliceRegionVariant and ThreePrimeUtrExonVariant,
             // while vep calls "splice_region_variant", "coding_sequence_variant", "3_prime_UTR_variant".
-            if record.var == "17-41196310-GGTGGAAGTGTTTGCTACCAAGTTTATTTGCAGTGTTAACAGCACAACATTTACAAAACGTATTTTGTACAATCAAGTCTTCACTGCCCTTGCACACTGGGGGGGCTAGGGAAGACCTAGTCCTTCCAACAGCTATAAACAGTCCTGGATAATGGGTTTATGAAAAACACTTTTTCTTCCTTCAGCAAGCAAAATTATTTATGAAGCTGTATGGTTTCAGCAACAGGGAGCAAAGGAAAAAAATCACCTCAAAGAAAGCAACAGCTTCCTTCCTGGTGGGATCTGTCATTTTATAGATATGAAATATTCATGCCAGAGGTCTTATATTTTAAGAGGAATGGATTATATACCAGAGCTACAACAATAAACATTTTACTTATTACTAATGAGGAATTAGAAGACTGTCTTTGGAAACCGGTTCTTGAAAATCTTCTGCTGTTTTAGAACACATTCTTTAGAAATCTAGCAAATATATCTCAGACTTTTAGAAATCTCTTCTAGTTTCATTTTCCTTTTTTTTTTTTTTTTTTTGAGCCACAGTCTCACTGTCACCCAGGCTGGAGTGCCGTGGTATGATCTTGGCTCACTGCAACCTCCACCTCCCGGGCTGAAGTGATTCTCCTGCCTTAGCCACCTGAGTAGCTGGGATTACAGGTGTCCACCACCATGACCGGCTAATTTCTGTATTTTTAGTAGAGATGGGGTTTCACCATGTTGGCCAGGCTGGTTTCGAACTCCTGACCTCCAGTGATCTGCCCACCTTGGCCTCCCAAAGTGCTGGGATTACAGGCGTGAGCCACCATGCCCAGGTTTCAAGTTTCCTTTTCATTTCTAATACCTGCCTCAGAATTTCCTCCCCAATGTTCCACTCCAACATTTGAGAACTGCCCAAGGACTATTCTGACTTTAAGTCACATAATCGATCCCAAGCACTCTCCTTCCATTGAAGGGTCTGACTCTCTGCCTTTGTGAACACAGGGTTTTAGAGAAGTAAACTTAGGGAAACCAGCTATTCTCTTGAGGCCAAGCCACTCTGTGCTTCCAGCCCTAAGCCAACAACAGCCTGAATAGAAAGAATAGGGCTGATAAATAATGAATCAGCATCTTGCTCAATTGGTGGCGTTTAAATGGTTTTAAAATCTTCTCAGGTGAAAAATTACCATAATTTTGTGCTCATGGCAGATTTCCAAGGGAGACTTCAAGCAGAAAATCTTTAAGGGACCCTTGCATAGCCAGAAGTCCTTTTCAGGCTGATGTACATAAAATATTTAGTAGCCAGGACAGTAGAAGGACTGAAGAGTGAGAGGAGCTCCCAGGGCCTGGAAAGGCCACTTTGTAAGCTCATTCTTGGGGTCCTGTGGCTCTGTACCTGTGGCTGGCTGCAGTCAGTAGTGGCTGTGGGGGATCTGGGGTATCAGGTAGGTGTCCAGCTCCTGGCACTGGTAGAGTGCTACACTGTCCAACACCCACTCTCGGGTCACCACAGGTGCCTCACACATCTGCCCAATT-G" {
+            if record.var
+                == "17-41196310-GGTGGAAGTGTTTGCTACCAAGTTTATTTGCAGTGTTAACAGCACAACATTTACAAAACGTATTTTGTACAATCAAGTCTTCACTGCCCTTGCACACTGGGGGGGCTAGGGAAGACCTAGTCCTTCCAACAGCTATAAACAGTCCTGGATAATGGGTTTATGAAAAACACTTTTTCTTCCTTCAGCAAGCAAAATTATTTATGAAGCTGTATGGTTTCAGCAACAGGGAGCAAAGGAAAAAAATCACCTCAAAGAAAGCAACAGCTTCCTTCCTGGTGGGATCTGTCATTTTATAGATATGAAATATTCATGCCAGAGGTCTTATATTTTAAGAGGAATGGATTATATACCAGAGCTACAACAATAAACATTTTACTTATTACTAATGAGGAATTAGAAGACTGTCTTTGGAAACCGGTTCTTGAAAATCTTCTGCTGTTTTAGAACACATTCTTTAGAAATCTAGCAAATATATCTCAGACTTTTAGAAATCTCTTCTAGTTTCATTTTCCTTTTTTTTTTTTTTTTTTTGAGCCACAGTCTCACTGTCACCCAGGCTGGAGTGCCGTGGTATGATCTTGGCTCACTGCAACCTCCACCTCCCGGGCTGAAGTGATTCTCCTGCCTTAGCCACCTGAGTAGCTGGGATTACAGGTGTCCACCACCATGACCGGCTAATTTCTGTATTTTTAGTAGAGATGGGGTTTCACCATGTTGGCCAGGCTGGTTTCGAACTCCTGACCTCCAGTGATCTGCCCACCTTGGCCTCCCAAAGTGCTGGGATTACAGGCGTGAGCCACCATGCCCAGGTTTCAAGTTTCCTTTTCATTTCTAATACCTGCCTCAGAATTTCCTCCCCAATGTTCCACTCCAACATTTGAGAACTGCCCAAGGACTATTCTGACTTTAAGTCACATAATCGATCCCAAGCACTCTCCTTCCATTGAAGGGTCTGACTCTCTGCCTTTGTGAACACAGGGTTTTAGAGAAGTAAACTTAGGGAAACCAGCTATTCTCTTGAGGCCAAGCCACTCTGTGCTTCCAGCCCTAAGCCAACAACAGCCTGAATAGAAAGAATAGGGCTGATAAATAATGAATCAGCATCTTGCTCAATTGGTGGCGTTTAAATGGTTTTAAAATCTTCTCAGGTGAAAAATTACCATAATTTTGTGCTCATGGCAGATTTCCAAGGGAGACTTCAAGCAGAAAATCTTTAAGGGACCCTTGCATAGCCAGAAGTCCTTTTCAGGCTGATGTACATAAAATATTTAGTAGCCAGGACAGTAGAAGGACTGAAGAGTGAGAGGAGCTCCCAGGGCCTGGAAAGGCCACTTTGTAAGCTCATTCTTGGGGTCCTGTGGCTCTGTACCTGTGGCTGGCTGCAGTCAGTAGTGGCTGTGGGGGATCTGGGGTATCAGGTAGGTGTCCAGCTCCTGGCACTGGTAGAGTGCTACACTGTCCAACACCCACTCTCGGGTCACCACAGGTGCCTCACACATCTGCCCAATT-G"
+            {
                 continue;
             }
 

@@ -1,15 +1,15 @@
 //! Transcript database.
 
 use crate::annotate::seqvars::ann::FeatureTag;
-use crate::common::{trace_rss_now, GenomeRelease};
+use crate::common::{GenomeRelease, trace_rss_now};
 use crate::pbs::txs::{Assembly, Source, SourceVersion, TxSeqDatabase};
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 use clap::{Parser, ValueEnum};
 use derive_new::new;
-use enumflags2::{bitflags, BitFlag, BitFlags};
+use enumflags2::{BitFlag, BitFlags, bitflags};
 use hgvs::data::cdot::json::models;
 use hgvs::data::cdot::json::models::{BioType, Gene, GenomeAlignment, Tag, Transcript};
-use hgvs::sequences::{translate_cds, TranslationTable};
+use hgvs::sequences::{TranslationTable, translate_cds};
 use itertools::Itertools;
 use nutype::nutype;
 use once_cell::sync::Lazy;
@@ -19,8 +19,8 @@ use rayon::prelude::*;
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
 use serde::Serialize;
 use serde_json::json;
-use serde_with::serde_as;
 use serde_with::DisplayFromStr;
+use serde_with::serde_as;
 use std::cmp::{PartialEq, Reverse};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
@@ -615,10 +615,10 @@ impl TranscriptLoader {
             let versioned = Self::by_release_and_version(p.txs);
             let (tx_ac, tx_version) = p.tx_ids[p.idx].split_version();
             for release in p.txs[p.idx].genome_builds.keys() {
-                if let Some(other) = versioned.get(&(release.into(), tx_ac.to_string())) {
-                    if other.iter().any(|(version, _tx)| *version > tx_version) {
-                        return true;
-                    }
+                if let Some(other) = versioned.get(&(release.into(), tx_ac.to_string()))
+                    && other.iter().any(|(version, _tx)| *version > tx_version)
+                {
+                    return true;
                 }
             }
             false
@@ -746,7 +746,7 @@ impl TranscriptLoader {
         // accommodate for how they are fixed by poly-A tailing.
         let invalid_cds_length = |tx: &Transcript| -> bool {
             if tx.protein_coding() {
-                tx.cds_length().map_or(true, |l| l % 3 != 0)
+                tx.cds_length().is_none_or(|l| l % 3 != 0)
             } else {
                 false
             }
@@ -756,11 +756,10 @@ impl TranscriptLoader {
             .transcript_id_to_transcript
             .par_iter()
             .partition_map(|(tx_id, tx)| {
-                if let Some(d) = self.discards.get(&Identifier::Transcript(tx_id.clone())) {
-                    if d.intersects(Reason::hard()) {
+                if let Some(d) = self.discards.get(&Identifier::Transcript(tx_id.clone()))
+                    && d.intersects(Reason::hard()) {
                         return Either::Left((Identifier::Transcript(tx_id.clone()), *d));
                     }
-                }
                 let has_invalid_cds_length = invalid_cds_length(tx);
 
                 let namespace: String = if tx_id.starts_with("ENST") {
@@ -1311,7 +1310,7 @@ impl TranscriptLoader {
                 .filter(|&tx_id| {
                     self.discards
                         .get(&Identifier::Transcript(tx_id.clone()))
-                        .map_or(true, |reason| !reason.intersects(Reason::hard()))
+                        .is_none_or(|reason| !reason.intersects(Reason::hard()))
                 })
                 .cloned()
                 .collect();
@@ -2036,7 +2035,7 @@ pub mod test {
     use crate::db::create::{GeneId, TranscriptLoader, TxSource};
     use crate::db::dump;
 
-    use super::{run, Args};
+    use super::{Args, run};
 
     #[test]
     fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {
@@ -2049,24 +2048,28 @@ pub mod test {
         tx_data.apply_fixes(&Some(labels));
 
         eprintln!("{:#?}", &tx_data.gene_id_to_transcript_ids);
-        insta::assert_yaml_snapshot!(tx_data
-            .gene_id_to_transcript_ids
-            .get(&GeneId::Hgnc(1100))
-            .unwrap()
-            .iter()
-            .map(|s| s.as_str())
-            .sorted_unstable()
-            .collect::<Vec<_>>());
+        insta::assert_yaml_snapshot!(
+            tx_data
+                .gene_id_to_transcript_ids
+                .get(&GeneId::Hgnc(1100))
+                .unwrap()
+                .iter()
+                .map(|s| s.as_str())
+                .sorted_unstable()
+                .collect::<Vec<_>>()
+        );
 
         tx_data.filter_transcripts()?;
-        insta::assert_yaml_snapshot!(tx_data
-            .gene_id_to_transcript_ids
-            .get(&GeneId::Hgnc(1100))
-            .unwrap()
-            .iter()
-            .map(|s| s.as_str())
-            .sorted_unstable()
-            .collect::<Vec<_>>());
+        insta::assert_yaml_snapshot!(
+            tx_data
+                .gene_id_to_transcript_ids
+                .get(&GeneId::Hgnc(1100))
+                .unwrap()
+                .iter()
+                .map(|s| s.as_str())
+                .sorted_unstable()
+                .collect::<Vec<_>>()
+        );
 
         insta::assert_snapshot!(&tx_data.cdot_version);
 

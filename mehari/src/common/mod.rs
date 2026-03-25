@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use crate::pbs::txs::GenomeBuild;
-use biocommons_bioutils::assemblies::{Assembly, ASSEMBLY_INFOS};
+use biocommons_bioutils::assemblies::{ASSEMBLY_INFOS, Assembly};
 use byte_unit::{Byte, UnitType};
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
@@ -258,13 +258,14 @@ pub fn guess_assembly(
             } else {
                 result = Some(*assembly);
             }
-        } else if let Some(initial_assembly) = initial_assembly {
-            if initial_assembly == *assembly && incompatible > 0 {
-                return Err(anyhow::anyhow!(
-                    "Incompatible with initial assembly {:?}",
-                    initial_assembly
-                ));
-            }
+        } else if let Some(initial_assembly) = initial_assembly
+            && initial_assembly == *assembly
+            && incompatible > 0
+        {
+            return Err(anyhow::anyhow!(
+                "Incompatible with initial assembly {:?}",
+                initial_assembly
+            ));
         }
     }
 

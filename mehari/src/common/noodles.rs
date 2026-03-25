@@ -3,13 +3,13 @@
 use std::path::Path;
 
 use anyhow::Error;
+use futures::StreamExt;
 use futures::future::join_all;
 use futures::stream::LocalBoxStream;
-use futures::StreamExt;
 use noodles::bcf;
 use noodles::vcf;
-use noodles::vcf::variant::RecordBuf;
 use noodles::vcf::Header;
+use noodles::vcf::variant::RecordBuf;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::annotate::seqvars::AsyncAnnotatedVariantWriter;
