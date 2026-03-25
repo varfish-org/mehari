@@ -2249,6 +2249,25 @@ impl ConsequencePredictor {
 
         let mut total_delta = 0i32;
         for edit in &n_edits {
+            if edit.replace_start > alt_seq.len() || edit.replace_end > alt_seq.len() {
+                tracing::warn!(
+                    "Edit range out of bounds: {}..{} exceeds sequence length {}. Cannot assemble variant.",
+                    edit.replace_start,
+                    edit.replace_end,
+                    alt_seq.len()
+                );
+                return Ok(None);
+            }
+
+            if edit.replace_start > edit.replace_end {
+                tracing::warn!(
+                    "Invalid edit range: start {} > end {}. Cannot assemble variant.",
+                    edit.replace_start,
+                    edit.replace_end
+                );
+                return Ok(None);
+            }
+
             alt_seq.replace_range(edit.replace_start..edit.replace_end, &edit.alt);
             let orig_len = edit.replace_end - edit.replace_start;
             total_delta += edit.alt.len() as i32 - orig_len as i32;
@@ -2262,9 +2281,10 @@ impl ConsequencePredictor {
         let start_idx = (n_min - 1) as usize;
         let end_idx = start_idx + new_length as usize;
 
-        if end_idx > alt_seq.len() {
+        if start_idx > alt_seq.len() || end_idx > alt_seq.len() {
             tracing::warn!(
-                "Slice index out of bounds: {} > {} (alt_seq length). Cannot assemble variant.",
+                "Slice index out of bounds: start={} end={} > {} (alt_seq length). Cannot assemble variant.",
+                start_idx,
                 end_idx,
                 alt_seq.len()
             );
