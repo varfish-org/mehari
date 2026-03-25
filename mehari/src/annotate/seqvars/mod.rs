@@ -2518,6 +2518,10 @@ impl<'a> VariantProcessor<'a> {
                     .collect();
 
                 if let Ok(Some(ann_fields)) = predictor.predict_multiple(&vcf_vars) {
+                    if ann_fields.is_empty() {
+                        continue;
+                    }
+
                     self.next_group_id += 1;
                     let group_id_str = format!("comp_{}", self.next_group_id);
 
@@ -2536,10 +2540,13 @@ impl<'a> VariantProcessor<'a> {
                             all_anns.extend(arr.iter().cloned());
                         }
                         all_anns.extend(new_ann_strings.clone());
-                        record.info_mut().insert(
-                            "ANN".into(),
-                            Some(field::Value::Array(field::value::Array::String(all_anns))),
-                        );
+
+                        if !all_anns.is_empty() {
+                            record.info_mut().insert(
+                                "ANN".into(),
+                                Some(field::Value::Array(field::value::Array::String(all_anns))),
+                            );
+                        }
 
                         let mut group_ids = Vec::new();
                         if let Some(Some(field::Value::Array(field::value::Array::String(arr)))) =
