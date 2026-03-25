@@ -13,7 +13,8 @@ use self::ann::{AnnField, FeatureBiotype};
 use crate::annotate::cli::{PredictorSettings, Sources};
 use crate::annotate::genotype_string;
 use crate::annotate::seqvars::ann::{
-    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
+    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, ANN_TX_SEQ_ALT,
+    ANN_TX_SEQ_REF,
 };
 use crate::annotate::seqvars::csq::{
     Config, ConfigBuilder as ConsequencePredictorConfigBuilder, ConfigBuilder,
@@ -156,7 +157,6 @@ fn build_header(
     with_annotations: bool,
     with_frequencies: bool,
     with_clinvar: bool,
-    with_compound_variants: bool,
     additional_records: &[(String, String)],
     csq_config: &Config,
 ) -> VcfHeader {
@@ -266,17 +266,6 @@ fn build_header(
                 format!("Functional annotations: '{fields}'"),
             ),
         );
-
-        if with_compound_variants {
-            header_out.infos_mut().insert(
-                "COMPOUND_IDS".into(),
-                Map::<Info>::new(
-                    Number::Unknown,
-                    InfoType::String,
-                    "Identifier(s) of the compound variant group(s) a record belongs to",
-                ),
-            );
-        }
     }
 
     if with_clinvar {
@@ -1924,13 +1913,38 @@ impl ConsequenceAnnotator {
         } = vcf_var.clone();
 
         // Annotate with variant effect.
-        if let Some(ann_fields) = self.predictor.predict(&VcfVariant {
-            chromosome: chrom,
+        if let Some(mut ann_fields) = self.predictor.predict(&VcfVariant {
+            chromosome: chrom.clone(),
             position: pos,
-            reference,
-            alternative,
+            reference: reference.clone(),
+            alternative: alternative.clone(),
         })? && !ann_fields.is_empty()
         {
+            let has_group_id = self
+                .predictor
+                .config
+                .custom_columns
+                .contains(&ANN_COMPOUND_IDS.to_string());
+            let has_group_vars = self
+                .predictor
+                .config
+                .custom_columns
+                .contains(&ANN_COMPOUND_VARIANTS.to_string());
+
+            if has_group_id || has_group_vars {
+                let var_id = format!("{}:{}:{}:{}", chrom, pos, reference, alternative);
+                for ann in &mut ann_fields {
+                    if has_group_id {
+                        ann.custom_fields
+                            .insert(ANN_COMPOUND_IDS.to_string(), Some("Single".to_string()));
+                    }
+                    if has_group_vars {
+                        ann.custom_fields
+                            .insert(ANN_COMPOUND_VARIANTS.to_string(), Some(var_id.clone()));
+                    }
+                }
+            }
+
             record.info_mut().insert(
                 "ANN".into(),
                 Some(field::Value::Array(field::value::Array::String(
@@ -2098,6 +2112,16 @@ async fn run_with_writer(
         custom_columns.push(ANN_AA_SEQ_ALT.to_string());
     }
 
+    let enable_compound = args
+        .predictor_settings
+        .compound_settings
+        .enable_compound_variants;
+
+    if enable_compound {
+        custom_columns.push(ANN_COMPOUND_IDS.to_string());
+        custom_columns.push(ANN_COMPOUND_VARIANTS.to_string());
+    }
+
     // TODO: manually rebuilding Config here so we can automatically build the VCF ANN header
     //   is not the best way of doing things.
     let csq_config = ConfigBuilder::default()
@@ -2106,17 +2130,11 @@ async fn run_with_writer(
         .custom_columns(custom_columns)
         .build()?;
 
-    let enable_compound = args
-        .predictor_settings
-        .compound_settings
-        .enable_compound_variants;
-
     let header_out = build_header(
         &header_in,
         with_annotations,
         with_frequencies,
         with_clinvar,
-        enable_compound,
         &additional_header_info,
         &csq_config,
     );
@@ -2517,13 +2535,32 @@ impl<'a> VariantProcessor<'a> {
                     .map(|&i| variants[i].vcf_var.clone())
                     .collect();
 
-                if let Ok(Some(ann_fields)) = predictor.predict_multiple(&vcf_vars) {
+                if let Ok(Some(mut ann_fields)) = predictor.predict_multiple(&vcf_vars) {
                     if ann_fields.is_empty() {
                         continue;
                     }
 
                     self.next_group_id += 1;
                     let group_id_str = format!("comp_{}", self.next_group_id);
+                    let constituent_vars_str = vcf_vars
+                        .iter()
+                        .map(|v| {
+                            format!(
+                                "{}:{}:{}:{}",
+                                v.chromosome, v.position, v.reference, v.alternative
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(",");
+
+                    for ann in &mut ann_fields {
+                        ann.custom_fields
+                            .insert(ANN_COMPOUND_IDS.to_string(), Some(group_id_str.clone()));
+                        ann.custom_fields.insert(
+                            ANN_COMPOUND_VARIANTS.to_string(),
+                            Some(constituent_vars_str.clone()),
+                        );
+                    }
 
                     let new_ann_strings: Vec<Option<String>> = ann_fields
                         .iter()
@@ -2547,18 +2584,6 @@ impl<'a> VariantProcessor<'a> {
                                 Some(field::Value::Array(field::value::Array::String(all_anns))),
                             );
                         }
-
-                        let mut group_ids = Vec::new();
-                        if let Some(Some(field::Value::Array(field::value::Array::String(arr)))) =
-                            record.info().get("COMPOUND_IDS")
-                        {
-                            group_ids.extend(arr.iter().cloned());
-                        }
-                        group_ids.push(Some(group_id_str.clone()));
-                        record.info_mut().insert(
-                            "COMPOUND_IDS".into(),
-                            Some(field::Value::Array(field::value::Array::String(group_ids))),
-                        );
                     }
                 }
             }

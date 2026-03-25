@@ -1,4 +1,4 @@
-use crate::annotate::seqvars::ann::ANN_AA_SEQ_ALT;
+use crate::annotate::seqvars::ann::{ANN_AA_SEQ_ALT, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS};
 use crate::common::noodles::NoodlesVariantReader;
 use anyhow::{Context, Error};
 use clap::Args as ClapArgs;
@@ -46,7 +46,14 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
     let gene_name_idx = columns.iter().position(|&c| c == "Gene_Name").unwrap_or(3);
     let hgvs_p_idx = columns.iter().position(|&c| c == "HGVS.p").unwrap_or(10);
 
-    tracing::info!("Found AA_SEQ_ALT at ANN index {}.", aa_seq_idx);
+    let group_id_idx = columns
+        .iter()
+        .position(|&c| c == ANN_COMPOUND_IDS)
+        .unwrap_or(usize::MAX);
+    let group_vars_idx = columns
+        .iter()
+        .position(|&c| c == ANN_COMPOUND_VARIANTS)
+        .unwrap_or(usize::MAX);
 
     let out_file = File::create(&args.path_output_fasta)?;
     let mut fasta_writer = fasta::io::Writer::new(BufWriter::new(out_file));
@@ -68,17 +75,37 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
                     let aa_seq = fields[aa_seq_idx].trim();
 
                     if !aa_seq.is_empty() && aa_seq != "." {
-                        let feature_id = fields.get(feature_id_idx).unwrap_or(&"UnknownFeature");
+                        let feature_id =
+                            fields.get(feature_id_idx).unwrap_or(&"UnknownFeature");
                         let gene_name = fields.get(gene_name_idx).unwrap_or(&"UnknownGene");
                         let hgvs_p = fields.get(hgvs_p_idx).unwrap_or(&"");
 
-                        let header_string =
-                            format!("{}|{} variant={}", gene_name, feature_id, hgvs_p);
+                        let group_id = if group_id_idx < fields.len() {
+                            fields[group_id_idx].trim()
+                        } else {
+                            "Single"
+                        };
+                        let group_vars = if group_vars_idx < fields.len() {
+                            fields[group_vars_idx].trim()
+                        } else {
+                            "unknown_vars"
+                        };
+
+                        let header_string = format!(
+                            "{}|{} variant={} group={} vars={}",
+                            gene_name, feature_id, hgvs_p, group_id, group_vars
+                        );
 
                         if seen_headers.insert(header_string.clone()) {
                             let definition = fasta::record::Definition::new(
                                 format!("{}|{}", gene_name, feature_id),
-                                Some(format!("variant={}", hgvs_p).into()),
+                                Some(
+                                    format!(
+                                        "variant={} group={} vars={}",
+                                        hgvs_p, group_id, group_vars
+                                    )
+                                    .into(),
+                                ),
                             );
 
                             let sequence =
