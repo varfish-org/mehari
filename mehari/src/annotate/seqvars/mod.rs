@@ -61,6 +61,7 @@ use tokio::io::AsyncWriteExt;
 pub mod ann;
 pub mod binning;
 pub mod csq;
+mod mnv;
 pub mod provider;
 pub(crate) mod reference;
 
