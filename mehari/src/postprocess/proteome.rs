@@ -5,7 +5,7 @@ use clap::{Args as ClapArgs, ValueEnum};
 use noodles::fasta;
 use noodles::vcf;
 use noodles::vcf::variant::record_buf::info::field::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io::BufWriter;
 
@@ -83,7 +83,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
     let mut fasta_writer = fasta::io::Writer::new(BufWriter::new(out_file));
 
     let mut seen_headers = HashSet::new();
-    let mut transcript_buffer: HashMap<String, Vec<ParsedEvent>> = HashMap::new();
+    let mut transcript_buffer: BTreeMap<String, Vec<ParsedEvent>> = BTreeMap::new();
     let mut sequences_written = 0;
 
     let mut records = reader.records(&header).await;
