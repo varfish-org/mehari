@@ -156,6 +156,7 @@ fn build_header(
     with_annotations: bool,
     with_frequencies: bool,
     with_clinvar: bool,
+    with_compound_variants: bool,
     additional_records: &[(String, String)],
     csq_config: &Config,
 ) -> VcfHeader {
@@ -266,14 +267,16 @@ fn build_header(
             ),
         );
 
-        header_out.infos_mut().insert(
-            "COMPOUND_IDS".into(),
-            Map::<Info>::new(
-                Number::Unknown,
-                InfoType::String,
-                "Identifier(s) of the compound variant group(s) a record belongs to",
-            ),
-        );
+        if with_compound_variants {
+            header_out.infos_mut().insert(
+                "COMPOUND_IDS".into(),
+                Map::<Info>::new(
+                    Number::Unknown,
+                    InfoType::String,
+                    "Identifier(s) of the compound variant group(s) a record belongs to",
+                ),
+            );
+        }
     }
 
     if with_clinvar {
@@ -2103,20 +2106,22 @@ async fn run_with_writer(
         .custom_columns(custom_columns)
         .build()?;
 
+    let enable_compound = args
+        .predictor_settings
+        .compound_settings
+        .enable_compound_variants;
+
     let header_out = build_header(
         &header_in,
         with_annotations,
         with_frequencies,
         with_clinvar,
+        enable_compound,
         &additional_header_info,
         &csq_config,
     );
 
     // Perform the VCF annotation.
-    let enable_compound = args
-        .predictor_settings
-        .compound_settings
-        .enable_compound_variants;
     let mut processor = VariantProcessor::new(
         &annotator,
         header_in.clone(),
