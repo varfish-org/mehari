@@ -217,8 +217,14 @@ pub struct CompoundSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
 pub enum PhasingStrategy {
     /// Variants are only grouped if explicitly phased ('|') and sharing a Phase Set (PS).
+    /// Unphased variants are evaluated independently.
     #[default]
     Strict,
-    /// Variants in the same transcript on the same haplotype are grouped, ignoring missing phasing metadata.
+
+    /// Respects explicit phasing, but treats homozygous variants as universally phased
+    /// Unphased heterozygous variants remain independent.
+    Relaxed,
+
+    /// Completely ignores phasing metadata and _assumes_ all variants on the transcript are on the same haplotype.
     Ignore,
 }
