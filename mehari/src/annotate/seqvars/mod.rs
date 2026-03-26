@@ -2144,11 +2144,8 @@ async fn run_with_writer(
     );
 
     // Perform the VCF annotation.
-    let mut processor = VariantProcessor::new(
-        &annotator,
-        header_in.clone(),
-        &args.predictor_settings.compound_settings,
-    );
+    let mut processor =
+        VariantProcessor::new(&annotator, &args.predictor_settings.compound_settings);
 
     tracing::info!("Annotating VCF ...");
     let start = Instant::now();
@@ -2454,22 +2451,17 @@ fn get_transcript_boundaries(
 struct VariantProcessor<'a> {
     annotator: &'a Annotator,
     buffer: crate::annotate::seqvars::compound::VariantBuffer,
-    header: noodles::vcf::Header,
     next_group_id: usize,
 }
 
 impl<'a> VariantProcessor<'a> {
     pub fn new(
         annotator: &'a Annotator,
-        header: noodles::vcf::Header,
         compound_settings: &crate::annotate::cli::CompoundSettings,
     ) -> Self {
         Self {
             annotator,
-            buffer: crate::annotate::seqvars::compound::VariantBuffer::new(
-                compound_settings.phasing_strategy,
-            ),
-            header,
+            buffer: compound::VariantBuffer::new(compound_settings.phasing_strategy),
             next_group_id: 0,
         }
     }
@@ -2511,7 +2503,6 @@ impl<'a> VariantProcessor<'a> {
         let sample_idx = 0;
 
         self.buffer.push(
-            &self.header,
             csq_var,
             record,
             tx_accessions,

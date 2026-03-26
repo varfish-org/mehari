@@ -11,6 +11,10 @@ pub enum PhaseGroup {
         phase_set: Option<i32>,
         haplotype_idx: usize,
     },
+
+    /// Allele present on all haplotypes.
+    Homozygous,
+
     /// Unphased allele.
     Unphased,
 }
@@ -59,7 +63,6 @@ impl VariantBuffer {
     /// Push a variant into the sliding window and update the genomic boundaries.
     pub fn push(
         &mut self,
-        header: &noodles::vcf::Header,
         vcf_var: crate::annotate::seqvars::csq::VcfVariant,
         record: RecordBuf,
         tx_accessions: HashSet<String>,
@@ -77,7 +80,7 @@ impl VariantBuffer {
             self.max_tx_end = std::cmp::max(self.max_tx_end, max_tx_end);
         }
 
-        let phase_groups = self.extract_phasing(header, &record, sample_idx, alt_allele_idx);
+        let phase_groups = self.extract_phasing(&record, sample_idx, alt_allele_idx);
 
         self.buffer.push(BufferedVariant {
             vcf_var,
@@ -95,6 +98,13 @@ impl VariantBuffer {
         let mut transcript_buckets: HashMap<String, Vec<usize>> = HashMap::new();
 
         for (idx, b_var) in all_variants.iter().enumerate() {
+            tracing::trace!(
+                "Evaluating buffered variant {}:{} against transcript bounds {}-{}",
+                b_var.vcf_var.chromosome,
+                b_var.vcf_var.position,
+                b_var.min_tx_start,
+                b_var.max_tx_end
+            );
             for tx in &b_var.tx_accessions {
                 transcript_buckets.entry(tx.clone()).or_default().push(idx);
             }
@@ -109,10 +119,30 @@ impl VariantBuffer {
             }
 
             let mut phase_buckets: HashMap<PhaseGroup, Vec<usize>> = HashMap::new();
+            let mut homozygous_indices = Vec::new();
+
             for &idx in &indices {
                 for pg in &all_variants[idx].phase_groups {
-                    phase_buckets.entry(pg.clone()).or_default().push(idx);
+                    if *pg == PhaseGroup::Homozygous {
+                        homozygous_indices.push(idx);
+                    } else if matches!(pg, PhaseGroup::Phased { .. }) {
+                        phase_buckets.entry(pg.clone()).or_default().push(idx);
+                    }
                 }
+            }
+
+            for grouped_indices in phase_buckets.values_mut() {
+                grouped_indices.extend(homozygous_indices.iter().copied());
+            }
+
+            if phase_buckets.is_empty() && homozygous_indices.len() > 1 {
+                phase_buckets.insert(
+                    PhaseGroup::Phased {
+                        phase_set: None,
+                        haplotype_idx: 0,
+                    },
+                    homozygous_indices,
+                );
             }
 
             for (phase_group, mut grouped_indices) in phase_buckets {
@@ -140,13 +170,18 @@ impl VariantBuffer {
     }
 
     /// Extract Genotype and Phase Set to determine phasing of an allele.
+    // Notice we don't even need the `header` argument anymore!
     fn extract_phasing(
         &self,
-        header: &noodles::vcf::Header,
         record: &RecordBuf,
         sample_idx: usize,
         alt_allele_idx: usize,
     ) -> Vec<PhaseGroup> {
+        use noodles::vcf::variant::record::samples::series::value::Genotype as GenotypeTrait;
+        use noodles::vcf::variant::record::samples::series::value::genotype::Phasing;
+        use noodles::vcf::variant::record_buf::samples::sample::value::Genotype as BufGenotype;
+        use std::str::FromStr;
+
         let samples = record.samples();
 
         let mut phase_set = None;
@@ -157,43 +192,59 @@ impl VariantBuffer {
             phase_set = Some(*i);
         }
 
-        let mut gt_str = None;
+        let mut parsed_gt: Vec<(Option<usize>, Phasing)> = Vec::new();
+
         if let Some(col) =
             samples.select(noodles::vcf::variant::record::samples::keys::key::GENOTYPE)
             && let Some(val) = col.get(sample_idx)
         {
             match val {
                 Some(Value::String(s)) => {
-                    gt_str = Some(s.to_owned());
+                    if let Ok(gt) = BufGenotype::from_str(s) {
+                        parsed_gt.extend((&gt).iter().filter_map(|res| res.ok()));
+                    }
                 }
                 Some(Value::Genotype(gt)) => {
-                    gt_str = Some(crate::annotate::genotype_string(gt, header.file_format()));
+                    parsed_gt.extend(gt.iter().filter_map(|res| res.ok()));
                 }
                 _ => {}
             }
         }
 
         let mut groups = Vec::new();
-        let alt_str = alt_allele_idx.to_string();
 
-        if let Some(gt) = gt_str {
-            let is_phased = gt.contains('|');
+        if !parsed_gt.is_empty() {
+            let is_homozygous_alt = parsed_gt.len() > 1
+                && parsed_gt
+                    .iter()
+                    .all(|(idx, _)| *idx == Some(alt_allele_idx));
+
+            let is_phased = parsed_gt
+                .iter()
+                .any(|(_, phasing)| *phasing == Phasing::Phased);
 
             if !is_phased && self.strategy == PhasingStrategy::Strict {
                 return vec![PhaseGroup::Unphased];
             }
 
-            for (hap_idx, allele_str) in gt.split(&['|', '/'][..]).enumerate() {
-                if allele_str == alt_str {
-                    if is_phased || self.strategy == PhasingStrategy::Ignore {
+            for (hap_idx, (allele_idx_opt, _phasing)) in parsed_gt.into_iter().enumerate() {
+                if allele_idx_opt == Some(alt_allele_idx) {
+                    if is_phased {
                         groups.push(PhaseGroup::Phased {
-                            phase_set: if self.strategy == PhasingStrategy::Ignore {
-                                Some(1)
-                            } else {
-                                phase_set
-                            },
+                            phase_set,
                             haplotype_idx: hap_idx,
                         });
+                    } else if self.strategy == PhasingStrategy::Ignore {
+                        groups.push(PhaseGroup::Phased {
+                            phase_set: Some(1),
+                            haplotype_idx: hap_idx,
+                        });
+                    } else if self.strategy == PhasingStrategy::Relaxed {
+                        if is_homozygous_alt {
+                            groups.push(PhaseGroup::Homozygous);
+                        } else {
+                            groups.push(PhaseGroup::Unphased);
+                        }
                     } else {
                         groups.push(PhaseGroup::Unphased);
                     }
@@ -203,6 +254,9 @@ impl VariantBuffer {
 
         if groups.is_empty() {
             groups.push(PhaseGroup::Unphased);
+        } else {
+            groups.sort_unstable_by_key(|g| format!("{:?}", g));
+            groups.dedup();
         }
 
         groups
