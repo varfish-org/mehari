@@ -2196,6 +2196,18 @@ impl ConsequencePredictor {
 
                 let n_loc_start = loc.start.base;
                 let n_loc_end = loc.end.base;
+
+                if n_loc_start > n_loc_end {
+                    tracing::warn!(
+                        "Invalid transcript coordinates ({} > {}) after HGVS projection. \
+                        Skipping compound prediction for transcript {}.",
+                        n_loc_start,
+                        n_loc_end,
+                        tx.id
+                    );
+                    return Ok(None);
+                }
+
                 let replace_start;
                 let replace_end;
                 let alt;
@@ -2292,42 +2304,20 @@ impl ConsequencePredictor {
         }
 
         let new_substring = &alt_seq[start_idx..end_idx];
-
-        let c_min = projections
-            .iter()
-            .map(|p| match p.c.as_ref().unwrap() {
-                HgvsVariant::CdsVariant { loc_edit, .. } => loc_edit.loc.inner().start.base,
-                _ => unreachable!(),
-            })
-            .min()
-            .unwrap();
-
-        let c_max = projections
-            .iter()
-            .map(|p| match p.c.as_ref().unwrap() {
-                HgvsVariant::CdsVariant { loc_edit, .. } => loc_edit.loc.inner().end.base,
-                _ => unreachable!(),
-            })
-            .max()
-            .unwrap();
-
-        // build pseudo variant
         let ref_substring = &ref_data.transcript_sequence[(n_min - 1) as usize..n_max as usize];
 
-        let compound_var_c = HgvsVariant::CdsVariant {
-            accession: projections[0].c.as_ref().unwrap().accession().clone(),
-            gene_symbol: projections[0].c.as_ref().unwrap().gene_symbol().clone(),
-            loc_edit: hgvs::parser::CdsLocEdit {
-                loc: Mu::Certain(hgvs::parser::CdsInterval {
-                    start: hgvs::parser::CdsPos {
-                        base: c_min,
+        let compound_var_n = HgvsVariant::TxVariant {
+            accession: projections[0].n.as_ref().unwrap().accession().clone(),
+            gene_symbol: projections[0].n.as_ref().unwrap().gene_symbol().clone(),
+            loc_edit: hgvs::parser::TxLocEdit {
+                loc: Mu::Certain(hgvs::parser::TxInterval {
+                    start: hgvs::parser::TxPos {
+                        base: n_min,
                         offset: None,
-                        cds_from: CdsFrom::Start,
                     },
-                    end: hgvs::parser::CdsPos {
-                        base: c_max,
+                    end: hgvs::parser::TxPos {
+                        base: n_max,
                         offset: None,
-                        cds_from: CdsFrom::Start,
                     },
                 }),
                 edit: Mu::Certain(NaEdit::RefAlt {
@@ -2335,6 +2325,14 @@ impl ConsequencePredictor {
                     alternative: new_substring.to_string(),
                 }),
             },
+        };
+
+        let compound_var_c = match self.mapper.n_to_c(&compound_var_n) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::debug!("Failed to map compound n_loc to c_loc: {}", e);
+                return Ok(None);
+            }
         };
 
         let compound_var_n = HgvsVariant::TxVariant {
