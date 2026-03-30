@@ -3089,6 +3089,7 @@ mod test {
         run_with_writer(
             &mut writer,
             &Args {
+                threads: 1,
                 reference: None,
                 in_memory_reference: true,
                 genome_release: None,

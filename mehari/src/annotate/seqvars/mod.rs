@@ -2654,6 +2654,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            threads: 1,
             reference: None,
             in_memory_reference: true,
             genome_release: None,
@@ -2707,6 +2708,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            threads: 1,
             reference: None,
             in_memory_reference: true,
             genome_release: None,
@@ -2766,6 +2768,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            threads: 1,
             reference: None,
             in_memory_reference: true,
             genome_release: None,
@@ -2819,6 +2822,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            threads: 1,
             reference: None,
             in_memory_reference: true,
             genome_release: None,
@@ -2874,6 +2878,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch37";
         let args = Args {
+            threads: 1,
             reference: None,
             in_memory_reference: true,
             genome_release: None,
@@ -2929,6 +2934,7 @@ mod test {
         let prefix = "tests/data/annotate/db";
         let assembly = "grch38";
         let args = Args {
+            threads: 1,
             reference: None,
             in_memory_reference: true,
             genome_release: None,
