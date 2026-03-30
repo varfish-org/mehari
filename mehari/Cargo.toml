@@ -103,7 +103,7 @@ prost-build = "0.14.3"
 [dev-dependencies]
 csv = "1.4"
 hxdmp = "0.2"
-insta = { version = "1.46", features = ["yaml"] }
+insta = { version = "1.47", features = ["yaml"] }
 pretty_assertions = "1.4"
 rstest = "0.26"
 temp_testdir = "0.2"
