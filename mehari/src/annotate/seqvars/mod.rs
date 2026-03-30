@@ -130,6 +130,12 @@ pub struct Args {
     /// Style for contig names in TSV output.
     #[arg(long, value_enum, default_value_t=TsvContigStyle::Auto)]
     pub tsv_contig_style: TsvContigStyle,
+
+    /// Number of threads to use for annotation.
+    ///
+    /// A sweet spot regarding trade-off between I/O and CPU-bound tasks is around 5.
+    #[arg(long, default_value_t = 1)]
+    pub threads: usize,
 }
 
 #[derive(Debug, Display, Copy, Clone, clap::ValueEnum, PartialEq, Eq, parse_display::FromStr)]
@@ -1996,6 +2002,11 @@ impl Annotator {
 /// Main entry point for `annotate seqvars` sub command.
 pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("config = {:#?}", &args);
+
+    let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(args.threads)
+        .build_global();
+
     if let Some(path_output_vcf) = &args.output.path_output_vcf {
         let mut writer = open_variant_writer(path_output_vcf).await?;
         run_with_writer(&mut writer, args).await?;
@@ -2077,13 +2088,13 @@ async fn run_with_writer(
     writer.set_assembly(assembly);
     tracing::info!("Determined input assembly to be {:?}", &assembly);
 
-    let annotator = setup_seqvars_annotator(
+    let annotator = Arc::new(setup_seqvars_annotator(
         &args.sources,
         args.reference.as_ref(),
         args.in_memory_reference,
         &args.predictor_settings,
         assembly,
-    )?;
+    )?);
 
     let mut additional_header_info = annotator.versions_for_vcf_header();
     additional_header_info.push(("mehariCmd".into(), env::args().join(" ")));
@@ -2150,27 +2161,52 @@ async fn run_with_writer(
     tracing::info!("Annotating VCF ...");
     let start = Instant::now();
     let mut prev = Instant::now();
+    let mut total_read = 0usize;
     let mut total_written = 0usize;
 
     writer.write_noodles_header(&header_out).await?;
 
     use futures::TryStreamExt;
     let mut records = reader.records(&header_in).await;
+
+    let worker_threads = rayon::current_num_threads();
+    let batch_size = worker_threads * 1024;
+
+    let mut next_batch = Vec::with_capacity(batch_size);
+    let mut processing_handle: Option<tokio::task::JoinHandle<anyhow::Result<Vec<VcfRecord>>>> =
+        None;
+
     loop {
-        match records.try_next().await? {
-            Some(mut vcf_record) => {
-                // We currently can only process records with one alternate allele.
-                if vcf_record.alternate_bases().len() != 1 {
-                    tracing::error!(
-                        "Found record with more than one alternate allele.  This is currently not supported. \
-                    Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
-                        &vcf_record
-                    );
-                    anyhow::bail!("multi-allelic records not supported");
+        // fill the `next_batch` buffer asynchronously (happens concurrently while the previous batch is being processed)
+        while next_batch.len() < batch_size {
+            if let Some(max) = args.max_var_count
+                && total_read >= max
+            {
+                break;
+            }
+
+            match records.try_next().await? {
+                Some(vcf_record) => {
+                    if vcf_record.alternate_bases().len() != 1 {
+                        tracing::error!(
+                            "Found record with more than one alternate allele.  This is currently not supported. \
+                             Please use `bcftools norm` to split multi-allelic records. Record: {:?}",
+                            &vcf_record
+                        );
+                        anyhow::bail!("multi-allelic records not supported");
+                    }
+                    next_batch.push(vcf_record);
+                    total_read += 1;
                 }
+                _ => break, // EOF
+            }
+        }
 
-                annotator.annotate(&mut vcf_record)?;
+        // await the previous batch's results and write them out sequentially
+        if let Some(handle) = processing_handle.take() {
+            let processed_batch = handle.await??;
 
+            for vcf_record in processed_batch {
                 if prev.elapsed().as_secs() >= 60 {
                     tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
                     prev = Instant::now();
@@ -2186,22 +2222,30 @@ async fn run_with_writer(
                         .write_noodles_record(&header_out, &vcf_record)
                         .await?;
                 }
-            }
-            _ => {
-                break; // all done
+                total_written += 1;
             }
         }
 
-        total_written += 1;
-        if let Some(max_var_count) = args.max_var_count
-            && total_written >= max_var_count
-        {
-            tracing::warn!(
-                "Stopping after {} records as requested by --max-var-count",
-                total_written
-            );
+        // if there are no more records to process, stop.
+        if next_batch.is_empty() {
             break;
         }
+
+        // process `next_batch` in parallel
+        let batch_to_process = std::mem::replace(&mut next_batch, Vec::with_capacity(batch_size));
+        let annotator_clone = annotator.clone();
+
+        processing_handle = Some(tokio::task::spawn_blocking(move || {
+            use rayon::prelude::*;
+
+            batch_to_process
+                .into_par_iter()
+                .map(|mut record| {
+                    annotator_clone.annotate(&mut record)?;
+                    Ok(record)
+                })
+                .collect::<anyhow::Result<Vec<_>>>()
+        }));
     }
 
     if enable_compound {
