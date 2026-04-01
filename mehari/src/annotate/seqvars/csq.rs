@@ -404,15 +404,10 @@ impl ConsequencePredictor {
     ///
     /// If all transcripts are to be reported then return `ann_fields` as is, otherwise
     /// select one worst consequence per gene.
-    fn filter_ann_fields(&self, ann_fields: Vec<AnnField>) -> Vec<AnnField> {
-        let ann_fields = if !self.config.keep_intergenic {
-            ann_fields
-                .into_iter()
-                .filter(|field| field.consequences != [Consequence::IntergenicVariant])
-                .collect()
-        } else {
-            ann_fields
-        };
+    fn filter_ann_fields(&self, mut ann_fields: Vec<AnnField>) -> Vec<AnnField> {
+        if !self.config.keep_intergenic {
+            ann_fields.retain(|field| field.consequences != [Consequence::IntergenicVariant]);
+        }
 
         /// Return sort order for ANN biotype, gives priority to ManeSelect and ManePlusClinical.
         fn tag_order(tags: &[FeatureTag]) -> i32 {
@@ -425,41 +420,47 @@ impl ConsequencePredictor {
             }
         }
 
-        /// Extract the first (i.e. most severe) consequence per group.
-        fn first_csq_per_group(grouping: HashMap<String, Vec<AnnField>>) -> Vec<AnnField> {
-            // Sort by `Consequence` and `FeatureBiotype`
-            //
-            // This uses the invariant that the consequences in the ANN fields are sorted already
-            // and there is at least one consequence.
-            grouping
-                .into_values()
-                .map(|mut anns| {
-                    anns.sort_by_key(|ann| (ann.consequences[0], tag_order(&ann.feature_tags)));
-                    anns.into_iter().next().unwrap()
-                })
-                .collect()
-        }
-
-        /// Group ANN fields by a key function.
-        fn group_annotations_by<F: Fn(&AnnField) -> String>(
-            ann_fields: Vec<AnnField>,
-            key_fn: F,
-        ) -> HashMap<String, Vec<AnnField>> {
-            ann_fields.into_iter().into_group_map_by(key_fn)
-        }
-
-        match self.config.report_most_severe_consequence_by {
-            // Short-circuit if to report all transcript results.
-            None => ann_fields,
-            Some(group) => {
-                let key = match group {
-                    ConsequenceBy::Gene => |ann: &AnnField| ann.gene_id.clone(),
-                    ConsequenceBy::Transcript => |ann: &AnnField| ann.feature_id.clone(),
-                    ConsequenceBy::Allele => |ann: &AnnField| ann.allele.to_string(),
+        if let Some(group) = &self.config.report_most_severe_consequence_by {
+            // Sort primarily by the grouping key, and secondarily by consequence severity.
+            ann_fields.sort_unstable_by(|a, b| {
+                let key_cmp = match group {
+                    ConsequenceBy::Gene => a.gene_id.cmp(&b.gene_id),
+                    ConsequenceBy::Transcript => a.feature_id.cmp(&b.feature_id),
+                    ConsequenceBy::Allele => a.allele.cmp(&b.allele),
                 };
-                first_csq_per_group(group_annotations_by(ann_fields, key))
-            }
+
+                if key_cmp == std::cmp::Ordering::Equal {
+                    let a_severity = (
+                        a.consequences
+                            .first()
+                            .copied()
+                            .unwrap_or(Consequence::GeneVariant),
+                        tag_order(&a.feature_tags),
+                    );
+                    let b_severity = (
+                        b.consequences
+                            .first()
+                            .copied()
+                            .unwrap_or(Consequence::GeneVariant),
+                        tag_order(&b.feature_tags),
+                    );
+                    a_severity.cmp(&b_severity)
+                } else {
+                    key_cmp
+                }
+            });
+
+            // dedup_by keeps the FIRST element of a consecutive sequence.
+            // Since we sorted the most severe consequence to the front of each group,
+            // this safely retains only the most severe annotation per group.
+            ann_fields.dedup_by(|a, b| match group {
+                ConsequenceBy::Gene => a.gene_id == b.gene_id,
+                ConsequenceBy::Transcript => a.feature_id == b.feature_id,
+                ConsequenceBy::Allele => a.allele == b.allele,
+            });
         }
+
+        ann_fields
     }
 
     fn determine_transcript_context(
