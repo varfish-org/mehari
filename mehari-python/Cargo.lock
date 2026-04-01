@@ -618,6 +618,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "block-buffer"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdd35008169921d80bc60d3d0ab416eecb028c4cd653352907921d95084790be"
+dependencies = [
+ "hybrid-array",
+]
+
+[[package]]
 name = "boolvec"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -778,24 +787,25 @@ dependencies = [
 
 [[package]]
 name = "cached"
-version = "0.56.0"
+version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "801927ee168e17809ab8901d9f01f700cd7d8d6a6527997fee44e4b0327a253c"
+checksum = "53b6f5d101f0f6322c8646a45b7c581a673e476329040d97565815c2461dd0c4"
 dependencies = [
  "ahash 0.8.12",
  "cached_proc_macro",
  "cached_proc_macro_types",
- "hashbrown 0.15.5",
+ "hashbrown 0.16.1",
  "once_cell",
+ "parking_lot",
  "thiserror 2.0.18",
  "web-time",
 ]
 
 [[package]]
 name = "cached_proc_macro"
-version = "0.25.0"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9225bdcf4e4a9a4c08bf16607908eb2fbf746828d5e0b5e019726dbf6571f201"
+checksum = "8ebcf9c75f17a17d55d11afc98e46167d4790a263f428891b8705ab2f793eca3"
 dependencies = [
  "darling 0.20.11",
  "proc-macro2 1.0.106",
@@ -977,6 +987,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "const-oid"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
+
+[[package]]
 name = "const-random"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1086,6 +1102,15 @@ checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
 dependencies = [
  "generic-array",
  "typenum",
+]
+
+[[package]]
+name = "crypto-common"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77727bb15fa921304124b128af125e7e3b968275d1b108b379190264f4423710"
+dependencies = [
+ "hybrid-array",
 ]
 
 [[package]]
@@ -1274,9 +1299,20 @@ version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
- "block-buffer",
- "crypto-common",
+ "block-buffer 0.10.4",
+ "crypto-common 0.1.7",
  "subtle",
+]
+
+[[package]]
+name = "digest"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4850db49bf08e663084f7fb5c87d202ef91a3907271aff24a94eb97ff039153c"
+dependencies = [
+ "block-buffer 0.12.0",
+ "const-oid",
+ "crypto-common 0.2.1",
 ]
 
 [[package]]
@@ -1720,8 +1756,6 @@ version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
 dependencies = [
- "allocator-api2",
- "equivalent",
  "foldhash 0.1.5",
 ]
 
@@ -1760,8 +1794,6 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hgvs"
 version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ec5869010edc75d57cafdca6f5e25cbdcd55c98cf37676975db760a363bb09e"
 dependencies = [
  "ahash 0.8.12",
  "base16ct",
@@ -1772,7 +1804,7 @@ dependencies = [
  "flate2",
  "indexmap",
  "log",
- "md-5",
+ "md-5 0.11.0",
  "nom 8.0.0",
  "nom-language",
  "postgres",
@@ -1791,7 +1823,16 @@ version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
- "digest",
+ "digest 0.10.7",
+]
+
+[[package]]
+name = "hybrid-array"
+version = "0.4.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3944cf8cf766b40e2a1a333ee5e9b563f854d5fa49d6a8ca2764e97c6eddb214"
+dependencies = [
+ "typenum",
 ]
 
 [[package]]
@@ -2311,7 +2352,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
 dependencies = [
  "cfg-if",
- "digest",
+ "digest 0.10.7",
+]
+
+[[package]]
+name = "md-5"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
+dependencies = [
+ "cfg-if",
+ "digest 0.11.2",
 ]
 
 [[package]]
@@ -2654,7 +2705,7 @@ dependencies = [
  "flate2",
  "futures",
  "indexmap",
- "md-5",
+ "md-5 0.10.6",
  "noodles-bam",
  "noodles-core 0.17.0",
  "noodles-fasta 0.52.0",
@@ -3111,7 +3162,7 @@ dependencies = [
  "bytes",
  "fallible-iterator 0.2.0",
  "hmac",
- "md-5",
+ "md-5 0.10.6",
  "memchr",
  "rand 0.9.2",
  "sha2",
@@ -3933,7 +3984,7 @@ checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
- "digest",
+ "digest 0.10.7",
 ]
 
 [[package]]
