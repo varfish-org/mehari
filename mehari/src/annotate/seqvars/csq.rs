@@ -325,17 +325,19 @@ impl ConsequencePredictor {
         }
 
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
-        let anns_all_txs = txs
-            .into_iter()
-            .filter_map(|tx| {
-                let res = if tx.alt_strand == -1 {
-                    self.build_ann_field(var, &var_g_rev, tx, var_start_rev, var_end_rev)
-                } else {
-                    self.build_ann_field(var, &var_g_fwd, tx, var_start_fwd, var_end_fwd)
-                };
-                res.transpose()
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut anns_all_txs = Vec::with_capacity(txs.len());
+
+        for tx in txs {
+            let ann_opt = if tx.alt_strand == -1 {
+                self.build_ann_field(var, &var_g_rev, tx, var_start_rev, var_end_rev)?
+            } else {
+                self.build_ann_field(var, &var_g_fwd, tx, var_start_fwd, var_end_fwd)?
+            };
+
+            if let Some(ann) = ann_opt {
+                anns_all_txs.push(ann);
+            }
+        }
 
         // Return all or worst annotation only.
         Ok(Some(self.filter_ann_fields(anns_all_txs)))

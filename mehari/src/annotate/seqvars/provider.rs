@@ -706,23 +706,30 @@ impl ProviderInterface for Provider {
             .as_ref()
             .expect("no tx_db?")
             .transcripts[tx_idx];
+
+        let hgnc = tx.gene_id.clone();
+        let tx_ac_str = tx_ac.to_string();
+        let alt_ac_str = alt_ac.to_string();
+        let alt_aln_method_str = ALT_ALN_METHOD.to_string();
+
         for genome_alignment in &tx.genome_alignments {
             if genome_alignment.contig == alt_ac {
-                let mut exons: Vec<_> = genome_alignment
-                    .exons
-                    .iter()
-                    .map(|exon| TxExonsRecord {
-                        hgnc: tx.gene_id.clone(),
-                        tx_ac: tx_ac.to_string(),
-                        alt_ac: alt_ac.to_string(),
-                        alt_aln_method: ALT_ALN_METHOD.to_string(),
-                        alt_strand: match Strand::try_from(genome_alignment.strand)
-                            .expect("invalid strand")
-                        {
-                            Strand::Plus => 1,
-                            Strand::Minus => -1,
-                            _ => unreachable!("invalid strand {}", &genome_alignment.strand),
-                        },
+                let alt_strand =
+                    match Strand::try_from(genome_alignment.strand).expect("invalid strand") {
+                        Strand::Plus => 1,
+                        Strand::Minus => -1,
+                        _ => unreachable!("invalid strand {}", &genome_alignment.strand),
+                    };
+
+                let mut exons = Vec::with_capacity(genome_alignment.exons.len());
+
+                for exon in &genome_alignment.exons {
+                    exons.push(TxExonsRecord {
+                        hgnc: hgnc.clone(),
+                        tx_ac: tx_ac_str.clone(),
+                        alt_ac: alt_ac_str.clone(),
+                        alt_aln_method: alt_aln_method_str.clone(),
+                        alt_strand,
                         ord: exon.ord,
                         tx_start_i: exon.alt_cds_start_i.map(|val| val - 1).unwrap_or(-1),
                         tx_end_i: exon.alt_cds_end_i.unwrap_or(-1),
@@ -736,9 +743,10 @@ impl ProviderInterface for Provider {
                         tx_exon_id: i32::MAX,
                         alt_exon_id: i32::MAX,
                         exon_aln_id: i32::MAX,
-                    })
-                    .collect();
-                exons.sort_by_key(|e| e.alt_start_i);
+                    });
+                }
+
+                exons.sort_unstable_by_key(|e| e.alt_start_i);
                 return Ok(exons);
             }
         }
