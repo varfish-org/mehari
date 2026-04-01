@@ -1215,51 +1215,109 @@ impl AnnField {
     }
 
     pub fn format(&self, config: &Config) -> String {
-        fn opt_str(o: &Option<String>) -> String {
-            o.clone().unwrap_or_default()
-        }
-        fn opt_fmt<T: ToString>(o: &Option<T>) -> String {
-            o.as_ref().map(|v| v.to_string()).unwrap_or_default()
-        }
-        fn vec_fmt<T: ToString>(v: &[T]) -> String {
-            v.iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-                .join("&")
-        }
-        fn opt_vec_fmt<T: ToString>(o: &Option<Vec<T>>) -> String {
-            o.as_ref().map(|v| vec_fmt(v)).unwrap_or_default()
+        use std::fmt::Write;
+
+        let mut buf = String::with_capacity(256);
+
+        let _ = write!(buf, "{}|", self.allele);
+
+        let mut first = true;
+        for c in &self.consequences {
+            if !first {
+                buf.push('&');
+            }
+            let _ = write!(buf, "{}", c);
+            first = false;
         }
 
-        let mut parts = vec![
-            self.allele.to_string(),
-            vec_fmt(&self.consequences),
-            self.putative_impact.to_string(),
-            self.gene_symbol.clone(),
-            self.gene_id.clone(),
-            self.feature_type.to_string(),
-            self.feature_id.clone(),
-            vec_fmt(&self.feature_biotype),
-            vec_fmt(&self.feature_tags),
-            opt_fmt(&self.rank),
-            opt_str(&self.hgvs_g),
-            opt_str(&self.hgvs_n),
-            opt_str(&self.hgvs_c),
-            opt_str(&self.hgvs_p),
-            opt_fmt(&self.cdna_pos),
-            opt_fmt(&self.cds_pos),
-            opt_fmt(&self.protein_pos),
-            opt_fmt(&self.distance),
-            self.strand.to_string(),
-            opt_vec_fmt(&self.messages),
-        ];
+        let _ = write!(
+            buf,
+            "|{}|{}|{}|{}|{}|",
+            self.putative_impact,
+            self.gene_symbol,
+            self.gene_id,
+            self.feature_type,
+            self.feature_id
+        );
+
+        first = true;
+        for b in &self.feature_biotype {
+            if !first {
+                buf.push('&');
+            }
+            let _ = write!(buf, "{}", b);
+            first = false;
+        }
+        buf.push('|');
+
+        first = true;
+        for t in &self.feature_tags {
+            if !first {
+                buf.push('&');
+            }
+            let _ = write!(buf, "{}", t);
+            first = false;
+        }
+        buf.push('|');
+
+        if let Some(rank) = &self.rank {
+            let _ = write!(buf, "{}", rank);
+        }
+        buf.push('|');
+        if let Some(g) = &self.hgvs_g {
+            buf.push_str(g);
+        }
+        buf.push('|');
+        if let Some(n) = &self.hgvs_n {
+            buf.push_str(n);
+        }
+        buf.push('|');
+        if let Some(c) = &self.hgvs_c {
+            buf.push_str(c);
+        }
+        buf.push('|');
+        if let Some(p) = &self.hgvs_p {
+            buf.push_str(p);
+        }
+        buf.push('|');
+
+        if let Some(pos) = &self.cdna_pos {
+            let _ = write!(buf, "{}", pos);
+        }
+        buf.push('|');
+        if let Some(pos) = &self.cds_pos {
+            let _ = write!(buf, "{}", pos);
+        }
+        buf.push('|');
+        if let Some(pos) = &self.protein_pos {
+            let _ = write!(buf, "{}", pos);
+        }
+        buf.push('|');
+
+        if let Some(distance) = &self.distance {
+            let _ = write!(buf, "{}", distance);
+        }
+        let _ = write!(buf, "|{}|", self.strand);
+
+        if let Some(messages) = &self.messages {
+            first = true;
+            for m in messages {
+                if !first {
+                    buf.push('&');
+                }
+                let _ = write!(buf, "{}", m);
+                first = false;
+            }
+        }
 
         for col_name in &config.custom_columns {
-            let val = self.custom_fields.get(col_name).and_then(|v| v.clone());
-            parts.push(opt_str(&val));
+            buf.push('|');
+            if let Some(Some(val)) = self.custom_fields.get(col_name) {
+                buf.push_str(val);
+            }
         }
 
-        parts.join("|")
+        buf
     }
 }
 
