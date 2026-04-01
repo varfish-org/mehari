@@ -482,6 +482,11 @@ impl ConsequencePredictor {
         let cds_start = alignment.cds_start.unwrap_or(-1);
         let cds_end = alignment.cds_end.unwrap_or(-1);
 
+        let var_overlaps_cds = var_overlaps(cds_start, cds_end);
+
+        // Insertion ranges are end-exclusive, so subtract 1 from the end, where applicable.
+        let ins_shift = Self::ins_shift(var_g);
+
         // Find first exon that overlaps with variant or intron that contains the variant.
         //
         // Note that exons are stored in genome position order.
@@ -495,8 +500,7 @@ impl ConsequencePredictor {
             let exon_start = exon_alignment.alt_start_i;
             let exon_end = exon_alignment.alt_end_i;
 
-            let is_utr = exon_start < cds_start && !var_overlaps(cds_start, cds_end)
-                || exon_end > cds_end && !var_overlaps(cds_start, cds_end);
+            let is_utr = !(var_overlaps_cds || exon_start >= cds_start && exon_end <= cds_end);
 
             // Check the cases where the variant overlaps with the exon or is contained within an
             // intron.
@@ -539,7 +543,7 @@ impl ConsequencePredictor {
 
             if let Some(intron_start) = prev_end {
                 consequences |= Self::analyze_intronic_variant(
-                    var_g,
+                    ins_shift,
                     alignment,
                     strand,
                     var_start,
@@ -1354,7 +1358,7 @@ impl ConsequencePredictor {
 
     #[allow(clippy::too_many_arguments)]
     fn analyze_intronic_variant(
-        var_g: &HgvsVariant,
+        ins_shift: i32,
         alignment: &GenomeAlignment,
         strand: Strand,
         var_start: i32,
@@ -1367,9 +1371,6 @@ impl ConsequencePredictor {
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
-
-        // Insertion ranges are end-exclusive, so subtract 1 from the end, where applicable.
-        let ins_shift = Self::ins_shift(var_g);
 
         // Check the cases where the variant overlaps with the splice acceptor/donor site.
         if var_overlaps(intron_start - ins_shift, intron_start + 2) {
