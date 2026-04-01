@@ -23,7 +23,7 @@ use hgvs::{
 use itertools::Itertools;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 /// A variant description how VCF would do it.
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
@@ -292,7 +292,7 @@ impl ConsequencePredictor {
 
         // Handle case of no overlapping transcripts -> intergenic.
         if txs.is_empty() {
-            let hgvs_g = format!("{}", &NoRef(&var_g.clone()));
+            let hgvs_g = format!("{}", &NoRef(&var_g));
             let hgvs_g = Some(hgvs_g.split(':').nth(1).unwrap().to_owned());
 
             return Ok(Some(self.filter_ann_fields(vec![AnnField {
@@ -329,9 +329,9 @@ impl ConsequencePredictor {
             .into_iter()
             .map(|tx| {
                 if tx.alt_strand == -1 {
-                    self.build_ann_field(var, var_g_rev.clone(), tx, var_start_rev, var_end_rev)
+                    self.build_ann_field(var, &var_g_rev, tx, var_start_rev, var_end_rev)
                 } else {
-                    self.build_ann_field(var, var_g_fwd.clone(), tx, var_start_fwd, var_end_fwd)
+                    self.build_ann_field(var, &var_g_fwd, tx, var_start_fwd, var_end_fwd)
                 }
             })
             .collect::<Result<Vec<_>, _>>()?
@@ -732,7 +732,7 @@ impl ConsequencePredictor {
     fn build_ann_field(
         &self,
         orig_var: &VcfVariant,
-        var_g: HgvsVariant,
+        var_g: &HgvsVariant,
         tx_record: TxForRegionRecord,
         var_start: i32,
         var_end: i32,
@@ -791,7 +791,7 @@ impl ConsequencePredictor {
         let (rank, projection, cdna_pos, cds_pos, protein_pos) = if !transcript_location.is_upstream
             && !transcript_location.is_downstream
         {
-            let projection = self.project_hgvs(&var_g, tx, transcript_biotype)?;
+            let projection = self.project_hgvs(var_g, tx, transcript_biotype)?;
             if projection.n.is_none() {
                 return Ok(None); // Early exit if g->n projection failed.
             }
@@ -934,7 +934,7 @@ impl ConsequencePredictor {
         };
 
         let hgvs_g = Some(
-            format!("{}", &NoRef(&var_g))
+            format!("{}", &NoRef(var_g))
                 .split(':')
                 .nth(1)
                 .unwrap()
