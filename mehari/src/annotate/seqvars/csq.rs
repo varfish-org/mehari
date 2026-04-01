@@ -868,26 +868,31 @@ impl ConsequencePredictor {
             }
         }
 
-        let hgvs_n = projection.as_ref().and_then(|p| p.n.as_ref()).map(|var_n| {
-            format!("{}", &NoRef(var_n))
-                .split(':')
-                .nth(1)
-                .unwrap()
-                .to_owned()
-        });
+        let format_loc = |var: &HgvsVariant| -> String {
+            match var {
+                HgvsVariant::CdsVariant { loc_edit, .. } => format!("c.{}", NoRef(loc_edit)),
+                HgvsVariant::GenomeVariant { loc_edit, .. } => format!("g.{}", NoRef(loc_edit)),
+                HgvsVariant::MtVariant { loc_edit, .. } => format!("m.{}", NoRef(loc_edit)),
+                HgvsVariant::TxVariant { loc_edit, .. } => format!("n.{}", NoRef(loc_edit)),
+                HgvsVariant::ProtVariant { loc_edit, .. } => format!("p.{}", NoRef(loc_edit)),
+                HgvsVariant::RnaVariant { loc_edit, .. } => format!("r.{}", NoRef(loc_edit)),
+            }
+        };
 
-        let hgvs_c = projection.as_ref().and_then(|p| p.c.as_ref()).map(|var_c| {
-            format!("{}", &NoRef(var_c))
-                .split(':')
-                .nth(1)
-                .unwrap()
-                .to_owned()
-        });
+        let hgvs_g = Some(format_loc(var_g));
 
+        let hgvs_n = projection
+            .as_ref()
+            .and_then(|p| p.n.as_ref())
+            .map(format_loc);
+        let hgvs_c = projection
+            .as_ref()
+            .and_then(|p| p.c.as_ref())
+            .map(format_loc);
         let hgvs_p = projection
             .as_ref()
             .and_then(|p| p.p.as_ref())
-            .map(|var_p| format!("{}", var_p).split(':').nth(1).unwrap().to_owned());
+            .map(format_loc);
 
         let feature_biotype = vec![match transcript_biotype {
             TranscriptBiotype::Coding => FeatureBiotype::Coding,
@@ -935,14 +940,6 @@ impl ConsequencePredictor {
             Strand::Plus => 1,
             Strand::Minus => -1,
         };
-
-        let hgvs_g = Some(
-            format!("{}", &NoRef(var_g))
-                .split(':')
-                .nth(1)
-                .unwrap()
-                .to_owned(),
-        );
 
         Ok(Some(AnnField {
             allele: Allele::Alt {
