@@ -15,7 +15,7 @@ jobs:
       contents: write 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.head_ref }}
           token: ${{ secrets.BOT_TOKEN }}
@@ -35,7 +35,7 @@ jobs:
           cargo generate-lockfile
 
       - name: Commit and push changes
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "chore: sync Cargo.lock files"
           file_pattern: "Cargo.lock mehari-python/Cargo.lock"
