@@ -2593,7 +2593,6 @@ mod test {
     use crate::annotate::seqvars::{
         Args, AsyncAnnotatedVariantWriter, OutputFormat, load_tx_db, run_with_writer,
     };
-    use crate::common::TsvContigStyle;
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
     use csv::ReaderBuilder;
     use futures::TryStreamExt;
@@ -3084,15 +3083,15 @@ mod test {
 
         let path_input_vcf = "tests/data/annotate/seqvars/vep.disagreement-cases.vcf";
         let output = NamedTempFile::new()?;
-        let mut writer = open_variant_writer(output.as_ref()).await?;
+        let writer = open_variant_writer(output.as_ref()).await?;
+        let mut seqvars_writer = crate::annotate::seqvars::SeqvarsVcfWriter::new(writer);
         run_with_writer(
-            &mut writer,
+            &mut seqvars_writer,
             &Args {
                 threads: 1,
                 reference: None,
                 in_memory_reference: true,
                 genome_release: None,
-                pedigree: None,
                 input: path_input_vcf.into(),
                 output: output.as_ref().to_str().unwrap().into(),
                 output_format: OutputFormat::Vcf,
@@ -3105,17 +3104,15 @@ mod test {
                     ..Default::default()
                 },
                 max_var_count: None,
-                hgnc: None,
                 sources: crate::annotate::seqvars::Sources {
                     transcripts: Some(vec![tx_path.into()]),
                     frequencies: None,
                     clinvar: None,
                 },
-                tsv_contig_style: TsvContigStyle::Auto,
             },
         )
         .await?;
-        writer.shutdown().await?;
+        seqvars_writer.shutdown().await?;
 
         let records_written = read_vcf(output).await?;
 

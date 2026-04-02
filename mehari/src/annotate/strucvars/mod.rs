@@ -3394,7 +3394,6 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 
             let mut writer = open_variant_writer(&args.output).await?;
             writer.set_assembly(assembly);
-            writer.set_pedigree(&pedigree);
             writer.write_noodles_header(&header_out).await?;
 
             tracing::info!("Clustering SVs to output...");
@@ -3420,7 +3419,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                         },
                     };
                     writer
-                        .write_annotated_record(&header_out, &annotated_variant)
+                        .write_annotated_record(&header_out, annotated_variant)
                         .await?;
                 }
             }

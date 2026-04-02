@@ -147,7 +147,7 @@ impl AsyncAnnotatedVariantWriter for VariantWriter {
     async fn write_annotated_record(
         &mut self,
         header: &Header,
-        record: &AnnotatedVariant,
+        record: AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
         match self {
             VariantWriter::Vcf(w) => w.write_annotated_record(header, record).await,
