@@ -82,10 +82,13 @@ pub struct Args {
     pub in_memory_reference: bool,
 
     /// Path to the input VCF file.
+    ///
+    /// Use '-' to read from stdin.
     #[arg(short = 'i', long, required = true)]
     pub input: String,
 
-    #[arg(short = 'o', long, required = true)]
+    /// Path to the output file. Defaults to stdout.
+    #[arg(short = 'o', long, default_value = "-")]
     pub output: String,
 
     #[arg(long, value_enum, default_value_t = OutputFormat::Vcf)]
@@ -2141,7 +2144,7 @@ mod test {
                 },
                 ..Default::default()
             },
-            input: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"), // <-- Corrected
+            input: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,

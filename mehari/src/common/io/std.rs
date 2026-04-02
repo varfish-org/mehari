@@ -28,6 +28,22 @@ pub fn open_read_maybe_gz<P>(path: P) -> Result<Box<dyn BufRead>, anyhow::Error>
 where
     P: AsRef<Path>,
 {
+    if path.as_ref().to_str() == Some("-") {
+        let mut stdin = BufReader::new(std::io::stdin());
+
+        let buf = stdin.fill_buf()?;
+        let is_gzipped = buf.len() >= 2 && buf[0] == 0x1f && buf[1] == 0x8b;
+
+        if is_gzipped {
+            tracing::info!("Opening stdin as gzip for reading");
+            let decoder = MultiGzDecoder::new(stdin);
+            return Ok(Box::new(BufReader::new(decoder)));
+        } else {
+            tracing::info!("Opening stdin as plain text for reading");
+            return Ok(Box::new(stdin));
+        }
+    }
+
     if is_gz(path.as_ref()) {
         tracing::trace!("Opening {:?} as gzip for reading", path.as_ref());
         let file = File::open(path)?;
@@ -53,6 +69,11 @@ pub fn open_write_maybe_bgzf<P>(path: P) -> Result<Box<dyn Write>, anyhow::Error
 where
     P: AsRef<Path>,
 {
+    if path.as_ref().to_str() == Some("-") {
+        tracing::info!("Opening stdout for uncompressed writing");
+        return Ok(Box::new(std::io::stdout()));
+    }
+
     if path.as_ref().extension().map(|s| s.to_str()) == Some(Some("gz")) {
         tracing::trace!("Opening {:?} as gzip for writing", path.as_ref());
         let file = File::create(path)?;

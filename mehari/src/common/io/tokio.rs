@@ -5,7 +5,7 @@ use noodles::bgzf;
 use std::path::Path;
 use std::pin::Pin;
 use tokio::fs::File;
-use tokio::io::{AsyncBufRead, AsyncWrite, BufReader, BufWriter};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, BufReader, BufWriter};
 
 use crate::common::io::std::is_gz;
 
@@ -21,6 +21,23 @@ pub async fn open_read_maybe_gz<P>(path: P) -> Result<Pin<Box<dyn AsyncBufRead>>
 where
     P: AsRef<Path>,
 {
+    if path.as_ref().to_str() == Some("-") {
+        let mut stdin = BufReader::new(tokio::io::stdin());
+
+        // Peek at the first 2 bytes to check for GZIP magic number
+        let buf = stdin.fill_buf().await?;
+        let is_gzipped = buf.len() >= 2 && buf[0] == 0x1f && buf[1] == 0x8b;
+
+        if is_gzipped {
+            tracing::info!("Opening stdin as gzip for reading (async)");
+            let decoder = async_compression::tokio::bufread::GzipDecoder::new(stdin);
+            return Ok(Box::pin(BufReader::new(decoder)));
+        } else {
+            tracing::info!("Opening stdin as plain text for reading (async)");
+            return Ok(Box::pin(stdin));
+        }
+    }
+
     let path_is_gzip = is_gz(path.as_ref());
     tracing::trace!(
         "Opening {} as {} for reading (async)",
@@ -57,6 +74,23 @@ pub async fn open_read_maybe_bgzf<P>(path: P) -> Result<Pin<Box<dyn AsyncBufRead
 where
     P: AsRef<Path>,
 {
+    if path.as_ref().to_str() == Some("-") {
+        let mut stdin = BufReader::new(tokio::io::stdin());
+
+        // Peek at the first 2 bytes to check for GZIP magic number
+        let buf = stdin.fill_buf().await?;
+        let is_gzipped = buf.len() >= 2 && buf[0] == 0x1f && buf[1] == 0x8b;
+
+        if is_gzipped {
+            tracing::info!("Opening stdin as gzip for reading (async)");
+            let decoder = async_compression::tokio::bufread::GzipDecoder::new(stdin);
+            return Ok(Box::pin(BufReader::new(decoder)));
+        } else {
+            tracing::info!("Opening stdin as plain text for reading (async)");
+            return Ok(Box::pin(stdin));
+        }
+    }
+
     let path_is_gzip = is_gz(path.as_ref());
     tracing::trace!(
         "Opening {} as {} for reading (async)",
@@ -92,6 +126,11 @@ pub async fn open_write_maybe_bgzf<P>(path: P) -> Result<Pin<Box<dyn AsyncWrite>
 where
     P: AsRef<Path>,
 {
+    if path.as_ref().to_str() == Some("-") {
+        tracing::info!("Opening stdout for uncompressed writing (async)");
+        return Ok(Box::pin(tokio::io::stdout()));
+    }
+
     let path_is_gzip = is_gz(path.as_ref());
     tracing::trace!(
         "Opening {} as {} for writing (async)",
