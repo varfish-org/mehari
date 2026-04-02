@@ -5,7 +5,6 @@ use std::fmt::Display;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -2773,7 +2772,7 @@ impl<'a> VariantProcessor<'a> {
 
         Ok(variants
             .into_iter()
-            .zip(result_annotations.into_iter())
+            .zip(result_annotations)
             .map(|(b, ann)| (b.record, ann))
             .collect())
     }

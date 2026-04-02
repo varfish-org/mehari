@@ -777,7 +777,7 @@ impl ConsequencePredictor {
             TranscriptBiotype::try_from(tx.biotype).expect("invalid transcript biotype");
 
         let (transcript_location, transcript_consequences, tx_len) =
-            self.determine_transcript_context(alignment, strand, &var_g, var_start, var_end);
+            self.determine_transcript_context(alignment, strand, var_g, var_start, var_end);
 
         let mut consequences = transcript_consequences;
 
