@@ -5,7 +5,7 @@ use noodles::bgzf;
 use std::path::Path;
 use std::pin::Pin;
 use tokio::fs::File;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, BufReader, BufWriter};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader};
 
 use crate::common::io::std::is_gz;
 
@@ -17,7 +17,9 @@ use crate::common::io::std::is_gz;
 /// # Arguments
 ///
 /// * `path` - A path to the file to open.
-pub async fn open_read_maybe_gz<P>(path: P) -> Result<Pin<Box<dyn AsyncBufRead>>, anyhow::Error>
+pub async fn open_read_maybe_gz<P>(
+    path: P,
+) -> Result<Pin<Box<dyn AsyncBufRead + Send>>, anyhow::Error>
 where
     P: AsRef<Path>,
 {
@@ -65,90 +67,59 @@ where
     }
 }
 
-/// Transparently open a file with noodles bgzf decoder for reading.
-///
-/// # Arguments
-///
-/// * `path` - A path to the file to open.
-pub async fn open_read_maybe_bgzf<P>(path: P) -> Result<Pin<Box<dyn AsyncBufRead>>, anyhow::Error>
+/// Transparently open a file or stdin, sniffing for BGZF/GZIP magic bytes.
+/// Returns a BufRead stream that might be a multithreaded BGZF decoder.
+pub async fn open_read_maybe_bgzf<P>(
+    path: P,
+) -> Result<Pin<Box<dyn AsyncBufRead + Send>>, anyhow::Error>
 where
     P: AsRef<Path>,
 {
-    if path.as_ref().to_str() == Some("-") {
-        let mut stdin = BufReader::new(tokio::io::stdin());
-
-        // Peek at the first 2 bytes to check for GZIP magic number
-        let buf = stdin.fill_buf().await?;
-        let is_gzipped = buf.len() >= 2 && buf[0] == 0x1f && buf[1] == 0x8b;
-
-        if is_gzipped {
-            tracing::info!("Opening stdin as gzip for reading (async)");
-            let decoder = async_compression::tokio::bufread::GzipDecoder::new(stdin);
-            return Ok(Box::pin(BufReader::new(decoder)));
-        } else {
-            tracing::info!("Opening stdin as plain text for reading (async)");
-            return Ok(Box::pin(stdin));
-        }
-    }
-
-    let path_is_gzip = is_gz(path.as_ref());
-    tracing::trace!(
-        "Opening {} as {} for reading (async)",
-        path.as_ref().display(),
-        if path_is_gzip {
-            "gzip (allow multi-member)"
-        } else {
-            "plain text"
-        }
-    );
-    let file = File::open(path.as_ref())
-        .await
-        .map_err(|e| anyhow::anyhow!("could not open file {}: {}", path.as_ref().display(), e))?;
-
-    if path_is_gzip {
-        let bufreader = BufReader::new(file);
-        let decoder = { noodles::bgzf::r#async::Reader::new(bufreader) };
-        Ok(Box::pin(BufReader::new(decoder)))
+    let mut bufreader = if path.as_ref().to_str() == Some("-") {
+        BufReader::new(Box::pin(tokio::io::stdin()) as Pin<Box<dyn AsyncRead + Send>>)
     } else {
-        Ok(Box::pin(BufReader::new(file)))
+        let file = tokio::fs::File::open(path.as_ref()).await?;
+        BufReader::new(Box::pin(file) as Pin<Box<dyn AsyncRead + Send>>)
+    };
+
+    // Peek at the first 2 bytes to check for GZIP magic number
+    let buf = bufreader.fill_buf().await?;
+    let is_gzipped = buf.len() >= 2 && buf[0] == 0x1f && buf[1] == 0x8b;
+
+    if is_gzipped {
+        tracing::debug!("Detected bgzip/gzip stream. Using noodles-bgzf default worker count.");
+        let bgzf_reader =
+            bgzf::r#async::io::reader::Builder::default().build_from_reader(bufreader);
+        Ok(Box::pin(bgzf_reader))
+    } else {
+        Ok(Box::pin(bufreader))
     }
 }
 
-/// Transparently open a file with bgzip encoder for writing.
-///
-/// Note that decoding of multi-member gzip files is automatically supported, as is needed for
-/// `bgzip`` files.
-///
-/// # Arguments
-///
-/// * `path` - A path to the file to open.
-pub async fn open_write_maybe_bgzf<P>(path: P) -> Result<Pin<Box<dyn AsyncWrite>>, anyhow::Error>
+/// Transparently open a file or stdout, compressing if the extension suggests it.
+pub async fn open_write_maybe_bgzf<P>(
+    path: P,
+) -> Result<Pin<Box<dyn AsyncWrite + Send>>, anyhow::Error>
 where
     P: AsRef<Path>,
 {
     if path.as_ref().to_str() == Some("-") {
-        tracing::info!("Opening stdout for uncompressed writing (async)");
-        return Ok(Box::pin(tokio::io::stdout()));
-    }
-
-    let path_is_gzip = is_gz(path.as_ref());
-    tracing::trace!(
-        "Opening {} as {} for writing (async)",
-        path.as_ref().display(),
-        if path_is_gzip {
-            "bgzip (block gzip)"
-        } else {
-            "plain text"
-        }
-    );
-    let file = File::create(path.as_ref())
-        .await
-        .map_err(|e| anyhow::anyhow!("could not open file {}: {}", path.as_ref().display(), e))?;
-
-    if path_is_gzip {
-        Ok(Box::pin(BufWriter::new(bgzf::r#async::Writer::new(file))))
+        Ok(Box::pin(tokio::io::stdout()))
     } else {
-        Ok(Box::pin(BufWriter::new(file)))
+        let file = File::create(path.as_ref()).await?;
+        let ext = path
+            .as_ref()
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+
+        let is_gzipped = ["gz", "bgz", "bcf"].contains(&ext);
+        if is_gzipped {
+            let bgzf_writer = bgzf::r#async::io::writer::Builder::default().build_from_writer(file);
+            Ok(Box::pin(bgzf_writer))
+        } else {
+            Ok(Box::pin(file))
+        }
     }
 }
 

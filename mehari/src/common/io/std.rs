@@ -1,96 +1,68 @@
 //! Common I/O code using sync I/O.
 
+use flate2::{Compression, bufread::MultiGzDecoder, write::GzEncoder};
 use std::{
     fs::File,
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{BufRead, BufReader, Write},
     path::Path,
 };
 
-use flate2::{Compression, bufread::MultiGzDecoder, write::GzEncoder};
-
-/// Returns whether the path looks like a gzip or bgzip file.
+/// Returns whether the path looks like a gzip, bgzip, or BCF file based on extension.
 pub fn is_gz<P>(path: P) -> bool
 where
     P: AsRef<Path>,
 {
-    [Some(Some("gz")), Some(Some("bgz"))].contains(&path.as_ref().extension().map(|s| s.to_str()))
+    path.as_ref()
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|ext| ["gz", "bgz", "bcf"].contains(&ext))
+        .unwrap_or(false)
 }
 
-/// Transparently open a file with bgzip encoder for writing.
-///
-/// Note that decoding of multi-member gzip files is automatically supported, as is needed for
-/// `bgzip`` files.
-///
-/// # Arguments
-///
-/// * `path` - A path to the file to open.
-pub fn open_read_maybe_gz<P>(path: P) -> Result<Box<dyn BufRead>, anyhow::Error>
+/// Transparently open a file or stdin for reading.
+/// Uses magic-byte sniffing (1f 8b) to detect compression, making it extension-agnostic.
+pub fn open_read_maybe_bgzf<P>(path: P) -> Result<Box<dyn BufRead + Send>, anyhow::Error>
 where
     P: AsRef<Path>,
 {
-    if path.as_ref().to_str() == Some("-") {
-        let mut stdin = BufReader::new(std::io::stdin());
+    let mut bufreader: Box<dyn BufRead + Send> = if path.as_ref().to_str() == Some("-") {
+        Box::new(BufReader::new(std::io::stdin()))
+    } else {
+        Box::new(BufReader::new(File::open(path.as_ref())?))
+    };
 
-        let buf = stdin.fill_buf()?;
-        let is_gzipped = buf.len() >= 2 && buf[0] == 0x1f && buf[1] == 0x8b;
+    // Sniff for GZIP magic bytes (1f 8b)
+    let buf = bufreader.fill_buf()?;
+    let is_gzipped = buf.len() >= 2 && buf[0] == 0x1f && buf[1] == 0x8b;
 
-        if is_gzipped {
-            tracing::info!("Opening stdin as gzip for reading");
-            let decoder = MultiGzDecoder::new(stdin);
-            return Ok(Box::new(BufReader::new(decoder)));
-        } else {
-            tracing::info!("Opening stdin as plain text for reading");
-            return Ok(Box::new(stdin));
-        }
-    }
-
-    if is_gz(path.as_ref()) {
-        tracing::trace!("Opening {:?} as gzip for reading", path.as_ref());
-        let file = File::open(path)?;
-        let bufreader = BufReader::new(file);
+    if is_gzipped {
+        // MultiGzDecoder handles multi-member gzip files (like BGZF)
         let decoder = MultiGzDecoder::new(bufreader);
         Ok(Box::new(BufReader::new(decoder)))
     } else {
-        tracing::trace!("Opening {:?} as plain text for reading", path.as_ref());
-        let file = File::open(path).map(BufReader::new)?;
-        Ok(Box::new(BufReader::new(file)))
+        Ok(bufreader)
     }
 }
 
-/// Transparently open a file with bgzip encoder for writing.
-///
-/// Note that decoding of multi-member gzip files is automatically supported, as is needed for
-/// `bgzip`` files.
-///
-/// # Arguments
-///
-/// * `path` - A path to the file to open.
-pub fn open_write_maybe_bgzf<P>(path: P) -> Result<Box<dyn Write>, anyhow::Error>
+/// Transparently open a file or stdout for writing.
+/// Uses the file extension to decide whether to apply GZIP compression.
+pub fn open_write_maybe_bgzf<P>(path: P) -> Result<Box<dyn Write + Send>, anyhow::Error>
 where
     P: AsRef<Path>,
 {
     if path.as_ref().to_str() == Some("-") {
-        tracing::info!("Opening stdout for uncompressed writing");
-        return Ok(Box::new(std::io::stdout()));
-    }
-
-    if path.as_ref().extension().map(|s| s.to_str()) == Some(Some("gz")) {
-        tracing::trace!("Opening {:?} as gzip for writing", path.as_ref());
-        let file = File::create(path)?;
-        let bufwriter = BufWriter::new(file);
-        let encoder = GzEncoder::new(bufwriter, Compression::default());
-        Ok(Box::new(encoder))
+        Ok(Box::new(std::io::stdout()))
     } else {
-        tracing::trace!("Opening {:?} as plain text for writing", path.as_ref());
-        let file = File::create(path)?;
-        Ok(Box::new(file))
+        let file = File::create(path.as_ref())?;
+        if is_gz(path.as_ref()) {
+            Ok(Box::new(GzEncoder::new(file, Compression::default())))
+        } else {
+            Ok(Box::new(file))
+        }
     }
 }
 
 /// Return `std::io::Lines<>` for buffered reading from a file.
-///
-/// The output is wrapped in a Result to allow matching on errors
-/// Returns an Iterator to the Reader of the lines of the file.
 pub fn read_lines<P: AsRef<Path>>(filename: P) -> std::io::Result<std::io::Lines<BufReader<File>>> {
     let file = File::open(filename)?;
     Ok(BufReader::new(file).lines())
@@ -101,13 +73,7 @@ pub fn read_to_bytes<P>(path: P) -> Result<Vec<u8>, anyhow::Error>
 where
     P: AsRef<std::path::Path>,
 {
-    use std::io::Read;
-
-    let mut f = std::fs::File::open(&path).expect("no file found");
-    let metadata = std::fs::metadata(&path).expect("unable to read metadata");
-    let mut buffer = vec![0; metadata.len() as usize];
-    f.read_exact(&mut buffer).expect("buffer overflow");
-    Ok(buffer)
+    std::fs::read(path).map_err(|e| anyhow::anyhow!("Failed to read file: {}", e))
 }
 
 /// Given a `BufWriter<File>`, flush buffers and sync the file.
@@ -137,7 +103,7 @@ mod test {
         // Note that the 14kb.txt file contains about 14 KB of data so bgz will have multiple 4KB
         // blocks.
 
-        let mut reader = super::open_read_maybe_gz(format!("tests/common/io/{}", path))?;
+        let mut reader = super::open_read_maybe_bgzf(format!("tests/common/io/{}", path))?;
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf)?;
 

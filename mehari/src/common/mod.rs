@@ -309,8 +309,8 @@ pub fn guess_assembly_from_fasta(
     ambiguous_ok: bool,
     initial_assembly: Option<Assembly>,
 ) -> Result<Assembly, anyhow::Error> {
-    let index = fai::read(fasta_path.with_extension("fa.fai"))
-        .or_else(|_| fai::read(fasta_path.with_extension("fasta.fai")))?;
+    let index = fai::fs::read(fasta_path.with_extension("fa.fai"))
+        .or_else(|_| fai::fs::read(fasta_path.with_extension("fasta.fai")))?;
 
     let contigs: Vec<(String, usize)> = index
         .as_ref()

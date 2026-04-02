@@ -437,7 +437,7 @@ impl<Inner: Write> AsyncAnnotatedVariantWriter for VcfWriter<Inner> {
 
 /// Implement `AsyncAnnotatedVariantWriter` for `AsyncWriter`.
 impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
-    for noodles::vcf::AsyncWriter<Inner>
+    for noodles::vcf::r#async::io::Writer<Inner>
 {
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.write_header(header)
@@ -456,7 +456,7 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
     }
 
     async fn shutdown(&mut self) -> Result<(), Error> {
-        Ok(<noodles::vcf::AsyncWriter<Inner>>::get_mut(self)
+        Ok(<noodles::vcf::r#async::io::Writer<Inner>>::get_mut(self)
             .flush()
             .await?)
     }
@@ -464,7 +464,7 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
 
 /// Implement `AsyncAnnotatedVariantWriter` for `AsyncWriter`.
 impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
-    for noodles::bcf::AsyncWriter<Inner>
+    for noodles::bcf::r#async::io::Writer<Inner>
 {
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), Error> {
         self.write_header(header)
@@ -477,13 +477,13 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
         header: &VcfHeader,
         record: AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
-        noodles::bcf::AsyncWriter::write_variant_record(self, header, &record.vcf)
+        noodles::bcf::r#async::io::Writer::write_variant_record(self, header, &record.vcf)
             .await
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
     async fn shutdown(&mut self) -> Result<(), Error> {
-        Ok(<noodles::bcf::AsyncWriter<Inner>>::get_mut(self)
+        Ok(<noodles::bcf::r#async::io::Writer<Inner>>::get_mut(self)
             .shutdown()
             .await?)
     }

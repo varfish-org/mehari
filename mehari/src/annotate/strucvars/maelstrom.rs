@@ -20,7 +20,7 @@ pub struct Reader {
     /// Name of the single sample in the VCF file.
     pub sample_name: String,
     /// The internal reader.
-    pub reader: vcf::io::IndexedReader<noodles::bgzf::Reader<std::fs::File>>,
+    pub reader: vcf::io::IndexedReader<noodles::bgzf::io::Reader<std::fs::File>>,
     /// The header from the VCF file.
     pub header: vcf::header::Header,
 }
@@ -89,7 +89,7 @@ impl Reader {
         let mut mq_sum = 0f64;
         let mut count = 0f64;
 
-        for result in query {
+        for result in query.records() {
             let record = result?;
 
             let window_end = match record.info().get(header, "END").transpose()? {

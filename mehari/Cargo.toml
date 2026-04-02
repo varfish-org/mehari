@@ -84,7 +84,7 @@ serde-aux = "4.7.0"
 thiserror = "1.0.69"
 
 [dependencies.noodles]
-version = "0.97.0"
+version = "0.109.0"
 features = ["async", "bgzf", "core", "vcf", "bcf", "csi", "fasta", "tabix"]
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]

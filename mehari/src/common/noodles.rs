@@ -2,145 +2,125 @@
 
 use std::path::Path;
 
-use anyhow::Error;
 use futures::StreamExt;
-use futures::future::join_all;
-use futures::stream::LocalBoxStream;
-use noodles::bcf;
-use noodles::vcf;
-use noodles::vcf::Header;
-use noodles::vcf::variant::RecordBuf;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt};
+use futures::stream::BoxStream;
+use noodles::{bcf, vcf, vcf::Header, vcf::variant::RecordBuf};
+use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 
 use crate::annotate::seqvars::{AnnotatedVariant, AsyncAnnotatedVariantWriter};
-use crate::common::io::tokio::open_read_maybe_bgzf;
+use crate::common::io::tokio::{open_read_maybe_bgzf, open_write_maybe_bgzf};
 
-use super::io::{tokio::open_read_maybe_gz, tokio::open_write_maybe_bgzf};
+/// Alias for the async vcf reader type.
+pub type AsyncVcfReader = vcf::r#async::io::Reader<std::pin::Pin<Box<dyn AsyncBufRead + Send>>>;
 
-/// Alias for the async vcf reader type that we will use.
-pub type AsyncVcfReader = vcf::AsyncReader<std::pin::Pin<Box<dyn AsyncBufRead>>>;
-pub type AsyncBcfReader =
-    bcf::AsyncReader<noodles::bgzf::AsyncReader<std::pin::Pin<Box<dyn AsyncRead>>>>;
+/// Alias for the async bcf reader type.
+pub type AsyncBcfReader = bcf::r#async::io::Reader<std::pin::Pin<Box<dyn AsyncBufRead + Send>>>;
+
+/// Alias for the async vcf writer type.
+pub type AsyncVcfWriter = vcf::r#async::io::Writer<std::pin::Pin<Box<dyn AsyncWrite + Send>>>;
+
+/// Alias for the async bcf writer type.
+pub type AsyncBcfWriter = bcf::r#async::io::Writer<std::pin::Pin<Box<dyn AsyncWrite + Send>>>;
 
 /// Helper function that opens one VCF reader at the given path.
-pub async fn open_vcf_reader(path: impl AsRef<Path>) -> Result<AsyncVcfReader, Error> {
-    Ok(vcf::AsyncReader::new(
-        open_read_maybe_bgzf(path)
-            .await
-            .map_err(|e| anyhow::anyhow!("could not build VCF reader: {}", e))?,
-    ))
+pub async fn open_vcf_reader(path: impl AsRef<Path>) -> anyhow::Result<AsyncVcfReader> {
+    let stream = open_read_maybe_bgzf(path).await?;
+    Ok(vcf::r#async::io::Reader::new(stream))
 }
 
-pub async fn open_bcf_reader(path: impl AsRef<Path>) -> Result<AsyncBcfReader, Error> {
-    Ok(bcf::AsyncReader::new(
-        tokio::fs::File::open(path)
-            .await
-            .map(Box::pin)
-            .map_err(|e| anyhow::anyhow!("could not build VCF reader: {}", e))?,
-    ))
+/// Helper function that opens one BCF reader at the given path.
+pub async fn open_bcf_reader(path: impl AsRef<Path>) -> anyhow::Result<AsyncBcfReader> {
+    let stream = open_read_maybe_bgzf(path).await?;
+    Ok(AsyncBcfReader::from(stream))
 }
 
-pub async fn open_variant_reader(path: impl AsRef<Path>) -> anyhow::Result<VariantReader> {
-    #[allow(clippy::wildcard_in_or_patterns)]
-    match path.as_ref().extension().and_then(|s| s.to_str()) {
-        Some("bcf") => open_bcf_reader(path).await.map(VariantReader::Bcf),
-        Some("gz") | Some("vcf") | _ => open_vcf_reader(path).await.map(VariantReader::Vcf),
-    }
+/// Helper function that opens one VCF writer at the given path.
+pub async fn open_vcf_writer(path: impl AsRef<Path>) -> anyhow::Result<AsyncVcfWriter> {
+    let stream = open_write_maybe_bgzf(path).await?;
+    Ok(vcf::r#async::io::Writer::new(stream))
 }
 
+/// Helper function that opens one BCF writer at the given path.
+pub async fn open_bcf_writer(path: impl AsRef<Path>) -> anyhow::Result<AsyncBcfWriter> {
+    let stream = open_write_maybe_bgzf(path).await?;
+    Ok(AsyncBcfWriter::from(stream))
+}
+
+/// Enum for the different types of variant readers.
 pub enum VariantReader {
     Vcf(AsyncVcfReader),
     Bcf(AsyncBcfReader),
 }
 
+/// Trait for VCF/BCF readers to allow generic usage and mocking.
 pub trait NoodlesVariantReader {
     #[allow(async_fn_in_trait)]
-    async fn read_header(&mut self) -> tokio::io::Result<Header>;
+    async fn read_header(&mut self) -> anyhow::Result<Header>;
+
     #[allow(async_fn_in_trait)]
     async fn records<'a>(
         &'a mut self,
         header: &'a Header,
-    ) -> LocalBoxStream<'a, std::io::Result<RecordBuf>>;
+    ) -> BoxStream<'a, anyhow::Result<RecordBuf>>;
 }
 
 impl NoodlesVariantReader for VariantReader {
-    #[allow(async_fn_in_trait)]
-    async fn read_header(&mut self) -> std::io::Result<Header> {
+    async fn read_header(&mut self) -> anyhow::Result<Header> {
         match self {
-            VariantReader::Vcf(r) => r.read_header().await,
-            VariantReader::Bcf(r) => r.read_header().await,
+            VariantReader::Vcf(r) => r.read_header().await.map_err(Into::into),
+            VariantReader::Bcf(r) => r.read_header().await.map_err(Into::into),
         }
     }
 
-    #[allow(async_fn_in_trait)]
     async fn records<'a>(
         &'a mut self,
         header: &'a Header,
-    ) -> LocalBoxStream<'a, std::io::Result<RecordBuf>> {
+    ) -> BoxStream<'a, anyhow::Result<RecordBuf>> {
         match self {
-            VariantReader::Vcf(r) => r.record_bufs(header).boxed_local(),
+            VariantReader::Vcf(r) => r
+                .record_bufs(header)
+                .map(|res| res.map_err(anyhow::Error::from))
+                .boxed(),
             VariantReader::Bcf(r) => r
                 .records()
-                .map(|r| r.and_then(|r| RecordBuf::try_from_variant_record(header, &r)))
-                .boxed_local(),
+                .map(move |res| {
+                    res.map_err(anyhow::Error::from).and_then(|rec| {
+                        RecordBuf::try_from_variant_record(header, &rec)
+                            .map_err(anyhow::Error::from)
+                    })
+                })
+                .boxed(),
         }
     }
 }
 
-/// Helper function that opens a list of paths as VCF readers.
-#[allow(dead_code)]
-pub async fn open_vcf_readers(paths: &[String]) -> Result<Vec<AsyncVcfReader>, Error> {
-    Ok(join_all(paths.iter().map(open_read_maybe_gz))
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| anyhow::anyhow!("could not build VCF reader: {}", e))?
-        .into_iter()
-        .map(vcf::AsyncReader::new)
-        .collect::<Vec<_>>())
-}
-
-/// Alias for the async vcf writer that we use.
-pub type AsyncVcfWriter = vcf::AsyncWriter<std::pin::Pin<Box<dyn AsyncWrite>>>;
-
-/// Helper function that opens one VCF write at the given path.
-pub async fn open_vcf_writer(path: impl AsRef<Path>) -> Result<AsyncVcfWriter, Error> {
-    Ok(vcf::AsyncWriter::new(
-        open_write_maybe_bgzf(path)
-            .await
-            .map_err(|e| anyhow::anyhow!("could not build VCF writer: {}", e))?,
-    ))
-}
-
-pub type AsyncBcfWriter =
-    bcf::AsyncWriter<noodles::bgzf::AsyncWriter<std::pin::Pin<Box<dyn AsyncWrite>>>>;
-/// Helper function that opens one VCF write at the given path.
-pub async fn open_bcf_writer(path: impl AsRef<Path>) -> Result<AsyncBcfWriter, Error> {
-    Ok(bcf::AsyncWriter::new(
-        tokio::fs::File::create(path)
-            .await
-            .map(Box::pin)
-            .map_err(|e| anyhow::anyhow!("could not build VCF writer: {}", e))?,
-    ))
-}
-
-pub async fn open_variant_writer(path: impl AsRef<Path>) -> anyhow::Result<VariantWriter> {
-    #[allow(clippy::wildcard_in_or_patterns)]
+/// Opens a variant reader from the given path, detecting format by extension.
+pub async fn open_variant_reader(path: impl AsRef<Path>) -> anyhow::Result<VariantReader> {
     match path.as_ref().extension().and_then(|s| s.to_str()) {
-        Some("bcf") => open_bcf_writer(path).await.map(VariantWriter::Bcf),
-        Some("gz") | Some("vcf") | _ => open_vcf_writer(path).await.map(VariantWriter::Vcf),
+        Some("bcf") => open_bcf_reader(path).await.map(VariantReader::Bcf),
+        _ => open_vcf_reader(path).await.map(VariantReader::Vcf),
     }
 }
 
+/// Enum for the different types of variant writers.
 pub enum VariantWriter {
     Vcf(AsyncVcfWriter),
     Bcf(AsyncBcfWriter),
 }
+
+/// Opens a variant writer from the given path, detecting format by extension.
+pub async fn open_variant_writer(path: impl AsRef<Path>) -> anyhow::Result<VariantWriter> {
+    match path.as_ref().extension().and_then(|s| s.to_str()) {
+        Some("bcf") => open_bcf_writer(path).await.map(VariantWriter::Bcf),
+        _ => open_vcf_writer(path).await.map(VariantWriter::Vcf),
+    }
+}
+
 impl AsyncAnnotatedVariantWriter for VariantWriter {
     async fn write_noodles_header(&mut self, header: &Header) -> Result<(), anyhow::Error> {
         match self {
-            VariantWriter::Vcf(w) => w.write_noodles_header(header).await,
-            VariantWriter::Bcf(w) => w.write_noodles_header(header).await,
+            VariantWriter::Vcf(w) => w.write_header(header).await.map_err(Into::into),
+            VariantWriter::Bcf(w) => w.write_header(header).await.map_err(Into::into),
         }
     }
 
@@ -157,8 +137,8 @@ impl AsyncAnnotatedVariantWriter for VariantWriter {
 
     async fn shutdown(&mut self) -> Result<(), anyhow::Error> {
         match self {
-            VariantWriter::Vcf(r) => r.get_mut().shutdown().await.map_err(Into::into),
-            VariantWriter::Bcf(r) => r.get_mut().shutdown().await.map_err(Into::into),
+            VariantWriter::Vcf(w) => w.get_mut().shutdown().await.map_err(Into::into),
+            VariantWriter::Bcf(w) => w.get_mut().shutdown().await.map_err(Into::into),
         }
     }
 }
