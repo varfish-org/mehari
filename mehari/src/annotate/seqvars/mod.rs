@@ -4,6 +4,7 @@ use std::fmt::Display;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -30,8 +31,6 @@ use annonars::freqs::serialized::{auto, mt, xy};
 use anyhow::{Error, anyhow};
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
-use flate2::Compression;
-use flate2::write::GzEncoder;
 use hgvs::data::interface::Provider;
 use itertools::Itertools;
 use noodles::vcf::header::FileFormat;
@@ -50,7 +49,7 @@ use rocksdb::{DBWithThreadMode, MultiThreaded};
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use thousands::Separable;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 pub mod ann;
 pub mod binning;
@@ -541,21 +540,14 @@ impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
 }
 
 pub struct SeqvarJsonlWriter {
-    inner: Box<dyn Write>,
+    inner: Pin<Box<dyn AsyncWrite>>,
     csq_config: Config,
 }
 
 impl SeqvarJsonlWriter {
-    pub fn with_path<P: AsRef<Path>>(p: P) -> Self {
+    pub fn new(inner: Pin<Box<dyn AsyncWrite>>) -> Self {
         Self {
-            inner: if p.as_ref().extension().unwrap_or_default() == "gz" {
-                Box::new(GzEncoder::new(
-                    File::create(p).unwrap(),
-                    Compression::default(),
-                ))
-            } else {
-                Box::new(File::create(p).unwrap())
-            },
+            inner,
             csq_config: Config::default(),
         }
     }
@@ -610,22 +602,28 @@ impl AsyncAnnotatedVariantWriter for SeqvarJsonlWriter {
         let json_record = serde_json::json!({
             "chromosome": chrom,
             "position": pos,
-            "refAllele": reference,
-            "altAlleles": alt,
-            "variantLevel": {
+            "reference": reference,
+            "alternative": alt,
+            "annotations": {
                 "frequencies": record.annotation.frequencies,
                 "clinvar": record.annotation.clinvar,
+                "per-transcript": record.annotation.consequences,
             },
-            "transcriptLevel": record.annotation.consequences,
             "vcfInfo": info_map,
         });
 
-        writeln!(self.inner, "{}", serde_json::to_string(&json_record)?)
+        let mut json_bytes = serde_json::to_vec(&json_record)
+            .map_err(|e| anyhow::anyhow!("JSON serialization error: {}", e))?;
+        json_bytes.push(b'\n');
+
+        self.inner
+            .write_all(&json_bytes)
+            .await
             .map_err(|e| anyhow::anyhow!("Error writing JSONL record: {}", e))
     }
 
     async fn shutdown(&mut self) -> Result<(), Error> {
-        Ok(self.inner.flush()?)
+        Ok(self.inner.flush().await?)
     }
     fn set_csq_config(&mut self, config: Config) {
         self.csq_config = config;
@@ -1178,7 +1176,8 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             seqvars_writer.shutdown().await?;
         }
         OutputFormat::Jsonl => {
-            let mut writer = SeqvarJsonlWriter::with_path(&args.output);
+            let stream = crate::common::io::tokio::open_write_maybe_bgzf(&args.output).await?;
+            let mut writer = SeqvarJsonlWriter::new(stream);
             run_with_writer(&mut writer, args).await?;
             writer.shutdown().await?;
         }
