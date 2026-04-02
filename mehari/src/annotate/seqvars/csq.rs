@@ -2591,7 +2591,7 @@ mod test {
     use crate::annotate::cli::{PredictorSettings, TranscriptPickType, TranscriptSettings};
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
-        Args, AsyncAnnotatedVariantWriter, OutputFormat, PathOutput, load_tx_db, run_with_writer,
+        Args, AsyncAnnotatedVariantWriter, OutputFormat, load_tx_db, run_with_writer,
     };
     use crate::common::TsvContigStyle;
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
@@ -3092,8 +3092,8 @@ mod test {
                 reference: None,
                 in_memory_reference: true,
                 genome_release: None,
-                path_input_ped: None,
-                path_input_vcf: path_input_vcf.into(),
+                pedigree: None,
+                input: path_input_vcf.into(),
                 output: output.as_ref().to_str().unwrap().into(),
                 output_format: OutputFormat::Vcf,
                 predictor_settings: PredictorSettings {

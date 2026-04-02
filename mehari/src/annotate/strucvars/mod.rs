@@ -3409,15 +3409,18 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                     args.min_overlap,
                 )?;
 
-                let dummy_annotation = crate::annotate::seqvars::VariantAnnotation {
-                    consequences: vec![],
-                    frequencies: None,
-                    clinvar: None,
-                };
                 for tsv_record in clustered_records {
                     let vcf_record: VcfRecord = tsv_record.try_into()?;
+                    let annotated_variant = crate::annotate::seqvars::AnnotatedVariant {
+                        vcf: vcf_record,
+                        annotation: crate::annotate::seqvars::VariantAnnotation {
+                            consequences: vec![],
+                            frequencies: None,
+                            clinvar: None,
+                        },
+                    };
                     writer
-                        .write_annotated_record(&header_out, &vcf_record, &dummy_annotation)
+                        .write_annotated_record(&header_out, &annotated_variant)
                         .await?;
                 }
             }

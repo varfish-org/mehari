@@ -32,7 +32,7 @@ use annonars::common::keys;
 use annonars::freqs::serialized::{auto, mt, xy};
 use anyhow::{Error, anyhow};
 use biocommons_bioutils::assemblies::Assembly;
-use clap::{Args as ClapArgs, Parser};
+use clap::Parser;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use hgvs::data::interface::Provider;
@@ -108,11 +108,11 @@ pub struct Args {
 
     /// Path to the input PED file.
     #[arg(long)]
-    pub path_input_ped: Option<String>,
+    pub pedigree: Option<String>,
 
     /// Path to the input VCF file.
-    #[arg(long)]
-    pub path_input_vcf: String,
+    #[arg(short = 'i', long, required = true)]
+    pub input: String,
 
     #[arg(short = 'o', long, required = true)]
     pub output: String,
@@ -152,19 +152,6 @@ pub enum AnnotationOption {
     Transcripts,
     Frequencies,
     ClinVar,
-}
-
-/// Command line arguments to enforce either `--path-output-vcf` or `--path-output-tsv`.
-#[derive(Debug, ClapArgs)]
-#[group(required = true, multiple = false)]
-pub struct PathOutput {
-    /// Path to the output VCF file.
-    #[arg(long)]
-    pub path_output_vcf: Option<String>,
-
-    /// Path to the output TSV file (for import into VarFish).
-    #[arg(long, requires = "hgnc")]
-    pub path_output_tsv: Option<String>,
 }
 
 fn build_header(
@@ -354,8 +341,7 @@ pub trait AsyncAnnotatedVariantWriter {
     async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
-        record: &VcfRecord,
-        annotation: &VariantAnnotation,
+        record: &AnnotatedVariant,
     ) -> Result<(), anyhow::Error>;
 
     #[allow(async_fn_in_trait)]
@@ -382,10 +368,9 @@ impl<Inner: Write> AsyncAnnotatedVariantWriter for VcfWriter<Inner> {
     async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
-        record: &VcfRecord,
-        _annotation: &VariantAnnotation,
+        record: &AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
-        self.write_variant_record(header, record)
+        self.write_variant_record(header, &record.vcf)
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
@@ -407,10 +392,9 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
     async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
-        record: &VcfRecord,
-        _annotation: &VariantAnnotation,
+        record: &AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
-        noodles::vcf::AsyncWriter::write_variant_record(self, header, record)
+        self.write_variant_record(header, &record.vcf)
             .await
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
@@ -435,10 +419,9 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
     async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
-        record: &VcfRecord,
-        _annotation: &VariantAnnotation,
+        record: &AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
-        noodles::bcf::AsyncWriter::write_variant_record(self, header, record)
+        noodles::bcf::AsyncWriter::write_variant_record(self, header, &record.vcf)
             .await
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
@@ -1336,19 +1319,19 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
     async fn write_annotated_record(
         &mut self,
         _header: &VcfHeader,
-        record: &VcfRecord,
-        _annotation: &VariantAnnotation,
+        record: &AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
         let mut tsv_record = VarFishSeqvarTsvRecord::default();
 
-        if !self.fill_coords(record, &mut tsv_record)? {
+        if !self.fill_coords(&record.vcf, &mut tsv_record)? {
             // Record was not on canonical chromosome and should not be written out.
             return Ok(());
         }
-        self.fill_genotype_and_freqs(record, &mut tsv_record)?;
-        self.fill_bg_freqs(record, &mut tsv_record)?;
-        self.fill_clinvar(record, &mut tsv_record)?;
-        self.expand_refseq_ensembl_and_write(record, _annotation, &mut tsv_record)
+        self.fill_genotype_and_freqs(&record.vcf, &mut tsv_record)?;
+        self.fill_bg_freqs(&record.vcf, &mut tsv_record)?;
+        self.fill_clinvar(&record.vcf, &mut tsv_record)?;
+
+        self.expand_refseq_ensembl_and_write(&record.vcf, &record.annotation, &mut tsv_record)
     }
 
     async fn shutdown(&mut self) -> Result<(), Error> {
@@ -1396,13 +1379,13 @@ impl AsyncAnnotatedVariantWriter for SeqvarJsonlWriter {
     async fn write_annotated_record(
         &mut self,
         _header: &VcfHeader,
-        record: &VcfRecord,
-        annotation: &VariantAnnotation,
+        record: &AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
-        let chrom = record.reference_sequence_name().to_string();
-        let pos = record.variant_start().map(usize::from).unwrap_or(0);
-        let reference = record.reference_bases().to_string();
+        let chrom = record.chrom().to_string();
+        let pos = record.pos();
+        let reference = record.vcf.reference_bases().to_string();
         let alt: Vec<String> = record
+            .vcf
             .alternate_bases()
             .as_ref()
             .iter()
@@ -1411,7 +1394,7 @@ impl AsyncAnnotatedVariantWriter for SeqvarJsonlWriter {
 
         // Extract INFO fields minus the heavy ANN strings
         let mut info_map = serde_json::Map::new();
-        for (key, value) in record.info().as_ref() {
+        for (key, value) in record.vcf.info().as_ref() {
             if key == "ANN" {
                 continue;
             }
@@ -1439,7 +1422,7 @@ impl AsyncAnnotatedVariantWriter for SeqvarJsonlWriter {
             "pos": pos,
             "ref": reference,
             "alt": alt,
-            "ann": annotation.consequences, // <-- Pushed directly from the struct!
+            "ann": record.annotation.consequences,
             "info": info_map,
         });
 
@@ -2146,7 +2129,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 
             // Load the pedigree.
             tracing::info!("Loading pedigree...");
-            let pedigree = match &args.path_input_ped {
+            let pedigree = match &args.pedigree {
                 Some(p) => {
                     tracing::info!("Loading pedigree from file {}", p);
                     PedigreeByName::from_path(p)?
@@ -2176,7 +2159,7 @@ async fn run_with_writer(
     args: &Args,
 ) -> Result<(), Error> {
     tracing::info!("Open VCF and read header");
-    let mut reader = open_variant_reader(&args.path_input_vcf).await?;
+    let mut reader = open_variant_reader(&args.input).await?;
 
     let mut header_in = reader.read_header().await?;
 
@@ -2281,7 +2264,7 @@ async fn run_with_writer(
 
     let mut next_batch = Vec::with_capacity(batch_size);
     let mut processing_handle: Option<
-        tokio::task::JoinHandle<anyhow::Result<Vec<(VcfRecord, VariantAnnotation)>>>,
+        tokio::task::JoinHandle<anyhow::Result<Vec<AnnotatedVariant>>>,
     > = None;
 
     loop {
@@ -2314,23 +2297,23 @@ async fn run_with_writer(
         if let Some(handle) = processing_handle.take() {
             let processed_batch = handle.await??;
 
-            for (vcf_record, annotation) in processed_batch {
+            for annotated_record in processed_batch {
                 if prev.elapsed().as_secs() >= 60 {
-                    tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
+                    tracing::info!("at {:?}", from_vcf_allele(&annotated_record.vcf, 0));
                     prev = Instant::now();
                 }
 
                 if enable_compound {
-                    let ready_records =
-                        processor.process_annotated_record(vcf_record, annotation)?;
-                    for (rec, ann) in ready_records {
-                        writer
-                            .write_annotated_record(&header_out, &rec, &ann)
-                            .await?;
+                    let ready_records = processor.process_annotated_record(
+                        annotated_record.vcf,
+                        annotated_record.annotation,
+                    )?;
+                    for rec in ready_records {
+                        writer.write_annotated_record(&header_out, &rec).await?;
                     }
                 } else {
                     writer
-                        .write_annotated_record(&header_out, &vcf_record, &annotation)
+                        .write_annotated_record(&header_out, &annotated_record)
                         .await?;
                 }
                 total_written += 1;
@@ -2353,7 +2336,10 @@ async fn run_with_writer(
                 .into_par_iter()
                 .map(|mut record| {
                     let annotation = annotator_clone.annotate(&mut record)?;
-                    Ok((record, annotation))
+                    Ok(AnnotatedVariant {
+                        vcf: record,
+                        annotation,
+                    })
                 })
                 .collect::<anyhow::Result<Vec<_>>>()
         }));
@@ -2361,10 +2347,8 @@ async fn run_with_writer(
 
     if enable_compound {
         let final_records = processor.flush()?;
-        for (rec, ann) in final_records {
-            writer
-                .write_annotated_record(&header_out, &rec, &ann)
-                .await?;
+        for rec in final_records {
+            writer.write_annotated_record(&header_out, &rec).await?;
         }
     }
 
@@ -2567,6 +2551,24 @@ pub struct VariantAnnotation {
     pub clinvar: Option<ClinvarResult>,
 }
 
+#[derive(Debug, Clone)]
+pub struct AnnotatedVariant {
+    pub vcf: VcfRecord,
+    pub annotation: VariantAnnotation,
+}
+
+impl AnnotatedVariant {
+    /// Convenience method to get the chromosome
+    pub fn chrom(&self) -> &str {
+        self.vcf.reference_sequence_name()
+    }
+
+    /// Convenience method to get the 1-based start position
+    pub fn pos(&self) -> usize {
+        self.vcf.variant_start().map(usize::from).unwrap_or(0)
+    }
+}
+
 /// Helper to find the maximum genomic bounds of all transcripts overlapping a variant.
 fn get_transcript_boundaries(
     predictor: &ConsequencePredictor,
@@ -2630,7 +2632,7 @@ impl<'a> VariantProcessor<'a> {
         &mut self,
         record: VcfRecord,
         annotation: VariantAnnotation,
-    ) -> anyhow::Result<Vec<(VcfRecord, VariantAnnotation)>> {
+    ) -> anyhow::Result<Vec<AnnotatedVariant>> {
         let mut ready_records = Vec::new();
         let vcf_var = from_vcf_allele(&record, 0);
 
@@ -2680,11 +2682,11 @@ impl<'a> VariantProcessor<'a> {
         Ok(ready_records)
     }
 
-    pub fn flush(&mut self) -> anyhow::Result<Vec<(VcfRecord, VariantAnnotation)>> {
+    pub fn flush(&mut self) -> anyhow::Result<Vec<AnnotatedVariant>> {
         self.process_buffer_flush()
     }
 
-    fn process_buffer_flush(&mut self) -> anyhow::Result<Vec<(VcfRecord, VariantAnnotation)>> {
+    fn process_buffer_flush(&mut self) -> anyhow::Result<Vec<AnnotatedVariant>> {
         let (mut variants, compound_groups) = self.buffer.flush();
         let predictor = self.annotator.consequence_predictor();
 
@@ -2772,8 +2774,11 @@ impl<'a> VariantProcessor<'a> {
 
         Ok(variants
             .into_iter()
-            .zip(result_annotations)
-            .map(|(b, ann)| (b.record, ann))
+            .zip(result_annotations.into_iter())
+            .map(|(b, ann)| AnnotatedVariant {
+                vcf: b.record,
+                annotation: ann,
+            })
             .collect())
     }
 }
@@ -2781,7 +2786,7 @@ impl<'a> VariantProcessor<'a> {
 #[cfg(test)]
 mod test {
     use super::binning::bin_from_range;
-    use super::{Args, OutputFormat, PathOutput, run};
+    use super::{Args, OutputFormat, run};
     use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
     use crate::common::TsvContigStyle;
@@ -2811,11 +2816,11 @@ mod test {
                 },
                 ..Default::default()
             },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
+            input: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
-            path_input_ped: Some(String::from(
+            pedigree: Some(String::from(
                 "tests/data/annotate/seqvars/brca1.examples.ped",
             )),
             sources: Sources {
@@ -2863,11 +2868,11 @@ mod test {
                 },
                 ..Default::default()
             },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
+            input: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Tsv,
             max_var_count: None,
-            path_input_ped: Some(String::from(
+            pedigree: Some(String::from(
                 "tests/data/annotate/seqvars/brca1.examples.ped",
             )),
             sources: Sources {
@@ -2921,11 +2926,11 @@ mod test {
                 },
                 ..Default::default()
             },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
+            input: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Tsv,
             max_var_count: None,
-            path_input_ped: Some(String::from(
+            pedigree: Some(String::from(
                 "tests/data/annotate/seqvars/badly_formed_vcf_entry.ped",
             )),
             sources: Sources {
@@ -2973,11 +2978,11 @@ mod test {
                 },
                 ..Default::default()
             },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"),
+            input: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"),
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Tsv,
             max_var_count: None,
-            path_input_ped: Some(String::from(
+            pedigree: Some(String::from(
                 "tests/data/annotate/seqvars/mitochondrial_variants.ped",
             )),
             sources: Sources {
@@ -3027,11 +3032,11 @@ mod test {
                 },
                 ..Default::default()
             },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"),
+            input: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"),
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Tsv,
             max_var_count: None,
-            path_input_ped: Some(String::from(
+            pedigree: Some(String::from(
                 "tests/data/annotate/seqvars/clair3-glnexus-min.ped",
             )),
             sources: Sources {
@@ -3081,11 +3086,11 @@ mod test {
                 },
                 ..Default::default()
             },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
+            input: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Tsv,
             max_var_count: None,
-            path_input_ped: Some(String::from(
+            pedigree: Some(String::from(
                 "tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped",
             )),
             sources: Sources {

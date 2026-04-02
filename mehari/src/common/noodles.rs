@@ -12,7 +12,7 @@ use noodles::vcf::Header;
 use noodles::vcf::variant::RecordBuf;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, AsyncWriteExt};
 
-use crate::annotate::seqvars::{AsyncAnnotatedVariantWriter, VariantAnnotation};
+use crate::annotate::seqvars::{AnnotatedVariant, AsyncAnnotatedVariantWriter};
 use crate::common::io::tokio::open_read_maybe_bgzf;
 
 use super::io::{tokio::open_read_maybe_gz, tokio::open_write_maybe_bgzf};
@@ -132,55 +132,30 @@ pub async fn open_variant_writer(path: impl AsRef<Path>) -> anyhow::Result<Varia
     }
 }
 
-trait NoodlesVariantWriter {
-    async fn write_header(&mut self, header: &Header) -> std::io::Result<()>;
-    async fn write_record(
-        &mut self,
-        header: &Header,
-        record: &impl vcf::variant::Record,
-    ) -> std::io::Result<()>;
-}
-
 pub enum VariantWriter {
     Vcf(AsyncVcfWriter),
     Bcf(AsyncBcfWriter),
 }
-
-impl NoodlesVariantWriter for VariantWriter {
-    async fn write_header(&mut self, header: &Header) -> std::io::Result<()> {
-        match self {
-            VariantWriter::Vcf(w) => w.write_header(header).await,
-            VariantWriter::Bcf(w) => w.write_header(header).await,
-        }
-    }
-
-    async fn write_record(
-        &mut self,
-        header: &Header,
-        record: &impl vcf::variant::Record,
-    ) -> std::io::Result<()> {
-        match self {
-            VariantWriter::Vcf(w) => w.write_variant_record(header, record).await,
-            VariantWriter::Bcf(w) => w.write_variant_record(header, record).await,
-        }
-    }
-}
-
 impl AsyncAnnotatedVariantWriter for VariantWriter {
-    async fn write_noodles_header(&mut self, header: &Header) -> Result<(), Error> {
-        self.write_header(header).await.map_err(Into::into)
+    async fn write_noodles_header(&mut self, header: &Header) -> Result<(), anyhow::Error> {
+        match self {
+            VariantWriter::Vcf(w) => w.write_noodles_header(header).await,
+            VariantWriter::Bcf(w) => w.write_noodles_header(header).await,
+        }
     }
 
     async fn write_annotated_record(
         &mut self,
         header: &Header,
-        record: &RecordBuf,
-        _annotation: &VariantAnnotation,
-    ) -> Result<(), Error> {
-        self.write_record(header, record).await.map_err(Into::into)
+        record: &AnnotatedVariant,
+    ) -> Result<(), anyhow::Error> {
+        match self {
+            VariantWriter::Vcf(w) => w.write_annotated_record(header, record).await,
+            VariantWriter::Bcf(w) => w.write_annotated_record(header, record).await,
+        }
     }
 
-    async fn shutdown(&mut self) -> Result<(), Error> {
+    async fn shutdown(&mut self) -> Result<(), anyhow::Error> {
         match self {
             VariantWriter::Vcf(r) => r.get_mut().shutdown().await.map_err(Into::into),
             VariantWriter::Bcf(r) => r.get_mut().shutdown().await.map_err(Into::into),
