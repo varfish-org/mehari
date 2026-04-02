@@ -84,6 +84,13 @@ pub struct HgncRecord {
     pub gene_symbol: String,
 }
 
+#[derive(Debug, Clone, clap::ValueEnum, PartialEq, Eq)]
+pub enum OutputFormat {
+    Vcf,
+    Tsv,
+    Jsonl,
+}
+
 /// Command line arguments for `annotate seqvars` sub command.
 #[derive(Parser, Debug)]
 #[command(about = "Annotate sequence variant VCF files", long_about = None)]
@@ -108,15 +115,18 @@ pub struct Args {
     #[arg(long)]
     pub path_input_vcf: String,
 
-    #[command(flatten)]
-    pub output: PathOutput,
+    #[arg(short = 'o', long, required = true)]
+    pub output: String,
+
+    #[arg(long, value_enum, default_value_t = OutputFormat::Vcf)]
+    pub output_format: OutputFormat,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
     pub max_var_count: Option<usize>,
 
     /// Path to HGNC TSV file.
-    #[arg(long, required_unless_present = "path_output_vcf")]
+    #[arg(long)]
     pub hgnc: Option<String>,
 
     /// What to annotate and which source to use.
@@ -340,11 +350,13 @@ pub fn load_tx_db(tx_path: impl AsRef<Path> + Display) -> anyhow::Result<TxSeqDa
 pub trait AsyncAnnotatedVariantWriter {
     #[allow(async_fn_in_trait)]
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
+
     #[allow(async_fn_in_trait)]
-    async fn write_noodles_record(
+    async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
+        annotation: &VariantAnnotation,
     ) -> Result<(), anyhow::Error>;
 
     #[allow(async_fn_in_trait)]
@@ -368,10 +380,11 @@ impl<Inner: Write> AsyncAnnotatedVariantWriter for VcfWriter<Inner> {
             .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
     }
 
-    async fn write_noodles_record(
+    async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
+        _annotation: &VariantAnnotation,
     ) -> Result<(), anyhow::Error> {
         self.write_variant_record(header, record)
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
@@ -392,10 +405,11 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
             .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
     }
 
-    async fn write_noodles_record(
+    async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
+        _annotation: &VariantAnnotation,
     ) -> Result<(), anyhow::Error> {
         noodles::vcf::AsyncWriter::write_variant_record(self, header, record)
             .await
@@ -419,10 +433,11 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
             .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
     }
 
-    async fn write_noodles_record(
+    async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
         record: &VcfRecord,
+        _annotation: &VariantAnnotation,
     ) -> Result<(), anyhow::Error> {
         noodles::bcf::AsyncWriter::write_variant_record(self, header, record)
             .await
@@ -920,28 +935,15 @@ impl VarFishSeqvarTsvWriter {
     /// one output row per gene.
     fn expand_refseq_ensembl_and_write(
         &mut self,
-        record: &VcfRecord,
+        _record: &VcfRecord,
+        annotation: &VariantAnnotation,
         tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
-        if let Some(anns) = record
-            .info()
-            .get("ANN")
-            .unwrap_or_default()
-            .map(|v| match v {
-                field::Value::Array(field::value::Array::String(values)) => values
-                    .iter()
-                    .filter(|v| v.is_some())
-                    .map(|v| AnnField::from_str(v.as_ref().unwrap())),
-                _ => panic!("Unexpected value type for INFO/ANN"),
-            })
-        {
-            // Extract `AnnField` records, letting the errors bubble up.
-            let anns: Result<Vec<_>, _> = anns.collect();
-            let anns = anns?;
+        if !annotation.consequences.is_empty() {
+            let anns = annotation.consequences.clone();
 
-            // Collect the `AnnField` records by `gene_id`.
-            let mut anns_by_gene: FxHashMap<String, Vec<AnnField>> = FxHashMap::default();
-            for ann in anns {
+            let mut anns_by_gene: FxHashMap<String, Vec<&AnnField>> = FxHashMap::default();
+            for ann in &anns {
                 let gene_id = ann.gene_id.clone();
                 anns_by_gene.entry(gene_id).or_default().push(ann);
             }
@@ -1332,10 +1334,11 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
             .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
     }
 
-    async fn write_noodles_record(
+    async fn write_annotated_record(
         &mut self,
         _header: &VcfHeader,
         record: &VcfRecord,
+        _annotation: &VariantAnnotation,
     ) -> Result<(), anyhow::Error> {
         let mut tsv_record = VarFishSeqvarTsvRecord::default();
 
@@ -1346,7 +1349,7 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
         self.fill_genotype_and_freqs(record, &mut tsv_record)?;
         self.fill_bg_freqs(record, &mut tsv_record)?;
         self.fill_clinvar(record, &mut tsv_record)?;
-        self.expand_refseq_ensembl_and_write(record, &mut tsv_record)
+        self.expand_refseq_ensembl_and_write(record, _annotation, &mut tsv_record)
     }
 
     async fn shutdown(&mut self) -> Result<(), Error> {
@@ -1367,6 +1370,89 @@ impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
     }
 }
 
+pub struct SeqvarJsonlWriter {
+    inner: Box<dyn Write>,
+}
+
+impl SeqvarJsonlWriter {
+    pub fn with_path<P: AsRef<Path>>(p: P) -> Self {
+        Self {
+            inner: if p.as_ref().extension().unwrap_or_default() == "gz" {
+                Box::new(GzEncoder::new(
+                    File::create(p).unwrap(),
+                    Compression::default(),
+                ))
+            } else {
+                Box::new(File::create(p).unwrap())
+            },
+        }
+    }
+}
+
+impl AsyncAnnotatedVariantWriter for SeqvarJsonlWriter {
+    async fn write_noodles_header(&mut self, _header: &VcfHeader) -> Result<(), anyhow::Error> {
+        Ok(())
+    }
+
+    async fn write_annotated_record(
+        &mut self,
+        _header: &VcfHeader,
+        record: &VcfRecord,
+        annotation: &VariantAnnotation,
+    ) -> Result<(), anyhow::Error> {
+        let chrom = record.reference_sequence_name().to_string();
+        let pos = record.variant_start().map(usize::from).unwrap_or(0);
+        let reference = record.reference_bases().to_string();
+        let alt: Vec<String> = record
+            .alternate_bases()
+            .as_ref()
+            .iter()
+            .map(|a| a.to_string())
+            .collect();
+
+        // Extract INFO fields minus the heavy ANN strings
+        let mut info_map = serde_json::Map::new();
+        for (key, value) in record.info().as_ref() {
+            if key == "ANN" {
+                continue;
+            }
+            let json_val = match value {
+                Some(field::Value::Integer(i)) => serde_json::json!(i),
+                Some(field::Value::Float(f)) => serde_json::json!(f),
+                Some(field::Value::Flag) => serde_json::json!(true),
+                Some(field::Value::String(s)) => serde_json::json!(s),
+                Some(field::Value::Array(field::value::Array::Integer(arr))) => {
+                    serde_json::json!(arr)
+                }
+                Some(field::Value::Array(field::value::Array::Float(arr))) => {
+                    serde_json::json!(arr)
+                }
+                Some(field::Value::Array(field::value::Array::String(arr))) => {
+                    serde_json::json!(arr)
+                }
+                _ => serde_json::Value::Null,
+            };
+            info_map.insert(key.to_string(), json_val);
+        }
+
+        let json_record = serde_json::json!({
+            "chrom": chrom,
+            "pos": pos,
+            "ref": reference,
+            "alt": alt,
+            "ann": annotation.consequences, // <-- Pushed directly from the struct!
+            "info": info_map,
+        });
+
+        writeln!(self.inner, "{}", serde_json::to_string(&json_record)?)
+            .map_err(|e| anyhow::anyhow!("Error writing JSONL record: {}", e))
+    }
+
+    async fn shutdown(&mut self) -> Result<(), Error> {
+        Ok(self.inner.flush()?)
+    }
+}
+
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum AnnotatorEnum {
     Frequency(FrequencyAnnotator),
@@ -1375,11 +1461,19 @@ pub(crate) enum AnnotatorEnum {
 }
 
 impl AnnotatorEnum {
-    fn annotate(&self, var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
+    fn annotate(
+        &self,
+        var: &keys::Var,
+        record: &mut VcfRecord,
+        annotation: &mut VariantAnnotation,
+    ) -> anyhow::Result<()> {
         match self {
             AnnotatorEnum::Frequency(a) => a.annotate(var, record),
             AnnotatorEnum::Clinvar(a) => a.annotate(var, record),
-            AnnotatorEnum::Consequence(a) => a.annotate(var, record),
+            AnnotatorEnum::Consequence(a) => {
+                annotation.consequences = a.annotate(var, record)?;
+                Ok(())
+            }
         }
     }
 }
@@ -1914,7 +2008,11 @@ impl ConsequenceAnnotator {
         Ok(Self::new(predictor))
     }
 
-    fn annotate(&self, vcf_var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
+    fn annotate(
+        &self,
+        vcf_var: &keys::Var,
+        record: &mut VcfRecord,
+    ) -> anyhow::Result<Vec<AnnField>> {
         let keys::Var {
             chrom,
             pos,
@@ -1955,18 +2053,19 @@ impl ConsequenceAnnotator {
                 }
             }
 
+            let formatted: Vec<Option<String>> = ann_fields
+                .iter()
+                .map(|ann| Some(ann.format(&self.predictor.config)))
+                .collect();
             record.info_mut().insert(
                 "ANN".into(),
-                Some(field::Value::Array(field::value::Array::String(
-                    ann_fields
-                        .iter()
-                        .map(|ann| Some(ann.format(&self.predictor.config)))
-                        .collect(),
-                ))),
+                Some(field::Value::Array(field::value::Array::String(formatted))),
             );
+
+            return Ok(ann_fields);
         }
 
-        Ok(())
+        Ok(vec![])
     }
 }
 
@@ -1975,20 +2074,25 @@ impl Annotator {
         Self { annotators }
     }
 
-    fn annotate(&self, vcf_record: &mut VcfRecord) -> anyhow::Result<()> {
+    fn annotate(&self, vcf_record: &mut VcfRecord) -> anyhow::Result<VariantAnnotation> {
         // Get first alternate allele record.
         let vcf_var = from_vcf_allele(vcf_record, 0);
+        let mut annotation = VariantAnnotation {
+            consequences: vec![],
+            frequencies: None,
+            clinvar: None,
+        };
 
         // Skip records with a deletion as alternative allele.
         if vcf_var.alternative == "*" {
-            return Ok(());
+            return Ok(annotation);
         }
 
         for annotator in &self.annotators {
-            annotator.annotate(&vcf_var, vcf_record)?;
+            annotator.annotate(&vcf_var, vcf_record, &mut annotation)?;
         }
 
-        Ok(())
+        Ok(annotation)
     }
 
     pub(crate) fn consequence_predictor(&self) -> Option<&ConsequencePredictor> {
@@ -2007,57 +2111,61 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
         .num_threads(args.threads)
         .build_global();
 
-    if let Some(path_output_vcf) = &args.output.path_output_vcf {
-        let mut writer = open_variant_writer(path_output_vcf).await?;
-        run_with_writer(&mut writer, args).await?;
-        writer.shutdown().await?;
-    } else {
-        // Load the HGNC xlink map.
-        let hgnc_map = {
-            tracing::info!("Loading HGNC map ...");
-            let mut result = FxHashMap::default();
+    match args.output_format {
+        OutputFormat::Vcf => {
+            let mut writer = open_variant_writer(&args.output).await?;
+            run_with_writer(&mut writer, args).await?;
+            writer.shutdown().await?;
+        }
+        OutputFormat::Jsonl => {
+            let mut writer = SeqvarJsonlWriter::with_path(&args.output);
+            run_with_writer(&mut writer, args).await?;
+            writer.shutdown().await?;
+        }
+        OutputFormat::Tsv => {
+            let hgnc_map = {
+                tracing::info!("Loading HGNC map ...");
+                let mut result = FxHashMap::default();
 
-            let tsv_file = File::open(args.hgnc.as_ref().unwrap())?;
-            let mut tsv_reader = csv::ReaderBuilder::new()
-                .comment(Some(b'#'))
-                .delimiter(b'\t')
-                .from_reader(tsv_file);
-            for record in tsv_reader.deserialize() {
-                let record: HgncRecord = record?;
-                result.insert(record.hgnc_id.clone(), record);
-            }
-            tracing::info!("... done loading HGNC map");
+                let tsv_file = File::open(args.hgnc.as_ref().unwrap())?;
+                let mut tsv_reader = csv::ReaderBuilder::new()
+                    .comment(Some(b'#'))
+                    .delimiter(b'\t')
+                    .from_reader(tsv_file);
+                for record in tsv_reader.deserialize() {
+                    let record: HgncRecord = record?;
+                    result.insert(record.hgnc_id.clone(), record);
+                }
+                tracing::info!("... done loading HGNC map");
 
-            result
-        };
+                result
+            };
 
-        let path_output_tsv = args
-            .output
-            .path_output_tsv
-            .as_ref()
-            .expect("tsv path must be set; vcf and tsv are mutually exclusive, vcf unset");
-        let mut writer = VarFishSeqvarTsvWriter::with_path(path_output_tsv, args.tsv_contig_style);
+            let path_output_tsv = &args.output;
+            let mut writer =
+                VarFishSeqvarTsvWriter::with_path(path_output_tsv, args.tsv_contig_style);
 
-        // Load the pedigree.
-        tracing::info!("Loading pedigree...");
-        let pedigree = match &args.path_input_ped {
-            Some(p) => {
-                tracing::info!("Loading pedigree from file {}", p);
-                PedigreeByName::from_path(p)?
-            }
-            None => {
-                std::panic!("No pedigree file provided. This is required for tsv annotation.")
-            }
-        };
-        writer.set_pedigree(&pedigree);
-        tracing::info!("... done loading pedigree");
+            // Load the pedigree.
+            tracing::info!("Loading pedigree...");
+            let pedigree = match &args.path_input_ped {
+                Some(p) => {
+                    tracing::info!("Loading pedigree from file {}", p);
+                    PedigreeByName::from_path(p)?
+                }
+                None => {
+                    panic!("No pedigree file provided. This is required for tsv annotation.")
+                }
+            };
+            writer.set_pedigree(&pedigree);
+            tracing::info!("... done loading pedigree");
 
-        writer.set_hgnc_map(hgnc_map);
-        run_with_writer(&mut writer, args).await?;
+            writer.set_hgnc_map(hgnc_map);
+            run_with_writer(&mut writer, args).await?;
 
-        writer
-            .flush()
-            .map_err(|e| anyhow::anyhow!("problem flushing file: {}", e))?;
+            writer
+                .flush()
+                .map_err(|e| anyhow::anyhow!("problem flushing file: {}", e))?;
+        }
     }
 
     Ok(())
@@ -2173,8 +2281,9 @@ async fn run_with_writer(
     let batch_size = worker_threads * 1024;
 
     let mut next_batch = Vec::with_capacity(batch_size);
-    let mut processing_handle: Option<tokio::task::JoinHandle<anyhow::Result<Vec<VcfRecord>>>> =
-        None;
+    let mut processing_handle: Option<
+        tokio::task::JoinHandle<anyhow::Result<Vec<(VcfRecord, VariantAnnotation)>>>,
+    > = None;
 
     loop {
         // fill the `next_batch` buffer asynchronously (happens concurrently while the previous batch is being processed)
@@ -2206,20 +2315,23 @@ async fn run_with_writer(
         if let Some(handle) = processing_handle.take() {
             let processed_batch = handle.await??;
 
-            for vcf_record in processed_batch {
+            for (vcf_record, annotation) in processed_batch {
                 if prev.elapsed().as_secs() >= 60 {
                     tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
                     prev = Instant::now();
                 }
 
                 if enable_compound {
-                    let ready_records = processor.process_annotated_record(vcf_record)?;
-                    for rec in ready_records {
-                        writer.write_noodles_record(&header_out, &rec).await?;
+                    let ready_records =
+                        processor.process_annotated_record(vcf_record, annotation)?;
+                    for (rec, ann) in ready_records {
+                        writer
+                            .write_annotated_record(&header_out, &rec, &ann)
+                            .await?;
                     }
                 } else {
                     writer
-                        .write_noodles_record(&header_out, &vcf_record)
+                        .write_annotated_record(&header_out, &vcf_record, &annotation)
                         .await?;
                 }
                 total_written += 1;
@@ -2241,8 +2353,8 @@ async fn run_with_writer(
             batch_to_process
                 .into_par_iter()
                 .map(|mut record| {
-                    annotator_clone.annotate(&mut record)?;
-                    Ok(record)
+                    let annotation = annotator_clone.annotate(&mut record)?;
+                    Ok((record, annotation))
                 })
                 .collect::<anyhow::Result<Vec<_>>>()
         }));
@@ -2250,8 +2362,10 @@ async fn run_with_writer(
 
     if enable_compound {
         let final_records = processor.flush()?;
-        for rec in final_records {
-            writer.write_noodles_record(&header_out, &rec).await?;
+        for (rec, ann) in final_records {
+            writer
+                .write_annotated_record(&header_out, &rec, &ann)
+                .await?;
         }
     }
 
@@ -2496,6 +2610,7 @@ struct VariantProcessor<'a> {
     annotator: &'a Annotator,
     buffer: crate::annotate::seqvars::compound::VariantBuffer,
     next_group_id: usize,
+    annotations: std::collections::HashMap<String, VariantAnnotation>,
 }
 
 impl<'a> VariantProcessor<'a> {
@@ -2507,6 +2622,7 @@ impl<'a> VariantProcessor<'a> {
             annotator,
             buffer: compound::VariantBuffer::new(compound_settings.phasing_strategy),
             next_group_id: 0,
+            annotations: Default::default(),
         }
     }
 
@@ -2514,13 +2630,19 @@ impl<'a> VariantProcessor<'a> {
     pub fn process_annotated_record(
         &mut self,
         record: VcfRecord,
-    ) -> anyhow::Result<Vec<VcfRecord>> {
+        annotation: VariantAnnotation,
+    ) -> anyhow::Result<Vec<(VcfRecord, VariantAnnotation)>> {
         let mut ready_records = Vec::new();
         let vcf_var = from_vcf_allele(&record, 0);
 
         if self.buffer.should_flush(&vcf_var.chrom, vcf_var.pos) {
             ready_records.extend(self.process_buffer_flush()?);
         }
+        let key = format!(
+            "{}:{}:{}:{}",
+            vcf_var.chrom, vcf_var.pos, vcf_var.reference, vcf_var.alternative
+        );
+        self.annotations.insert(key, annotation);
 
         let (tx_accessions, min_start, max_end) =
             if let Some(predictor) = self.annotator.consequence_predictor() {
@@ -2559,13 +2681,31 @@ impl<'a> VariantProcessor<'a> {
         Ok(ready_records)
     }
 
-    pub fn flush(&mut self) -> anyhow::Result<Vec<VcfRecord>> {
+    pub fn flush(&mut self) -> anyhow::Result<Vec<(VcfRecord, VariantAnnotation)>> {
         self.process_buffer_flush()
     }
 
-    fn process_buffer_flush(&mut self) -> anyhow::Result<Vec<VcfRecord>> {
+    fn process_buffer_flush(&mut self) -> anyhow::Result<Vec<(VcfRecord, VariantAnnotation)>> {
         let (mut variants, compound_groups) = self.buffer.flush();
         let predictor = self.annotator.consequence_predictor();
+
+        let mut result_annotations: Vec<VariantAnnotation> = variants
+            .iter()
+            .map(|b| {
+                let vcf_var = from_vcf_allele(&b.record, 0);
+                let key = format!(
+                    "{}:{}:{}:{}",
+                    vcf_var.chrom, vcf_var.pos, vcf_var.reference, vcf_var.alternative
+                );
+                self.annotations
+                    .remove(&key)
+                    .unwrap_or_else(|| VariantAnnotation {
+                        consequences: vec![],
+                        frequencies: None,
+                        clinvar: None,
+                    })
+            })
+            .collect();
 
         for group_indices in compound_groups {
             if let Some(predictor) = predictor {
@@ -2607,6 +2747,9 @@ impl<'a> VariantProcessor<'a> {
                         .collect();
 
                     for &i in &group_indices {
+                        result_annotations[i]
+                            .consequences
+                            .extend(ann_fields.clone());
                         let record = &mut variants[i].record;
 
                         let mut all_anns = Vec::new();
@@ -2628,14 +2771,18 @@ impl<'a> VariantProcessor<'a> {
             }
         }
 
-        Ok(variants.into_iter().map(|b| b.record).collect())
+        Ok(variants
+            .into_iter()
+            .zip(result_annotations.into_iter())
+            .map(|(b, ann)| (b.record, ann))
+            .collect())
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::binning::bin_from_range;
-    use super::{Args, PathOutput, run};
+    use super::{Args, OutputFormat, PathOutput, run};
     use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
     use crate::common::TsvContigStyle;
@@ -2666,10 +2813,8 @@ mod test {
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
-            output: PathOutput {
-                path_output_vcf: Some(path_out.into_os_string().into_string().unwrap()),
-                path_output_tsv: None,
-            },
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
             max_var_count: None,
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/brca1.examples.ped",
@@ -2685,7 +2830,7 @@ mod test {
 
         run(&args_common, &args).await?;
 
-        let actual = std::fs::read_to_string(args.output.path_output_vcf.unwrap())?;
+        let actual = std::fs::read_to_string(args.output)?;
         // remove vcf header lines starting with ##mehari
         let actual = actual
             .lines()
@@ -2720,10 +2865,8 @@ mod test {
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
-            output: PathOutput {
-                path_output_vcf: None,
-                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
-            },
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Tsv,
             max_var_count: None,
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/brca1.examples.ped",
@@ -2739,7 +2882,7 @@ mod test {
 
         run(&args_common, &args).await?;
 
-        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
+        let actual = std::fs::read_to_string(args.output)?;
         insta::assert_snapshot!(actual);
 
         Ok(())
@@ -2780,10 +2923,8 @@ mod test {
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
-            output: PathOutput {
-                path_output_vcf: None,
-                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
-            },
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Tsv,
             max_var_count: None,
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/badly_formed_vcf_entry.ped",
@@ -2799,7 +2940,7 @@ mod test {
 
         run(&args_common, &args).await?;
 
-        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
+        let actual = std::fs::read_to_string(args.output)?;
         let expected =
             std::fs::read_to_string("tests/data/annotate/seqvars/badly_formed_vcf_entry.tsv")?;
         assert_eq!(&expected, &actual);
@@ -2834,10 +2975,8 @@ mod test {
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"),
-            output: PathOutput {
-                path_output_vcf: None,
-                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
-            },
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Tsv,
             max_var_count: None,
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/mitochondrial_variants.ped",
@@ -2853,7 +2992,7 @@ mod test {
 
         run(&args_common, &args).await?;
 
-        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
+        let actual = std::fs::read_to_string(args.output)?;
         let expected =
             std::fs::read_to_string("tests/data/annotate/seqvars/mitochondrial_variants.tsv")?;
         assert_eq!(&expected, &actual);
@@ -2890,10 +3029,8 @@ mod test {
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"),
-            output: PathOutput {
-                path_output_vcf: None,
-                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
-            },
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Tsv,
             max_var_count: None,
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/clair3-glnexus-min.ped",
@@ -2909,7 +3046,7 @@ mod test {
 
         run(&args_common, &args).await?;
 
-        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
+        let actual = std::fs::read_to_string(args.output)?;
         let expected =
             std::fs::read_to_string("tests/data/annotate/seqvars/clair3-glnexus-min.tsv")?;
         assert_eq!(&expected, &actual);
@@ -2946,10 +3083,8 @@ mod test {
                 ..Default::default()
             },
             path_input_vcf: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
-            output: PathOutput {
-                path_output_vcf: None,
-                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
-            },
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Tsv,
             max_var_count: None,
             path_input_ped: Some(String::from(
                 "tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped",
@@ -2965,7 +3100,7 @@ mod test {
 
         run(&args_common, &args).await?;
 
-        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
+        let actual = std::fs::read_to_string(args.output)?;
         let header_actual = actual
             .lines()
             .filter(|l| l.starts_with('#'))

@@ -47,6 +47,12 @@ use self::bnd::Breakend;
 pub mod csq;
 mod maelstrom;
 
+#[derive(Debug, Clone, clap::ValueEnum, PartialEq, Eq)]
+pub enum OutputFormat {
+    Vcf,
+    Tsv,
+}
+
 /// Command line arguments for `annotate strucvars` sub command.
 #[derive(Parser, Debug, Clone)]
 #[command(about = "Annotate structural variant VCF files", long_about = None)]
@@ -63,8 +69,13 @@ pub struct Args {
     #[arg(long, required = true)]
     pub path_input_vcf: Vec<String>,
 
-    #[command(flatten)]
-    pub output: PathOutput,
+    /// Path to the output file
+    #[arg(short = 'o', long, required = true)]
+    pub output: String,
+
+    /// Format of the output file
+    #[arg(long, value_enum, default_value_t = OutputFormat::Vcf)]
+    pub output_format: OutputFormat,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
@@ -98,19 +109,6 @@ pub struct Args {
     /// Style for contig names in TSV output.
     #[arg(long, value_enum, default_value_t=TsvContigStyle::Auto)]
     pub tsv_contig_style: TsvContigStyle,
-}
-
-/// Command line arguments to enforce either `--path-output-vcf` or `--path-output-tsv`.
-#[derive(Debug, ClapArgs, Clone)]
-#[group(required = true, multiple = false)]
-pub struct PathOutput {
-    /// Path to the output VCF file.
-    #[arg(long)]
-    pub path_output_vcf: Option<String>,
-
-    /// Path to the output TSV file (for import into VarFish).
-    #[arg(long)]
-    pub path_output_tsv: Option<String>,
 }
 
 /// Code for building the VCF header to be written out.
@@ -3379,72 +3377,79 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     }
     tracing::info!("... done converting input files.");
 
-    if let Some(path_output_vcf) = &args.output.path_output_vcf {
-        tracing::info!(
-            "Writing merged and annotated VCF output to {}",
-            path_output_vcf
-        );
+    match args.output_format {
+        OutputFormat::Vcf => {
+            tracing::info!(
+                "Writing merged and annotated VCF output to {}",
+                &args.output
+            );
 
-        let file_date = args
-            .file_date
-            .as_ref()
-            .cloned()
-            .unwrap_or(Utc::now().date_naive().format("%Y%m%d").to_string());
+            let file_date = args
+                .file_date
+                .as_ref()
+                .cloned()
+                .unwrap_or(Utc::now().date_naive().format("%Y%m%d").to_string());
 
-        let header_out = vcf_header::build(assembly, &pedigree, &file_date, &header)?;
+            let header_out = vcf_header::build(assembly, &pedigree, &file_date, &header)?;
 
-        let mut writer = open_variant_writer(path_output_vcf).await?;
-        writer.set_assembly(assembly);
-        writer.set_pedigree(&pedigree);
-        writer.write_noodles_header(&header_out).await?;
+            let mut writer = open_variant_writer(&args.output).await?;
+            writer.set_assembly(assembly);
+            writer.set_pedigree(&pedigree);
+            writer.write_noodles_header(&header_out).await?;
 
-        tracing::info!("Clustering SVs to output...");
-        // Read through temporary files by contig, cluster by overlap as configured, and write to VCF
-        for contig_no in 1..=25 {
-            tracing::info!("  clustering contig: {}", CANONICAL[contig_no - 1]);
-            let clustered_records = read_and_cluster_for_contig(
-                &tmp_dir,
-                contig_no,
-                args.slack_ins,
-                args.slack_bnd,
-                args.min_overlap,
-            )?;
+            tracing::info!("Clustering SVs to output...");
+            // Read through temporary files by contig, cluster by overlap as configured, and write to VCF
+            for contig_no in 1..=25 {
+                tracing::info!("  clustering contig: {}", CANONICAL[contig_no - 1]);
+                let clustered_records = read_and_cluster_for_contig(
+                    &tmp_dir,
+                    contig_no,
+                    args.slack_ins,
+                    args.slack_bnd,
+                    args.min_overlap,
+                )?;
 
-            for tsv_record in clustered_records {
-                let vcf_record: VcfRecord = tsv_record.try_into()?;
-                writer
-                    .write_noodles_record(&header_out, &vcf_record)
-                    .await?;
+                let dummy_annotation = crate::annotate::seqvars::VariantAnnotation {
+                    consequences: vec![],
+                    frequencies: None,
+                    clinvar: None,
+                };
+                for tsv_record in clustered_records {
+                    let vcf_record: VcfRecord = tsv_record.try_into()?;
+                    writer
+                        .write_annotated_record(&header_out, &vcf_record, &dummy_annotation)
+                        .await?;
+                }
             }
+            tracing::info!("... done clustering SVs to output.");
+            writer.shutdown().await?;
         }
-        tracing::info!("... done clustering SVs to output.");
-        writer.shutdown().await?;
-    } else {
-        let path_output_tsv = args.output.path_output_tsv.as_ref().unwrap();
-        tracing::info!(
-            "Writing merged and annotated TSV output to {}",
-            path_output_tsv
-        );
+        OutputFormat::Tsv => {
+            tracing::info!(
+                "Writing merged and annotated TSV output to {}",
+                &args.output
+            );
 
-        let mut tsv_writer = VarFishStrucvarTsvWriter::with_path(path_output_tsv);
-        tsv_writer.write_header()?;
+            let mut tsv_writer = VarFishStrucvarTsvWriter::with_path(&args.output);
+            tsv_writer.write_header()?;
 
-        for contig_no in 1..=25 {
-            tracing::info!("  clustering contig: {}", CANONICAL[contig_no - 1]);
-            let clustered_records = read_and_cluster_for_contig(
-                &tmp_dir,
-                contig_no,
-                args.slack_ins,
-                args.slack_bnd,
-                args.min_overlap,
-            )?;
+            for contig_no in 1..=25 {
+                tracing::info!("  clustering contig: {}", CANONICAL[contig_no - 1]);
+                let clustered_records = read_and_cluster_for_contig(
+                    &tmp_dir,
+                    contig_no,
+                    args.slack_ins,
+                    args.slack_bnd,
+                    args.min_overlap,
+                )?;
 
-            for tsv_record in clustered_records {
-                tsv_writer.write_record(&tsv_record)?;
+                for tsv_record in clustered_records {
+                    tsv_writer.write_record(&tsv_record)?;
+                }
             }
-        }
 
-        tsv_writer.flush()?;
+            tsv_writer.flush()?;
+        }
     }
 
     tracing::info!("... done writing final output.");
@@ -3592,7 +3597,7 @@ mod test {
     use uuid::Uuid;
 
     use super::{
-        Args, PathOutput, VarFishStrucvarTsvWriter, VcfHeader, VcfRecord, VcfRecordConverter,
+        Args, OutputFormat, VarFishStrucvarTsvWriter, VcfHeader, VcfRecord, VcfRecordConverter,
         bnd::Breakend,
         build_vcf_record_converter,
         conv::{
@@ -4332,16 +4337,11 @@ mod test {
             path_input_vcf: vec![String::from(
                 "tests/data/annotate/strucvars/maelstrom/delly2-min.vcf",
             )],
-            output: if is_tsv {
-                PathOutput {
-                    path_output_vcf: None,
-                    path_output_tsv: Some(format!("{}", out_path.display())),
-                }
+            output: out_path.display().to_string(),
+            output_format: if is_tsv {
+                OutputFormat::Tsv
             } else {
-                PathOutput {
-                    path_output_vcf: Some(format!("{}", out_path.display())),
-                    path_output_tsv: None,
-                }
+                OutputFormat::Vcf
             },
             max_var_count: None,
             path_cov_vcf: vec![String::from(
@@ -4387,10 +4387,8 @@ mod test {
             genome_release: Some(GenomeRelease::Grch38),
             path_input_ped: String::from("tests/data/annotate/strucvars/test.order.ped"),
             path_input_vcf: vec![String::from("tests/data/annotate/strucvars/test.order.vcf")],
-            output: PathOutput {
-                path_output_vcf: Some(format!("{}", out_path.display())),
-                path_output_tsv: None,
-            },
+            output: out_path.display().to_string(),
+            output_format: OutputFormat::Vcf,
             max_var_count: None,
             path_cov_vcf: vec![],
             file_date: Some(String::from("20250121")),
