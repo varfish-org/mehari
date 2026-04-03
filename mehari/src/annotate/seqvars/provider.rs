@@ -757,6 +757,69 @@ impl ProviderInterface for Provider {
         ))
     }
 
+    fn get_tx_exon_coords(
+        &self,
+        tx_ac: &str,
+        alt_ac: &str,
+        _alt_aln_method: &str,
+    ) -> Result<Vec<(i32, i32)>, Error> {
+        let tx_idx = *self
+            .tx_map
+            .get(tx_ac)
+            .ok_or(Error::NoTranscriptFound(tx_ac.to_string()))?;
+        let tx = &self
+            .tx_seq_db
+            .tx_db
+            .as_ref()
+            .expect("no tx_db?")
+            .transcripts[tx_idx as usize];
+
+        for genome_alignment in &tx.genome_alignments {
+            if genome_alignment.contig == alt_ac {
+                let mut coords = Vec::with_capacity(genome_alignment.exons.len());
+                for exon in &genome_alignment.exons {
+                    let tx_start = exon.alt_cds_start_i.map(|val| val - 1).unwrap_or(-1);
+                    let tx_end = exon.alt_cds_end_i.unwrap_or(-1);
+                    coords.push((exon.alt_start_i, tx_start, tx_end));
+                }
+                coords.sort_unstable_by_key(|c| c.0);
+                return Ok(coords.into_iter().map(|(_, s, e)| (s, e)).collect());
+            }
+        }
+        Err(Error::NoAlignmentFound(
+            tx_ac.to_string(),
+            alt_ac.to_string(),
+        ))
+    }
+
+    fn get_cds_start_end(
+        &self,
+        tx_ac: &str,
+        alt_ac: &str,
+        _alt_aln_method: &str,
+    ) -> Result<(Option<i32>, Option<i32>), Error> {
+        let tx_idx = *self
+            .tx_map
+            .get(tx_ac)
+            .ok_or(Error::NoTranscriptFound(tx_ac.to_string()))?;
+        let tx = &self
+            .tx_seq_db
+            .tx_db
+            .as_ref()
+            .expect("no tx_db?")
+            .transcripts[tx_idx as usize];
+
+        for genome_alignment in &tx.genome_alignments {
+            if genome_alignment.contig == alt_ac {
+                return Ok((tx.start_codon, tx.stop_codon));
+            }
+        }
+        Err(Error::NoAlignmentFound(
+            tx_ac.to_string(),
+            alt_ac.to_string(),
+        ))
+    }
+
     fn get_tx_for_gene(&self, gene: &str) -> Result<Vec<TxInfoRecord>, Error> {
         let tx_acs = if let Some(tx_acs) = self.get_picked_transcripts(gene) {
             tx_acs

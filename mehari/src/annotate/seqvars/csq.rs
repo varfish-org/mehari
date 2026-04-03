@@ -851,23 +851,23 @@ impl ConsequencePredictor {
             if c_ref {
                 custom_fields.insert(
                     ANN_TX_SEQ_REF.into(),
-                    Some(ref_data.transcript_sequence.clone()),
+                    Some(ref_data.transcript_sequence.to_string()),
                 );
             }
             if p_ref {
-                custom_fields.insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.clone()));
+                custom_fields.insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.to_string()));
             }
 
             if (c_alt || p_alt)
                 && matches!(var_c, HgvsVariant::CdsVariant { .. })
-                && let Ok(alt_data_vec) = AltSeqBuilder::new(var_c.clone(), ref_data).build_altseq()
+                && let Ok(alt_data_vec) = AltSeqBuilder::new(var_c.clone(), &ref_data).build_altseq()
                 && let Some(alt_data) = alt_data_vec.into_iter().next()
             {
                 if c_alt {
-                    custom_fields.insert(ANN_TX_SEQ_ALT.into(), Some(alt_data.transcript_sequence));
+                    custom_fields.insert(ANN_TX_SEQ_ALT.into(), Some(alt_data.transcript_sequence.to_string()));
                 }
                 if p_alt {
-                    custom_fields.insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence));
+                    custom_fields.insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence.to_string()));
                 }
             }
         }
@@ -1685,7 +1685,7 @@ impl ConsequencePredictor {
                             {
                                 let original_sequence_len = reference_data.aa_sequence.len();
                                 if let Ok(alt_data) =
-                                    AltSeqBuilder::new(var_c.clone(), reference_data).build_altseq()
+                                    AltSeqBuilder::new(var_c.clone(), &reference_data).build_altseq()
                                     && let Some(alt_data) = alt_data.first()
                                 {
                                     let altered_sequence = &alt_data.aa_sequence;
@@ -1918,13 +1918,13 @@ impl ConsequencePredictor {
             .iter()
             .map(|v| {
                 let (_, r1, a1) =
-                    hgvs::sequences::trim_common_suffixes(&v.reference, &v.alternative);
-                let (prefix_trim, r2, a2) = hgvs::sequences::trim_common_prefixes(&r1, &a1);
+                    hgvs::sequences::trim_common_suffixes_slice(&v.reference, &v.alternative);
+                let (prefix_trim, r2, a2) = hgvs::sequences::trim_common_prefixes_slice(&r1, &a1);
                 VcfVariant {
                     chromosome: v.chromosome.clone(),
                     position: v.position + prefix_trim as i32,
-                    reference: r2,
-                    alternative: a2,
+                    reference: r2.to_string(),
+                    alternative: a2.to_string(),
                 }
             })
             .collect();
@@ -2256,7 +2256,7 @@ impl ConsequencePredictor {
         n_edits.sort_by(|a, b| b.replace_start.cmp(&a.replace_start));
 
         let tx_len = ref_data.transcript_sequence.len() as i32;
-        let mut alt_seq = ref_data.transcript_sequence.clone();
+        let mut alt_seq = ref_data.transcript_sequence.to_string();
         let n_min = n_edits.iter().map(|e| e.n_loc_start).min().unwrap();
         let n_max = n_edits.iter().map(|e| e.n_loc_end).max().unwrap();
 
@@ -2376,22 +2376,22 @@ impl ConsequencePredictor {
             if c_ref {
                 custom_fields.insert(
                     ANN_TX_SEQ_REF.into(),
-                    Some(ref_data.transcript_sequence.clone()),
+                    Some(ref_data.transcript_sequence.to_string()),
                 );
             }
             if p_ref {
-                custom_fields.insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.clone()));
+                custom_fields.insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.to_string()));
             }
             if (c_alt || p_alt)
                 && let Ok(alt_data_vec) =
-                    AltSeqBuilder::new(compound_var_c.clone(), ref_data).build_altseq()
+                    AltSeqBuilder::new(compound_var_c.clone(), &ref_data).build_altseq()
                 && let Some(alt_data) = alt_data_vec.into_iter().next()
             {
                 if c_alt {
-                    custom_fields.insert(ANN_TX_SEQ_ALT.into(), Some(alt_data.transcript_sequence));
+                    custom_fields.insert(ANN_TX_SEQ_ALT.into(), Some(alt_data.transcript_sequence.to_string()));
                 }
                 if p_alt {
-                    custom_fields.insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence));
+                    custom_fields.insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence.to_string()));
                 }
             }
         }
