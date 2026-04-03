@@ -634,11 +634,13 @@ impl ConsequencePredictor {
 
         if let Some(var_n) = &projection.n {
             projection.c = match transcript_biotype {
-                TranscriptBiotype::Coding => self
-                    .mapper
-                    .n_to_c(var_n)
-                    .map(Some)
-                    .map_err(|e| SeqvarsError::HgvsProjection(e.to_string()))?,
+                TranscriptBiotype::Coding => {
+                    self.mapper
+                        .variant_mapper()
+                        .n_to_c(var_n)
+                        .map(Some)
+                        .map_err(|e| SeqvarsError::HgvsProjection(e.to_string()))?
+                }
                 TranscriptBiotype::NonCoding => Some(var_n.clone()),
                 _ => None,
             };
@@ -2515,39 +2517,42 @@ impl ConsequencePredictor {
         &self,
         var_c: &HgvsVariant,
     ) -> Result<Option<HgvsVariant>, SeqvarsError> {
-        self.mapper.c_to_p(var_c).map_or_else(
-            |e| {
-                if matches!(
-                    e,
-                    Error::TranscriptLengthInvalid(_, _)
-                        | Error::CannotConvertIntervalEnd(_)
-                        | Error::MultipleAAVariants
-                ) {
-                    tracing::debug!("c_to_p failed gracefully (typed error): {}", e);
-                    return Ok(None);
-                }
+        self.mapper
+            .variant_mapper()
+            .c_to_p(var_c, None)
+            .map_or_else(
+                |e| {
+                    if matches!(
+                        e,
+                        Error::TranscriptLengthInvalid(_, _)
+                            | Error::CannotConvertIntervalEnd(_)
+                            | Error::MultipleAAVariants
+                    ) {
+                        tracing::debug!("c_to_p failed gracefully (typed error): {}", e);
+                        return Ok(None);
+                    }
 
-                let err_str = e.to_string();
-                if err_str.contains("does not contain a stop codon")
-                    || err_str.contains("multiple of 3")
-                    || err_str.contains("multiple of three")
-                    || err_str.contains("out of bound")
-                    || err_str.contains("outside of sequence bounds")
-                {
-                    tracing::debug!(
-                        "c_to_p failed gracefully (nested error string): {}",
-                        err_str
-                    );
-                    Ok(None)
-                } else {
-                    Err(SeqvarsError::HgvsProjection(format!(
-                        "c_to_p mapping failed: {}",
-                        e
-                    )))
-                }
-            },
-            |v| Ok(Some(v)),
-        )
+                    let err_str = e.to_string();
+                    if err_str.contains("does not contain a stop codon")
+                        || err_str.contains("multiple of 3")
+                        || err_str.contains("multiple of three")
+                        || err_str.contains("out of bound")
+                        || err_str.contains("outside of sequence bounds")
+                    {
+                        tracing::debug!(
+                            "c_to_p failed gracefully (nested error string): {}",
+                            err_str
+                        );
+                        Ok(None)
+                    } else {
+                        Err(SeqvarsError::HgvsProjection(format!(
+                            "c_to_p mapping failed: {}",
+                            e
+                        )))
+                    }
+                },
+                |v| Ok(Some(v)),
+            )
     }
 }
 
