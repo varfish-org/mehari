@@ -2531,6 +2531,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48f5d2a454e16a5ea0f4ced81bd44e4cfc7bd3a507b61887c99fd3538b28e4af"
 
 [[package]]
+name = "libdeflate-sys"
+version = "1.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "805824325366c44599dfeb62850fe3c7d7b3e3d75f9ab46785bc7dba3676815c"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "libdeflater"
+version = "1.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b270bcc7e9d6dce967a504a55b1b0444f966aa9184e8605b531bc0492abb30bb"
+dependencies = [
+ "libdeflate-sys",
+]
+
+[[package]]
 name = "libgit2-sys"
 version = "0.18.3+1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2751,6 +2769,7 @@ dependencies = [
  "memmap2",
  "nom 8.0.0",
  "noodles 0.109.0",
+ "noodles-bgzf 0.46.0",
  "nutype",
  "once_cell",
  "parse-display",
@@ -3074,6 +3093,7 @@ dependencies = [
  "crossbeam-channel",
  "flate2",
  "futures",
+ "libdeflater",
  "pin-project-lite",
  "tokio",
  "tokio-util",

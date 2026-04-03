@@ -1,7 +1,7 @@
 //! Tokio-based async common I/O code.
 
 use async_compression::tokio::bufread::GzipDecoder;
-use noodles::bgzf;
+use noodles_bgzf;
 use std::path::Path;
 use std::pin::Pin;
 use tokio::fs::File;
@@ -89,7 +89,7 @@ where
     if is_gzipped {
         tracing::debug!("Detected bgzip/gzip stream. Using noodles-bgzf default worker count.");
         let bgzf_reader =
-            bgzf::r#async::io::reader::Builder::default().build_from_reader(bufreader);
+            noodles_bgzf::r#async::io::reader::Builder::default().build_from_reader(bufreader);
         Ok(Box::pin(bgzf_reader))
     } else {
         Ok(Box::pin(bufreader))
@@ -115,7 +115,7 @@ where
 
         let is_gzipped = ["gz", "bgz", "bcf"].contains(&ext);
         if is_gzipped {
-            let bgzf_writer = bgzf::r#async::io::writer::Builder::default().build_from_writer(file);
+            let bgzf_writer = noodles_bgzf::r#async::io::writer::Builder::default().build_from_writer(file);
             Ok(Box::pin(bgzf_writer))
         } else {
             Ok(Box::pin(file))

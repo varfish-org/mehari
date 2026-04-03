@@ -20,7 +20,7 @@ pub struct Reader {
     /// Name of the single sample in the VCF file.
     pub sample_name: String,
     /// The internal reader.
-    pub reader: vcf::io::IndexedReader<noodles::bgzf::io::Reader<std::fs::File>>,
+    pub reader: vcf::io::IndexedReader<noodles_bgzf::io::Reader<std::fs::File>>,
     /// The header from the VCF file.
     pub header: vcf::header::Header,
 }
