@@ -9,7 +9,7 @@ updates:
       interval: "weekly"
 
   - package-ecosystem: "cargo"
-    directory: "/"
+    directory: "/mehari"
     schedule:
       interval: "weekly"
     ignore:
@@ -36,3 +36,10 @@ updates:
           - "pbjson-build"
           - "prost"
           - "prost-build"
+
+  - package-ecosystem: "uv"
+    directory: "/mehari-python"
+    schedule:
+      interval: "weekly"
+    exclude-paths:
+      - "*.txt"
