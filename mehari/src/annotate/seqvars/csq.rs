@@ -646,7 +646,28 @@ impl ConsequencePredictor {
             if let Some(var_c) = &projection.c
                 && transcript_biotype == TranscriptBiotype::Coding
             {
-                projection.p = self.safe_project_c_to_p(var_c)?;
+                // if the variant is purely intronic, we can skip safe_project_c_to_p,
+                // and simply inject p.?
+                let is_purely_intronic = match var_c {
+                    HgvsVariant::CdsVariant { loc_edit, .. } => {
+                        let loc = loc_edit.loc.inner();
+                        loc.start.offset.unwrap_or(0) != 0
+                            && loc.end.offset.unwrap_or(0) != 0
+                            && loc.start.base == loc.end.base
+                            && loc.start.cds_from == loc.end.cds_from
+                    }
+                    _ => false,
+                };
+
+                if is_purely_intronic {
+                    projection.p = Some(HgvsVariant::ProtVariant {
+                        accession: var_c.accession().clone(),
+                        gene_symbol: var_c.gene_symbol().clone(),
+                        loc_edit: ProtLocEdit::Unknown,
+                    });
+                } else {
+                    projection.p = self.safe_project_c_to_p(var_c)?;
+                }
             }
         }
 
