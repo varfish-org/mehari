@@ -23,6 +23,7 @@ use hgvs::{
 use itertools::Itertools;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::Arc;
 
 /// A variant description how VCF would do it.
@@ -115,8 +116,6 @@ pub type Consequences = BitFlags<Consequence>;
 
 #[derive(Debug, Clone)]
 struct HgvsProjectionContext {
-    #[allow(dead_code)]
-    g: HgvsVariant,
     n: Option<HgvsVariant>,
     c: Option<HgvsVariant>,
     p: Option<HgvsVariant>,
@@ -615,7 +614,6 @@ impl ConsequencePredictor {
         transcript_biotype: TranscriptBiotype,
     ) -> Result<HgvsProjectionContext, SeqvarsError> {
         let mut projection = HgvsProjectionContext {
-            g: var_g.clone(),
             n: None,
             c: None,
             p: None,
@@ -2360,7 +2358,6 @@ impl ConsequencePredictor {
         let compound_var_p = self.safe_project_c_to_p(&compound_var_c)?;
 
         let compound_proj = HgvsProjectionContext {
-            g: projections[0].g.clone(),
             n: Some(compound_var_n),
             c: Some(compound_var_c.clone()),
             p: compound_var_p,
