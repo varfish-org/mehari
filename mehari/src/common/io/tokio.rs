@@ -115,7 +115,8 @@ where
 
         let is_gzipped = ["gz", "bgz", "bcf"].contains(&ext);
         if is_gzipped {
-            let bgzf_writer = noodles_bgzf::r#async::io::writer::Builder::default().build_from_writer(file);
+            let bgzf_writer =
+                noodles_bgzf::r#async::io::writer::Builder::default().build_from_writer(file);
             Ok(Box::pin(bgzf_writer))
         } else {
             Ok(Box::pin(file))

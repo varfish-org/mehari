@@ -1702,7 +1702,8 @@ impl ConsequencePredictor {
                             {
                                 let original_sequence_len = reference_data.aa_sequence.len();
                                 if let Ok(alt_data) =
-                                    AltSeqBuilder::new(var_c.clone(), &reference_data).build_altseq()
+                                    AltSeqBuilder::new(var_c.clone(), &reference_data)
+                                        .build_altseq()
                                     && let Some(alt_data) = alt_data.first()
                                 {
                                     let altered_sequence = &alt_data.aa_sequence;
@@ -2396,7 +2397,10 @@ impl ConsequencePredictor {
                 );
             }
             if p_ref {
-                custom_fields.insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.to_string()));
+                custom_fields.insert(
+                    ANN_AA_SEQ_REF.into(),
+                    Some(ref_data.aa_sequence.to_string()),
+                );
             }
             if (c_alt || p_alt)
                 && let Ok(alt_data_vec) =
@@ -2404,10 +2408,16 @@ impl ConsequencePredictor {
                 && let Some(alt_data) = alt_data_vec.into_iter().next()
             {
                 if c_alt {
-                    custom_fields.insert(ANN_TX_SEQ_ALT.into(), Some(alt_data.transcript_sequence.to_string()));
+                    custom_fields.insert(
+                        ANN_TX_SEQ_ALT.into(),
+                        Some(alt_data.transcript_sequence.to_string()),
+                    );
                 }
                 if p_alt {
-                    custom_fields.insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence.to_string()));
+                    custom_fields.insert(
+                        ANN_AA_SEQ_ALT.into(),
+                        Some(alt_data.aa_sequence.to_string()),
+                    );
                 }
             }
         }
