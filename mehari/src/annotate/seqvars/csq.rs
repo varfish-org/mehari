@@ -874,48 +874,46 @@ impl ConsequencePredictor {
                 );
             }
             if p_ref {
-                custom_fields.insert(ANN_AA_SEQ_REF.into(), Some(ref_data.aa_sequence.to_string()));
+                custom_fields.insert(
+                    ANN_AA_SEQ_REF.into(),
+                    Some(ref_data.aa_sequence.to_string()),
+                );
             }
 
             if (c_alt || p_alt)
                 && matches!(var_c, HgvsVariant::CdsVariant { .. })
-                && let Ok(alt_data_vec) = AltSeqBuilder::new(var_c.clone(), &ref_data).build_altseq()
+                && let Ok(alt_data_vec) =
+                    AltSeqBuilder::new(var_c.clone(), &ref_data).build_altseq()
                 && let Some(alt_data) = alt_data_vec.into_iter().next()
             {
                 if c_alt {
-                    custom_fields.insert(ANN_TX_SEQ_ALT.into(), Some(alt_data.transcript_sequence.to_string()));
+                    custom_fields.insert(
+                        ANN_TX_SEQ_ALT.into(),
+                        Some(alt_data.transcript_sequence.to_string()),
+                    );
                 }
                 if p_alt {
-                    custom_fields.insert(ANN_AA_SEQ_ALT.into(), Some(alt_data.aa_sequence.to_string()));
+                    custom_fields.insert(
+                        ANN_AA_SEQ_ALT.into(),
+                        Some(alt_data.aa_sequence.to_string()),
+                    );
                 }
             }
         }
 
-        let format_loc = |var: &HgvsVariant| -> String {
-            match var {
-                HgvsVariant::CdsVariant { loc_edit, .. } => format!("c.{}", NoRef(loc_edit)),
-                HgvsVariant::GenomeVariant { loc_edit, .. } => format!("g.{}", NoRef(loc_edit)),
-                HgvsVariant::MtVariant { loc_edit, .. } => format!("m.{}", NoRef(loc_edit)),
-                HgvsVariant::TxVariant { loc_edit, .. } => format!("n.{}", NoRef(loc_edit)),
-                HgvsVariant::ProtVariant { loc_edit, .. } => format!("p.{}", NoRef(loc_edit)),
-                HgvsVariant::RnaVariant { loc_edit, .. } => format!("r.{}", NoRef(loc_edit)),
-            }
-        };
-
-        let hgvs_g = Some(format_loc(var_g));
-
+        let hgvs_g = Some(FormattedLoc(var_g).to_string());
         let hgvs_n = projection
             .as_ref()
             .and_then(|p| p.n.as_ref())
-            .map(format_loc);
+            .map(|var| FormattedLoc(var).to_string());
         let hgvs_c = projection
             .as_ref()
             .and_then(|p| p.c.as_ref())
-            .map(format_loc);
+            .map(|var| FormattedLoc(var).to_string());
         let hgvs_p = projection
             .as_ref()
             .and_then(|p| p.p.as_ref())
-            .map(format_loc);
+            .map(|var| FormattedLoc(var).to_string());
 
         let feature_biotype = vec![match transcript_biotype {
             TranscriptBiotype::Coding => FeatureBiotype::Coding,
@@ -2605,6 +2603,21 @@ impl ConsequencePredictor {
     /// Return data version string (if set).
     pub fn data_version(&self) -> Option<String> {
         self.provider.as_ref().tx_seq_db.version.clone()
+    }
+}
+
+struct FormattedLoc<'a>(&'a HgvsVariant);
+
+impl<'a> fmt::Display for FormattedLoc<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            HgvsVariant::CdsVariant { loc_edit, .. } => write!(f, "c.{}", NoRef(loc_edit)),
+            HgvsVariant::GenomeVariant { loc_edit, .. } => write!(f, "g.{}", NoRef(loc_edit)),
+            HgvsVariant::MtVariant { loc_edit, .. } => write!(f, "m.{}", NoRef(loc_edit)),
+            HgvsVariant::TxVariant { loc_edit, .. } => write!(f, "n.{}", NoRef(loc_edit)),
+            HgvsVariant::ProtVariant { loc_edit, .. } => write!(f, "p.{}", NoRef(loc_edit)),
+            HgvsVariant::RnaVariant { loc_edit, .. } => write!(f, "r.{}", NoRef(loc_edit)),
+        }
     }
 }
 
