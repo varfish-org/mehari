@@ -61,7 +61,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     let assembly = guess_assembly_from_vcf(&header, true, None)?;
 
     // 3. Initialize TSV Writer
-    let mut writer = VarFishSeqvarTsvWriter::with_path(&args.output, args.tsv_contig_style);
+    let mut writer = VarFishSeqvarTsvWriter::with_path(&args.output, args.tsv_contig_style)?;
     writer.set_hgnc_map(hgnc_map);
     writer.set_pedigree(&pedigree);
     writer.set_assembly(assembly);
@@ -204,23 +204,25 @@ pub struct VarFishSeqvarTsvWriter {
 }
 
 impl VarFishSeqvarTsvWriter {
-    pub fn with_path<P: AsRef<Path>>(p: P, tsv_contig_style: TsvContigStyle) -> Self {
-        Self {
-            inner: if p.as_ref().extension().unwrap_or_default() == "gz" {
-                Box::new(GzEncoder::new(
-                    File::create(p).unwrap(),
-                    Compression::default(),
-                ))
-            } else {
-                Box::new(File::create(p).unwrap())
-            },
-            hgnc_map: None,
+    pub fn with_path<P: AsRef<Path>>(
+        p: P,
+        tsv_contig_style: TsvContigStyle,
+    ) -> anyhow::Result<Self> {
+        let path = p.as_ref().to_path_buf();
+        let inner: Box<dyn Write> = if path.extension().unwrap_or_default() == "gz" {
+            Box::new(GzEncoder::new(File::create(&path)?, Compression::default()))
+        } else {
+            Box::new(File::create(&path)?)
+        };
+        Ok(Self {
+            inner,
             assembly: None,
             pedigree: None,
             header: None,
+            hgnc_map: None,
             contig_manager: None,
             tsv_contig_style,
-        }
+        })
     }
 
     pub fn set_hgnc_map(&mut self, hgnc_map: FxHashMap<String, HgncRecord>) {
@@ -467,13 +469,13 @@ impl VarFishSeqvarTsvWriter {
                 ..Default::default()
             };
             if let Some(gt) = get_genotype(i) {
-                let individual = self
+                let pedigree = self
                     .pedigree
                     .as_ref()
-                    .unwrap()
-                    .individuals
-                    .get(name)
-                    .unwrap();
+                    .ok_or_else(|| anyhow::anyhow!("Pedigree has not been set on the writer"))?;
+                let individual = pedigree.individuals.get(name).ok_or_else(|| {
+                    anyhow::anyhow!("Sample '{}' found in VCF but not in PED file", name)
+                })?;
                 if ContigManager::is_chr_x(tsv_record.chromosome_no) {
                     match individual.sex {
                         Sex::Male => {

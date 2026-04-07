@@ -641,11 +641,29 @@ impl AnnotatorEnum {
     fn annotate(&self, var: &keys::Var, annotation: &mut VariantAnnotation) -> anyhow::Result<()> {
         match self {
             AnnotatorEnum::Frequency(a) => {
-                annotation.frequencies = a.annotate(var)?;
+                if let Some(freqs) = a.annotate(var)? {
+                    if annotation.frequencies.is_some() {
+                        anyhow::bail!(
+                            "Multiple frequency databases returned results for variant {:?}; \
+                             annotating from multiple frequency databases is not supported",
+                            var
+                        );
+                    }
+                    annotation.frequencies = Some(freqs);
+                }
                 Ok(())
             }
             AnnotatorEnum::Clinvar(a) => {
-                annotation.clinvar = a.annotate(var)?;
+                if let Some(clinvar) = a.annotate(var)? {
+                    if annotation.clinvar.is_some() {
+                        anyhow::bail!(
+                            "Multiple ClinVar databases returned results for variant {:?}; \
+                             annotating from multiple ClinVar databases is not supported",
+                            var
+                        );
+                    }
+                    annotation.clinvar = Some(clinvar);
+                }
                 Ok(())
             }
             AnnotatorEnum::Consequence(a) => {
@@ -1173,13 +1191,13 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             let writer = open_variant_writer(&args.output).await?;
             let mut seqvars_writer = SeqvarsVcfWriter::new(writer);
             run_with_writer(&mut seqvars_writer, args).await?;
-            seqvars_writer.shutdown().await?;
+            // shutdown is already called inside run_with_writer
         }
         OutputFormat::Jsonl => {
             let stream = crate::common::io::tokio::open_write_maybe_bgzf(&args.output).await?;
             let mut writer = SeqvarJsonlWriter::new(stream);
             run_with_writer(&mut writer, args).await?;
-            writer.shutdown().await?;
+            // shutdown is already called inside run_with_writer
         }
     }
 
@@ -1700,7 +1718,13 @@ impl<'a> VariantProcessor<'a> {
             "{}:{}:{}:{}",
             vcf_var.chrom, vcf_var.pos, vcf_var.reference, vcf_var.alternative
         );
-        self.annotations.insert(key, annotation);
+        if self.annotations.insert(key.clone(), annotation).is_some() {
+            tracing::warn!(
+                "Duplicate SPDI detected in annotation buffer: {}; \
+                 the earlier annotation was overwritten.",
+                key
+            );
+        }
 
         let (tx_accessions, min_start, max_end) =
             if let Some(predictor) = self.annotator.consequence_predictor() {

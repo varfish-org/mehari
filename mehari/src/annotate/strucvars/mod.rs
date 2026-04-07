@@ -684,20 +684,17 @@ impl GenotypeCalls {
 
 impl VarFishStrucvarTsvWriter {
     /// Create new TSV writer from path.
-    pub fn with_path<P>(p: P) -> Self
+    pub fn with_path<P>(p: P) -> anyhow::Result<Self>
     where
         P: AsRef<Path>,
     {
-        Self {
+        Ok(Self {
             inner: if p.as_ref().extension().unwrap_or_default() == "gz" {
-                Box::new(GzEncoder::new(
-                    File::create(p).unwrap(),
-                    Compression::default(),
-                ))
+                Box::new(GzEncoder::new(File::create(p)?, Compression::default()))
             } else {
-                Box::new(File::create(p).unwrap())
+                Box::new(File::create(p)?)
             },
-        }
+        })
     }
 
     /// Writes the static TSV header row to the output.
@@ -3432,7 +3429,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                 &args.output
             );
 
-            let mut tsv_writer = VarFishStrucvarTsvWriter::with_path(&args.output);
+            let mut tsv_writer = VarFishStrucvarTsvWriter::with_path(&args.output)?;
             tsv_writer.write_header()?;
 
             for contig_no in 1..=25 {
@@ -4304,7 +4301,7 @@ mod test {
 
         // scope for writer
         {
-            let mut writer = VarFishStrucvarTsvWriter::with_path(temp.join("out.tsv"));
+            let mut writer = VarFishStrucvarTsvWriter::with_path(temp.join("out.tsv"))?;
             writer.write_header()?;
             for varfish_record in example_records() {
                 writer.write_record(&varfish_record)?;
