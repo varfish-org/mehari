@@ -727,28 +727,38 @@ impl ConsequencePredictor {
             );
 
             if let Some(var_p) = &projection.p {
-                let prot_len = cds_len
-                    .expect("cds_len cannot be None if hgvs.p projection has been successful")
-                    / 3;
-                context.protein_pos = match var_p {
-                    HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
-                        ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
-                            ord: loc.inner().start.number,
-                            total: Some(prot_len),
-                        }),
-                        _ => None,
-                    },
-                    _ => panic!("Not a protein position: {:?}", var_p),
-                };
-
-                context.protein_consequences = self.analyze_protein_variant(
-                    var_c,
+                if matches!(
                     var_p,
-                    &context.protein_pos,
-                    conservative,
-                    &tx_record.tx_ac,
-                    incomplete_3p,
-                );
+                    HgvsVariant::ProtVariant {
+                        loc_edit: ProtLocEdit::Unknown,
+                        ..
+                    }
+                ) {
+                    // protein_pos and protein_consequences remain intentionally empty (or rather None)
+                } else {
+                    let prot_len = cds_len
+                        .expect("cds_len cannot be None if hgvs.p projection has been successful")
+                        / 3;
+                    context.protein_pos = match var_p {
+                        HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
+                            ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
+                                ord: loc.inner().start.number,
+                                total: Some(prot_len),
+                            }),
+                            _ => None,
+                        },
+                        _ => panic!("Not a protein position: {:?}", var_p),
+                    };
+
+                    context.protein_consequences = self.analyze_protein_variant(
+                        var_c,
+                        var_p,
+                        &context.protein_pos,
+                        conservative,
+                        &tx_record.tx_ac,
+                        incomplete_3p,
+                    );
+                }
             }
         }
 
