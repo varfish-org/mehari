@@ -2788,8 +2788,8 @@ mod test {
             true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
-                    TranscriptPickType::ManePlusClinical,
-                    TranscriptPickType::ManeSelect,
+                    TranscriptPickType::ManePlusClinicalBackport,
+                    TranscriptPickType::ManeSelectBackport,
                     TranscriptPickType::Length,
                 ])
                 .build()?,
@@ -2893,8 +2893,8 @@ mod test {
             true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
-                    TranscriptPickType::ManePlusClinical,
-                    TranscriptPickType::ManeSelect,
+                    TranscriptPickType::ManePlusClinicalBackport,
+                    TranscriptPickType::ManeSelectBackport,
                     TranscriptPickType::Length,
                 ])
                 .build()?,
@@ -2956,8 +2956,8 @@ mod test {
             true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(vec![
-                    TranscriptPickType::ManePlusClinical,
-                    TranscriptPickType::ManeSelect,
+                    TranscriptPickType::ManePlusClinicalBackport,
+                    TranscriptPickType::ManeSelectBackport,
                     TranscriptPickType::Length,
                 ])
                 .build()?,
