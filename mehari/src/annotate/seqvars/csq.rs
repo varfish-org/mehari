@@ -1947,7 +1947,7 @@ impl ConsequencePredictor {
             .map(|v| {
                 let (_, r1, a1) =
                     hgvs::sequences::trim_common_suffixes_slice(&v.reference, &v.alternative);
-                let (prefix_trim, r2, a2) = hgvs::sequences::trim_common_prefixes_slice(&r1, &a1);
+                let (prefix_trim, r2, a2) = hgvs::sequences::trim_common_prefixes_slice(r1, a1);
                 VcfVariant {
                     chromosome: v.chromosome.clone(),
                     position: v.position + prefix_trim as i32,
