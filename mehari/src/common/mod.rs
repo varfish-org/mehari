@@ -4,7 +4,7 @@ use annonars::common::cli::CANONICAL;
 use std::collections::HashMap;
 use std::ops::Range;
 
-use crate::pbs::txs::GenomeBuild;
+
 use biocommons_bioutils::assemblies::{ASSEMBLY_INFOS, Assembly};
 use byte_unit::{Byte, UnitType};
 use clap::Parser;
@@ -95,24 +95,32 @@ impl From<Assembly> for GenomeRelease {
     }
 }
 
-impl From<GenomeRelease> for GenomeBuild {
+impl From<GenomeRelease> for String {
     fn from(val: GenomeRelease) -> Self {
         match val {
-            GenomeRelease::Grch37 => GenomeBuild::Grch37,
-            GenomeRelease::Grch38 => GenomeBuild::Grch38,
+            GenomeRelease::Grch37 => String::from("grch37"),
+            GenomeRelease::Grch38 => String::from("grch38"),
         }
     }
 }
 
-impl TryFrom<GenomeBuild> for GenomeRelease {
+impl TryFrom<&str> for GenomeRelease {
     type Error = anyhow::Error;
 
-    fn try_from(value: GenomeBuild) -> Result<Self, Self::Error> {
-        match value {
-            GenomeBuild::Grch37 => Ok(GenomeRelease::Grch37),
-            GenomeBuild::Grch38 => Ok(GenomeRelease::Grch38),
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value.to_lowercase().as_str() {
+            "grch37" | "grch37p10" => Ok(GenomeRelease::Grch37),
+            "grch38" => Ok(GenomeRelease::Grch38),
             _ => anyhow::bail!("Unknown genome build"),
         }
+    }
+}
+
+impl TryFrom<String> for GenomeRelease {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
     }
 }
 

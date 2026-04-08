@@ -1,10 +1,10 @@
 //! Transcript database.
 
 use crate::annotate::seqvars::ann::FeatureTag;
-use crate::common::{GenomeRelease, trace_rss_now};
-use crate::pbs::txs::{Assembly, Source, SourceVersion, TxSeqDatabase};
+use crate::common::trace_rss_now;
+use crate::pbs::txs::{SourceVersion, TxSeqDatabase};
 use anyhow::{Error, anyhow};
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use derive_new::new;
 use enumflags2::{BitFlag, BitFlags, bitflags};
 use hgvs::data::cdot::json::models;
@@ -42,7 +42,7 @@ const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1", "NC_001807.4"];
 pub struct Args {
     /// Targeted genome assembly to extract transcripts for.
     #[arg(long)]
-    pub assembly: GenomeRelease,
+    pub assembly: String,
 
     /// Version of the genome assembly, e.g. "GRCh37.p13".
     #[arg(long)]
@@ -50,7 +50,7 @@ pub struct Args {
 
     /// Source of the transcripts. RefSeq, Ensembl, or Other.
     #[arg(long)]
-    pub transcript_source: TxSource,
+    pub transcript_source: String,
 
     /// Version of the transcript source. E.g. "112" for Ensembl.
     #[arg(long, required_if_eq("transcript_source", "ensembl"))]
@@ -93,17 +93,6 @@ pub struct Args {
     /// ZSTD compression level to use.
     #[arg(long, default_value = "19")]
     pub compression_level: i32,
-}
-
-/// Source of the transcripts.
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum TxSource {
-    /// RefSeq.
-    Refseq,
-    /// Ensembl.
-    Ensembl,
-    /// Other.
-    Other,
 }
 
 /// Helper struct for parsing the label TSV file.
@@ -249,7 +238,7 @@ static DISCARD_BIOTYPES_GENES: Lazy<HashSet<BioType>> = Lazy::new(|| {
 
 #[derive(Debug, Clone, Default)]
 struct TranscriptLoader {
-    genome_release: GenomeRelease,
+    genome_release: String,
     cdot_version: String,
     transcript_id_to_transcript: HashMap<TranscriptId, Transcript>,
     gene_id_to_gene: HashMap<GeneId, Gene>,
@@ -259,7 +248,7 @@ struct TranscriptLoader {
 }
 
 impl TranscriptLoader {
-    fn new(genome_release: GenomeRelease) -> Self {
+    fn new(genome_release: String) -> Self {
         Self {
             genome_release,
             ..Default::default()
@@ -989,8 +978,8 @@ impl TranscriptLoader {
                 let n = tx.genome_builds.len();
                 tx.genome_builds.retain(|key, _| {
                     matches!(
-                        (key.as_str(), self.genome_release),
-                        ("GRCh37", GenomeRelease::Grch37) | ("GRCh38", GenomeRelease::Grch38)
+                        (key.as_str(), self.genome_release.as_str()),
+                        ("GRCh37", "grch37") | ("GRCh38", "grch38")
                     )
                 });
                 if n != tx.genome_builds.len() {
@@ -1506,8 +1495,8 @@ impl TranscriptLoader {
         let mut tags = HashSet::new();
         // obtain basic properties
         let genome_build = match genome_build.as_ref() {
-            "GRCh37" => crate::pbs::txs::GenomeBuild::Grch37,
-            "GRCh38" => crate::pbs::txs::GenomeBuild::Grch38,
+            "GRCh37" => String::from("grch37"),
+            "GRCh38" => String::from("grch38"),
             _ => panic!("Unknown genome build {:?}", genome_build),
         };
         let models::GenomeAlignment {
@@ -1604,7 +1593,7 @@ impl TranscriptLoader {
             .collect();
 
         let genome_alignment = crate::pbs::txs::GenomeAlignment {
-            genome_build: genome_build.into(),
+            genome_build,
             contig,
             cds_start,
             cds_end,
@@ -1799,7 +1788,7 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
         .path_cdot_json
         .iter()
         .map(|cdot_path| {
-            let mut loader = TranscriptLoader::new(args.assembly);
+            let mut loader = TranscriptLoader::new(args.assembly.clone());
             loader.load_cdot(cdot_path).map(|_| loader)
         })
         .collect::<Result<Vec<_>, Error>>()?;
@@ -1953,27 +1942,20 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
     }
 
     fn bundle_source_version_information(args: &Args) -> SourceVersion {
-        let assembly = match args.assembly {
-            GenomeRelease::Grch37 => Assembly::Grch37,
-            GenomeRelease::Grch38 => Assembly::Grch38,
-        };
+        let assembly = args.assembly.clone();
 
         let assembly_version = args.assembly_version.clone();
 
-        let source_name = match args.transcript_source {
-            TxSource::Refseq => Source::Refseq,
-            TxSource::Ensembl => Source::Ensembl,
-            TxSource::Other => Source::Unknown,
-        };
+        let source_name = args.transcript_source.clone();
 
         let source_version = args.transcript_source_version.clone().unwrap_or("".into());
         let cdot_version = args.cdot_version.clone();
 
         SourceVersion {
             mehari_version: crate::common::version().to_string(),
-            assembly: i32::from(assembly),
+            assembly: assembly.to_string(),
             assembly_version,
-            source_name: i32::from(source_name),
+            source_name: source_name.to_string(),
             source_version,
             cdot_version,
         }
@@ -2031,8 +2013,8 @@ pub mod test {
     use rstest::rstest;
     use temp_testdir::TempDir;
 
-    use crate::common::{Args as CommonArgs, GenomeRelease};
-    use crate::db::create::{GeneId, TranscriptLoader, TxSource};
+    use crate::common::Args as CommonArgs;
+    use crate::db::create::{GeneId, TranscriptLoader};
     use crate::db::dump;
 
     use super::{Args, run};
@@ -2040,7 +2022,7 @@ pub mod test {
     #[test]
     fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {
         let path_tsv = Path::new("tests/data/db/create/txs/txs_main.tsv");
-        let mut tx_data = TranscriptLoader::new(GenomeRelease::Grch37);
+        let mut tx_data = TranscriptLoader::new("GRCh37".to_string());
         let labels = super::txid_to_label(path_tsv)?;
         tx_data.load_cdot(Path::new(
             "tests/data/db/create/txs/cdot-0.2.22.refseq.grch37_grch38.brca1_opa1.json",
@@ -2077,9 +2059,9 @@ pub mod test {
     }
 
     #[rstest]
-    #[case(GenomeRelease::Grch37)]
-    #[case(GenomeRelease::Grch38)]
-    fn run_smoke_brca1_opa1(#[case] assembly: GenomeRelease) -> Result<(), anyhow::Error> {
+    #[case("grch37")]
+    #[case("grch38")]
+    fn run_smoke_brca1_opa1(#[case] assembly: String) -> Result<(), anyhow::Error> {
         let tmp_dir = TempDir::default();
 
         let common_args = CommonArgs {
@@ -2092,9 +2074,9 @@ pub mod test {
             )],
             path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
-            assembly,
+            assembly: assembly.clone(),
             assembly_version: None,
-            transcript_source: TxSource::Refseq,
+            transcript_source: "refseq".to_string(),
             transcript_source_version: None,
             max_txs: None,
             gene_symbols: None,
@@ -2113,7 +2095,7 @@ pub mod test {
             },
             &mut buf,
         )?;
-        crate::common::set_snapshot_suffix!("{}", assembly.name().to_lowercase());
+        crate::common::set_snapshot_suffix!("{}", assembly.to_lowercase());
         insta::assert_snapshot!(String::from_utf8(buf)?);
 
         Ok(())
@@ -2133,9 +2115,9 @@ pub mod test {
             )],
             path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/seleonoproteins/latest"),
-            assembly: GenomeRelease::Grch38,
+            assembly: "grch38".to_string(),
             assembly_version: None,
-            transcript_source: TxSource::Refseq,
+            transcript_source: "refseq".to_string(),
             transcript_source_version: None,
             max_txs: None,
             gene_symbols: None,
@@ -2174,9 +2156,9 @@ pub mod test {
             )],
             path_mane_txs_tsv: None,
             path_seqrepo_instance: PathBuf::from("tests/data/db/create/mitochondrial/latest"),
-            assembly: GenomeRelease::Grch37,
+            assembly: "grch37".to_string(),
             assembly_version: None,
-            transcript_source: TxSource::Ensembl,
+            transcript_source: "ensembl".to_string(),
             transcript_source_version: Some("98".into()),
             max_txs: None,
             gene_symbols: None,

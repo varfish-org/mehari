@@ -1414,14 +1414,11 @@ async fn run_with_writer(
     Ok(())
 }
 
-pub(crate) fn proto_assembly_from(assembly: &Assembly) -> Option<crate::pbs::txs::Assembly> {
-    crate::pbs::txs::Assembly::from_str_name(&format!(
-        "ASSEMBLY_{}",
-        match assembly {
-            Assembly::Grch38 => "GRCH38",
-            _ => "GRCH37",
-        }
-    ))
+pub(crate) fn string_assembly_from(assembly: &Assembly) -> &'static str {
+    match assembly {
+        Assembly::Grch38 => "grch38",
+        _ => "grch37",
+    }
 }
 
 pub(crate) fn setup_seqvars_annotator(
@@ -1546,27 +1543,27 @@ pub(crate) fn load_transcript_dbs_for_assembly(
     tx_sources: &[String],
     assembly: Assembly,
 ) -> Result<Vec<TxSeqDatabase>, Error> {
-    let pb_assembly = proto_assembly_from(&assembly);
+    let req_assembly = string_assembly_from(&assembly);
 
     // Filter out any transcript databases that do not match the requested assembly.
-    let check_assembly = |db: &TxSeqDatabase, assembly: crate::pbs::txs::Assembly| {
+    let check_assembly = |db: &TxSeqDatabase, required: &str| {
         db.source_version
             .iter()
-            .map(|s| s.assembly)
-            .any(|a| a == i32::from(assembly))
+            .map(|s| s.assembly.clone())
+            .any(|a| a.to_lowercase() == required)
     };
     let databases = tx_sources
         .iter()
         .enumerate()
         .map(|(i, path)| (i, load_tx_db(path)))
         .filter_map(|(i, txdb)| match txdb {
-            Ok(db) => match pb_assembly {
-                Some(assembly) if check_assembly(&db, assembly) => Some(Ok(db)),
-                Some(_) => {
+            Ok(db) => {
+                if check_assembly(&db, req_assembly) {
+                    Some(Ok(db))
+                } else {
                     tracing::info!("Skipping transcript database {} as its version {:?} does not support the requested assembly ({:?})", &tx_sources[i], &db.source_version, &assembly);
                     None
                 }
-                None => Some(Ok(db)),
             },
             Err(_) => Some(txdb),
         })

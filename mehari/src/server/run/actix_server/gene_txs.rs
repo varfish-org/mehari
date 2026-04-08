@@ -5,7 +5,7 @@
 use crate::common::GenomeRelease;
 use crate::pbs;
 use crate::pbs::server::{GeneTranscriptsQuery, GeneTranscriptsResponse};
-use crate::pbs::txs::GenomeBuild;
+
 use crate::server::run::actix_server::CustomError;
 use actix_web::{
     get,
@@ -34,9 +34,8 @@ fn genes_tx_impl(
         page_size,
         next_page_token,
     } = query;
-    let genome_build = GenomeBuild::try_from(genome_build.unwrap_or(GenomeBuild::Grch37 as i32))
-        .map_err(|e| CustomError::new(anyhow::anyhow!("Invalid genome build: {}", e)))?;
-    let genome_release = GenomeRelease::try_from(genome_build)
+    let genome_build = genome_build.unwrap_or_else(|| String::from("grch37"));
+    let genome_release = GenomeRelease::try_from(genome_build.as_str())
         .map_err(|e| CustomError::new(anyhow::anyhow!("Invalid genome build: {}", e)))?;
     let hgnc_id = hgnc_id
         .as_ref()
@@ -103,7 +102,10 @@ pub(crate) struct GenesTranscriptsListQuery {
 impl From<GenesTranscriptsListQuery> for pbs::server::GeneTranscriptsQuery {
     fn from(val: GenesTranscriptsListQuery) -> Self {
         pbs::server::GeneTranscriptsQuery {
-            genome_build: Some(Into::<pbs::txs::GenomeBuild>::into(val.genome_build) as i32),
+            genome_build: Some(match val.genome_build {
+                super::versions::Assembly::Grch38 => String::from("grch38"),
+                _ => String::from("grch37"),
+            }),
             hgnc_id: Some(val.hgnc_id),
             page_size: val.page_size,
             next_page_token: val.next_page_token,
@@ -281,7 +283,7 @@ impl TryFrom<pbs::txs::GenomeAlignment> for GenomeAlignment {
 
     fn try_from(value: pbs::txs::GenomeAlignment) -> Result<Self, Self::Error> {
         Ok(GenomeAlignment {
-            genome_build: Assembly::try_from(pbs::txs::GenomeBuild::try_from(value.genome_build)?)?,
+            genome_build: super::versions::Assembly::try_from(value.genome_build.as_str())?,
             contig: value.contig.clone(),
             cds_start: value.cds_start,
             cds_end: value.cds_end,

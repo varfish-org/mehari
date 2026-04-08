@@ -32,7 +32,7 @@ pub fn merge_transcript_databases(
         }
 
         // Ensure that all databases use the same assembly.
-        if !first.source_version.iter().map(|v| v.assembly).all_equal() {
+        if !first.source_version.iter().map(|v| v.assembly.clone()).all_equal() {
             return Err(anyhow::anyhow!(
                 "Inconsistent assembly versions in first database"
             ));
@@ -41,7 +41,7 @@ pub fn merge_transcript_databases(
             .source_version
             .first()
             .expect("At least one source_version entry expected")
-            .assembly;
+            .assembly.clone();
 
         if !others
             .iter()

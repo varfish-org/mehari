@@ -1,5 +1,5 @@
 ---
-source: src/db/create/mod.rs
+source: mehari/src/db/create/mod.rs
 expression: "String::from_utf8(buf)?"
 ---
 txDb:
@@ -15,7 +15,7 @@ txDb:
     startCodon: 113
     stopCodon: 5705
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000017.10
       cdsStart: 41197694
       cdsEnd: 41276113
@@ -167,7 +167,7 @@ txDb:
     startCodon: 194
     stopCodon: 5645
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000017.10
       cdsStart: 41197694
       cdsEnd: 41258543
@@ -313,7 +313,7 @@ txDb:
     startCodon: 19
     stopCodon: 2299
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000017.10
       cdsStart: 41197694
       cdsEnd: 41276113
@@ -459,7 +459,7 @@ txDb:
     startCodon: 107
     stopCodon: 2207
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000017.10
       cdsStart: 41197800
       cdsEnd: 41276113
@@ -605,7 +605,7 @@ txDb:
     startCodon: 113
     stopCodon: 5768
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000017.10
       cdsStart: 41197694
       cdsEnd: 41276113
@@ -760,7 +760,7 @@ txDb:
     geneId: HGNC:1100
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000017.10
       strand: STRAND_MINUS
       exons:
@@ -911,7 +911,7 @@ txDb:
     startCodon: 600
     stopCodon: 3114
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000003.11
       cdsStart: 193333483
       cdsEnd: 193409916
@@ -1105,7 +1105,7 @@ txDb:
     startCodon: 600
     stopCodon: 3111
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000003.11
       cdsStart: 193333483
       cdsEnd: 193409916
@@ -1299,7 +1299,7 @@ txDb:
     startCodon: 170
     stopCodon: 3053
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000003.11
       cdsStart: 193311166
       cdsEnd: 193409916
@@ -1487,7 +1487,7 @@ txDb:
     startCodon: 170
     stopCodon: 2945
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000003.11
       cdsStart: 193311166
       cdsEnd: 193409916
@@ -1669,7 +1669,7 @@ txDb:
     startCodon: 170
     stopCodon: 2999
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000003.11
       cdsStart: 193311166
       cdsEnd: 193409916
@@ -1857,7 +1857,7 @@ txDb:
     startCodon: 170
     stopCodon: 3056
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000003.11
       cdsStart: 193311166
       cdsEnd: 193409916
@@ -2045,7 +2045,7 @@ txDb:
     startCodon: 170
     stopCodon: 3107
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000003.11
       cdsStart: 193311166
       cdsEnd: 193409916
@@ -2239,7 +2239,7 @@ txDb:
     startCodon: 170
     stopCodon: 3110
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000003.11
       cdsStart: 193311166
       cdsEnd: 193409916
@@ -2433,7 +2433,7 @@ txDb:
     startCodon: 170
     stopCodon: 3164
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000003.11
       cdsStart: 193311166
       cdsEnd: 193409916
@@ -2630,7 +2630,7 @@ txDb:
     startCodon: 170
     stopCodon: 3218
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_000003.11
       cdsStart: 193311166
       cdsEnd: 193409916
@@ -3000,6 +3000,6 @@ seqDb:
 version: 0.0.0
 sourceVersion:
 - mehariVersion: 0.0.0
-  assembly: ASSEMBLY_GRCH37
-  sourceName: SOURCE_REFSEQ
+  assembly: grch37
+  sourceName: refseq
   cdotVersion: 0.2.22

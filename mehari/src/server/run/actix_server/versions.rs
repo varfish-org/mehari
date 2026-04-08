@@ -1,6 +1,5 @@
 use super::CustomError;
-use crate::pbs::txs::Source;
-use crate::{annotate::seqvars::provider::Provider, pbs};
+use crate::annotate::seqvars::provider::Provider;
 use actix_web::{
     get,
     web::{self, Data, Json, Path},
@@ -41,23 +40,14 @@ impl From<biocommons_bioutils::assemblies::Assembly> for Assembly {
     }
 }
 
-impl From<Assembly> for pbs::txs::GenomeBuild {
-    fn from(val: Assembly) -> Self {
-        match val {
-            Assembly::Grch37 => pbs::txs::GenomeBuild::Grch37,
-            Assembly::Grch38 => pbs::txs::GenomeBuild::Grch38,
-        }
-    }
-}
-
-impl TryFrom<pbs::txs::GenomeBuild> for Assembly {
+impl TryFrom<&str> for Assembly {
     type Error = anyhow::Error;
 
-    fn try_from(value: pbs::txs::GenomeBuild) -> Result<Self, Self::Error> {
-        match value {
-            pbs::txs::GenomeBuild::Grch37 => Ok(Self::Grch37),
-            pbs::txs::GenomeBuild::Grch38 => Ok(Self::Grch38),
-            _ => Err(anyhow::anyhow!("Unsupported assembly")),
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value.to_lowercase().as_str() {
+            "grch37" | "grch37p10" => Ok(Assembly::Grch37),
+            "grch38" => Ok(Assembly::Grch38),
+            _ => Err(anyhow::anyhow!("Unsupported assembly: {}", value)),
         }
     }
 }
@@ -101,9 +91,9 @@ pub struct DataVersionEntry {
 impl DataVersionEntry {
     /// Create a new `DataVersionEntry` instance from `Provider`.`
     pub fn from_provider(provider: &Provider) -> Self {
-        let genome_build = Assembly::from(provider.assembly());
+        let genome_build: Assembly = provider.assembly().into();
         let versions = &provider.tx_seq_db.source_version;
-        let version_for = |source_name: i32| {
+        let version_for = |source_name: &str| {
             let version = versions
                 .iter()
                 .filter(|&v| v.source_name == source_name)
@@ -112,8 +102,8 @@ impl DataVersionEntry {
                 .join(",");
             (!version.is_empty()).then_some(version)
         };
-        let version_refseq = version_for(i32::from(Source::Refseq));
-        let version_ensembl = version_for(i32::from(Source::Ensembl));
+        let version_refseq = version_for("refseq");
+        let version_ensembl = version_for("ensembl");
         let version_cdot = versions.iter().map(|v| v.cdot_version.clone()).join(",");
 
         Self {

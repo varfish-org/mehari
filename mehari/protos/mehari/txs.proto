@@ -17,36 +17,20 @@ message SequenceDb {
     repeated string seqs = 3;
 }
 
-// Indicates the reference assembly of the transcript database.
-enum Assembly {
-    // Unknown.
-    ASSEMBLY_UNKNOWN = 0;
-    // GRCh37.
-    ASSEMBLY_GRCH37 = 1;
-    // GRCh38.
-    ASSEMBLY_GRCH38 = 2;
-}
 
-// Indicates the transcript source.
-enum Source {
-    // Unknown.
-    SOURCE_UNKNOWN = 0;
-    // RefSeq.
-    SOURCE_REFSEQ = 1;
-    // Ensembl.
-    SOURCE_ENSEMBL = 2;
-}
+
+
 
 // Version information for the database.
 message SourceVersion {
     // Version of mehari used to build the database.
     string mehari_version = 1;
-    // Assembly used, either GRCh37 or GRCh38 (or Unknown).
-    Assembly assembly = 2;
+    // Assembly used, e.g. "GRCh37" or "GRCh38".
+    string assembly = 2;
     // Version of the assembly, optional.
     optional string assembly_version = 3;
-    // Source, either RefSeq or Ensembl (or Unknown).
-    Source source_name = 4;
+    // Source, e.g. "RefSeq" or "Ensembl".
+    string source_name = 4;
     // Version of the source, e.g. 112 for Ensembl.
     string source_version = 5;
     // Version of cdot.
@@ -143,15 +127,7 @@ message Transcript {
     optional uint32 filter_reason = 11;
 }
 
-// Enumeration for the known genome builds.
-enum GenomeBuild {
-    // unknown
-    GENOME_BUILD_UNKNOWN = 0;
-    // GRCH37.
-    GENOME_BUILD_GRCH37 = 1;
-    // GRCh38.
-    GENOME_BUILD_GRCH38 = 2;
-}
+
 
 // Enumeration for the two strands of the genome.
 enum Strand {
@@ -166,7 +142,7 @@ enum Strand {
 // Store information about a transcript aligning to a genome.
 message GenomeAlignment {
     // The genome build identifier.
-    GenomeBuild genome_build = 1;
+    string genome_build = 1;
     // Accession of the contig sequence.
     string contig = 2;
     // CDS end position, `-1` to indicate `None`.

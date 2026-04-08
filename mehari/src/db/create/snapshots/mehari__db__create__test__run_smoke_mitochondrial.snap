@@ -1,5 +1,5 @@
 ---
-source: src/db/create/mod.rs
+source: mehari/src/db/create/mod.rs
 expression: "String::from_utf8(buf)?"
 ---
 txDb:
@@ -13,7 +13,7 @@ txDb:
     startCodon: 0
     stopCodon: 681
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 8526
       cdsEnd: 9207
@@ -34,7 +34,7 @@ txDb:
     startCodon: 0
     stopCodon: 207
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 8365
       cdsEnd: 8572
@@ -55,7 +55,7 @@ txDb:
     startCodon: 0
     stopCodon: 1542
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 5903
       cdsEnd: 7445
@@ -76,7 +76,7 @@ txDb:
     startCodon: 0
     stopCodon: 684
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 7585
       cdsEnd: 8269
@@ -97,7 +97,7 @@ txDb:
     startCodon: 0
     stopCodon: 786
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 9206
       cdsEnd: 9990
@@ -118,7 +118,7 @@ txDb:
     startCodon: 0
     stopCodon: 1143
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 14746
       cdsEnd: 15887
@@ -139,7 +139,7 @@ txDb:
     startCodon: 0
     stopCodon: 957
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 3306
       cdsEnd: 4262
@@ -160,7 +160,7 @@ txDb:
     startCodon: 0
     stopCodon: 1044
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 4469
       cdsEnd: 5511
@@ -181,7 +181,7 @@ txDb:
     startCodon: 0
     stopCodon: 348
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 10058
       cdsEnd: 10404
@@ -202,7 +202,7 @@ txDb:
     startCodon: 0
     stopCodon: 1380
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 10759
       cdsEnd: 12137
@@ -223,7 +223,7 @@ txDb:
     startCodon: 0
     stopCodon: 297
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 10469
       cdsEnd: 10766
@@ -244,7 +244,7 @@ txDb:
     startCodon: 0
     stopCodon: 1812
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 12336
       cdsEnd: 14148
@@ -265,7 +265,7 @@ txDb:
     startCodon: 0
     stopCodon: 525
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       cdsStart: 14148
       cdsEnd: 14673
@@ -284,7 +284,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -301,7 +301,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -318,7 +318,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -336,7 +336,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -354,7 +354,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -372,7 +372,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -390,7 +390,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_MINUS
       exons:
@@ -408,7 +408,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -426,7 +426,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -444,7 +444,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_MINUS
       exons:
@@ -462,7 +462,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_MINUS
       exons:
@@ -480,7 +480,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_MINUS
       exons:
@@ -498,7 +498,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_MINUS
       exons:
@@ -516,7 +516,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_MINUS
       exons:
@@ -534,7 +534,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -552,7 +552,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -570,7 +570,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -588,7 +588,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -606,7 +606,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -624,7 +624,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -642,7 +642,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -660,7 +660,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_MINUS
       exons:
@@ -678,7 +678,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_PLUS
       exons:
@@ -696,7 +696,7 @@ txDb:
     tags:
     - TRANSCRIPT_TAG_BASIC
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH37
+    - genomeBuild: grch37
       contig: NC_012920.1
       strand: STRAND_MINUS
       exons:
@@ -996,7 +996,7 @@ seqDb:
 version: 0.0.0
 sourceVersion:
 - mehariVersion: 0.0.0
-  assembly: ASSEMBLY_GRCH37
-  sourceName: SOURCE_ENSEMBL
+  assembly: grch37
+  sourceName: ensembl
   sourceVersion: '98'
   cdotVersion: 0.2.23

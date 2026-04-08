@@ -11,7 +11,7 @@ message GeneTranscriptsQuery {
     // Gene identifier to query for.
     optional string hgnc_id = 1;
     // Genome build to use.
-    optional mehari.txs.GenomeBuild genome_build = 2;
+    optional string genome_build = 2;
 
     // The number of entries to return per page.
     optional int32 page_size = 3;

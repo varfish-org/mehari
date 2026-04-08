@@ -1,6 +1,6 @@
 //! Database construction and introspection tools.
 
-use crate::pbs;
+
 use crate::pbs::txs::TxSeqDatabase;
 use biocommons_bioutils::assemblies::Assembly;
 
@@ -21,13 +21,13 @@ impl TranscriptDatabase for TxSeqDatabase {
         let assembly = self
             .source_version
             .iter()
-            .map(|v| pbs::txs::Assembly::try_from(v.assembly).unwrap())
+            .map(|v| v.assembly.as_str())
             .next()
             .expect("At least one source_version entry expected");
 
         match assembly {
-            pbs::txs::Assembly::Grch37 => Assembly::Grch37p10, // has MT
-            pbs::txs::Assembly::Grch38 => Assembly::Grch38,
+            "grch37" | "grch37p10" => Assembly::Grch37p10, // has MT
+            "grch38" => Assembly::Grch38,
             _ => panic!("Unsupported assembly"),
         }
     }
