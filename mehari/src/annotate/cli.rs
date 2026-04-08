@@ -174,8 +174,8 @@ pub enum TranscriptPickType {
 
 #[derive(Debug, Copy, Clone, Display, clap::ValueEnum, Default)]
 pub enum TranscriptPickMode {
-    #[default]
     First,
+    #[default]
     All,
 }
 
