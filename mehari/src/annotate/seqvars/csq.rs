@@ -2716,7 +2716,7 @@ mod test {
             })?
             .unwrap();
 
-        assert_eq!(res.len(), 5);
+        assert_eq!(res.len(), 6);
         insta::assert_yaml_snapshot!(res);
         assert_eq!(
             res[0].distance,
