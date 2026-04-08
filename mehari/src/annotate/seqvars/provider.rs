@@ -406,7 +406,7 @@ impl Provider {
         let transcript_id_to_source = |tx_id: &str| -> TranscriptSource {
             if tx_id.starts_with("ENST") {
                 TranscriptSource::Ensembl
-            } else if tx_id.starts_with("N") {
+            } else if tx_id.starts_with("N") || tx_id.starts_with("X") {
                 TranscriptSource::RefSeq
             } else {
                 panic!("Unknown transcript ID format: {}", tx_id);
