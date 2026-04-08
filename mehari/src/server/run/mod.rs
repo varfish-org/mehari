@@ -12,6 +12,7 @@ use crate::common::contig::ContigManager;
 use crate::db::merge::merge_transcript_databases;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use strum::EnumString;
 
@@ -108,16 +109,41 @@ pub mod openapi {
     pub struct ApiDoc;
 }
 
+#[derive(Debug, Clone)]
+pub struct AssemblyReference {
+    pub assembly: String,
+    pub path: PathBuf,
+}
+
+impl FromStr for AssemblyReference {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split_once('=') {
+            Some((assembly, path)) if !assembly.is_empty() && !path.is_empty() => {
+                Ok(AssemblyReference {
+                    assembly: assembly.to_lowercase(),
+                    path: PathBuf::from(path),
+                })
+            }
+            _ => Err(format!(
+                "Invalid reference format `{}`. Expected `ASSEMBLY=PATH`",
+                s
+            )),
+        }
+    }
+}
+
 /// Command line arguments for "server run` command.
 #[derive(clap::Parser, Debug)]
 #[command(about = "Run Mehari REST API server", long_about = None)]
 pub struct Args {
     /// Path to the reference genome(s), with accompanying index.
     ///
-    /// The assembly for each reference is detected from its FASTA index (.fai).
     /// Provide one reference per assembly you want to serve (e.g., GRCh37 and/or GRCh38).
-    #[arg(long)]
-    pub reference: Vec<PathBuf>,
+    /// Example: --reference grch37=/path/to/grch37.fa
+    #[arg(long, value_name = "ASSEMBLY=PATH")]
+    pub reference: Vec<AssemblyReference>,
 
     /// Read the reference genome into memory.
     #[arg(long, requires = "reference")]
@@ -244,27 +270,11 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     let before_loading = std::time::Instant::now();
     let mut data = actix_server::WebServerData::default();
 
-    let mut reference_paths: HashMap<String, PathBuf> = HashMap::new();
-    for ref_path in &args.reference {
-        match guess_assembly_from_fasta(ref_path, false, None) {
-            Ok(assembly) => {
-                if reference_paths.insert(assembly, ref_path.clone()).is_some() {
-                    tracing::warn!(
-                        "Duplicate reference file provided for {:?}. Overwriting.",
-                        assembly
-                    );
-                }
-                tracing::info!(
-                    "Detected {:?} for reference {}",
-                    assembly,
-                    ref_path.display()
-                );
-            }
-            Err(e) => {
-                tracing::warn!("Skipping reference file {}: {}", ref_path.display(), e);
-            }
-        }
-    }
+    let reference_paths: HashMap<String, PathBuf> = args
+        .reference
+        .iter()
+        .map(|r| (r.assembly.clone(), r.path.clone()))
+        .collect();
 
     let associate_db_path = |path: &str| -> Option<String> {
         let path_str = path.to_lowercase();
