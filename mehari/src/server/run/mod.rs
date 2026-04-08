@@ -307,11 +307,11 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     let mut frequency_paths = HashMap::new();
     if let Some(paths) = args.sources.frequencies.as_ref() {
         for path in paths {
-            if let Some(release) = associate_db_path(path) {
-                if let Some(prev) = frequency_paths.insert(release, path.clone()) {
+            if let Some(assembly) = associate_db_path(path) {
+                if let Some(prev) = frequency_paths.insert(assembly.clone(), path.clone()) {
                     tracing::warn!(
                         "Duplicate frequency DB for {:?}: {} overwritten by {}",
-                        release,
+                        assembly,
                         prev,
                         path
                     );
@@ -328,11 +328,11 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     let mut clinvar_paths = HashMap::new();
     if let Some(paths) = args.sources.clinvar.as_ref() {
         for path in paths {
-            if let Some(release) = associate_db_path(path) {
-                if let Some(prev) = clinvar_paths.insert(release, path.clone()) {
+            if let Some(assembly) = associate_db_path(path) {
+                if let Some(prev) = clinvar_paths.insert(assembly.clone(), path.clone()) {
                     tracing::warn!(
                         "Duplicate ClinVar DB for {:?}: {} overwritten by {}",
-                        release,
+                        assembly,
                         prev,
                         path
                     );
@@ -352,28 +352,28 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     all_releases.extend(clinvar_paths.keys().cloned());
 
     let mut enabled_sources = vec![];
-    for &assembly in all_releases.iter() {
+    for assembly in all_releases.iter() {
         let contig_manager = Arc::new(ContigManager::new(&assembly));
-        let reference_path = reference_paths.get(&assembly);
+        let reference_path = reference_paths.get(&assembly.clone());
 
-        tracing::info!("Loading data for assembly {:?}...", assembly);
+        tracing::info!("Loading data for assembly {:?}...", &assembly);
 
         // Load transcript data if available for this release.
         // At the moment, this is the only type of data that can benefit from a reference FASTA.
-        if let Some(tx_db_paths) = transcript_paths.get(&assembly) {
+        if let Some(tx_db_paths) = transcript_paths.get(&assembly.clone()) {
             if reference_path.is_none() {
                 tracing::warn!(
-                    "No reference FASTA provided for {:?}. Some features like HGVSg normalization will be unavailable.",
-                    assembly
+                    "No reference FASTA provided for {}. Some features like HGVSg normalization will be unavailable.",
+                    &assembly
                 );
             }
 
-            tracing::info!("Building seqvars predictors for {:?}...", assembly);
+            tracing::info!("Building seqvars predictors for {}...", &assembly);
             let tx_dbs = load_transcript_dbs_for_assembly(tx_db_paths, &assembly)?;
             if tx_dbs.is_empty() {
                 tracing::warn!(
-                    "No transcript databases loaded for {:?}, respective endpoints will be unavailable.",
-                    assembly
+                    "No transcript databases loaded for {}, respective endpoints will be unavailable.",
+                    &assembly
                 );
             } else {
                 let tx_db = merge_transcript_databases(tx_dbs)?;
@@ -397,24 +397,27 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                     .build()?;
 
                 let provider = annotator.predictor.provider.clone();
-                data.provider.insert(assembly, provider.clone());
+                data.provider.insert(assembly.clone(), provider.clone());
                 data.seqvars_predictors.insert(
-                    assembly,
+                    assembly.clone(),
                     SeqvarConsequencePredictor::new(provider.clone(), config),
                 );
                 tracing::info!("Finished building seqvars predictors.");
 
                 tracing::info!("Building strucvars predictors...");
                 data.strucvars_predictors.insert(
-                    assembly,
+                    assembly.clone(),
                     StrucvarConsequencePredictor::new(provider.clone()),
                 );
-                enabled_sources.push((assembly, Endpoint::Transcripts));
-                tracing::info!("Finished building seqvars predictors for {:?}.", assembly);
+                enabled_sources.push((assembly.clone(), Endpoint::Transcripts));
+                tracing::info!(
+                    "Finished building seqvars predictors for {:?}.",
+                    assembly.clone()
+                );
             }
         }
 
-        if let Some(freq_path) = frequency_paths.get(&assembly) {
+        if let Some(freq_path) = frequency_paths.get(&assembly.clone()) {
             tracing::info!("Loading frequency data for {:?}...", assembly);
             let annotators = initialize_frequency_annotators_for_assembly(
                 std::slice::from_ref(freq_path),
@@ -422,27 +425,31 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                 contig_manager.clone(),
             )?;
             if let Some(frequency_db) = annotators.into_iter().next() {
-                data.frequency_annotators.insert(assembly, frequency_db);
-                enabled_sources.push((assembly, Endpoint::Frequency));
-                tracing::info!("... done loading frequency data for {:?}.", assembly);
+                data.frequency_annotators
+                    .insert(assembly.clone(), frequency_db);
+                enabled_sources.push((assembly.clone(), Endpoint::Frequency));
+                tracing::info!(
+                    "... done loading frequency data for {:?}.",
+                    assembly.clone()
+                );
             } else {
-                tracing::warn!("Could not load frequency data for {:?}.", assembly);
+                tracing::warn!("Could not load frequency data for {:?}.", assembly.clone());
             }
         }
 
-        if let Some(clinvar_path) = clinvar_paths.get(&assembly) {
-            tracing::info!("Loading ClinVar data for {:?}...", assembly);
+        if let Some(clinvar_path) = clinvar_paths.get(&assembly.clone()) {
+            tracing::info!("Loading ClinVar data for {:?}...", assembly.clone());
             let annotators = initialize_clinvar_annotators_for_assembly(
                 std::slice::from_ref(clinvar_path),
                 &assembly,
                 contig_manager.clone(),
             )?;
             if let Some(annotator) = annotators.into_iter().next() {
-                data.clinvar_annotators.insert(assembly, annotator);
-                enabled_sources.push((assembly, Endpoint::Clinvar));
-                tracing::info!("... done loading ClinVar data for {:?}.", assembly);
+                data.clinvar_annotators.insert(assembly.clone(), annotator);
+                enabled_sources.push((assembly.clone(), Endpoint::Clinvar));
+                tracing::info!("... done loading ClinVar data for {:?}.", assembly.clone());
             } else {
-                tracing::warn!("Could not load ClinVar data for {:?}.", assembly);
+                tracing::warn!("Could not load ClinVar data for {:?}.", assembly.clone());
             }
         }
     }

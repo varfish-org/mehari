@@ -113,7 +113,7 @@ pub struct Args {
 /// Code for building the VCF header to be written out.
 pub mod vcf_header {
     use annonars::common::cli::is_canonical;
-    use biocommons_bioutils::assemblies::{ASSEMBLY_INFOS, Assembly};
+    use biocommons_bioutils::assemblies::ASSEMBLY_INFOS;
     use noodles::vcf::header;
     use noodles::vcf::header::record::value::Map;
     use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
@@ -1669,9 +1669,12 @@ pub trait VcfRecordConverter {
         let contig_manager = self.contig_manager();
 
         // Genome release.
-        tsv_record.release = match assembly {
-            Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
-            Assembly::Grch38 => String::from("GRCh38"),
+        tsv_record.release = if assembly.eq_ignore_ascii_case("grch37")
+            || assembly.eq_ignore_ascii_case("grch37p10")
+        {
+            String::from("GRCh37")
+        } else {
+            String::from("GRCh38")
         };
 
         // Chromosome (of start position if BND).
@@ -3571,7 +3574,6 @@ pub mod bnd {
 mod test {
     use std::fs::File;
 
-    use biocommons_bioutils::assemblies::Assembly;
     use clap_verbosity_flag::Verbosity;
 
     use noodles::vcf::variant::io::Write;
