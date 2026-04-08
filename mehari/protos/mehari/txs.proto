@@ -33,8 +33,10 @@ message SourceVersion {
     string source_name = 4;
     // Version of the source, e.g. 112 for Ensembl.
     string source_version = 5;
-    // Version of cdot.
-    string cdot_version = 6;
+    // Version of annotation.
+    string annotation_version = 6;
+    // Name of the annotation source, e.g. "cdot".
+    string annotation_name = 7;
 }
 
 // Mapping from gene to transcript ID.

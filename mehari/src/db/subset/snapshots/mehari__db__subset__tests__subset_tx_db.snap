@@ -9800,4 +9800,4 @@ sourceVersion:
 - mehariVersion: 0.41.2
   assembly: grch37
   sourceName: refseq
-  cdotVersion: 0.2.32
+  annotationVersion: 0.2.32

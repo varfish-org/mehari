@@ -10,7 +10,11 @@ use enumflags2::{BitFlag, BitFlags, bitflags};
 use hgvs::data::cdot::json::models;
 use hgvs::data::cdot::json::models::{BioType, Gene, GenomeAlignment, Tag, Transcript};
 use hgvs::sequences::{TranslationTable, translate_cds};
+use indexmap::IndexMap;
 use itertools::Itertools;
+use noodles::core::Region;
+use noodles::gff::feature::record::Strand;
+use noodles::gff::feature::record_buf::attributes::field::tag;
 use nutype::nutype;
 use once_cell::sync::Lazy;
 use prost::Message;
@@ -25,8 +29,8 @@ use std::cmp::{PartialEq, Reverse};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::io::BufWriter;
-use std::ops::Not;
+use std::io::{BufReader, BufWriter};
+use std::ops::{Not, RangeFull};
 use std::path::Path;
 use std::str::FromStr;
 use std::{io::Write, path::PathBuf, time::Instant};
@@ -48,7 +52,7 @@ pub struct Args {
     #[arg(long)]
     pub assembly_version: Option<String>,
 
-    /// Source of the transcripts. RefSeq, Ensembl, or Other.
+    /// Source of the transcripts. For example "RefSeq" or "Ensembl".
     #[arg(long)]
     pub transcript_source: String,
 
@@ -56,35 +60,43 @@ pub struct Args {
     #[arg(long, required_if_eq("transcript_source", "ensembl"))]
     pub transcript_source_version: Option<String>,
 
-    /// Version of cdot data.
+    /// Version of annotation data (if applicable).
     #[arg(long)]
-    pub cdot_version: String,
+    pub annotation_version: String,
 
     /// Path to output protobuf file to write to.
     #[arg(long)]
-    pub path_out: PathBuf,
+    pub output: PathBuf,
 
-    /// Paths to the cdot JSON transcripts to import.
+    /// Paths to the transcript annotations to import (cdot JSON or arbitrary GFF3).
     #[arg(long, required = true)]
-    pub path_cdot_json: Vec<PathBuf>,
+    pub annotation: Vec<PathBuf>,
 
     /// Path to the seqrepo instance directory to use.
-    #[arg(long)]
-    pub path_seqrepo_instance: PathBuf,
+    #[arg(long, required_unless_present = "transcript_sequences")]
+    pub seqrepo: Option<PathBuf>,
+
+    /// Path to FASTA file(s) containing transcript sequences (alternative to seqrepo).
+    #[arg(long, required_unless_present = "seqrepo")]
+    pub transcript_sequences: Option<PathBuf>,
 
     /// Path to TSV file for label transfer of transcripts.  Columns are
     /// transcript id (without version), (unused) gene symbol, and label.
     #[arg(long)]
-    pub path_mane_txs_tsv: Option<PathBuf>,
+    pub mane_transcripts: Option<PathBuf>,
 
     /// Maximal number of transcripts to process. DEPRECATED.
     #[arg(long)]
     pub max_txs: Option<u32>,
 
-    /// Limit transcript database to the following HGNC symbols.  Useful for
+    /// Limit transcript database to the following HGNC ids.  Useful for
     /// building test databases.
     #[arg(long)]
-    pub gene_symbols: Option<Vec<String>>,
+    pub hgnc_ids: Option<Vec<String>>,
+
+    /// Disable rigorous filtering (useful for custom annotations).
+    #[arg(long, default_value = "false")]
+    pub disable_filters: bool,
 
     /// Number of threads to use for steps supporting parallel processing.
     #[arg(long, default_value = "1")]
@@ -239,25 +251,34 @@ static DISCARD_BIOTYPES_GENES: Lazy<HashSet<BioType>> = Lazy::new(|| {
 #[derive(Debug, Clone, Default)]
 struct TranscriptLoader {
     genome_release: String,
-    cdot_version: String,
+    annotation_version: String,
     transcript_id_to_transcript: HashMap<TranscriptId, Transcript>,
     gene_id_to_gene: HashMap<GeneId, Gene>,
     gene_id_to_transcript_ids: HashMap<GeneId, Vec<TranscriptId>>,
     discards: HashMap<Identifier, BitFlags<Reason>>,
     fixes: HashMap<Identifier, BitFlags<Fix>>,
+    disable_filters: bool,
 }
 
 impl TranscriptLoader {
-    fn new(genome_release: String) -> Self {
+    fn new(genome_release: String, disable_filters: bool) -> Self {
         Self {
             genome_release,
+            disable_filters,
             ..Default::default()
         }
     }
 
     fn merge(&mut self, other: &mut Self) -> &mut Self {
         assert_eq!(self.genome_release, other.genome_release);
-        assert_eq!(self.cdot_version, other.cdot_version);
+        self.disable_filters |= other.disable_filters;
+
+        // Use annotation_version from whichever provides it, preferring non-empty
+        if self.annotation_version.is_empty() {
+            self.annotation_version
+                .clone_from(&other.annotation_version);
+        }
+
         for (gene_id, gene) in other.gene_id_to_gene.drain() {
             if let Some(old_gene) = self.gene_id_to_gene.insert(gene_id.clone(), gene.clone()) {
                 tracing::warn!(
@@ -296,6 +317,230 @@ impl TranscriptLoader {
         self
     }
 
+    /// Load and extract from standard generic GFF3 using noodles::gff.
+    fn load_gff3(&mut self, path: impl AsRef<Path>) -> Result<(), Error> {
+        let file = File::open(path.as_ref())?;
+        let reader: Box<dyn std::io::Read> = if path.as_ref().extension().is_some_and(|e| e == "gz")
+        {
+            Box::new(flate2::read::GzDecoder::new(file))
+        } else {
+            Box::new(file)
+        };
+        let reader = std::io::BufReader::new(reader);
+        let mut gff_reader = noodles::gff::io::Reader::new(reader);
+
+        let mut tx_exons: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+        let mut tx_cds: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+        let mut tx_to_gene: HashMap<String, String> = HashMap::new();
+        let mut tx_info: HashMap<String, (String, Strand)> = HashMap::new();
+        let mut gene_symbols: HashMap<String, String> = HashMap::new();
+
+        for result in gff_reader.record_bufs() {
+            let record = result?;
+
+            let contig = record.reference_sequence_name().to_string();
+            let feature = record.ty().to_string();
+            let strand = record.strand();
+
+            // noodles-core::Position is 1-based.
+            // Internal cdot model uses 0-based start, inclusive.
+            let start = usize::from(record.start()) as i32 - 1;
+            let end = usize::from(record.end()) as i32;
+
+            let attrs = record.attributes();
+
+            // Helper to get string values from noodles Attributes
+            let get_attr = |key: &str| {
+                attrs
+                    .get(key.as_bytes())
+                    .and_then(|v| v.as_string())
+                    .map(|s| s.to_string())
+            };
+
+            let id = get_attr(tag::ID);
+            let parent = get_attr(tag::PARENT);
+            let name = get_attr(tag::NAME).or_else(|| get_attr("gene_name"));
+
+            if feature.contains("gene") {
+                if let Some(gene_id) = id {
+                    let fallback_id = GeneId::Fallback(gene_id.clone());
+                    let gene = Gene {
+                        hgnc: Some(fallback_id.to_string()),
+                        gene_symbol: name.clone(),
+                        aliases: None,
+                        biotype: None,
+                        description: None,
+                        map_location: None,
+                        summary: None,
+                        url: "".into(),
+                    };
+                    self.gene_id_to_gene.insert(fallback_id.clone(), gene);
+                    if let Some(n) = name {
+                        gene_symbols.insert(gene_id, n);
+                    }
+                }
+            } else if feature.contains("transcript")
+                || feature.contains("mRNA")
+                || feature.ends_with("RNA")
+            {
+                if let Some(tx_id) = id {
+                    if let Some(p) = parent {
+                        // Parent attribute can be a comma-separated list
+                        let first_parent = p.split(',').next().unwrap().to_string();
+                        tx_to_gene.insert(tx_id.clone(), first_parent);
+                    }
+                    tx_info.insert(tx_id, (contig, strand));
+                }
+            } else if feature == "exon" {
+                if let Some(p) = parent {
+                    for parent_id in p.split(',') {
+                        tx_exons
+                            .entry(parent_id.to_string())
+                            .or_default()
+                            .push((start, end));
+                    }
+                }
+            } else if feature == "CDS" {
+                if let Some(p) = parent {
+                    for parent_id in p.split(',') {
+                        tx_cds
+                            .entry(parent_id.to_string())
+                            .or_default()
+                            .push((start, end));
+                    }
+                }
+            }
+        }
+
+        // Finalize transcripts by resolving genomic-to-transcript coordinates
+        for (tx_id, (contig, gff_strand)) in tx_info {
+            let mut exons = tx_exons.remove(&tx_id).unwrap_or_default();
+            let cds_fragments = tx_cds.remove(&tx_id).unwrap_or_default();
+
+            if exons.is_empty() {
+                continue;
+            }
+
+            // Sort exons by genomic position
+            exons.sort_by_key(|e| e.0);
+
+            let is_reverse = matches!(gff_strand, Strand::Reverse);
+            if is_reverse {
+                exons.reverse();
+            }
+
+            let cds_start_genomic = cds_fragments.iter().map(|c| c.0).min();
+            let cds_end_genomic = cds_fragments.iter().map(|c| c.1).max();
+
+            let tx_strand = if is_reverse {
+                models::Strand::Minus
+            } else {
+                models::Strand::Plus
+            };
+
+            let mut current_tx_pos = 0;
+            let mut tx_cds_start = None;
+            let mut tx_cds_end = None;
+
+            let final_exons: Vec<_> = exons
+                .into_iter()
+                .enumerate()
+                .map(|(i, (start, end))| {
+                    let e_len = end - start;
+                    let mut e_cds_start = -1;
+                    let mut e_cds_end = -1;
+
+                    if let (Some(cs), Some(ce)) = (cds_start_genomic, cds_end_genomic) {
+                        let overlap_start = cs.max(start);
+                        let overlap_end = ce.min(end);
+
+                        if overlap_start < overlap_end {
+                            e_cds_start = overlap_start;
+                            e_cds_end = overlap_end;
+
+                            // Calculate offset within this exon based on strand
+                            let (offset_start, offset_end) = if !is_reverse {
+                                (overlap_start - start, overlap_end - start)
+                            } else {
+                                (end - overlap_end, end - overlap_start)
+                            };
+
+                            if tx_cds_start.is_none() {
+                                tx_cds_start = Some((current_tx_pos + offset_start) as u32);
+                            }
+                            tx_cds_end = Some((current_tx_pos + offset_end) as u32);
+                        }
+                    }
+
+                    let exon_record = models::Exon {
+                        alt_start_i: start,
+                        alt_end_i: end,
+                        ord: i as i32,
+                        alt_cds_start_i: e_cds_start,
+                        alt_cds_end_i: e_cds_end,
+                        cigar: format!("{}M", e_len),
+                    };
+
+                    current_tx_pos += e_len;
+                    exon_record
+                })
+                .collect();
+
+            let alignment = GenomeAlignment {
+                contig,
+                strand: tx_strand,
+                cds_start: cds_start_genomic,
+                cds_end: cds_end_genomic,
+                exons: final_exons,
+                tag: None,
+                note: None,
+            };
+
+            let gene_ref = tx_to_gene
+                .get(&tx_id)
+                .cloned()
+                .unwrap_or_else(|| tx_id.clone());
+            let gene_name = gene_symbols.get(&gene_ref).cloned();
+            let fake_gene_id = GeneId::Fallback(gene_ref.clone());
+
+            let transcript = Transcript {
+                id: tx_id.clone(),
+                hgnc: Some(fake_gene_id.to_string()),
+                gene_name,
+                gene_version: "".to_string(),
+                biotype: None,
+                protein: tx_cds_start.map(|_| "unspecified_protein".to_string()),
+                start_codon: tx_cds_start.map(|i| i32::try_from(i)).transpose()?,
+                stop_codon: tx_cds_end.map(|i| i32::try_from(i)).transpose()?,
+                partial: None,
+                genome_builds: IndexMap::from([(self.genome_release.clone(), alignment)]),
+            };
+
+            let t_id = TranscriptId::try_new(tx_id)?;
+            self.transcript_id_to_transcript
+                .insert(t_id.clone(), transcript);
+            self.gene_id_to_transcript_ids
+                .entry(fake_gene_id.clone())
+                .or_default()
+                .push(t_id);
+
+            // Ensure the gene entry exists even if no explicit 'gene' feature was in GFF
+            self.gene_id_to_gene
+                .entry(fake_gene_id)
+                .or_insert_with(|| Gene {
+                    hgnc: Some(gene_ref),
+                    gene_symbol: None,
+                    aliases: None,
+                    biotype: None,
+                    description: None,
+                    map_location: None,
+                    summary: None,
+                    url: "".into(),
+                });
+        }
+        Ok(())
+    }
+
     /// Load and extract from cdot JSON.
     fn load_cdot(&mut self, path: impl AsRef<Path>) -> Result<(), Error> {
         let models::Container {
@@ -317,7 +562,7 @@ impl TranscriptLoader {
                 TranscriptId::try_new(txid).map(|t| (t, tx))
             })
             .collect::<Result<HashMap<_, _>, _>>()?;
-        self.cdot_version = cdot_version;
+        self.annotation_version = cdot_version;
 
         for (_, gene) in cdot_genes {
             if let Some(gene_id) = gene.hgnc.as_ref() {
@@ -375,6 +620,9 @@ impl TranscriptLoader {
     }
 
     fn filter_initial_hgnc_entries(&mut self) -> Result<(), Error> {
+        if self.disable_filters {
+            return Ok(());
+        }
         tracing::info!("Filtering Hgnc entries …");
         for (gene_id, tx_ids) in &self.gene_id_to_transcript_ids {
             if tx_ids.is_empty() {
@@ -418,6 +666,9 @@ impl TranscriptLoader {
     }
 
     fn filter_genes(&mut self) -> Result<(), Error> {
+        if self.disable_filters {
+            return Ok(());
+        }
         tracing::info!("Filtering genes …");
         // Check whether the gene has a gene symbol.
         let missing_symbol = |_gene_id: GeneId, gene: &Gene, _txs: &[&Transcript]| -> bool {
@@ -497,6 +748,9 @@ impl TranscriptLoader {
     /// - Do not pick any `XM_`/`XR_` (NCBI predicted only) transcripts.
     /// - Do not pick any `NR_` transcripts when there are coding `NM_` transcripts.
     fn filter_transcripts(&mut self) -> Result<(), Error> {
+        if self.disable_filters {
+            return Ok(());
+        }
         tracing::info!("Filtering transcripts …");
 
         /// Params used as args for filter functions defined below
@@ -691,9 +945,9 @@ impl TranscriptLoader {
 
     fn filter_transcripts_with_sequence(
         &mut self,
-        seq_repo: &SeqRepo,
+        seq_provider: &mut SequenceProvider,
     ) -> Result<HashMap<TranscriptId, String>, Error> {
-        tracing::info!("Filtering transcripts with seqrepo …");
+        tracing::info!("Filtering transcripts with sequences …");
         let start = Instant::now();
 
         let five_prime_truncated = |tx: &Transcript| -> bool {
@@ -746,23 +1000,34 @@ impl TranscriptLoader {
             .par_iter()
             .partition_map(|(tx_id, tx)| {
                 if let Some(d) = self.discards.get(&Identifier::Transcript(tx_id.clone()))
-                    && d.intersects(Reason::hard()) {
-                        return Either::Left((Identifier::Transcript(tx_id.clone()), *d));
-                    }
-                let has_invalid_cds_length = invalid_cds_length(tx);
+                    && d.intersects(Reason::hard())
+                {
+                    return Either::Left((Identifier::Transcript(tx_id.clone()), *d));
+                }
+
+                let has_invalid_cds_length = if self.disable_filters {
+                    false
+                } else {
+                    invalid_cds_length(tx)
+                };
 
                 let namespace: String = if tx_id.starts_with("ENST") {
                     String::from("Ensembl")
                 } else {
                     String::from("NCBI")
                 };
-                let seq = seq_repo.fetch_sequence(&AliasOrSeqId::Alias {
+                let seq = seq_provider.fetch_sequence(&AliasOrSeqId::Alias {
                     value: (*tx_id).to_string(),
                     namespace: Some(namespace.clone()),
                 });
+
                 if let Ok(seq) = seq {
                     let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
-                    let is_seleno = tx.biotype.as_ref().map(|bt| bt.contains(&BioType::Selenoprotein)).unwrap_or(false);
+                    let is_seleno = tx
+                        .biotype
+                        .as_ref()
+                        .map(|bt| bt.contains(&BioType::Selenoprotein))
+                        .unwrap_or(false);
                     if seq.is_empty() {
                         return Either::Left((
                             Identifier::Transcript(tx_id.clone()),
@@ -770,38 +1035,58 @@ impl TranscriptLoader {
                         ));
                     };
                     // Skip transcript if it is coding and the translated CDS does not have a stop codon.
-                    let cds = tx
-                        .start_codon
-                        .and_then(|start| tx.stop_codon.map(|stop| (start as usize, stop as usize)));
+                    let cds = tx.start_codon.and_then(|start| {
+                        tx.stop_codon.map(|stop| (start as usize, stop as usize))
+                    });
                     let cds = if tx.protein_coding() { cds } else { None };
-                    if let Some((cds_start, cds_end)) = cds
-                    {
-                        let cds_length = cds_end - cds_start;
+                    if let Some((cds_start, cds_end)) = cds {
+                        let cds_length = cds_end.saturating_sub(cds_start);
                         let delta = (3 - (cds_length % 3)).max(cds_end.saturating_sub(seq.len()));
                         let seq = append_poly_a(seq, delta);
-                        let tx_seq_to_translate = &seq[cds_start..cds_end];
-                        let aa_sequence = translate_cds(
+
+                        let safe_end = cds_end.min(seq.len());
+                        let safe_start = cds_start.min(safe_end);
+
+                        let tx_seq_to_translate = &seq[safe_start..safe_end];
+
+                        let aa_sequence_result = translate_cds(
                             tx_seq_to_translate,
                             true,
                             "*",
-                            if is_mt { TranslationTable::VertebrateMitochondrial } else if is_seleno { TranslationTable::Selenocysteine } else { TranslationTable::Standard },
-                        ).expect("Translation should work, since the length is guaranteed to be a multiple of 3 at this point");
+                            if is_mt {
+                                TranslationTable::VertebrateMitochondrial
+                            } else if is_seleno {
+                                TranslationTable::Selenocysteine
+                            } else {
+                                TranslationTable::Standard
+                            },
+                        );
 
                         let mut reason = Reason::empty();
-                        let has_missing_stop_codon = (!is_mt && !aa_sequence.ends_with('*'))
-                            || (is_mt && !aa_sequence.contains('*'));
-                        if has_missing_stop_codon {
-                            reason |= Reason::MissingStopCodon;
-                            if five_prime_truncated(tx) {
-                                reason |= Reason::FivePrimeEndTruncated;
-                            }
-                            if three_prime_truncated(tx) {
-                                reason |= Reason::ThreePrimeEndTruncated;
-                            }
-                            if has_invalid_cds_length || self.fixes.get(&Identifier::Transcript(tx_id.clone())).is_some_and(|f| f.contains(Fix::Cds)) {
-                                reason |= Reason::InvalidCdsLength;
+
+                        if let Ok(aa_sequence) = aa_sequence_result {
+                            let has_missing_stop_codon = (!is_mt && !aa_sequence.ends_with('*'))
+                                || (is_mt && !aa_sequence.contains('*'));
+                            if has_missing_stop_codon && !self.disable_filters {
+                                reason |= Reason::MissingStopCodon;
+                                if five_prime_truncated(tx) {
+                                    reason |= Reason::FivePrimeEndTruncated;
+                                }
+                                if three_prime_truncated(tx) {
+                                    reason |= Reason::ThreePrimeEndTruncated;
+                                }
                             }
                         }
+
+                        if has_invalid_cds_length
+                            || self
+                                .fixes
+                                .get(&Identifier::Transcript(tx_id.clone()))
+                                .is_some_and(|f| f.contains(Fix::Cds))
+                        {
+                            reason |= Reason::InvalidCdsLength;
+                        }
+
                         if reason.intersects(Reason::hard()) {
                             Either::Left((Identifier::Transcript(tx_id.clone()), reason))
                         } else {
@@ -811,7 +1096,10 @@ impl TranscriptLoader {
                         Either::Right((tx_id.clone(), seq, Reason::empty()))
                     }
                 } else {
-                    Either::Left((Identifier::Transcript(tx_id.clone()), Reason::MissingSequence.into()))
+                    Either::Left((
+                        Identifier::Transcript(tx_id.clone()),
+                        Reason::MissingSequence.into(),
+                    ))
                 }
             });
 
@@ -829,7 +1117,7 @@ impl TranscriptLoader {
         }
 
         tracing::info!(
-            "… done filtering transcripts with seqrepo in {:?}",
+            "… done filtering transcripts with sequence provider in {:?}",
             start.elapsed()
         );
 
@@ -972,16 +1260,13 @@ impl TranscriptLoader {
     }
 
     fn fix_transcript_genome_builds(&mut self) {
+        let genome_release = self.genome_release.clone();
         self.transcript_id_to_transcript
             .values_mut()
             .for_each(|tx| {
                 let n = tx.genome_builds.len();
-                tx.genome_builds.retain(|key, _| {
-                    matches!(
-                        (key.as_str(), self.genome_release.as_str()),
-                        ("GRCh37", "grch37") | ("GRCh38", "grch38")
-                    )
-                });
+                tx.genome_builds
+                    .retain(|key, _| key.eq_ignore_ascii_case(&genome_release));
                 if n != tx.genome_builds.len() {
                     self.fixes
                         .entry(Identifier::Transcript(
@@ -1013,7 +1298,11 @@ impl TranscriptLoader {
                         continue;
                     };
                     tx.stop_codon = Some(cds_end + delta);
-                    let exon = gb.exons.iter_mut().max_by_key(|g| g.alt_cds_end_i).unwrap();
+                    let exon = gb
+                        .exons
+                        .iter_mut()
+                        .max_by_key(|g| g.alt_cds_end_i)
+                        .expect("No exons found during fix_cds");
                     exon.alt_cds_end_i += delta;
                     exon.cigar.push_str(&format!("{}I", delta));
                     self.fixes
@@ -1234,6 +1523,7 @@ impl TranscriptLoader {
         }
         Ok(())
     }
+
     fn mark_discarded(&mut self, id: &Identifier, reason: BitFlags<Reason>) -> Result<(), Error> {
         if reason.is_empty() {
             panic!("Empty discard reason for {:#?}", id);
@@ -1493,13 +1783,9 @@ impl TranscriptLoader {
         alignment: &GenomeAlignment,
     ) -> (crate::pbs::txs::GenomeAlignment, HashSet<i32>) {
         let mut tags = HashSet::new();
-        // obtain basic properties
-        let genome_build = match genome_build.as_ref() {
-            "GRCh37" => String::from("grch37"),
-            "GRCh38" => String::from("grch38"),
-            _ => panic!("Unknown genome build {:?}", genome_build),
-        };
-        let models::GenomeAlignment {
+        let genome_build = genome_build.to_lowercase();
+
+        let GenomeAlignment {
             contig,
             cds_start,
             cds_end,
@@ -1775,21 +2061,32 @@ fn open_seqrepo(path: impl AsRef<Path>) -> Result<SeqRepo, Error> {
     Ok(seqrepo)
 }
 
-/// Load the cdot JSON files.
-fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
-    tracing::info!("Loading cdot JSON files …");
+/// Load the annotations (JSON or GFF3).
+fn load_annotations(args: &Args) -> Result<TranscriptLoader, Error> {
+    tracing::info!("Loading annotations …");
     let start = Instant::now();
     let labels = args
-        .path_mane_txs_tsv
+        .mane_transcripts
         .as_ref()
         .map(txid_to_label)
         .transpose()?;
     let loaders = args
-        .path_cdot_json
+        .annotation
         .iter()
-        .map(|cdot_path| {
-            let mut loader = TranscriptLoader::new(args.assembly.clone());
-            loader.load_cdot(cdot_path).map(|_| loader)
+        .map(|path| {
+            let mut loader = TranscriptLoader::new(args.assembly.clone(), args.disable_filters);
+
+            let ext = path.extension().unwrap_or_default().to_string_lossy();
+            let file_stem = path.file_stem().unwrap_or_default().to_string_lossy();
+            let is_gff3 = ext.ends_with("gff")
+                || ext.ends_with("gff3")
+                || (ext == "gz" && (file_stem.ends_with("gff3") || file_stem.ends_with("gff")));
+
+            if is_gff3 {
+                loader.load_gff3(path).map(|_| loader)
+            } else {
+                loader.load_cdot(path).map(|_| loader)
+            }
         })
         .collect::<Result<Vec<_>, Error>>()?;
     let mut merged = loaders
@@ -1802,7 +2099,7 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
     merged.apply_fixes(&labels);
 
     tracing::info!(
-        "… done loading cdot JSON files in {:?} -- #transcripts = {}, #hgnc_ids = {}",
+        "… done loading annotations in {:?} -- #transcripts = {}, #hgnc_ids = {}",
         start.elapsed(),
         merged
             .transcript_id_to_transcript
@@ -1820,8 +2117,8 @@ fn load_cdot_files(args: &Args) -> Result<TranscriptLoader, Error> {
 /// Main entry point for `db create txs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
     fn _run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
-        let mut report_file = File::create(format!("{}.report.jsonl", args.path_out.display()))
-            .map(BufWriter::new)?;
+        let mut report_file =
+            File::create(format!("{}.report.jsonl", args.output.display())).map(BufWriter::new)?;
         let mut report = |r: ReportEntry| -> Result<(), Error> {
             writeln!(report_file, "{}", serde_json::to_string(&r)?)?;
             Ok(())
@@ -1832,11 +2129,10 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
             args
         );
 
-        // Load cdot files …
-        let mut tx_data = load_cdot_files(args)?;
+        let mut tx_data = load_annotations(args)?;
         for (id, fix) in tx_data.fixes.iter() {
             report(ReportEntry::Fix(LogFix {
-                source: "cdot".into(),
+                source: "annotations".into(),
                 fix: *fix,
                 id: id.clone(),
                 gene_name: tx_data.gene_name(id),
@@ -1847,14 +2143,14 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         let raw_tx_data = tx_data.clone();
         trace_rss_now();
         report(ReportEntry::Log(json!({
-            "source": "cdot",
+            "source": "annotations",
             "total_transcripts": tx_data.transcript_id_to_transcript.len(),
             "total_hgnc_ids": tx_data.gene_id_to_transcript_ids.len()
         })))?;
 
         // … then remove information for certain genes …
         if let Some(ids) = args
-            .gene_symbols
+            .hgnc_ids
             .as_ref()
             .map(|symbols| tx_data.symbols_to_id(symbols))
         {
@@ -1891,7 +2187,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         trace_rss_now();
 
         report(ReportEntry::Log(json!({
-            "source": "cdot_filtered",
+            "source": "annotations_filtered",
             "total_transcripts": tx_data.transcript_id_to_transcript.len(),
             "total_hgnc_ids": tx_data.gene_id_to_transcript_ids.len()
         })))?;
@@ -1900,7 +2196,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         let (n_mt, n_mane_select, n_mane_plus_clinical) = tx_data.gather_transcript_stats()?;
 
         report(ReportEntry::Log(json!({
-            "source": "cdot_filtered",
+            "source": "annotations_filtered",
             "n_mt": n_mt,
             "n_mane_select": n_mane_select,
             "n_mane_plus_clinical": n_mane_plus_clinical
@@ -1935,7 +2231,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         }
         trace_rss_now();
 
-        write_tx_db(tx_db, &args.path_out, args.compression_level)?;
+        write_tx_db(tx_db, &args.output, args.compression_level)?;
 
         tracing::info!("Done building transcript and sequence database file");
         Ok(())
@@ -1949,7 +2245,13 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         let source_name = args.transcript_source.clone();
 
         let source_version = args.transcript_source_version.clone().unwrap_or("".into());
-        let cdot_version = args.cdot_version.clone();
+        let annotation_version = args.annotation_version.clone();
+        let annotation_name = args
+            .annotation
+            .iter()
+            .map(|p| p.file_stem().unwrap().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(",");
 
         SourceVersion {
             mehari_version: crate::common::version().to_string(),
@@ -1957,7 +2259,8 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
             assembly_version,
             source_name: source_name.to_string(),
             source_version,
-            cdot_version,
+            annotation_version,
+            annotation_name,
         }
     }
 
@@ -2022,7 +2325,7 @@ pub mod test {
     #[test]
     fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {
         let path_tsv = Path::new("tests/data/db/create/txs/txs_main.tsv");
-        let mut tx_data = TranscriptLoader::new("GRCh37".to_string());
+        let mut tx_data = TranscriptLoader::new("GRCh37".to_string(), false);
         let labels = super::txid_to_label(path_tsv)?;
         tx_data.load_cdot(Path::new(
             "tests/data/db/create/txs/cdot-0.2.22.refseq.grch37_grch38.brca1_opa1.json",
@@ -2053,7 +2356,7 @@ pub mod test {
                 .collect::<Vec<_>>()
         );
 
-        insta::assert_snapshot!(&tx_data.cdot_version);
+        insta::assert_snapshot!(&tx_data.annotation_version);
 
         Ok(())
     }
@@ -2068,20 +2371,22 @@ pub mod test {
             verbose: Verbosity::new(0, 1),
         };
         let args = Args {
-            path_out: tmp_dir.join("out.bin.zst"),
-            path_cdot_json: vec![PathBuf::from(
+            output: tmp_dir.join("out.bin.zst"),
+            annotation: vec![PathBuf::from(
                 "tests/data/db/create/txs/cdot-0.2.22.refseq.grch37_grch38.brca1_opa1.json",
             )],
-            path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
-            path_seqrepo_instance: PathBuf::from("tests/data/db/create/txs/latest"),
+            mane_transcripts: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
+            seqrepo: Some(PathBuf::from("tests/data/db/create/txs/latest")),
+            transcript_sequences: None,
             assembly: assembly.clone(),
             assembly_version: None,
             transcript_source: "refseq".to_string(),
             transcript_source_version: None,
             max_txs: None,
-            gene_symbols: None,
+            hgnc_ids: None,
+            disable_filters: false,
             threads: 1,
-            cdot_version: "0.2.22".to_string(),
+            annotation_version: "0.2.22".to_string(),
             compression_level: 19,
         };
 
@@ -2109,20 +2414,22 @@ pub mod test {
             verbose: Verbosity::new(0, 1),
         };
         let args = Args {
-            path_out: tmp_dir.join("out.bin.zst"),
-            path_cdot_json: vec![PathBuf::from(
+            output: tmp_dir.join("out.bin.zst"),
+            annotation: vec![PathBuf::from(
                 "tests/data/db/create/seleonoproteins/cdot-0.2.22.refseq.grch38.selenon.json",
             )],
-            path_mane_txs_tsv: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
-            path_seqrepo_instance: PathBuf::from("tests/data/db/create/seleonoproteins/latest"),
+            mane_transcripts: Some(PathBuf::from("tests/data/db/create/txs/txs_main.tsv")),
+            seqrepo: Some(PathBuf::from("tests/data/db/create/seleonoproteins/latest")),
+            transcript_sequences: None,
             assembly: "grch38".to_string(),
             assembly_version: None,
             transcript_source: "refseq".to_string(),
             transcript_source_version: None,
             max_txs: None,
-            gene_symbols: None,
+            hgnc_ids: None,
+            disable_filters: false,
             threads: 1,
-            cdot_version: "0.2.22".to_string(),
+            annotation_version: "0.2.22".to_string(),
             compression_level: 19,
         };
 
@@ -2150,20 +2457,22 @@ pub mod test {
             verbose: Verbosity::new(5, 0),
         };
         let args = Args {
-            path_out: tmp_dir.join("out.bin.zst"),
-            path_cdot_json: vec![PathBuf::from(
+            output: tmp_dir.join("out.bin.zst"),
+            annotation: vec![PathBuf::from(
                 "tests/data/db/create/mitochondrial/cdot-0.2.23.ensembl.chrMT.grch37.gff3.json",
             )],
-            path_mane_txs_tsv: None,
-            path_seqrepo_instance: PathBuf::from("tests/data/db/create/mitochondrial/latest"),
+            mane_transcripts: None,
+            seqrepo: Some(PathBuf::from("tests/data/db/create/mitochondrial/latest")),
+            transcript_sequences: None,
             assembly: "grch37".to_string(),
             assembly_version: None,
             transcript_source: "ensembl".to_string(),
             transcript_source_version: Some("98".into()),
             max_txs: None,
-            gene_symbols: None,
+            hgnc_ids: None,
+            disable_filters: false,
             threads: 1,
-            cdot_version: "0.2.23".to_string(),
+            annotation_version: "0.2.23".to_string(),
             compression_level: 19,
         };
 

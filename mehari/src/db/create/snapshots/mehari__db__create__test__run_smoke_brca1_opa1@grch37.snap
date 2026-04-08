@@ -3002,4 +3002,5 @@ sourceVersion:
 - mehariVersion: 0.0.0
   assembly: grch37
   sourceName: refseq
-  cdotVersion: 0.2.22
+  annotationVersion: 0.2.22
+  annotationName: cdot-0.2.22.refseq.grch37_grch38.brca1_opa1

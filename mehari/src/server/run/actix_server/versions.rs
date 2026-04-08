@@ -84,8 +84,10 @@ pub struct DataVersionEntry {
     pub version_refseq: Option<String>,
     /// Version of the Ensembl database, if any.
     pub version_ensembl: Option<String>,
-    /// Version of cdot used.
-    pub version_cdot: String,
+    /// Version of annotation used.
+    pub version_annotation: String,
+    /// Name of the annotation used.
+    pub annotation_name: String,
 }
 
 impl DataVersionEntry {
@@ -104,13 +106,18 @@ impl DataVersionEntry {
         };
         let version_refseq = version_for("refseq");
         let version_ensembl = version_for("ensembl");
-        let version_cdot = versions.iter().map(|v| v.cdot_version.clone()).join(",");
+        let version_annotation = versions
+            .iter()
+            .map(|v| v.annotation_version.clone())
+            .join(",");
+        let annotation_name = versions.iter().map(|v| v.annotation_name.clone()).join(",");
 
         Self {
             genome_build,
             version_refseq,
             version_ensembl,
-            version_cdot,
+            version_annotation,
+            annotation_name,
         }
     }
 }
