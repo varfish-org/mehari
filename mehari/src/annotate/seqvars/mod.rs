@@ -1,17 +1,15 @@
 //! Annotation of sequence variants.
-use crate::common::TsvContigStyle;
 use std::env;
 use std::fmt::Display;
 use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
-use self::ann::{AnnField, FeatureBiotype};
+use self::ann::AnnField;
 use crate::annotate::cli::{PredictorSettings, Sources};
-use crate::annotate::genotype_string;
 use crate::annotate::seqvars::ann::{
     ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, ANN_TX_SEQ_ALT,
     ANN_TX_SEQ_REF,
@@ -28,14 +26,11 @@ use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_var
 use crate::common::{GenomeRelease, guess_assembly_from_vcf};
 use crate::db::merge::merge_transcript_databases;
 use crate::pbs::txs::TxSeqDatabase;
-use crate::ped::{PedigreeByName, Sex};
 use annonars::common::keys;
 use annonars::freqs::serialized::{auto, mt, xy};
 use anyhow::{Error, anyhow};
 use biocommons_bioutils::assemblies::Assembly;
-use clap::{Args as ClapArgs, Parser};
-use flate2::Compression;
-use flate2::write::GzEncoder;
+use clap::Parser;
 use hgvs::data::interface::Provider;
 use itertools::Itertools;
 use noodles::vcf::header::FileFormat;
@@ -47,18 +42,14 @@ use noodles::vcf::io::writer::Writer as VcfWriter;
 use noodles::vcf::variant::RecordBuf as VcfRecord;
 use noodles::vcf::variant::io::Write as VcfWrite;
 use noodles::vcf::variant::record::AlternateBases;
-use noodles::vcf::variant::record::samples::keys::key::{
-    CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH,
-};
 use noodles::vcf::variant::record_buf::info::field;
 use noodles::vcf::{Header as VcfHeader, header::record::value::map::Map};
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
-use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use thousands::Separable;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 pub mod ann;
 pub mod binning;
@@ -67,21 +58,10 @@ pub mod csq;
 pub mod provider;
 pub(crate) mod reference;
 
-/// Parsing of HGNC xlink records.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct HgncRecord {
-    /// HGNC ID.
-    pub hgnc_id: String,
-
-    /// Ensembl gene ID.
-    pub ensembl_gene_id: String,
-
-    /// Entrez/NCBI gene ID.
-    pub entrez_id: String,
-
-    /// HGNC approved gene symbol.
-    #[serde(alias = "symbol")]
-    pub gene_symbol: String,
+#[derive(Debug, Clone, clap::ValueEnum, PartialEq, Eq)]
+pub enum OutputFormat {
+    Vcf,
+    Jsonl,
 }
 
 /// Command line arguments for `annotate seqvars` sub command.
@@ -100,24 +80,22 @@ pub struct Args {
     #[arg(long, requires = "reference")]
     pub in_memory_reference: bool,
 
-    /// Path to the input PED file.
-    #[arg(long)]
-    pub path_input_ped: Option<String>,
-
     /// Path to the input VCF file.
-    #[arg(long)]
-    pub path_input_vcf: String,
+    ///
+    /// Use '-' to read from stdin.
+    #[arg(short = 'i', long, required = true)]
+    pub input: String,
 
-    #[command(flatten)]
-    pub output: PathOutput,
+    /// Path to the output file. Defaults to stdout.
+    #[arg(short = 'o', long, default_value = "-")]
+    pub output: String,
+
+    #[arg(long, value_enum, default_value_t = OutputFormat::Vcf)]
+    pub output_format: OutputFormat,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
     pub max_var_count: Option<usize>,
-
-    /// Path to HGNC TSV file.
-    #[arg(long, required_unless_present = "path_output_vcf")]
-    pub hgnc: Option<String>,
 
     /// What to annotate and which source to use.
     #[command(flatten)]
@@ -126,10 +104,6 @@ pub struct Args {
     /// Transcript annotation related settings
     #[command(flatten)]
     pub predictor_settings: PredictorSettings,
-
-    /// Style for contig names in TSV output.
-    #[arg(long, value_enum, default_value_t=TsvContigStyle::Auto)]
-    pub tsv_contig_style: TsvContigStyle,
 
     /// Number of threads to use for annotation.
     ///
@@ -143,19 +117,6 @@ pub enum AnnotationOption {
     Transcripts,
     Frequencies,
     ClinVar,
-}
-
-/// Command line arguments to enforce either `--path-output-vcf` or `--path-output-tsv`.
-#[derive(Debug, ClapArgs)]
-#[group(required = true, multiple = false)]
-pub struct PathOutput {
-    /// Path to the output VCF file.
-    #[arg(long)]
-    pub path_output_vcf: Option<String>,
-
-    /// Path to the output TSV file (for import into VarFish).
-    #[arg(long, requires = "hgnc")]
-    pub path_output_tsv: Option<String>,
 }
 
 fn build_header(
@@ -340,25 +301,117 @@ pub fn load_tx_db(tx_path: impl AsRef<Path> + Display) -> anyhow::Result<TxSeqDa
 pub trait AsyncAnnotatedVariantWriter {
     #[allow(async_fn_in_trait)]
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error>;
+
     #[allow(async_fn_in_trait)]
-    async fn write_noodles_record(
+    async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
-        record: &VcfRecord,
+        record: AnnotatedVariant,
     ) -> Result<(), anyhow::Error>;
 
     #[allow(async_fn_in_trait)]
     async fn shutdown(&mut self) -> Result<(), anyhow::Error>;
 
-    fn set_hgnc_map(&mut self, _hgnc_map: FxHashMap<String, HgncRecord>) {
-        // nop
-    }
     fn set_assembly(&mut self, _assembly: Assembly) {
         // nop
     }
-    fn set_pedigree(&mut self, _pedigree: &PedigreeByName) {
-        // nop
+
+    fn set_csq_config(&mut self, _config: Config) {}
+}
+
+pub(crate) fn prepare_vcf_record(
+    record: AnnotatedVariant,
+    csq_config: &Config,
+) -> noodles::vcf::variant::RecordBuf {
+    let mut out_record = record.vcf;
+
+    if let Some(freqs) = &record.annotation.frequencies {
+        let infos = out_record.info_mut();
+        infos.insert(
+            "gnomad_exomes_an".into(),
+            Some(field::Value::Integer(freqs.gnomad_exomes_an)),
+        );
+        infos.insert(
+            "gnomad_exomes_hom".into(),
+            Some(field::Value::Integer(freqs.gnomad_exomes_hom)),
+        );
+        infos.insert(
+            "gnomad_exomes_het".into(),
+            Some(field::Value::Integer(freqs.gnomad_exomes_het)),
+        );
+        if let Some(hemi) = freqs.gnomad_exomes_hemi {
+            infos.insert(
+                "gnomad_exomes_hemi".into(),
+                Some(field::Value::Integer(hemi)),
+            );
+        }
+
+        infos.insert(
+            "gnomad_genomes_an".into(),
+            Some(field::Value::Integer(freqs.gnomad_genomes_an)),
+        );
+        infos.insert(
+            "gnomad_genomes_hom".into(),
+            Some(field::Value::Integer(freqs.gnomad_genomes_hom)),
+        );
+        infos.insert(
+            "gnomad_genomes_het".into(),
+            Some(field::Value::Integer(freqs.gnomad_genomes_het)),
+        );
+        if let Some(hemi) = freqs.gnomad_genomes_hemi {
+            infos.insert(
+                "gnomad_genomes_hemi".into(),
+                Some(field::Value::Integer(hemi)),
+            );
+        }
+
+        if let Some(an) = freqs.helix_an {
+            infos.insert("helix_an".into(), Some(field::Value::Integer(an)));
+        }
+        if let Some(hom) = freqs.helix_hom {
+            infos.insert("helix_hom".into(), Some(field::Value::Integer(hom)));
+        }
+        if let Some(het) = freqs.helix_het {
+            infos.insert("helix_het".into(), Some(field::Value::Integer(het)));
+        }
     }
+
+    if let Some(clinvar) = &record.annotation.clinvar {
+        let infos = out_record.info_mut();
+        infos.insert(
+            "clinvar_vcv".into(),
+            Some(field::Value::Array(field::value::Array::String(
+                clinvar.vcv.iter().map(|s| Some(s.clone())).collect(),
+            ))),
+        );
+        infos.insert(
+            "clinvar_germline_classification".into(),
+            Some(field::Value::Array(field::value::Array::String(
+                clinvar
+                    .germline_classification
+                    .iter()
+                    .map(|s| Some(s.clone()))
+                    .collect(),
+            ))),
+        );
+    }
+
+    if !record.annotation.consequences.is_empty() {
+        let formatted_anns: Vec<Option<String>> = record
+            .annotation
+            .consequences
+            .iter()
+            .map(|ann| Some(ann.format(csq_config)))
+            .collect();
+        out_record.info_mut().insert(
+            "ANN".into(),
+            Some(field::Value::Array(field::value::Array::String(
+                formatted_anns,
+            ))),
+        );
+    }
+
+    out_record
 }
 
 /// Implement `AnnotatedVcfWriter` for `VcfWriter`.
@@ -368,12 +421,12 @@ impl<Inner: Write> AsyncAnnotatedVariantWriter for VcfWriter<Inner> {
             .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
     }
 
-    async fn write_noodles_record(
+    async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
-        record: &VcfRecord,
+        record: AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
-        self.write_variant_record(header, record)
+        self.write_variant_record(header, &record.vcf)
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
@@ -384,7 +437,7 @@ impl<Inner: Write> AsyncAnnotatedVariantWriter for VcfWriter<Inner> {
 
 /// Implement `AsyncAnnotatedVariantWriter` for `AsyncWriter`.
 impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
-    for noodles::vcf::AsyncWriter<Inner>
+    for noodles::vcf::r#async::io::Writer<Inner>
 {
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
         self.write_header(header)
@@ -392,18 +445,18 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
             .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
     }
 
-    async fn write_noodles_record(
+    async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
-        record: &VcfRecord,
+        record: AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
-        noodles::vcf::AsyncWriter::write_variant_record(self, header, record)
+        self.write_variant_record(header, &record.vcf)
             .await
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
     async fn shutdown(&mut self) -> Result<(), Error> {
-        Ok(<noodles::vcf::AsyncWriter<Inner>>::get_mut(self)
+        Ok(<noodles::vcf::r#async::io::Writer<Inner>>::get_mut(self)
             .flush()
             .await?)
     }
@@ -411,7 +464,7 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
 
 /// Implement `AsyncAnnotatedVariantWriter` for `AsyncWriter`.
 impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
-    for noodles::bcf::AsyncWriter<Inner>
+    for noodles::bcf::r#async::io::Writer<Inner>
 {
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), Error> {
         self.write_header(header)
@@ -419,951 +472,161 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
             .map_err(|e| anyhow::anyhow!("Error writing VCF header: {}", e))
     }
 
-    async fn write_noodles_record(
+    async fn write_annotated_record(
         &mut self,
         header: &VcfHeader,
-        record: &VcfRecord,
+        record: AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
-        noodles::bcf::AsyncWriter::write_variant_record(self, header, record)
+        noodles::bcf::r#async::io::Writer::write_variant_record(self, header, &record.vcf)
             .await
             .map_err(|e| anyhow::anyhow!("Error writing VCF record: {}", e))
     }
 
     async fn shutdown(&mut self) -> Result<(), Error> {
-        Ok(<noodles::bcf::AsyncWriter<Inner>>::get_mut(self)
+        Ok(<noodles::bcf::r#async::io::Writer<Inner>>::get_mut(self)
             .shutdown()
             .await?)
     }
 }
 
-/// Writing of sequence variants to VarFish TSV files.
-struct VarFishSeqvarTsvWriter {
-    inner: Box<dyn Write>,
-    assembly: Option<Assembly>,
-    pedigree: Option<PedigreeByName>,
-    header: Option<VcfHeader>,
-    hgnc_map: Option<FxHashMap<String, HgncRecord>>,
-    contig_manager: Option<ContigManager>,
-    tsv_contig_style: TsvContigStyle,
+pub struct SeqvarsVcfWriter {
+    pub inner: crate::common::noodles::VariantWriter,
+    pub csq_config: Config,
 }
 
-/// Entry with genotype (`gt`), coverage (`dp`), allele depth (`ad`), somatic quality (`sq`) and
-/// genotype quality (`gq`).
-#[derive(Debug, Default)]
-struct GenotypeInfo {
-    pub name: String,
-    pub gt: Option<String>,
-    pub dp: Option<i32>,
-    pub ad: Option<i32>,
-    pub gq: Option<i32>,
-    pub sq: Option<f32>,
-}
-
-#[derive(Debug, Default)]
-struct GenotypeCalls {
-    pub entries: Vec<GenotypeInfo>,
-}
-
-impl GenotypeCalls {
-    /// Generate and return the dict in Postgres JSON syntax.
-    ///
-    /// The returned string is suitable for a direct TSV import into Postgres.
-    pub fn for_tsv(&self) -> String {
-        let mut result = String::new();
-        result.push('{');
-
-        let mut first = true;
-        for entry in &self.entries {
-            if first {
-                first = false;
-            } else {
-                result.push(',');
-            }
-            result.push_str(&format!("\"\"\"{}\"\"\":{{", entry.name));
-
-            let mut prev = false;
-            if let Some(gt) = &entry.gt {
-                prev = true;
-                result.push_str(&format!("\"\"\"gt\"\"\":\"\"\"{}\"\"\"", gt));
-            }
-
-            if let Some(ad) = &entry.ad {
-                if prev {
-                    result.push(',');
-                }
-                prev = true;
-                result.push_str(&format!("\"\"\"ad\"\"\":{}", ad));
-            }
-
-            if let Some(dp) = &entry.dp {
-                if prev {
-                    result.push(',');
-                }
-                prev = true;
-                result.push_str(&format!("\"\"\"dp\"\"\":{}", dp));
-            }
-
-            // The DRAGEN variant caller writes out FORMAT/SQ for chrMT ("somatic quality") as
-            // it uses the somatic genotyping model for mitochondrial callers.  We just write
-            // this out as GQ for now.
-            if let Some(gq) = &entry.gq {
-                if prev {
-                    result.push(',');
-                }
-                // prev = true;
-                result.push_str(&format!("\"\"\"gq\"\"\":{}", gq));
-            } else if let Some(sq) = &entry.sq {
-                if prev {
-                    result.push(',');
-                }
-                // prev = true;
-                result.push_str(&format!("\"\"\"gq\"\"\":{}", sq.round() as i32));
-            }
-
-            result.push('}');
-        }
-
-        result.push('}');
-        result
-    }
-}
-
-impl VarFishSeqvarTsvWriter {
-    // Create new TSV writer from path.
-    pub fn with_path<P>(p: P, tsv_contig_style: TsvContigStyle) -> Self
-    where
-        P: AsRef<Path>,
-    {
+impl SeqvarsVcfWriter {
+    pub fn new(inner: crate::common::noodles::VariantWriter) -> Self {
         Self {
-            inner: if p.as_ref().extension().unwrap_or_default() == "gz" {
-                Box::new(GzEncoder::new(
-                    File::create(p).unwrap(),
-                    Compression::default(),
-                ))
-            } else {
-                Box::new(File::create(p).unwrap())
-            },
-            hgnc_map: None,
-            assembly: None,
-            pedigree: None,
-            header: None,
-            contig_manager: None,
-            tsv_contig_style,
+            inner,
+            csq_config: Config::default(),
         }
-    }
-
-    /// Flush buffers.
-    pub fn flush(&mut self) -> Result<(), anyhow::Error> {
-        self.inner.flush()?;
-        Ok(())
-    }
-
-    /// Fill `record` coordinate fields.
-    ///
-    /// # Returns
-    ///
-    /// Returns `true` if the record is to be written to the TSV file and `false` if
-    /// it is to be skipped because it was not on a canonical chromosome (chr1..chr22,
-    /// chrX, chrY, chrM/chrMT).
-    fn fill_coords(
-        &self,
-        record: &VcfRecord,
-        tsv_record: &mut VarFishSeqvarTsvRecord,
-    ) -> Result<bool, Error> {
-        let assembly = self.assembly.expect("assembly must have been set");
-        let contig_manager = self
-            .contig_manager
-            .as_ref()
-            .expect("contig manager must be set");
-
-        tsv_record.release = match assembly {
-            Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
-            Assembly::Grch38 => String::from("GRCh38"),
-        };
-        let name = record.reference_sequence_name();
-
-        if let Some(contig_info) = contig_manager.get_contig_info(name) {
-            tsv_record.chromosome_no = contig_info.chrom_no;
-            tsv_record.chromosome = match self.tsv_contig_style {
-                TsvContigStyle::Passthrough => name.to_string(),
-                TsvContigStyle::WithChr => contig_info.name_with_chr,
-                TsvContigStyle::WithoutChr => contig_info.name_without_chr,
-                TsvContigStyle::Auto => {
-                    if assembly == Assembly::Grch38 {
-                        if ContigManager::is_mitochondrial(contig_info.chrom_no) {
-                            "chrM".into()
-                        } else {
-                            contig_info.name_with_chr
-                        }
-                    } else {
-                        contig_info.name_without_chr
-                    }
-                }
-            };
-        } else {
-            return Ok(false);
-        }
-
-        tsv_record.reference = record.reference_bases().to_string();
-        tsv_record.alternative = record.alternate_bases().as_ref()[0].to_string();
-
-        tsv_record.start = record
-            .variant_start()
-            .expect("Telomeres unsupported")
-            .into();
-        tsv_record.end = tsv_record.start + tsv_record.reference.len() - 1;
-        tsv_record.bin =
-            binning::bin_from_range(tsv_record.start as i32 - 1, tsv_record.end as i32)? as u32;
-
-        tsv_record.var_type = if tsv_record.reference.len() == tsv_record.alternative.len() {
-            if tsv_record.reference.len() == 1 {
-                String::from("snv")
-            } else {
-                String::from("mnv")
-            }
-        } else {
-            String::from("indel")
-        };
-
-        Ok(true)
-    }
-
-    /// Fill `record` genotype and family-local allele frequencies.
-    fn fill_genotype_and_freqs(
-        &self,
-        record: &VcfRecord,
-        tsv_record: &mut VarFishSeqvarTsvRecord,
-    ) -> Result<(), anyhow::Error> {
-        use noodles::vcf::variant::record_buf::samples::sample::Value;
-        use noodles::vcf::variant::record_buf::samples::sample::value::Array;
-
-        // Extract genotype information.
-        let hdr = self
-            .header
-            .as_ref()
-            .expect("VCF header must be set/written");
-        let file_format_gt = FileFormat::new(4, 3);
-        let mut gt_calls = GenotypeCalls::default();
-        let samples = record.samples();
-        let sample_names = hdr.sample_names().iter();
-
-        // The following couple of lines are quite ugly,
-        // there's probably a more elegant way to do this
-        let genotypes = samples.select(GENOTYPE);
-        let get_genotype = |sample_idx| {
-            genotypes.as_ref().and_then(|gt| {
-                gt.get(sample_idx).map(|value| match value {
-                    Some(Value::String(s)) => s.to_owned(),
-                    Some(Value::Genotype(gt)) => genotype_string(gt, file_format_gt),
-                    _ => ".".into(),
-                })
-            })
-        };
-
-        let read_depths = samples.select(READ_DEPTH);
-        let get_read_depth = |sample_idx| {
-            read_depths.as_ref().and_then(|rd| {
-                rd.get(sample_idx)
-                    .map(|value| match value {
-                        Some(Value::Integer(i)) => Ok(*i),
-                        None => Ok(-1),
-                        _ => anyhow::bail!(format!("invalid DP value {:?}", value)),
-                    })
-                    .transpose()
-                    .unwrap()
-            })
-        };
-
-        let allele_depths = samples.select("AD");
-        let get_allele_depths = |sample_idx| {
-            allele_depths.as_ref().and_then(|ad| {
-                ad.get(sample_idx)
-                    .map(|value| match value {
-                        Some(Value::Array(Array::Integer(arr))) => Ok(arr[1].unwrap_or(0)),
-                        None => Ok(-1),
-                        _ => anyhow::bail!(format!("invalid AD value {:?}", value)),
-                    })
-                    .transpose()
-                    .unwrap()
-            })
-        };
-
-        let conditional_gt_quality = samples.select(CONDITIONAL_GENOTYPE_QUALITY);
-        let get_conditional_gt_quality = |sample_idx| {
-            conditional_gt_quality.as_ref().and_then(|cgq| {
-                cgq.get(sample_idx)
-                    .map(|value| match value {
-                        Some(Value::Integer(i)) => Ok(*i),
-                        None => Ok(-1),
-                        _ => anyhow::bail!(format!(
-                            "invalid GQ value {:?} at {:?}:{:?}",
-                            value,
-                            record.reference_sequence_name(),
-                            record.variant_start()
-                        )),
-                    })
-                    .transpose()
-                    .unwrap()
-            })
-        };
-
-        let sq = samples.select("SQ");
-        let get_sq = |sample_idx| {
-            sq.as_ref().and_then(|sq| {
-                sq.get(sample_idx)
-                    .map(|value| match value {
-                        Some(Value::Float(f)) => Ok(*f),
-                        Some(Value::Array(Array::Float(f))) => {
-                            Ok(f[0].expect("SQ should be a single float value"))
-                        }
-                        None => Ok(-1.0),
-                        _ => {
-                            anyhow::bail!(format!(
-                                "invalid SQ value {:?} at {:?}:{:?}",
-                                value,
-                                record.reference_sequence_name(),
-                                record.variant_start()
-                            ))
-                        }
-                    })
-                    .transpose()
-                    .unwrap()
-            })
-        };
-
-        for (i, name) in sample_names.enumerate() {
-            let mut gt_info = GenotypeInfo {
-                name: name.clone(),
-                ..Default::default()
-            };
-
-            if let Some(gt) = get_genotype(i) {
-                let individual = self
-                    .pedigree
-                    .as_ref()
-                    .expect("pedigree must be set")
-                    .individuals
-                    .get(name)
-                    .unwrap_or_else(|| panic!("individual {} not found in pedigree", name));
-                // Update per-family counts.
-                if ContigManager::is_chr_x(tsv_record.chromosome_no) {
-                    match individual.sex {
-                        Sex::Male => {
-                            if gt.contains('1') {
-                                tsv_record.num_hemi_alt += 1;
-                            } else {
-                                tsv_record.num_hemi_ref += 1;
-                            }
-                        }
-                        Sex::Female | Sex::Unknown => {
-                            // assume diploid/female if unknown
-                            let matches_1 = gt.matches('1').count();
-                            let matches_0 = gt.matches('0').count();
-                            if matches_0 == 2 {
-                                tsv_record.num_hom_ref += 1;
-                            } else if matches_1 == 1 {
-                                tsv_record.num_het += 1;
-                            } else if matches_1 == 2 {
-                                tsv_record.num_hom_alt += 1;
-                            }
-                        }
-                    }
-                } else if ContigManager::is_chr_y(tsv_record.chromosome_no) {
-                    if individual.sex == Sex::Male {
-                        if gt.contains('1') {
-                            tsv_record.num_hemi_alt += 1;
-                        } else if gt.contains('0') {
-                            tsv_record.num_hemi_ref += 1;
-                        }
-                    }
-                } else {
-                    let matches_1 = gt.matches('1').count();
-                    let matches_0 = gt.matches('0').count();
-                    if matches_0 == 2 {
-                        tsv_record.num_hom_ref += 1;
-                    } else if matches_1 == 1 {
-                        tsv_record.num_het += 1;
-                    } else if matches_1 == 2 {
-                        tsv_record.num_hom_alt += 1;
-                    }
-                }
-
-                // Store genotype value.
-                gt_info.gt = Some(gt);
-            }
-
-            if let Some(dp) = get_read_depth(i) {
-                gt_info.dp = Some(dp);
-            }
-
-            if let Some(ad) = get_allele_depths(i) {
-                gt_info.ad = Some(ad);
-            }
-
-            if let Some(gq) = get_conditional_gt_quality(i) {
-                gt_info.gq = Some(gq);
-            }
-            if let Some(sq) = get_sq(i) {
-                gt_info.sq = Some(sq);
-            }
-
-            gt_calls.entries.push(gt_info);
-        }
-        tsv_record.genotype = gt_calls.for_tsv();
-
-        Ok(())
-    }
-
-    /// Fill `record` background frequencies.
-    fn fill_bg_freqs(
-        &self,
-        record: &VcfRecord,
-        tsv_record: &mut VarFishSeqvarTsvRecord,
-    ) -> Result<(), anyhow::Error> {
-        // Extract gnomAD frequencies.
-        let gnomad_exomes_an = record
-            .info()
-            .get("gnomad_exomes_an")
-            .unwrap_or_default()
-            .map(|v| match v {
-                field::Value::Integer(value) => *value,
-                _ => panic!("Unexpected value type for GNOMAD_EXOMES_AN"),
-            })
-            .unwrap_or_default();
-        if gnomad_exomes_an > 0 {
-            tsv_record.gnomad_exomes_homozygous = record
-                .info()
-                .get("gnomad_exomes_hom")
-                .unwrap_or(Some(&field::Value::Integer(0)))
-                .map(|v| match v {
-                    field::Value::Integer(value) => *value,
-                    _ => panic!("Unexpected value type for GNOMAD_EXOMES_HOM"),
-                })
-                .unwrap_or_default();
-            tsv_record.gnomad_exomes_heterozygous = record
-                .info()
-                .get("gnomad_exomes_het")
-                .unwrap_or(Some(&field::Value::Integer(0)))
-                .map(|v| match v {
-                    field::Value::Integer(value) => *value,
-                    _ => panic!("Unexpected value type for GNOMAD_EXOMES_HET"),
-                })
-                .unwrap_or_default();
-            tsv_record.gnomad_exomes_hemizygous = record
-                .info()
-                .get("gnomad_exomes_hemi")
-                .unwrap_or(Some(&field::Value::Integer(0)))
-                .map(|v| match v {
-                    field::Value::Integer(value) => *value,
-                    _ => panic!("Unexpected value type for GNOMAD_EXOMES_HEMI"),
-                })
-                .unwrap_or_default();
-            tsv_record.gnomad_exomes_frequency = (tsv_record.gnomad_exomes_hemizygous
-                + tsv_record.gnomad_exomes_heterozygous
-                + tsv_record.gnomad_exomes_homozygous * 2)
-                as f32
-                / gnomad_exomes_an as f32;
-        }
-
-        let gnomad_genomes_an = record
-            .info()
-            .get("gnomad_genomes_an")
-            .unwrap_or_default()
-            .map(|v| match v {
-                field::Value::Integer(value) => *value,
-                _ => panic!("Unexpected value type for GNOMAD_GENOMES_AN"),
-            })
-            .unwrap_or_default();
-        if gnomad_genomes_an > 0 {
-            tsv_record.gnomad_genomes_homozygous = record
-                .info()
-                .get("gnomad_genomes_hom")
-                .unwrap_or(Some(&field::Value::Integer(0)))
-                .map(|v| match v {
-                    field::Value::Integer(value) => *value,
-                    _ => panic!("Unexpected value type for GNOMAD_GENOMES_HOM"),
-                })
-                .unwrap_or_default();
-            tsv_record.gnomad_genomes_heterozygous = record
-                .info()
-                .get("gnomad_genomes_het")
-                .unwrap_or(Some(&field::Value::Integer(0)))
-                .map(|v| match v {
-                    field::Value::Integer(value) => *value,
-                    _ => panic!("Unexpected value type for GNOMAD_GENOMES_HET"),
-                })
-                .unwrap_or_default();
-            tsv_record.gnomad_genomes_hemizygous = record
-                .info()
-                .get("gnomad_genomes_hemi")
-                .unwrap_or(Some(&field::Value::Integer(0)))
-                .map(|v| match v {
-                    field::Value::Integer(value) => *value,
-                    _ => panic!("Unexpected value type for GNOMAD_GENOMES_HEMI"),
-                })
-                .unwrap_or_default();
-            tsv_record.gnomad_genomes_frequency = (tsv_record.gnomad_genomes_hemizygous
-                + tsv_record.gnomad_genomes_heterozygous
-                + tsv_record.gnomad_genomes_homozygous * 2)
-                as f32
-                / gnomad_genomes_an as f32;
-        }
-
-        Ok(())
-    }
-
-    /// Fill `record` RefSEq and ENSEMBL and fields and write to `self.inner`.
-    ///
-    /// First, the values in the `ANN` field are parsed and all predictions are extracted.
-    /// For each gene, we find the single worst prediction for a RefSeq transcript and the
-    /// single worst prediction for an ENSEMBL transcript. We then combine these to create
-    /// one output row per gene.
-    fn expand_refseq_ensembl_and_write(
-        &mut self,
-        record: &VcfRecord,
-        tsv_record: &mut VarFishSeqvarTsvRecord,
-    ) -> Result<(), anyhow::Error> {
-        if let Some(anns) = record
-            .info()
-            .get("ANN")
-            .unwrap_or_default()
-            .map(|v| match v {
-                field::Value::Array(field::value::Array::String(values)) => values
-                    .iter()
-                    .filter(|v| v.is_some())
-                    .map(|v| AnnField::from_str(v.as_ref().unwrap())),
-                _ => panic!("Unexpected value type for INFO/ANN"),
-            })
-        {
-            // Extract `AnnField` records, letting the errors bubble up.
-            let anns: Result<Vec<_>, _> = anns.collect();
-            let anns = anns?;
-
-            // Collect the `AnnField` records by `gene_id`.
-            let mut anns_by_gene: FxHashMap<String, Vec<AnnField>> = FxHashMap::default();
-            for ann in anns {
-                let gene_id = ann.gene_id.clone();
-                anns_by_gene.entry(gene_id).or_default().push(ann);
-            }
-
-            // Within each gene's list of annotations, sort by consequence severity (worst first).
-            for anns in anns_by_gene.values_mut() {
-                anns.sort_by_key(|ann| ann.consequences[0]);
-            }
-
-            let empty_hgnc_record = HgncRecord {
-                hgnc_id: "".to_string(),
-                ensembl_gene_id: "".to_string(),
-                entrez_id: "".to_string(),
-                gene_symbol: "".to_string(),
-            };
-
-            fn is_ensembl_id(feature_id: &str) -> bool {
-                feature_id.starts_with("ENST")
-            }
-
-            fn is_refseq_id(feature_id: &str) -> bool {
-                feature_id.starts_with("N") || feature_id.starts_with("X")
-            }
-
-            // For each gene, find the worst RefSeq and ENSEMBL annotation and write one record.
-            for (hgnc_id, anns) in anns_by_gene.iter() {
-                // Get `HgncRecord` for the `hgnc_id` or skip this gene.
-                let hgnc_record = match self.hgnc_map.as_ref().unwrap().get(hgnc_id) {
-                    Some(hgnc_record) => hgnc_record,
-                    None if hgnc_id.is_empty() => {
-                        tracing::warn!(
-                            "Empty HGNC id for {}:{}-{}, writing empty record.",
-                            tsv_record.chromosome,
-                            tsv_record.start,
-                            tsv_record.end
-                        );
-                        &empty_hgnc_record
-                    }
-                    None => {
-                        tracing::warn!(
-                            "HGNC record for {} not found in HGNC map, writing empty record",
-                            hgnc_id
-                        );
-                        &HgncRecord {
-                            hgnc_id: hgnc_id.to_string(),
-                            ensembl_gene_id: "".to_string(),
-                            entrez_id: "".to_string(),
-                            gene_symbol: "".to_string(),
-                        }
-                    }
-                };
-
-                tsv_record.clear_refseq_ensembl();
-
-                // Since `anns` is sorted by severity, the first match we find is the worst one.
-                let worst_refseq_ann = anns.iter().find(|ann| is_refseq_id(&ann.feature_id));
-                let worst_ensembl_ann = anns.iter().find(|ann| is_ensembl_id(&ann.feature_id));
-
-                let (refseq_source_ann, ensembl_source_ann) =
-                    match (worst_refseq_ann, worst_ensembl_ann) {
-                        (Some(refseq), Some(ensembl)) => (Some(refseq), Some(ensembl)),
-                        (Some(refseq), None) => {
-                            tracing::debug!(
-                                "No Ensembl annotation for {}:{}-{}, using RefSeq annotation",
-                                tsv_record.chromosome,
-                                tsv_record.start,
-                                tsv_record.end
-                            );
-                            (Some(refseq), Some(refseq))
-                        }
-                        (None, Some(ensembl)) => {
-                            tracing::debug!(
-                                "No RefSeq annotation for {}:{}-{}, using Ensembl annotation",
-                                tsv_record.chromosome,
-                                tsv_record.start,
-                                tsv_record.end
-                            );
-                            (Some(ensembl), Some(ensembl))
-                        }
-                        (None, None) => {
-                            tracing::debug!(
-                                "No RefSeq or Ensembl annotation for {}:{}-{}.",
-                                tsv_record.chromosome,
-                                tsv_record.start,
-                                tsv_record.end
-                            );
-                            (None, None)
-                        }
-                    };
-
-                if let Some(ann) = ensembl_source_ann {
-                    tsv_record.ensembl_gene_id = Some(hgnc_record.ensembl_gene_id.clone());
-                    tsv_record.ensembl_transcript_id = Some(ann.feature_id.clone());
-                    tsv_record.ensembl_transcript_coding =
-                        Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
-                    tsv_record.ensembl_hgvs_c.clone_from(&ann.hgvs_c);
-                    tsv_record.ensembl_hgvs_p.clone_from(&ann.hgvs_p);
-                    if !ann.consequences.is_empty() {
-                        tsv_record.ensembl_effect = Some(
-                            ann.consequences
-                                .iter()
-                                .map(|c| format!("\"{}\"", &c))
-                                .collect::<Vec<_>>(),
-                        );
-                    }
-                    tsv_record.ensembl_exon_dist = ann.distance;
-                }
-
-                if let Some(ann) = refseq_source_ann {
-                    tsv_record.refseq_gene_id = Some(hgnc_record.entrez_id.clone());
-                    tsv_record.refseq_transcript_id = Some(ann.feature_id.clone());
-                    tsv_record.refseq_transcript_coding =
-                        Some(ann.feature_biotype.contains(&FeatureBiotype::Coding));
-                    tsv_record.refseq_hgvs_c.clone_from(&ann.hgvs_c);
-                    tsv_record.refseq_hgvs_p.clone_from(&ann.hgvs_p);
-                    if !ann.consequences.is_empty() {
-                        tsv_record.refseq_effect = Some(
-                            ann.consequences
-                                .iter()
-                                .map(|c| format!("\"{}\"", &c))
-                                .collect::<Vec<_>>(),
-                        );
-                    }
-                    tsv_record.refseq_exon_dist = ann.distance;
-                }
-
-                writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
-                    .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))?;
-            }
-
-            Ok(())
-        } else {
-            // No annotations, write out without expanding `INFO/ANN` fields.
-            writeln!(self.inner, "{}", tsv_record.to_tsv().join("\t"))
-                .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
-        }
-    }
-
-    /// Fill `record` ClinVar fields.
-    fn fill_clinvar(
-        &self,
-        record: &VcfRecord,
-        tsv_record: &mut VarFishSeqvarTsvRecord,
-    ) -> Result<(), anyhow::Error> {
-        tsv_record.in_clinvar = record
-            .info()
-            .get("clinvar_germline_classification")
-            .is_some();
-
-        Ok(())
     }
 }
 
-/// A record, as written out to a VarFish TSV file.
-#[derive(Debug, Default)]
-pub struct VarFishSeqvarTsvRecord {
-    pub release: String,
-    pub chromosome: String,
-    pub chromosome_no: u32,
-    pub start: usize,
-    pub end: usize,
-    pub bin: u32,
-    pub reference: String,
-    pub alternative: String,
-    pub var_type: String,
-
-    // Writing out case_id and set_info is not used anyway.
-    // pub case_id: String,
-    // pub set_id: String,
-
-    // The info field is not populated anyway.
-    // pub info: String,
-    pub genotype: String,
-
-    pub num_hom_alt: u32,
-    pub num_hom_ref: u32,
-    pub num_het: u32,
-    pub num_hemi_alt: u32,
-    pub num_hemi_ref: u32,
-
-    pub in_clinvar: bool,
-
-    // NB: ExAc and 1000 Genomes are not written out anymore.
-    // pub exac_frequency: String,
-    // pub exac_homozygous: String,
-    // pub exac_heterozygous: String,
-    // pub exac_hemizygous: String,
-    // pub thousand_genomes_frequency: String,
-    // pub thousand_genomes_homozygous: String,
-    // pub thousand_genomes_heterozygous: String,
-    // pub thousand_genomes_hemizygous: String,
-    pub gnomad_exomes_frequency: f32,
-    pub gnomad_exomes_homozygous: i32,
-    pub gnomad_exomes_heterozygous: i32,
-    pub gnomad_exomes_hemizygous: i32,
-    pub gnomad_genomes_frequency: f32,
-    pub gnomad_genomes_homozygous: i32,
-    pub gnomad_genomes_heterozygous: i32,
-    pub gnomad_genomes_hemizygous: i32,
-
-    pub refseq_gene_id: Option<String>,
-    pub refseq_transcript_id: Option<String>,
-    pub refseq_transcript_coding: Option<bool>,
-    pub refseq_hgvs_c: Option<String>,
-    pub refseq_hgvs_p: Option<String>,
-    pub refseq_effect: Option<Vec<String>>,
-    pub refseq_exon_dist: Option<i32>,
-
-    pub ensembl_gene_id: Option<String>,
-    pub ensembl_transcript_id: Option<String>,
-    pub ensembl_transcript_coding: Option<bool>,
-    pub ensembl_hgvs_c: Option<String>,
-    pub ensembl_hgvs_p: Option<String>,
-    pub ensembl_effect: Option<Vec<String>>,
-    pub ensembl_exon_dist: Option<i32>,
-}
-
-impl VarFishSeqvarTsvRecord {
-    /// Clear the `refseq_*` and `ensembl_*` fields.
-    pub fn clear_refseq_ensembl(&mut self) {
-        self.refseq_gene_id = None;
-        self.refseq_transcript_id = None;
-        self.refseq_transcript_coding = None;
-        self.refseq_hgvs_c = None;
-        self.refseq_hgvs_p = None;
-        self.refseq_effect = None;
-        self.refseq_exon_dist = None;
-
-        self.ensembl_gene_id = None;
-        self.ensembl_transcript_id = None;
-        self.ensembl_transcript_coding = None;
-        self.ensembl_hgvs_c = None;
-        self.ensembl_hgvs_p = None;
-        self.ensembl_effect = None;
-        self.ensembl_exon_dist = None;
-    }
-
-    /// Convert to a `Vec<String>` suitable for writing to a VarFish TSV file.
-    pub fn to_tsv(&self) -> Vec<String> {
-        vec![
-            self.release.clone(),
-            self.chromosome.clone(),
-            format!("{}", self.chromosome_no),
-            format!("{}", self.start),
-            format!("{}", self.end),
-            format!("{}", self.bin),
-            self.reference.clone(),
-            self.alternative.clone(),
-            self.var_type.clone(),
-            String::from("."),
-            String::from("."),
-            String::from("{}"),
-            self.genotype.clone(),
-            format!("{}", self.num_hom_alt),
-            format!("{}", self.num_hom_ref),
-            format!("{}", self.num_het),
-            format!("{}", self.num_hemi_alt),
-            format!("{}", self.num_hemi_ref),
-            if self.in_clinvar { "TRUE" } else { "FALSE" }.to_string(),
-            // exac
-            String::from("0"),
-            String::from("0"),
-            String::from("0"),
-            String::from("0"),
-            // thousand genomes
-            String::from("0"),
-            String::from("0"),
-            String::from("0"),
-            String::from("0"),
-            format!("{}", self.gnomad_exomes_frequency),
-            format!("{}", self.gnomad_exomes_homozygous),
-            format!("{}", self.gnomad_exomes_heterozygous),
-            format!("{}", self.gnomad_exomes_hemizygous),
-            format!("{}", self.gnomad_genomes_frequency),
-            format!("{}", self.gnomad_genomes_homozygous),
-            format!("{}", self.gnomad_genomes_heterozygous),
-            format!("{}", self.gnomad_genomes_hemizygous),
-            self.refseq_gene_id.clone().unwrap_or(String::from(".")),
-            self.refseq_transcript_id
-                .clone()
-                .unwrap_or(String::from(".")),
-            self.refseq_transcript_coding
-                .map(|refseq_transcript_coding| {
-                    if refseq_transcript_coding {
-                        String::from("TRUE")
-                    } else {
-                        String::from("FALSE")
-                    }
-                })
-                .unwrap_or(String::from(".")),
-            self.refseq_hgvs_c.clone().unwrap_or(String::from(".")),
-            self.refseq_hgvs_p.clone().unwrap_or(String::from(".")),
-            format!(
-                "{{{}}}",
-                self.refseq_effect
-                    .as_ref()
-                    .map(|refseq_effect| refseq_effect.join(","))
-                    .unwrap_or_default()
-            ),
-            self.refseq_exon_dist
-                .map(|refseq_exon_dist| format!("{}", refseq_exon_dist))
-                .unwrap_or(String::from(".")),
-            self.ensembl_gene_id.clone().unwrap_or(String::from(".")),
-            self.ensembl_transcript_id
-                .clone()
-                .unwrap_or(String::from(".")),
-            self.ensembl_transcript_coding
-                .map(|ensembl_transcript_coding| {
-                    if ensembl_transcript_coding {
-                        String::from("TRUE")
-                    } else {
-                        String::from("FALSE")
-                    }
-                })
-                .unwrap_or(String::from(".")),
-            self.ensembl_hgvs_c.clone().unwrap_or(String::from(".")),
-            self.ensembl_hgvs_p.clone().unwrap_or(String::from(".")),
-            format!(
-                "{{{}}}",
-                self.ensembl_effect
-                    .as_ref()
-                    .map(|ensembl_effect| ensembl_effect.join(","))
-                    .unwrap_or_default()
-            ),
-            self.ensembl_exon_dist
-                .map(|ensembl_exon_dist| format!("{}", ensembl_exon_dist))
-                .unwrap_or(String::from(".")),
-        ]
-    }
-}
-
-/// Implement `AnnotatedVcfWriter` for `VarFishTsvWriter`.
-impl AsyncAnnotatedVariantWriter for VarFishSeqvarTsvWriter {
+impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
     async fn write_noodles_header(&mut self, header: &VcfHeader) -> Result<(), anyhow::Error> {
-        self.header = Some(header.clone());
-        let header = &[
-            "release",
-            "chromosome",
-            "chromosome_no",
-            "start",
-            "end",
-            "bin",
-            "reference",
-            "alternative",
-            "var_type",
-            "case_id",
-            "set_id",
-            "info",
-            "genotype",
-            "num_hom_alt",
-            "num_hom_ref",
-            "num_het",
-            "num_hemi_alt",
-            "num_hemi_ref",
-            "in_clinvar",
-            "exac_frequency",
-            "exac_homozygous",
-            "exac_heterozygous",
-            "exac_hemizygous",
-            "thousand_genomes_frequency",
-            "thousand_genomes_homozygous",
-            "thousand_genomes_heterozygous",
-            "thousand_genomes_hemizygous",
-            "gnomad_exomes_frequency",
-            "gnomad_exomes_homozygous",
-            "gnomad_exomes_heterozygous",
-            "gnomad_exomes_hemizygous",
-            "gnomad_genomes_frequency",
-            "gnomad_genomes_homozygous",
-            "gnomad_genomes_heterozygous",
-            "gnomad_genomes_hemizygous",
-            "refseq_gene_id",
-            "refseq_transcript_id",
-            "refseq_transcript_coding",
-            "refseq_hgvs_c",
-            "refseq_hgvs_p",
-            "refseq_effect",
-            "refseq_exon_dist",
-            "ensembl_gene_id",
-            "ensembl_transcript_id",
-            "ensembl_transcript_coding",
-            "ensembl_hgvs_c",
-            "ensembl_hgvs_p",
-            "ensembl_effect",
-            "ensembl_exon_dist",
-        ];
-        writeln!(self.inner, "{}", header.join("\t"))
-            .map_err(|e| anyhow::anyhow!("Error writing VarFish TSV header: {}", e))
+        self.inner.write_noodles_header(header).await
     }
 
-    async fn write_noodles_record(
+    async fn write_annotated_record(
+        &mut self,
+        header: &VcfHeader,
+        record: AnnotatedVariant,
+    ) -> Result<(), anyhow::Error> {
+        let out_record = prepare_vcf_record(record, &self.csq_config);
+
+        self.inner
+            .write_annotated_record(
+                header,
+                AnnotatedVariant {
+                    vcf: out_record,
+                    annotation: VariantAnnotation {
+                        consequences: vec![],
+                        frequencies: None,
+                        clinvar: None,
+                    },
+                },
+            )
+            .await
+    }
+
+    async fn shutdown(&mut self) -> Result<(), anyhow::Error> {
+        self.inner.shutdown().await
+    }
+
+    fn set_csq_config(&mut self, config: Config) {
+        self.csq_config = config;
+    }
+}
+
+pub struct SeqvarJsonlWriter {
+    inner: Pin<Box<dyn AsyncWrite>>,
+    csq_config: Config,
+}
+
+impl SeqvarJsonlWriter {
+    pub fn new(inner: Pin<Box<dyn AsyncWrite>>) -> Self {
+        Self {
+            inner,
+            csq_config: Config::default(),
+        }
+    }
+}
+
+impl AsyncAnnotatedVariantWriter for SeqvarJsonlWriter {
+    async fn write_noodles_header(&mut self, _header: &VcfHeader) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn write_annotated_record(
         &mut self,
         _header: &VcfHeader,
-        record: &VcfRecord,
+        record: AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
-        let mut tsv_record = VarFishSeqvarTsvRecord::default();
+        let chrom = record.chrom().to_string();
+        let pos = record.pos();
+        let reference = record.vcf.reference_bases().to_string();
+        let alt: Vec<String> = record
+            .vcf
+            .alternate_bases()
+            .as_ref()
+            .iter()
+            .map(|a| a.to_string())
+            .collect();
 
-        if !self.fill_coords(record, &mut tsv_record)? {
-            // Record was not on canonical chromosome and should not be written out.
-            return Ok(());
+        // Extract INFO fields minus the heavy ANN strings
+        let mut info_map = serde_json::Map::new();
+        for (key, value) in record.vcf.info().as_ref() {
+            if key == "ANN" {
+                continue;
+            }
+            let json_val = match value {
+                Some(field::Value::Integer(i)) => serde_json::json!(i),
+                Some(field::Value::Float(f)) => serde_json::json!(f),
+                Some(field::Value::Flag) => serde_json::json!(true),
+                Some(field::Value::String(s)) => serde_json::json!(s),
+                Some(field::Value::Array(field::value::Array::Integer(arr))) => {
+                    serde_json::json!(arr)
+                }
+                Some(field::Value::Array(field::value::Array::Float(arr))) => {
+                    serde_json::json!(arr)
+                }
+                Some(field::Value::Array(field::value::Array::String(arr))) => {
+                    serde_json::json!(arr)
+                }
+                _ => serde_json::Value::Null,
+            };
+            info_map.insert(key.to_string(), json_val);
         }
-        self.fill_genotype_and_freqs(record, &mut tsv_record)?;
-        self.fill_bg_freqs(record, &mut tsv_record)?;
-        self.fill_clinvar(record, &mut tsv_record)?;
-        self.expand_refseq_ensembl_and_write(record, &mut tsv_record)
+
+        let json_record = serde_json::json!({
+            "chromosome": chrom,
+            "position": pos,
+            "reference": reference,
+            "alternative": alt,
+            "annotations": {
+                "frequencies": record.annotation.frequencies,
+                "clinvar": record.annotation.clinvar,
+                "per-transcript": record.annotation.consequences,
+            },
+            "vcfInfo": info_map,
+        });
+
+        let mut json_bytes = serde_json::to_vec(&json_record)
+            .map_err(|e| anyhow::anyhow!("JSON serialization error: {}", e))?;
+        json_bytes.push(b'\n');
+
+        self.inner
+            .write_all(&json_bytes)
+            .await
+            .map_err(|e| anyhow::anyhow!("Error writing JSONL record: {}", e))
     }
 
     async fn shutdown(&mut self) -> Result<(), Error> {
-        Ok(self.inner.flush()?)
+        Ok(self.inner.flush().await?)
     }
-
-    fn set_hgnc_map(&mut self, hgnc_map: FxHashMap<String, HgncRecord>) {
-        self.hgnc_map = Some(hgnc_map)
-    }
-
-    fn set_assembly(&mut self, assembly: Assembly) {
-        self.assembly = Some(assembly);
-        self.contig_manager = Some(ContigManager::new(assembly));
-    }
-
-    fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
-        self.pedigree = Some(pedigree.clone())
+    fn set_csq_config(&mut self, config: Config) {
+        self.csq_config = config;
     }
 }
 
@@ -1375,11 +638,38 @@ pub(crate) enum AnnotatorEnum {
 }
 
 impl AnnotatorEnum {
-    fn annotate(&self, var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
+    fn annotate(&self, var: &keys::Var, annotation: &mut VariantAnnotation) -> anyhow::Result<()> {
         match self {
-            AnnotatorEnum::Frequency(a) => a.annotate(var, record),
-            AnnotatorEnum::Clinvar(a) => a.annotate(var, record),
-            AnnotatorEnum::Consequence(a) => a.annotate(var, record),
+            AnnotatorEnum::Frequency(a) => {
+                if let Some(freqs) = a.annotate(var)? {
+                    if annotation.frequencies.is_some() {
+                        anyhow::bail!(
+                            "Multiple frequency databases returned results for variant {:?}; \
+                             annotating from multiple frequency databases is not supported",
+                            var
+                        );
+                    }
+                    annotation.frequencies = Some(freqs);
+                }
+                Ok(())
+            }
+            AnnotatorEnum::Clinvar(a) => {
+                if let Some(clinvar) = a.annotate(var)? {
+                    if annotation.clinvar.is_some() {
+                        anyhow::bail!(
+                            "Multiple ClinVar databases returned results for variant {:?}; \
+                             annotating from multiple ClinVar databases is not supported",
+                            var
+                        );
+                    }
+                    annotation.clinvar = Some(clinvar);
+                }
+                Ok(())
+            }
+            AnnotatorEnum::Consequence(a) => {
+                annotation.consequences = a.annotate(var)?;
+                Ok(())
+            }
         }
     }
 }
@@ -1434,153 +724,71 @@ impl FrequencyAnnotator {
     }
 
     /// Annotate record on autosomal chromosome with gnomAD exomes/genomes.
-    pub fn annotate_record_auto(
-        &self,
-        key: &[u8],
-        vcf_record: &mut noodles::vcf::variant::RecordBuf,
-    ) -> Result<(), Error> {
+    pub fn annotate_record_auto(&self, key: &[u8]) -> Result<Option<FreqResult>, Error> {
         if let Some(freq) = self
             .db
             .get_cf(self.db.cf_handle("autosomal").as_ref().unwrap(), key)?
         {
             let auto_record = auto::Record::from_buf(&freq);
-
-            vcf_record.info_mut().insert(
-                "gnomad_exomes_an".into(),
-                Some(field::Value::Integer(auto_record.gnomad_exomes.an as i32)),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_exomes_hom".into(),
-                Some(field::Value::Integer(
-                    auto_record.gnomad_exomes.ac_hom as i32,
-                )),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_exomes_het".into(),
-                Some(field::Value::Integer(
-                    auto_record.gnomad_exomes.ac_het as i32,
-                )),
-            );
-
-            vcf_record.info_mut().insert(
-                "gnomad_genomes_an".into(),
-                Some(field::Value::Integer(auto_record.gnomad_genomes.an as i32)),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_genomes_hom".into(),
-                Some(field::Value::Integer(
-                    auto_record.gnomad_genomes.ac_hom as i32,
-                )),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_genomes_het".into(),
-                Some(field::Value::Integer(
-                    auto_record.gnomad_genomes.ac_het as i32,
-                )),
-            );
-        };
-        Ok(())
+            Ok(Some(FreqResult {
+                gnomad_exomes_an: auto_record.gnomad_exomes.an as i32,
+                gnomad_exomes_hom: auto_record.gnomad_exomes.ac_hom as i32,
+                gnomad_exomes_het: auto_record.gnomad_exomes.ac_het as i32,
+                gnomad_genomes_an: auto_record.gnomad_genomes.an as i32,
+                gnomad_genomes_hom: auto_record.gnomad_genomes.ac_hom as i32,
+                gnomad_genomes_het: auto_record.gnomad_genomes.ac_het as i32,
+                ..Default::default()
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Annotate record on gonosomal chromosome with gnomAD exomes/genomes.
-    pub fn annotate_record_xy(
-        &self,
-        key: &[u8],
-        vcf_record: &mut noodles::vcf::variant::RecordBuf,
-    ) -> Result<(), Error> {
+    pub fn annotate_record_xy(&self, key: &[u8]) -> Result<Option<FreqResult>, Error> {
         if let Some(freq) = self
             .db
             .get_cf(self.db.cf_handle("gonosomal").as_ref().unwrap(), key)?
         {
             let xy_record = xy::Record::from_buf(&freq);
-
-            vcf_record.info_mut().insert(
-                "gnomad_exomes_an".into(),
-                Some(field::Value::Integer(xy_record.gnomad_exomes.an as i32)),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_exomes_hom".into(),
-                Some(field::Value::Integer(xy_record.gnomad_exomes.ac_hom as i32)),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_exomes_het".into(),
-                Some(field::Value::Integer(xy_record.gnomad_exomes.ac_het as i32)),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_exomes_hemi".into(),
-                Some(field::Value::Integer(
-                    xy_record.gnomad_exomes.ac_hemi as i32,
-                )),
-            );
-
-            vcf_record.info_mut().insert(
-                "gnomad_genomes_an".into(),
-                Some(field::Value::Integer(xy_record.gnomad_genomes.an as i32)),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_genomes_hom".into(),
-                Some(field::Value::Integer(
-                    xy_record.gnomad_genomes.ac_hom as i32,
-                )),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_genomes_het".into(),
-                Some(field::Value::Integer(
-                    xy_record.gnomad_genomes.ac_het as i32,
-                )),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_genomes_hemi".into(),
-                Some(field::Value::Integer(
-                    xy_record.gnomad_genomes.ac_hemi as i32,
-                )),
-            );
-        };
-        Ok(())
+            Ok(Some(FreqResult {
+                gnomad_exomes_an: xy_record.gnomad_exomes.an as i32,
+                gnomad_exomes_hom: xy_record.gnomad_exomes.ac_hom as i32,
+                gnomad_exomes_het: xy_record.gnomad_exomes.ac_het as i32,
+                gnomad_exomes_hemi: Some(xy_record.gnomad_exomes.ac_hemi as i32),
+                gnomad_genomes_an: xy_record.gnomad_genomes.an as i32,
+                gnomad_genomes_hom: xy_record.gnomad_genomes.ac_hom as i32,
+                gnomad_genomes_het: xy_record.gnomad_genomes.ac_het as i32,
+                gnomad_genomes_hemi: Some(xy_record.gnomad_genomes.ac_hemi as i32),
+                ..Default::default()
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Annotate record on mitochondrial genome with gnomAD mtDNA and HelixMtDb.
-    pub fn annotate_record_mt(
-        &self,
-        key: &[u8],
-        vcf_record: &mut noodles::vcf::variant::RecordBuf,
-    ) -> Result<(), Error> {
+    pub fn annotate_record_mt(&self, key: &[u8]) -> Result<Option<FreqResult>, Error> {
         if let Some(freq) = self
             .db
             .get_cf(self.db.cf_handle("mitochondrial").as_ref().unwrap(), key)?
         {
             let mt_record = mt::Record::from_buf(&freq);
-
-            vcf_record.info_mut().insert(
-                "helix_an".into(),
-                Some(field::Value::Integer(mt_record.helixmtdb.an as i32)),
-            );
-            vcf_record.info_mut().insert(
-                "helix_hom".into(),
-                Some(field::Value::Integer(mt_record.helixmtdb.ac_hom as i32)),
-            );
-            vcf_record.info_mut().insert(
-                "helix_het".into(),
-                Some(field::Value::Integer(mt_record.helixmtdb.ac_het as i32)),
-            );
-
-            vcf_record.info_mut().insert(
-                "gnomad_genomes_an".into(),
-                Some(field::Value::Integer(mt_record.gnomad_mtdna.an as i32)),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_genomes_hom".into(),
-                Some(field::Value::Integer(mt_record.gnomad_mtdna.ac_hom as i32)),
-            );
-            vcf_record.info_mut().insert(
-                "gnomad_genomes_het".into(),
-                Some(field::Value::Integer(mt_record.gnomad_mtdna.ac_het as i32)),
-            );
-        };
-        Ok(())
+            Ok(Some(FreqResult {
+                helix_an: Some(mt_record.helixmtdb.an as i32),
+                helix_hom: Some(mt_record.helixmtdb.ac_hom as i32),
+                helix_het: Some(mt_record.helixmtdb.ac_het as i32),
+                gnomad_genomes_an: mt_record.gnomad_mtdna.an as i32,
+                gnomad_genomes_hom: mt_record.gnomad_mtdna.ac_hom as i32,
+                gnomad_genomes_het: mt_record.gnomad_mtdna.ac_het as i32,
+                ..Default::default()
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
-    fn annotate(&self, vcf_var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
+    fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<FreqResult>> {
         let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
         if contig_manager.is_canonical_alias(vcf_var.chrom.as_str()) {
@@ -1589,19 +797,14 @@ impl FrequencyAnnotator {
 
             // Annotate with frequency.
             if contig_manager.is_autosomal_alias(&vcf_var.chrom) {
-                self.annotate_record_auto(&key, record)?;
+                return self.annotate_record_auto(&key);
             } else if contig_manager.is_gonosomal_alias(&vcf_var.chrom) {
-                self.annotate_record_xy(&key, record)?;
+                return self.annotate_record_xy(&key);
             } else if contig_manager.is_mitochondrial_alias(&vcf_var.chrom) {
-                self.annotate_record_mt(&key, record)?;
-            } else {
-                tracing::trace!(
-                    "Record @{:?} on non-canonical chromosome, skipping.",
-                    &vcf_var
-                );
+                return self.annotate_record_mt(&key);
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     #[cfg(feature = "server")]
@@ -1726,11 +929,7 @@ impl ClinvarAnnotator {
     }
 
     /// Annotate record with ClinVar information
-    pub fn annotate_record_clinvar(
-        &self,
-        key: &[u8],
-        vcf_record: &mut noodles::vcf::variant::RecordBuf,
-    ) -> Result<(), Error> {
+    pub fn annotate_record_clinvar(&self, key: &[u8]) -> Result<Option<ClinvarResult>, Error> {
         if let Some(raw_value) = self
             .db
             .get_cf(self.db.cf_handle("clinvar").as_ref().unwrap(), key)?
@@ -1739,57 +938,41 @@ impl ClinvarAnnotator {
                 &mut Cursor::new(&raw_value),
             )?;
 
-            let mut clinvar_vcvs = Vec::new();
-            let mut clinvar_germline_classifications = Vec::new();
-            for clinvar_record in record_list.records.iter() {
-                let accession = clinvar_record.accession.as_ref().expect("must have VCV");
-                let vcv = format!("{}.{}", accession.accession, accession.version);
-                let classifications = clinvar_record
+            let mut vcv = Vec::new();
+            let mut germline_classification = Vec::new();
+            for r in record_list.records.iter() {
+                let accession = r.accession.as_ref().expect("must have VCV");
+                vcv.push(format!("{}.{}", accession.accession, accession.version));
+                if let Some(gc) = &r
                     .classifications
                     .as_ref()
-                    .expect("must have classifications");
-                if let Some(germline_classification) = &classifications.germline_classification {
-                    let description = germline_classification
-                        .description
-                        .as_ref()
-                        .expect("description missing")
-                        .to_string();
-                    clinvar_vcvs.push(vcv);
-                    clinvar_germline_classifications.push(description);
+                    .expect("has cls")
+                    .germline_classification
+                {
+                    germline_classification
+                        .push(gc.description.as_ref().expect("has desc").to_string());
                 }
             }
-
-            vcf_record.info_mut().insert(
-                "clinvar_vcv".into(),
-                Some(field::Value::Array(field::value::Array::String(
-                    clinvar_vcvs.into_iter().map(Some).collect::<Vec<_>>(),
-                ))),
-            );
-            vcf_record.info_mut().insert(
-                "clinvar_germline_classification".into(),
-                Some(field::Value::Array(field::value::Array::String(
-                    clinvar_germline_classifications
-                        .into_iter()
-                        .map(Some)
-                        .collect::<Vec<_>>(),
-                ))),
-            );
+            Ok(Some(ClinvarResult {
+                vcv,
+                germline_classification,
+            }))
+        } else {
+            Ok(None)
         }
-
-        Ok(())
     }
 
-    fn annotate(&self, vcf_var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
-        let contig_manager = &self.contig_manager;
+    fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<ClinvarResult>> {
         // Only attempt lookups into RocksDB for canonical contigs.
-        if contig_manager.is_canonical_alias(vcf_var.chrom.as_str()) {
+        if self
+            .contig_manager
+            .is_canonical_alias(vcf_var.chrom.as_str())
+        {
             // Build key for RocksDB database from `vcf_var`.
             let key: Vec<u8> = vcf_var.clone().into();
-
-            // Annotate with ClinVar information.
-            self.annotate_record_clinvar(&key, record)?;
+            return self.annotate_record_clinvar(&key);
         }
-        Ok(())
+        Ok(None)
     }
 
     #[cfg(feature = "server")]
@@ -1914,7 +1097,7 @@ impl ConsequenceAnnotator {
         Ok(Self::new(predictor))
     }
 
-    fn annotate(&self, vcf_var: &keys::Var, record: &mut VcfRecord) -> anyhow::Result<()> {
+    fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Vec<AnnField>> {
         let keys::Var {
             chrom,
             pos,
@@ -1955,18 +1138,10 @@ impl ConsequenceAnnotator {
                 }
             }
 
-            record.info_mut().insert(
-                "ANN".into(),
-                Some(field::Value::Array(field::value::Array::String(
-                    ann_fields
-                        .iter()
-                        .map(|ann| Some(ann.format(&self.predictor.config)))
-                        .collect(),
-                ))),
-            );
+            return Ok(ann_fields);
         }
 
-        Ok(())
+        Ok(vec![])
     }
 }
 
@@ -1975,20 +1150,24 @@ impl Annotator {
         Self { annotators }
     }
 
-    fn annotate(&self, vcf_record: &mut VcfRecord) -> anyhow::Result<()> {
-        // Get first alternate allele record.
+    pub fn annotate(&self, vcf_record: &VcfRecord) -> anyhow::Result<VariantAnnotation> {
         let vcf_var = from_vcf_allele(vcf_record, 0);
+        let mut annotation = VariantAnnotation {
+            consequences: vec![],
+            frequencies: None,
+            clinvar: None,
+        };
 
         // Skip records with a deletion as alternative allele.
         if vcf_var.alternative == "*" {
-            return Ok(());
+            return Ok(annotation);
         }
 
         for annotator in &self.annotators {
-            annotator.annotate(&vcf_var, vcf_record)?;
+            annotator.annotate(&vcf_var, &mut annotation)?;
         }
 
-        Ok(())
+        Ok(annotation)
     }
 
     pub(crate) fn consequence_predictor(&self) -> Option<&ConsequencePredictor> {
@@ -2007,57 +1186,19 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
         .num_threads(args.threads)
         .build_global();
 
-    if let Some(path_output_vcf) = &args.output.path_output_vcf {
-        let mut writer = open_variant_writer(path_output_vcf).await?;
-        run_with_writer(&mut writer, args).await?;
-        writer.shutdown().await?;
-    } else {
-        // Load the HGNC xlink map.
-        let hgnc_map = {
-            tracing::info!("Loading HGNC map ...");
-            let mut result = FxHashMap::default();
-
-            let tsv_file = File::open(args.hgnc.as_ref().unwrap())?;
-            let mut tsv_reader = csv::ReaderBuilder::new()
-                .comment(Some(b'#'))
-                .delimiter(b'\t')
-                .from_reader(tsv_file);
-            for record in tsv_reader.deserialize() {
-                let record: HgncRecord = record?;
-                result.insert(record.hgnc_id.clone(), record);
-            }
-            tracing::info!("... done loading HGNC map");
-
-            result
-        };
-
-        let path_output_tsv = args
-            .output
-            .path_output_tsv
-            .as_ref()
-            .expect("tsv path must be set; vcf and tsv are mutually exclusive, vcf unset");
-        let mut writer = VarFishSeqvarTsvWriter::with_path(path_output_tsv, args.tsv_contig_style);
-
-        // Load the pedigree.
-        tracing::info!("Loading pedigree...");
-        let pedigree = match &args.path_input_ped {
-            Some(p) => {
-                tracing::info!("Loading pedigree from file {}", p);
-                PedigreeByName::from_path(p)?
-            }
-            None => {
-                std::panic!("No pedigree file provided. This is required for tsv annotation.")
-            }
-        };
-        writer.set_pedigree(&pedigree);
-        tracing::info!("... done loading pedigree");
-
-        writer.set_hgnc_map(hgnc_map);
-        run_with_writer(&mut writer, args).await?;
-
-        writer
-            .flush()
-            .map_err(|e| anyhow::anyhow!("problem flushing file: {}", e))?;
+    match args.output_format {
+        OutputFormat::Vcf => {
+            let writer = open_variant_writer(&args.output).await?;
+            let mut seqvars_writer = SeqvarsVcfWriter::new(writer);
+            run_with_writer(&mut seqvars_writer, args).await?;
+            // shutdown is already called inside run_with_writer
+        }
+        OutputFormat::Jsonl => {
+            let stream = crate::common::io::tokio::open_write_maybe_bgzf(&args.output).await?;
+            let mut writer = SeqvarJsonlWriter::new(stream);
+            run_with_writer(&mut writer, args).await?;
+            // shutdown is already called inside run_with_writer
+        }
     }
 
     Ok(())
@@ -2069,7 +1210,7 @@ async fn run_with_writer(
     args: &Args,
 ) -> Result<(), Error> {
     tracing::info!("Open VCF and read header");
-    let mut reader = open_variant_reader(&args.path_input_vcf).await?;
+    let mut reader = open_variant_reader(&args.input).await?;
 
     let mut header_in = reader.read_header().await?;
 
@@ -2145,6 +1286,8 @@ async fn run_with_writer(
         .custom_columns(custom_columns)
         .build()?;
 
+    writer.set_csq_config(csq_config.clone());
+
     let header_out = build_header(
         &header_in,
         with_annotations,
@@ -2173,8 +1316,9 @@ async fn run_with_writer(
     let batch_size = worker_threads * 1024;
 
     let mut next_batch = Vec::with_capacity(batch_size);
-    let mut processing_handle: Option<tokio::task::JoinHandle<anyhow::Result<Vec<VcfRecord>>>> =
-        None;
+    let mut processing_handle: Option<
+        tokio::task::JoinHandle<anyhow::Result<Vec<AnnotatedVariant>>>,
+    > = None;
 
     loop {
         // fill the `next_batch` buffer asynchronously (happens concurrently while the previous batch is being processed)
@@ -2206,20 +1350,23 @@ async fn run_with_writer(
         if let Some(handle) = processing_handle.take() {
             let processed_batch = handle.await??;
 
-            for vcf_record in processed_batch {
+            for annotated_record in processed_batch {
                 if prev.elapsed().as_secs() >= 60 {
-                    tracing::info!("at {:?}", from_vcf_allele(&vcf_record, 0));
+                    tracing::info!("at {:?}", from_vcf_allele(&annotated_record.vcf, 0));
                     prev = Instant::now();
                 }
 
                 if enable_compound {
-                    let ready_records = processor.process_annotated_record(vcf_record)?;
+                    let ready_records = processor.process_annotated_record(
+                        annotated_record.vcf,
+                        annotated_record.annotation,
+                    )?;
                     for rec in ready_records {
-                        writer.write_noodles_record(&header_out, &rec).await?;
+                        writer.write_annotated_record(&header_out, rec).await?;
                     }
                 } else {
                     writer
-                        .write_noodles_record(&header_out, &vcf_record)
+                        .write_annotated_record(&header_out, annotated_record)
                         .await?;
                 }
                 total_written += 1;
@@ -2240,9 +1387,12 @@ async fn run_with_writer(
 
             batch_to_process
                 .into_par_iter()
-                .map(|mut record| {
-                    annotator_clone.annotate(&mut record)?;
-                    Ok(record)
+                .map(|record| {
+                    let annotation = annotator_clone.annotate(&record)?;
+                    Ok(AnnotatedVariant {
+                        vcf: record,
+                        annotation,
+                    })
                 })
                 .collect::<anyhow::Result<Vec<_>>>()
         }));
@@ -2251,7 +1401,7 @@ async fn run_with_writer(
     if enable_compound {
         let final_records = processor.flush()?;
         for rec in final_records {
-            writer.write_noodles_record(&header_out, &rec).await?;
+            writer.write_annotated_record(&header_out, rec).await?;
         }
     }
 
@@ -2441,17 +1591,57 @@ pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usiz
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FreqResult {}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FreqResult {
+    pub gnomad_exomes_an: i32,
+    pub gnomad_exomes_hom: i32,
+    pub gnomad_exomes_het: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gnomad_exomes_hemi: Option<i32>,
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClinvarResult {}
+    pub gnomad_genomes_an: i32,
+    pub gnomad_genomes_hom: i32,
+    pub gnomad_genomes_het: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gnomad_genomes_hemi: Option<i32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub helix_an: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub helix_hom: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub helix_het: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ClinvarResult {
+    pub vcv: Vec<String>,
+    pub germline_classification: Vec<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariantAnnotation {
     pub consequences: Vec<AnnField>,
     pub frequencies: Option<FreqResult>,
     pub clinvar: Option<ClinvarResult>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AnnotatedVariant {
+    pub vcf: VcfRecord,
+    pub annotation: VariantAnnotation,
+}
+
+impl AnnotatedVariant {
+    /// Convenience method to get the chromosome
+    pub fn chrom(&self) -> &str {
+        self.vcf.reference_sequence_name()
+    }
+
+    /// Convenience method to get the 1-based start position
+    pub fn pos(&self) -> usize {
+        self.vcf.variant_start().map(usize::from).unwrap_or(0)
+    }
 }
 
 /// Helper to find the maximum genomic bounds of all transcripts overlapping a variant.
@@ -2496,6 +1686,7 @@ struct VariantProcessor<'a> {
     annotator: &'a Annotator,
     buffer: crate::annotate::seqvars::compound::VariantBuffer,
     next_group_id: usize,
+    annotations: std::collections::HashMap<String, VariantAnnotation>,
 }
 
 impl<'a> VariantProcessor<'a> {
@@ -2507,6 +1698,7 @@ impl<'a> VariantProcessor<'a> {
             annotator,
             buffer: compound::VariantBuffer::new(compound_settings.phasing_strategy),
             next_group_id: 0,
+            annotations: Default::default(),
         }
     }
 
@@ -2514,12 +1706,24 @@ impl<'a> VariantProcessor<'a> {
     pub fn process_annotated_record(
         &mut self,
         record: VcfRecord,
-    ) -> anyhow::Result<Vec<VcfRecord>> {
+        annotation: VariantAnnotation,
+    ) -> anyhow::Result<Vec<AnnotatedVariant>> {
         let mut ready_records = Vec::new();
         let vcf_var = from_vcf_allele(&record, 0);
 
         if self.buffer.should_flush(&vcf_var.chrom, vcf_var.pos) {
             ready_records.extend(self.process_buffer_flush()?);
+        }
+        let key = format!(
+            "{}:{}:{}:{}",
+            vcf_var.chrom, vcf_var.pos, vcf_var.reference, vcf_var.alternative
+        );
+        if self.annotations.insert(key.clone(), annotation).is_some() {
+            tracing::warn!(
+                "Duplicate SPDI detected in annotation buffer: {}; \
+                 the earlier annotation was overwritten.",
+                key
+            );
         }
 
         let (tx_accessions, min_start, max_end) =
@@ -2559,13 +1763,31 @@ impl<'a> VariantProcessor<'a> {
         Ok(ready_records)
     }
 
-    pub fn flush(&mut self) -> anyhow::Result<Vec<VcfRecord>> {
+    pub fn flush(&mut self) -> anyhow::Result<Vec<AnnotatedVariant>> {
         self.process_buffer_flush()
     }
 
-    fn process_buffer_flush(&mut self) -> anyhow::Result<Vec<VcfRecord>> {
-        let (mut variants, compound_groups) = self.buffer.flush();
+    fn process_buffer_flush(&mut self) -> anyhow::Result<Vec<AnnotatedVariant>> {
+        let (variants, compound_groups) = self.buffer.flush();
         let predictor = self.annotator.consequence_predictor();
+
+        let mut result_annotations: Vec<VariantAnnotation> = variants
+            .iter()
+            .map(|b| {
+                let vcf_var = from_vcf_allele(&b.record, 0);
+                let key = format!(
+                    "{}:{}:{}:{}",
+                    vcf_var.chrom, vcf_var.pos, vcf_var.reference, vcf_var.alternative
+                );
+                self.annotations
+                    .remove(&key)
+                    .unwrap_or_else(|| VariantAnnotation {
+                        consequences: vec![],
+                        frequencies: None,
+                        clinvar: None,
+                    })
+            })
+            .collect();
 
         for group_indices in compound_groups {
             if let Some(predictor) = predictor {
@@ -2601,47 +1823,54 @@ impl<'a> VariantProcessor<'a> {
                         );
                     }
 
-                    let new_ann_strings: Vec<Option<String>> = ann_fields
-                        .iter()
-                        .map(|ann| Some(ann.format(&predictor.config)))
-                        .collect();
-
                     for &i in &group_indices {
-                        let record = &mut variants[i].record;
-
-                        let mut all_anns = Vec::new();
-                        if let Some(Some(field::Value::Array(field::value::Array::String(arr)))) =
-                            record.info().get("ANN")
-                        {
-                            all_anns.extend(arr.iter().cloned());
-                        }
-                        all_anns.extend(new_ann_strings.clone());
-
-                        if !all_anns.is_empty() {
-                            record.info_mut().insert(
-                                "ANN".into(),
-                                Some(field::Value::Array(field::value::Array::String(all_anns))),
-                            );
-                        }
+                        result_annotations[i]
+                            .consequences
+                            .extend(ann_fields.clone());
                     }
                 }
             }
         }
 
-        Ok(variants.into_iter().map(|b| b.record).collect())
+        Ok(variants
+            .into_iter()
+            .zip(result_annotations)
+            .map(|(b, ann)| AnnotatedVariant {
+                vcf: b.record,
+                annotation: ann,
+            })
+            .collect())
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::binning::bin_from_range;
-    use super::{Args, PathOutput, run};
+    use super::{Args, OutputFormat, run};
     use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
-    use crate::common::TsvContigStyle;
+    use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
     use clap_verbosity_flag::Verbosity;
+    use futures::TryStreamExt;
     use pretty_assertions::assert_eq;
+    use std::path::Path;
     use temp_testdir::TempDir;
+
+    use noodles::vcf::variant::record_buf::info::field::Value;
+    use noodles::vcf::variant::record_buf::info::field::value::Array;
+
+    async fn read_vcf(
+        path: impl AsRef<Path>,
+    ) -> Result<Vec<noodles::vcf::variant::RecordBuf>, anyhow::Error> {
+        let mut output_reader = open_variant_reader(path.as_ref()).await?;
+        let header = output_reader.read_header().await?;
+        let mut record_iter = output_reader.records(&header).await;
+        let mut records = Vec::new();
+        while let Some(record) = record_iter.try_next().await? {
+            records.push(record);
+        }
+        Ok(records)
+    }
 
     #[tokio::test]
     async fn smoke_test_output_vcf() -> Result<(), anyhow::Error> {
@@ -2665,81 +1894,26 @@ mod test {
                 },
                 ..Default::default()
             },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
-            output: PathOutput {
-                path_output_vcf: Some(path_out.into_os_string().into_string().unwrap()),
-                path_output_tsv: None,
-            },
+            input: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
             max_var_count: None,
-            path_input_ped: Some(String::from(
-                "tests/data/annotate/seqvars/brca1.examples.ped",
-            )),
             sources: Sources {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
-            hgnc: None,
-            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;
 
-        let actual = std::fs::read_to_string(args.output.path_output_vcf.unwrap())?;
+        let actual = std::fs::read_to_string(args.output)?;
         // remove vcf header lines starting with ##mehari
         let actual = actual
             .lines()
             .filter(|line| !line.starts_with("##mehari"))
             .collect::<Vec<_>>()
             .join("\n");
-        insta::assert_snapshot!(actual);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn smoke_test_output_tsv() -> Result<(), anyhow::Error> {
-        let temp = TempDir::default();
-        let path_out = temp.join("output.tsv");
-
-        let args_common = crate::common::Args {
-            verbose: Verbosity::new(0, 1),
-        };
-        let prefix = "tests/data/annotate/db";
-        let assembly = "grch37";
-        let args = Args {
-            threads: 1,
-            reference: None,
-            in_memory_reference: true,
-            genome_release: None,
-            predictor_settings: PredictorSettings {
-                transcript_settings: TranscriptSettings {
-                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
-            output: PathOutput {
-                path_output_vcf: None,
-                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
-            },
-            max_var_count: None,
-            path_input_ped: Some(String::from(
-                "tests/data/annotate/seqvars/brca1.examples.ped",
-            )),
-            sources: Sources {
-                frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
-                clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
-                transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
-            },
-            hgnc: Some(format!("{prefix}/hgnc.tsv")),
-            tsv_contig_style: TsvContigStyle::Auto,
-        };
-
-        run(&args_common, &args).await?;
-
-        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
         insta::assert_snapshot!(actual);
 
         Ok(())
@@ -2760,7 +1934,7 @@ mod test {
     #[tokio::test]
     async fn test_badly_formed_vcf_entry() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
-        let path_out = temp.join("output.tsv");
+        let path_out = temp.join("output.vcf");
 
         let args_common = crate::common::Args {
             verbose: Verbosity::new(0, 1),
@@ -2779,42 +1953,58 @@ mod test {
                 },
                 ..Default::default()
             },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
-            output: PathOutput {
-                path_output_vcf: None,
-                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
-            },
+            input: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"), // <-- Corrected
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
             max_var_count: None,
-            path_input_ped: Some(String::from(
-                "tests/data/annotate/seqvars/badly_formed_vcf_entry.ped",
-            )),
             sources: Sources {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
-            hgnc: Some(format!("{prefix}/hgnc.tsv")),
-            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;
 
-        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
-        let expected =
-            std::fs::read_to_string("tests/data/annotate/seqvars/badly_formed_vcf_entry.tsv")?;
-        assert_eq!(&expected, &actual);
+        let records_written = read_vcf(&args.output).await?;
+        let mut snapshot_data = std::collections::BTreeMap::new();
+
+        for record in records_written {
+            let key = format!(
+                "{}:{}:{}:{}",
+                record.reference_sequence_name(),
+                record
+                    .variant_start()
+                    .map_or_else(|| "0".into(), |s| s.to_string()),
+                record.reference_bases(),
+                record.alternate_bases().as_ref().join(",")
+            );
+
+            let ann_field = record.info().get("ANN").flatten().map(|v| match v {
+                Value::Array(Array::String(inner)) => inner
+                    .iter()
+                    .map(|s| s.clone().unwrap_or_default())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                _ => "".into(),
+            });
+
+            snapshot_data.insert(key, ann_field);
+        }
+
+        insta::assert_yaml_snapshot!("badly_formed_vcf_entry_output", snapshot_data);
 
         Ok(())
     }
 
-    /// Mitochondnrial variants called by the DRAGEN v310 germline caller have special format
+    /// Mitochondrial variants called by the DRAGEN v310 germline caller have special format
     /// considerations.
     ///
     /// See: https://support-docs.illumina.com/SW/DRAGEN_v310/Content/SW/DRAGEN/MitochondrialCalling.htm
     #[tokio::test]
     async fn test_dragen_mitochondrial_variant() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
-        let path_out = temp.join("output.tsv");
+        let path_out = temp.join("output.vcf");
 
         let args_common = crate::common::Args {
             verbose: Verbosity::new(0, 1),
@@ -2833,30 +2023,46 @@ mod test {
                 },
                 ..Default::default()
             },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"),
-            output: PathOutput {
-                path_output_vcf: None,
-                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
-            },
+            input: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"), // <-- Corrected
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
             max_var_count: None,
-            path_input_ped: Some(String::from(
-                "tests/data/annotate/seqvars/mitochondrial_variants.ped",
-            )),
             sources: Sources {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
-            hgnc: Some(format!("{prefix}/hgnc.tsv")),
-            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;
 
-        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
-        let expected =
-            std::fs::read_to_string("tests/data/annotate/seqvars/mitochondrial_variants.tsv")?;
-        assert_eq!(&expected, &actual);
+        let records_written = read_vcf(&args.output).await?;
+        let mut snapshot_data = std::collections::BTreeMap::new();
+
+        for record in records_written {
+            let key = format!(
+                "{}:{}:{}:{}",
+                record.reference_sequence_name(),
+                record
+                    .variant_start()
+                    .map_or_else(|| "0".into(), |s| s.to_string()),
+                record.reference_bases(),
+                record.alternate_bases().as_ref().join(",")
+            );
+
+            let ann_field = record.info().get("ANN").flatten().map(|v| match v {
+                Value::Array(Array::String(inner)) => inner
+                    .iter()
+                    .map(|s| s.clone().unwrap_or_default())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                _ => "".into(),
+            });
+
+            snapshot_data.insert(key, ann_field);
+        }
+
+        insta::assert_yaml_snapshot!("dragen_mitochondrial_variant_output", snapshot_data);
 
         Ok(())
     }
@@ -2870,7 +2076,7 @@ mod test {
     #[tokio::test]
     async fn test_clair3_glnexus_variants() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
-        let path_out = temp.join("output.tsv");
+        let path_out = temp.join("output.vcf");
 
         let args_common = crate::common::Args {
             verbose: Verbosity::new(0, 1),
@@ -2889,30 +2095,46 @@ mod test {
                 },
                 ..Default::default()
             },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"),
-            output: PathOutput {
-                path_output_vcf: None,
-                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
-            },
+            input: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"), // <-- Corrected
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
             max_var_count: None,
-            path_input_ped: Some(String::from(
-                "tests/data/annotate/seqvars/clair3-glnexus-min.ped",
-            )),
             sources: Sources {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
-            hgnc: Some(format!("{prefix}/hgnc.tsv")),
-            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;
 
-        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
-        let expected =
-            std::fs::read_to_string("tests/data/annotate/seqvars/clair3-glnexus-min.tsv")?;
-        assert_eq!(&expected, &actual);
+        let records_written = read_vcf(&args.output).await?;
+        let mut snapshot_data = std::collections::BTreeMap::new();
+
+        for record in records_written {
+            let key = format!(
+                "{}:{}:{}:{}",
+                record.reference_sequence_name(),
+                record
+                    .variant_start()
+                    .map_or_else(|| "0".into(), |s| s.to_string()),
+                record.reference_bases(),
+                record.alternate_bases().as_ref().join(",")
+            );
+
+            let ann_field = record.info().get("ANN").flatten().map(|v| match v {
+                Value::Array(Array::String(inner)) => inner
+                    .iter()
+                    .map(|s| s.clone().unwrap_or_default())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                _ => "".into(),
+            });
+
+            snapshot_data.insert(key, ann_field);
+        }
+
+        insta::assert_yaml_snapshot!("clair3_glnexus_variants_output", snapshot_data);
 
         Ok(())
     }
@@ -2926,7 +2148,7 @@ mod test {
     #[tokio::test]
     async fn test_brca2_zar1l_affected() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
-        let path_out = temp.join("output.tsv");
+        let path_out = temp.join("output.vcf");
 
         let args_common = crate::common::Args {
             verbose: Verbosity::new(0, 1),
@@ -2945,49 +2167,46 @@ mod test {
                 },
                 ..Default::default()
             },
-            path_input_vcf: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
-            output: PathOutput {
-                path_output_vcf: None,
-                path_output_tsv: Some(path_out.into_os_string().into_string().unwrap()),
-            },
+            input: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
             max_var_count: None,
-            path_input_ped: Some(String::from(
-                "tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped",
-            )),
             sources: Sources {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
             },
-            hgnc: Some(format!("{prefix}/hgnc.tsv")),
-            tsv_contig_style: TsvContigStyle::Auto,
         };
 
         run(&args_common, &args).await?;
 
-        let actual = std::fs::read_to_string(args.output.path_output_tsv.unwrap())?;
-        let header_actual = actual
-            .lines()
-            .filter(|l| l.starts_with('#'))
-            .collect::<Vec<_>>();
-        let records_actual = actual
-            .lines()
-            .filter(|l| !l.starts_with('#'))
-            .collect::<std::collections::HashSet<_>>();
+        let records_written = read_vcf(&args.output).await?;
+        let mut snapshot_data = std::collections::BTreeMap::new();
 
-        let expected =
-            std::fs::read_to_string("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.tsv")?;
-        let header_expected = expected
-            .lines()
-            .filter(|l| l.starts_with('#'))
-            .collect::<Vec<_>>();
-        let records_expected = expected
-            .lines()
-            .filter(|l| !l.starts_with('#'))
-            .collect::<std::collections::HashSet<_>>();
+        for record in records_written {
+            let key = format!(
+                "{}:{}:{}:{}",
+                record.reference_sequence_name(),
+                record
+                    .variant_start()
+                    .map_or_else(|| "0".into(), |s| s.to_string()),
+                record.reference_bases(),
+                record.alternate_bases().as_ref().join(",")
+            );
 
-        assert_eq!(&header_actual, &header_expected);
-        assert_eq!(&records_actual, &records_expected);
+            let ann_field = record.info().get("ANN").flatten().map(|v| match v {
+                Value::Array(Array::String(inner)) => inner
+                    .iter()
+                    .map(|s| s.clone().unwrap_or_default())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                _ => "".into(),
+            });
+
+            snapshot_data.insert(key, ann_field);
+        }
+
+        insta::assert_yaml_snapshot!("brca2_zar1l_affected_output", snapshot_data);
 
         Ok(())
     }

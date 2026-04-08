@@ -1,0 +1,15 @@
+---
+source: mehari/src/annotate/seqvars/mod.rs
+expression: snapshot_data
+---
+"1:10108:C:CT": ~
+"1:10109:A:T": ~
+"1:10147:C:CCCCTAA": ~
+"1:10206:A:AC": ~
+"1:10212:A:AC": ~
+"1:10218:A:AC": ~
+"1:10230:AC:A": ~
+"1:10230:AC:ACCCTAA": ~
+"1:10254:T:C": ~
+"1:10257:A:C": ~
+"1:10291:C:T": ~

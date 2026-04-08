@@ -211,7 +211,11 @@ struct Postprocess {
 /// Enum supporting the parsing of "postprocess *" sub commands.
 #[derive(Debug, Subcommand)]
 enum PostprocessCommands {
+    /// Extract the proteome from a mehari-annotated (seqvars, with aa sequences) VCF file.
     Proteome(mehari::postprocess::proteome::Args),
+
+    /// Convert a mehari-annotated (seqvars) VCF file to a VarFish-compatible TSV file.
+    VarfishSeqvars(mehari::postprocess::varfish::Args),
 }
 
 #[tokio::main]
@@ -267,6 +271,9 @@ async fn main() -> Result<(), anyhow::Error> {
         Commands::Postprocess(postprocess) => match &postprocess.command {
             PostprocessCommands::Proteome(args) => {
                 mehari::postprocess::proteome::run(&cli.common, args).await?
+            }
+            PostprocessCommands::VarfishSeqvars(args) => {
+                mehari::postprocess::varfish::run(&cli.common, args).await?
             }
         },
     }

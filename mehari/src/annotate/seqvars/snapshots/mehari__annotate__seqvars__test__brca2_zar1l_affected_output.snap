@@ -1,0 +1,5 @@
+---
+source: mehari/src/annotate/seqvars/mod.rs
+expression: snapshot_data
+---
+"chr13:32315669:T:C": "C|splice_donor_variant&5_prime_UTR_intron_variant&coding_transcript_intron_variant|HIGH|BRCA2|HGNC:1101|transcript|NM_000059.4|Coding|ManeSelect|2/26|g.32315669T>C|n.160+2T>C|c.-40+2T>C|p.?||||2|1|\nC|upstream_gene_variant|MODIFIER|ZAR1L|HGNC:37116|transcript|NM_001136571.2|Coding|ManeSelect||g.32315669T>C|||||||306|-1|"
