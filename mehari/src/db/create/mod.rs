@@ -107,6 +107,124 @@ pub struct Args {
     pub compression_level: i32,
 }
 
+pub struct BasicIndexedFasta {
+    fasta_path: PathBuf,
+    index: noodles::fasta::fai::Index,
+}
+
+impl BasicIndexedFasta {
+    pub fn new(fasta_path: PathBuf, index_path: PathBuf) -> Result<Self, Error> {
+        let index = File::open(index_path)
+            .map(BufReader::new)
+            .map(noodles::fasta::fai::io::Reader::new)?
+            .read_index()?;
+        Ok(Self { fasta_path, index })
+    }
+
+    pub fn get_sequence(&self, id: &str) -> Result<Option<String>, Error> {
+        let mut reader = File::open(&self.fasta_path)
+            .map(BufReader::new)
+            .map(|r| noodles::fasta::io::IndexedReader::new(r, self.index.clone()))?;
+
+        let region = Region::new::<String, RangeFull>(id.into(), RangeFull);
+        match reader.query(&region) {
+            Ok(record) => {
+                let seq = String::from_utf8(record.sequence().as_ref().to_vec())?;
+                Ok(Some(seq))
+            }
+            Err(_) => Ok(None),
+        }
+    }
+}
+
+pub enum SequenceProvider {
+    SeqRepo(SeqRepo),
+    IndexedFasta(BasicIndexedFasta),
+    FastaMap(HashMap<String, String>),
+}
+
+impl SequenceProvider {
+    fn fetch_sequence(&self, alias: &AliasOrSeqId) -> Result<String, Error> {
+        let id = match alias {
+            AliasOrSeqId::Alias { value, .. } => value,
+            AliasOrSeqId::SeqId(id) => id,
+        };
+
+        match self {
+            SequenceProvider::SeqRepo(repo) => repo.fetch_sequence(alias).map_err(Into::into),
+            SequenceProvider::FastaMap(map) => map
+                .get(id)
+                .or_else(|| map.get(id.split('.').next().unwrap_or("")))
+                .cloned()
+                .ok_or_else(|| anyhow!("Sequence not found in FASTA map for {}", id)),
+            SequenceProvider::IndexedFasta(reader) => {
+                // try full id first
+                if let Some(seq) = reader.get_sequence(id)? {
+                    return Ok(seq);
+                }
+
+                // fallback to id without version if necessary
+                if id.contains('.') {
+                    let id_no_version = id.split('.').next().unwrap();
+                    if let Some(seq) = reader.get_sequence(id_no_version)? {
+                        return Ok(seq);
+                    }
+                }
+
+                Err(anyhow!("Sequence not found in indexed FASTA for {}", id))
+            }
+        }
+    }
+}
+
+fn open_sequence_provider(args: &Args) -> Result<SequenceProvider, Error> {
+    if let Some(seqrepo_path) = &args.seqrepo {
+        return Ok(SequenceProvider::SeqRepo(open_seqrepo(seqrepo_path)?));
+    }
+
+    if let Some(fasta_path) = &args.transcript_sequences {
+        let fai_path = fasta_path.with_extension(format!(
+            "{}.fai",
+            fasta_path
+                .extension()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default()
+        ));
+
+        if fai_path.exists() {
+            tracing::info!(
+                "Opening indexed FASTA: {} (using index {})",
+                fasta_path.display(),
+                fai_path.display()
+            );
+            return Ok(SequenceProvider::IndexedFasta(BasicIndexedFasta::new(
+                fasta_path.clone(),
+                fai_path,
+            )?));
+        }
+
+        tracing::info!(
+            "Loading non-indexed FASTA into memory: {}",
+            fasta_path.display()
+        );
+        let mut map = HashMap::new();
+        let file = File::open(fasta_path)?;
+        let mut reader = noodles::fasta::io::Reader::new(BufReader::new(file));
+        for result in reader.records() {
+            let record = result?;
+            map.insert(
+                String::from_utf8_lossy(record.name()).to_string(),
+                String::from_utf8_lossy(record.sequence().as_ref()).to_string(),
+            );
+        }
+        return Ok(SequenceProvider::FastaMap(map));
+    }
+
+    // clap guarantees this is unreachable, but we need to keep the compiler happy
+    unreachable!("Either seqrepo or transcript_sequences must be set");
+}
+
 /// Helper struct for parsing the label TSV file.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 struct LabelEntry {
@@ -2166,12 +2284,11 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         // … ensure there are no hgnc keys without associated transcripts left …
         tx_data.filter_empty_hgnc_mappings()?;
 
-        // Open seqrepo …
-        let seqrepo = open_seqrepo(&args.path_seqrepo_instance)?;
+        // Open seqrepo / FASTA …
+        let mut seq_provider = open_sequence_provider(args)?;
         // … and filter transcripts based on their sequences,
         // e.g. checking whether their translation contains a stop codon …
-        let mut sequence_map = tx_data.filter_transcripts_with_sequence(&seqrepo)?;
-        // … and, again, ensure there are no hgnc keys without associated transcripts left …
+        let mut sequence_map = tx_data.filter_transcripts_with_sequence(&mut seq_provider)?;
         tx_data.filter_empty_hgnc_mappings()?;
         // … if there are genes with no transcripts left, check whether they are pseudogenes …
         tx_data.update_pseudogene_status()?;
