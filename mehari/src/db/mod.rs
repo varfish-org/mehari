@@ -1,6 +1,5 @@
 //! Database construction and introspection tools.
 
-
 use crate::pbs::txs::TxSeqDatabase;
 use biocommons_bioutils::assemblies::Assembly;
 

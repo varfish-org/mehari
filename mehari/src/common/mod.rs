@@ -4,7 +4,6 @@ use annonars::common::cli::CANONICAL;
 use std::collections::HashMap;
 use std::ops::Range;
 
-
 use biocommons_bioutils::assemblies::{ASSEMBLY_INFOS, Assembly};
 use byte_unit::{Byte, UnitType};
 use clap::Parser;
