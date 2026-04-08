@@ -52,6 +52,14 @@ pub struct Args {
     #[arg(long)]
     pub assembly_version: Option<String>,
 
+    /// Paths to the transcript annotations to import (cdot JSON or arbitrary GFF3).
+    #[arg(long, required = true)]
+    pub annotation: Vec<PathBuf>,
+
+    /// Version of annotation data (if applicable).
+    #[arg(long)]
+    pub annotation_version: Option<String>,
+
     /// Source of the transcripts. For example "RefSeq" or "Ensembl".
     #[arg(long)]
     pub transcript_source: String,
@@ -59,18 +67,6 @@ pub struct Args {
     /// Version of the transcript source. E.g. "112" for Ensembl.
     #[arg(long, required_if_eq("transcript_source", "ensembl"))]
     pub transcript_source_version: Option<String>,
-
-    /// Version of annotation data (if applicable).
-    #[arg(long)]
-    pub annotation_version: String,
-
-    /// Path to output protobuf file to write to.
-    #[arg(long)]
-    pub output: PathBuf,
-
-    /// Paths to the transcript annotations to import (cdot JSON or arbitrary GFF3).
-    #[arg(long, required = true)]
-    pub annotation: Vec<PathBuf>,
 
     /// Path to the seqrepo instance directory to use.
     #[arg(long, required_unless_present = "transcript_sequences")]
@@ -85,15 +81,6 @@ pub struct Args {
     #[arg(long)]
     pub mane_transcripts: Option<PathBuf>,
 
-    /// Maximal number of transcripts to process. DEPRECATED.
-    #[arg(long)]
-    pub max_txs: Option<u32>,
-
-    /// Limit transcript database to the following HGNC ids.  Useful for
-    /// building test databases.
-    #[arg(long)]
-    pub hgnc_ids: Option<Vec<String>>,
-
     /// Disable rigorous filtering (useful for custom annotations).
     #[arg(long, default_value = "false")]
     pub disable_filters: bool,
@@ -105,6 +92,10 @@ pub struct Args {
     /// ZSTD compression level to use.
     #[arg(long, default_value = "19")]
     pub compression_level: i32,
+
+    /// Path to output protobuf file to write to.
+    #[arg(long)]
+    pub output: PathBuf,
 }
 
 pub struct BasicIndexedFasta {
@@ -2266,15 +2257,6 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
             "total_hgnc_ids": tx_data.gene_id_to_transcript_ids.len()
         })))?;
 
-        // … then remove information for certain genes …
-        if let Some(ids) = args
-            .hgnc_ids
-            .as_ref()
-            .map(|symbols| tx_data.symbols_to_id(symbols))
-        {
-            tx_data.filter_selected(&ids)?;
-        }
-
         // … then filter hgnc entries with no transcripts to boot …
         tx_data.filter_initial_hgnc_entries()?;
         // … then filter genes (missing hgnc id and/or symbol) …
@@ -2362,7 +2344,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         let source_name = args.transcript_source.clone();
 
         let source_version = args.transcript_source_version.clone().unwrap_or("".into());
-        let annotation_version = args.annotation_version.clone();
+        let annotation_version = args.annotation_version.clone().unwrap_or("".into());
         let annotation_name = args
             .annotation
             .iter()
@@ -2499,11 +2481,9 @@ pub mod test {
             assembly_version: None,
             transcript_source: "refseq".to_string(),
             transcript_source_version: None,
-            max_txs: None,
-            hgnc_ids: None,
             disable_filters: false,
             threads: 1,
-            annotation_version: "0.2.22".to_string(),
+            annotation_version: Some("0.2.22".to_string()),
             compression_level: 19,
         };
 
@@ -2542,11 +2522,9 @@ pub mod test {
             assembly_version: None,
             transcript_source: "refseq".to_string(),
             transcript_source_version: None,
-            max_txs: None,
-            hgnc_ids: None,
             disable_filters: false,
             threads: 1,
-            annotation_version: "0.2.22".to_string(),
+            annotation_version: Some("0.2.22".to_string()),
             compression_level: 19,
         };
 
@@ -2585,11 +2563,9 @@ pub mod test {
             assembly_version: None,
             transcript_source: "ensembl".to_string(),
             transcript_source_version: Some("98".into()),
-            max_txs: None,
-            hgnc_ids: None,
             disable_filters: false,
             threads: 1,
-            annotation_version: "0.2.23".to_string(),
+            annotation_version: Some("0.2.23".to_string()),
             compression_level: 19,
         };
 

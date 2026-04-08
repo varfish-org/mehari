@@ -35,27 +35,36 @@ const CHR_M: u32 = 25;
 
 impl ContigManager {
     /// Create a new manager for a given assembly.
-    pub fn new(assembly: Assembly) -> Self {
+    /// Create a new manager for a given assembly name.
+    pub fn new(assembly_name: &str) -> Self {
         let mut alias_to_accession = HashMap::new();
         let mut accession_to_info = HashMap::new();
         let mut name_to_chrom_no = HashMap::new();
 
-        for seq in &ASSEMBLY_INFOS[assembly].sequences {
-            // Skip non-primary sequences, but keep chrMT.
-            if !["Primary Assembly", "non-nuclear"].contains(&&*seq.assembly_unit)
-                || seq.sequence_role != "assembled-molecule"
-            {
-                tracing::debug!("Skipping non-primary sequence: {:?}", seq);
-                continue;
-            }
-            // Store mapping from accession to the full sequence info.
-            accession_to_info.insert(seq.refseq_ac.clone(), seq.clone());
+        let assembly = match assembly_name.to_lowercase().as_str() {
+            "grch37" | "grch37p10" => Some(Assembly::Grch37p10),
+            "grch38" => Some(Assembly::Grch38),
+            _ => None,
+        };
 
-            // Map all known identifiers to the RefSeq accession.
-            alias_to_accession.insert(seq.name.clone(), seq.refseq_ac.clone());
-            alias_to_accession.insert(seq.refseq_ac.clone(), seq.refseq_ac.clone());
-            for alias in &seq.aliases {
-                alias_to_accession.insert(alias.clone(), seq.refseq_ac.clone());
+        if let Some(assembly) = assembly {
+            for seq in &ASSEMBLY_INFOS[assembly].sequences {
+                // Skip non-primary sequences, but keep chrMT.
+                if !["Primary Assembly", "non-nuclear"].contains(&&*seq.assembly_unit)
+                    || seq.sequence_role != "assembled-molecule"
+                {
+                    tracing::debug!("Skipping non-primary sequence: {:?}", seq);
+                    continue;
+                }
+                // Store mapping from accession to the full sequence info.
+                accession_to_info.insert(seq.refseq_ac.clone(), seq.clone());
+
+                // Map all known identifiers to the RefSeq accession.
+                alias_to_accession.insert(seq.name.clone(), seq.refseq_ac.clone());
+                alias_to_accession.insert(seq.refseq_ac.clone(), seq.refseq_ac.clone());
+                for alias in &seq.aliases {
+                    alias_to_accession.insert(alias.clone(), seq.refseq_ac.clone());
+                }
             }
         }
 

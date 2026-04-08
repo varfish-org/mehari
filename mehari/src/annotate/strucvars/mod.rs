@@ -35,9 +35,8 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, IntoEnumIterator};
 use uuid::Uuid;
 
-use crate::common::GenomeRelease;
+use crate::common::TsvContigStyle;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
-use crate::common::{TsvContigStyle, guess_assembly_from_vcf};
 use crate::ped::PedigreeByName;
 
 use super::seqvars::{AsyncAnnotatedVariantWriter, binning};
@@ -57,9 +56,9 @@ pub enum OutputFormat {
 #[derive(Parser, Debug, Clone)]
 #[command(about = "Annotate structural variant VCF files", long_about = None)]
 pub struct Args {
-    /// Genome release to use, default is to auto-detect.
-    #[arg(long, value_enum)]
-    pub genome_release: Option<GenomeRelease>,
+    /// Assembly to use.
+    #[arg(long, required = true)]
+    pub assembly: String,
 
     /// Path to the input PED file.
     #[arg(long)]
@@ -155,7 +154,7 @@ pub mod vcf_header {
     ///
     /// The constructed VCF header.
     pub fn build(
-        assembly: Assembly,
+        assembly: &str,
         pedigree: &PedigreeByName,
         date: &str,
         header: &Header,
@@ -182,18 +181,14 @@ pub mod vcf_header {
     /// Add the `contig` header lines.
     ///
     /// NB: `Assembly::Grch37` does not contain chrMT, but `Assembly::Grch37p10` does.
-    fn add_meta_contigs(builder: Builder, assembly: Assembly) -> Result<Builder, anyhow::Error> {
+    fn add_meta_contigs(builder: Builder, assembly: &str) -> Result<Builder, anyhow::Error> {
         let mut builder = builder;
         let assembly_info = &ASSEMBLY_INFOS[assembly];
-        let assembly_name = match assembly {
-            Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
-            Assembly::Grch38 => String::from("GRCh38"),
-        };
 
         for sequence in &assembly_info.sequences {
             if is_canonical(sequence.name.as_ref()) {
                 let contig = Map::<Contig>::builder()
-                    .insert("assembly".parse()?, assembly_name.clone())
+                    .insert("assembly".parse()?, assembly.clone())
                     .insert("accession".parse()?, sequence.refseq_ac.clone())
                     .set_length(sequence.length)
                     .build()?;
@@ -1518,7 +1513,7 @@ pub async fn guess_sv_caller(
 /// Trait that allows the conversion from a VCF record into a `VarFishStrucvarTsvRecord`.
 pub trait VcfRecordConverter {
     /// Returns the assembly for the converter.
-    fn assembly(&self) -> Assembly;
+    fn assembly(&self) -> &str;
 
     /// Returns the TSV contig style.
     fn tsv_contig_style(&self) -> TsvContigStyle;
@@ -1688,7 +1683,7 @@ pub trait VcfRecordConverter {
                 TsvContigStyle::WithChr => contig_info.name_with_chr,
                 TsvContigStyle::WithoutChr => contig_info.name_without_chr,
                 TsvContigStyle::Auto => {
-                    if assembly == Assembly::Grch38 {
+                    if assembly.eq_ignore_ascii_case("grch38") {
                         if ContigManager::is_mitochondrial(contig_info.chrom_no) {
                             "chrM".into()
                         } else {
@@ -1739,7 +1734,7 @@ pub trait VcfRecordConverter {
                     TsvContigStyle::WithChr => contig_info.name_with_chr,
                     TsvContigStyle::WithoutChr => contig_info.name_without_chr,
                     TsvContigStyle::Auto => {
-                        if assembly == Assembly::Grch38 {
+                        if assembly.eq_ignore_ascii_case("grch38") {
                             if ContigManager::is_mitochondrial(contig_info.chrom_no) {
                                 "chrM".into()
                             } else {
@@ -1842,7 +1837,6 @@ mod conv {
     use crate::common::contig::ContigManager;
     use crate::ped::PedigreeByName;
     use crate::ped::Sex;
-    use biocommons_bioutils::assemblies::Assembly;
     use noodles::vcf::header::FileFormat;
     use noodles::vcf::variant::RecordBuf as VcfRecord;
     use noodles::vcf::variant::record::info::field::key::{
@@ -1897,7 +1891,7 @@ mod conv {
         pub version: String,
 
         /// The assembly being used.
-        pub assembly: Assembly,
+        pub assembly: String,
 
         /// The style for contig names in TSV output.
         pub tsv_contig_style: TsvContigStyle,
@@ -1910,13 +1904,13 @@ mod conv {
         pub fn new<T: AsRef<str>>(
             version: &str,
             samples: &[T],
-            assembly: Assembly,
+            assembly: &str,
             tsv_contig_style: TsvContigStyle,
         ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
-                assembly,
+                assembly: assembly.to_string(),
                 tsv_contig_style,
                 contig_manager: ContigManager::new(assembly),
             }
@@ -1924,8 +1918,8 @@ mod conv {
     }
 
     impl VcfRecordConverter for ClinCnvVcfRecordConverter {
-        fn assembly(&self) -> Assembly {
-            self.assembly
+        fn assembly(&self) -> &str {
+            &self.assembly
         }
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
@@ -2009,7 +2003,7 @@ mod conv {
         pub version: String,
 
         /// The assembly being used.
-        pub assembly: Assembly,
+        pub assembly: String,
 
         /// The style for contig names in TSV output.
         pub tsv_contig_style: TsvContigStyle,
@@ -2022,13 +2016,13 @@ mod conv {
         pub fn new<T: AsRef<str>>(
             version: &str,
             samples: &[T],
-            assembly: Assembly,
+            assembly: &str,
             tsv_contig_style: TsvContigStyle,
         ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
-                assembly,
+                assembly: assembly.to_string(),
                 tsv_contig_style,
                 contig_manager: ContigManager::new(assembly),
             }
@@ -2036,8 +2030,8 @@ mod conv {
     }
 
     impl VcfRecordConverter for DellyVcfRecordConverter {
-        fn assembly(&self) -> Assembly {
-            self.assembly
+        fn assembly(&self) -> &str {
+            &self.assembly
         }
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
@@ -2140,7 +2134,7 @@ mod conv {
         pub version: String,
 
         /// The assembly being used.
-        pub assembly: Assembly,
+        pub assembly: String,
 
         /// The style for contig names in TSV output.
         pub tsv_contig_style: TsvContigStyle,
@@ -2153,13 +2147,13 @@ mod conv {
         pub fn new<T: AsRef<str>>(
             version: &str,
             samples: &[T],
-            assembly: Assembly,
+            assembly: &str,
             tsv_contig_style: TsvContigStyle,
         ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
-                assembly,
+                assembly: assembly.to_string(),
                 tsv_contig_style,
                 contig_manager: ContigManager::new(assembly),
             }
@@ -2167,8 +2161,8 @@ mod conv {
     }
 
     impl VcfRecordConverter for DragenCnvVcfRecordConverter {
-        fn assembly(&self) -> Assembly {
-            self.assembly
+        fn assembly(&self) -> &str {
+            &self.assembly
         }
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
@@ -2252,7 +2246,7 @@ mod conv {
         pub version: String,
 
         /// The assembly being used.
-        pub assembly: Assembly,
+        pub assembly: String,
 
         /// The style for contig names in TSV output.
         pub tsv_contig_style: TsvContigStyle,
@@ -2265,13 +2259,13 @@ mod conv {
         pub fn new<T: AsRef<str>>(
             version: &str,
             samples: &[T],
-            assembly: Assembly,
+            assembly: &str,
             tsv_contig_style: TsvContigStyle,
         ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
-                assembly,
+                assembly: assembly.to_string(),
                 tsv_contig_style,
                 contig_manager: ContigManager::new(assembly),
             }
@@ -2279,8 +2273,8 @@ mod conv {
     }
 
     impl VcfRecordConverter for DragenSvVcfRecordConverter {
-        fn assembly(&self) -> Assembly {
-            self.assembly
+        fn assembly(&self) -> &str {
+            &self.assembly
         }
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
@@ -2318,7 +2312,7 @@ mod conv {
         pub version: String,
 
         /// The assembly being used.
-        pub assembly: Assembly,
+        pub assembly: String,
 
         /// The style for contig names in TSV output.
         pub tsv_contig_style: TsvContigStyle,
@@ -2331,13 +2325,13 @@ mod conv {
         pub fn new<T: AsRef<str>>(
             version: &str,
             samples: &[T],
-            assembly: Assembly,
+            assembly: &str,
             tsv_contig_style: TsvContigStyle,
         ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
-                assembly,
+                assembly: assembly.to_string(),
                 tsv_contig_style,
                 contig_manager: ContigManager::new(assembly),
             }
@@ -2345,8 +2339,8 @@ mod conv {
     }
 
     impl VcfRecordConverter for GcnvVcfRecordConverter {
-        fn assembly(&self) -> Assembly {
-            self.assembly
+        fn assembly(&self) -> &str {
+            &self.assembly
         }
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
@@ -2426,7 +2420,7 @@ mod conv {
         pub version: String,
 
         /// The assembly being used.
-        pub assembly: Assembly,
+        pub assembly: String,
 
         /// The style for contig names in TSV output.
         pub tsv_contig_style: TsvContigStyle,
@@ -2439,13 +2433,13 @@ mod conv {
         pub fn new<T: AsRef<str>>(
             version: &str,
             samples: &[T],
-            assembly: Assembly,
+            assembly: &str,
             tsv_contig_style: TsvContigStyle,
         ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
-                assembly,
+                assembly: assembly.to_string(),
                 tsv_contig_style,
                 contig_manager: ContigManager::new(assembly),
             }
@@ -2518,8 +2512,8 @@ mod conv {
     }
 
     impl VcfRecordConverter for MantaVcfRecordConverter {
-        fn assembly(&self) -> Assembly {
-            self.assembly
+        fn assembly(&self) -> &str {
+            &self.assembly
         }
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
@@ -2557,7 +2551,7 @@ mod conv {
         pub version: String,
 
         /// The assembly being used.
-        pub assembly: Assembly,
+        pub assembly: String,
 
         /// The style for contig names in TSV output.
         pub tsv_contig_style: TsvContigStyle,
@@ -2570,13 +2564,13 @@ mod conv {
         pub fn new<T: AsRef<str>>(
             version: &str,
             samples: &[T],
-            assembly: Assembly,
+            assembly: &str,
             tsv_contig_style: TsvContigStyle,
         ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
-                assembly,
+                assembly: assembly.to_string(),
                 tsv_contig_style,
                 contig_manager: ContigManager::new(assembly),
             }
@@ -2584,8 +2578,8 @@ mod conv {
     }
 
     impl VcfRecordConverter for MeltVcfRecordConverter {
-        fn assembly(&self) -> Assembly {
-            self.assembly
+        fn assembly(&self) -> &str {
+            &self.assembly
         }
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
@@ -2681,7 +2675,7 @@ mod conv {
         pub version: String,
 
         /// The assembly being used.
-        pub assembly: Assembly,
+        pub assembly: String,
 
         /// The style for contig names in TSV output.
         pub tsv_contig_style: TsvContigStyle,
@@ -2694,13 +2688,13 @@ mod conv {
         pub fn new<T: AsRef<str>>(
             version: &str,
             samples: &[T],
-            assembly: Assembly,
+            assembly: &str,
             tsv_contig_style: TsvContigStyle,
         ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
-                assembly,
+                assembly: assembly.to_string(),
                 tsv_contig_style,
                 contig_manager: ContigManager::new(assembly),
             }
@@ -2708,8 +2702,8 @@ mod conv {
     }
 
     impl VcfRecordConverter for PopdelVcfRecordConverter {
-        fn assembly(&self) -> Assembly {
-            self.assembly
+        fn assembly(&self) -> &str {
+            &self.assembly
         }
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
@@ -2900,7 +2894,7 @@ mod conv {
         pub version: String,
 
         /// The assembly being used.
-        pub assembly: Assembly,
+        pub assembly: String,
 
         /// The style for contig names in TSV output.
         pub tsv_contig_style: TsvContigStyle,
@@ -2913,13 +2907,13 @@ mod conv {
         pub fn new<T: AsRef<str>>(
             version: &str,
             samples: &[T],
-            assembly: Assembly,
+            assembly: &str,
             tsv_contig_style: TsvContigStyle,
         ) -> Self {
             Self {
                 samples: samples.iter().map(|s| s.as_ref().to_string()).collect(),
                 version: version.to_string(),
-                assembly,
+                assembly: assembly.to_string(),
                 tsv_contig_style,
                 contig_manager: ContigManager::new(assembly),
             }
@@ -2927,8 +2921,8 @@ mod conv {
     }
 
     impl VcfRecordConverter for Sniffles2VcfRecordConverter {
-        fn assembly(&self) -> Assembly {
-            self.assembly
+        fn assembly(&self) -> &str {
+            &self.assembly
         }
         fn tsv_contig_style(&self) -> TsvContigStyle {
             self.tsv_contig_style
@@ -3017,7 +3011,7 @@ mod conv {
 pub fn build_vcf_record_converter<T: AsRef<str>>(
     caller: &SvCaller,
     samples: &[T],
-    assembly: Assembly,
+    assembly: &str,
     tsv_contig_style: TsvContigStyle,
 ) -> Box<dyn VcfRecordConverter> {
     match caller {
@@ -3089,7 +3083,7 @@ pub async fn run_vcf_to_jsonl(
     tmp_dir: &tempfile::TempDir,
     cov_readers: &mut HashMap<String, maelstrom::Reader>,
     rng: &mut StdRng,
-    assembly: Assembly,
+    assembly: &str,
     tsv_contig_style: TsvContigStyle,
 ) -> Result<(), Error> {
     tracing::debug!("opening temporary files in {}", tmp_dir.path().display());
@@ -3306,26 +3300,17 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     let pedigree = PedigreeByName::from_path(&args.path_input_ped)?;
     tracing::info!("... done loading pedigree");
 
-    // Guess genome release from contigs in first VCF header.
-    let assembly = args.genome_release.map(|gr| match gr {
-        GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
-        GenomeRelease::Grch38 => Assembly::Grch38,
-    });
-    let (header, assembly) = {
+    // Use explicitly requested assembly.
+    let assembly = args.assembly.clone();
+    let header = {
         let mut reader = VariantReaderBuilder::default().build_from_path(
             args.path_input_vcf
                 .first()
                 .expect("must have at least one input VCF"),
         )?;
-        let header = reader.read_header()?;
-        let assembly = guess_assembly_from_vcf(&header, false, assembly)?;
-        (header, assembly)
+        reader.read_header()?
     };
-    tracing::info!("Determined input assembly to be {:?}", &assembly);
-    let args = Args {
-        genome_release: Some(assembly.into()),
-        ..args.clone()
-    };
+    tracing::info!("Using input assembly {:?}", &assembly);
 
     let mut rng = if let Some(rng_seed) = args.rng_seed {
         StdRng::seed_from_u64(rng_seed)
@@ -3367,7 +3352,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             &tmp_dir,
             &mut cov_readers,
             &mut rng,
-            assembly,
+            &assembly,
             args.tsv_contig_style,
         )
         .await?;
@@ -3387,7 +3372,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                 .cloned()
                 .unwrap_or(Utc::now().date_naive().format("%Y%m%d").to_string());
 
-            let header_out = vcf_header::build(assembly, &pedigree, &file_date, &header)?;
+            let header_out = vcf_header::build(&assembly, &pedigree, &file_date, &header)?;
 
             let mut writer = open_variant_writer(&args.output).await?;
             writer.set_assembly(assembly);
@@ -3612,7 +3597,7 @@ mod test {
             GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvSubType, SvType,
             VarFishStrucvarTsvRecord,
         },
-        common::{GenomeRelease, noodles::open_variant_reader},
+        common::noodles::open_variant_reader,
         ped::{Disease, Individual, PedigreeByName, Sex},
     };
 
@@ -3741,12 +3726,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/clincnv-min.out.jsonl",
-            &ClinCnvVcfRecordConverter::new(
-                "1.17.0",
-                &samples,
-                Assembly::Grch37,
-                TsvContigStyle::Auto,
-            ),
+            &ClinCnvVcfRecordConverter::new("1.17.0", &samples, "grch37", TsvContigStyle::Auto),
         )
     }
 
@@ -3760,12 +3740,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/delly2-min.out.jsonl",
-            &DellyVcfRecordConverter::new(
-                "1.1.3",
-                &samples,
-                Assembly::Grch37,
-                TsvContigStyle::Auto,
-            ),
+            &DellyVcfRecordConverter::new("1.1.3", &samples, "grch37", TsvContigStyle::Auto),
         )
     }
 
@@ -3782,7 +3757,7 @@ mod test {
             &DragenSvVcfRecordConverter::new(
                 "07.021.624.3.10.4",
                 &samples,
-                Assembly::Grch37,
+                "grch37",
                 TsvContigStyle::Auto,
             ),
         )
@@ -3801,7 +3776,7 @@ mod test {
             &DragenCnvVcfRecordConverter::new(
                 "07.021.624.3.10.4",
                 &samples,
-                Assembly::Grch37,
+                "grch37",
                 TsvContigStyle::Auto,
             ),
         )
@@ -3817,12 +3792,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/gcnv-min.out.jsonl",
-            &GcnvVcfRecordConverter::new(
-                "4.3.0.0",
-                &samples,
-                Assembly::Grch37,
-                TsvContigStyle::Auto,
-            ),
+            &GcnvVcfRecordConverter::new("4.3.0.0", &samples, "grch37", TsvContigStyle::Auto),
         )
     }
 
@@ -3836,12 +3806,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/manta-min.out.jsonl",
-            &MantaVcfRecordConverter::new(
-                "1.6.0",
-                &samples,
-                Assembly::Grch37,
-                TsvContigStyle::Auto,
-            ),
+            &MantaVcfRecordConverter::new("1.6.0", &samples, "grch37", TsvContigStyle::Auto),
         )
     }
 
@@ -3855,7 +3820,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/melt-min.out.jsonl",
-            &MeltVcfRecordConverter::new("2.2.2", &samples, Assembly::Grch37, TsvContigStyle::Auto),
+            &MeltVcfRecordConverter::new("2.2.2", &samples, "grch37", TsvContigStyle::Auto),
         )
     }
 
@@ -3869,12 +3834,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/popdel-min.out.jsonl",
-            &PopdelVcfRecordConverter::new(
-                "1.1.2",
-                &samples,
-                Assembly::Grch37,
-                TsvContigStyle::Auto,
-            ),
+            &PopdelVcfRecordConverter::new("1.1.2", &samples, "grch37", TsvContigStyle::Auto),
         )
     }
 
@@ -3897,12 +3857,8 @@ mod test {
             let pedigree: PedigreeByName = sample_ped(&samples);
             let mut reader = open_variant_reader(&path_input_vcf).await?;
             let sv_caller = guess_sv_caller(&mut reader).await?;
-            let converter = build_vcf_record_converter(
-                &sv_caller,
-                &samples,
-                Assembly::Grch37,
-                TsvContigStyle::Auto,
-            );
+            let converter =
+                build_vcf_record_converter(&sv_caller, &samples, "grch37", TsvContigStyle::Auto);
             run_test_vcf_to_jsonl(
                 &pedigree,
                 &path_input_vcf,
@@ -3994,7 +3950,7 @@ mod test {
     #[test]
     fn build_vcf_header_37_no_pedigree() -> Result<(), anyhow::Error> {
         let header = vcf_header::build(
-            Assembly::Grch37p10,
+            "grch37",
             &Default::default(),
             "20150314",
             &noodles::vcf::Header::builder().build(),
@@ -4015,7 +3971,7 @@ mod test {
     #[test]
     fn build_vcf_header_37_trio() -> Result<(), anyhow::Error> {
         let header = vcf_header::build(
-            Assembly::Grch37p10,
+            "grch37",
             &example_trio(),
             "20150314",
             &example_trio_header(),
@@ -4087,7 +4043,7 @@ mod test {
     #[test]
     fn build_vcf_header_38_no_pedigree() -> Result<(), anyhow::Error> {
         let header = vcf_header::build(
-            Assembly::Grch38,
+            "grch37",
             &Default::default(),
             "20150314",
             &noodles::vcf::Header::builder().build(),
@@ -4272,7 +4228,7 @@ mod test {
     #[test]
     fn write_vcf_from_varfish_records() -> Result<(), anyhow::Error> {
         let header = vcf_header::build(
-            Assembly::Grch38,
+            "grch37",
             &example_trio(),
             "20150314",
             &example_trio_header(),
@@ -4331,7 +4287,7 @@ mod test {
         let out_path = temp.join(format!("out{}", suffix));
 
         let args = Args {
-            genome_release: Some(GenomeRelease::Grch37),
+            assembly: "GRCh37".into(),
             path_input_ped: String::from("tests/data/annotate/strucvars/maelstrom/delly2-min.ped"),
             path_input_vcf: vec![String::from(
                 "tests/data/annotate/strucvars/maelstrom/delly2-min.vcf",
@@ -4383,7 +4339,7 @@ mod test {
         let out_path = temp.join("out.vcf");
 
         let args = Args {
-            genome_release: Some(GenomeRelease::Grch38),
+            assembly: "GRCh38".into(),
             path_input_ped: String::from("tests/data/annotate/strucvars/test.order.ped"),
             path_input_vcf: vec![String::from("tests/data/annotate/strucvars/test.order.vcf")],
             output: out_path.display().to_string(),

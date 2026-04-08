@@ -1,12 +1,11 @@
 use crate::annotate::genotype_string;
 use crate::annotate::seqvars::ann::{AnnField, FeatureBiotype};
 use crate::annotate::seqvars::{AnnotatedVariant, VariantAnnotation};
+use crate::common::TsvContigStyle;
 use crate::common::contig::ContigManager;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
-use crate::common::{TsvContigStyle, guess_assembly_from_vcf};
 use crate::ped::{PedigreeByName, Sex};
 use anyhow::Error;
-use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -45,6 +44,10 @@ pub struct Args {
     /// Style for contig names in TSV output.
     #[arg(long, value_enum, default_value_t = TsvContigStyle::Auto)]
     pub tsv_contig_style: TsvContigStyle,
+
+    /// Assembly to use.
+    #[arg(long, required = true)]
+    pub assembly: String,
 }
 
 pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
@@ -55,13 +58,12 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     tracing::info!("Loading pedigree from file {}", args.pedigree);
     let pedigree = PedigreeByName::from_path(&args.pedigree)?;
 
-    // 2. Open VCF Reader and extract assembly
     let mut reader = open_variant_reader(&args.input).await?;
     let header = reader.read_header().await?;
-    let assembly = guess_assembly_from_vcf(&header, true, None)?;
+    let assembly = args.assembly.clone();
 
     // 3. Initialize TSV Writer
-    let mut writer = VarFishSeqvarTsvWriter::with_path(&args.output, args.tsv_contig_style)?;
+    let mut writer = VarFishSeqvarTsvWriter::from_path(&args.output, args.tsv_contig_style)?;
     writer.set_hgnc_map(hgnc_map);
     writer.set_pedigree(&pedigree);
     writer.set_assembly(assembly);
@@ -195,16 +197,15 @@ impl GenotypeCalls {
 
 pub struct VarFishSeqvarTsvWriter {
     inner: Box<dyn Write>,
-    assembly: Option<Assembly>,
+    assembly: String,
     pedigree: Option<PedigreeByName>,
     header: Option<VcfHeader>,
     hgnc_map: Option<FxHashMap<String, HgncRecord>>,
-    contig_manager: Option<ContigManager>,
     tsv_contig_style: TsvContigStyle,
 }
 
 impl VarFishSeqvarTsvWriter {
-    pub fn with_path<P: AsRef<Path>>(
+    pub fn from_path<P: AsRef<Path>>(
         p: P,
         tsv_contig_style: TsvContigStyle,
     ) -> anyhow::Result<Self> {
@@ -216,11 +217,10 @@ impl VarFishSeqvarTsvWriter {
         };
         Ok(Self {
             inner,
-            assembly: None,
+            assembly: "".into(),
             pedigree: None,
             header: None,
             hgnc_map: None,
-            contig_manager: None,
             tsv_contig_style,
         })
     }
@@ -229,9 +229,8 @@ impl VarFishSeqvarTsvWriter {
         self.hgnc_map = Some(hgnc_map)
     }
 
-    pub fn set_assembly(&mut self, assembly: Assembly) {
-        self.assembly = Some(assembly);
-        self.contig_manager = Some(ContigManager::new(assembly));
+    pub fn set_assembly(&mut self, assembly: String) {
+        self.assembly = assembly;
     }
 
     pub fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
@@ -320,39 +319,11 @@ impl VarFishSeqvarTsvWriter {
         record: &noodles::vcf::variant::RecordBuf,
         tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<bool, Error> {
-        let assembly = self.assembly.expect("assembly must have been set");
-        let contig_manager = self
-            .contig_manager
-            .as_ref()
-            .expect("contig manager must be set");
-
-        tsv_record.release = match assembly {
-            Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
-            Assembly::Grch38 => String::from("GRCh38"),
-        };
+        tsv_record.release = self.assembly.clone();
         let name = record.reference_sequence_name();
 
-        if let Some(contig_info) = contig_manager.get_contig_info(name) {
-            tsv_record.chromosome_no = contig_info.chrom_no;
-            tsv_record.chromosome = match self.tsv_contig_style {
-                TsvContigStyle::Passthrough => name.to_string(),
-                TsvContigStyle::WithChr => contig_info.name_with_chr,
-                TsvContigStyle::WithoutChr => contig_info.name_without_chr,
-                TsvContigStyle::Auto => {
-                    if assembly == Assembly::Grch38 {
-                        if ContigManager::is_mitochondrial(contig_info.chrom_no) {
-                            "chrM".into()
-                        } else {
-                            contig_info.name_with_chr
-                        }
-                    } else {
-                        contig_info.name_without_chr
-                    }
-                }
-            };
-        } else {
-            return Ok(false);
-        }
+        tsv_record.chromosome = name.to_string();
+        tsv_record.chromosome_no = 0; // Contig manager removed; chromosome numbers handled downstream if needed
 
         tsv_record.reference = record.reference_bases().to_string();
         tsv_record.alternative = record.alternate_bases().as_ref()[0].to_string();
@@ -907,6 +878,7 @@ mod tests {
             output: path_out.display().to_string(),
             hgnc: String::from("tests/data/annotate/db/hgnc.tsv"),
             tsv_contig_style: TsvContigStyle::Auto,
+            assembly: "".to_string(),
         };
 
         run(&args_common, &args).await?;

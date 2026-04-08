@@ -57,6 +57,7 @@ impl TxIntervalTrees {
 
         let mut txs = 0;
 
+        // TODO use genome alignment information from txdb to determine all contigs
         // Pre-create interval trees for canonical contigs.
         ASSEMBLY_INFOS[assembly].sequences.iter().for_each(|seq| {
             if CANONICAL.contains(&seq.name.as_str()) {
@@ -272,7 +273,7 @@ impl Provider {
         config: Config,
     ) -> Self {
         let assembly = tx_seq_db.assembly();
-        let contig_manager = Arc::new(ContigManager::new(assembly));
+        let contig_manager = Arc::new(ContigManager::new(&assembly));
 
         let tx_trees = TxIntervalTrees::new(&tx_seq_db);
         let gene_map = HashMap::from_iter(
@@ -520,8 +521,8 @@ impl Provider {
     /// # Returns
     ///
     /// The assembly of the provider.
-    pub fn assembly(&self) -> Assembly {
-        self.tx_seq_db.assembly()
+    pub fn assembly(&self) -> String {
+        self.tx_seq_db.assembly().clone()
     }
 
     /// Return whether transcript picking is enabled.

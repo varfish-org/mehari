@@ -79,7 +79,7 @@ impl SoftwareVersions {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize, utoipa::ToSchema)]
 pub struct DataVersionEntry {
     /// Assembly for which the data version is specified.
-    pub genome_build: Assembly,
+    pub assembly: String,
     /// Version of the RefSeq database, if any.
     pub version_refseq: Option<String>,
     /// Version of the Ensembl database, if any.
@@ -93,7 +93,7 @@ pub struct DataVersionEntry {
 impl DataVersionEntry {
     /// Create a new `DataVersionEntry` instance from `Provider`.`
     pub fn from_provider(provider: &Provider) -> Self {
-        let genome_build: Assembly = provider.assembly().into();
+        let assembly = provider.assembly().clone();
         let versions = &provider.tx_seq_db.source_version;
         let version_for = |source_name: &str| {
             let version = versions
@@ -113,7 +113,7 @@ impl DataVersionEntry {
         let annotation_name = versions.iter().map(|v| v.annotation_name.clone()).join(",");
 
         Self {
-            genome_build,
+            assembly,
             version_refseq,
             version_ensembl,
             version_annotation,

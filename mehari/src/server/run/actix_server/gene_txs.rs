@@ -2,7 +2,6 @@
 //!
 //! Also includes the implementation of the `/genes/txs` endpoint (deprecated).
 
-use crate::common::GenomeRelease;
 use crate::pbs;
 use crate::pbs::server::{GeneTranscriptsQuery, GeneTranscriptsResponse};
 
@@ -35,8 +34,6 @@ fn genes_tx_impl(
         next_page_token,
     } = query;
     let genome_build = genome_build.unwrap_or_else(|| String::from("grch37"));
-    let genome_release = GenomeRelease::try_from(genome_build.as_str())
-        .map_err(|e| CustomError::new(anyhow::anyhow!("Invalid genome build: {}", e)))?;
     let hgnc_id = hgnc_id
         .as_ref()
         .ok_or_else(|| CustomError::new(anyhow::anyhow!("No HGNC ID provided.")))?;
@@ -47,7 +44,7 @@ fn genes_tx_impl(
 
     let provider = data
         .provider
-        .get(&genome_release)
+        .get(&genome_build)
         .ok_or_else(|| CustomError::new(anyhow::anyhow!("No provider available.")))?;
     let tx_acs = provider
         .get_tx_for_gene(hgnc_id)

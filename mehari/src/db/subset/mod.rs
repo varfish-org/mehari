@@ -192,7 +192,7 @@ fn _extract_transcripts_by_region(
     let container_tx_db = container.tx_db.as_ref().expect("no tx_db");
     let trees = TxIntervalTrees::new(container);
 
-    let contig_manager = ContigManager::new(container.assembly());
+    let contig_manager = ContigManager::new(&container.assembly());
 
     let mut transcript_ids = IndexSet::<String>::new();
     let mut reader = noodles::vcf::io::reader::Builder::default().build_from_path(vcf)?;

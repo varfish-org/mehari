@@ -189,6 +189,7 @@ impl ConsequencePredictor {
         let reference_available = provider.reference_available();
 
         let mapper_config = assembly::Config {
+            // TODO: add ability to construct assembly mapper/config with custom mappings (for contig <-> accession lookups) in hgvs-rs to avoid lock-in to bioutils assemblies.
             assembly: provider.assembly(),
             replace_reference: reference_available,
             strict_bounds: false,
@@ -3150,7 +3151,7 @@ mod test {
                 threads: 1,
                 reference: None,
                 in_memory_reference: true,
-                genome_release: None,
+                assembly: "grch38".into(),
                 input: path_input_vcf.into(),
                 output: output.as_ref().to_str().unwrap().into(),
                 output_format: OutputFormat::Vcf,
