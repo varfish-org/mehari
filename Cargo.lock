@@ -297,7 +297,7 @@ dependencies = [
  "anyhow",
  "bgzip",
  "bio",
- "biocommons-bioutils",
+ "biocommons-bioutils 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "boolvec",
  "byteorder",
  "chrono",
@@ -560,6 +560,19 @@ name = "biocommons-bioutils"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fae2a4d60347d94aba53ad0e2fa8b5a63f3acec856d5078b217df10731455206"
+dependencies = [
+ "enum-map",
+ "flate2",
+ "indexmap",
+ "lazy_static",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "biocommons-bioutils"
+version = "0.1.5"
+source = "git+https://github.com/varfish-org/biocommons-bioutils-rs?branch=feat%2Ffrom-str-for-assembly#927b0ba5ae2680749316a214271d9b89e3426daa"
 dependencies = [
  "enum-map",
  "flate2",
@@ -2043,13 +2056,11 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hgvs"
 version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26fd7ca03965528bdc075af539f35eccb278d2e8b3b732fb7a7942d994d4850a"
 dependencies = [
  "ahash 0.8.12",
  "base16ct",
  "bio",
- "biocommons-bioutils",
+ "biocommons-bioutils 0.1.5 (git+https://github.com/varfish-org/biocommons-bioutils-rs?branch=feat%2Ffrom-str-for-assembly)",
  "cached",
  "chrono",
  "flate2",
@@ -2743,7 +2754,7 @@ dependencies = [
  "anyhow",
  "async-compression",
  "bio",
- "biocommons-bioutils",
+ "biocommons-bioutils 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "built",
  "byte-unit",
  "chrono",

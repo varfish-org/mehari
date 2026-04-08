@@ -11,9 +11,7 @@ use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
     pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
-use annonars::common::cli::CANONICAL;
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
-use biocommons_bioutils::assemblies::{ASSEMBLY_INFOS, Assembly};
 use enumflags2::BitFlags;
 use hgvs::{
     data::error::Error,
@@ -51,50 +49,47 @@ impl TxIntervalTrees {
     }
 
     fn build_indices(db: &TxSeqDatabase) -> (HashMap<String, usize>, Vec<IntervalTree>) {
-        let assembly = db.assembly();
+        let assembly_name = db.assembly();
         let mut contig_to_idx = HashMap::new();
         let mut trees: Vec<IntervalTree> = Vec::new();
 
-        let mut txs = 0;
+        let tx_db = db.tx_db.as_ref().expect("no tx_db?");
+        let mut txs_counted = 0;
 
-        // TODO use genome alignment information from txdb to determine all contigs
-        // Pre-create interval trees for canonical contigs.
-        ASSEMBLY_INFOS[assembly].sequences.iter().for_each(|seq| {
-            if CANONICAL.contains(&seq.name.as_str()) {
-                let contig_idx = *contig_to_idx
-                    .entry(seq.refseq_ac.clone())
-                    .or_insert(trees.len());
-                if contig_idx >= trees.len() {
-                    trees.push(IntervalTree::new());
-                }
-            }
-        });
-
-        for (tx_id, tx) in db
-            .tx_db
-            .as_ref()
-            .expect("no tx_db?")
-            .transcripts
-            .iter()
-            .enumerate()
-        {
+        for (tx_id, tx) in tx_db.transcripts.iter().enumerate() {
             for genome_alignment in &tx.genome_alignments {
-                let contig = &genome_alignment.contig;
-                if let Some(contig_idx) = contig_to_idx.get(contig) {
+                // Only index alignments matching the current assembly/build
+                if genome_alignment.genome_build == *assembly_name {
+                    let contig = &genome_alignment.contig;
+
+                    let contig_idx = *contig_to_idx.entry(contig.clone()).or_insert_with(|| {
+                        let idx = trees.len();
+                        trees.push(IntervalTree::new());
+                        idx
+                    });
+
                     let mut start = i32::MAX;
                     let mut stop = i32::MIN;
                     for exon in &genome_alignment.exons {
                         start = std::cmp::min(start, exon.alt_start_i);
                         stop = std::cmp::max(stop, exon.alt_end_i);
                     }
-                    trees[*contig_idx].insert(start..stop, tx_id as u32);
+
+                    if start <= stop {
+                        trees[contig_idx].insert(start..stop, tx_id as u32);
+                    }
                 }
             }
-
-            txs += 1;
+            txs_counted += 1;
         }
 
-        tracing::debug!("Loaded {} transcript", txs);
+        tracing::debug!(
+            "Indexed {} transcripts across {} contigs for assembly {}",
+            txs_counted,
+            trees.len(),
+            assembly_name
+        );
+
         trees.iter_mut().for_each(|t| t.index());
 
         (contig_to_idx, trees)
@@ -211,6 +206,9 @@ pub struct Provider {
     /// Mapping from sequence accession to index in `TxSeqDatabase::seq_db::seqs`.
     seq_map: HashMap<String, u32>,
 
+    /// Map from contig accession to common name (e.g., "NC_000001.11" -> "1")
+    assembly_map: IndexMap<String, String>,
+
     /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
@@ -272,8 +270,29 @@ impl Provider {
         in_memory_reference: bool,
         config: Config,
     ) -> Self {
-        let assembly = tx_seq_db.assembly();
-        let contig_manager = Arc::new(ContigManager::new(&assembly));
+        let assembly_name = tx_seq_db.assembly().clone();
+
+        // ContigManager is still useful for name resolution (e.g. NC -> chr name)
+        // If it's a custom assembly, it might just return the accession.
+        let contig_manager = Arc::new(ContigManager::new(&assembly_name));
+
+        // Build the assembly map from alignments in the DB
+        let mut assembly_map = IndexMap::new();
+        if let Some(tx_db) = &tx_seq_db.tx_db {
+            for tx in &tx_db.transcripts {
+                for aln in &tx.genome_alignments {
+                    if aln.genome_build == assembly_name && !assembly_map.contains_key(&aln.contig)
+                    {
+                        let common_name = contig_manager
+                            .get_primary_name(&aln.contig)
+                            .cloned()
+                            .unwrap_or_else(|| aln.contig.clone());
+
+                        assembly_map.insert(aln.contig.clone(), common_name);
+                    }
+                }
+            }
+        }
 
         let tx_trees = TxIntervalTrees::new(&tx_seq_db);
         let gene_map = HashMap::from_iter(
@@ -353,6 +372,7 @@ impl Provider {
             gene_map,
             tx_map,
             seq_map,
+            assembly_map,
             picked_gene_to_tx_id,
             reference_reader,
             data_version,
@@ -603,13 +623,10 @@ impl ProviderInterface for Provider {
         &self.schema_version
     }
 
-    fn get_assembly_map(&self, assembly: Assembly) -> IndexMap<String, String> {
-        IndexMap::from_iter(
-            ASSEMBLY_INFOS[assembly]
-                .sequences
-                .iter()
-                .map(|record| (record.refseq_ac.clone(), record.name.clone())),
-        )
+    fn get_assembly_map(&self, _assembly: &str) -> IndexMap<String, String> {
+        // We ignore the `assembly` argument because this provider
+        // is bound to a specific build during construction anyway.
+        self.assembly_map.clone()
     }
 
     fn get_gene_info(&self, _hgnc: &str) -> Result<hgvs::data::interface::GeneInfoRecord, Error> {
@@ -1006,25 +1023,28 @@ impl ProviderInterface for Provider {
     }
 
     fn get_tx_mapping_options(&self, tx_ac: &str) -> Result<Vec<TxMappingOptionsRecord>, Error> {
-        let tx_idx = *self
-            .tx_map
-            .get(tx_ac)
-            .ok_or(Error::NoTranscriptFound(tx_ac.to_string()))?;
-        let tx_idx = tx_idx as usize;
+        let tx = self
+            .get_tx(tx_ac)
+            .ok_or_else(|| Error::NoTranscriptFound(tx_ac.to_string()))?;
 
-        let tx = &self
-            .tx_seq_db
-            .tx_db
-            .as_ref()
-            .expect("no tx_db?")
-            .transcripts[tx_idx];
+        let current_build = self.assembly();
 
-        let genome_alignment = tx.genome_alignments.first().unwrap();
-        Ok(vec![TxMappingOptionsRecord {
-            tx_ac: tx_ac.to_string(),
-            alt_ac: genome_alignment.contig.clone(),
-            alt_aln_method: NCBI_ALN_METHOD.to_string(),
-        }])
+        let options = tx
+            .genome_alignments
+            .iter()
+            .filter(|aln| aln.genome_build == current_build)
+            .map(|aln| TxMappingOptionsRecord {
+                tx_ac: tx_ac.to_string(),
+                alt_ac: aln.contig.clone(),
+                alt_aln_method: NCBI_ALN_METHOD.to_string(),
+            })
+            .collect::<Vec<_>>();
+
+        if options.is_empty() {
+            return Err(Error::NoAlignmentFound(tx_ac.to_string(), current_build));
+        }
+
+        Ok(options)
     }
 }
 
