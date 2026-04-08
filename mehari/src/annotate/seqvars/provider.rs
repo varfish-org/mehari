@@ -420,27 +420,29 @@ impl Provider {
             let mut tx_tags = entry
                 .tx_ids
                 .iter()
-                .enumerate()
-                .filter_map(|(i, tx_id)| {
+                .filter_map(|tx_id| {
                     tx_map.get(tx_id).map(|tx_idx| {
                         let tx = &tx_db.transcripts[*tx_idx as usize];
                         let tags = tx.tags.iter().filter_map(tag_to_picktype).collect_vec();
                         let length = transcript_length(tx);
                         let source = transcript_id_to_source(tx_id);
                         let is_clean = tx.is_clean();
-
-                        longest_tx_per_source
-                            .entry(source)
-                            .and_modify(|(prev_clean, prev_i, prev_length)| {
-                                if (is_clean, length) > (*prev_clean, *prev_length) {
-                                    *prev_clean = is_clean;
-                                    *prev_i = i;
-                                    *prev_length = length;
-                                }
-                            })
-                            .or_insert((is_clean, i, length));
-                        (tx_id, tags, length)
+                        (tx_id, tags, length, source, is_clean)
                     })
+                })
+                .enumerate()
+                .map(|(i, (tx_id, tags, length, source, is_clean))| {
+                    longest_tx_per_source
+                        .entry(source)
+                        .and_modify(|(prev_clean, prev_i, prev_length)| {
+                            if (is_clean, length) > (*prev_clean, *prev_length) {
+                                *prev_clean = is_clean;
+                                *prev_i = i;
+                                *prev_length = length;
+                            }
+                        })
+                        .or_insert((is_clean, i, length));
+                    (tx_id, tags, length)
                 })
                 .collect_vec();
 
