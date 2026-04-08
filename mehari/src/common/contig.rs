@@ -235,4 +235,8 @@ impl ContigManager {
             chrom_no,
         })
     }
+
+    pub fn sequences(&self) -> impl Iterator<Item = &Sequence> {
+        self.accession_to_info.values()
+    }
 }

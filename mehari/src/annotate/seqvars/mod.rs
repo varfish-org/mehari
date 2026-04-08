@@ -1938,7 +1938,7 @@ mod test {
                 },
                 ..Default::default()
             },
-            input: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"), // <-- Corrected
+            input: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,

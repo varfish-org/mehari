@@ -826,28 +826,6 @@ impl TranscriptLoader {
         Ok(())
     }
 
-    fn filter_selected(&mut self, selected_ids: &Vec<Identifier>) -> Result<(), Error> {
-        // Discard everything which is not associated with the ids contained in `selected_ids`.
-        for id in selected_ids {
-            self.mark_discarded(id, Reason::DeselectedGene.into())?;
-            match id {
-                Identifier::Gene(gene_id) => {
-                    for tx_id in self.gene_id_to_transcript_ids.get(gene_id).unwrap() {
-                        *self
-                            .discards
-                            .entry(Identifier::Transcript(tx_id.clone()))
-                            .or_default() |= Reason::DeselectedGene;
-                    }
-                }
-                Identifier::Transcript(_tx_id) => {
-                    *self.discards.entry(id.clone()).or_default() |= Reason::DeselectedGene;
-                }
-            }
-        }
-        // self.discard()?;
-        Ok(())
-    }
-
     /// Filter transcripts for gene.
     ///
     /// We employ the following rules:
@@ -1422,20 +1400,6 @@ impl TranscriptLoader {
                         .insert(Fix::Cds);
                 }
             });
-    }
-
-    fn symbols_to_id(&self, gene_symbols: &[String]) -> Vec<Identifier> {
-        gene_symbols
-            .iter()
-            .map(|symbol| {
-                let (gene_id, _) = self
-                    .gene_id_to_gene
-                    .iter()
-                    .find(|(_, gene)| gene.gene_symbol == Some(symbol.clone()))
-                    .unwrap_or_else(|| panic!("Gene symbol not found: {}", symbol));
-                Identifier::Gene(gene_id.clone())
-            })
-            .collect()
     }
 
     fn gene_name(&self, id: &Identifier) -> Option<String> {

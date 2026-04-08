@@ -112,7 +112,6 @@ pub struct Args {
 /// Code for building the VCF header to be written out.
 pub mod vcf_header {
     use annonars::common::cli::is_canonical;
-    use biocommons_bioutils::assemblies::ASSEMBLY_INFOS;
     use noodles::vcf::header;
     use noodles::vcf::header::record::value::Map;
     use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
@@ -123,6 +122,8 @@ pub mod vcf_header {
     };
     use std::collections::HashMap;
 
+    use crate::common::contig::ContigManager;
+    use crate::ped::{Disease, PedigreeByName, Sex};
     use noodles::vcf::variant::record::samples::keys::key::{
         CONDITIONAL_GENOTYPE_QUALITY, FILTER, GENOTYPE, GENOTYPE_COPY_NUMBER,
     };
@@ -130,8 +131,6 @@ pub mod vcf_header {
         Header,
         header::{Builder, FileFormat},
     };
-
-    use crate::ped::{Disease, PedigreeByName, Sex};
 
     /// Major VCF version to use.
     pub(crate) const FILE_FORMAT_MAJOR: u32 = 4;
@@ -153,13 +152,13 @@ pub mod vcf_header {
     ///
     /// The constructed VCF header.
     pub fn build(
-        assembly: &str,
+        contig_manager: &ContigManager,
         pedigree: &PedigreeByName,
         date: &str,
         header: &Header,
     ) -> Result<Header, anyhow::Error> {
         let builder = add_meta_leading(Header::builder(), date)?;
-        let builder = add_meta_contigs(builder, assembly)?;
+        let builder = add_meta_contigs(builder, contig_manager)?;
         let builder = add_meta_alt(builder)?;
         let builder = add_meta_info(builder)?;
         let builder = add_meta_filter(builder)?;
@@ -180,16 +179,17 @@ pub mod vcf_header {
     /// Add the `contig` header lines.
     ///
     /// NB: `Assembly::Grch37` does not contain chrMT, but `Assembly::Grch37p10` does.
-    fn add_meta_contigs(builder: Builder, assembly: &str) -> Result<Builder, anyhow::Error> {
+    fn add_meta_contigs(
+        builder: Builder,
+        contig_manager: &ContigManager,
+    ) -> Result<Builder, anyhow::Error> {
         let mut builder = builder;
-        let assembly_info = &ASSEMBLY_INFOS[assembly];
 
-        for sequence in &assembly_info.sequences {
+        for sequence in contig_manager.sequences() {
             if is_canonical(sequence.name.as_ref()) {
                 let contig = Map::<Contig>::builder()
-                    .insert("assembly".parse()?, assembly.clone())
-                    .insert("accession".parse()?, sequence.refseq_ac.clone())
                     .set_length(sequence.length)
+                    .insert("accession".parse()?, sequence.refseq_ac.clone())
                     .build()?;
                 builder = builder.add_contig(sequence.name.clone(), contig);
             }
@@ -3304,6 +3304,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 
     // Use explicitly requested assembly.
     let assembly = args.assembly.clone();
+    let contig_manager = ContigManager::new(&assembly);
     let header = {
         let mut reader = VariantReaderBuilder::default().build_from_path(
             args.path_input_vcf
@@ -3374,7 +3375,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                 .cloned()
                 .unwrap_or(Utc::now().date_naive().format("%Y%m%d").to_string());
 
-            let header_out = vcf_header::build(&assembly, &pedigree, &file_date, &header)?;
+            let header_out = vcf_header::build(&contig_manager, &pedigree, &file_date, &header)?;
 
             let mut writer = open_variant_writer(&args.output).await?;
             writer.set_assembly(assembly);
@@ -3593,6 +3594,7 @@ mod test {
         guess_sv_caller, run, vcf_header,
     };
     use crate::common::TsvContigStyle;
+    use crate::common::contig::ContigManager;
     use crate::{
         annotate::strucvars::{
             GenotypeCalls, GenotypeInfo, InfoRecord, PeOrientation, SvSubType, SvType,
@@ -3950,8 +3952,9 @@ mod test {
 
     #[test]
     fn build_vcf_header_37_no_pedigree() -> Result<(), anyhow::Error> {
+        let contig_manager = ContigManager::new("grch37");
         let header = vcf_header::build(
-            "grch37",
+            &contig_manager,
             &Default::default(),
             "20150314",
             &noodles::vcf::Header::builder().build(),
@@ -3971,8 +3974,9 @@ mod test {
 
     #[test]
     fn build_vcf_header_37_trio() -> Result<(), anyhow::Error> {
+        let contig_manager = ContigManager::new("grch37");
         let header = vcf_header::build(
-            "grch37",
+            &contig_manager,
             &example_trio(),
             "20150314",
             &example_trio_header(),
@@ -4043,8 +4047,9 @@ mod test {
 
     #[test]
     fn build_vcf_header_38_no_pedigree() -> Result<(), anyhow::Error> {
+        let contig_manager = ContigManager::new("grch37");
         let header = vcf_header::build(
-            "grch37",
+            &contig_manager,
             &Default::default(),
             "20150314",
             &noodles::vcf::Header::builder().build(),
@@ -4228,8 +4233,9 @@ mod test {
 
     #[test]
     fn write_vcf_from_varfish_records() -> Result<(), anyhow::Error> {
+        let contig_manager = ContigManager::new("grch37");
         let header = vcf_header::build(
-            "grch37",
+            &contig_manager,
             &example_trio(),
             "20150314",
             &example_trio_header(),
