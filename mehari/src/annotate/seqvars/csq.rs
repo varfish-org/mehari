@@ -2644,6 +2644,7 @@ impl<'a> fmt::Display for FormattedLoc<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::annotate::cli::TranscriptPickMode;
     use crate::annotate::cli::{PredictorSettings, TranscriptPickType, TranscriptSettings};
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
@@ -3024,6 +3025,7 @@ mod test {
             true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
+                .pick_transcript_mode(TranscriptPickMode::First)
                 .build()
                 .unwrap(),
         ));
@@ -3096,6 +3098,7 @@ mod test {
             true,
             MehariProviderConfigBuilder::default()
                 .pick_transcript(picks)
+                .pick_transcript_mode(TranscriptPickMode::First)
                 .build()
                 .unwrap(),
         ));
