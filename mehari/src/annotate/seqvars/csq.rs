@@ -3011,8 +3011,8 @@ mod test {
         let tx_db = load_tx_db(tx_path)?;
         let picks = if pick_transcripts {
             vec![
-                TranscriptPickType::ManePlusClinical,
-                TranscriptPickType::ManeSelect,
+                TranscriptPickType::ManePlusClinicalBackport,
+                TranscriptPickType::ManeSelectBackport,
                 TranscriptPickType::Length,
             ]
         } else {
@@ -3082,8 +3082,8 @@ mod test {
 
         let picks = if pick_transcripts {
             vec![
-                TranscriptPickType::ManePlusClinical,
-                TranscriptPickType::ManeSelect,
+                TranscriptPickType::ManePlusClinicalBackport,
+                TranscriptPickType::ManeSelectBackport,
                 TranscriptPickType::Length,
             ]
         } else {
