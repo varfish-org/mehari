@@ -666,14 +666,26 @@ impl VarFishSeqvarTsvWriter {
                 anns.sort_by_key(|ann| ann.consequences[0]);
             }
 
-            for (hgnc_id, anns) in anns_by_gene.iter() {
+            let mut gene_ids: Vec<_> = anns_by_gene.keys().cloned().collect();
+            gene_ids.sort_by_key(|id| {
+                self.hgnc_map
+                    .as_ref()
+                    .unwrap()
+                    .get(id)
+                    .map(|r| r.entrez_id.clone())
+                    .unwrap_or_else(|| id.clone())
+            });
+
+            for hgnc_id in gene_ids {
                 let hgnc_record = self
                     .hgnc_map
                     .as_ref()
                     .unwrap()
-                    .get(hgnc_id)
+                    .get(&hgnc_id)
                     .unwrap_or(&empty_hgnc_record);
                 tsv_record.clear_refseq_ensembl();
+
+                let anns = &anns_by_gene[&hgnc_id];
 
                 let worst_refseq_ann = anns
                     .iter()
