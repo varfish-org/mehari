@@ -9,7 +9,6 @@ use std::str::FromStr;
 use annonars::common::cli::CANONICAL;
 use anyhow::Error;
 use bio::data_structures::interval_tree::IntervalTree;
-use biocommons_bioutils::assemblies::Assembly;
 use chrono::Utc;
 use clap::Parser;
 use flate2::Compression;
