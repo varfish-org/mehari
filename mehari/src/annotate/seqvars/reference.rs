@@ -1,8 +1,8 @@
 use crate::common::contig::ContigManager;
 use anyhow::anyhow;
 use memmap2::Mmap;
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -19,7 +19,7 @@ pub trait ReferenceReader {
 /// In-memory reference sequence access.
 pub struct InMemoryFastaAccess {
     /// Maps canonical RefSeq accession to the full sequence.
-    sequences: HashMap<String, Vec<u8>>,
+    sequences: FxHashMap<String, Vec<u8>>,
 }
 impl InMemoryFastaAccess {
     pub fn from_path(
@@ -34,7 +34,7 @@ impl InMemoryFastaAccess {
         let reference_reader = bio::io::fasta::Reader::from_file(&reference_path)
             .expect("Failed to create FASTA reader");
 
-        let mut sequences = HashMap::new();
+        let mut sequences = FxHashMap::default();
         for record_result in reference_reader.records() {
             let record = record_result?;
             let mut stored = false;
@@ -137,7 +137,7 @@ pub struct UnbufferedIndexedFastaAccess {
     path: PathBuf,
     mmap: Mmap,
     /// Maps the canonical RefSeq accession to the FAI index record.
-    accession_to_index: HashMap<String, IndexRecord>,
+    accession_to_index: FxHashMap<String, IndexRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -168,7 +168,7 @@ impl UnbufferedIndexedFastaAccess {
             })
             .collect();
 
-        let mut accession_to_index = HashMap::new();
+        let mut accession_to_index = FxHashMap::default();
         for record in index_records {
             let mut stored = false;
 

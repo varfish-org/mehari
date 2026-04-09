@@ -1230,6 +1230,12 @@ async fn run_with_writer(
         None => vec![],
     };
 
+    for db in &tx_dbs {
+        for sv in &db.source_version {
+            tracing::info!("Transcript source version: {:?}", sv);
+        }
+    }
+
     let extract_unstructured_first = |key: &str| -> Option<String> {
         header_in
             .other_records()
