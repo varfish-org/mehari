@@ -688,11 +688,8 @@ impl ProviderInterface for Provider {
         begin: Option<usize>,
         end: Option<usize>,
     ) -> Result<String, Error> {
-        // In case the accession starts with "NC" or "NT" or "NW",
-        // we need to look up the sequence in the reference FASTA mapping.
-        let seq = if (ac.starts_with("NC") || ac.starts_with("NT") || ac.starts_with("NW"))
-            && self.reference_available()
-        {
+        let is_contig = self.contig_alias_map.contains_key(ac);
+        let seq = if is_contig && self.reference_available() {
             let reader = self.reference_reader.as_ref().unwrap();
             let seq = reader
                 .get(ac, begin.map(|x| x as u64), end.map(|x| x as u64))
@@ -706,7 +703,6 @@ impl ProviderInterface for Provider {
                 Error::NoSequenceRecord("Failed converting seq to UTF-8.".to_string())
             });
         } else {
-            // Otherwise, look up the sequence in the transcript database.
             let seq_idx = *self
                 .seq_map
                 .get(ac)
