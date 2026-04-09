@@ -212,6 +212,10 @@ pub struct Provider {
     /// Map from contig accession to common name (e.g., "NC_000001.11" -> "1")
     assembly_map: IndexMap<String, String>,
 
+    /// Maps any known contig alias (e.g. "chr1", "NC_000001.11") to the exact
+    /// string used in the database (e.g. "1")
+    contig_alias_map: HashMap<String, String>,
+
     /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
     picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
@@ -299,6 +303,28 @@ impl Provider {
         }
 
         let tx_trees = TxIntervalTrees::new(&tx_seq_db);
+
+        let mut contig_alias_map = HashMap::new();
+        if let Some(tx_db) = &tx_seq_db.tx_db {
+            for tx in &tx_db.transcripts {
+                for aln in &tx.genome_alignments {
+                    let db_contig = aln.contig.clone();
+                    contig_alias_map.insert(db_contig.clone(), db_contig.clone());
+
+                    if let Some(primary) = contig_manager.get_primary_name(&db_contig) {
+                        contig_alias_map.insert(primary.to_string(), db_contig.clone());
+                    }
+                    if let Some(acc) = contig_manager.get_accession(&db_contig) {
+                        contig_alias_map.insert(acc.to_string(), db_contig.clone());
+                    }
+                    if let Some(info) = contig_manager.get_contig_info(&db_contig) {
+                        contig_alias_map.insert(info.name_with_chr.clone(), db_contig.clone());
+                        contig_alias_map.insert(info.name_without_chr.clone(), db_contig.clone());
+                    }
+                }
+            }
+        }
+
         let gene_map = HashMap::from_iter(
             tx_seq_db
                 .tx_db
@@ -373,6 +399,7 @@ impl Provider {
             tx_seq_db,
             tx_trees,
             contig_manager,
+            contig_alias_map,
             gene_map,
             tx_map,
             seq_map,
@@ -720,6 +747,11 @@ impl ProviderInterface for Provider {
         alt_ac: &str,
         _alt_aln_method: &str,
     ) -> Result<Vec<TxExonsRecord>, Error> {
+        let db_contig = self
+            .contig_alias_map
+            .get(alt_ac)
+            .map(String::as_str)
+            .unwrap_or(alt_ac);
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
@@ -735,11 +767,11 @@ impl ProviderInterface for Provider {
 
         let hgnc = tx.gene_id.clone();
         let tx_ac_str = tx_ac.to_string();
-        let alt_ac_str = alt_ac.to_string();
+        let alt_ac_str = db_contig.to_string();
         let alt_aln_method_str = ALT_ALN_METHOD.to_string();
 
         for genome_alignment in &tx.genome_alignments {
-            if genome_alignment.contig == alt_ac {
+            if genome_alignment.contig == db_contig {
                 let alt_strand =
                     match Strand::try_from(genome_alignment.strand).expect("invalid strand") {
                         Strand::Plus => 1,
@@ -789,6 +821,11 @@ impl ProviderInterface for Provider {
         alt_ac: &str,
         _alt_aln_method: &str,
     ) -> Result<Vec<(i32, i32)>, Error> {
+        let db_contig = self
+            .contig_alias_map
+            .get(alt_ac)
+            .map(String::as_str)
+            .unwrap_or(alt_ac);
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
@@ -801,7 +838,7 @@ impl ProviderInterface for Provider {
             .transcripts[tx_idx as usize];
 
         for genome_alignment in &tx.genome_alignments {
-            if genome_alignment.contig == alt_ac {
+            if genome_alignment.contig == db_contig {
                 let mut coords = Vec::with_capacity(genome_alignment.exons.len());
                 for exon in &genome_alignment.exons {
                     let tx_start = exon.alt_cds_start_i.map(|val| val - 1).unwrap_or(-1);
@@ -814,7 +851,7 @@ impl ProviderInterface for Provider {
         }
         Err(Error::NoAlignmentFound(
             tx_ac.to_string(),
-            alt_ac.to_string(),
+            db_contig.to_string(),
         ))
     }
 
@@ -824,6 +861,11 @@ impl ProviderInterface for Provider {
         alt_ac: &str,
         _alt_aln_method: &str,
     ) -> Result<(Option<i32>, Option<i32>), Error> {
+        let db_contig = self
+            .contig_alias_map
+            .get(alt_ac)
+            .map(String::as_str)
+            .unwrap_or(alt_ac);
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
@@ -836,13 +878,13 @@ impl ProviderInterface for Provider {
             .transcripts[tx_idx as usize];
 
         for genome_alignment in &tx.genome_alignments {
-            if genome_alignment.contig == alt_ac {
+            if genome_alignment.contig == db_contig {
                 return Ok((tx.start_codon, tx.stop_codon));
             }
         }
         Err(Error::NoAlignmentFound(
             tx_ac.to_string(),
-            alt_ac.to_string(),
+            db_contig.to_string(),
         ))
     }
 
@@ -896,7 +938,12 @@ impl ProviderInterface for Provider {
         start_i: i32,
         end_i: i32,
     ) -> Result<Vec<TxForRegionRecord>, Error> {
-        let contig_idx = match self.tx_trees.contig_to_idx.get(alt_ac) {
+        let db_contig = self
+            .contig_alias_map
+            .get(alt_ac)
+            .map(String::as_str)
+            .unwrap_or(alt_ac);
+        let contig_idx = match self.tx_trees.contig_to_idx.get(db_contig) {
             Some(idx) => *idx,
             None => return Ok(Vec::new()),
         };
@@ -996,6 +1043,11 @@ impl ProviderInterface for Provider {
         alt_ac: &str,
         _alt_aln_method: &str,
     ) -> Result<TxInfoRecord, Error> {
+        let db_contig = self
+            .contig_alias_map
+            .get(alt_ac)
+            .map(String::as_str)
+            .unwrap_or(alt_ac);
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
@@ -1009,7 +1061,7 @@ impl ProviderInterface for Provider {
             .transcripts[tx_idx];
 
         for genome_alignment in &tx.genome_alignments {
-            if genome_alignment.contig == alt_ac {
+            if genome_alignment.contig == db_contig {
                 return Ok(TxInfoRecord {
                     hgnc: tx.gene_id.clone(),
                     cds_start_i: tx.start_codon,

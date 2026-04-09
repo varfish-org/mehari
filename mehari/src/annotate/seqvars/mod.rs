@@ -1790,26 +1790,24 @@ fn get_transcript_boundaries(
     let mut min_start = i32::MAX;
     let mut max_end = -1;
 
-    if let Some(chrom_acc) = predictor.provider.contig_manager.get_accession(chrom) {
-        let txs = predictor
-            .provider
-            .get_tx_for_region(
-                chrom_acc,
-                csq::ALT_ALN_METHOD,
-                pos - csq::PADDING,
-                pos + ref_len as i32 + csq::PADDING,
-            )
-            .unwrap_or_default();
+    let txs = predictor
+        .provider
+        .get_tx_for_region(
+            chrom,
+            csq::ALT_ALN_METHOD,
+            pos - csq::PADDING,
+            pos + ref_len as i32 + csq::PADDING,
+        )
+        .unwrap_or_default();
 
-        for tx_record in txs {
-            accessions.insert(tx_record.tx_ac.clone());
-            if let Some(tx_details) = predictor.provider.get_tx(&tx_record.tx_ac)
-                && let Some(aln) = tx_details.genome_alignments.first()
-            {
-                for exon in &aln.exons {
-                    min_start = std::cmp::min(min_start, exon.alt_start_i);
-                    max_end = std::cmp::max(max_end, exon.alt_end_i);
-                }
+    for tx_record in txs {
+        accessions.insert(tx_record.tx_ac.clone());
+        if let Some(tx_details) = predictor.provider.get_tx(&tx_record.tx_ac)
+            && let Some(aln) = tx_details.genome_alignments.first()
+        {
+            for exon in &aln.exons {
+                min_start = std::cmp::min(min_start, exon.alt_start_i);
+                max_end = std::cmp::max(max_end, exon.alt_end_i);
             }
         }
     }

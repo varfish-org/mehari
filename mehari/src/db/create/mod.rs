@@ -648,17 +648,12 @@ impl TranscriptLoader {
                 .enumerate()
                 .map(|(i, (start, end))| {
                     let e_len = end - start;
-                    let mut e_cds_start = -1;
-                    let mut e_cds_end = -1;
 
                     if let (Some(cs), Some(ce)) = (cds_start_genomic, cds_end_genomic) {
                         let overlap_start = cs.max(start);
                         let overlap_end = ce.min(end);
 
                         if overlap_start < overlap_end {
-                            e_cds_start = overlap_start;
-                            e_cds_end = overlap_end;
-
                             // Calculate offset within this exon based on strand
                             let (offset_start, offset_end) = if !is_reverse {
                                 (overlap_start - start, overlap_end - start)
@@ -677,8 +672,8 @@ impl TranscriptLoader {
                         alt_start_i: start,
                         alt_end_i: end,
                         ord: i as i32,
-                        alt_cds_start_i: e_cds_start,
-                        alt_cds_end_i: e_cds_end,
+                        alt_cds_start_i: current_tx_pos + 1,
+                        alt_cds_end_i: current_tx_pos + e_len,
                         cigar: format!("{}M", e_len),
                     };
 
