@@ -43,9 +43,7 @@ pub fn trace_rss_now() {
     );
 }
 
-/// Select the genome release to use.
-
-// Compute reciprocal overlap between two ranges.
+/// Compute reciprocal overlap between two ranges.
 pub fn reciprocal_overlap(lhs: Range<i32>, rhs: Range<i32>) -> f32 {
     let lhs_b = lhs.start;
     let lhs_e = lhs.end;
