@@ -113,17 +113,48 @@ impl BasicIndexedFasta {
     }
 
     pub fn get_sequence(&self, id: &str) -> Result<Option<String>, Error> {
+        let clean_id = id.strip_prefix("transcript:").unwrap_or(id);
+        let clean_id_base = clean_id.split('.').next().unwrap_or(clean_id);
+
+        let mut exact_name = None;
+        for record in self.index.as_ref() {
+            let rec_name = String::from_utf8_lossy(record.name());
+            let rec_name_base = rec_name.split('.').next().unwrap_or(&rec_name);
+
+            if rec_name == clean_id {
+                exact_name = Some(rec_name.to_string());
+                break;
+            } else if exact_name.is_none() && rec_name_base == clean_id_base {
+                exact_name = Some(rec_name.to_string());
+            }
+        }
+
+        let target_name = match exact_name {
+            Some(name) => name,
+            None => {
+                tracing::debug!(
+                    "Sequence not found in FAI index for clean_id: '{}' (original id: '{}')",
+                    clean_id,
+                    id
+                );
+                return Ok(None);
+            }
+        };
+
         let mut reader = File::open(&self.fasta_path)
             .map(BufReader::new)
             .map(|r| noodles::fasta::io::IndexedReader::new(r, self.index.clone()))?;
 
-        let region = Region::new::<String, RangeFull>(id.into(), RangeFull);
+        let region = Region::new::<String, RangeFull>(target_name, RangeFull);
         match reader.query(&region) {
             Ok(record) => {
                 let seq = String::from_utf8(record.sequence().as_ref().to_vec())?;
                 Ok(Some(seq))
             }
-            Err(_) => Ok(None),
+            Err(e) => {
+                tracing::warn!("Failed to query region from indexed FASTA: {}", e);
+                Ok(None)
+            }
         }
     }
 }
@@ -143,23 +174,23 @@ impl SequenceProvider {
 
         match self {
             SequenceProvider::SeqRepo(repo) => repo.fetch_sequence(alias).map_err(Into::into),
-            SequenceProvider::FastaMap(map) => map
-                .get(id)
-                .or_else(|| map.get(id.split('.').next().unwrap_or("")))
-                .cloned()
-                .ok_or_else(|| anyhow!("Sequence not found in FASTA map for {}", id)),
+            SequenceProvider::FastaMap(map) => {
+                let clean_id = id.strip_prefix("transcript:").unwrap_or(id);
+
+                map.get(clean_id)
+                    .or_else(|| map.get(clean_id.split('.').next().unwrap_or("")))
+                    .cloned()
+                    .ok_or_else(|| {
+                        tracing::debug!(
+                            "Sequence not found in FASTA map for clean_id: '{}' (original id: '{}')",
+                            clean_id, id
+                        );
+                        anyhow!("Sequence not found in FASTA map for {}", id)
+                    })
+            }
             SequenceProvider::IndexedFasta(reader) => {
-                // try full id first
                 if let Some(seq) = reader.get_sequence(id)? {
                     return Ok(seq);
-                }
-
-                // fallback to id without version if necessary
-                if id.contains('.') {
-                    let id_no_version = id.split('.').next().unwrap();
-                    if let Some(seq) = reader.get_sequence(id_no_version)? {
-                        return Ok(seq);
-                    }
                 }
 
                 Err(anyhow!("Sequence not found in indexed FASTA for {}", id))
@@ -174,14 +205,8 @@ fn open_sequence_provider(args: &Args) -> Result<SequenceProvider, Error> {
     }
 
     if let Some(fasta_path) = &args.transcript_sequences {
-        let fai_path = fasta_path.with_extension(format!(
-            "{}.fai",
-            fasta_path
-                .extension()
-                .unwrap_or_default()
-                .to_str()
-                .unwrap_or_default()
-        ));
+        let mut fai_path = fasta_path.clone();
+        fai_path.as_mut_os_string().push(".fai");
 
         if fai_path.exists() {
             tracing::info!(
@@ -201,13 +226,35 @@ fn open_sequence_provider(args: &Args) -> Result<SequenceProvider, Error> {
         );
         let mut map = HashMap::new();
         let file = File::open(fasta_path)?;
-        let mut reader = noodles::fasta::io::Reader::new(BufReader::new(file));
+
+        let is_gz = fasta_path
+            .extension()
+            .map(|ext| ext == "gz" || ext == "bgz")
+            .unwrap_or(false);
+
+        let buf_reader: Box<dyn std::io::BufRead> = if is_gz {
+            Box::new(noodles_bgzf::io::Reader::new(file))
+        } else {
+            Box::new(BufReader::new(file))
+        };
+
+        let mut reader = noodles::fasta::io::Reader::new(buf_reader);
         for result in reader.records() {
             let record = result?;
-            map.insert(
-                String::from_utf8_lossy(record.name()).to_string(),
-                String::from_utf8_lossy(record.sequence().as_ref()).to_string(),
-            );
+            let raw_name = String::from_utf8_lossy(record.name()).to_string();
+
+            let id = raw_name
+                .split_whitespace()
+                .next()
+                .unwrap_or(&raw_name)
+                .to_string();
+            let seq = String::from_utf8_lossy(record.sequence().as_ref()).to_string();
+
+            if let Some((base, _version)) = id.split_once('.') {
+                map.insert(base.to_string(), seq.clone());
+            }
+
+            map.insert(id, seq);
         }
         return Ok(SequenceProvider::FastaMap(map));
     }
@@ -435,7 +482,7 @@ impl TranscriptLoader {
         } else {
             Box::new(file)
         };
-        let reader = std::io::BufReader::new(reader);
+        let reader = BufReader::new(reader);
         let mut gff_reader = noodles::gff::io::Reader::new(reader);
 
         let mut tx_exons: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
@@ -444,6 +491,9 @@ impl TranscriptLoader {
         let mut tx_info: HashMap<String, (String, Strand)> = HashMap::new();
         let mut gene_symbols: HashMap<String, String> = HashMap::new();
 
+        let mut raw_id_to_gene_id: HashMap<String, String> = HashMap::new();
+        let mut raw_id_to_tx_id: HashMap<String, String> = HashMap::new();
+
         for result in gff_reader.record_bufs() {
             let record = result?;
 
@@ -451,14 +501,10 @@ impl TranscriptLoader {
             let feature = record.ty().to_string();
             let strand = record.strand();
 
-            // noodles-core::Position is 1-based.
-            // Internal cdot model uses 0-based start, inclusive.
             let start = usize::from(record.start()) as i32 - 1;
             let end = usize::from(record.end()) as i32;
 
             let attrs = record.attributes();
-
-            // Helper to get string values from noodles Attributes
             let get_attr = |key: &str| {
                 attrs
                     .get(key.as_bytes())
@@ -466,58 +512,104 @@ impl TranscriptLoader {
                     .map(|s| s.to_string())
             };
 
-            let id = get_attr(tag::ID);
-            let parent = get_attr(tag::PARENT);
+            let raw_id = get_attr(tag::ID);
+            let raw_parent = get_attr(tag::PARENT);
             let name = get_attr(tag::NAME).or_else(|| get_attr("gene_name"));
 
-            if feature.contains("gene") {
-                if let Some(gene_id) = id {
-                    let fallback_id = GeneId::Fallback(gene_id.clone());
-                    let gene = Gene {
-                        hgnc: Some(fallback_id.to_string()),
-                        gene_symbol: name.clone(),
-                        aliases: None,
-                        biotype: None,
-                        description: None,
-                        map_location: None,
-                        summary: None,
-                        url: "".into(),
-                    };
-                    self.gene_id_to_gene.insert(fallback_id.clone(), gene);
-                    if let Some(n) = name {
-                        gene_symbols.insert(gene_id, n);
+            let resolve_id =
+                |id: Option<String>, version: Option<String>, prefixes: &[&str]| -> String {
+                    match (id, version) {
+                        (Some(i), Some(v)) => format!("{i}.{v}"),
+                        (Some(i), None) => i,
+                        _ => {
+                            let mut s = raw_id.clone().unwrap_or_default();
+                            for prefix in prefixes {
+                                s = s.replace(prefix, "");
+                            }
+                            s
+                        }
+                    }
+                };
+
+            match feature.as_str() {
+                f if f.contains("gene") => {
+                    let resolved_gene_id = resolve_id(
+                        get_attr("gene_id"),
+                        get_attr("version").or_else(|| get_attr("gene_version")),
+                        &["gene:"],
+                    );
+
+                    if let Some(rid) = &raw_id {
+                        raw_id_to_gene_id.insert(rid.clone(), resolved_gene_id.clone());
+                    }
+
+                    if !resolved_gene_id.is_empty() {
+                        let fallback_id = GeneId::Fallback(resolved_gene_id.clone());
+                        self.gene_id_to_gene.insert(
+                            fallback_id.clone(),
+                            Gene {
+                                hgnc: Some(fallback_id.to_string()),
+                                gene_symbol: name.clone(),
+                                aliases: None,
+                                biotype: None,
+                                description: None,
+                                map_location: None,
+                                summary: None,
+                                url: String::new(),
+                            },
+                        );
+                        if let Some(n) = name {
+                            gene_symbols.insert(resolved_gene_id, n);
+                        }
                     }
                 }
-            } else if feature.contains("transcript")
-                || feature.contains("mRNA")
-                || feature.ends_with("RNA")
-            {
-                if let Some(tx_id) = id {
-                    if let Some(p) = parent {
-                        // Parent attribute can be a comma-separated list
-                        let first_parent = p.split(',').next().unwrap().to_string();
-                        tx_to_gene.insert(tx_id.clone(), first_parent);
+                f if f.contains("transcript") || f.contains("mRNA") || f.ends_with("RNA") => {
+                    let resolved_tx_id = resolve_id(
+                        get_attr("transcript_id"),
+                        get_attr("version").or_else(|| get_attr("transcript_version")),
+                        &["transcript:", "rna:", "rna-"],
+                    );
+
+                    if let Some(rid) = &raw_id {
+                        raw_id_to_tx_id.insert(rid.clone(), resolved_tx_id.clone());
                     }
-                    tx_info.insert(tx_id, (contig, strand));
-                }
-            } else if feature == "exon" {
-                if let Some(p) = parent {
-                    for parent_id in p.split(',') {
-                        tx_exons
-                            .entry(parent_id.to_string())
-                            .or_default()
-                            .push((start, end));
-                    }
-                }
-            } else if feature == "CDS" {
-                if let Some(p) = parent {
-                    for parent_id in p.split(',') {
-                        tx_cds
-                            .entry(parent_id.to_string())
-                            .or_default()
-                            .push((start, end));
+
+                    if !resolved_tx_id.is_empty() {
+                        if let Some(p) = raw_parent {
+                            let first_parent = p.split(',').next().unwrap();
+                            let parent_gene = raw_id_to_gene_id
+                                .get(first_parent)
+                                .map(String::as_str) // Avoids cloning if present
+                                .unwrap_or(first_parent)
+                                .to_string();
+                            tx_to_gene.insert(resolved_tx_id.clone(), parent_gene);
+                        }
+                        tx_info.insert(resolved_tx_id, (contig, strand));
                     }
                 }
+                "exon" | "CDS" => {
+                    if let Some(p) = raw_parent {
+                        let target_map = if feature == "exon" {
+                            &mut tx_exons
+                        } else {
+                            &mut tx_cds
+                        };
+
+                        for parent_id in p.split(',') {
+                            let clean_parent = raw_id_to_tx_id
+                                .get(parent_id)
+                                .map(String::as_str)
+                                .unwrap_or(parent_id)
+                                .to_string();
+
+                            target_map
+                                .entry(clean_parent)
+                                .or_default()
+                                .push((start, end));
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -619,8 +711,8 @@ impl TranscriptLoader {
                 gene_version: "".to_string(),
                 biotype: None,
                 protein: tx_cds_start.map(|_| "unspecified_protein".to_string()),
-                start_codon: tx_cds_start.map(|i| i32::try_from(i)).transpose()?,
-                stop_codon: tx_cds_end.map(|i| i32::try_from(i)).transpose()?,
+                start_codon: tx_cds_start.map(i32::try_from).transpose()?,
+                stop_codon: tx_cds_end.map(i32::try_from).transpose()?,
                 partial: None,
                 genome_builds: IndexMap::from([(self.genome_release.clone(), alignment)]),
             };
@@ -805,10 +897,16 @@ impl TranscriptLoader {
             .gene_id_to_gene
             .iter()
             .filter_map(|(gene_id, gene)| {
-                let txs = self.gene_id_to_transcript_ids[gene_id]
-                    .iter()
-                    .map(|tx_id| &self.transcript_id_to_transcript[tx_id])
-                    .collect_vec();
+                let txs = self
+                    .gene_id_to_transcript_ids
+                    .get(gene_id)
+                    .map(|tx_ids| {
+                        tx_ids
+                            .iter()
+                            .filter_map(|tx_id| self.transcript_id_to_transcript.get(tx_id))
+                            .collect_vec()
+                    })
+                    .unwrap_or_default();
                 let reason = filters
                     .iter()
                     .filter_map(|(f, r)| f(gene_id.clone(), gene, &txs).then_some(*r))
@@ -924,7 +1022,7 @@ impl TranscriptLoader {
         // e.g. to discard transcripts with an older version within the same hgnc group
         type Filter = fn(&Params) -> bool;
         let tx_filters: [(Filter, Reason); 6] = [
-            (missing_hgnc, Reason::MissingGeneId),
+            (missing_hgnc, Reason::MissingHgncId),
             (empty_genome_builds, Reason::EmptyGenomeBuilds),
             (partial, Reason::OnlyPartialAlignmentInRefSeq),
             (predicted, Reason::PredictedTranscript),
@@ -1611,7 +1709,11 @@ impl TranscriptLoader {
     fn propagate_discard_reasons(&mut self, _raw: &Self) -> Result<(), Error> {
         // First check whether all transcripts of a gene have been marked as discarded.
         for (gene_id, _) in self.gene_id_to_gene.iter() {
-            let tx_ids = self.gene_id_to_transcript_ids.get(gene_id).unwrap();
+            let tx_ids = self
+                .gene_id_to_transcript_ids
+                .get(gene_id)
+                .map(|v| v.as_slice())
+                .unwrap_or_default();
             if !tx_ids.is_empty()
                 && tx_ids.iter().all(|tx_id| {
                     self.discards
@@ -1692,13 +1794,14 @@ impl TranscriptLoader {
         };
 
         tracing::info!("  Creating transcript records for each gene…");
+        let empty_txs = vec![];
         let data_transcripts = gene_ids
             .iter()
             .flat_map(|gene_id| {
                 let tx_ids = self
                     .gene_id_to_transcript_ids
                     .get(gene_id)
-                    .unwrap_or_else(|| panic!("No transcripts for hgnc id {:?}", &gene_id));
+                    .unwrap_or(&empty_txs);
                 tx_ids
                     .iter()
                     .sorted_unstable()
@@ -1852,7 +1955,7 @@ impl TranscriptLoader {
     }
 
     fn protobuf_genome_alignment(
-        genome_build: &String,
+        genome_build: &str,
         alignment: &GenomeAlignment,
     ) -> (crate::pbs::txs::GenomeAlignment, HashSet<i32>) {
         let mut tags = HashSet::new();
@@ -1983,7 +2086,7 @@ pub(crate) enum Reason {
     InvalidCdsLength,
     MissingGene,
     MissingGeneSymbol,
-    MissingGeneId,
+    MissingHgncId,
     MissingSequence,
     MissingStopCodon,
     NoTranscriptLeft,
