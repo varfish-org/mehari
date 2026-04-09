@@ -1224,7 +1224,7 @@ async fn run_with_writer(
             tracing::info!("Opening transcript database(s)");
             sources
                 .iter()
-                .map(|p| load_tx_db(p))
+                .map(load_tx_db)
                 .collect::<Result<Vec<_>, _>>()?
         }
         None => vec![],
