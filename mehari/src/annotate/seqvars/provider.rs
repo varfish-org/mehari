@@ -26,7 +26,7 @@ use hgvs::{
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -34,7 +34,7 @@ type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
 
 pub struct TxIntervalTrees {
     /// Mapping from contig accession to index in `trees`.
-    pub contig_to_idx: HashMap<String, usize>,
+    pub contig_to_idx: FxHashMap<String, usize>,
     /// Interval tree to index in `TxSeqDatabase::tx_db::transcripts`, for each contig.
     pub trees: Vec<IntervalTree>,
 }
@@ -48,9 +48,9 @@ impl TxIntervalTrees {
         }
     }
 
-    fn build_indices(db: &TxSeqDatabase) -> (HashMap<String, usize>, Vec<IntervalTree>) {
+    fn build_indices(db: &TxSeqDatabase) -> (FxHashMap<String, usize>, Vec<IntervalTree>) {
         let assembly_name = db.assembly();
-        let mut contig_to_idx = HashMap::new();
+        let mut contig_to_idx = FxHashMap::default();
         let mut trees: Vec<IntervalTree> = Vec::new();
 
         let tx_db = db.tx_db.as_ref().expect("no tx_db?");
@@ -201,20 +201,20 @@ pub struct Provider {
     pub contig_manager: Arc<ContigManager>,
 
     /// Mapping from gene identifier to index in `TxSeqDatabase::tx_db::gene_to_tx`.
-    gene_map: HashMap<String, u32>,
+    gene_map: FxHashMap<String, u32>,
 
     /// Mapping from transcript accession to index in `TxSeqDatabase::tx_db::transcripts`.
-    tx_map: HashMap<String, u32>,
+    tx_map: FxHashMap<String, u32>,
 
     /// Mapping from sequence accession to index in `TxSeqDatabase::seq_db::seqs`.
-    seq_map: HashMap<String, u32>,
+    seq_map: FxHashMap<String, u32>,
 
     /// Map from contig accession to common name (e.g., "NC_000001.11" -> "1")
     assembly_map: IndexMap<String, String>,
 
     /// Maps any known contig alias (e.g. "chr1", "NC_000001.11") to the exact
     /// string used in the database (e.g. "1")
-    contig_alias_map: HashMap<String, String>,
+    contig_alias_map: FxHashMap<String, String>,
 
     /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
@@ -304,7 +304,7 @@ impl Provider {
 
         let tx_trees = TxIntervalTrees::new(&tx_seq_db);
 
-        let mut contig_alias_map = HashMap::new();
+        let mut contig_alias_map = FxHashMap::default();
         if let Some(tx_db) = &tx_seq_db.tx_db {
             for tx in &tx_db.transcripts {
                 for aln in &tx.genome_alignments {
@@ -325,7 +325,7 @@ impl Provider {
             }
         }
 
-        let gene_map = HashMap::from_iter(
+        let gene_map = FxHashMap::from_iter(
             tx_seq_db
                 .tx_db
                 .as_ref()
@@ -336,7 +336,7 @@ impl Provider {
                 .enumerate()
                 .map(|(idx, entry)| (entry.gene_id.clone(), idx as u32)),
         );
-        let tx_map = HashMap::from_iter(
+        let tx_map = FxHashMap::from_iter(
             tx_seq_db
                 .tx_db
                 .as_ref()
@@ -347,7 +347,7 @@ impl Provider {
                 .enumerate()
                 .map(|(idx, tx)| (tx.id.clone(), idx as u32)),
         );
-        let seq_map = HashMap::from_iter(
+        let seq_map = FxHashMap::from_iter(
             tx_seq_db
                 .seq_db
                 .as_ref()
@@ -416,7 +416,7 @@ impl Provider {
     fn picked_genes_to_tx_map(
         tx_seq_db: &mut TxSeqDatabase,
         config: &Config,
-        tx_map: &HashMap<String, u32>,
+        tx_map: &FxHashMap<String, u32>,
     ) -> Option<Vec<GeneToTxId>> {
         if config.pick_transcript.is_empty() || tx_seq_db.tx_db.is_none() {
             return None;
@@ -470,7 +470,8 @@ impl Provider {
 
         // Process each gene.
         for entry in tx_db.gene_to_tx.iter() {
-            let mut longest_tx_per_source: HashMap<String, (bool, usize, i32)> = HashMap::new();
+            let mut longest_tx_per_source: FxHashMap<String, (bool, usize, i32)> =
+                FxHashMap::default();
             let mut tx_tags = entry
                 .tx_ids
                 .iter()
