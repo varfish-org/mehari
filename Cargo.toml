@@ -17,7 +17,7 @@ codegen-units = 1
 debug = true
 lto = false
 codegen-units = 128
-opt-level = 3
+opt-level = 1
 
 [profile.profiling]
 inherits = "release"
