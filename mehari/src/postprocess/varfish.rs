@@ -202,6 +202,7 @@ pub struct VarFishSeqvarTsvWriter {
     header: Option<VcfHeader>,
     hgnc_map: Option<FxHashMap<String, HgncRecord>>,
     tsv_contig_style: TsvContigStyle,
+    contig_manager: ContigManager,
 }
 
 impl VarFishSeqvarTsvWriter {
@@ -222,6 +223,7 @@ impl VarFishSeqvarTsvWriter {
             header: None,
             hgnc_map: None,
             tsv_contig_style,
+            contig_manager: ContigManager::new(""),
         })
     }
 
@@ -230,6 +232,7 @@ impl VarFishSeqvarTsvWriter {
     }
 
     pub fn set_assembly(&mut self, assembly: String) {
+        self.contig_manager = ContigManager::new(&assembly);
         self.assembly = assembly;
     }
 
@@ -322,8 +325,39 @@ impl VarFishSeqvarTsvWriter {
         tsv_record.release = self.assembly.clone();
         let name = record.reference_sequence_name();
 
-        tsv_record.chromosome = name.to_string();
-        tsv_record.chromosome_no = 0; // Contig manager removed; chromosome numbers handled downstream if needed
+        tsv_record.chromosome = match self.tsv_contig_style {
+            TsvContigStyle::Passthrough => name.to_string(),
+            TsvContigStyle::WithChr => self
+                .contig_manager
+                .get_contig_info(name)
+                .map(|info| info.name_with_chr)
+                .unwrap_or_else(|| name.to_string()),
+            TsvContigStyle::WithoutChr => self
+                .contig_manager
+                .get_contig_info(name)
+                .map(|info| info.name_without_chr)
+                .unwrap_or_else(|| name.to_string()),
+            TsvContigStyle::Auto => {
+                let is_grch38 = self.assembly.eq_ignore_ascii_case("grch38");
+                let is_grch37 = self.assembly.eq_ignore_ascii_case("grch37")
+                    || self.assembly.eq_ignore_ascii_case("grch37p10");
+
+                if is_grch38 {
+                    self.contig_manager
+                        .get_contig_info(name)
+                        .map(|info| info.name_with_chr)
+                        .unwrap_or_else(|| name.to_string())
+                } else if is_grch37 {
+                    self.contig_manager
+                        .get_contig_info(name)
+                        .map(|info| info.name_without_chr)
+                        .unwrap_or_else(|| name.to_string())
+                } else {
+                    name.to_string()
+                }
+            }
+        };
+        tsv_record.chromosome_no = self.contig_manager.get_chrom_no(name).unwrap_or(0);
 
         tsv_record.reference = record.reference_bases().to_string();
         tsv_record.alternative = record.alternate_bases().as_ref()[0].to_string();
@@ -878,7 +912,7 @@ mod tests {
             output: path_out.display().to_string(),
             hgnc: String::from("tests/data/annotate/db/hgnc.tsv"),
             tsv_contig_style: TsvContigStyle::Auto,
-            assembly: "".to_string(),
+            assembly: "GRCh38".to_string(),
         };
 
         run(&args_common, &args).await?;

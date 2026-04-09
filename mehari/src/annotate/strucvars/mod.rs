@@ -189,6 +189,7 @@ pub mod vcf_header {
             if is_canonical(sequence.name.as_ref()) {
                 let contig = Map::<Contig>::builder()
                     .set_length(sequence.length)
+                    .insert("assembly".parse()?, contig_manager.assembly().to_string())
                     .insert("accession".parse()?, sequence.refseq_ac.clone())
                     .build()?;
                 builder = builder.add_contig(sequence.name.clone(), contig);
@@ -3952,7 +3953,7 @@ mod test {
 
     #[test]
     fn build_vcf_header_37_no_pedigree() -> Result<(), anyhow::Error> {
-        let contig_manager = ContigManager::new("grch37");
+        let contig_manager = ContigManager::new("GRCh37");
         let header = vcf_header::build(
             &contig_manager,
             &Default::default(),
@@ -3974,7 +3975,7 @@ mod test {
 
     #[test]
     fn build_vcf_header_37_trio() -> Result<(), anyhow::Error> {
-        let contig_manager = ContigManager::new("grch37");
+        let contig_manager = ContigManager::new("GRCh37");
         let header = vcf_header::build(
             &contig_manager,
             &example_trio(),
@@ -4047,7 +4048,7 @@ mod test {
 
     #[test]
     fn build_vcf_header_38_no_pedigree() -> Result<(), anyhow::Error> {
-        let contig_manager = ContigManager::new("grch37");
+        let contig_manager = ContigManager::new("GRCh38");
         let header = vcf_header::build(
             &contig_manager,
             &Default::default(),
@@ -4233,7 +4234,7 @@ mod test {
 
     #[test]
     fn write_vcf_from_varfish_records() -> Result<(), anyhow::Error> {
-        let contig_manager = ContigManager::new("grch37");
+        let contig_manager = ContigManager::new("GRCh38");
         let header = vcf_header::build(
             &contig_manager,
             &example_trio(),

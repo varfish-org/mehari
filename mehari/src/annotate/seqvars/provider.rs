@@ -59,7 +59,10 @@ impl TxIntervalTrees {
         for (tx_id, tx) in tx_db.transcripts.iter().enumerate() {
             for genome_alignment in &tx.genome_alignments {
                 // Only index alignments matching the current assembly/build
-                if genome_alignment.genome_build == *assembly_name {
+                if genome_alignment
+                    .genome_build
+                    .eq_ignore_ascii_case(&assembly_name)
+                {
                     let contig = &genome_alignment.contig;
 
                     let contig_idx = *contig_to_idx.entry(contig.clone()).or_insert_with(|| {
@@ -103,10 +106,10 @@ impl TxIntervalTrees {
         start_i: i32,
         end_i: i32,
     ) -> Result<Vec<TxForRegionRecord>, Error> {
-        let contig_idx = *self
-            .contig_to_idx
-            .get(alt_ac)
-            .ok_or(Error::NoTranscriptFound(alt_ac.to_string()))?;
+        let contig_idx = match self.contig_to_idx.get(alt_ac) {
+            Some(idx) => *idx,
+            None => return Ok(Vec::new()),
+        };
         let query = start_i..end_i;
         let tx_idxs = self.trees[contig_idx].find(query);
 
@@ -281,7 +284,8 @@ impl Provider {
         if let Some(tx_db) = &tx_seq_db.tx_db {
             for tx in &tx_db.transcripts {
                 for aln in &tx.genome_alignments {
-                    if aln.genome_build == assembly_name && !assembly_map.contains_key(&aln.contig)
+                    if aln.genome_build.eq_ignore_ascii_case(&assembly_name)
+                        && !assembly_map.contains_key(&aln.contig)
                     {
                         let common_name = contig_manager
                             .get_primary_name(&aln.contig)
@@ -890,11 +894,10 @@ impl ProviderInterface for Provider {
         start_i: i32,
         end_i: i32,
     ) -> Result<Vec<TxForRegionRecord>, Error> {
-        let contig_idx = *self
-            .tx_trees
-            .contig_to_idx
-            .get(alt_ac)
-            .ok_or(Error::NoTranscriptFound(alt_ac.to_string()))?;
+        let contig_idx = match self.tx_trees.contig_to_idx.get(alt_ac) {
+            Some(idx) => *idx,
+            None => return Ok(Vec::new()),
+        };
         let query = start_i..end_i;
         let tx_idxs = self.tx_trees.trees[contig_idx].find(query);
 
@@ -1032,7 +1035,7 @@ impl ProviderInterface for Provider {
         let options = tx
             .genome_alignments
             .iter()
-            .filter(|aln| aln.genome_build == current_build)
+            .filter(|aln| aln.genome_build.eq_ignore_ascii_case(&current_build))
             .map(|aln| TxMappingOptionsRecord {
                 tx_ac: tx_ac.to_string(),
                 alt_ac: aln.contig.clone(),
