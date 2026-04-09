@@ -353,7 +353,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
 
     let mut enabled_sources = vec![];
     for assembly in all_releases.iter() {
-        let contig_manager = Arc::new(ContigManager::new(&assembly));
+        let contig_manager = Arc::new(ContigManager::new(assembly));
         let reference_path = reference_paths.get(&assembly.clone());
 
         tracing::info!("Loading data for assembly {:?}...", &assembly);
@@ -369,7 +369,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
             }
 
             tracing::info!("Building seqvars predictors for {}...", &assembly);
-            let tx_dbs = load_transcript_dbs_for_assembly(tx_db_paths, &assembly)?;
+            let tx_dbs = load_transcript_dbs_for_assembly(tx_db_paths, assembly)?;
             if tx_dbs.is_empty() {
                 tracing::warn!(
                     "No transcript databases loaded for {}, respective endpoints will be unavailable.",
@@ -421,7 +421,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
             tracing::info!("Loading frequency data for {:?}...", assembly);
             let annotators = initialize_frequency_annotators_for_assembly(
                 std::slice::from_ref(freq_path),
-                &assembly,
+                assembly,
                 contig_manager.clone(),
             )?;
             if let Some(frequency_db) = annotators.into_iter().next() {
@@ -441,7 +441,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
             tracing::info!("Loading ClinVar data for {:?}...", assembly.clone());
             let annotators = initialize_clinvar_annotators_for_assembly(
                 std::slice::from_ref(clinvar_path),
-                &assembly,
+                assembly,
                 contig_manager.clone(),
             )?;
             if let Some(annotator) = annotators.into_iter().next() {
