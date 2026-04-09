@@ -1,6 +1,6 @@
 //! Implementation of `hgvs` Provider interface based on protobuf.
 
-use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType, TranscriptSource};
+use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType};
 use crate::annotate::seqvars::reference::{
     InMemoryFastaAccess, ReferenceReader, UnbufferedIndexedFastaAccess,
 };
@@ -428,20 +428,22 @@ impl Provider {
             }
         }
 
-        let transcript_id_to_source = |tx_id: &str| -> TranscriptSource {
+        // FIXME: This source classification is a legacy artifact for VarFish TSV compatibility.
+        //   It should be removed once the varfish tsv export/import is updated.
+        let transcript_id_to_source = |tx_id: &str| -> String {
             if tx_id.starts_with("ENST") {
-                TranscriptSource::Ensembl
-            } else if tx_id.starts_with("N") || tx_id.starts_with("X") {
-                TranscriptSource::RefSeq
+                "Ensembl".to_string()
+            } else if tx_id.starts_with('N') || tx_id.starts_with('X') {
+                "RefSeq".to_string()
             } else {
-                panic!("Unknown transcript ID format: {}", tx_id);
+                // Safe fallback for arbitrary databases (e.g., TAIR10, custom assemblies)
+                "Other".to_string()
             }
         };
 
         // Process each gene.
         for entry in tx_db.gene_to_tx.iter() {
-            let mut longest_tx_per_source: HashMap<TranscriptSource, (bool, usize, i32)> =
-                HashMap::new();
+            let mut longest_tx_per_source: HashMap<String, (bool, usize, i32)> = HashMap::new();
             let mut tx_tags = entry
                 .tx_ids
                 .iter()

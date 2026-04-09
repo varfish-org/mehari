@@ -3,7 +3,7 @@ use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
     provider::Provider as MehariProvider,
 };
-use crate::annotate::cli::{ConsequenceBy, TranscriptSource};
+use crate::annotate::cli::ConsequenceBy;
 use crate::annotate::seqvars::ann::{
     ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, FeatureTag, GroupedAlleles,
 };
@@ -43,10 +43,6 @@ pub struct VcfVariant {
 #[derive(Debug, Clone, derive_builder::Builder)]
 #[builder(pattern = "immutable")]
 pub struct Config {
-    /// The transcript source to use.
-    #[builder(default = "TranscriptSource::Both")]
-    pub transcript_source: TranscriptSource,
-
     /// Whether to report only the worst consequence for each picked transcript.
     #[builder(default)]
     pub report_most_severe_consequence_by: Option<ConsequenceBy>,
@@ -368,19 +364,6 @@ impl ConsequencePredictor {
 
     // Filter transcripts to the picked ones from the selected transcript source.
     fn filter_picked_sourced_txs(&self, txs: Vec<TxForRegionRecord>) -> Vec<TxForRegionRecord> {
-        fn is_ensembl(tx: &TxForRegionRecord) -> bool {
-            tx.tx_ac.starts_with("ENST")
-        }
-
-        let txs = match self.config.transcript_source {
-            TranscriptSource::Ensembl => txs.into_iter().filter(is_ensembl).collect::<Vec<_>>(),
-            TranscriptSource::RefSeq => txs
-                .into_iter()
-                .filter(|tx| !is_ensembl(tx))
-                .collect::<Vec<_>>(),
-            TranscriptSource::Both => txs,
-        };
-
         // Short-circuit if transcript picking has been disabled.
         if !self.provider.transcript_picking() {
             return txs;
@@ -3151,7 +3134,7 @@ mod test {
                 threads: 1,
                 reference: None,
                 in_memory_reference: true,
-                assembly: "grch38".into(),
+                assembly: Some("grch38".into()),
                 input: path_input_vcf.into(),
                 output: output.as_ref().to_str().unwrap().into(),
                 output_format: OutputFormat::Vcf,

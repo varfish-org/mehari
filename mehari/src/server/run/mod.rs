@@ -389,11 +389,6 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                             .transcript_settings
                             .report_most_severe_consequence_by,
                     )
-                    .transcript_source(
-                        args.predictor_settings
-                            .transcript_settings
-                            .transcript_source,
-                    )
                     .build()?;
 
                 let provider = annotator.predictor.provider.clone();

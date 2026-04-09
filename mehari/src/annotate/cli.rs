@@ -62,10 +62,6 @@ impl PredictorSettings {
 
 #[derive(Debug, ClapArgs, Default, Clone)]
 pub struct TranscriptSettings {
-    /// The transcript source.
-    #[arg(long, value_enum, default_value_t = TranscriptSource::Both)]
-    pub transcript_source: TranscriptSource,
-
     /// Whether to report only the most severe consequence, grouped by gene, transcript, or allele.
     #[arg(long)]
     pub report_most_severe_consequence_by: Option<ConsequenceBy>,
@@ -177,29 +173,6 @@ pub enum TranscriptPickMode {
     First,
     #[default]
     All,
-}
-
-/// Enum that allows to select the transcript source.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Default,
-    Hash,
-    serde::Deserialize,
-    serde::Serialize,
-    clap::ValueEnum,
-)]
-pub enum TranscriptSource {
-    /// ENSEMBL
-    Ensembl,
-    /// RefSeq
-    RefSeq,
-    /// Both
-    #[default]
-    Both,
 }
 
 #[derive(Debug, clap::Args, Default, Clone)]
