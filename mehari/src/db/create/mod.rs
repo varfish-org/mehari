@@ -6,119 +6,42 @@ use crate::pbs::txs::{SourceVersion, TxSeqDatabase};
 use anyhow::{Error, anyhow};
 use cli::Args;
 use derive_new::new;
-use enumflags2::{BitFlag, BitFlags, bitflags};
-use hgvs::data::cdot::json::models;
+use enumflags2::{BitFlag, BitFlags};
+use hgvs::data::cdot::json::models as cdot_models;
 use hgvs::data::cdot::json::models::{BioType, Gene, GenomeAlignment, Tag, Transcript};
 use hgvs::sequences::{TranslationTable, translate_cds};
 use indexmap::IndexMap;
 use itertools::Itertools;
+use models::{GeneId, Identifier, LabelEntry, ReportEntry};
 use noodles::gff::feature::record::Strand;
 use noodles::gff::feature::record_buf::attributes::field::tag;
-use nutype::nutype;
 use once_cell::sync::Lazy;
 use prost::Message;
 use rayon::iter::Either;
 use rayon::prelude::*;
 use reference::SequenceProvider;
 use seqrepo::AliasOrSeqId;
-use serde::Serialize;
 use serde_json::json;
 use serde_with::DisplayFromStr;
-use serde_with::serde_as;
 use std::cmp::{PartialEq, Reverse};
 use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::ops::Not;
 use std::path::Path;
-use std::str::FromStr;
 use std::{io::Write, time::Instant};
 use strum::Display;
 use thousands::Separable;
 
-mod cli;
-mod reference;
+pub(crate) mod cli;
+pub mod models;
+pub mod reference;
+
+use models::*;
 
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1", "NC_001807.4"];
 
-/// Helper struct for parsing the label TSV file.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
-struct LabelEntry {
-    /// Transcript identifier without version.
-    transcript_id: String,
-    /// Transcript version.
-    transcript_version: usize,
-    /// Gene symbol (unused).
-    _gene_symbol: String,
-    /// Label to transfer.
-    label: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub enum GeneId {
-    Hgnc(usize),
-    Gene(String),
-}
-
-impl Display for GeneId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GeneId::Hgnc(id) => write!(f, "HGNC:{}", id),
-            GeneId::Gene(id) => write!(f, "GENE:{}", id),
-        }
-    }
-}
-
-impl FromStr for GeneId {
-    type Err = std::num::ParseIntError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(num_str) = s.strip_prefix("HGNC:") {
-            num_str.parse::<usize>().map(GeneId::Hgnc)
-        } else if let Some(gene_str) = s.strip_prefix("GENE:") {
-            Ok(GeneId::Gene(gene_str.to_string()))
-        } else {
-            s.parse::<usize>().map(GeneId::Hgnc)
-        }
-    }
-}
-
-#[nutype(
-    sanitize(trim),
-    validate(not_empty),
-    derive(
-        Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, AsRef, Deref, Borrow, Into,
-        Display
-    )
-)]
-struct TranscriptId(String);
-
-impl TranscriptId {
-    fn without_version(&self) -> Result<Self, Error> {
-        Ok(Self::try_new(
-            self.as_ref()
-                .split('.')
-                .next()
-                .ok_or(anyhow!("No version to split off"))?,
-        )?)
-    }
-
-    fn split_version(&self) -> (&str, u32) {
-        let (ac, version) = self.rsplit_once('.').unwrap_or_else(|| {
-            panic!("Invalid accession, expected format 'ac.version', got {self}")
-        });
-        (ac, version.parse::<u32>().expect("invalid version"))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Hash)]
-#[serde(tag = "type", content = "value")]
-enum Identifier {
-    Gene(GeneId),
-    Transcript(TranscriptId),
-}
 trait TranscriptExt {
     fn cds_length(&self) -> Option<u32>;
 
@@ -415,9 +338,9 @@ impl TranscriptLoader {
             let cds_end_genomic = cds_fragments.iter().map(|c| c.1).max();
 
             let tx_strand = if is_reverse {
-                models::Strand::Minus
+                cdot_models::Strand::Minus
             } else {
-                models::Strand::Plus
+                cdot_models::Strand::Plus
             };
 
             let mut current_tx_pos = 0;
@@ -449,7 +372,7 @@ impl TranscriptLoader {
                         }
                     }
 
-                    let exon_record = models::Exon {
+                    let exon_record = cdot_models::Exon {
                         alt_start_i: start,
                         alt_end_i: end,
                         ord: i as i32,
@@ -520,7 +443,7 @@ impl TranscriptLoader {
 
     /// Load and extract from cdot JSON.
     fn load_cdot(&mut self, path: impl AsRef<Path>) -> Result<(), Error> {
-        let models::Container {
+        let cdot_models::Container {
             genes: cdot_genes,
             transcripts: cdot_transcripts,
             cdot_version,
@@ -1745,8 +1668,8 @@ impl TranscriptLoader {
             ..
         } = alignment.clone();
         let strand = match alignment.strand {
-            models::Strand::Plus => crate::pbs::txs::Strand::Plus,
-            models::Strand::Minus => crate::pbs::txs::Strand::Minus,
+            cdot_models::Strand::Plus => crate::pbs::txs::Strand::Plus,
+            cdot_models::Strand::Minus => crate::pbs::txs::Strand::Minus,
         };
         if let Some(tag) = alignment.tag.as_ref() {
             for t in tag {
@@ -1804,7 +1727,7 @@ impl TranscriptLoader {
             .exons
             .iter()
             .map(|exon| {
-                let models::Exon {
+                let cdot_models::Exon {
                     alt_start_i,
                     alt_end_i,
                     ord,
@@ -1851,101 +1774,6 @@ fn append_poly_a(seq: String, length: usize) -> String {
     String::from_utf8(seq).expect("must be valid UTF-8")
 }
 
-#[bitflags]
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, Serialize, Hash, PartialEq, Eq)]
-pub(crate) enum Reason {
-    Biotype,
-    CdsEndAfterSequenceEnd,
-    DeselectedGene,
-    EmptyGenomeBuilds,
-    FivePrimeEndTruncated,
-    InvalidCdsLength,
-    MissingGene,
-    MissingGeneSymbol,
-    MissingGeneId,
-    MissingSequence,
-    MissingStopCodon,
-    NoTranscriptLeft,
-    NoTranscripts,
-    OldVersion,
-    OnlyPartialAlignmentInRefSeq,
-    PredictedTranscript,
-    PredictedTranscriptsOnly,
-    Pseudogene,
-    ThreePrimeEndTruncated,
-    TranscriptPriority,
-    UseNmTranscriptInsteadOfNr,
-    CdsStartOrEndNotConfirmed,
-}
-
-impl Reason {
-    /// Reasons that make a transcript completely unusable (Hard Filter).
-    pub fn hard() -> BitFlags<Reason> {
-        Reason::MissingSequence
-            | Reason::EmptyGenomeBuilds
-            | Reason::DeselectedGene
-            | Reason::NoTranscripts
-            | Reason::NoTranscriptLeft
-    }
-
-    #[allow(dead_code)]
-    /// Reasons that mean the transcript is flawed but salvageable (Soft Filter).
-    pub fn soft() -> BitFlags<Reason> {
-        BitFlags::all() ^ Self::hard()
-    }
-}
-
-#[bitflags]
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, Serialize, Hash, PartialEq, Eq)]
-enum Fix {
-    Cds,
-    GenomeBuild,
-    Tags,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", content = "value")]
-enum ReportEntry {
-    Discard(Discard),
-    SoftFilter(SoftFilter),
-    Fix(LogFix),
-    Log(serde_json::Value),
-}
-#[serde_as]
-#[derive(Debug, Clone, Serialize)]
-struct Discard {
-    source: String,
-    #[serde_as(as = "DisplayFromStr")]
-    reason: BitFlags<Reason>,
-    id: Identifier,
-    gene_name: Option<String>,
-    tags: Option<Vec<Tag>>,
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Serialize)]
-struct SoftFilter {
-    source: String,
-    #[serde_as(as = "DisplayFromStr")]
-    reason: BitFlags<Reason>,
-    id: Identifier,
-    gene_name: Option<String>,
-    tags: Option<Vec<Tag>>,
-}
-
-#[serde_as]
-#[derive(Debug, Clone, Serialize)]
-struct LogFix {
-    source: String,
-    #[serde_as(as = "DisplayFromStr")]
-    fix: BitFlags<Fix>,
-    id: Identifier,
-    gene_name: Option<String>,
-    tags: Option<Vec<Tag>>,
-}
-
 fn txid_to_label(
     label_tsv_path: impl AsRef<Path>,
 ) -> Result<HashMap<TranscriptId, Vec<FeatureTag>>, Error> {
@@ -1968,7 +1796,7 @@ fn txid_to_label(
                                     .label
                                     .split(',')
                                     .map(|s| {
-                                        let cdot_tag = models::str_to_tag(s);
+                                        let cdot_tag = cdot_models::str_to_tag(s);
                                         FeatureTag::from(cdot_tag)
                                     })
                                     .collect::<Vec<_>>(),
@@ -1979,7 +1807,7 @@ fn txid_to_label(
         })
         .collect()
 }
-pub(crate) fn read_cdot_json(path: impl AsRef<Path>) -> Result<models::Container, Error> {
+pub(crate) fn read_cdot_json(path: impl AsRef<Path>) -> Result<cdot_models::Container, Error> {
     Ok(if path.as_ref().extension().unwrap_or_default() == "gz" {
         tracing::info!("(from gzip compressed file)");
         serde_json::from_reader(std::io::BufReader::new(flate2::read::GzDecoder::new(
@@ -2237,8 +2065,9 @@ pub mod test {
     use temp_testdir::TempDir;
 
     use crate::common::Args as CommonArgs;
+    use crate::db::create::TranscriptLoader;
     use crate::db::create::cli::Args;
-    use crate::db::create::{GeneId, TranscriptLoader};
+    use crate::db::create::models::GeneId;
     use crate::db::dump;
 
     use super::run;

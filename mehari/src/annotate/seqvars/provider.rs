@@ -6,7 +6,7 @@ use crate::annotate::seqvars::reference::{
 };
 use crate::common::contig::ContigManager;
 use crate::db::TranscriptDatabase;
-use crate::db::create::Reason;
+use crate::db::create::models::Reason;
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
     pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
