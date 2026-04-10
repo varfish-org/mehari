@@ -1,6 +1,7 @@
 ---
 source: mehari/src/db/create/mod.rs
 expression: "String::from_utf8(buf)?"
+snapshot_kind: text
 ---
 txDb:
   transcripts:
@@ -319,7 +320,7 @@ txDb:
     filtered: false
   - id: ENST00000386347.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000209082
+    geneId: GENE:ENSG00000209082
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -337,7 +338,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387314.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210049
+    geneId: GENE:ENSG00000210049
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -355,7 +356,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387342.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210077
+    geneId: GENE:ENSG00000210077
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -373,7 +374,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387365.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210100
+    geneId: GENE:ENSG00000210100
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -391,7 +392,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387372.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210107
+    geneId: GENE:ENSG00000210107
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -409,7 +410,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387377.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210112
+    geneId: GENE:ENSG00000210112
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -427,7 +428,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387382.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210117
+    geneId: GENE:ENSG00000210117
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -445,7 +446,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387392.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210127
+    geneId: GENE:ENSG00000210127
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -463,7 +464,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387400.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210135
+    geneId: GENE:ENSG00000210135
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -481,7 +482,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387405.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210140
+    geneId: GENE:ENSG00000210140
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -499,7 +500,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387409.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210144
+    geneId: GENE:ENSG00000210144
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -517,7 +518,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387416.2
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210151
+    geneId: GENE:ENSG00000210151
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -535,7 +536,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387419.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210154
+    geneId: GENE:ENSG00000210154
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -553,7 +554,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387421.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210156
+    geneId: GENE:ENSG00000210156
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -571,7 +572,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387429.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210164
+    geneId: GENE:ENSG00000210164
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -589,7 +590,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387439.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210174
+    geneId: GENE:ENSG00000210174
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -607,7 +608,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387441.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210176
+    geneId: GENE:ENSG00000210176
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -625,7 +626,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387449.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210184
+    geneId: GENE:ENSG00000210184
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -643,7 +644,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387456.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210191
+    geneId: GENE:ENSG00000210191
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -661,7 +662,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387459.1
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210194
+    geneId: GENE:ENSG00000210194
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -679,7 +680,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387460.2
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210195
+    geneId: GENE:ENSG00000210195
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -697,7 +698,7 @@ txDb:
     filterReason: 384
   - id: ENST00000387461.2
     geneSymbol: <MISSING>
-    geneId: FALLBACK:ENSG00000210196
+    geneId: GENE:ENSG00000210196
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -774,112 +775,112 @@ txDb:
     txIds:
     - ENST00000387347.2
     filtered: false
-  - geneId: FALLBACK:ENSG00000209082
+  - geneId: GENE:ENSG00000209082
     txIds:
     - ENST00000386347.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210049
+  - geneId: GENE:ENSG00000210049
     txIds:
     - ENST00000387314.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210077
+  - geneId: GENE:ENSG00000210077
     txIds:
     - ENST00000387342.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210100
+  - geneId: GENE:ENSG00000210100
     txIds:
     - ENST00000387365.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210107
+  - geneId: GENE:ENSG00000210107
     txIds:
     - ENST00000387372.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210112
+  - geneId: GENE:ENSG00000210112
     txIds:
     - ENST00000387377.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210117
+  - geneId: GENE:ENSG00000210117
     txIds:
     - ENST00000387382.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210127
+  - geneId: GENE:ENSG00000210127
     txIds:
     - ENST00000387392.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210135
+  - geneId: GENE:ENSG00000210135
     txIds:
     - ENST00000387400.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210140
+  - geneId: GENE:ENSG00000210140
     txIds:
     - ENST00000387405.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210144
+  - geneId: GENE:ENSG00000210144
     txIds:
     - ENST00000387409.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210151
+  - geneId: GENE:ENSG00000210151
     txIds:
     - ENST00000387416.2
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210154
+  - geneId: GENE:ENSG00000210154
     txIds:
     - ENST00000387419.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210156
+  - geneId: GENE:ENSG00000210156
     txIds:
     - ENST00000387421.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210164
+  - geneId: GENE:ENSG00000210164
     txIds:
     - ENST00000387429.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210174
+  - geneId: GENE:ENSG00000210174
     txIds:
     - ENST00000387439.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210176
+  - geneId: GENE:ENSG00000210176
     txIds:
     - ENST00000387441.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210184
+  - geneId: GENE:ENSG00000210184
     txIds:
     - ENST00000387449.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210191
+  - geneId: GENE:ENSG00000210191
     txIds:
     - ENST00000387456.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210194
+  - geneId: GENE:ENSG00000210194
     txIds:
     - ENST00000387459.1
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210195
+  - geneId: GENE:ENSG00000210195
     txIds:
     - ENST00000387460.2
     filtered: false
     filterReason: 128
-  - geneId: FALLBACK:ENSG00000210196
+  - geneId: GENE:ENSG00000210196
     txIds:
     - ENST00000387461.2
     filtered: false
