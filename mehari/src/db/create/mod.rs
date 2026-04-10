@@ -273,7 +273,9 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
             source_version,
             annotation_version,
             annotation_name,
+            #[allow(deprecated)]
             assembly_enum: assembly_enum.into(),
+            #[allow(deprecated)]
             source_name_enum: source_name_enum.into(),
         }
     }

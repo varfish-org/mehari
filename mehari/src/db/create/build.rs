@@ -335,6 +335,7 @@ fn protobuf_genome_alignment(
         _ => GenomeBuild::Unknown,
     };
     let genome_alignment = crate::pbs::txs::GenomeAlignment {
+        #[allow(deprecated)]
         genome_build_enum: genome_build_enum.into(),
         genome_build,
         contig,

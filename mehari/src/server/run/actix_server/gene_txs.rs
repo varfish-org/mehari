@@ -103,14 +103,13 @@ impl From<GenesTranscriptsListQuery> for GeneTranscriptsQuery {
             genome_build: Some(match val.genome_build {
                 Assembly::Grch38 => String::from("grch38"),
                 Assembly::Grch37 => String::from("grch37"),
-                _ => String::from("unknown"),
             }),
             hgnc_id: Some(val.hgnc_id),
+            #[allow(deprecated)]
             genome_build_enum: Some(
                 match val.genome_build {
                     Assembly::Grch37 => GenomeBuild::Grch37,
                     Assembly::Grch38 => GenomeBuild::Grch38,
-                    _ => GenomeBuild::Unknown,
                 }
                 .into(),
             ),
