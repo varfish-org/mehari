@@ -4,7 +4,7 @@ use crate::annotate::seqvars::ann::FeatureTag;
 use crate::common::trace_rss_now;
 use crate::pbs::txs::{SourceVersion, TxSeqDatabase};
 use anyhow::{Error, anyhow};
-use clap::Parser;
+use cli::Args;
 use derive_new::new;
 use enumflags2::{BitFlag, BitFlags, bitflags};
 use hgvs::data::cdot::json::models;
@@ -12,7 +12,6 @@ use hgvs::data::cdot::json::models::{BioType, Gene, GenomeAlignment, Tag, Transc
 use hgvs::sequences::{TranslationTable, translate_cds};
 use indexmap::IndexMap;
 use itertools::Itertools;
-use noodles::core::Region;
 use noodles::gff::feature::record::Strand;
 use noodles::gff::feature::record_buf::attributes::field::tag;
 use nutype::nutype;
@@ -20,7 +19,8 @@ use once_cell::sync::Lazy;
 use prost::Message;
 use rayon::iter::Either;
 use rayon::prelude::*;
-use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
+use reference::SequenceProvider;
+use seqrepo::AliasOrSeqId;
 use serde::Serialize;
 use serde_json::json;
 use serde_with::DisplayFromStr;
@@ -30,238 +30,18 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
-use std::ops::{Not, RangeFull};
+use std::ops::Not;
 use std::path::Path;
 use std::str::FromStr;
-use std::{io::Write, path::PathBuf, time::Instant};
+use std::{io::Write, time::Instant};
 use strum::Display;
 use thousands::Separable;
 
+mod cli;
+mod reference;
+
 /// Mitochondrial accessions.
 const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1", "NC_001807.4"];
-
-/// Command line arguments for `db create txs` sub command.
-#[derive(Parser, Debug)]
-#[command(about = "Construct mehari transcripts and sequence database", long_about = None)]
-pub struct Args {
-    /// Targeted genome assembly to extract transcripts for.
-    #[arg(long)]
-    pub assembly: String,
-
-    /// Version of the genome assembly, e.g. "GRCh37.p13".
-    #[arg(long)]
-    pub assembly_version: Option<String>,
-
-    /// Paths to the transcript annotations to import (cdot JSON or arbitrary GFF3).
-    #[arg(long, required = true)]
-    pub annotation: Vec<PathBuf>,
-
-    /// Version of annotation data (if applicable).
-    #[arg(long)]
-    pub annotation_version: Option<String>,
-
-    /// Source of the transcripts. For example "RefSeq" or "Ensembl".
-    #[arg(long)]
-    pub transcript_source: String,
-
-    /// Version of the transcript source. E.g. "112" for Ensembl.
-    #[arg(long, required_if_eq("transcript_source", "ensembl"))]
-    pub transcript_source_version: Option<String>,
-
-    /// Path to the seqrepo instance directory to use.
-    #[arg(long, required_unless_present = "transcript_sequences")]
-    pub seqrepo: Option<PathBuf>,
-
-    /// Path to FASTA file(s) containing transcript sequences (alternative to seqrepo).
-    #[arg(long, required_unless_present = "seqrepo")]
-    pub transcript_sequences: Option<PathBuf>,
-
-    /// Path to TSV file for label transfer of transcripts.  Columns are
-    /// transcript id (without version), (unused) gene symbol, and label.
-    #[arg(long)]
-    pub mane_transcripts: Option<PathBuf>,
-
-    /// Disable rigorous filtering (useful for custom annotations).
-    #[arg(long, default_value = "false")]
-    pub disable_filters: bool,
-
-    /// Number of threads to use for steps supporting parallel processing.
-    #[arg(long, default_value = "1")]
-    pub threads: usize,
-
-    /// ZSTD compression level to use.
-    #[arg(long, default_value = "19")]
-    pub compression_level: i32,
-
-    /// Path to output protobuf file to write to.
-    #[arg(long)]
-    pub output: PathBuf,
-}
-
-pub struct BasicIndexedFasta {
-    fasta_path: PathBuf,
-    index: noodles::fasta::fai::Index,
-}
-
-impl BasicIndexedFasta {
-    pub fn new(fasta_path: PathBuf, index_path: PathBuf) -> Result<Self, Error> {
-        let index = File::open(index_path)
-            .map(BufReader::new)
-            .map(noodles::fasta::fai::io::Reader::new)?
-            .read_index()?;
-        Ok(Self { fasta_path, index })
-    }
-
-    pub fn get_sequence(&self, id: &str) -> Result<Option<String>, Error> {
-        let clean_id = id.strip_prefix("transcript:").unwrap_or(id);
-        let clean_id_base = clean_id.split('.').next().unwrap_or(clean_id);
-
-        let mut exact_name = None;
-        for record in self.index.as_ref() {
-            let rec_name = String::from_utf8_lossy(record.name());
-            let rec_name_base = rec_name.split('.').next().unwrap_or(&rec_name);
-
-            if rec_name == clean_id {
-                exact_name = Some(rec_name.to_string());
-                break;
-            } else if exact_name.is_none() && rec_name_base == clean_id_base {
-                exact_name = Some(rec_name.to_string());
-            }
-        }
-
-        let target_name = match exact_name {
-            Some(name) => name,
-            None => {
-                tracing::debug!(
-                    "Sequence not found in FAI index for clean_id: '{}' (original id: '{}')",
-                    clean_id,
-                    id
-                );
-                return Ok(None);
-            }
-        };
-
-        let mut reader = File::open(&self.fasta_path)
-            .map(BufReader::new)
-            .map(|r| noodles::fasta::io::IndexedReader::new(r, self.index.clone()))?;
-
-        let region = Region::new::<String, RangeFull>(target_name, RangeFull);
-        match reader.query(&region) {
-            Ok(record) => {
-                let seq = String::from_utf8(record.sequence().as_ref().to_vec())?;
-                Ok(Some(seq))
-            }
-            Err(e) => {
-                tracing::warn!("Failed to query region from indexed FASTA: {}", e);
-                Ok(None)
-            }
-        }
-    }
-}
-
-pub enum SequenceProvider {
-    SeqRepo(SeqRepo),
-    IndexedFasta(BasicIndexedFasta),
-    FastaMap(HashMap<String, String>),
-}
-
-impl SequenceProvider {
-    fn fetch_sequence(&self, alias: &AliasOrSeqId) -> Result<String, Error> {
-        let id = match alias {
-            AliasOrSeqId::Alias { value, .. } => value,
-            AliasOrSeqId::SeqId(id) => id,
-        };
-
-        match self {
-            SequenceProvider::SeqRepo(repo) => repo.fetch_sequence(alias).map_err(Into::into),
-            SequenceProvider::FastaMap(map) => {
-                let clean_id = id.strip_prefix("transcript:").unwrap_or(id);
-
-                map.get(clean_id)
-                    .or_else(|| map.get(clean_id.split('.').next().unwrap_or("")))
-                    .cloned()
-                    .ok_or_else(|| {
-                        tracing::debug!(
-                            "Sequence not found in FASTA map for clean_id: '{}' (original id: '{}')",
-                            clean_id, id
-                        );
-                        anyhow!("Sequence not found in FASTA map for {}", id)
-                    })
-            }
-            SequenceProvider::IndexedFasta(reader) => {
-                if let Some(seq) = reader.get_sequence(id)? {
-                    return Ok(seq);
-                }
-
-                Err(anyhow!("Sequence not found in indexed FASTA for {}", id))
-            }
-        }
-    }
-}
-
-fn open_sequence_provider(args: &Args) -> Result<SequenceProvider, Error> {
-    if let Some(seqrepo_path) = &args.seqrepo {
-        return Ok(SequenceProvider::SeqRepo(open_seqrepo(seqrepo_path)?));
-    }
-
-    if let Some(fasta_path) = &args.transcript_sequences {
-        let mut fai_path = fasta_path.clone();
-        fai_path.as_mut_os_string().push(".fai");
-
-        if fai_path.exists() {
-            tracing::info!(
-                "Opening indexed FASTA: {} (using index {})",
-                fasta_path.display(),
-                fai_path.display()
-            );
-            return Ok(SequenceProvider::IndexedFasta(BasicIndexedFasta::new(
-                fasta_path.clone(),
-                fai_path,
-            )?));
-        }
-
-        tracing::info!(
-            "Loading non-indexed FASTA into memory: {}",
-            fasta_path.display()
-        );
-        let mut map = HashMap::new();
-        let file = File::open(fasta_path)?;
-
-        let is_gz = fasta_path
-            .extension()
-            .map(|ext| ext == "gz" || ext == "bgz")
-            .unwrap_or(false);
-
-        let buf_reader: Box<dyn std::io::BufRead> = if is_gz {
-            Box::new(noodles_bgzf::io::Reader::new(file))
-        } else {
-            Box::new(BufReader::new(file))
-        };
-
-        let mut reader = noodles::fasta::io::Reader::new(buf_reader);
-        for result in reader.records() {
-            let record = result?;
-            let raw_name = String::from_utf8_lossy(record.name()).to_string();
-
-            let id = raw_name
-                .split_whitespace()
-                .next()
-                .unwrap_or(&raw_name)
-                .to_string();
-            let seq = String::from_utf8_lossy(record.sequence().as_ref()).to_string();
-
-            if let Some((base, _version)) = id.split_once('.') {
-                map.insert(base.to_string(), seq.clone());
-            }
-
-            map.insert(id, seq);
-        }
-        return Ok(SequenceProvider::FastaMap(map));
-    }
-
-    // clap guarantees this is unreachable, but we need to keep the compiler happy
-    unreachable!("Either seqrepo or transcript_sequences must be set");
-}
 
 /// Helper struct for parsing the label TSV file.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
@@ -275,6 +55,7 @@ struct LabelEntry {
     /// Label to transfer.
     label: String,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub enum GeneId {
     Hgnc(usize),
@@ -2210,29 +1991,6 @@ pub(crate) fn read_cdot_json(path: impl AsRef<Path>) -> Result<models::Container
     })
 }
 
-/// Create file-backed `SeqRepo`.
-fn open_seqrepo(path: impl AsRef<Path>) -> Result<SeqRepo, Error> {
-    tracing::info!("Opening seqrepo…");
-    let start = Instant::now();
-    let seqrepo = PathBuf::from(path.as_ref());
-    let p = path.as_ref().to_str();
-    let path = seqrepo
-        .parent()
-        .ok_or(anyhow::anyhow!("Could not get parent from {:?}", &p))?
-        .to_str()
-        .unwrap()
-        .to_string();
-    let instance = seqrepo
-        .file_name()
-        .ok_or(anyhow::anyhow!("Could not get basename from {:?}", &p))?
-        .to_str()
-        .unwrap()
-        .to_string();
-    let seqrepo = SeqRepo::new(path, &instance)?;
-    tracing::info!("… seqrepo opened in {:?}", start.elapsed());
-    Ok(seqrepo)
-}
-
 /// Load the annotations (JSON or GFF3).
 fn load_annotations(args: &Args) -> Result<TranscriptLoader, Error> {
     tracing::info!("Loading annotations …");
@@ -2330,7 +2088,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         tx_data.filter_empty_gene_id_mappings()?;
 
         // Open seqrepo / FASTA …
-        let mut seq_provider = open_sequence_provider(args)?;
+        let mut seq_provider = reference::open_sequence_provider(args)?;
         // … and filter transcripts based on their sequences,
         // e.g. checking whether their translation contains a stop codon …
         let mut sequence_map = tx_data.filter_transcripts_with_sequence(&mut seq_provider)?;
@@ -2479,10 +2237,11 @@ pub mod test {
     use temp_testdir::TempDir;
 
     use crate::common::Args as CommonArgs;
+    use crate::db::create::cli::Args;
     use crate::db::create::{GeneId, TranscriptLoader};
     use crate::db::dump;
 
-    use super::{Args, run};
+    use super::run;
 
     #[test]
     fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {

@@ -92,6 +92,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Args, Parser, Subcommand};
+use mehari::db::create;
 #[cfg(feature = "server")]
 use mehari::server;
 use mehari::{annotate, common, db, verify};
@@ -145,7 +146,7 @@ struct Db {
 /// Enum supporting the parsing of "db *" sub commands.
 #[derive(Debug, Subcommand)]
 enum DbCommands {
-    Create(db::create::Args),
+    Create(create::cli::Args),
     Check(db::check::Args),
     Dump(db::dump::Args),
     Merge(db::merge::Args),
