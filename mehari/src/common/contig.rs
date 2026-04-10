@@ -68,6 +68,14 @@ impl ContigManager {
                     alias_to_accession.insert(alias.clone(), seq.refseq_ac.clone());
                 }
             }
+        } else {
+            // Fallback for unknown assemblies: seed minimal mappings so exact contig names resolve
+            tracing::debug!(
+                "Unknown assembly '{}', using fallback minimal mappings",
+                assembly_name
+            );
+            // Map the assembly_name to itself as a minimal contig entry
+            alias_to_accession.insert(assembly_name.to_string(), assembly_name.to_string());
         }
 
         // Build chrom_no map based on the primary sequence names.

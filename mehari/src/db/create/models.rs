@@ -440,7 +440,15 @@ impl TranscriptLoader {
                     })
             })
             .for_each(|(tx, _cds_start, cds_end, cds_len)| {
-                assert_eq!(tx.genome_builds.len(), 1);
+                // Handle multiple genome builds safely
+                if tx.genome_builds.is_empty() {
+                    tracing::warn!(
+                        "Transcript {} has no genome builds, skipping CDS fix",
+                        tx.id
+                    );
+                    return;
+                }
+
                 for gb in tx.genome_builds.values_mut() {
                     let delta = 3 - (cds_len % 3);
                     if delta == 0 {

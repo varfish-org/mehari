@@ -12,6 +12,7 @@ use std::time::Instant;
 pub struct BasicIndexedFasta {
     fasta_path: PathBuf,
     index: noodles::fasta::fai::Index,
+    id_lookup: HashMap<String, String>,
 }
 
 impl BasicIndexedFasta {
@@ -20,28 +21,32 @@ impl BasicIndexedFasta {
             .map(BufReader::new)
             .map(noodles::fasta::fai::io::Reader::new)?
             .read_index()?;
-        Ok(Self { fasta_path, index })
+
+        // Build lookup map once
+        let mut id_lookup = HashMap::new();
+        for record in index.as_ref() {
+            let rec_name = String::from_utf8_lossy(record.name()).to_string();
+            let rec_name_base = rec_name.split('.').next().unwrap_or(&rec_name).to_string();
+
+            // Store exact name mapping
+            id_lookup.insert(rec_name.clone(), rec_name.clone());
+            // Store base name mapping (without version)
+            id_lookup.entry(rec_name_base).or_insert(rec_name);
+        }
+
+        Ok(Self { fasta_path, index, id_lookup })
     }
 
     pub fn get_sequence(&self, id: &str) -> Result<Option<String>, Error> {
         let clean_id = id.strip_prefix("transcript:").unwrap_or(id);
         let clean_id_base = clean_id.split('.').next().unwrap_or(clean_id);
 
-        let mut exact_name = None;
-        for record in self.index.as_ref() {
-            let rec_name = String::from_utf8_lossy(record.name());
-            let rec_name_base = rec_name.split('.').next().unwrap_or(&rec_name);
+        // Use precomputed lookup map
+        let target_name = self.id_lookup.get(clean_id)
+            .or_else(|| self.id_lookup.get(clean_id_base));
 
-            if rec_name == clean_id {
-                exact_name = Some(rec_name.to_string());
-                break;
-            } else if exact_name.is_none() && rec_name_base == clean_id_base {
-                exact_name = Some(rec_name.to_string());
-            }
-        }
-
-        let target_name = match exact_name {
-            Some(name) => name,
+        let target_name = match target_name {
+            Some(name) => name.clone(),
             None => {
                 tracing::debug!(
                     "Sequence not found in FAI index for clean_id: '{}' (original id: '{}')",

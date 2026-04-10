@@ -30,6 +30,11 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
     let mut raw_id_to_gene_id: HashMap<String, String> = HashMap::new();
     let mut raw_id_to_tx_id: HashMap<String, String> = HashMap::new();
 
+    // Phase 1: Keep raw parent IDs during parsing
+    let mut tx_exons_raw: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+    let mut tx_cds_raw: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+    let mut tx_to_gene_raw: HashMap<String, String> = HashMap::new();
+
     for result in gff_reader.record_bufs() {
         let record = result?;
 
@@ -112,13 +117,9 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
 
                 if !resolved_tx_id.is_empty() {
                     if let Some(p) = raw_parent {
-                        let first_parent = p.split(',').next().unwrap();
-                        let parent_gene = raw_id_to_gene_id
-                            .get(first_parent)
-                            .map(String::as_str) // Avoids cloning if present
-                            .unwrap_or(first_parent)
-                            .to_string();
-                        tx_to_gene.insert(resolved_tx_id.clone(), parent_gene);
+                        let first_parent = p.split(',').next().unwrap().to_string();
+                        // Store raw parent ID for later resolution
+                        tx_to_gene_raw.insert(resolved_tx_id.clone(), first_parent);
                     }
                     tx_info.insert(resolved_tx_id, (contig, strand));
                 }
@@ -126,26 +127,57 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
             "exon" | "CDS" => {
                 if let Some(p) = raw_parent {
                     let target_map = if feature == "exon" {
-                        &mut tx_exons
+                        &mut tx_exons_raw
                     } else {
-                        &mut tx_cds
+                        &mut tx_cds_raw
                     };
 
                     for parent_id in p.split(',') {
-                        let clean_parent = raw_id_to_tx_id
-                            .get(parent_id)
-                            .map(String::as_str)
-                            .unwrap_or(parent_id)
-                            .to_string();
-
+                        // Store with raw parent ID
                         target_map
-                            .entry(clean_parent)
+                            .entry(parent_id.to_string())
                             .or_default()
                             .push((start, end));
                     }
                 }
             }
             _ => {}
+        }
+    }
+
+    // Phase 2: After parsing, resolve all raw parent IDs
+    for (raw_parent, gene_id) in tx_to_gene_raw {
+        if let Some(resolved_gene) = raw_id_to_gene_id.get(&gene_id) {
+            tx_to_gene.insert(raw_parent, resolved_gene.clone());
+        } else {
+            // Fallback: use the raw parent as-is
+            tx_to_gene.insert(raw_parent, gene_id);
+        }
+    }
+
+    for (raw_parent, exons_list) in tx_exons_raw {
+        if let Some(resolved_tx) = raw_id_to_tx_id.get(&raw_parent) {
+            tx_exons.entry(resolved_tx.clone())
+                .or_default()
+                .extend(exons_list);
+        } else {
+            // Fallback: use the raw parent as-is
+            tx_exons.entry(raw_parent)
+                .or_default()
+                .extend(exons_list);
+        }
+    }
+
+    for (raw_parent, cds_list) in tx_cds_raw {
+        if let Some(resolved_tx) = raw_id_to_tx_id.get(&raw_parent) {
+            tx_cds.entry(resolved_tx.clone())
+                .or_default()
+                .extend(cds_list);
+        } else {
+            // Fallback: use the raw parent as-is
+            tx_cds.entry(raw_parent)
+                .or_default()
+                .extend(cds_list);
         }
     }
 
@@ -166,9 +198,6 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
             exons.reverse();
         }
 
-        let cds_start_genomic = cds_fragments.iter().map(|c| c.0).min();
-        let cds_end_genomic = cds_fragments.iter().map(|c| c.1).max();
-
         let tx_strand = if is_reverse {
             cdot_models::Strand::Minus
         } else {
@@ -185,9 +214,11 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
             .map(|(i, (start, end))| {
                 let e_len = end - start;
 
-                if let (Some(cs), Some(ce)) = (cds_start_genomic, cds_end_genomic) {
-                    let overlap_start = cs.max(start);
-                    let overlap_end = ce.min(end);
+                // Compute overlaps against actual per-exon CDS fragments
+                for cds_fragment in &cds_fragments {
+                    let (cds_start, cds_end) = *cds_fragment;
+                    let overlap_start = cds_start.max(start);
+                    let overlap_end = cds_end.min(end);
 
                     if overlap_start < overlap_end {
                         // Calculate offset within this exon based on strand
@@ -217,6 +248,9 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
                 exon_record
             })
             .collect();
+
+        let cds_start_genomic = cds_fragments.iter().map(|c| c.0).min();
+        let cds_end_genomic = cds_fragments.iter().map(|c| c.1).max();
 
         let alignment = GenomeAlignment {
             contig,

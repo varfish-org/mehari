@@ -164,23 +164,28 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
         if p.tx_id.starts_with("NR") {
             false
         } else if p.tx.protein_coding() {
-            assert_eq!(p.tx.genome_builds.len(), 1);
-            let alignment = p.tx.genome_builds.values().next().unwrap();
-            let exons = alignment.exons.clone();
-            if exons.is_empty() {
-                return true;
+            // Safely handle build lookup without panicking
+            if let Some(alignment) = p.tx.genome_builds.values().next() {
+                let exons = alignment.exons.clone();
+                if exons.is_empty() {
+                    return true;
+                }
+                let five_prime_trunc = {
+                    let cds_start = alignment.cds_start;
+                    let first = exons.iter().min_by_key(|e| e.alt_start_i).unwrap();
+                    Some(first.alt_start_i) == cds_start
+                };
+                let three_prime_trunc = {
+                    let cds_end = alignment.cds_end;
+                    let last = exons.iter().max_by_key(|e| e.alt_end_i).unwrap();
+                    Some(last.alt_end_i) == cds_end
+                };
+                // Flag partial when either end is truncated
+                five_prime_trunc || three_prime_trunc
+            } else {
+                // No builds available, treat as non-partial
+                false
             }
-            let five_prime_trunc = {
-                let cds_start = alignment.cds_start;
-                let first = exons.iter().min_by_key(|e| e.alt_start_i).unwrap();
-                Some(first.alt_start_i) == cds_start
-            };
-            let three_prime_trunc = {
-                let cds_end = alignment.cds_end;
-                let last = exons.iter().max_by_key(|e| e.alt_end_i).unwrap();
-                Some(last.alt_end_i) == cds_end
-            };
-            five_prime_trunc && three_prime_trunc
         } else {
             true
         }

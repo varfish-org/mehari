@@ -16,12 +16,24 @@ pub trait TranscriptDatabase {
 
 impl TranscriptDatabase for TxSeqDatabase {
     fn assembly(&self) -> String {
-        let assembly = self
+        let source_version = self
             .source_version
             .iter()
-            .map(|v| v.assembly.as_str())
             .next()
             .expect("At least one source_version entry expected");
+
+        // Prefer the new string field, fall back to deprecated enum field
+        let assembly = if !source_version.assembly.trim().is_empty() {
+            source_version.assembly.as_str()
+        } else {
+            // Fall back to deprecated enum field
+            #[allow(deprecated)]
+            match source_version.assembly_enum() {
+                crate::pbs::txs::Assembly::Grch37 => "grch37",
+                crate::pbs::txs::Assembly::Grch38 => "grch38",
+                _ => "",
+            }
+        };
 
         match assembly {
             "grch37" | "grch37p10" => "grch37".into(),

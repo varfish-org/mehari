@@ -134,6 +134,57 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     // Read through the VEP TSV file and compare to the mehari predictions.
     tracing::info!("Processing input TSV file ...");
+
+    // Extract assembly from VEP TSV header for sanity check
+    let vep_file = std::fs::File::open(&args.path_input_tsv)?;
+    let vep_reader = std::io::BufReader::new(vep_file);
+    use std::io::BufRead;
+    let mut vep_assembly: Option<String> = None;
+    for line in vep_reader.lines() {
+        let line = line?;
+        if line.starts_with("##") {
+            // Look for assembly information in header comments
+            if line.contains("assembly") || line.contains("Assembly") {
+                // Extract assembly name (e.g., GRCh37, GRCh38)
+                if let Some(pos) = line.find("GRCh") {
+                    let rest = &line[pos..];
+                    if let Some(assembly_str) = rest.split_whitespace().next() {
+                        vep_assembly = Some(assembly_str.to_lowercase());
+                    }
+                }
+            }
+        } else if !line.starts_with('#') {
+            // End of header
+            break;
+        }
+    }
+
+    // Normalize assembly names for comparison (allow common synonyms)
+    let normalize_assembly = |asm: &str| -> String {
+        let asm_lower = asm.to_lowercase();
+        if asm_lower.contains("grch37") || asm_lower.contains("hg19") {
+            "grch37".to_string()
+        } else if asm_lower.contains("grch38") || asm_lower.contains("hg38") {
+            "grch38".to_string()
+        } else {
+            asm_lower
+        }
+    };
+
+    let user_assembly_normalized = normalize_assembly(&args.assembly);
+
+    // Check if VEP header assembly matches user-provided assembly
+    if let Some(ref vep_asm) = vep_assembly {
+        let vep_assembly_normalized = normalize_assembly(vep_asm);
+        if vep_assembly_normalized != user_assembly_normalized {
+            return Err(anyhow::anyhow!(
+                "Assembly mismatch: VEP TSV header indicates '{}' but --assembly flag specifies '{}'. \
+                Please ensure the correct assembly is specified.",
+                vep_asm, args.assembly
+            ));
+        }
+    }
+
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .has_headers(false)

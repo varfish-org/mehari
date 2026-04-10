@@ -125,6 +125,13 @@ fn load_annotations(args: &Args) -> Result<TranscriptLoader, Error> {
 /// Main entry point for `db create txs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
     fn _run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
+        // Validate transcript_source case-insensitively for "ensembl"
+        if args.transcript_source.to_lowercase() == "ensembl" && args.transcript_source_version.is_none() {
+            return Err(anyhow!(
+                "transcript_source_version is required when transcript_source is 'ensembl' (case-insensitive)"
+            ));
+        }
+
         let mut report_file =
             File::create(format!("{}.report.jsonl", args.output.display())).map(BufWriter::new)?;
         let mut report = |r: ReportEntry| -> Result<(), Error> {
@@ -246,10 +253,24 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
 
         let source_version = args.transcript_source_version.clone().unwrap_or("".into());
         let annotation_version = args.annotation_version.clone().unwrap_or("".into());
+
+        // Detect loader kind for each annotation file
         let annotation_name = args
             .annotation
             .iter()
-            .map(|p| p.file_stem().unwrap().to_string_lossy())
+            .map(|path| {
+                let ext = path.extension().unwrap_or_default().to_string_lossy();
+                let file_stem = path.file_stem().unwrap_or_default().to_string_lossy();
+                let is_gff3 = ext.ends_with("gff")
+                    || ext.ends_with("gff3")
+                    || (ext == "gz" && (file_stem.ends_with("gff3") || file_stem.ends_with("gff")));
+
+                if is_gff3 {
+                    "gff3".to_string()
+                } else {
+                    "cdot".to_string()
+                }
+            })
             .collect::<Vec<_>>()
             .join(",");
 
