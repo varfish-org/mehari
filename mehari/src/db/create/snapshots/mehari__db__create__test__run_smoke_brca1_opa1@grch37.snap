@@ -3020,6 +3020,6 @@ sourceVersion:
   assemblyEnum: ASSEMBLY_GRCH37
   sourceNameEnum: SOURCE_REFSEQ
   annotationVersion: 0.2.22
-  annotationName: cdot-0.2.22.refseq.grch37_grch38.brca1_opa1
+  annotationName: cdot
   assembly: grch37
   sourceName: refseq

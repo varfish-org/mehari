@@ -1044,6 +1044,6 @@ sourceVersion:
   sourceNameEnum: SOURCE_ENSEMBL
   sourceVersion: '98'
   annotationVersion: 0.2.23
-  annotationName: cdot-0.2.23.ensembl.chrMT.grch37.gff3
+  annotationName: cdot
   assembly: grch37
   sourceName: ensembl

@@ -200,6 +200,6 @@ sourceVersion:
   assemblyEnum: ASSEMBLY_GRCH38
   sourceNameEnum: SOURCE_REFSEQ
   annotationVersion: 0.2.22
-  annotationName: cdot-0.2.22.refseq.grch38.selenon
+  annotationName: cdot
   assembly: grch38
   sourceName: refseq
