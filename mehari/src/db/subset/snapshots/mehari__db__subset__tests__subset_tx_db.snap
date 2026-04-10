@@ -12,7 +12,7 @@ txDb:
     startCodon: 225
     stopCodon: 103278
     genomeAlignments:
-    - genomeBuild: grch37
+    - genomeBuildEnum: GENOME_BUILD_GRCH37
       contig: NC_000002.11
       cdsStart: 179391738
       cdsEnd: 179669369
@@ -1895,6 +1895,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 212
         cigar: 212M
+      genomeBuild: grch37
     filtered: false
   - id: NM_001267550.2
     geneSymbol: TTN
@@ -1907,7 +1908,7 @@ txDb:
     startCodon: 225
     stopCodon: 108201
     genomeAlignments:
-    - genomeBuild: grch37
+    - genomeBuildEnum: GENOME_BUILD_GRCH37
       contig: NC_000002.11
       cdsStart: 179391738
       cdsEnd: 179669369
@@ -4090,6 +4091,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 212
         cigar: 212M
+      genomeBuild: grch37
     filtered: false
   - id: NM_003319.4
     geneSymbol: TTN
@@ -4099,7 +4101,7 @@ txDb:
     startCodon: 225
     stopCodon: 81006
     genomeAlignments:
-    - genomeBuild: grch37
+    - genomeBuildEnum: GENOME_BUILD_GRCH37
       contig: NC_000002.11
       cdsStart: 179391738
       cdsEnd: 179669369
@@ -5250,6 +5252,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 212
         cigar: 212M
+      genomeBuild: grch37
     filtered: false
   - id: NM_133378.4
     geneSymbol: TTN
@@ -5259,7 +5262,7 @@ txDb:
     startCodon: 225
     stopCodon: 100497
     genomeAlignments:
-    - genomeBuild: grch37
+    - genomeBuildEnum: GENOME_BUILD_GRCH37
       contig: NC_000002.11
       cdsStart: 179391738
       cdsEnd: 179669369
@@ -7136,6 +7139,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 212
         cigar: 212M
+      genomeBuild: grch37
     filtered: false
   - id: NM_133379.5
     geneSymbol: TTN
@@ -7145,7 +7149,7 @@ txDb:
     startCodon: 225
     stopCodon: 17040
     genomeAlignments:
-    - genomeBuild: grch37
+    - genomeBuildEnum: GENOME_BUILD_GRCH37
       contig: NC_000002.11
       cdsStart: 179610311
       cdsEnd: 179669369
@@ -7426,6 +7430,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 212
         cigar: 212M
+      genomeBuild: grch37
     filtered: false
   - id: NM_133432.3
     geneSymbol: TTN
@@ -7435,7 +7440,7 @@ txDb:
     startCodon: 225
     stopCodon: 81381
     genomeAlignments:
-    - genomeBuild: grch37
+    - genomeBuildEnum: GENOME_BUILD_GRCH37
       contig: NC_000002.11
       cdsStart: 179391738
       cdsEnd: 179669369
@@ -8592,6 +8597,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 212
         cigar: 212M
+      genomeBuild: grch37
     filtered: false
   - id: NM_133437.4
     geneSymbol: TTN
@@ -8601,7 +8607,7 @@ txDb:
     startCodon: 225
     stopCodon: 81582
     genomeAlignments:
-    - genomeBuild: grch37
+    - genomeBuildEnum: GENOME_BUILD_GRCH37
       contig: NC_000002.11
       cdsStart: 179391738
       cdsEnd: 179669369
@@ -9758,6 +9764,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 212
         cigar: 212M
+      genomeBuild: grch37
     filtered: false
   geneToTx:
   - geneId: HGNC:12403
@@ -9798,6 +9805,9 @@ seqDb:
 version: 0.41.2
 sourceVersion:
 - mehariVersion: 0.41.2
+  assemblyEnum: ASSEMBLY_GRCH37
+  sourceNameEnum: SOURCE_REFSEQ
+  annotationVersion: 0.2.32
+  annotationName: GRCh37-refseq.cdot.hgnc.json,GRCh37-refseq-from-ensembl.chrMT,GRCh37-refseq.cdot.grafted.json
   assembly: grch37
   sourceName: refseq
-  annotationVersion: 0.2.32
