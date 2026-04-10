@@ -584,3 +584,32 @@ fn append_poly_a(seq: String, length: usize) -> String {
     seq.extend_from_slice(b"A".repeat(length).as_slice());
     String::from_utf8(seq).expect("must be valid UTF-8")
 }
+
+/// For each transcript that has been discarded for whatever reason, propagate the reason to its
+/// parent gene id entry *if* the gene id entry already exists and has a non-empty reason
+/// (to avoid erroneously discarding gene id entries for a non-important reason).
+pub(crate) fn propagate_discard_reasons(loader: &mut TranscriptLoader) -> Result<(), Error> {
+    // First check whether all transcripts of a gene have been marked as discarded.
+    for (gene_id, _) in loader.gene_id_to_gene.iter() {
+        let tx_ids = loader
+            .gene_id_to_transcript_ids
+            .get(gene_id)
+            .map(|v| v.as_slice())
+            .unwrap_or_default();
+        if !tx_ids.is_empty()
+            && tx_ids.iter().all(|tx_id| {
+                loader
+                    .discards
+                    .get(&Identifier::Transcript(tx_id.clone()))
+                    .is_some_and(|d| d.intersects(Reason::hard()))
+            })
+        {
+            *loader
+                .discards
+                .entry(Identifier::Gene(gene_id.clone()))
+                .or_default() |= Reason::NoTranscriptLeft;
+        }
+    }
+
+    Ok(())
+}

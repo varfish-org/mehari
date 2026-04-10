@@ -30,7 +30,7 @@ use crate::db::create::build::build_protobuf;
 use crate::db::create::cdot::load_cdot;
 use crate::db::create::filter::{
     filter_empty_gene_id_mappings, filter_genes, filter_initial_gene_id_entries,
-    filter_transcripts, filter_transcripts_with_sequence,
+    filter_transcripts, filter_transcripts_with_sequence, propagate_discard_reasons,
 };
 use crate::db::create::gff3::load_gff3;
 use models::*;
@@ -182,7 +182,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         tx_data_.discard(remove)?;
 
         // … and update all discard annotations …
-        tx_data_.propagate_discard_reasons(&raw_tx_data)?;
+        propagate_discard_reasons(tx_data_)?;
 
         trace_rss_now();
 

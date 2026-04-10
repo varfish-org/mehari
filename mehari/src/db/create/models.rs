@@ -648,32 +648,4 @@ impl TranscriptLoader {
         *self.discards.entry(id.clone()).or_default() |= reason;
         Ok(())
     }
-
-    /// For each transcript that has been discarded for whatever reason, propagate the reason to its
-    /// parent gene id entry *if* the gene id entry already exists and has a non-empty reason
-    /// (to avoid erroneously discarding gene id entries for a non-important reason).
-    pub(crate) fn propagate_discard_reasons(&mut self, _raw: &Self) -> Result<(), Error> {
-        // First check whether all transcripts of a gene have been marked as discarded.
-        for (gene_id, _) in self.gene_id_to_gene.iter() {
-            let tx_ids = self
-                .gene_id_to_transcript_ids
-                .get(gene_id)
-                .map(|v| v.as_slice())
-                .unwrap_or_default();
-            if !tx_ids.is_empty()
-                && tx_ids.iter().all(|tx_id| {
-                    self.discards
-                        .get(&Identifier::Transcript(tx_id.clone()))
-                        .is_some_and(|d| d.intersects(Reason::hard()))
-                })
-            {
-                *self
-                    .discards
-                    .entry(Identifier::Gene(gene_id.clone()))
-                    .or_default() |= Reason::NoTranscriptLeft;
-            }
-        }
-
-        Ok(())
-    }
 }
