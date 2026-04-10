@@ -657,10 +657,13 @@ impl ProviderInterface for Provider {
         &self.schema_version
     }
 
-    fn get_assembly_map(&self, _assembly: &str) -> IndexMap<String, String> {
+    fn get_assembly_map(
+        &self,
+        _assembly: &str,
+    ) -> Result<IndexMap<String, String>, hgvs::data::error::Error> {
         // We ignore the `assembly` argument because this provider
         // is bound to a specific build during construction anyway.
-        self.assembly_map.clone()
+        Ok(self.assembly_map.clone())
     }
 
     fn get_gene_info(&self, _hgnc: &str) -> Result<hgvs::data::interface::GeneInfoRecord, Error> {
