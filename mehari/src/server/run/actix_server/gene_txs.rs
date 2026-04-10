@@ -5,14 +5,14 @@
 use crate::pbs;
 use crate::pbs::server::{GeneTranscriptsQuery, GeneTranscriptsResponse};
 
+use super::versions::Assembly;
+use crate::pbs::txs::GenomeBuild;
 use crate::server::run::actix_server::CustomError;
 use actix_web::{
     get,
     web::{self, Data, Json, Path},
 };
 use hgvs::data::interface::Provider as _;
-
-use super::versions::Assembly;
 
 /// Maximal page size.
 static PAGE_SIZE_MAX: i32 = 1000;
@@ -32,6 +32,7 @@ fn genes_tx_impl(
         hgnc_id,
         page_size,
         next_page_token,
+        ..
     } = query;
     let genome_build = genome_build.unwrap_or_else(|| String::from("grch37"));
     let hgnc_id = hgnc_id
@@ -96,14 +97,23 @@ pub(crate) struct GenesTranscriptsListQuery {
     pub next_page_token: Option<String>,
 }
 
-impl From<GenesTranscriptsListQuery> for pbs::server::GeneTranscriptsQuery {
+impl From<GenesTranscriptsListQuery> for GeneTranscriptsQuery {
     fn from(val: GenesTranscriptsListQuery) -> Self {
-        pbs::server::GeneTranscriptsQuery {
+        GeneTranscriptsQuery {
             genome_build: Some(match val.genome_build {
-                super::versions::Assembly::Grch38 => String::from("grch38"),
-                _ => String::from("grch37"),
+                Assembly::Grch38 => String::from("grch38"),
+                Assembly::Grch37 => String::from("grch37"),
+                _ => String::from("unknown"),
             }),
             hgnc_id: Some(val.hgnc_id),
+            genome_build_enum: Some(
+                match val.genome_build {
+                    Assembly::Grch37 => GenomeBuild::Grch37,
+                    Assembly::Grch38 => GenomeBuild::Grch38,
+                    _ => GenomeBuild::Unknown,
+                }
+                .into(),
+            ),
             page_size: val.page_size,
             next_page_token: val.next_page_token,
         }

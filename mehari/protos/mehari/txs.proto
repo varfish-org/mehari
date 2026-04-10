@@ -9,178 +9,212 @@ package mehari.txs;
 // stores the index into `seqs` for the sequence `aliases[i]`.  In other words.
 // `seqs[aliases_idx[i]]` stores the sequence for `aliases[i]`.
 message SequenceDb {
-    // The sequence aliases, cf. `aliases_idx`.
-    repeated string aliases = 1;
-    // The corresponding index in `seqs`, cf. `aliases`.
-    repeated uint32 aliases_idx = 2;
-    // The corresponding sequences.
-    repeated string seqs = 3;
+  // The sequence aliases, cf. `aliases_idx`.
+  repeated string aliases = 1;
+  // The corresponding index in `seqs`, cf. `aliases`.
+  repeated uint32 aliases_idx = 2;
+  // The corresponding sequences.
+  repeated string seqs = 3;
 }
 
 
 
+enum Assembly {
+  // Unknown.
+  ASSEMBLY_UNKNOWN = 0;
+  // GRCh37.
+  ASSEMBLY_GRCH37 = 1;
+  // GRCh38.
+  ASSEMBLY_GRCH38 = 2;
+}
+
+// Indicates the transcript source.
+enum Source {
+  // Unknown.
+  SOURCE_UNKNOWN = 0;
+  // RefSeq.
+  SOURCE_REFSEQ = 1;
+  // Ensembl.
+  SOURCE_ENSEMBL = 2;
+}
 
 
 // Version information for the database.
 message SourceVersion {
-    // Version of mehari used to build the database.
-    string mehari_version = 1;
-    // Assembly used, e.g. "GRCh37" or "GRCh38".
-    string assembly = 2;
-    // Version of the assembly, optional.
-    optional string assembly_version = 3;
-    // Source, e.g. "RefSeq" or "Ensembl".
-    string source_name = 4;
-    // Version of the source, e.g. 112 for Ensembl.
-    string source_version = 5;
-    // Version of annotation.
-    string annotation_version = 6;
-    // Name of the annotation source, e.g. "cdot".
-    string annotation_name = 7;
+  // Version of mehari used to build the database.
+  string mehari_version = 1;
+  // DEPRECATED: Use the string-based assembly (tag 8) instead.
+  Assembly assembly_enum = 2 [deprecated = true];
+  // Version of the assembly, optional.
+  optional string assembly_version = 3;
+  // DEPRECATED: Use the string-based source_name (tag 9) instead.
+  Source source_name_enum = 4 [deprecated = true];
+  // Version of the source, e.g. 112 for Ensembl.
+  string source_version = 5;
+  // Version of annotation.
+  string annotation_version = 6;
+  // Name of the annotation source, e.g. "cdot".
+  string annotation_name = 7;
+  // Name of the assembly, e.g. "GRCh37" or "GRCh38"
+  string assembly = 8;
+  // Name of the source, e.g. "RefSeq" or "Ensembl"
+  string source_name = 9;
 }
 
 // Mapping from gene to transcript ID.
 message GeneToTxId {
-    // Gene HGNC ID; serves as gene identifier.
-    string gene_id = 1;
-    // Vector of all transcript IDs.
-    repeated string tx_ids = 2;
-    // Whether this gene has been filtered out because of missing transcripts.
-    optional bool filtered = 3;
-    // Reason for filtering.
-    optional uint32 filter_reason = 4;
+  // Gene HGNC ID; serves as gene identifier.
+  string gene_id = 1;
+  // Vector of all transcript IDs.
+  repeated string tx_ids = 2;
+  // Whether this gene has been filtered out because of missing transcripts.
+  optional bool filtered = 3;
+  // Reason for filtering.
+  optional uint32 filter_reason = 4;
+}
+
+// Enumeration for the known genome builds.
+enum GenomeBuild {
+  // unknown                                                                                                           
+  GENOME_BUILD_UNKNOWN = 0;
+  // GRCH37.                                                                                                           
+  GENOME_BUILD_GRCH37 = 1;
+  // GRCh38.                                                                                                           
+  GENOME_BUILD_GRCH38 = 2;
 }
 
 // Container for the transcript-related database.
 message TranscriptDb {
-    // Vector of all transcripts.
-    repeated Transcript transcripts = 1;
-    // Mapping from gene ID to vector of all transcript IDs.
-    repeated GeneToTxId gene_to_tx = 2;
+  // Vector of all transcripts.
+  repeated Transcript transcripts = 1;
+  // Mapping from gene ID to vector of all transcript IDs.
+  repeated GeneToTxId gene_to_tx = 2;
 }
 
 // Enumeration for `Transcript::biotype`.
 enum TranscriptBiotype {
-    // unknown
-    TRANSCRIPT_BIOTYPE_UNKNOWN = 0;
-    // Coding transcript.
-    TRANSCRIPT_BIOTYPE_CODING = 1;
-    // Non-coding transcript.
-    TRANSCRIPT_BIOTYPE_NON_CODING = 2;
+  // unknown
+  TRANSCRIPT_BIOTYPE_UNKNOWN = 0;
+  // Coding transcript.
+  TRANSCRIPT_BIOTYPE_CODING = 1;
+  // Non-coding transcript.
+  TRANSCRIPT_BIOTYPE_NON_CODING = 2;
 }
 
 // Bit values for the transcript tags.
 enum TranscriptTag {
-    // unknown
-    TRANSCRIPT_TAG_UNKNOWN = 0;
-    // Member of Ensembl basic.
-    TRANSCRIPT_TAG_BASIC = 1;
-    // Member of Ensembl canonical.
-    TRANSCRIPT_TAG_ENSEMBL_CANONICAL = 2;
-    // Member of MANE Select.
-    TRANSCRIPT_TAG_MANE_SELECT = 3;
-    // Member of MANE Plus Clinical.
-    TRANSCRIPT_TAG_MANE_PLUS_CLINICAL = 4;
-    // Member of RefSeq Select.
-    TRANSCRIPT_TAG_REF_SEQ_SELECT = 5;
-    // Flagged as being a selenoprotein (UGA => selenon).
-    TRANSCRIPT_TAG_SELENOPROTEIN = 6;
-    // Member of GENCODE Primary
-    TRANSCRIPT_TAG_GENCODE_PRIMARY = 7;
-    // catchall for other tags
-    TRANSCRIPT_TAG_OTHER = 8;
-    // Whether the transcript has been grafted from Ensembl.
-    TRANSCRIPT_TAG_ENSEMBL_GRAFT = 9;
-    // Backport tags that indicate whether a tag has been backported from a later version of the input sources.
-    // e.g., if a transcript is marked as MANE Select in a later Ensembl/RefSeq version, but not in the older one.
-    TRANSCRIPT_TAG_BASIC_BACKPORT = 11;
-    TRANSCRIPT_TAG_ENSEMBL_CANONICAL_BACKPORT = 12;
-    TRANSCRIPT_TAG_MANE_SELECT_BACKPORT = 13;
-    TRANSCRIPT_TAG_MANE_PLUS_CLINICAL_BACKPORT = 14;
-    TRANSCRIPT_TAG_REF_SEQ_SELECT_BACKPORT = 15;
-    TRANSCRIPT_TAG_SELENOPROTEIN_BACKPORT = 16;
-    TRANSCRIPT_TAG_GENCODE_PRIMARY_BACKPORT = 17;
-    TRANSCRIPT_TAG_OTHER_BACKPORT = 18;
+  // unknown
+  TRANSCRIPT_TAG_UNKNOWN = 0;
+  // Member of Ensembl basic.
+  TRANSCRIPT_TAG_BASIC = 1;
+  // Member of Ensembl canonical.
+  TRANSCRIPT_TAG_ENSEMBL_CANONICAL = 2;
+  // Member of MANE Select.
+  TRANSCRIPT_TAG_MANE_SELECT = 3;
+  // Member of MANE Plus Clinical.
+  TRANSCRIPT_TAG_MANE_PLUS_CLINICAL = 4;
+  // Member of RefSeq Select.
+  TRANSCRIPT_TAG_REF_SEQ_SELECT = 5;
+  // Flagged as being a selenoprotein (UGA => selenon).
+  TRANSCRIPT_TAG_SELENOPROTEIN = 6;
+  // Member of GENCODE Primary
+  TRANSCRIPT_TAG_GENCODE_PRIMARY = 7;
+  // catchall for other tags
+  TRANSCRIPT_TAG_OTHER = 8;
+  // Whether the transcript has been grafted from Ensembl.
+  TRANSCRIPT_TAG_ENSEMBL_GRAFT = 9;
+  // Backport tags that indicate whether a tag has been backported from a later version of the input sources.
+  // e.g., if a transcript is marked as MANE Select in a later Ensembl/RefSeq version, but not in the older one.
+  TRANSCRIPT_TAG_BASIC_BACKPORT = 11;
+  TRANSCRIPT_TAG_ENSEMBL_CANONICAL_BACKPORT = 12;
+  TRANSCRIPT_TAG_MANE_SELECT_BACKPORT = 13;
+  TRANSCRIPT_TAG_MANE_PLUS_CLINICAL_BACKPORT = 14;
+  TRANSCRIPT_TAG_REF_SEQ_SELECT_BACKPORT = 15;
+  TRANSCRIPT_TAG_SELENOPROTEIN_BACKPORT = 16;
+  TRANSCRIPT_TAG_GENCODE_PRIMARY_BACKPORT = 17;
+  TRANSCRIPT_TAG_OTHER_BACKPORT = 18;
 }
 
 // Store information about a transcript.
 message Transcript {
-    // Transcript accession with version, e.g., `"NM_007294.3"` or `"ENST00000461574.1"` for BRCA1.
-    string id = 1;
-    // HGNC symbol, e.g., `"BRCA1"`
-    string gene_symbol = 2;
-    // HGNC gene identifier, e.g., `"1100"` for BRCA1.
-    string gene_id = 3;
-    // Transcript biotype.
-    TranscriptBiotype biotype = 4;
-    // Transcript flags.
-    repeated TranscriptTag tags = 5;
-    // Identifier of the corresponding protein.
-    optional string protein = 6;
-    // CDS start codon.
-    optional int32 start_codon = 7;
-    // CDS stop codon.
-    optional int32 stop_codon = 8;
-    // Alignments on the different genome builds.
-    repeated GenomeAlignment genome_alignments = 9;
-    // Whether this transcript has an issue (e.g. MissingStopCodon), cf. `mehari::db::create::mod::Reason`.
-    optional bool filtered = 10;
-    // Reason for filtering.
-    optional uint32 filter_reason = 11;
+  // Transcript accession with version, e.g., `"NM_007294.3"` or `"ENST00000461574.1"` for BRCA1.
+  string id = 1;
+  // HGNC symbol, e.g., `"BRCA1"`
+  string gene_symbol = 2;
+  // HGNC gene identifier, e.g., `"1100"` for BRCA1.
+  string gene_id = 3;
+  // Transcript biotype.
+  TranscriptBiotype biotype = 4;
+  // Transcript flags.
+  repeated TranscriptTag tags = 5;
+  // Identifier of the corresponding protein.
+  optional string protein = 6;
+  // CDS start codon.
+  optional int32 start_codon = 7;
+  // CDS stop codon.
+  optional int32 stop_codon = 8;
+  // Alignments on the different genome builds.
+  repeated GenomeAlignment genome_alignments = 9;
+  // Whether this transcript has an issue (e.g. MissingStopCodon), cf. `mehari::db::create::mod::Reason`.
+  optional bool filtered = 10;
+  // Reason for filtering.
+  optional uint32 filter_reason = 11;
 }
 
 
 
 // Enumeration for the two strands of the genome.
 enum Strand {
-    // unknown
-    STRAND_UNKNOWN = 0;
-    // Forward / plus
-    STRAND_PLUS = 1;
-    // Reverse / minus
-    STRAND_MINUS = 2;
+  // unknown
+  STRAND_UNKNOWN = 0;
+  // Forward / plus
+  STRAND_PLUS = 1;
+  // Reverse / minus
+  STRAND_MINUS = 2;
 }
 
 // Store information about a transcript aligning to a genome.
 message GenomeAlignment {
-    // The genome build identifier.
-    string genome_build = 1;
-    // Accession of the contig sequence.
-    string contig = 2;
-    // CDS end position, `-1` to indicate `None`.
-    optional int32 cds_start = 3;
-    // CDS end position, `-1` to indicate `None`.
-    optional int32 cds_end = 4;
-    // The strand.
-    Strand strand = 5;
-    // Exons of the alignment.
-    repeated ExonAlignment exons = 6;
+  // DEPRECATED: Use the string-based genome_build (tag 8) instead.
+  GenomeBuild genome_build_enum = 1 [deprecated = true];
+  // Accession of the contig sequence.
+  string contig = 2;
+  // CDS end position, `-1` to indicate `None`.
+  optional int32 cds_start = 3;
+  // CDS end position, `-1` to indicate `None`.
+  optional int32 cds_end = 4;
+  // The strand.
+  Strand strand = 5;
+  // Exons of the alignment.
+  repeated ExonAlignment exons = 6;
+  // The genome build identifier.
+  string genome_build = 8;
 }
 
 // Store the alignment of one exon to the reference.
 message ExonAlignment {
-    // Start position on reference.
-    int32 alt_start_i = 1;
-    // End position on reference.
-    int32 alt_end_i = 2;
-    // Exon number.
-    int32 ord = 3;
-    // CDS start coordinate.
-    optional int32 alt_cds_start_i = 4;
-    // CDS end coordinate.
-    optional int32 alt_cds_end_i = 5;
-    // CIGAR string of alignment, empty indicates full matches.
-    string cigar = 6;
+  // Start position on reference.
+  int32 alt_start_i = 1;
+  // End position on reference.
+  int32 alt_end_i = 2;
+  // Exon number.
+  int32 ord = 3;
+  // CDS start coordinate.
+  optional int32 alt_cds_start_i = 4;
+  // CDS end coordinate.
+  optional int32 alt_cds_end_i = 5;
+  // CIGAR string of alignment, empty indicates full matches.
+  string cigar = 6;
 }
 
 // Database of transcripts with sequences.
 message TxSeqDatabase {
-    // Store transcripts with their aliases.
-    TranscriptDb tx_db = 1;
-    // Store sequence with their aliases.
-    SequenceDb seq_db = 2;
-    // The version of the database.
-    optional string version = 3;
-    // Version information; allow repeated here to be able to keep track of information when merging databases
-    repeated SourceVersion source_version = 5;
+  // Store transcripts with their aliases.
+  TranscriptDb tx_db = 1;
+  // Store sequence with their aliases.
+  SequenceDb seq_db = 2;
+  // The version of the database.
+  optional string version = 3;
+  // Version information; allow repeated here to be able to keep track of information when merging databases
+  repeated SourceVersion source_version = 5;
 }

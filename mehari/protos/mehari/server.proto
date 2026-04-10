@@ -8,22 +8,26 @@ import "mehari/txs.proto";
 
 // Query for transcripts of a certain gene.
 message GeneTranscriptsQuery {
-    // Gene identifier to query for.
-    optional string hgnc_id = 1;
-    // Genome build to use.
-    optional string genome_build = 2;
+  // Gene identifier to query for.
+  optional string hgnc_id = 1;
+  // DEPRECATED: Use the string-based genome_build (tag 5) instead.
+  optional mehari.txs.GenomeBuild genome_build_enum = 2 [deprecated = true];
 
-    // The number of entries to return per page.
-    optional int32 page_size = 3;
-    // The token to continue from a previous query.
-    optional string next_page_token = 4;
+  // The number of entries to return per page.
+  optional int32 page_size = 3;
+
+  // The token to continue from a previous query.
+  optional string next_page_token = 4;
+
+  // New string-based field using the next available tag number
+  optional string genome_build = 5;
 }
 
 // Container for a response to `GeneTranscriptsQuery`.
 message GeneTranscriptsResponse {
-    // The transcripts for the gene.
-    repeated mehari.txs.Transcript transcripts = 1;
+  // The transcripts for the gene.
+  repeated mehari.txs.Transcript transcripts = 1;
 
-    // The token to continue from a previous query.
-    optional string next_page_token = 2;
+  // The token to continue from a previous query.
+  optional string next_page_token = 2;
 }

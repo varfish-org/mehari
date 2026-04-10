@@ -2,7 +2,7 @@ use crate::db::create::cdot_models;
 use crate::db::create::models::{
     GeneId, Identifier, Reason, TranscriptExt, TranscriptId, TranscriptLoader,
 };
-use crate::pbs::txs::{SourceVersion, TxSeqDatabase};
+use crate::pbs::txs::{GenomeBuild, SourceVersion, TxSeqDatabase};
 use anyhow::Error;
 use hgvs::data::cdot::json::models::{BioType, Gene, GenomeAlignment, Tag, Transcript};
 use itertools::Itertools;
@@ -329,7 +329,13 @@ fn protobuf_genome_alignment(
         })
         .collect();
 
+    let genome_build_enum = match genome_build.to_lowercase().as_str() {
+        "grch37" | "grch37p10" => GenomeBuild::Grch37,
+        "grch38" => GenomeBuild::Grch38,
+        _ => GenomeBuild::Unknown,
+    };
     let genome_alignment = crate::pbs::txs::GenomeAlignment {
+        genome_build_enum: genome_build_enum.into(),
         genome_build,
         contig,
         cds_start,

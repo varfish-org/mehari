@@ -2,7 +2,7 @@
 
 use crate::annotate::seqvars::ann::FeatureTag;
 use crate::common::trace_rss_now;
-use crate::pbs::txs::{SourceVersion, TxSeqDatabase};
+use crate::pbs::txs::{Assembly, Source, SourceVersion, TxSeqDatabase};
 use anyhow::{Error, anyhow};
 use cli::Args;
 use hgvs::data::cdot::json::models as cdot_models;
@@ -253,6 +253,18 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
             .collect::<Vec<_>>()
             .join(",");
 
+        let assembly_enum = match assembly.to_lowercase().as_str() {
+            "grch37" => Assembly::Grch37,
+            "grch38" => Assembly::Grch38,
+            _ => Assembly::Unknown,
+        };
+
+        let source_name_enum = match source_name.to_lowercase().as_str() {
+            "refseq" => Source::Refseq,
+            "ensembl" => Source::Ensembl,
+            _ => Source::Unknown,
+        };
+
         SourceVersion {
             mehari_version: crate::common::version().to_string(),
             assembly: assembly.to_string(),
@@ -261,6 +273,8 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
             source_version,
             annotation_version,
             annotation_name,
+            assembly_enum: assembly_enum.into(),
+            source_name_enum: source_name_enum.into(),
         }
     }
 
