@@ -1,18 +1,18 @@
-use crate::db::create::models::{Fix, GeneId, Identifier, Reason, TranscriptId};
-use crate::db::create::reference::SequenceProvider;
-use crate::db::create::{
-    DISCARD_BIOTYPES_GENES, DISCARD_BIOTYPES_TRANSCRIPTS, MITOCHONDRIAL_ACCESSIONS, TranscriptExt,
-    TranscriptLoader, append_poly_a, group_transcripts_by_release_and_version,
+use crate::db::create::models::{
+    Fix, GeneId, Identifier, Reason, TranscriptExt, TranscriptId, TranscriptLoader,
 };
+use crate::db::create::reference::SequenceProvider;
 use anyhow::Error;
 use derive_new::new;
 use enumflags2::{BitFlag, BitFlags};
 use hgvs::data::cdot::json::models::{BioType, Gene, Tag, Transcript};
 use hgvs::sequences::{TranslationTable, translate_cds};
 use itertools::Itertools;
+use once_cell::sync::Lazy;
 use rayon::iter::Either;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use seqrepo::AliasOrSeqId;
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -524,4 +524,63 @@ pub(crate) fn filter_empty_gene_id_mappings(loader: &mut TranscriptLoader) -> Re
     // loader.discard()?;
     tracing::info!("… done removing empty HGNC mappings");
     Ok(())
+}
+
+/// Mitochondrial accessions.
+pub const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1", "NC_001807.4"];
+static DISCARD_BIOTYPES_TRANSCRIPTS: Lazy<HashSet<BioType>> = Lazy::new(|| {
+    HashSet::from([
+        // BioType::PseudogenicTranscript,
+        BioType::IgCGene,
+        BioType::IgDGene,
+        BioType::IgJGene,
+        BioType::IgVGene,
+        BioType::TrCGene,
+        BioType::TrDGene,
+        BioType::TrJGene,
+        BioType::TrVGene,
+        BioType::AberrantProcessedTranscript,
+        BioType::UnconfirmedTranscript,
+        BioType::NmdTranscriptVariant,
+    ])
+});
+// this used to contain `BioType::Pseudogene`,
+// but we keep pseudogenes (as there are cases where a protein still is produced in certain individuals)
+static DISCARD_BIOTYPES_GENES: Lazy<HashSet<BioType>> = Lazy::new(|| {
+    HashSet::from([
+        BioType::CGeneSegment,
+        BioType::DGeneSegment,
+        BioType::JGeneSegment,
+        BioType::VGeneSegment,
+    ])
+});
+
+/// Group transcripts by release and version (sorted descending).
+fn group_transcripts_by_release_and_version<'a>(
+    txs: &[&'a Transcript],
+) -> HashMap<(String, String), Vec<(u32, &'a Transcript)>> {
+    let mut versioned = txs
+        .iter()
+        .flat_map(|tx| {
+            let releases = tx.genome_builds.keys().cloned().collect_vec();
+            let tx_id = TranscriptId::try_new(&tx.id).unwrap();
+            let (ac, version) = tx_id.split_version();
+            let ac = ac.to_string();
+            releases
+                .into_iter()
+                .map(move |r| ((r, ac.clone()), (version, *tx)))
+        })
+        .into_group_map();
+    versioned.values_mut().for_each(|txs| {
+        txs.sort_unstable_by_key(|(version, _)| Reverse(*version));
+    });
+    versioned
+}
+
+fn append_poly_a(seq: String, length: usize) -> String {
+    // Append poly-A for chrMT transcripts (which are from ENSEMBL).
+    // This also potentially fixes the stop codon.
+    let mut seq = seq.into_bytes();
+    seq.extend_from_slice(b"A".repeat(length).as_slice());
+    String::from_utf8(seq).expect("must be valid UTF-8")
 }

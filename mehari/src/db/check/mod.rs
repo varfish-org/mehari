@@ -269,7 +269,7 @@ impl TxDbData {
 fn load_cdot_files(paths: &[PathBuf]) -> Result<IdentifierMap> {
     let cdot_container = paths
         .iter()
-        .map(crate::db::create::read_cdot_json)
+        .map(crate::db::create::cdot::read_cdot_json)
         .collect::<Result<Vec<_>>>()?
         .into_iter()
         .reduce(|mut a, b| {

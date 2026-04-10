@@ -1,9 +1,9 @@
-use crate::db::create::models::{GeneId, TranscriptId};
-use crate::db::create::read_cdot_json;
-use crate::db::create::{TranscriptLoader, cdot_models};
+use crate::db::create::cdot_models;
+use crate::db::create::models::{GeneId, TranscriptId, TranscriptLoader};
 use anyhow::Error;
 use hgvs::data::cdot::json::models::Gene;
 use std::collections::HashMap;
+use std::fs::File;
 use std::path::Path;
 
 /// Load and extract from cdot JSON.
@@ -84,4 +84,16 @@ pub fn load_cdot(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
     }
 
     Ok(())
+}
+
+pub(crate) fn read_cdot_json(path: impl AsRef<Path>) -> Result<cdot_models::Container, Error> {
+    Ok(if path.as_ref().extension().unwrap_or_default() == "gz" {
+        tracing::info!("(from gzip compressed file)");
+        serde_json::from_reader(std::io::BufReader::new(flate2::read::GzDecoder::new(
+            File::open(path)?,
+        )))?
+    } else {
+        tracing::info!("(from uncompressed file)");
+        serde_json::from_reader(std::io::BufReader::new(File::open(path)?))?
+    })
 }

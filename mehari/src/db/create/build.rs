@@ -1,5 +1,7 @@
-use crate::db::create::models::{GeneId, Identifier, Reason, TranscriptId};
-use crate::db::create::{TranscriptExt, TranscriptLoader, cdot_models};
+use crate::db::create::cdot_models;
+use crate::db::create::models::{
+    GeneId, Identifier, Reason, TranscriptExt, TranscriptId, TranscriptLoader,
+};
 use crate::pbs::txs::{SourceVersion, TxSeqDatabase};
 use anyhow::Error;
 use hgvs::data::cdot::json::models::{BioType, Gene, GenomeAlignment, Tag, Transcript};

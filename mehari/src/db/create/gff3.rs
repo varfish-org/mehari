@@ -1,5 +1,5 @@
-use crate::db::create::models::{GeneId, TranscriptId};
-use crate::db::create::{TranscriptLoader, cdot_models};
+use crate::db::create::cdot_models;
+use crate::db::create::models::{GeneId, TranscriptId, TranscriptLoader};
 use anyhow::Error;
 use hgvs::data::cdot::json::models::{Gene, GenomeAlignment, Transcript};
 use indexmap::IndexMap;
