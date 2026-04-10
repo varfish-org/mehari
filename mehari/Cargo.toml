@@ -33,7 +33,7 @@ annonars = { version = "0.44.2", default-features = false }
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bio = "3.0.0"
-biocommons-bioutils = "0.1.5"
+biocommons-bioutils = "0.2.0"
 built = { version = "0.8", features = ["chrono", "semver"] }
 byte-unit = "5.2"
 chrono = "0.4"
