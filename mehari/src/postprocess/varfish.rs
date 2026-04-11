@@ -896,31 +896,46 @@ impl VarFishSeqvarTsvRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use temp_testdir::TempDir;
 
     #[tokio::test]
     async fn smoke_test_export_tsv() -> Result<(), anyhow::Error> {
+        let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
         let temp = TempDir::default();
         let path_out = temp.join("output.tsv");
 
         let args_common = crate::common::Args {
             verbose: Default::default(),
         };
+
         let args = Args {
-            input: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.mehari.vcf"),
-            pedigree: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped"),
+            input: base_path
+                .join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.mehari.vcf")
+                .display()
+                .to_string(),
+            pedigree: base_path
+                .join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped")
+                .display()
+                .to_string(),
             output: path_out.display().to_string(),
-            hgnc: String::from("tests/data/annotate/db/hgnc.tsv"),
+            hgnc: base_path
+                .join("tests/data/annotate/db/hgnc.tsv")
+                .display()
+                .to_string(),
             tsv_contig_style: TsvContigStyle::Auto,
             assembly: "GRCh38".to_string(),
         };
 
         run(&args_common, &args).await?;
 
-        // Standard string comparison against the expected TSV snapshot
         let actual = std::fs::read_to_string(&args.output)?;
-        let expected =
-            std::fs::read_to_string("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.tsv")?;
+
+        let expected_path =
+            base_path.join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.tsv");
+        let expected = std::fs::read_to_string(expected_path)?;
+
         assert_eq!(actual, expected);
 
         Ok(())
