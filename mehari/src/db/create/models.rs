@@ -520,7 +520,7 @@ impl TranscriptLoader {
     }
 
     pub(crate) fn discard(&mut self, remove: bool) -> Result<(), Error> {
-        let (n_transcripts_pre, n_gene_ids_pre) = (
+        let (_n_transcripts_pre, _n_gene_ids_pre) = (
             self.transcript_id_to_transcript.len(),
             self.gene_id_to_transcript_ids.len(),
         );

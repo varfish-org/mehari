@@ -198,7 +198,7 @@ impl UnbufferedIndexedFastaAccess {
             .map(|record| record.expect("Failed to read index record"))
             .collect();
 
-        let mut alias_to_index = FxHashMap::default();
+        let mut alias_to_index: FxHashMap<String, IndexRecord> = FxHashMap::default();
         let mut circular_contigs = FxHashSet::default();
 
         for record in index_records {
@@ -213,16 +213,17 @@ impl UnbufferedIndexedFastaAccess {
 
             for alias in aliases {
                 // Check for collision before inserting
-                if let Some(existing_record) = alias_to_index.get(&alias) {
-                    if existing_record.name != record.name {
-                        return Err(anyhow!(
-                            "Alias collision: alias '{}' is already mapped to '{}', cannot map to '{}'",
-                            alias,
-                            existing_record.name,
-                            record.name
-                        ));
-                    }
+                if let Some(existing_record) = alias_to_index.get(&alias)
+                    && existing_record.name != record.name
+                {
+                    return Err(anyhow!(
+                        "Alias collision: alias '{}' is already mapped to '{}', cannot map to '{}'",
+                        alias,
+                        existing_record.name,
+                        record.name
+                    ));
                 }
+
                 alias_to_index.insert(alias.clone(), record.clone());
                 if contig_manager.is_mitochondrial_alias(&alias) {
                     circular_contigs.insert(alias);

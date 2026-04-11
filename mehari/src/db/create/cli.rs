@@ -30,7 +30,11 @@ pub struct Args {
     pub transcript_source_version: Option<String>,
 
     /// Path to the seqrepo instance directory to use.
-    #[arg(long, required_unless_present = "transcript_sequences", conflicts_with = "transcript_sequences")]
+    #[arg(
+        long,
+        required_unless_present = "transcript_sequences",
+        conflicts_with = "transcript_sequences"
+    )]
     pub seqrepo: Option<PathBuf>,
 
     /// Path to FASTA file(s) containing transcript sequences (alternative to seqrepo).

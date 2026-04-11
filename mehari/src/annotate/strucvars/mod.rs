@@ -3739,7 +3739,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/clincnv-min.out.jsonl",
-            &ClinCnvVcfRecordConverter::new("1.17.0", &samples, "grch37", TsvContigStyle::Auto),
+            &ClinCnvVcfRecordConverter::new("1.17.0", &samples, "GRCh37", TsvContigStyle::Auto),
         )
     }
 
@@ -3753,7 +3753,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/delly2-min.out.jsonl",
-            &DellyVcfRecordConverter::new("1.1.3", &samples, "grch37", TsvContigStyle::Auto),
+            &DellyVcfRecordConverter::new("1.1.3", &samples, "GRCh37", TsvContigStyle::Auto),
         )
     }
 
@@ -3770,7 +3770,7 @@ mod test {
             &DragenSvVcfRecordConverter::new(
                 "07.021.624.3.10.4",
                 &samples,
-                "grch37",
+                "GRCh37",
                 TsvContigStyle::Auto,
             ),
         )
@@ -3789,7 +3789,7 @@ mod test {
             &DragenCnvVcfRecordConverter::new(
                 "07.021.624.3.10.4",
                 &samples,
-                "grch37",
+                "GRCh37",
                 TsvContigStyle::Auto,
             ),
         )
@@ -3805,7 +3805,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/gcnv-min.out.jsonl",
-            &GcnvVcfRecordConverter::new("4.3.0.0", &samples, "grch37", TsvContigStyle::Auto),
+            &GcnvVcfRecordConverter::new("4.3.0.0", &samples, "GRCh37", TsvContigStyle::Auto),
         )
     }
 
@@ -3819,7 +3819,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/manta-min.out.jsonl",
-            &MantaVcfRecordConverter::new("1.6.0", &samples, "grch37", TsvContigStyle::Auto),
+            &MantaVcfRecordConverter::new("1.6.0", &samples, "GRCh37", TsvContigStyle::Auto),
         )
     }
 
@@ -3833,7 +3833,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/melt-min.out.jsonl",
-            &MeltVcfRecordConverter::new("2.2.2", &samples, "grch37", TsvContigStyle::Auto),
+            &MeltVcfRecordConverter::new("2.2.2", &samples, "GRCh37", TsvContigStyle::Auto),
         )
     }
 
@@ -3847,7 +3847,7 @@ mod test {
             &pedigree,
             path_input_vcf,
             "tests/data/annotate/strucvars/popdel-min.out.jsonl",
-            &PopdelVcfRecordConverter::new("1.1.2", &samples, "grch37", TsvContigStyle::Auto),
+            &PopdelVcfRecordConverter::new("1.1.2", &samples, "GRCh37", TsvContigStyle::Auto),
         )
     }
 
@@ -3871,7 +3871,7 @@ mod test {
             let mut reader = open_variant_reader(&path_input_vcf).await?;
             let sv_caller = guess_sv_caller(&mut reader).await?;
             let converter =
-                build_vcf_record_converter(&sv_caller, &samples, "grch37", TsvContigStyle::Auto);
+                build_vcf_record_converter(&sv_caller, &samples, "GRCh37", TsvContigStyle::Auto);
             run_test_vcf_to_jsonl(
                 &pedigree,
                 &path_input_vcf,

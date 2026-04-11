@@ -170,7 +170,10 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
                 if exons.is_empty() {
                     return true;
                 }
-                let is_reverse = matches!(alignment.strand, hgvs::data::cdot::json::models::Strand::Minus);
+                let is_reverse = matches!(
+                    alignment.strand,
+                    hgvs::data::cdot::json::models::Strand::Minus
+                );
                 let five_prime_trunc = {
                     let cds_start = alignment.cds_start;
                     // 5' exon: lowest genomic coordinate on '+', highest on '-'
@@ -344,7 +347,10 @@ pub(crate) fn filter_transcripts_with_sequence(
                 if exons.is_empty() {
                     return true;
                 }
-                let is_reverse = matches!(alignment.strand, hgvs::data::cdot::json::models::Strand::Minus);
+                let is_reverse = matches!(
+                    alignment.strand,
+                    hgvs::data::cdot::json::models::Strand::Minus
+                );
                 // 5' exon: lowest genomic coordinate on '+', highest on '-'
                 let first = if is_reverse {
                     exons.iter().max_by_key(|e| e.alt_start_i).unwrap()
@@ -366,7 +372,10 @@ pub(crate) fn filter_transcripts_with_sequence(
                 if exons.is_empty() {
                     return true;
                 }
-                let is_reverse = matches!(alignment.strand, hgvs::data::cdot::json::models::Strand::Minus);
+                let is_reverse = matches!(
+                    alignment.strand,
+                    hgvs::data::cdot::json::models::Strand::Minus
+                );
                 // 3' exon: highest genomic coordinate on '+', lowest on '-'
                 let last = if is_reverse {
                     exons.iter().min_by_key(|e| e.alt_end_i).unwrap()
