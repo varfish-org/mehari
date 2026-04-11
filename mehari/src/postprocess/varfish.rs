@@ -1,12 +1,11 @@
 use crate::annotate::genotype_string;
 use crate::annotate::seqvars::ann::{AnnField, FeatureBiotype};
 use crate::annotate::seqvars::{AnnotatedVariant, VariantAnnotation};
+use crate::common::TsvContigStyle;
 use crate::common::contig::ContigManager;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
-use crate::common::{TsvContigStyle, guess_assembly_from_vcf};
 use crate::ped::{PedigreeByName, Sex};
 use anyhow::Error;
-use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -45,6 +44,10 @@ pub struct Args {
     /// Style for contig names in TSV output.
     #[arg(long, value_enum, default_value_t = TsvContigStyle::Auto)]
     pub tsv_contig_style: TsvContigStyle,
+
+    /// Assembly to use.
+    #[arg(long, required = true)]
+    pub assembly: String,
 }
 
 pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
@@ -55,13 +58,12 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     tracing::info!("Loading pedigree from file {}", args.pedigree);
     let pedigree = PedigreeByName::from_path(&args.pedigree)?;
 
-    // 2. Open VCF Reader and extract assembly
     let mut reader = open_variant_reader(&args.input).await?;
     let header = reader.read_header().await?;
-    let assembly = guess_assembly_from_vcf(&header, true, None)?;
+    let assembly = args.assembly.clone();
 
     // 3. Initialize TSV Writer
-    let mut writer = VarFishSeqvarTsvWriter::with_path(&args.output, args.tsv_contig_style)?;
+    let mut writer = VarFishSeqvarTsvWriter::from_path(&args.output, args.tsv_contig_style)?;
     writer.set_hgnc_map(hgnc_map);
     writer.set_pedigree(&pedigree);
     writer.set_assembly(assembly);
@@ -195,16 +197,16 @@ impl GenotypeCalls {
 
 pub struct VarFishSeqvarTsvWriter {
     inner: Box<dyn Write>,
-    assembly: Option<Assembly>,
+    assembly: String,
     pedigree: Option<PedigreeByName>,
     header: Option<VcfHeader>,
     hgnc_map: Option<FxHashMap<String, HgncRecord>>,
-    contig_manager: Option<ContigManager>,
     tsv_contig_style: TsvContigStyle,
+    contig_manager: ContigManager,
 }
 
 impl VarFishSeqvarTsvWriter {
-    pub fn with_path<P: AsRef<Path>>(
+    pub fn from_path<P: AsRef<Path>>(
         p: P,
         tsv_contig_style: TsvContigStyle,
     ) -> anyhow::Result<Self> {
@@ -216,12 +218,12 @@ impl VarFishSeqvarTsvWriter {
         };
         Ok(Self {
             inner,
-            assembly: None,
+            assembly: "".into(),
             pedigree: None,
             header: None,
             hgnc_map: None,
-            contig_manager: None,
             tsv_contig_style,
+            contig_manager: ContigManager::new(""),
         })
     }
 
@@ -229,9 +231,9 @@ impl VarFishSeqvarTsvWriter {
         self.hgnc_map = Some(hgnc_map)
     }
 
-    pub fn set_assembly(&mut self, assembly: Assembly) {
-        self.assembly = Some(assembly);
-        self.contig_manager = Some(ContigManager::new(assembly));
+    pub fn set_assembly(&mut self, assembly: String) {
+        self.contig_manager = ContigManager::new(&assembly);
+        self.assembly = assembly;
     }
 
     pub fn set_pedigree(&mut self, pedigree: &PedigreeByName) {
@@ -320,39 +322,42 @@ impl VarFishSeqvarTsvWriter {
         record: &noodles::vcf::variant::RecordBuf,
         tsv_record: &mut VarFishSeqvarTsvRecord,
     ) -> Result<bool, Error> {
-        let assembly = self.assembly.expect("assembly must have been set");
-        let contig_manager = self
-            .contig_manager
-            .as_ref()
-            .expect("contig manager must be set");
-
-        tsv_record.release = match assembly {
-            Assembly::Grch37 | Assembly::Grch37p10 => String::from("GRCh37"),
-            Assembly::Grch38 => String::from("GRCh38"),
-        };
+        tsv_record.release = self.assembly.clone();
         let name = record.reference_sequence_name();
 
-        if let Some(contig_info) = contig_manager.get_contig_info(name) {
-            tsv_record.chromosome_no = contig_info.chrom_no;
-            tsv_record.chromosome = match self.tsv_contig_style {
-                TsvContigStyle::Passthrough => name.to_string(),
-                TsvContigStyle::WithChr => contig_info.name_with_chr,
-                TsvContigStyle::WithoutChr => contig_info.name_without_chr,
-                TsvContigStyle::Auto => {
-                    if assembly == Assembly::Grch38 {
-                        if ContigManager::is_mitochondrial(contig_info.chrom_no) {
-                            "chrM".into()
-                        } else {
-                            contig_info.name_with_chr
-                        }
-                    } else {
-                        contig_info.name_without_chr
-                    }
+        tsv_record.chromosome = match self.tsv_contig_style {
+            TsvContigStyle::Passthrough => name.to_string(),
+            TsvContigStyle::WithChr => self
+                .contig_manager
+                .get_contig_info(name)
+                .map(|info| info.name_with_chr)
+                .unwrap_or_else(|| name.to_string()),
+            TsvContigStyle::WithoutChr => self
+                .contig_manager
+                .get_contig_info(name)
+                .map(|info| info.name_without_chr)
+                .unwrap_or_else(|| name.to_string()),
+            TsvContigStyle::Auto => {
+                let is_grch38 = self.assembly.eq_ignore_ascii_case("grch38");
+                let is_grch37 = self.assembly.eq_ignore_ascii_case("grch37")
+                    || self.assembly.eq_ignore_ascii_case("grch37p10");
+
+                if is_grch38 {
+                    self.contig_manager
+                        .get_contig_info(name)
+                        .map(|info| info.name_with_chr)
+                        .unwrap_or_else(|| name.to_string())
+                } else if is_grch37 {
+                    self.contig_manager
+                        .get_contig_info(name)
+                        .map(|info| info.name_without_chr)
+                        .unwrap_or_else(|| name.to_string())
+                } else {
+                    name.to_string()
                 }
-            };
-        } else {
-            return Ok(false);
-        }
+            }
+        };
+        tsv_record.chromosome_no = self.contig_manager.get_chrom_no(name).unwrap_or(0);
 
         tsv_record.reference = record.reference_bases().to_string();
         tsv_record.alternative = record.alternate_bases().as_ref()[0].to_string();
@@ -891,30 +896,46 @@ impl VarFishSeqvarTsvRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use temp_testdir::TempDir;
 
     #[tokio::test]
     async fn smoke_test_export_tsv() -> Result<(), anyhow::Error> {
+        let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+
         let temp = TempDir::default();
         let path_out = temp.join("output.tsv");
 
         let args_common = crate::common::Args {
             verbose: Default::default(),
         };
+
         let args = Args {
-            input: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.mehari.vcf"),
-            pedigree: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped"),
+            input: base_path
+                .join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.mehari.vcf")
+                .display()
+                .to_string(),
+            pedigree: base_path
+                .join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped")
+                .display()
+                .to_string(),
             output: path_out.display().to_string(),
-            hgnc: String::from("tests/data/annotate/db/hgnc.tsv"),
+            hgnc: base_path
+                .join("tests/data/annotate/db/hgnc.tsv")
+                .display()
+                .to_string(),
             tsv_contig_style: TsvContigStyle::Auto,
+            assembly: "GRCh38".to_string(),
         };
 
         run(&args_common, &args).await?;
 
-        // Standard string comparison against the expected TSV snapshot
         let actual = std::fs::read_to_string(&args.output)?;
-        let expected =
-            std::fs::read_to_string("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.tsv")?;
+
+        let expected_path =
+            base_path.join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.tsv");
+        let expected = std::fs::read_to_string(expected_path)?;
+
         assert_eq!(actual, expected);
 
         Ok(())

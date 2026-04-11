@@ -1,6 +1,7 @@
 ---
-source: src/db/create/mod.rs
+source: mehari/src/db/create/mod.rs
 expression: "String::from_utf8(buf)?"
+snapshot_kind: text
 ---
 txDb:
   transcripts:
@@ -14,7 +15,7 @@ txDb:
     startCodon: 113
     stopCodon: 5705
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000017.11
       cdsStart: 43045677
       cdsEnd: 43124096
@@ -157,6 +158,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 94
         cigar: 94M
+      genomeBuild: grch38
     filtered: false
   - id: NM_007297.4
     geneSymbol: BRCA1
@@ -166,7 +168,7 @@ txDb:
     startCodon: 194
     stopCodon: 5645
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000017.11
       cdsStart: 43045677
       cdsEnd: 43106526
@@ -303,6 +305,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 88
         cigar: 88M
+      genomeBuild: grch38
     filtered: false
   - id: NM_007298.3
     geneSymbol: BRCA1
@@ -312,7 +315,7 @@ txDb:
     startCodon: 19
     stopCodon: 2299
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000017.11
       cdsStart: 43045677
       cdsEnd: 43124096
@@ -449,6 +452,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 99
         cigar: 99M
+      genomeBuild: grch38
     filtered: false
   - id: NM_007299.4
     geneSymbol: BRCA1
@@ -458,7 +462,7 @@ txDb:
     startCodon: 107
     stopCodon: 2207
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000017.11
       cdsStart: 43045783
       cdsEnd: 43124096
@@ -595,6 +599,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 88
         cigar: 88M
+      genomeBuild: grch38
     filtered: false
   - id: NM_007300.4
     geneSymbol: BRCA1
@@ -604,7 +609,7 @@ txDb:
     startCodon: 113
     stopCodon: 5768
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000017.11
       cdsStart: 43045677
       cdsEnd: 43124096
@@ -753,13 +758,14 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 94
         cigar: 94M
+      genomeBuild: grch38
     filtered: false
   - id: NR_027676.2
     geneSymbol: BRCA1
     geneId: HGNC:1100
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000017.11
       strand: STRAND_MINUS
       exons:
@@ -900,6 +906,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 183
         cigar: 183M
+      genomeBuild: grch38
     filtered: false
     filterReason: 1048576
   - id: NM_001354663.2
@@ -910,7 +917,7 @@ txDb:
     startCodon: 600
     stopCodon: 3114
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193615694
       cdsEnd: 193692127
@@ -1095,6 +1102,7 @@ txDb:
         altCdsStartI: 3120
         altCdsEndI: 6325
         cigar: 3206M
+      genomeBuild: grch38
     filtered: false
   - id: NM_001354664.2
     geneSymbol: OPA1
@@ -1104,7 +1112,7 @@ txDb:
     startCodon: 600
     stopCodon: 3111
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193615694
       cdsEnd: 193692127
@@ -1289,6 +1297,7 @@ txDb:
         altCdsStartI: 3117
         altCdsEndI: 6322
         cigar: 3206M
+      genomeBuild: grch38
     filtered: false
   - id: NM_015560.3
     geneSymbol: OPA1
@@ -1298,7 +1307,7 @@ txDb:
     startCodon: 170
     stopCodon: 3053
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193692127
@@ -1477,6 +1486,7 @@ txDb:
         altCdsStartI: 3059
         altCdsEndI: 6264
         cigar: 3206M
+      genomeBuild: grch38
     filtered: false
   - id: NM_130831.3
     geneSymbol: OPA1
@@ -1486,7 +1496,7 @@ txDb:
     startCodon: 170
     stopCodon: 2945
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193692127
@@ -1659,6 +1669,7 @@ txDb:
         altCdsStartI: 2951
         altCdsEndI: 6156
         cigar: 3206M
+      genomeBuild: grch38
     filtered: false
   - id: NM_130832.3
     geneSymbol: OPA1
@@ -1668,7 +1679,7 @@ txDb:
     startCodon: 170
     stopCodon: 2999
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193692127
@@ -1847,6 +1858,7 @@ txDb:
         altCdsStartI: 3005
         altCdsEndI: 6210
         cigar: 3206M
+      genomeBuild: grch38
     filtered: false
   - id: NM_130833.3
     geneSymbol: OPA1
@@ -1856,7 +1868,7 @@ txDb:
     startCodon: 170
     stopCodon: 3056
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193692127
@@ -2035,6 +2047,7 @@ txDb:
         altCdsStartI: 3062
         altCdsEndI: 6267
         cigar: 3206M
+      genomeBuild: grch38
     filtered: false
   - id: NM_130834.3
     geneSymbol: OPA1
@@ -2044,7 +2057,7 @@ txDb:
     startCodon: 170
     stopCodon: 3107
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193692127
@@ -2229,6 +2242,7 @@ txDb:
         altCdsStartI: 3113
         altCdsEndI: 6318
         cigar: 3206M
+      genomeBuild: grch38
     filtered: false
   - id: NM_130835.3
     geneSymbol: OPA1
@@ -2238,7 +2252,7 @@ txDb:
     startCodon: 170
     stopCodon: 3110
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193692127
@@ -2423,6 +2437,7 @@ txDb:
         altCdsStartI: 3116
         altCdsEndI: 6321
         cigar: 3206M
+      genomeBuild: grch38
     filtered: false
   - id: NM_130836.3
     geneSymbol: OPA1
@@ -2432,7 +2447,7 @@ txDb:
     startCodon: 170
     stopCodon: 3164
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193692127
@@ -2617,6 +2632,7 @@ txDb:
         altCdsStartI: 3170
         altCdsEndI: 6375
         cigar: 3206M
+      genomeBuild: grch38
     filtered: false
   - id: NM_130837.3
     geneSymbol: OPA1
@@ -2628,7 +2644,7 @@ txDb:
     startCodon: 170
     stopCodon: 3218
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193692127
@@ -2819,6 +2835,7 @@ txDb:
         altCdsStartI: 3224
         altCdsEndI: 6429
         cigar: 3206M
+      genomeBuild: grch38
     filtered: false
   - id: XM_047448206.1
     geneSymbol: OPA1
@@ -2828,7 +2845,7 @@ txDb:
     startCodon: 170
     stopCodon: 3314
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193677987
@@ -3013,6 +3030,7 @@ txDb:
         altCdsStartI: 3154
         altCdsEndI: 3338
         cigar: 185M
+      genomeBuild: grch38
     filtered: false
     filterReason: 32768
   - id: XM_047448207.1
@@ -3023,7 +3041,7 @@ txDb:
     startCodon: 170
     stopCodon: 3260
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193677987
@@ -3202,6 +3220,7 @@ txDb:
         altCdsStartI: 3100
         altCdsEndI: 3284
         cigar: 185M
+      genomeBuild: grch38
     filtered: false
     filterReason: 32768
   - id: XM_047448208.1
@@ -3212,7 +3231,7 @@ txDb:
     startCodon: 170
     stopCodon: 3203
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193677987
@@ -3391,6 +3410,7 @@ txDb:
         altCdsStartI: 3043
         altCdsEndI: 3227
         cigar: 185M
+      genomeBuild: grch38
     filtered: false
     filterReason: 32768
   - id: XM_047448209.1
@@ -3401,7 +3421,7 @@ txDb:
     startCodon: 170
     stopCodon: 3152
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193677987
@@ -3574,6 +3594,7 @@ txDb:
         altCdsStartI: 2992
         altCdsEndI: 3176
         cigar: 185M
+      genomeBuild: grch38
     filtered: false
     filterReason: 32768
   - id: XM_047448210.1
@@ -3584,7 +3605,7 @@ txDb:
     startCodon: 170
     stopCodon: 3149
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193677987
@@ -3757,6 +3778,7 @@ txDb:
         altCdsStartI: 2989
         altCdsEndI: 3173
         cigar: 185M
+      genomeBuild: grch38
     filtered: false
     filterReason: 32768
   - id: XM_047448211.1
@@ -3767,7 +3789,7 @@ txDb:
     startCodon: 170
     stopCodon: 3041
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193677987
@@ -3934,6 +3956,7 @@ txDb:
         altCdsStartI: 2881
         altCdsEndI: 3065
         cigar: 185M
+      genomeBuild: grch38
     filtered: false
     filterReason: 32768
   - id: XM_047448212.1
@@ -3944,7 +3967,7 @@ txDb:
     startCodon: 600
     stopCodon: 3372
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193615694
       cdsEnd: 193677987
@@ -4135,6 +4158,7 @@ txDb:
         altCdsStartI: 3212
         altCdsEndI: 3396
         cigar: 185M
+      genomeBuild: grch38
     filtered: false
     filterReason: 32768
   - id: XM_047448213.1
@@ -4145,7 +4169,7 @@ txDb:
     startCodon: 170
     stopCodon: 2360
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193593377
       cdsEnd: 193655039
@@ -4288,6 +4312,7 @@ txDb:
         altCdsStartI: 2374
         altCdsEndI: 2464
         cigar: 91M
+      genomeBuild: grch38
     filtered: false
     filterReason: 32768
   - id: XM_047448214.1
@@ -4298,7 +4323,7 @@ txDb:
     startCodon: 274
     stopCodon: 2455
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193637209
       cdsEnd: 193677987
@@ -4447,6 +4472,7 @@ txDb:
         altCdsStartI: 2295
         altCdsEndI: 2479
         cigar: 185M
+      genomeBuild: grch38
     filtered: false
     filterReason: 32768
   - id: XM_047448216.1
@@ -4457,7 +4483,7 @@ txDb:
     startCodon: 272
     stopCodon: 2357
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000003.12
       cdsStart: 193637209
       cdsEnd: 193692127
@@ -4612,6 +4638,7 @@ txDb:
         altCdsStartI: 2363
         altCdsEndI: 5568
         cigar: 3206M
+      genomeBuild: grch38
     filtered: false
     filterReason: 32768
   geneToTx:
@@ -4732,6 +4759,9 @@ seqDb:
 version: 0.0.0
 sourceVersion:
 - mehariVersion: 0.0.0
-  assembly: ASSEMBLY_GRCH38
-  sourceName: SOURCE_REFSEQ
-  cdotVersion: 0.2.22
+  assemblyEnum: ASSEMBLY_GRCH38
+  sourceNameEnum: SOURCE_REFSEQ
+  annotationVersion: 0.2.22
+  annotationName: cdot
+  assembly: grch38
+  sourceName: refseq

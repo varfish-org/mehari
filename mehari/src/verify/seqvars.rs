@@ -3,19 +3,13 @@
 use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
 use crate::annotate::seqvars::{
     csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
-    load_tx_db, path_component,
+    load_tx_db,
     provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
 };
-use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use noodles::core::{Position, Region};
 use quick_cache::unsync::Cache;
-use std::{
-    fs::File,
-    io::{BufRead, BufReader, Write},
-    sync::Arc,
-    time::Instant,
-};
+use std::{io::Write, sync::Arc, time::Instant};
 
 /// Command line arguments for `verify seqvars` sub command.
 #[derive(Parser, Debug)]
@@ -41,6 +35,10 @@ pub struct Args {
     #[arg(long)]
     pub path_output_tsv: String,
 
+    /// Assembly to use.
+    #[arg(long, required = true)]
+    pub assembly: String,
+
     /// Whether to report only the worst consequence for each picked transcript.
     #[arg(long)]
     pub report_most_severe_consequence_by: Option<ConsequenceBy>,
@@ -62,40 +60,6 @@ pub struct Args {
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
     pub max_var_count: Option<usize>,
-}
-
-/// Guess genome release from VEP TSV file.
-fn guess_assembly(path_input_tsv: &str) -> Result<Assembly, anyhow::Error> {
-    tracing::info!("Guessing assembly from {}...", &path_input_tsv);
-    let mut result = None;
-    let lines = BufReader::new(File::open(path_input_tsv)?).lines();
-    for line in lines {
-        let line = line?;
-        if line.starts_with("## assembly version") {
-            let token = line
-                .split_whitespace()
-                .last()
-                .expect("problem splitting 'assembly version' line");
-            if token.starts_with("GRCh37") {
-                result = Some(Assembly::Grch37);
-                break;
-            } else if token.starts_with("GRCh38") {
-                result = Some(Assembly::Grch38);
-                break;
-            } else {
-                anyhow::bail!("unknown genome release: {}", token);
-            }
-        } else if !line.starts_with("##") {
-            break;
-        }
-    }
-
-    if let Some(assembly) = result {
-        tracing::info!("... guessed assembly to be: {:?}", assembly);
-        Ok(assembly)
-    } else {
-        anyhow::bail!("could not guess assembly {}", path_input_tsv);
-    }
 }
 
 /// Reading of VEP TSV files.
@@ -124,10 +88,6 @@ pub mod vep_tsv {
 
 /// Run the verification command.
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
-    // Guess assembly from VEP TSV file.
-    let assembly = guess_assembly(&args.path_input_tsv)?;
-
-    // Output TSV file.
     let mut output_tsv = std::fs::File::create(&args.path_output_tsv)?;
 
     // Open the reference FASTA through a noodles FAI reader.
@@ -140,11 +100,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     // Read the serialized transcripts.
     tracing::info!("Opening transcript database");
-    let tx_db = load_tx_db(format!(
-        "{}/{}/txs.bin.zst",
-        &args.path_db,
-        path_component(assembly)
-    ))?;
+    let tx_db = load_tx_db(format!("{}/{}/txs.bin.zst", &args.path_db, &args.assembly))?;
 
     // let reference = noodles::fasta::io::indexed_reader::Builder::default()
     //     .build_from_path(&args.path_reference_fasta)?;
@@ -178,6 +134,58 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     // Read through the VEP TSV file and compare to the mehari predictions.
     tracing::info!("Processing input TSV file ...");
+
+    // Extract assembly from VEP TSV header for sanity check
+    let vep_file = std::fs::File::open(&args.path_input_tsv)?;
+    let vep_reader = std::io::BufReader::new(vep_file);
+    use std::io::BufRead;
+    let mut vep_assembly: Option<String> = None;
+    for line in vep_reader.lines() {
+        let line = line?;
+        if line.starts_with("##") {
+            // Look for assembly information in header comments
+            if line.contains("assembly") || line.contains("Assembly") {
+                // Extract assembly name (e.g., GRCh37, GRCh38)
+                if let Some(pos) = line.find("GRCh") {
+                    let rest = &line[pos..];
+                    if let Some(assembly_str) = rest.split_whitespace().next() {
+                        vep_assembly = Some(assembly_str.to_lowercase());
+                    }
+                }
+            }
+        } else if !line.starts_with('#') {
+            // End of header
+            break;
+        }
+    }
+
+    // Normalize assembly names for comparison (allow common synonyms)
+    let normalize_assembly = |asm: &str| -> String {
+        let asm_lower = asm.to_lowercase();
+        if asm_lower.contains("grch37") || asm_lower.contains("hg19") {
+            "grch37".to_string()
+        } else if asm_lower.contains("grch38") || asm_lower.contains("hg38") {
+            "grch38".to_string()
+        } else {
+            asm_lower
+        }
+    };
+
+    let user_assembly_normalized = normalize_assembly(&args.assembly);
+
+    // Check if VEP header assembly matches user-provided assembly
+    if let Some(ref vep_asm) = vep_assembly {
+        let vep_assembly_normalized = normalize_assembly(vep_asm);
+        if vep_assembly_normalized != user_assembly_normalized {
+            return Err(anyhow::anyhow!(
+                "Assembly mismatch: VEP TSV header indicates '{}' but --assembly flag specifies '{}'. \
+                Please ensure the correct assembly is specified.",
+                vep_asm,
+                args.assembly
+            ));
+        }
+    }
+
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .has_headers(false)

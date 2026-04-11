@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use strum::Display;
 
 use crate::annotate::seqvars::load_tx_db;
-use crate::db::create::Reason as FilterReason;
+use crate::db::create::models::Reason as FilterReason;
 use crate::pbs::txs::{TranscriptDb, TranscriptTag};
 
 /// Check a mehari transcript database against information from
@@ -269,7 +269,7 @@ impl TxDbData {
 fn load_cdot_files(paths: &[PathBuf]) -> Result<IdentifierMap> {
     let cdot_container = paths
         .iter()
-        .map(crate::db::create::read_cdot_json)
+        .map(crate::db::create::cdot::read_cdot_json)
         .collect::<Result<Vec<_>>>()?
         .into_iter()
         .reduce(|mut a, b| {

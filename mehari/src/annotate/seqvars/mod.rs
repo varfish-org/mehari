@@ -23,7 +23,6 @@ use crate::annotate::seqvars::provider::{
 };
 use crate::common::contig::ContigManager;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
-use crate::common::{GenomeRelease, guess_assembly_from_vcf};
 use crate::db::merge::merge_transcript_databases;
 use crate::pbs::txs::TxSeqDatabase;
 use annonars::common::keys;
@@ -32,6 +31,7 @@ use anyhow::{Error, anyhow};
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use hgvs::data::interface::Provider;
+use indexmap::IndexMap;
 use itertools::Itertools;
 use noodles::vcf::header::FileFormat;
 use noodles::vcf::header::record::value::map::format::Number as FormatNumber;
@@ -68,9 +68,9 @@ pub enum OutputFormat {
 #[derive(Parser, Debug)]
 #[command(about = "Annotate sequence variant VCF files", long_about = None)]
 pub struct Args {
-    /// Genome release to use, default is to auto-detect.
-    #[arg(long, value_enum)]
-    pub genome_release: Option<GenomeRelease>,
+    /// Assembly to use.
+    #[arg(long)]
+    pub assembly: Option<String>,
 
     /// Reference genome FASTA file (with accompanying index).
     #[arg(long)]
@@ -312,7 +312,7 @@ pub trait AsyncAnnotatedVariantWriter {
     #[allow(async_fn_in_trait)]
     async fn shutdown(&mut self) -> Result<(), anyhow::Error>;
 
-    fn set_assembly(&mut self, _assembly: Assembly) {
+    fn set_assembly(&mut self, _assembly: String) {
         // nop
     }
 
@@ -1083,7 +1083,6 @@ impl ConsequenceAnnotator {
                 .report_most_severe_consequence_by(
                     args.transcript_settings.report_most_severe_consequence_by,
                 )
-                .transcript_source(args.transcript_settings.transcript_source)
                 .keep_intergenic(args.reporting_settings.keep_intergenic)
                 .discard_utr_splice_variants(args.reporting_settings.discard_utr_splice_variants)
                 .normalize(!args.do_not_normalize_variants())
@@ -1220,17 +1219,132 @@ async fn run_with_writer(
         *format.type_mut() = FormatType::String;
     }
 
-    // Guess genome release from contigs in VCF header.
-    let genome_release = args.genome_release.map(|gr| match gr {
-        GenomeRelease::Grch37 => Assembly::Grch37p10, // has chrMT!
-        GenomeRelease::Grch38 => Assembly::Grch38,
+    let tx_dbs = match &args.sources.transcripts {
+        Some(sources) => {
+            tracing::info!("Opening transcript database(s)");
+            sources
+                .iter()
+                .map(load_tx_db)
+                .collect::<Result<Vec<_>, _>>()?
+        }
+        None => vec![],
+    };
+
+    for db in &tx_dbs {
+        for sv in &db.source_version {
+            tracing::info!("Transcript source version: {:?}", sv);
+        }
+    }
+
+    let extract_unstructured_first = |key: &str| -> Option<String> {
+        header_in
+            .other_records()
+            .get(key)
+            .and_then(|collection| match collection {
+                noodles::vcf::header::record::value::Collection::Unstructured(list) => {
+                    list.first().cloned()
+                }
+                noodles::vcf::header::record::value::Collection::Structured(_) => {
+                    // If it's surprisingly structured, we can't extract a simple string hint
+                    None
+                }
+            })
+    };
+
+    // Priority 1: Check the ##contig lines for an `assembly=` field
+    let vcf_contig_assembly = header_in
+        .contigs()
+        .values()
+        .find_map(|contig| contig.other_fields().get("assembly").map(|v| v.to_string()));
+
+    // Priority 2: Extract the file stem from ##reference=...
+    let vcf_reference_tag = extract_unstructured_first("reference").map(|v| {
+        let path = Path::new(&v);
+        path.file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
     });
-    let assembly = guess_assembly_from_vcf(&header_in, genome_release.is_some(), genome_release)?;
-    writer.set_assembly(assembly);
-    tracing::info!("Determined input assembly to be {:?}", &assembly);
+
+    // Priority 3: Extract the ##assembly tag, handling URLs and plain strings
+    let vcf_assembly_tag = extract_unstructured_first("assembly").map(|v| {
+        if v.starts_with("http") || v.starts_with("ftp") || v.starts_with("file") {
+            let path = Path::new(&v);
+            path.file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        } else {
+            v
+        }
+    });
+
+    // Resolve the best available hint
+    let vcf_hint = vcf_contig_assembly
+        .or(vcf_reference_tag)
+        .or(vcf_assembly_tag)
+        .unwrap_or_default();
+
+    // 3. Resolve the Assembly (Using the fuzzy matching logic from before)
+    let assembly = match &args.assembly {
+        Some(asm) => asm.clone(),
+        None => {
+            let mut unique_assemblies: IndexMap<String, String> = IndexMap::new();
+            for db in &tx_dbs {
+                for sv in &db.source_version {
+                    unique_assemblies.insert(sv.assembly.to_lowercase(), sv.assembly.clone());
+                }
+            }
+
+            if unique_assemblies.len() == 1 {
+                // Only one DB assembly available, just use it
+                unique_assemblies.into_values().next().unwrap()
+            } else if !unique_assemblies.is_empty() && !vcf_hint.is_empty() {
+                // Multiple DBs available. See if the VCF hint matches one of them!
+                let hint_lower = vcf_hint.to_lowercase();
+
+                // Do a fuzzy check: Does the VCF hint contain the DB assembly name, or vice versa?
+                let matched_assembly =
+                    unique_assemblies.iter().find_map(|(lower_asm, orig_asm)| {
+                        if hint_lower.contains(lower_asm) || lower_asm.contains(&hint_lower) {
+                            Some(orig_asm.clone())
+                        } else {
+                            None
+                        }
+                    });
+
+                if let Some(matched) = matched_assembly {
+                    tracing::info!(
+                        "Auto-detected assembly {:?} from VCF header metadata",
+                        matched
+                    );
+                    matched
+                } else {
+                    let list: Vec<_> = unique_assemblies.into_values().collect();
+                    anyhow::bail!(
+                        "Multiple assemblies found in transcript databases ({}), but the VCF header hint ('{}') didn't clearly match any. Please specify --assembly manually.",
+                        list.join(", "),
+                        vcf_hint
+                    );
+                }
+            } else if unique_assemblies.is_empty() {
+                anyhow::bail!("No transcript databases provided and --assembly omitted.");
+            } else {
+                let list: Vec<_> = unique_assemblies.into_values().collect();
+                anyhow::bail!(
+                    "Multiple assemblies found in databases ({}), and no hints found in VCF header. Please specify --assembly.",
+                    list.join(", ")
+                );
+            }
+        }
+    };
+
+    writer.set_assembly(assembly.clone());
+    tracing::info!("Using assembly {:?}", &assembly);
 
     let annotator = Arc::new(setup_seqvars_annotator(
         &args.sources,
+        tx_dbs,
         args.reference.as_ref(),
         args.in_memory_reference,
         &args.predictor_settings,
@@ -1414,31 +1528,22 @@ async fn run_with_writer(
     Ok(())
 }
 
-pub(crate) fn proto_assembly_from(assembly: &Assembly) -> Option<crate::pbs::txs::Assembly> {
-    crate::pbs::txs::Assembly::from_str_name(&format!(
-        "ASSEMBLY_{}",
-        match assembly {
-            Assembly::Grch38 => "GRCH38",
-            _ => "GRCH37",
-        }
-    ))
-}
-
 pub(crate) fn setup_seqvars_annotator(
     sources: &Sources,
+    preloaded_tx_dbs: Vec<TxSeqDatabase>,
     reference: Option<impl AsRef<Path>>,
     in_memory_reference: bool,
     predictor_settings: &PredictorSettings,
-    assembly: Assembly,
+    assembly: String,
 ) -> Result<Annotator, Error> {
-    let contig_manager = Arc::new(ContigManager::new(assembly));
+    let contig_manager = Arc::new(ContigManager::new(&assembly));
     let mut annotators = vec![];
 
     // Add the frequency annotator if requested.
     if let Some(rocksdb_paths) = &sources.frequencies {
         let freq_dbs = initialize_frequency_annotators_for_assembly(
             rocksdb_paths,
-            assembly,
+            &assembly,
             contig_manager.clone(),
         )?;
         for freq_db in freq_dbs {
@@ -1450,7 +1555,7 @@ pub(crate) fn setup_seqvars_annotator(
     if let Some(rocksdb_paths) = &sources.clinvar {
         let clinvar_dbs = initialize_clinvar_annotators_for_assembly(
             rocksdb_paths,
-            assembly,
+            &assembly,
             contig_manager.clone(),
         )?;
         for clinvar_db in clinvar_dbs {
@@ -1459,10 +1564,16 @@ pub(crate) fn setup_seqvars_annotator(
     }
 
     // Add the consequence annotator if requested.
-    if let Some(tx_sources) = &sources.transcripts {
-        tracing::info!("Opening transcript database(s)");
-
-        let databases = load_transcript_dbs_for_assembly(tx_sources, assembly)?;
+    if !preloaded_tx_dbs.is_empty() {
+        // Filter out any loaded databases that don't match the active assembly
+        let databases: Vec<_> = preloaded_tx_dbs
+            .into_iter()
+            .filter(|db| {
+                db.source_version
+                    .iter()
+                    .any(|sv| sv.assembly.eq_ignore_ascii_case(&assembly))
+            })
+            .collect();
 
         if databases.is_empty() {
             tracing::warn!(
@@ -1471,10 +1582,12 @@ pub(crate) fn setup_seqvars_annotator(
             );
         } else {
             let tx_db = merge_transcript_databases(databases)?;
-            tracing::info!(
-                "Loaded transcript database(s) from {}",
-                &tx_sources.join(", ")
-            );
+            if let Some(tx_sources) = &sources.transcripts {
+                tracing::info!(
+                    "Loaded transcript database(s) from {}",
+                    &tx_sources.join(", ")
+                );
+            }
             annotators.push(
                 ConsequenceAnnotator::from_db_and_settings(
                     tx_db,
@@ -1485,6 +1598,34 @@ pub(crate) fn setup_seqvars_annotator(
                 .map(AnnotatorEnum::Consequence)?,
             );
         }
+    } else {
+        if let Some(tx_sources) = &sources.transcripts {
+            tracing::info!("Opening transcript database(s)");
+
+            let databases = load_transcript_dbs_for_assembly(tx_sources, &assembly)?;
+
+            if databases.is_empty() {
+                tracing::warn!(
+                    "No suitable transcript databases found for requested assembly {:?}, therefore no consequence prediction will occur.",
+                    &assembly
+                );
+            } else {
+                let tx_db = merge_transcript_databases(databases)?;
+                tracing::info!(
+                    "Loaded transcript database(s) from {}",
+                    &tx_sources.join(", ")
+                );
+                annotators.push(
+                    ConsequenceAnnotator::from_db_and_settings(
+                        tx_db,
+                        reference,
+                        in_memory_reference,
+                        predictor_settings,
+                    )
+                    .map(AnnotatorEnum::Consequence)?,
+                );
+            }
+        }
     }
 
     let annotator = Annotator::new(annotators);
@@ -1493,13 +1634,13 @@ pub(crate) fn setup_seqvars_annotator(
 
 pub(crate) fn initialize_clinvar_annotators_for_assembly(
     rocksdb_paths: &[String],
-    assembly: Assembly,
+    assembly: &str,
     contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<ClinvarAnnotator>, Error> {
     rocksdb_paths
         .iter()
         .filter_map(|rocksdb_path| {
-            let skip = !rocksdb_path.contains(path_component(assembly));
+            let skip = !rocksdb_path.contains(assembly);
             if !skip {
                 tracing::info!(
                     "Loading ClinVar database for assembly {:?} from {}",
@@ -1523,11 +1664,11 @@ pub(crate) fn initialize_clinvar_annotators_for_assembly(
 
 pub(crate) fn initialize_frequency_annotators_for_assembly(
     rocksdb_paths: &[String],
-    assembly: Assembly,
+    assembly: &str,
     contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<FrequencyAnnotator>, Error> {
     rocksdb_paths.iter().filter_map(|rocksdb_path| {
-        let skip = !rocksdb_path.contains(path_component(assembly));
+        let skip = !rocksdb_path.contains(assembly);
         if !skip {
             tracing::info!(
                     "Loading frequency database for assembly {:?} from {}",
@@ -1544,29 +1685,29 @@ pub(crate) fn initialize_frequency_annotators_for_assembly(
 
 pub(crate) fn load_transcript_dbs_for_assembly(
     tx_sources: &[String],
-    assembly: Assembly,
+    assembly: &str,
 ) -> Result<Vec<TxSeqDatabase>, Error> {
-    let pb_assembly = proto_assembly_from(&assembly);
+    let req_assembly = assembly;
 
     // Filter out any transcript databases that do not match the requested assembly.
-    let check_assembly = |db: &TxSeqDatabase, assembly: crate::pbs::txs::Assembly| {
+    let check_assembly = |db: &TxSeqDatabase, required: &str| {
         db.source_version
             .iter()
-            .map(|s| s.assembly)
-            .any(|a| a == i32::from(assembly))
+            .map(|s| s.assembly.clone())
+            .any(|a| a.eq_ignore_ascii_case(required))
     };
     let databases = tx_sources
         .iter()
         .enumerate()
         .map(|(i, path)| (i, load_tx_db(path)))
         .filter_map(|(i, txdb)| match txdb {
-            Ok(db) => match pb_assembly {
-                Some(assembly) if check_assembly(&db, assembly) => Some(Ok(db)),
-                Some(_) => {
+            Ok(db) => {
+                if check_assembly(&db, req_assembly) {
+                    Some(Ok(db))
+                } else {
                     tracing::info!("Skipping transcript database {} as its version {:?} does not support the requested assembly ({:?})", &tx_sources[i], &db.source_version, &assembly);
                     None
                 }
-                None => Some(Ok(db)),
             },
             Err(_) => Some(txdb),
         })
@@ -1655,26 +1796,24 @@ fn get_transcript_boundaries(
     let mut min_start = i32::MAX;
     let mut max_end = -1;
 
-    if let Some(chrom_acc) = predictor.provider.contig_manager.get_accession(chrom) {
-        let txs = predictor
-            .provider
-            .get_tx_for_region(
-                chrom_acc,
-                csq::ALT_ALN_METHOD,
-                pos - csq::PADDING,
-                pos + ref_len as i32 + csq::PADDING,
-            )
-            .unwrap_or_default();
+    let txs = predictor
+        .provider
+        .get_tx_for_region(
+            chrom,
+            csq::ALT_ALN_METHOD,
+            pos - csq::PADDING,
+            pos + ref_len as i32 + csq::PADDING,
+        )
+        .unwrap_or_default();
 
-        for tx_record in txs {
-            accessions.insert(tx_record.tx_ac.clone());
-            if let Some(tx_details) = predictor.provider.get_tx(&tx_record.tx_ac)
-                && let Some(aln) = tx_details.genome_alignments.first()
-            {
-                for exon in &aln.exons {
-                    min_start = std::cmp::min(min_start, exon.alt_start_i);
-                    max_end = std::cmp::max(max_end, exon.alt_end_i);
-                }
+    for tx_record in txs {
+        accessions.insert(tx_record.tx_ac.clone());
+        if let Some(tx_details) = predictor.provider.get_tx(&tx_record.tx_ac)
+            && let Some(aln) = tx_details.genome_alignments.first()
+        {
+            for exon in &aln.exons {
+                min_start = std::cmp::min(min_start, exon.alt_start_i);
+                max_end = std::cmp::max(max_end, exon.alt_end_i);
             }
         }
     }
@@ -1886,7 +2025,7 @@ mod test {
             threads: 1,
             reference: None,
             in_memory_reference: true,
-            genome_release: None,
+            assembly: Some(assembly.into()),
             predictor_settings: PredictorSettings {
                 transcript_settings: TranscriptSettings {
                     report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -1945,7 +2084,7 @@ mod test {
             threads: 1,
             reference: None,
             in_memory_reference: true,
-            genome_release: None,
+            assembly: Some(assembly.into()),
             predictor_settings: PredictorSettings {
                 transcript_settings: TranscriptSettings {
                     report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -1953,7 +2092,7 @@ mod test {
                 },
                 ..Default::default()
             },
-            input: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"), // <-- Corrected
+            input: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
@@ -2015,7 +2154,7 @@ mod test {
             threads: 1,
             reference: None,
             in_memory_reference: true,
-            genome_release: None,
+            assembly: Some(assembly.into()),
             predictor_settings: PredictorSettings {
                 transcript_settings: TranscriptSettings {
                     report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2087,7 +2226,7 @@ mod test {
             threads: 1,
             reference: None,
             in_memory_reference: true,
-            genome_release: None,
+            assembly: Some(assembly.into()),
             predictor_settings: PredictorSettings {
                 transcript_settings: TranscriptSettings {
                     report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
@@ -2159,7 +2298,7 @@ mod test {
             threads: 1,
             reference: None,
             in_memory_reference: true,
-            genome_release: None,
+            assembly: Some(assembly.into()),
             predictor_settings: PredictorSettings {
                 transcript_settings: TranscriptSettings {
                     report_most_severe_consequence_by: Some(ConsequenceBy::Gene),

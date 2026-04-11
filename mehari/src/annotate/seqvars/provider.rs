@@ -1,19 +1,17 @@
 //! Implementation of `hgvs` Provider interface based on protobuf.
 
-use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType, TranscriptSource};
+use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType};
 use crate::annotate::seqvars::reference::{
     InMemoryFastaAccess, ReferenceReader, UnbufferedIndexedFastaAccess,
 };
 use crate::common::contig::ContigManager;
 use crate::db::TranscriptDatabase;
-use crate::db::create::Reason;
+use crate::db::create::models::Reason;
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
     pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
-use annonars::common::cli::CANONICAL;
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
-use biocommons_bioutils::assemblies::{ASSEMBLY_INFOS, Assembly};
 use enumflags2::BitFlags;
 use hgvs::{
     data::error::Error,
@@ -28,7 +26,7 @@ use hgvs::{
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -36,7 +34,7 @@ type IntervalTree = ArrayBackedIntervalTree<i32, u32>;
 
 pub struct TxIntervalTrees {
     /// Mapping from contig accession to index in `trees`.
-    pub contig_to_idx: HashMap<String, usize>,
+    pub contig_to_idx: FxHashMap<String, usize>,
     /// Interval tree to index in `TxSeqDatabase::tx_db::transcripts`, for each contig.
     pub trees: Vec<IntervalTree>,
 }
@@ -50,50 +48,51 @@ impl TxIntervalTrees {
         }
     }
 
-    fn build_indices(db: &TxSeqDatabase) -> (HashMap<String, usize>, Vec<IntervalTree>) {
-        let assembly = db.assembly();
-        let mut contig_to_idx = HashMap::new();
+    fn build_indices(db: &TxSeqDatabase) -> (FxHashMap<String, usize>, Vec<IntervalTree>) {
+        let assembly_name = db.assembly();
+        let mut contig_to_idx = FxHashMap::default();
         let mut trees: Vec<IntervalTree> = Vec::new();
 
-        let mut txs = 0;
+        let tx_db = db.tx_db.as_ref().expect("no tx_db?");
+        let mut txs_counted = 0;
 
-        // Pre-create interval trees for canonical contigs.
-        ASSEMBLY_INFOS[assembly].sequences.iter().for_each(|seq| {
-            if CANONICAL.contains(&seq.name.as_str()) {
-                let contig_idx = *contig_to_idx
-                    .entry(seq.refseq_ac.clone())
-                    .or_insert(trees.len());
-                if contig_idx >= trees.len() {
-                    trees.push(IntervalTree::new());
-                }
-            }
-        });
-
-        for (tx_id, tx) in db
-            .tx_db
-            .as_ref()
-            .expect("no tx_db?")
-            .transcripts
-            .iter()
-            .enumerate()
-        {
+        for (tx_id, tx) in tx_db.transcripts.iter().enumerate() {
             for genome_alignment in &tx.genome_alignments {
-                let contig = &genome_alignment.contig;
-                if let Some(contig_idx) = contig_to_idx.get(contig) {
+                // Only index alignments matching the current assembly/build
+                if genome_alignment
+                    .genome_build
+                    .eq_ignore_ascii_case(&assembly_name)
+                {
+                    let contig = &genome_alignment.contig;
+
+                    let contig_idx = *contig_to_idx.entry(contig.clone()).or_insert_with(|| {
+                        let idx = trees.len();
+                        trees.push(IntervalTree::new());
+                        idx
+                    });
+
                     let mut start = i32::MAX;
                     let mut stop = i32::MIN;
                     for exon in &genome_alignment.exons {
                         start = std::cmp::min(start, exon.alt_start_i);
                         stop = std::cmp::max(stop, exon.alt_end_i);
                     }
-                    trees[*contig_idx].insert(start..stop, tx_id as u32);
+
+                    if start <= stop {
+                        trees[contig_idx].insert(start..stop, tx_id as u32);
+                    }
                 }
             }
-
-            txs += 1;
+            txs_counted += 1;
         }
 
-        tracing::debug!("Loaded {} transcript", txs);
+        tracing::debug!(
+            "Indexed {} transcripts across {} contigs for assembly {}",
+            txs_counted,
+            trees.len(),
+            assembly_name
+        );
+
         trees.iter_mut().for_each(|t| t.index());
 
         (contig_to_idx, trees)
@@ -107,10 +106,10 @@ impl TxIntervalTrees {
         start_i: i32,
         end_i: i32,
     ) -> Result<Vec<TxForRegionRecord>, Error> {
-        let contig_idx = *self
-            .contig_to_idx
-            .get(alt_ac)
-            .ok_or(Error::NoTranscriptFound(alt_ac.to_string()))?;
+        let contig_idx = match self.contig_to_idx.get(alt_ac) {
+            Some(idx) => *idx,
+            None => return Ok(Vec::new()),
+        };
         let query = start_i..end_i;
         let tx_idxs = self.trees[contig_idx].find(query);
 
@@ -202,13 +201,20 @@ pub struct Provider {
     pub contig_manager: Arc<ContigManager>,
 
     /// Mapping from gene identifier to index in `TxSeqDatabase::tx_db::gene_to_tx`.
-    gene_map: HashMap<String, u32>,
+    gene_map: FxHashMap<String, u32>,
 
     /// Mapping from transcript accession to index in `TxSeqDatabase::tx_db::transcripts`.
-    tx_map: HashMap<String, u32>,
+    tx_map: FxHashMap<String, u32>,
 
     /// Mapping from sequence accession to index in `TxSeqDatabase::seq_db::seqs`.
-    seq_map: HashMap<String, u32>,
+    seq_map: FxHashMap<String, u32>,
+
+    /// Map from contig accession to common name (e.g., "NC_000001.11" -> "1")
+    assembly_map: IndexMap<String, String>,
+
+    /// Maps any known contig alias (e.g. "chr1", "NC_000001.11") to the exact
+    /// string used in the database (e.g. "1")
+    contig_alias_map: FxHashMap<String, String>,
 
     /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
     /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
@@ -271,11 +277,55 @@ impl Provider {
         in_memory_reference: bool,
         config: Config,
     ) -> Self {
-        let assembly = tx_seq_db.assembly();
-        let contig_manager = Arc::new(ContigManager::new(assembly));
+        let assembly_name = tx_seq_db.assembly().clone();
+
+        // ContigManager is still useful for name resolution (e.g. NC -> chr name)
+        // If it's a custom assembly, it might just return the accession.
+        let contig_manager = Arc::new(ContigManager::new(&assembly_name));
+
+        // Build the assembly map from alignments in the DB
+        let mut assembly_map = IndexMap::new();
+        if let Some(tx_db) = &tx_seq_db.tx_db {
+            for tx in &tx_db.transcripts {
+                for aln in &tx.genome_alignments {
+                    if aln.genome_build.eq_ignore_ascii_case(&assembly_name)
+                        && !assembly_map.contains_key(&aln.contig)
+                    {
+                        let common_name = contig_manager
+                            .get_primary_name(&aln.contig)
+                            .cloned()
+                            .unwrap_or_else(|| aln.contig.clone());
+
+                        assembly_map.insert(aln.contig.clone(), common_name);
+                    }
+                }
+            }
+        }
 
         let tx_trees = TxIntervalTrees::new(&tx_seq_db);
-        let gene_map = HashMap::from_iter(
+
+        let mut contig_alias_map = FxHashMap::default();
+        if let Some(tx_db) = &tx_seq_db.tx_db {
+            for tx in &tx_db.transcripts {
+                for aln in &tx.genome_alignments {
+                    let db_contig = aln.contig.clone();
+                    contig_alias_map.insert(db_contig.clone(), db_contig.clone());
+
+                    if let Some(primary) = contig_manager.get_primary_name(&db_contig) {
+                        contig_alias_map.insert(primary.to_string(), db_contig.clone());
+                    }
+                    if let Some(acc) = contig_manager.get_accession(&db_contig) {
+                        contig_alias_map.insert(acc.to_string(), db_contig.clone());
+                    }
+                    if let Some(info) = contig_manager.get_contig_info(&db_contig) {
+                        contig_alias_map.insert(info.name_with_chr.clone(), db_contig.clone());
+                        contig_alias_map.insert(info.name_without_chr.clone(), db_contig.clone());
+                    }
+                }
+            }
+        }
+
+        let gene_map = FxHashMap::from_iter(
             tx_seq_db
                 .tx_db
                 .as_ref()
@@ -286,7 +336,7 @@ impl Provider {
                 .enumerate()
                 .map(|(idx, entry)| (entry.gene_id.clone(), idx as u32)),
         );
-        let tx_map = HashMap::from_iter(
+        let tx_map = FxHashMap::from_iter(
             tx_seq_db
                 .tx_db
                 .as_ref()
@@ -297,7 +347,7 @@ impl Provider {
                 .enumerate()
                 .map(|(idx, tx)| (tx.id.clone(), idx as u32)),
         );
-        let seq_map = HashMap::from_iter(
+        let seq_map = FxHashMap::from_iter(
             tx_seq_db
                 .seq_db
                 .as_ref()
@@ -349,9 +399,11 @@ impl Provider {
             tx_seq_db,
             tx_trees,
             contig_manager,
+            contig_alias_map,
             gene_map,
             tx_map,
             seq_map,
+            assembly_map,
             picked_gene_to_tx_id,
             reference_reader,
             data_version,
@@ -364,7 +416,7 @@ impl Provider {
     fn picked_genes_to_tx_map(
         tx_seq_db: &mut TxSeqDatabase,
         config: &Config,
-        tx_map: &HashMap<String, u32>,
+        tx_map: &FxHashMap<String, u32>,
     ) -> Option<Vec<GeneToTxId>> {
         if config.pick_transcript.is_empty() || tx_seq_db.tx_db.is_none() {
             return None;
@@ -403,44 +455,49 @@ impl Provider {
             }
         }
 
-        let transcript_id_to_source = |tx_id: &str| -> TranscriptSource {
+        // FIXME: This source classification is a legacy artifact for VarFish TSV compatibility.
+        //   It should be removed once the varfish tsv export/import is updated.
+        let transcript_id_to_source = |tx_id: &str| -> String {
             if tx_id.starts_with("ENST") {
-                TranscriptSource::Ensembl
-            } else if tx_id.starts_with("N") {
-                TranscriptSource::RefSeq
+                "Ensembl".to_string()
+            } else if tx_id.starts_with('N') || tx_id.starts_with('X') {
+                "RefSeq".to_string()
             } else {
-                panic!("Unknown transcript ID format: {}", tx_id);
+                // Safe fallback for arbitrary databases (e.g., TAIR10, custom assemblies)
+                "Other".to_string()
             }
         };
 
         // Process each gene.
         for entry in tx_db.gene_to_tx.iter() {
-            let mut longest_tx_per_source: HashMap<TranscriptSource, (bool, usize, i32)> =
-                HashMap::new();
+            let mut longest_tx_per_source: FxHashMap<String, (bool, usize, i32)> =
+                FxHashMap::default();
             let mut tx_tags = entry
                 .tx_ids
                 .iter()
-                .enumerate()
-                .filter_map(|(i, tx_id)| {
+                .filter_map(|tx_id| {
                     tx_map.get(tx_id).map(|tx_idx| {
                         let tx = &tx_db.transcripts[*tx_idx as usize];
                         let tags = tx.tags.iter().filter_map(tag_to_picktype).collect_vec();
                         let length = transcript_length(tx);
                         let source = transcript_id_to_source(tx_id);
                         let is_clean = tx.is_clean();
-
-                        longest_tx_per_source
-                            .entry(source)
-                            .and_modify(|(prev_clean, prev_i, prev_length)| {
-                                if (is_clean, length) > (*prev_clean, *prev_length) {
-                                    *prev_clean = is_clean;
-                                    *prev_i = i;
-                                    *prev_length = length;
-                                }
-                            })
-                            .or_insert((is_clean, i, length));
-                        (tx_id, tags, length)
+                        (tx_id, tags, length, source, is_clean)
                     })
+                })
+                .enumerate()
+                .map(|(i, (tx_id, tags, length, source, is_clean))| {
+                    longest_tx_per_source
+                        .entry(source)
+                        .and_modify(|(prev_clean, prev_i, prev_length)| {
+                            if (is_clean, length) > (*prev_clean, *prev_length) {
+                                *prev_clean = is_clean;
+                                *prev_i = i;
+                                *prev_length = length;
+                            }
+                        })
+                        .or_insert((is_clean, i, length));
+                    (tx_id, tags, length)
                 })
                 .collect_vec();
 
@@ -518,8 +575,8 @@ impl Provider {
     /// # Returns
     ///
     /// The assembly of the provider.
-    pub fn assembly(&self) -> Assembly {
-        self.tx_seq_db.assembly()
+    pub fn assembly(&self) -> String {
+        self.tx_seq_db.assembly().clone()
     }
 
     /// Return whether transcript picking is enabled.
@@ -600,13 +657,13 @@ impl ProviderInterface for Provider {
         &self.schema_version
     }
 
-    fn get_assembly_map(&self, assembly: Assembly) -> IndexMap<String, String> {
-        IndexMap::from_iter(
-            ASSEMBLY_INFOS[assembly]
-                .sequences
-                .iter()
-                .map(|record| (record.refseq_ac.clone(), record.name.clone())),
-        )
+    fn get_assembly_map(
+        &self,
+        _assembly: &str,
+    ) -> Result<IndexMap<String, String>, hgvs::data::error::Error> {
+        // We ignore the `assembly` argument because this provider
+        // is bound to a specific build during construction anyway.
+        Ok(self.assembly_map.clone())
     }
 
     fn get_gene_info(&self, _hgnc: &str) -> Result<hgvs::data::interface::GeneInfoRecord, Error> {
@@ -634,11 +691,8 @@ impl ProviderInterface for Provider {
         begin: Option<usize>,
         end: Option<usize>,
     ) -> Result<String, Error> {
-        // In case the accession starts with "NC" or "NT" or "NW",
-        // we need to look up the sequence in the reference FASTA mapping.
-        let seq = if (ac.starts_with("NC") || ac.starts_with("NT") || ac.starts_with("NW"))
-            && self.reference_available()
-        {
+        let is_contig = self.contig_alias_map.contains_key(ac);
+        let seq = if is_contig && self.reference_available() {
             let reader = self.reference_reader.as_ref().unwrap();
             let seq = reader
                 .get(ac, begin.map(|x| x as u64), end.map(|x| x as u64))
@@ -652,7 +706,6 @@ impl ProviderInterface for Provider {
                 Error::NoSequenceRecord("Failed converting seq to UTF-8.".to_string())
             });
         } else {
-            // Otherwise, look up the sequence in the transcript database.
             let seq_idx = *self
                 .seq_map
                 .get(ac)
@@ -694,6 +747,11 @@ impl ProviderInterface for Provider {
         alt_ac: &str,
         _alt_aln_method: &str,
     ) -> Result<Vec<TxExonsRecord>, Error> {
+        let db_contig = self
+            .contig_alias_map
+            .get(alt_ac)
+            .map(String::as_str)
+            .unwrap_or(alt_ac);
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
@@ -709,11 +767,11 @@ impl ProviderInterface for Provider {
 
         let hgnc = tx.gene_id.clone();
         let tx_ac_str = tx_ac.to_string();
-        let alt_ac_str = alt_ac.to_string();
+        let alt_ac_str = db_contig.to_string();
         let alt_aln_method_str = ALT_ALN_METHOD.to_string();
 
         for genome_alignment in &tx.genome_alignments {
-            if genome_alignment.contig == alt_ac {
+            if genome_alignment.contig == db_contig {
                 let alt_strand =
                     match Strand::try_from(genome_alignment.strand).expect("invalid strand") {
                         Strand::Plus => 1,
@@ -763,6 +821,11 @@ impl ProviderInterface for Provider {
         alt_ac: &str,
         _alt_aln_method: &str,
     ) -> Result<Vec<(i32, i32)>, Error> {
+        let db_contig = self
+            .contig_alias_map
+            .get(alt_ac)
+            .map(String::as_str)
+            .unwrap_or(alt_ac);
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
@@ -775,7 +838,7 @@ impl ProviderInterface for Provider {
             .transcripts[tx_idx as usize];
 
         for genome_alignment in &tx.genome_alignments {
-            if genome_alignment.contig == alt_ac {
+            if genome_alignment.contig == db_contig {
                 let mut coords = Vec::with_capacity(genome_alignment.exons.len());
                 for exon in &genome_alignment.exons {
                     let tx_start = exon.alt_cds_start_i.map(|val| val - 1).unwrap_or(-1);
@@ -788,7 +851,7 @@ impl ProviderInterface for Provider {
         }
         Err(Error::NoAlignmentFound(
             tx_ac.to_string(),
-            alt_ac.to_string(),
+            db_contig.to_string(),
         ))
     }
 
@@ -798,6 +861,11 @@ impl ProviderInterface for Provider {
         alt_ac: &str,
         _alt_aln_method: &str,
     ) -> Result<(Option<i32>, Option<i32>), Error> {
+        let db_contig = self
+            .contig_alias_map
+            .get(alt_ac)
+            .map(String::as_str)
+            .unwrap_or(alt_ac);
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
@@ -810,13 +878,13 @@ impl ProviderInterface for Provider {
             .transcripts[tx_idx as usize];
 
         for genome_alignment in &tx.genome_alignments {
-            if genome_alignment.contig == alt_ac {
+            if genome_alignment.contig == db_contig {
                 return Ok((tx.start_codon, tx.stop_codon));
             }
         }
         Err(Error::NoAlignmentFound(
             tx_ac.to_string(),
-            alt_ac.to_string(),
+            db_contig.to_string(),
         ))
     }
 
@@ -870,11 +938,15 @@ impl ProviderInterface for Provider {
         start_i: i32,
         end_i: i32,
     ) -> Result<Vec<TxForRegionRecord>, Error> {
-        let contig_idx = *self
-            .tx_trees
-            .contig_to_idx
+        let db_contig = self
+            .contig_alias_map
             .get(alt_ac)
-            .ok_or(Error::NoTranscriptFound(alt_ac.to_string()))?;
+            .map(String::as_str)
+            .unwrap_or(alt_ac);
+        let contig_idx = match self.tx_trees.contig_to_idx.get(db_contig) {
+            Some(idx) => *idx,
+            None => return Ok(Vec::new()),
+        };
         let query = start_i..end_i;
         let tx_idxs = self.tx_trees.trees[contig_idx].find(query);
 
@@ -971,6 +1043,11 @@ impl ProviderInterface for Provider {
         alt_ac: &str,
         _alt_aln_method: &str,
     ) -> Result<TxInfoRecord, Error> {
+        let db_contig = self
+            .contig_alias_map
+            .get(alt_ac)
+            .map(String::as_str)
+            .unwrap_or(alt_ac);
         let tx_idx = *self
             .tx_map
             .get(tx_ac)
@@ -984,7 +1061,7 @@ impl ProviderInterface for Provider {
             .transcripts[tx_idx];
 
         for genome_alignment in &tx.genome_alignments {
-            if genome_alignment.contig == alt_ac {
+            if genome_alignment.contig == db_contig {
                 return Ok(TxInfoRecord {
                     hgnc: tx.gene_id.clone(),
                     cds_start_i: tx.start_codon,
@@ -1003,25 +1080,28 @@ impl ProviderInterface for Provider {
     }
 
     fn get_tx_mapping_options(&self, tx_ac: &str) -> Result<Vec<TxMappingOptionsRecord>, Error> {
-        let tx_idx = *self
-            .tx_map
-            .get(tx_ac)
-            .ok_or(Error::NoTranscriptFound(tx_ac.to_string()))?;
-        let tx_idx = tx_idx as usize;
+        let tx = self
+            .get_tx(tx_ac)
+            .ok_or_else(|| Error::NoTranscriptFound(tx_ac.to_string()))?;
 
-        let tx = &self
-            .tx_seq_db
-            .tx_db
-            .as_ref()
-            .expect("no tx_db?")
-            .transcripts[tx_idx];
+        let current_build = self.assembly();
 
-        let genome_alignment = tx.genome_alignments.first().unwrap();
-        Ok(vec![TxMappingOptionsRecord {
-            tx_ac: tx_ac.to_string(),
-            alt_ac: genome_alignment.contig.clone(),
-            alt_aln_method: NCBI_ALN_METHOD.to_string(),
-        }])
+        let options = tx
+            .genome_alignments
+            .iter()
+            .filter(|aln| aln.genome_build.eq_ignore_ascii_case(&current_build))
+            .map(|aln| TxMappingOptionsRecord {
+                tx_ac: tx_ac.to_string(),
+                alt_ac: aln.contig.clone(),
+                alt_aln_method: NCBI_ALN_METHOD.to_string(),
+            })
+            .collect::<Vec<_>>();
+
+        if options.is_empty() {
+            return Err(Error::NoAlignmentFound(tx_ac.to_string(), current_build));
+        }
+
+        Ok(options)
     }
 }
 

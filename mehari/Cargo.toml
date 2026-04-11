@@ -46,7 +46,7 @@ enumflags2 = { version = "0.7.11", features = ["serde"] }
 env_logger = "0.11"
 flate2 = "1.1"
 futures = "0.3"
-hgvs = "0.21.0"
+hgvs = "0.22"
 indexmap = { version = "2.13", features = ["serde"] }
 itertools = "0.14"
 jsonl = "4.0"
@@ -85,7 +85,7 @@ thiserror = "1.0.69"
 
 [dependencies.noodles]
 version = "0.109.0"
-features = ["async", "core", "vcf", "bcf", "csi", "fasta", "tabix"]
+features = ["async", "core", "vcf", "bcf", "csi", "fasta", "tabix", "gff"]
 
 [dependencies.noodles-bgzf]
 version = "0.46.0"

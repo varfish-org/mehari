@@ -7,7 +7,7 @@ use actix_web::{
     web::{self, Data, Json, Path},
 };
 
-use crate::{annotate::seqvars::csq::VcfVariant, common::GenomeRelease};
+use crate::annotate::seqvars::csq::VcfVariant;
 
 use super::{CustomError, versions::VersionsInfoResponse};
 
@@ -19,7 +19,7 @@ use super::{CustomError, versions::VersionsInfoResponse};
 #[serde_with::skip_serializing_none]
 pub(crate) struct ClinvarQuery {
     /// The assembly.
-    pub genome_release: GenomeRelease,
+    pub assembly: String,
     /// SPDI sequence.
     pub chromosome: String,
     /// SPDI position.
@@ -55,24 +55,21 @@ async fn handle_impl(
     data: Data<super::WebServerData>,
     _path: Path<()>,
     query: web::Query<ClinvarQuery>,
-) -> actix_web::Result<Json<ClinvarResponse>, super::CustomError> {
+) -> actix_web::Result<Json<ClinvarResponse>, CustomError> {
     let ClinvarQuery {
-        genome_release,
+        assembly,
         chromosome,
         position,
         reference,
         alternative,
     } = query.clone().into_inner();
 
-    let annotator = data
-        .clinvar_annotators
-        .get(&genome_release)
-        .ok_or_else(|| {
-            super::CustomError::new(anyhow::anyhow!(
-                "genome release not supported: {:?}",
-                &query.genome_release
-            ))
-        })?;
+    let annotator = data.clinvar_annotators.get(&assembly).ok_or_else(|| {
+        CustomError::new(anyhow::anyhow!(
+            "genome assembly not supported: {:?}",
+            &query.assembly
+        ))
+    })?;
 
     let mut result = Vec::new();
     let g_var = VcfVariant {
@@ -105,7 +102,7 @@ async fn handle(
     data: Data<super::WebServerData>,
     _path: Path<()>,
     query: web::Query<ClinvarQuery>,
-) -> actix_web::Result<Json<ClinvarResponse>, super::CustomError> {
+) -> actix_web::Result<Json<ClinvarResponse>, CustomError> {
     handle_impl(data, _path, query).await
 }
 

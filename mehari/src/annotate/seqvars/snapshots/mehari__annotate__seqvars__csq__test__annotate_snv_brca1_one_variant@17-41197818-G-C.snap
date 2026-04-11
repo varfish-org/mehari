@@ -1,5 +1,5 @@
 ---
-source: src/annotate/seqvars/csq.rs
+source: mehari/src/annotate/seqvars/csq.rs
 expression: res
 ---
 - allele:
@@ -18,8 +18,8 @@ expression: res
   feature_biotype:
     - coding
   feature_tags:
-    - mane_select
     - ref_seq_select
+    - mane_select_backport
   rank:
     ord: 23
     total: 23
@@ -176,6 +176,37 @@ expression: res
   protein_pos:
     ord: 1844
     total: 1885
+  distance: 0
+  strand: -1
+  messages: ~
+- allele:
+    Alt:
+      alternative: C
+  consequences:
+    - exonic_splice_region_variant
+    - non_coding_transcript_exon_variant
+  putative_impact: low
+  gene_symbol: BRCA1
+  gene_id: "HGNC:1100"
+  feature_type:
+    so_term:
+      term: Transcript
+  feature_id: NR_027676.2
+  feature_biotype:
+    - noncoding
+  feature_tags: []
+  rank:
+    ord: 23
+    total: 23
+  hgvs_g: g.41197818G>C
+  hgvs_n: n.5646A>G
+  hgvs_c: n.5646A>G
+  hgvs_p: ~
+  cdna_pos:
+    ord: 5646
+    total: 7152
+  cds_pos: ~
+  protein_pos: ~
   distance: 0
   strand: -1
   messages: ~
