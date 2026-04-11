@@ -34,7 +34,11 @@ impl BasicIndexedFasta {
             id_lookup.entry(rec_name_base).or_insert(rec_name);
         }
 
-        Ok(Self { fasta_path, index, id_lookup })
+        Ok(Self {
+            fasta_path,
+            index,
+            id_lookup,
+        })
     }
 
     pub fn get_sequence(&self, id: &str) -> Result<Option<String>, Error> {
@@ -42,7 +46,9 @@ impl BasicIndexedFasta {
         let clean_id_base = clean_id.split('.').next().unwrap_or(clean_id);
 
         // Use precomputed lookup map
-        let target_name = self.id_lookup.get(clean_id)
+        let target_name = self
+            .id_lookup
+            .get(clean_id)
             .or_else(|| self.id_lookup.get(clean_id_base));
 
         let target_name = match target_name {

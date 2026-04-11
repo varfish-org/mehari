@@ -157,27 +157,25 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
 
     for (raw_parent, exons_list) in tx_exons_raw {
         if let Some(resolved_tx) = raw_id_to_tx_id.get(&raw_parent) {
-            tx_exons.entry(resolved_tx.clone())
+            tx_exons
+                .entry(resolved_tx.clone())
                 .or_default()
                 .extend(exons_list);
         } else {
             // Fallback: use the raw parent as-is
-            tx_exons.entry(raw_parent)
-                .or_default()
-                .extend(exons_list);
+            tx_exons.entry(raw_parent).or_default().extend(exons_list);
         }
     }
 
     for (raw_parent, cds_list) in tx_cds_raw {
         if let Some(resolved_tx) = raw_id_to_tx_id.get(&raw_parent) {
-            tx_cds.entry(resolved_tx.clone())
+            tx_cds
+                .entry(resolved_tx.clone())
                 .or_default()
                 .extend(cds_list);
         } else {
             // Fallback: use the raw parent as-is
-            tx_cds.entry(raw_parent)
-                .or_default()
-                .extend(cds_list);
+            tx_cds.entry(raw_parent).or_default().extend(cds_list);
         }
     }
 

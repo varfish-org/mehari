@@ -126,7 +126,9 @@ fn load_annotations(args: &Args) -> Result<TranscriptLoader, Error> {
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
     fn _run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         // Validate transcript_source case-insensitively for "ensembl"
-        if args.transcript_source.to_lowercase() == "ensembl" && args.transcript_source_version.is_none() {
+        if args.transcript_source.to_lowercase() == "ensembl"
+            && args.transcript_source_version.is_none()
+        {
             return Err(anyhow!(
                 "transcript_source_version is required when transcript_source is 'ensembl' (case-insensitive)"
             ));

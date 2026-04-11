@@ -180,7 +180,8 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             return Err(anyhow::anyhow!(
                 "Assembly mismatch: VEP TSV header indicates '{}' but --assembly flag specifies '{}'. \
                 Please ensure the correct assembly is specified.",
-                vep_asm, args.assembly
+                vep_asm,
+                args.assembly
             ));
         }
     }
