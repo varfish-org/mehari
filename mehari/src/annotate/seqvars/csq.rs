@@ -1932,11 +1932,17 @@ impl ConsequencePredictor {
                 let (_, r1, a1) =
                     hgvs::sequences::trim_common_suffixes_slice(&v.reference, &v.alternative);
                 let (prefix_trim, r2, a2) = hgvs::sequences::trim_common_prefixes_slice(r1, a1);
+                // Detect when a2 == "N" and rewrite ALT to the normalized REF
+                let alternative = if a2 == "N" {
+                    r2.to_string()
+                } else {
+                    a2.to_string()
+                };
                 VcfVariant {
                     chromosome: v.chromosome.clone(),
                     position: v.position + prefix_trim as i32,
                     reference: r2.to_string(),
-                    alternative: a2.to_string(),
+                    alternative,
                 }
             })
             .collect();
@@ -1961,9 +1967,37 @@ impl ConsequencePredictor {
             .ok_or_else(|| SeqvarsError::UnknownChromosomeAccession)?;
 
         // build a pseudo hgvs.g description
-        let min_pos = sorted_vars.first().unwrap().position;
+        // Treat insertions (reference.len()==0) as interbase events
+        let min_var = sorted_vars.first().unwrap();
+        let min_pos = if min_var.reference.is_empty() {
+            min_var.position - 1
+        } else {
+            min_var.position
+        };
+
         let max_var = sorted_vars.last().unwrap();
-        let max_pos = max_var.position + max_var.reference.len() as i32 - 1;
+        let max_pos = if max_var.reference.is_empty() {
+            max_var.position
+        } else {
+            max_var.position + max_var.reference.len() as i32 - 1
+        };
+
+        // Reject two or more insertion-only variants at the same normalized position
+        let insertion_positions: Vec<i32> = sorted_vars
+            .iter()
+            .filter(|v| v.reference.is_empty())
+            .map(|v| v.position)
+            .collect();
+        if insertion_positions.len() >= 2 {
+            let mut unique_positions = insertion_positions.clone();
+            unique_positions.sort_unstable();
+            unique_positions.dedup();
+            if unique_positions.len() < insertion_positions.len() {
+                return Err(SeqvarsError::GroupValidation(
+                    GroupValidationError::MultipleInsertionsSamePosition,
+                ));
+            }
+        }
 
         let mut hgvs_g = None;
         if let Ok(ref_seq_g) = self.provider.get_seq_part(

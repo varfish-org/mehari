@@ -1668,14 +1668,8 @@ pub trait VcfRecordConverter {
         let assembly = self.assembly();
         let contig_manager = self.contig_manager();
 
-        // Genome release.
-        tsv_record.release = if assembly.eq_ignore_ascii_case("grch37")
-            || assembly.eq_ignore_ascii_case("grch37p10")
-        {
-            String::from("GRCh37")
-        } else {
-            String::from("GRCh38")
-        };
+        // Genome release (assembly is now normalized, so direct comparison is safe).
+        tsv_record.release = assembly.to_string();
 
         // Chromosome (of start position if BND).
         let contig_name = vcf_record.reference_sequence_name();
@@ -1686,7 +1680,7 @@ pub trait VcfRecordConverter {
                 TsvContigStyle::WithChr => contig_info.name_with_chr,
                 TsvContigStyle::WithoutChr => contig_info.name_without_chr,
                 TsvContigStyle::Auto => {
-                    if assembly.eq_ignore_ascii_case("grch38") {
+                    if assembly == "GRCh38" {
                         if ContigManager::is_mitochondrial(contig_info.chrom_no) {
                             "chrM".into()
                         } else {
@@ -3295,6 +3289,21 @@ pub fn read_and_cluster_for_contig(
     Ok(result)
 }
 
+/// Normalize and validate assembly string.
+fn normalize_assembly(assembly: &str) -> Result<String, anyhow::Error> {
+    let normalized = match assembly.to_lowercase().as_str() {
+        "grch37" | "hg19" => "GRCh37",
+        "grch38" | "hg38" => "GRCh38",
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unsupported assembly '{}'. Supported assemblies: GRCh37, GRCh38, hg19, hg38",
+                assembly
+            ));
+        }
+    };
+    Ok(normalized.to_string())
+}
+
 /// Main entry point for `annotate strucvars` sub command.
 pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
     tracing::info!("config = {:#?}", &args);
@@ -3303,8 +3312,8 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     let pedigree = PedigreeByName::from_path(&args.path_input_ped)?;
     tracing::info!("... done loading pedigree");
 
-    // Use explicitly requested assembly.
-    let assembly = args.assembly.clone();
+    // Normalize and validate assembly.
+    let assembly = normalize_assembly(&args.assembly)?;
     let contig_manager = ContigManager::new(&assembly);
     let header = {
         let mut reader = VariantReaderBuilder::default().build_from_path(

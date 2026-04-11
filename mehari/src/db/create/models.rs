@@ -371,6 +371,11 @@ impl TranscriptLoader {
                 if let Some(tags) = transcript_id_to_tags.get(&tx_id_no_version) {
                     let mut any_change = false;
                     tx.genome_builds.iter_mut().for_each(|(_, alignment)| {
+                        // Initialize alignment.tag to Some(Vec::new()) when None
+                        if alignment.tag.is_none() {
+                            alignment.tag = Some(Vec::new());
+                        }
+
                         if let Some(alignment_tag) = &mut alignment.tag {
                             let tags_to_add: Vec<Tag> = tags
                                 .iter()
@@ -565,14 +570,21 @@ impl TranscriptLoader {
                 }
             }
         }
-        let (n_transcripts_post, n_gene_ids_post) = (
-            self.transcript_id_to_transcript.len(),
-            self.gene_id_to_transcript_ids.len(),
-        );
+        // Compute totals from discard data structures
+        let n_transcripts_discarded = self
+            .discards
+            .keys()
+            .filter(|id| matches!(id, Identifier::Transcript(_)))
+            .count();
+        let n_gene_ids_discarded = self
+            .discards
+            .keys()
+            .filter(|id| matches!(id, Identifier::Gene(_)))
+            .count();
         tracing::info!(
             "Discarded {} transcripts and {} Gene IDs",
-            n_transcripts_pre.abs_diff(n_transcripts_post),
-            n_gene_ids_pre.abs_diff(n_gene_ids_post)
+            n_transcripts_discarded,
+            n_gene_ids_discarded
         );
         for kind in kinds {
             tracing::info!(

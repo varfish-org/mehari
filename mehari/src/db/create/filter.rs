@@ -170,14 +170,25 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
                 if exons.is_empty() {
                     return true;
                 }
+                let is_reverse = matches!(alignment.strand, hgvs::data::cdot::json::models::Strand::Minus);
                 let five_prime_trunc = {
                     let cds_start = alignment.cds_start;
-                    let first = exons.iter().min_by_key(|e| e.alt_start_i).unwrap();
+                    // 5' exon: lowest genomic coordinate on '+', highest on '-'
+                    let first = if is_reverse {
+                        exons.iter().max_by_key(|e| e.alt_start_i).unwrap()
+                    } else {
+                        exons.iter().min_by_key(|e| e.alt_start_i).unwrap()
+                    };
                     Some(first.alt_start_i) == cds_start
                 };
                 let three_prime_trunc = {
                     let cds_end = alignment.cds_end;
-                    let last = exons.iter().max_by_key(|e| e.alt_end_i).unwrap();
+                    // 3' exon: highest genomic coordinate on '+', lowest on '-'
+                    let last = if is_reverse {
+                        exons.iter().min_by_key(|e| e.alt_end_i).unwrap()
+                    } else {
+                        exons.iter().max_by_key(|e| e.alt_end_i).unwrap()
+                    };
                     Some(last.alt_end_i) == cds_end
                 };
                 // Flag partial when either end is truncated
@@ -329,12 +340,18 @@ pub(crate) fn filter_transcripts_with_sequence(
         if tx.protein_coding() && !is_mt {
             tx.genome_builds.iter().any(|(_release, alignment)| {
                 let cds_start = alignment.cds_start;
-                let mut exons = alignment.exons.clone();
-                exons.is_empty() || {
-                    exons.sort_unstable_by_key(|e| e.alt_start_i);
-                    let first = exons.first().unwrap();
-                    Some(first.alt_start_i) == cds_start
+                let exons = alignment.exons.clone();
+                if exons.is_empty() {
+                    return true;
                 }
+                let is_reverse = matches!(alignment.strand, hgvs::data::cdot::json::models::Strand::Minus);
+                // 5' exon: lowest genomic coordinate on '+', highest on '-'
+                let first = if is_reverse {
+                    exons.iter().max_by_key(|e| e.alt_start_i).unwrap()
+                } else {
+                    exons.iter().min_by_key(|e| e.alt_start_i).unwrap()
+                };
+                Some(first.alt_start_i) == cds_start
             })
         } else {
             false
@@ -345,12 +362,18 @@ pub(crate) fn filter_transcripts_with_sequence(
         if tx.protein_coding() && !is_mt {
             tx.genome_builds.iter().any(|(_release, alignment)| {
                 let cds_end = alignment.cds_end;
-                let mut exons = alignment.exons.clone();
-                exons.is_empty() || {
-                    exons.sort_unstable_by_key(|e| e.alt_end_i);
-                    let last = exons.last().unwrap();
-                    Some(last.alt_end_i) == cds_end
+                let exons = alignment.exons.clone();
+                if exons.is_empty() {
+                    return true;
                 }
+                let is_reverse = matches!(alignment.strand, hgvs::data::cdot::json::models::Strand::Minus);
+                // 3' exon: highest genomic coordinate on '+', lowest on '-'
+                let last = if is_reverse {
+                    exons.iter().min_by_key(|e| e.alt_end_i).unwrap()
+                } else {
+                    exons.iter().max_by_key(|e| e.alt_end_i).unwrap()
+                };
+                Some(last.alt_end_i) == cds_end
             })
         } else {
             false

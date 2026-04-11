@@ -46,6 +46,9 @@ pub enum GroupValidationError {
 
     #[error("Variant cluster spans too large a genomic region (>10kb).")]
     ClusterTooLarge,
+
+    #[error("Multiple insertion-only variants at the same normalized position.")]
+    MultipleInsertionsSamePosition,
 }
 
 #[derive(Debug, Error)]

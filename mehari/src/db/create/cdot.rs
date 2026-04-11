@@ -39,7 +39,7 @@ pub fn load_cdot(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
 
     for (tx_id, mut tx) in cdot_transcripts {
         let gene_id = if let Some(hgnc_str) = tx.hgnc.as_ref() {
-            hgnc_str.parse().ok()
+            Some(hgnc_str.parse()?)
         } else {
             None
         };

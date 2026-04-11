@@ -26,6 +26,7 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
     let mut tx_to_gene: HashMap<String, String> = HashMap::new();
     let mut tx_info: HashMap<String, (String, Strand)> = HashMap::new();
     let mut gene_symbols: HashMap<String, String> = HashMap::new();
+    let mut tx_to_gene_name: HashMap<String, String> = HashMap::new();
 
     let mut raw_id_to_gene_id: HashMap<String, String> = HashMap::new();
     let mut raw_id_to_tx_id: HashMap<String, String> = HashMap::new();
@@ -120,6 +121,10 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
                         let first_parent = p.split(',').next().unwrap().to_string();
                         // Store raw parent ID for later resolution
                         tx_to_gene_raw.insert(resolved_tx_id.clone(), first_parent);
+                    }
+                    // Capture transcript-level gene_name
+                    if let Some(gene_name) = name.clone() {
+                        tx_to_gene_name.insert(resolved_tx_id.clone(), gene_name);
                     }
                     tx_info.insert(resolved_tx_id, (contig, strand));
                 }
@@ -264,13 +269,16 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
             .get(&tx_id)
             .cloned()
             .unwrap_or_else(|| tx_id.clone());
-        let gene_name = gene_symbols.get(&gene_ref).cloned();
+        let gene_name = gene_symbols
+            .get(&gene_ref)
+            .cloned()
+            .or_else(|| tx_to_gene_name.get(&tx_id).cloned());
         let fake_gene_id = GeneId::Gene(gene_ref.clone());
 
         let transcript = Transcript {
             id: tx_id.clone(),
             hgnc: Some(fake_gene_id.to_string()),
-            gene_name,
+            gene_name: gene_name.clone(),
             gene_version: "".to_string(),
             biotype: None,
             protein: tx_cds_start.map(|_| "unspecified_protein".to_string()),
@@ -296,7 +304,7 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
             .entry(fake_gene_id)
             .or_insert_with(|| Gene {
                 hgnc: Some(gene_ref),
-                gene_symbol: None,
+                gene_symbol: gene_name,
                 aliases: None,
                 biotype: None,
                 description: None,
