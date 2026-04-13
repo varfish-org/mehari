@@ -42,24 +42,32 @@ features:
 - title: Fast & Memory Safe with Python Bindings
   desc: |
     Written in Rust, mehari ensures fast speed and memory safety. It can be used as a standalone CLI, a reliable backend library, as a REST server with OpenAPI schema, or directly from Python via pyO3 bindings.
+  code: |
+    code: |
+    from mehari import SeqvarsAnnotator
+
+    annotator = SeqvarsAnnotator(
+        transcript_db_paths=["path/to/txs.bin.zst"],
+        reference_path="path/to/reference.fa"
+    )
+    result1 = annotator.annotate("17:41197701:G:C")
+    result2 = annotator.annotate(chromosome="3", position=193332511, reference="G", alternative="T")
 - title: Interactive Variant Consequences
   desc: |
     Have a look at our [interactive consequences](consequences.html) to find out about the Sequence Ontology terms used by mehari.
+  img: consequences.png
 
 header:
   links:
   - text: GitHub
     url: https://github.com/varfish-org/mehari
+    icon: fa-brands fa-github
   - text: Documentation
     url: https://docs.rs/mehari
   - text: Consequences
     url: consequences.html
   logo: logo.jpeg
   name: "mehari"
-
-logo:
-  dark: logo.jpeg
-  light: logo.jpeg
 
 hero:
   img:
