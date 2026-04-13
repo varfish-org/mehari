@@ -54,7 +54,7 @@ header:
     url: https://docs.rs/mehari
   - text: Consequences
     url: consequences.html
-  # logo: logo.svg # Uncomment and add a logo.svg to the src/ directory if you have one
+  logo: logo.jpeg
   name: "mehari"
 
 hero:
