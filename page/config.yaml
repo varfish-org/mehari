@@ -57,6 +57,10 @@ features:
     Have a look at our [interactive consequences](consequences.html) to find out about the Sequence Ontology terms used by mehari.
   img: consequences.png
 
+logo:
+  dark: logo.jpeg
+  light: logo.jpeg
+
 header:
   links:
   - text: GitHub
