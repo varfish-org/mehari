@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mehari Variant Consequences</title>
+    <style>
+        :root {
+            --color-high: #e53935;
+            --color-moderate: #fb8c00;
+            --color-low: #43a047;
+            --color-modifier: #8e24aa;
+            --color-selection: #007bff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #333;
+            background-color: #fafafa;
+        }
+
+        h1,
+        p.subtitle {
+            text-align: center;
+            margin-bottom: 0.5rem;
+        }
+
+        p.subtitle {
+            color: #555;
+            margin-bottom: 2rem;
+            font-size: 1.05rem;
+        }
+
+        /* --- Definition Panel --- */
+        #def-panel {
+            position: sticky;
+            top: 10px;
+            background: #263238;
+            color: #eceff1;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            min-height: 3.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            z-index: 100;
+            border-left: 6px solid #546e7a;
+            transition: border-color 0.2s;
+        }
+
+        #def-term {
+            font-family: monospace;
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            color: #80cbc4;
+        }
+
+        #def-text {
+            font-size: 0.95rem;
+            line-height: 1.4;
+        }
+
+        /* --- SVG Gene Model Styling --- */
+        .gene-container {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            margin-bottom: 2rem;
+            overflow-x: auto;
+        }
+
+        svg {
+            width: 100%;
+            min-width: 1000px;
+            height: auto;
+            overflow: visible;
+        }
+
+        .track-line {
+            stroke: #bdbdbd;
+            stroke-width: 2;
+            stroke-dasharray: 6 4;
+        }
+
+        .utr {
+            fill: #cfd8dc;
+            stroke: #90a4ae;
+            stroke-width: 2;
+        }
+
+        .cds {
+            fill: #90a4ae;
+            stroke: #607d8b;
+            stroke-width: 2;
+        }
+
+        .intron-line {
+            stroke: #90a4ae;
+            stroke-width: 2;
+            fill: none;
+        }
+
+        /* Interactive Hitboxes */
+        .hitbox {
+            fill: transparent;
+            stroke: transparent;
+            stroke-width: 6;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .hitbox.macro-box {
+            fill: none;
+            stroke: #e0e0e0;
+            stroke-width: 3;
+            stroke-dasharray: 6 4;
+            pointer-events: stroke;
+        }
+
+        .hitbox.line-hitbox {
+            fill: none !important;
+            stroke: transparent;
+            stroke-width: 16;
+            pointer-events: stroke;
+        }
+
+        /* Active/Hover states */
+        .hitbox.active {
+            fill: rgba(0, 123, 255, 0.15);
+            stroke: var(--color-selection) !important;
+        }
+
+        .hitbox.line-hitbox.active {
+            fill: none !important;
+            stroke: var(--color-selection) !important;
+        }
+
+        .hitbox.macro-box.active {
+            stroke: var(--color-selection) !important;
+            stroke-width: 4;
+            stroke-dasharray: none;
+            fill: none !important;
+        }
+
+        .svg-label {
+            font-size: 12px;
+            font-weight: bold;
+            fill: #757575;
+            pointer-events: none;
+        }
+
+        .svg-legend {
+            font-size: 11px;
+            fill: #555;
+            pointer-events: none;
+        }
+
+        .region-label {
+            font-size: 13px;
+            font-weight: bold;
+            fill: #455a64;
+            text-anchor: middle;
+            pointer-events: none;
+            letter-spacing: 1px;
+        }
+
+        /* --- UI List Styling --- */
+        .consequences-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+        }
+
+        .impact-col h3 {
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #eee;
+        }
+
+        .impact-col.high h3 {
+            border-color: var(--color-high);
+            color: var(--color-high);
+        }
+
+        .impact-col.moderate h3 {
+            border-color: var(--color-moderate);
+            color: var(--color-moderate);
+        }
+
+        .impact-col.low h3 {
+            border-color: var(--color-low);
+            color: var(--color-low);
+        }
+
+        .impact-col.modifier h3 {
+            border-color: var(--color-modifier);
+            color: var(--color-modifier);
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .csq-item {
+            padding: 0.4rem 0.5rem;
+            margin-bottom: 0.25rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            background: #fff;
+            border: 1px solid #eee;
+            border-left: 4px solid transparent;
+        }
+
+        .csq-item:hover,
+        .csq-item.active {
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            background: #fdfdfd;
+        }
+
+        .csq-item.active.high {
+            border-color: var(--color-high);
+            color: var(--color-high);
+            border-left-width: 4px;
+            font-weight: bold;
+        }
+
+        .csq-item.active.moderate {
+            border-color: var(--color-moderate);
+            color: var(--color-moderate);
+            border-left-width: 4px;
+            font-weight: bold;
+        }
+
+        .csq-item.active.low {
+            border-color: var(--color-low);
+            color: var(--color-low);
+            border-left-width: 4px;
+            font-weight: bold;
+        }
+
+        .csq-item.active.modifier {
+            border-color: var(--color-modifier);
+            color: var(--color-modifier);
+            border-left-width: 4px;
+            font-weight: bold;
+        }
+
+        .dimmed {
+            opacity: 0.25 !important;
+            filter: grayscale(100%);
+            transition: opacity 0.2s;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Mehari Consequence Annotations</h1>
+    <p class="subtitle">Visualization of variant consequences mapped to transcript features.</p>
+    <div id="def-panel">
+        <div id="def-term">Variant Annotations</div>
+        <div id="def-text">Hover over regions in the diagram or terms in the list to display their Sequence Ontology
+            definitions.</div>
+    </div>
+    <div class="gene-container">
+        <svg viewBox="0 0 1200 280" id="gene-svg"></svg>
+    </div>
+    <div class="consequences-grid" id="lists-container">
+        <div class="impact-col high">
+            <h3>High Impact</h3>
+            <ul id="list-high"></ul>
+        </div>
+        <div class="impact-col moderate">
+            <h3>Moderate Impact</h3>
+            <ul id="list-moderate"></ul>
+        </div>
+        <div class="impact-col low">
+            <h3>Low Impact</h3>
+            <ul id="list-low"></ul>
+        </div>
+        <div class="impact-col modifier">
+            <h3>Modifier</h3>
+            <ul id="list-modifier"></ul>
+        </div>
+    </div>
+    <script>
+        // ==========================================
+        // 1. CONFIGURATION & CONSTANTS
+        // ==========================================
+        const L = {
+            // -- Y Axis Calculations --
+            axisY: 170,           // The main horizontal DNA line
+            cdsH: 60,             // Height of CDS boxes
+            utrH: 40,             // Height of UTR boxes
+
+            get cdsY() { return this.axisY - (this.cdsH / 2); },
+            get utrY() { return this.axisY - (this.utrH / 2); },
+            get peakY() { return this.utrY; },
+
+            geneY: 65,
+            get geneH() { return (this.axisY - this.geneY) + 60; },
+
+            txY: 110,
+            get txH() { return (this.axisY - this.txY) + 50; },
+
+            xGeneStart: 50,
+            xGeneEnd: 1150,
+
+            u5_1: { x: 120, w: 40 },
+            u5_i: { x: 160, w: 40 },
+            u5_2: { x: 200, w: 50 },
+
+            cds1: { x: 250, w: 150 },
+            int1: { x: 400, w: 300 },
+            cds2: { x: 700, w: 150 },
+            int2: { x: 850, w: 50 },
+            cds3: { x: 900, w: 50 },
+
+            u3_1: { x: 950, w: 50 },
+            u3_i: { x: 1000, w: 40 },
+            u3_2: { x: 1040, w: 40 },
+        };
+
+        // Groups of consequences mapped to regions
+        const csqGroups = {
+            exons: "exon_loss_variant coding_sequence_variant missense_variant synonymous_variant frameshift_variant frameshift_elongation frameshift_truncation stop_gained inframe_insertion inframe_deletion disruptive_inframe_insertion disruptive_inframe_deletion conservative_inframe_insertion conservative_inframe_deletion protein_altering_variant rare_amino_acid_variant selenocysteine_gain selenocysteine_loss non_coding_transcript_exon_variant feature_elongation feature_truncation",
+            deepIntron: "intron_variant coding_transcript_intron_variant non_coding_transcript_intron_variant"
+        };
+
+        // ==========================================
+        // 2. SVG GENERATION
+        // ==========================================
+        const svgHTML = `
+          <!-- STATIC VISUAL LAYER -->
+          <g id="base-layer">
+              <!-- Genomic Axis -->
+              <line x1="${L.xGeneStart}" y1="${L.axisY}" x2="${L.xGeneEnd}" y2="${L.axisY}" class="track-line"/>
+              <text x="${L.xGeneStart - 20}" y="${L.axisY + 4}" font-weight="bold" fill="#999">5'</text>
+              <text x="${L.xGeneEnd + 10}" y="${L.axisY + 4}" font-weight="bold" fill="#999">3'</text>
+              
+              <!-- LEGEND -->
+              <rect x="800" y="10" width="15" height="15" class="utr"/>
+              <text x="825" y="22" class="svg-legend">UTR Exon</text>
+              <rect x="900" y="10" width="15" height="15" class="cds"/>
+              <text x="925" y="22" class="svg-legend">CDS Exon</text>
+              <polyline points="1000,22 1007,12 1015,22" class="intron-line"/>
+              <text x="1025" y="22" class="svg-legend">Intron</text>
+              
+              <!-- 5' UTR -->
+              <rect x="${L.u5_1.x}" y="${L.utrY}" width="${L.u5_1.w}" height="${L.utrH}" class="utr"/>
+              <polyline points="${L.u5_i.x},${L.axisY} ${L.u5_i.x + L.u5_i.w / 2},${L.peakY} ${L.u5_i.x + L.u5_i.w},${L.axisY}" class="intron-line"/>
+              <rect x="${L.u5_2.x}" y="${L.utrY}" width="${L.u5_2.w}" height="${L.utrH}" class="utr"/>
+              
+              <!-- CDS & INTRONS -->
+              <rect x="${L.cds1.x}" y="${L.cdsY}" width="${L.cds1.w}" height="${L.cdsH}" class="cds"/>
+              <polyline points="${L.int1.x},${L.axisY} ${L.int1.x + L.int1.w / 2},${L.peakY} ${L.int1.x + L.int1.w},${L.axisY}" class="intron-line"/>
+              
+              <rect x="${L.cds2.x}" y="${L.cdsY}" width="${L.cds2.w}" height="${L.cdsH}" class="cds"/>
+              <polyline points="${L.int2.x},${L.axisY} ${L.int2.x + L.int2.w / 2},${L.peakY} ${L.int2.x + L.int2.w},${L.axisY}" class="intron-line"/>
+              
+              <rect x="${L.cds3.x}" y="${L.cdsY}" width="${L.cds3.w}" height="${L.cdsH}" class="cds"/>
+              
+              <!-- 3' UTR -->
+              <rect x="${L.u3_1.x}" y="${L.utrY}" width="${L.u3_1.w}" height="${L.utrH}" class="utr"/>
+              <polyline points="${L.u3_i.x},${L.axisY} ${L.u3_i.x + L.u3_i.w / 2},${L.peakY} ${L.u3_i.x + L.u3_i.w},${L.axisY}" class="intron-line"/>
+              <rect x="${L.u3_2.x}" y="${L.utrY}" width="${L.u3_2.w}" height="${L.utrH}" class="utr"/>
+          </g>
+      
+          <!-- INTERACTIVE HITBOX LAYER -->
+          <g id="interactive-layer">
+              
+              <!-- Macro Boxes (Labels sit strictly above boxes to prevent collision) -->
+              <text x="${L.xGeneStart}" y="${L.geneY - 5}" class="svg-label macro-label">Gene Bounds</text>
+              <rect x="${L.xGeneStart}" y="${L.geneY}" width="${L.xGeneEnd - L.xGeneStart}" height="${L.geneH}" class="hitbox macro-box" rx="6"
+                    data-csq="gene_variant" />
+              
+              <text x="${L.u5_1.x}" y="${L.txY - 5}" class="svg-label macro-label">Transcript Bounds</text>
+              <rect x="${L.u5_1.x}" y="${L.txY}" width="${L.u3_2.x + L.u3_2.w - L.u5_1.x}" height="${L.txH}" class="hitbox macro-box" rx="4"
+                    data-csq="transcript_ablation non_coding_transcript_variant" />
+      
+              <!-- Intergenic / Upstream / Downstream -->
+              <rect x="${L.xGeneStart}" y="${L.utrY - 5}" width="${L.u5_1.x - L.xGeneStart}" height="${L.utrH + 10}" class="hitbox" 
+                    data-csq="upstream_gene_variant intergenic_variant" />
+              <rect x="${L.u3_2.x + L.u3_2.w}" y="${L.utrY - 5}" width="${L.xGeneEnd - (L.u3_2.x + L.u3_2.w)}" height="${L.utrH + 10}" class="hitbox" 
+                    data-csq="downstream_gene_variant intergenic_variant" />
+      
+              <!-- 5' UTR -->
+              <rect x="${L.u5_1.x}" y="${L.utrY - 5}" width="${L.u5_1.w}" height="${L.utrH + 10}" class="hitbox" 
+                    data-csq="5_prime_UTR_variant 5_prime_UTR_exon_variant" />
+              <rect x="${L.u5_i.x}" y="${L.utrY - 5}" width="${L.u5_i.w}" height="${L.utrH + 10}" class="hitbox" 
+                    data-csq="5_prime_UTR_variant 5_prime_UTR_intron_variant intron_variant" />
+              <rect x="${L.u5_2.x}" y="${L.utrY - 5}" width="${L.u5_2.w}" height="${L.utrH + 10}" class="hitbox" 
+                    data-csq="5_prime_UTR_variant 5_prime_UTR_exon_variant" />
+      
+              <!-- EXONS -->
+              <rect x="${L.cds1.x}" y="${L.cdsY - 5}" width="${L.cds1.w}" height="${L.cdsH + 10}" class="hitbox" data-csq="${csqGroups.exons}" />
+              <rect x="${L.cds2.x}" y="${L.cdsY - 5}" width="${L.cds2.w}" height="${L.cdsH + 10}" class="hitbox" data-csq="${csqGroups.exons}" />
+              <rect x="${L.cds3.x}" y="${L.cdsY - 5}" width="${L.cds3.w}" height="${L.cdsH + 10}" class="hitbox" data-csq="${csqGroups.exons}" />
+      
+              <!-- SPLICE ZOOM (Intron 1) -->
+              <rect x="${L.int1.x - 6}" y="${L.cdsY - 5}" width="6" height="${L.cdsH + 10}" class="hitbox" 
+                    data-csq="exonic_splice_region_variant splice_region_variant" />
+      
+              <line x1="${L.int1.x + 4}" y1="${L.cdsY - 5}" x2="${L.int1.x + 4}" y2="${L.cdsY + L.cdsH + 5}" class="hitbox line-hitbox" 
+                    data-csq="splice_donor_variant" />
+      
+              <line x1="${L.int1.x + 12}" y1="${L.axisY}" x2="${L.int1.x + 30}" y2="${L.axisY}" class="hitbox line-hitbox" 
+                    data-csq="splice_donor_region_variant splice_region_variant" />
+      
+              <circle cx="${L.int1.x + 25}" cy="${L.axisY}" r="6" class="hitbox" 
+                      data-csq="splice_donor_5th_base_variant splice_region_variant" />
+      
+              <!-- Deep Intron Block (covers area under the polyline) -->
+              <rect x="${L.int1.x + 35}" y="${L.peakY}" width="${L.int1.w - 110}" height="${L.axisY - L.peakY + 10}" class="hitbox" 
+                    data-csq="${csqGroups.deepIntron}" />
+      
+              <line x1="${L.int1.x + L.int1.w - 70}" y1="${L.axisY}" x2="${L.int1.x + L.int1.w - 15}" y2="${L.axisY}" class="hitbox line-hitbox" 
+                    data-csq="splice_polypyrimidine_tract_variant splice_region_variant" />
+      
+              <line x1="${L.int1.x + L.int1.w - 4}" y1="${L.cdsY - 5}" x2="${L.int1.x + L.int1.w - 4}" y2="${L.cdsY + L.cdsH + 5}" class="hitbox line-hitbox" 
+                    data-csq="splice_acceptor_variant" />
+      
+              <rect x="${L.cds2.x}" y="${L.cdsY - 5}" width="6" height="${L.cdsH + 10}" class="hitbox" 
+                    data-csq="exonic_splice_region_variant splice_region_variant" />
+      
+              <!-- Intron 2 (Simplified Block) -->
+              <rect x="${L.int2.x}" y="${L.utrY - 5}" width="${L.int2.w}" height="${L.utrH + 10}" class="hitbox" 
+                    data-csq="${csqGroups.deepIntron}" />
+      
+              <!-- 3' UTR -->
+              <rect x="${L.u3_1.x}" y="${L.utrY - 5}" width="${L.u3_1.w}" height="${L.utrH + 10}" class="hitbox" 
+                    data-csq="3_prime_UTR_variant 3_prime_UTR_exon_variant" />
+              <rect x="${L.u3_i.x}" y="${L.utrY - 5}" width="${L.u3_i.w}" height="${L.utrH + 10}" class="hitbox" 
+                    data-csq="3_prime_UTR_variant 3_prime_UTR_intron_variant intron_variant" />
+              <rect x="${L.u3_2.x}" y="${L.utrY - 5}" width="${L.u3_2.w}" height="${L.utrH + 10}" class="hitbox" 
+                    data-csq="3_prime_UTR_variant 3_prime_UTR_exon_variant" />
+      
+              <!-- START AND STOP CODONS (Drawn last for priority hover) -->
+              <rect x="${L.cds1.x - 4}" y="${L.cdsY - 5}" width="8" height="${L.cdsH + 10}" class="hitbox" 
+                    data-csq="start_lost start_retained_variant" />
+      
+              <rect x="${L.cds3.x + L.cds3.w - 4}" y="${L.cdsY - 5}" width="8" height="${L.cdsH + 10}" class="hitbox" 
+                    data-csq="stop_lost stop_retained_variant incomplete_terminal_codon_variant" />
+          </g>
+      `;
+
+        document.getElementById('gene-svg').innerHTML = svgHTML;
+
+        // ==========================================
+        // 3. DATA DICTIONARY & UI LOGIC
+        // ==========================================
+        const consequences = {
+            // HIGH
+            "transcript_ablation": { impact: "high", def: "A feature ablation whereby the deleted region includes a transcript feature." },
+            "exon_loss_variant": { impact: "high", def: "A sequence variant whereby an exon is lost from the transcript." },
+            "splice_acceptor_variant": { impact: "high", def: "A splice variant that changes the 2 base region at the 3' end of an intron." },
+            "splice_donor_variant": { impact: "high", def: "A splice variant that changes the 2 base region at the 5' end of an intron." },
+            "stop_gained": { impact: "high", def: "A sequence variant whereby at least one base of a codon is changed, resulting in a premature stop codon." },
+            "frameshift_variant": { impact: "high", def: "A sequence variant which causes a disruption of the translational reading frame." },
+            "frameshift_elongation": { impact: "high", def: "A frameshift variant that causes the translational reading frame to be extended." },
+            "frameshift_truncation": { impact: "high", def: "A frameshift variant that causes the translational reading frame to be shortened." },
+            "stop_lost": { impact: "high", def: "A sequence variant where at least one base of the terminator codon (stop) is changed, resulting in an elongated transcript." },
+            "start_lost": { impact: "high", def: "A codon variant that changes at least one base of the canonical start codon." },
+            "feature_elongation": { impact: "high", def: "A sequence variant that causes the extension of a genomic feature." },
+            "feature_truncation": { impact: "high", def: "A sequence variant that causes the reduction of a genomic feature." },
+
+            // MODERATE
+            "disruptive_inframe_insertion": { impact: "moderate", def: "An inframe increase in cds length that inserts one or more codons into the coding sequence within an existing codon." },
+            "disruptive_inframe_deletion": { impact: "moderate", def: "An inframe decrease in cds length that deletes bases from the coding sequence starting within an existing codon." },
+            "conservative_inframe_insertion": { impact: "moderate", def: "An inframe increase in cds length that inserts one or more codons into the coding sequence between existing codons." },
+            "conservative_inframe_deletion": { impact: "moderate", def: "An inframe decrease in cds length that deletes one or more entire codons but does not change remaining codons." },
+            "inframe_deletion": { impact: "moderate", def: "An inframe non-synonymous variant that deletes bases from the coding sequence." },
+            "inframe_insertion": { impact: "moderate", def: "An inframe non-synonymous variant that inserts bases into in the coding sequence." },
+            "missense_variant": { impact: "moderate", def: "A sequence variant that changes one or more bases, resulting in a different amino acid sequence." },
+            "rare_amino_acid_variant": { impact: "moderate", def: "A sequence variant whereby at least one base of a codon encoding a rare amino acid is changed." },
+            "selenocysteine_gain": { impact: "moderate", def: "A sequence variant whereby at least one base of a codon is changed, resulting in a selenocysteine." },
+            "selenocysteine_loss": { impact: "moderate", def: "A codon encoding selenocysteine is changed, resulting in a different encoded amino acid." },
+            "protein_altering_variant": { impact: "moderate", def: "A sequence variant which is predicted to change the protein encoded in the coding sequence." },
+
+            // LOW
+            "splice_donor_5th_base_variant": { impact: "low", def: "A sequence variant that causes a change at the 5th base pair after the start of the intron." },
+            "splice_region_variant": { impact: "low", def: "A change within the region of the splice site, either within 1-3 bases of the exon or 3-8 bases of the intron." },
+            "exonic_splice_region_variant": { impact: "low", def: "A sequence variant in which a change has occurred within the exonic region of the splice site, 1-2 bases from boundary." },
+            "splice_donor_region_variant": { impact: "low", def: "A sequence variant that falls in the region between the 3rd and 6th base after splice junction." },
+            "splice_polypyrimidine_tract_variant": { impact: "low", def: "A sequence variant that falls in the polypyrimidine tract at 3' end of intron (acceptor -3 to acceptor -17)." },
+            "incomplete_terminal_codon_variant": { impact: "low", def: "At least one base of the final codon of an incompletely annotated transcript is changed." },
+            "start_retained_variant": { impact: "low", def: "At least one base in the start codon is changed, but the start remains." },
+            "stop_retained_variant": { impact: "low", def: "At least one base in the terminator codon is changed, but the terminator remains." },
+            "synonymous_variant": { impact: "low", def: "A sequence variant where there is no resulting change to the encoded amino acid." },
+
+            // MODIFIER
+            "coding_sequence_variant": { impact: "modifier", def: "A sequence variant that changes the coding sequence." },
+            "5_prime_UTR_exon_variant": { impact: "modifier", def: "A UTR variant of exonic sequence of the 5' UTR." },
+            "5_prime_UTR_intron_variant": { impact: "modifier", def: "A UTR variant of intronic sequence of the 5' UTR." },
+            "5_prime_UTR_variant": { impact: "modifier", def: "A UTR variant of the 5' UTR." },
+            "3_prime_UTR_exon_variant": { impact: "modifier", def: "A UTR variant of exonic sequence of the 3' UTR." },
+            "3_prime_UTR_intron_variant": { impact: "modifier", def: "A UTR variant of intronic sequence of the 3' UTR." },
+            "3_prime_UTR_variant": { impact: "modifier", def: "A UTR variant of the 3' UTR." },
+            "non_coding_transcript_variant": { impact: "modifier", def: "A transcript variant of a non coding RNA gene." },
+            "non_coding_transcript_exon_variant": { impact: "modifier", def: "A sequence variant that changes non-coding exon sequence in a non-coding transcript." },
+            "non_coding_transcript_intron_variant": { impact: "modifier", def: "A sequence variant that changes non-coding intron sequence in a non-coding transcript." },
+            "coding_transcript_intron_variant": { impact: "modifier", def: "A transcript variant occurring within an intron of a coding transcript." },
+            "upstream_gene_variant": { impact: "modifier", def: "A sequence variant located 5' of a gene." },
+            "downstream_gene_variant": { impact: "modifier", def: "A sequence variant located 3' of a gene." },
+            "intergenic_variant": { impact: "modifier", def: "A sequence variant located in the intergenic region, between genes." },
+            "intron_variant": { impact: "modifier", def: "A transcript variant occurring within an intron." },
+            "gene_variant": { impact: "modifier", def: "A sequence variant where the structure of the gene is changed." },
+
+            // UNSUPPORTED (Currently hidden from UI rendering)
+            "transcript_amplification": { impact: "high", supported: false, def: "A feature amplification of a region containing a transcript." },
+            "mature_miRNA_variant": { impact: "modifier", supported: false, def: "A transcript variant located with the sequence of the mature miRNA." },
+            "TFBS_ablation": { impact: "modifier", supported: false, def: "A feature ablation whereby the deleted region includes a transcription factor binding site." },
+            "TFBS_amplification": { impact: "modifier", supported: false, def: "A feature amplification of a region containing a transcription factor binding site." },
+            "TF_binding_site_variant": { impact: "modifier", supported: false, def: "A sequence variant located within a transcription factor binding site." },
+            "regulatory_region_ablation": { impact: "modifier", supported: false, def: "A feature ablation whereby the deleted region includes a regulatory region." },
+            "regulatory_region_amplification": { impact: "modifier", supported: false, def: "A feature amplification of a region containing a regulatory region." },
+            "regulatory_region_variant": { impact: "modifier", supported: false, def: "A sequence variant located within a regulatory region." }
+        };
+
+        // Initialize Lists
+        const listContainers = {
+            high: document.getElementById('list-high'),
+            moderate: document.getElementById('list-moderate'),
+            low: document.getElementById('list-low'),
+            modifier: document.getElementById('list-modifier')
+        };
+
+        for (const [key, data] of Object.entries(consequences)) {
+            if (data.supported === false) continue;
+
+            const li = document.createElement('li');
+            li.className = `csq-item ${data.impact}`;
+            li.setAttribute('data-csq', key);
+            li.textContent = key;
+            listContainers[data.impact].appendChild(li);
+        }
+
+        // Attach Event Listeners
+        const hitboxes = document.querySelectorAll('.hitbox');
+        const csqItems = document.querySelectorAll('.csq-item');
+        const defPanel = document.getElementById('def-panel');
+        const defTerm = document.getElementById('def-term');
+        const defText = document.getElementById('def-text');
+
+        const defaultDefColor = '#546e7a';
+        const impactColors = { high: '#e53935', moderate: '#fb8c00', low: '#43a047', modifier: '#8e24aa', default: '#007bff' };
+
+        function resetUI() {
+            hitboxes.forEach(el => el.classList.remove('dimmed', 'active'));
+            csqItems.forEach(el => el.classList.remove('dimmed', 'active'));
+            defTerm.textContent = "Variant Annotations";
+            defText.textContent = "Hover over regions in the diagram or terms in the list to display their Sequence Ontology definitions.";
+            defPanel.style.borderColor = defaultDefColor;
+            defTerm.style.color = '#80cbc4';
+        }
+
+        function setDefinition(termKeys, primaryTerm = null) {
+            if (termKeys.length === 0) return;
+
+            if (primaryTerm && consequences[primaryTerm]) {
+                defTerm.textContent = primaryTerm;
+                defText.textContent = consequences[primaryTerm].def;
+                defPanel.style.borderColor = impactColors[consequences[primaryTerm].impact];
+                defTerm.style.color = impactColors[consequences[primaryTerm].impact];
+            }
+            else {
+                defTerm.textContent = `Region maps to ${termKeys.length} potential consequences`;
+                defText.textContent = "Check the highlighted items in the lists below for specific definitions.";
+                defPanel.style.borderColor = impactColors.default;
+                defTerm.style.color = '#81d4fa';
+            }
+        }
+
+        csqItems.forEach(item => {
+            item.addEventListener('mouseenter', (e) => {
+                const targetCsq = e.target.getAttribute('data-csq');
+
+                hitboxes.forEach(el => el.classList.add('dimmed'));
+                csqItems.forEach(el => el.classList.add('dimmed'));
+
+                e.target.classList.remove('dimmed');
+                e.target.classList.add('active');
+
+                document.querySelectorAll(`.hitbox[data-csq~="${targetCsq}"]`).forEach(el => {
+                    el.classList.remove('dimmed');
+                    el.classList.add('active');
+                });
+
+                setDefinition([targetCsq], targetCsq);
+            });
+            item.addEventListener('mouseleave', resetUI);
+        });
+
+        hitboxes.forEach(hitbox => {
+            hitbox.addEventListener('mouseenter', (e) => {
+                const csqString = e.target.getAttribute('data-csq');
+                if (!csqString) return;
+
+                const csqList = csqString.split(' ').filter(c => consequences[c] && consequences[c].supported !== false);
+                if (csqList.length === 0) return;
+
+                hitboxes.forEach(el => el.classList.add('dimmed'));
+                csqItems.forEach(el => el.classList.add('dimmed'));
+
+                e.target.classList.remove('dimmed');
+                e.target.classList.add('active');
+
+                csqList.forEach(csq => {
+                    document.querySelectorAll(`.csq-item[data-csq="${csq}"]`).forEach(el => {
+                        el.classList.remove('dimmed');
+                        el.classList.add('active');
+                    });
+                });
+
+                setDefinition(csqList);
+            });
+            hitbox.addEventListener('mouseleave', resetUI);
+        });
+    </script>
+</body>
+
+</html>

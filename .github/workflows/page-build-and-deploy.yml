@@ -1,0 +1,33 @@
+name: build-and-deploy
+
+on:
+  schedule:
+    - cron: '0 18 * * *'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    defaults:
+      run:
+        shell: bash -el {0}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: locosopa
+        uses: koesterlab/locosopa@31df1859c7e22173bfaf6e234c6ae4260b4479db # v1.0.6
+        with:
+          config: page/config.yaml
+          path: build
