@@ -1129,8 +1129,8 @@ impl VarFishStrucvarTsvRecord {
                 lhs.gq = rhs.gq;
             }
 
-            if let (Some(_), Some(lhs_pev)) = (lhs.pec, lhs.pec) {
-                if let (Some(_), Some(rhs_pev)) = (rhs.pec, rhs.pec)
+            if let (Some(_), Some(lhs_pev)) = (lhs.pec, lhs.pev) {
+                if let (Some(_), Some(rhs_pev)) = (rhs.pec, rhs.pev)
                     && lhs_pev < rhs_pev
                 {
                     lhs.pec = rhs.pec;
@@ -1141,8 +1141,8 @@ impl VarFishStrucvarTsvRecord {
                 lhs.pev = rhs.pev;
             }
 
-            if let (Some(_), Some(lhs_srv)) = (lhs.src, lhs.src) {
-                if let (Some(_), Some(rhs_srv)) = (rhs.src, rhs.src)
+            if let (Some(_), Some(lhs_srv)) = (lhs.src, lhs.srv) {
+                if let (Some(_), Some(rhs_srv)) = (rhs.src, rhs.srv)
                     && lhs_srv < rhs_srv
                 {
                     lhs.src = rhs.src;
