@@ -57,10 +57,14 @@ header:
   logo: logo.jpeg
   name: "mehari"
 
+logo:
+  dark: logo.jpeg
+  light: logo.jpeg
+
 hero:
-  # img:
-  #   dark: logo_dark.svg
-  #   light: logo.svg
+  img:
+    dark: logo.jpeg
+    light: logo.jpeg
   links:
   - text: Read the docs
     url: https://docs.rs/mehari
@@ -70,3 +74,15 @@ hero:
   - High-performance VCF variant effect and consequence prediction.
   - HGVS predictions that aim to mirror VariantValidator.
   - Fast Rust core with seamless Python bindings.
+
+project:
+  authors: Manuel Holtgrewe, Till Hartmann
+  copyright: 2026, Till Hartmann, Manuel Holtgrewe, Max Zhao
+  name: mehari
+
+repo:
+  contributors:
+    skip:
+    - github-actions[bot]
+    - dependabot[bot]
+  name: varfish-org/mehari
