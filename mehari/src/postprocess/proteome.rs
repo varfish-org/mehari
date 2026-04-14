@@ -66,9 +66,18 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
 
     let aa_seq_idx = columns.iter().position(|&c| c == ANN_AA_SEQ_ALT)
         .context(format!("VCF was not annotated with {ANN_AA_SEQ_ALT}. Please run 'annotate seqvars' with '--report-protein-sequence alternative' (or both) first."))?;
-    let feature_id_idx = columns.iter().position(|&c| c == "Feature_ID").unwrap_or(6);
-    let gene_name_idx = columns.iter().position(|&c| c == "Gene_Name").unwrap_or(3);
-    let hgvs_p_idx = columns.iter().position(|&c| c == "HGVS.p").unwrap_or(10);
+    let feature_id_idx = columns
+        .iter()
+        .position(|&c| c == "Feature_ID")
+        .context("Required column 'Feature_ID' not found in ANN header")?;
+    let gene_name_idx = columns
+        .iter()
+        .position(|&c| c == "Gene_Name")
+        .context("Required column 'Gene_Name' not found in ANN header")?;
+    let hgvs_p_idx = columns
+        .iter()
+        .position(|&c| c == "HGVS.p")
+        .context("Required column 'HGVS.p' not found in ANN header")?;
 
     let group_id_idx = columns
         .iter()
