@@ -97,3 +97,6 @@ repo:
     - github-actions[bot]
     - dependabot[bot]
   name: varfish-org/mehari
+
+assets:
+  - consequences.html
