@@ -15,7 +15,7 @@ from ._mehari import build_transcript_db as _build_transcript_db
 ConsequenceEnum = pl.Enum(consequence_variants())
 ImpactEnum = pl.Enum(putative_impact_variants())
 FeatureBiotypeEnum = pl.Enum(feature_biotype_variants())
-FeatureBiotypeType = typing.Literal["Coding", "Noncoding"]
+FeatureBiotypeType = typing.Literal["coding", "noncoding"]
 
 
 class VariantDict(typing.TypedDict):
