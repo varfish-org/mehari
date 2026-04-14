@@ -4,7 +4,7 @@ use noodles::vcf::variant::record_buf::samples::sample::Value;
 use std::collections::{HashMap, HashSet};
 
 /// Phasing profile for a variant allele.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PhaseGroup {
     /// Phased allele containing an optional phase set and the haplotype index.
     Phased {
@@ -258,7 +258,7 @@ impl VariantBuffer {
                 groups.push(PhaseGroup::Unphased);
             }
         } else {
-            groups.sort_unstable_by_key(|g| format!("{:?}", g));
+            groups.sort_unstable();
             groups.dedup();
         }
 
