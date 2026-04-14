@@ -58,8 +58,8 @@ features:
   img: consequences.png
 
 logo:
-  dark: logo.jpeg
-  light: logo.jpeg
+  dark: logo_dark.svg
+  light: logo.svg
 
 header:
   links:
@@ -70,13 +70,13 @@ header:
     url: https://docs.rs/mehari
   - text: Consequences
     url: consequences.html
-  logo: logo.jpeg
+  logo: logo.svg
   name: "mehari"
 
 hero:
   img:
-    dark: logo.jpeg
-    light: logo.jpeg
+    dark: logo.svg
+    light: logo.svg
   links:
   - text: Read the docs
     url: https://docs.rs/mehari
