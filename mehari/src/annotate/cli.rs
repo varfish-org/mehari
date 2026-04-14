@@ -177,12 +177,12 @@ pub enum TranscriptPickMode {
 
 #[derive(Debug, clap::Args, Default, Clone)]
 pub struct CompoundSettings {
-    /// Enable variant grouping to evaluate the compound effect of multiple variants on the same transcript.
+    /// Experimental: Enable variant grouping to evaluate the compound effect of multiple variants on the same transcript.
     /// When disabled, Mehari evaluates each variant independently.
     #[arg(long, default_value_t = false)]
     pub enable_compound_variants: bool,
 
-    /// The strategy used to evaluate grouped variants for compound effects.
+    /// Experimental: The strategy used to evaluate grouped variants for compound effects.
     #[arg(long, value_enum, default_value_t = PhasingStrategy::Strict)]
     pub phasing_strategy: PhasingStrategy,
 }
