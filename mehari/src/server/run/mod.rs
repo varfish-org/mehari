@@ -202,40 +202,40 @@ fn print_hints(args: &Args, enabled_sources: &[(String, Endpoint)]) {
             ("grch37".into(), Transcripts),
             vec![
                 r#"genes/transcripts?hgnc_id=HGNC:1100&genome_build=grch37"#,
-                r#"seqvars/csq?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
-                r#"seqvars/csq?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A&hgnc_id=HGNC:2197"#,
-                r#"strucvars/csq?genome_release=grch37&chromosome=17&start=48275360&&stop=48275370&sv_type=DEL""#,
+                r#"seqvars/csq?assembly=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
+                r#"seqvars/csq?assembly=grch37&chromosome=17&position=48275363&reference=C&alternative=A&hgnc_id=HGNC:2197"#,
+                r#"strucvars/csq?assembly=grch37&chromosome=17&start=48275360&&stop=48275370&sv_type=DEL""#,
             ],
         ),
         (
             ("grch37".into(), Frequency),
             vec![
-                r#"seqvars/frequency?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
+                r#"seqvars/frequency?assembly=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
             ],
         ),
         (
             ("grch37".into(), Clinvar),
             vec![
-                r#"seqvars/clinvar?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
+                r#"seqvars/clinvar?assembly=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
             ],
         ),
         (
             ("grch38".into(), Transcripts),
             vec![
                 r#"genes/transcripts?hgnc_id=HGNC:1100&genome_build=grch38"#,
-                r#"seqvars/csq?genome_release=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
+                r#"seqvars/csq?assembly=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
             ],
         ),
         (
             ("grch38".into(), Frequency),
             vec![
-                r#"seqvars/frequency?genome_release=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
+                r#"seqvars/frequency?assembly=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
             ],
         ),
         (
             ("grch38".into(), Clinvar),
             vec![
-                r#"seqvars/clinvar?genome_release=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
+                r#"seqvars/clinvar?assembly=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
             ],
         ),
     ]);

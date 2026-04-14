@@ -3291,7 +3291,7 @@ pub fn read_and_cluster_for_contig(
 
 /// Normalize and validate assembly string.
 fn normalize_assembly(assembly: &str) -> Result<String, anyhow::Error> {
-    let normalized = match assembly.to_lowercase().as_str() {
+    let normalized = match assembly.to_lowercase().trim() {
         "grch37" | "hg19" => "GRCh37",
         "grch38" | "hg38" => "GRCh38",
         _ => {

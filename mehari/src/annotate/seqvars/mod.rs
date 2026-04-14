@@ -24,6 +24,7 @@ use crate::annotate::seqvars::provider::{
 use crate::common::contig::ContigManager;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
 use crate::db::merge::merge_transcript_databases;
+use crate::pbs;
 use crate::pbs::txs::TxSeqDatabase;
 use annonars::common::keys;
 use annonars::freqs::serialized::{auto, mt, xy};
@@ -291,8 +292,32 @@ pub fn load_tx_db(tx_path: impl AsRef<Path> + Display) -> anyhow::Result<TxSeqDa
         .map_err(|e| anyhow!("failed to read file {}: {}", tx_path, e))?;
 
     // Deserialize the buffer with prost.
-    TxSeqDatabase::decode(&mut Cursor::new(buffer))
-        .map_err(|e| anyhow!("failed to decode protobuf file {}: {}", tx_path, e))
+    let mut db = TxSeqDatabase::decode(&mut Cursor::new(buffer))
+        .map_err(|e| anyhow!("failed to decode protobuf file {}: {}", tx_path, e));
+
+    // back-fill deprecated fields into new fields
+    if let Ok(ref mut db) = db {
+        for sv in &mut db.source_version {
+            if sv.assembly.is_empty() {
+                sv.assembly = _assembly_from_assembly_enum(sv.assembly_enum);
+            }
+            if sv.source_name.is_empty() {
+                sv.source_name = _source_from_source_enum(sv.source_name_enum);
+            }
+        }
+
+        if let Some(tx_db) = &mut db.tx_db {
+            for tx in &mut tx_db.transcripts {
+                for aln in &mut tx.genome_alignments {
+                    if aln.genome_build.is_empty() {
+                        aln.genome_build = _genome_build_from_enum(aln.genome_build_enum);
+                    }
+                }
+            }
+        }
+    }
+
+    db
 }
 
 /// Trait for writing out annotated VCF records as VCF or VarFish TSV.
@@ -1292,7 +1317,13 @@ async fn run_with_writer(
             let mut unique_assemblies: IndexMap<String, String> = IndexMap::new();
             for db in &tx_dbs {
                 for sv in &db.source_version {
-                    unique_assemblies.insert(sv.assembly.to_lowercase(), sv.assembly.clone());
+                    let mut final_assembly = sv.assembly.clone();
+                    if final_assembly.is_empty() {
+                        final_assembly = _assembly_from_assembly_enum(sv.assembly_enum);
+                    }
+                    if !final_assembly.is_empty() {
+                        unique_assemblies.insert(final_assembly.to_lowercase(), final_assembly);
+                    }
                 }
             }
 
@@ -1328,7 +1359,9 @@ async fn run_with_writer(
                     );
                 }
             } else if unique_assemblies.is_empty() {
-                anyhow::bail!("No transcript databases provided and --assembly omitted.");
+                anyhow::bail!(
+                    "No valid assemblies found in transcript databases and --assembly omitted."
+                );
             } else {
                 let list: Vec<_> = unique_assemblies.into_values().collect();
                 anyhow::bail!(
@@ -1693,7 +1726,13 @@ pub(crate) fn load_transcript_dbs_for_assembly(
     let check_assembly = |db: &TxSeqDatabase, required: &str| {
         db.source_version
             .iter()
-            .map(|s| s.assembly.clone())
+            .flat_map(|s| {
+                vec![
+                    s.assembly.clone(),
+                    #[allow(deprecated)]
+                    _assembly_from_assembly_enum(s.assembly_enum),
+                ]
+            })
             .any(|a| a.eq_ignore_ascii_case(required))
     };
     let databases = tx_sources
@@ -1713,6 +1752,33 @@ pub(crate) fn load_transcript_dbs_for_assembly(
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(databases)
+}
+
+fn _assembly_from_assembly_enum(val: i32) -> String {
+    #[allow(deprecated)]
+    match pbs::txs::Assembly::from_i32(val).unwrap_or(pbs::txs::Assembly::Unknown) {
+        pbs::txs::Assembly::Unknown => "".into(),
+        pbs::txs::Assembly::Grch37 => "GRCh37".into(),
+        pbs::txs::Assembly::Grch38 => "GRCh38".into(),
+    }
+}
+
+fn _genome_build_from_enum(val: i32) -> String {
+    #[allow(deprecated)]
+    match pbs::txs::GenomeBuild::from_i32(val).unwrap_or(pbs::txs::GenomeBuild::Unknown) {
+        pbs::txs::GenomeBuild::Unknown => "".into(),
+        pbs::txs::GenomeBuild::Grch37 => "GRCh37".into(),
+        pbs::txs::GenomeBuild::Grch38 => "GRCh38".into(),
+    }
+}
+
+fn _source_from_source_enum(val: i32) -> String {
+    #[allow(deprecated)]
+    match pbs::txs::Source::from_i32(val).unwrap_or(pbs::txs::Source::Unknown) {
+        pbs::txs::Source::Unknown => "".into(),
+        pbs::txs::Source::Refseq => "RefSeq".into(),
+        pbs::txs::Source::Ensembl => "Ensembl".into(),
+    }
 }
 
 /// Create for all alternate alleles from the given VCF record.
