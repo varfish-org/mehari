@@ -41,6 +41,9 @@ pub struct PredictorSettings {
 
     #[clap(flatten)]
     pub normalization_settings: NormalizationSettings,
+
+    #[clap(flatten)]
+    pub compound_settings: CompoundSettings,
 }
 
 impl PredictorSettings {
@@ -59,10 +62,6 @@ impl PredictorSettings {
 
 #[derive(Debug, ClapArgs, Default, Clone)]
 pub struct TranscriptSettings {
-    /// The transcript source.
-    #[arg(long, value_enum, default_value_t = TranscriptSource::Both)]
-    pub transcript_source: TranscriptSource,
-
     /// Whether to report only the most severe consequence, grouped by gene, transcript, or allele.
     #[arg(long)]
     pub report_most_severe_consequence_by: Option<ConsequenceBy>,
@@ -171,30 +170,34 @@ pub enum TranscriptPickType {
 
 #[derive(Debug, Copy, Clone, Display, clap::ValueEnum, Default)]
 pub enum TranscriptPickMode {
-    #[default]
     First,
+    #[default]
     All,
 }
 
-/// Enum that allows to select the transcript source.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Default,
-    Hash,
-    serde::Deserialize,
-    serde::Serialize,
-    clap::ValueEnum,
-)]
-pub enum TranscriptSource {
-    /// ENSEMBL
-    Ensembl,
-    /// RefSeq
-    RefSeq,
-    /// Both
+#[derive(Debug, clap::Args, Default, Clone)]
+pub struct CompoundSettings {
+    /// Experimental: Enable variant grouping to evaluate the compound effect of multiple variants on the same transcript.
+    /// When disabled, Mehari evaluates each variant independently.
+    #[arg(long, default_value_t = false)]
+    pub enable_compound_variants: bool,
+
+    /// Experimental: The strategy used to evaluate grouped variants for compound effects.
+    #[arg(long, value_enum, default_value_t = PhasingStrategy::Strict)]
+    pub phasing_strategy: PhasingStrategy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum PhasingStrategy {
+    /// Variants are only grouped if explicitly phased ('|') and sharing a Phase Set (PS).
+    /// Unphased variants are evaluated independently.
     #[default]
-    Both,
+    Strict,
+
+    /// Respects explicit phasing, but treats homozygous variants as universally phased
+    /// Unphased heterozygous variants remain independent.
+    Relaxed,
+
+    /// Completely ignores phasing metadata and _assumes_ all variants on the transcript are on the same haplotype.
+    Ignore,
 }

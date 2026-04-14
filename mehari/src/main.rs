@@ -92,6 +92,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Args, Parser, Subcommand};
+use mehari::db::create;
 #[cfg(feature = "server")]
 use mehari::server;
 use mehari::{annotate, common, db, verify};
@@ -128,6 +129,9 @@ enum Commands {
 
     /// Verification related commands.
     Verify(Verify),
+
+    /// Post-processing utilities for Mehari-annotated files.
+    Postprocess(Postprocess),
 }
 
 /// Parsing of "db *" sub commands.
@@ -142,7 +146,7 @@ struct Db {
 /// Enum supporting the parsing of "db *" sub commands.
 #[derive(Debug, Subcommand)]
 enum DbCommands {
-    Create(db::create::Args),
+    Create(create::cli::Args),
     Check(db::check::Args),
     Dump(db::dump::Args),
     Merge(db::merge::Args),
@@ -198,6 +202,23 @@ enum VerifyCommands {
     Seqvars(verify::seqvars::Args),
 }
 
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
+struct Postprocess {
+    #[command(subcommand)]
+    command: PostprocessCommands,
+}
+
+/// Enum supporting the parsing of "postprocess *" sub commands.
+#[derive(Debug, Subcommand)]
+enum PostprocessCommands {
+    /// Experimental: Extract the proteome from a mehari-annotated (seqvars, with aa sequences) VCF file.
+    Proteome(mehari::postprocess::proteome::Args),
+
+    /// Convert a mehari-annotated (seqvars) VCF file to a VarFish-compatible TSV file.
+    VarfishSeqvars(mehari::postprocess::varfish::Args),
+}
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     #[cfg(feature = "dhat-heap")]
@@ -247,6 +268,14 @@ async fn main() -> Result<(), anyhow::Error> {
         },
         Commands::Verify(verify) => match &verify.command {
             VerifyCommands::Seqvars(args) => verify::seqvars::run(&cli.common, args)?,
+        },
+        Commands::Postprocess(postprocess) => match &postprocess.command {
+            PostprocessCommands::Proteome(args) => {
+                mehari::postprocess::proteome::run(&cli.common, args).await?
+            }
+            PostprocessCommands::VarfishSeqvars(args) => {
+                mehari::postprocess::varfish::run(&cli.common, args).await?
+            }
         },
     }
 

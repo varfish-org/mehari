@@ -3,8 +3,8 @@ use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use mehari::annotate::seqvars::ann::{
-    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, AnnField, Consequence, Pos,
-    PutativeImpact, Rank,
+    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, AnnField, Consequence,
+    FeatureBiotype, Pos, PutativeImpact, Rank,
 };
 use mehari::annotate::seqvars::csq::SequenceReporting;
 use mehari::annotate::seqvars::csq::{ConfigBuilder, ConsequencePredictor, VcfVariant};
@@ -34,6 +34,11 @@ fn putative_impact_variants() -> Vec<String> {
     PutativeImpact::iter()
         .map(|i: PutativeImpact| i.to_string())
         .collect()
+}
+
+#[pyfunction]
+fn feature_biotype_variants() -> Vec<String> {
+    FeatureBiotype::iter().map(|b| b.to_string()).collect()
 }
 
 // _TraceAnnField is the same as ArrowAnnField but without the custom_fields field,
@@ -256,10 +261,13 @@ impl PySeqvarsAnnotator {
             alternative: alternative.to_string(),
         };
 
-        let ann_fields_opt = self
-            .predictor
-            .predict(&variant)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let ann_fields_opt = self.predictor.predict(&variant).map_err(|e| match e {
+            mehari::errors::SeqvarsError::UnknownChromosomeAccession
+            | mehari::errors::SeqvarsError::InvalidCoordinates(_, _) => {
+                pyo3::exceptions::PyValueError::new_err(e.to_string())
+            }
+            _ => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
+        })?;
 
         let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
             .unwrap_or_default()
@@ -391,6 +399,131 @@ impl PySeqvarsAnnotator {
 
         out_batch.to_pyarrow(py)
     }
+
+    /// Annotate a group of phased variants. Returns a Python dictionary.
+    #[pyo3(signature = (variants))]
+    fn annotate_multiple<'py>(
+        &self,
+        py: Python<'py>,
+        variants: Vec<(String, i32, String, String)>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let vcf_variants: Vec<VcfVariant> = variants
+            .into_iter()
+            .map(|(chrom, pos, ref_seq, alt_seq)| VcfVariant {
+                chromosome: chrom,
+                position: pos,
+                reference: ref_seq,
+                alternative: alt_seq,
+            })
+            .collect();
+
+        let ann_fields_opt =
+            self.predictor
+                .predict_multiple(&vcf_variants)
+                .map_err(|e| match e {
+                    mehari::errors::SeqvarsError::GroupValidation(_)
+                    | mehari::errors::SeqvarsError::UnknownChromosomeAccession
+                    | mehari::errors::SeqvarsError::InvalidCoordinates(_, _) => {
+                        pyo3::exceptions::PyValueError::new_err(e.to_string())
+                    }
+                    _ => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
+                })?;
+
+        let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
+            .unwrap_or_default()
+            .into_iter()
+            .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
+            .collect();
+
+        #[derive(Serialize)]
+        struct SingleResult {
+            annotation: Vec<ArrowAnnField>,
+        }
+
+        let py_dict = pythonize(
+            py,
+            &SingleResult {
+                annotation: arrow_anns,
+            },
+        )
+        .map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Serialization error: {}", e))
+        })?;
+
+        Ok(py_dict)
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    assembly,
+    annotation,
+    output,
+    transcript_source,
+    assembly_version=None,
+    annotation_version=None,
+    transcript_source_version=None,
+    seqrepo=None,
+    transcript_sequences=None,
+    mane_transcripts=None,
+    disable_filters=false,
+    threads=1,
+    compression_level=19
+))]
+#[allow(clippy::too_many_arguments)]
+fn build_transcript_db(
+    assembly: String,
+    annotation: Vec<PathBuf>,
+    output: PathBuf,
+    transcript_source: String,
+    assembly_version: Option<String>,
+    annotation_version: Option<String>,
+    transcript_source_version: Option<String>,
+    seqrepo: Option<PathBuf>,
+    transcript_sequences: Option<PathBuf>,
+    mane_transcripts: Option<PathBuf>,
+    disable_filters: bool,
+    threads: usize,
+    compression_level: i32,
+) -> PyResult<()> {
+    if seqrepo.is_none() && transcript_sequences.is_none() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "Either 'seqrepo' or 'transcript_sequences' must be provided",
+        ));
+    }
+
+    if transcript_source.to_lowercase() == "ensembl" && transcript_source_version.is_none() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "'transcript_source_version' is required when source is 'ensembl'",
+        ));
+    }
+
+    let args = mehari::db::create::cli::Args {
+        assembly,
+        assembly_version,
+        annotation,
+        annotation_version,
+        transcript_source,
+        transcript_source_version,
+        seqrepo,
+        transcript_sequences,
+        mane_transcripts,
+        disable_filters,
+        threads,
+        compression_level,
+        output,
+    };
+
+    let common_args = mehari::common::Args::default();
+
+    mehari::db::create::run(&common_args, &args).map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!(
+            "Failed to build transcript database: {}",
+            e
+        ))
+    })?;
+
+    Ok(())
 }
 
 #[pymodule(name = "_mehari")]
@@ -398,5 +531,7 @@ fn mehari_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySeqvarsAnnotator>()?;
     m.add_function(wrap_pyfunction!(consequence_variants, m)?)?;
     m.add_function(wrap_pyfunction!(putative_impact_variants, m)?)?;
+    m.add_function(wrap_pyfunction!(feature_biotype_variants, m)?)?;
+    m.add_function(wrap_pyfunction!(build_transcript_db, m)?)?;
     Ok(())
 }

@@ -10,7 +10,7 @@ const BIN_FIRST_SHIFT: i32 = 17;
 const BIN_NEXT_SHIFT: i32 = 3;
 
 // Compute UCSC bin from 0-based half-open interval.
-pub fn bin_from_range(begin: i32, end: i32) -> Result<i32, anyhow::Error> {
+pub fn bin_from_range(begin: i32, end: i32) -> Result<i32, crate::errors::SeqvarsError> {
     let mut begin_bin = begin >> BIN_FIRST_SHIFT;
     let mut end_bin = std::cmp::max(begin, end - 1) >> BIN_FIRST_SHIFT;
 
@@ -22,9 +22,5 @@ pub fn bin_from_range(begin: i32, end: i32) -> Result<i32, anyhow::Error> {
         end_bin >>= BIN_NEXT_SHIFT;
     }
 
-    anyhow::bail!(
-        "begin {}, end {} out of range in bin_from_range (max is 512M",
-        begin,
-        end
-    );
+    Err(crate::errors::SeqvarsError::InvalidCoordinates(begin, end))
 }

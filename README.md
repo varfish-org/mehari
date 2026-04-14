@@ -27,8 +27,8 @@ To annotate variant consequences, gnomAD frequencies and clinVar information for
       --transcripts resources/transcript_db \
       --frequencies resources/gnomad_db \
       --clinvar resources/clinvar_db \
-      --path-input-vcf input.vcf \
-      --path-output-vcf output.vcf
+      --input input.vcf \
+      --output output.vcf
 ```
 The corresponding database builds can be obtained from:
  - transcripts: [github.com/varfish-org/mehari-data-tx/releases](https://github.com/varfish-org/mehari-data-tx/releases)

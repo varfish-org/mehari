@@ -2,9 +2,10 @@
 //!
 //! Also includes the implementation of the `/genes/txs` endpoint (deprecated).
 
-use crate::common::GenomeRelease;
 use crate::pbs;
 use crate::pbs::server::{GeneTranscriptsQuery, GeneTranscriptsResponse};
+
+use super::versions::Assembly;
 use crate::pbs::txs::GenomeBuild;
 use crate::server::run::actix_server::CustomError;
 use actix_web::{
@@ -12,8 +13,6 @@ use actix_web::{
     web::{self, Data, Json, Path},
 };
 use hgvs::data::interface::Provider as _;
-
-use super::versions::Assembly;
 
 /// Maximal page size.
 static PAGE_SIZE_MAX: i32 = 1000;
@@ -33,11 +32,9 @@ fn genes_tx_impl(
         hgnc_id,
         page_size,
         next_page_token,
+        ..
     } = query;
-    let genome_build = GenomeBuild::try_from(genome_build.unwrap_or(GenomeBuild::Grch37 as i32))
-        .map_err(|e| CustomError::new(anyhow::anyhow!("Invalid genome build: {}", e)))?;
-    let genome_release = GenomeRelease::try_from(genome_build)
-        .map_err(|e| CustomError::new(anyhow::anyhow!("Invalid genome build: {}", e)))?;
+    let genome_build = genome_build.unwrap_or_else(|| String::from("grch37"));
     let hgnc_id = hgnc_id
         .as_ref()
         .ok_or_else(|| CustomError::new(anyhow::anyhow!("No HGNC ID provided.")))?;
@@ -48,7 +45,7 @@ fn genes_tx_impl(
 
     let provider = data
         .provider
-        .get(&genome_release)
+        .get(&genome_build)
         .ok_or_else(|| CustomError::new(anyhow::anyhow!("No provider available.")))?;
     let tx_acs = provider
         .get_tx_for_gene(hgnc_id)
@@ -100,11 +97,22 @@ pub(crate) struct GenesTranscriptsListQuery {
     pub next_page_token: Option<String>,
 }
 
-impl From<GenesTranscriptsListQuery> for pbs::server::GeneTranscriptsQuery {
+impl From<GenesTranscriptsListQuery> for GeneTranscriptsQuery {
     fn from(val: GenesTranscriptsListQuery) -> Self {
-        pbs::server::GeneTranscriptsQuery {
-            genome_build: Some(Into::<pbs::txs::GenomeBuild>::into(val.genome_build) as i32),
+        GeneTranscriptsQuery {
+            genome_build: Some(match val.genome_build {
+                Assembly::Grch38 => String::from("grch38"),
+                Assembly::Grch37 => String::from("grch37"),
+            }),
             hgnc_id: Some(val.hgnc_id),
+            #[allow(deprecated)]
+            genome_build_enum: Some(
+                match val.genome_build {
+                    Assembly::Grch37 => GenomeBuild::Grch37,
+                    Assembly::Grch38 => GenomeBuild::Grch38,
+                }
+                .into(),
+            ),
             page_size: val.page_size,
             next_page_token: val.next_page_token,
         }
@@ -281,7 +289,7 @@ impl TryFrom<pbs::txs::GenomeAlignment> for GenomeAlignment {
 
     fn try_from(value: pbs::txs::GenomeAlignment) -> Result<Self, Self::Error> {
         Ok(GenomeAlignment {
-            genome_build: Assembly::try_from(pbs::txs::GenomeBuild::try_from(value.genome_build)?)?,
+            genome_build: super::versions::Assembly::try_from(value.genome_build.as_str())?,
             contig: value.contig.clone(),
             cds_start: value.cds_start,
             cds_end: value.cds_end,

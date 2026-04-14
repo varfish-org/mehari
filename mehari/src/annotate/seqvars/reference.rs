@@ -1,8 +1,8 @@
 use crate::common::contig::ContigManager;
 use anyhow::anyhow;
 use memmap2::Mmap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -18,9 +18,14 @@ pub trait ReferenceReader {
 
 /// In-memory reference sequence access.
 pub struct InMemoryFastaAccess {
-    /// Maps canonical RefSeq accession to the full sequence.
-    sequences: HashMap<String, Vec<u8>>,
+    /// Maps any valid alias (accession, chr-prefixed, etc.) to the raw FASTA ID
+    alias_to_id: FxHashMap<String, String>,
+    /// Maps the raw FASTA ID to the full sequence
+    sequences: FxHashMap<String, Vec<u8>>,
+    /// Set of aliases that correspond to the circular mitochondrial genome
+    circular_contigs: FxHashSet<String>,
 }
+
 impl InMemoryFastaAccess {
     pub fn from_path(
         path: impl AsRef<Path>,
@@ -34,30 +39,52 @@ impl InMemoryFastaAccess {
         let reference_reader = bio::io::fasta::Reader::from_file(&reference_path)
             .expect("Failed to create FASTA reader");
 
-        let mut sequences = HashMap::new();
+        let mut sequences = FxHashMap::default();
+        let mut alias_to_id = FxHashMap::default();
+        let mut circular_contigs = FxHashSet::default();
+
         for record_result in reference_reader.records() {
             let record = record_result?;
-            let mut stored = false;
+            let raw_id = record.id().to_string();
 
-            // try canonical accession from ContigManager
-            if let Some(accession) = contig_manager.get_accession(record.id()) {
-                sequences.insert(accession.clone(), record.seq().to_ascii_uppercase());
-                stored = true;
+            // Collect all possible aliases for this FASTA sequence
+            let mut aliases = vec![raw_id.clone()];
+            if let Some(info) = contig_manager.get_contig_info(&raw_id) {
+                aliases.push(info.name_with_chr.clone());
+                aliases.push(info.name_without_chr.clone());
+            }
+            if let Some(acc) = contig_manager.get_accession(&raw_id) {
+                aliases.push(acc.to_string());
             }
 
-            // always store raw id (if it looks like an accession).
-            // fixes issues where ContigManager has a different patch version than the file.
-            if !stored
-                || record.id().starts_with("NC_")
-                || record.id().starts_with("NT_")
-                || record.id().starts_with("NW_")
-            {
-                sequences.insert(record.id().to_string(), record.seq().to_ascii_uppercase());
+            // Map all aliases to the raw_id and check for circularity
+            for alias in aliases {
+                // Check for collision before inserting
+                if let Some(existing_id) = alias_to_id.get(&alias) {
+                    if existing_id != &raw_id {
+                        return Err(anyhow!(
+                            "Alias collision: alias '{}' is already mapped to '{}', cannot map to '{}'",
+                            alias,
+                            existing_id,
+                            raw_id
+                        ));
+                    }
+                }
+                alias_to_id.insert(alias.clone(), raw_id.clone());
+                if contig_manager.is_mitochondrial_alias(&alias) {
+                    circular_contigs.insert(alias);
+                }
             }
+
+            sequences.insert(raw_id, record.seq().to_ascii_uppercase());
         }
 
         tracing::info!("...done reading reference FASTA into memory.");
-        Ok(Self { sequences })
+        Ok(Self {
+            alias_to_id,
+            sequences,
+            circular_contigs,
+        })
     }
 }
 
@@ -68,18 +95,23 @@ impl ReferenceReader for InMemoryFastaAccess {
         start: Option<u64>,
         end: Option<u64>,
     ) -> anyhow::Result<Option<Vec<u8>>> {
-        if let Some(seq) = self.sequences.get(ac) {
+        let raw_id = match self.alias_to_id.get(ac) {
+            Some(id) => id,
+            None => return Ok(None),
+        };
+
+        if let Some(seq) = self.sequences.get(raw_id) {
             let seq_len = seq.len() as u64;
 
-            if let Some(s) = start {
-                if s >= seq_len {
-                    return Err(anyhow!(
-                        "Requested start ({}) is out of bounds for sequence {} of length {}",
-                        s,
-                        ac,
-                        seq_len
-                    ));
-                }
+            if let Some(s) = start
+                && s >= seq_len
+            {
+                return Err(anyhow!(
+                    "Requested start ({}) is out of bounds for sequence {} of length {}",
+                    s,
+                    ac,
+                    seq_len
+                ));
             }
 
             let (start, end) = match (start, end) {
@@ -89,9 +121,8 @@ impl ReferenceReader for InMemoryFastaAccess {
                 (None, None) => (0, seq_len),
             };
 
-            // In the case of the circular mitochondrial genome, we need to check if the end (with padding)
-            // is larger than the sequence length. If so, we need to wrap around.
-            if ac == "NC_012920.1" && end > seq_len {
+            // Safely wrap around if the contig is circular
+            if self.circular_contigs.contains(ac) && end > seq_len {
                 let mut result_seq = seq[start as usize..].to_vec();
                 let wrap_around_end = (end - seq_len).min(seq_len);
                 if wrap_around_end > 0 {
@@ -136,8 +167,10 @@ pub struct UnbufferedIndexedFastaAccess {
     #[allow(dead_code)]
     path: PathBuf,
     mmap: Mmap,
-    /// Maps the canonical RefSeq accession to the FAI index record.
-    accession_to_index: HashMap<String, IndexRecord>,
+    /// Maps any valid alias (accession, chr-prefixed, etc.) to the FAI index record.
+    alias_to_index: FxHashMap<String, IndexRecord>,
+    /// Set of aliases that correspond to the circular mitochondrial genome
+    circular_contigs: FxHashSet<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -162,29 +195,39 @@ impl UnbufferedIndexedFastaAccess {
             .delimiter(b'\t')
             .from_path(index_path)?
             .deserialize()
-            .map(|record| {
-                let record: IndexRecord = record.expect("Failed to read index record");
-                record
-            })
+            .map(|record| record.expect("Failed to read index record"))
             .collect();
 
-        let mut accession_to_index = HashMap::new();
-        for record in index_records {
-            let mut stored = false;
+        let mut alias_to_index: FxHashMap<String, IndexRecord> = FxHashMap::default();
+        let mut circular_contigs = FxHashSet::default();
 
-            // try getting accession from ContigManager
-            if let Some(accession) = contig_manager.get_accession(&record.name) {
-                accession_to_index.insert(accession.clone(), record.clone());
-                stored = true;
+        for record in index_records {
+            let mut aliases = vec![record.name.clone()];
+            if let Some(info) = contig_manager.get_contig_info(&record.name) {
+                aliases.push(info.name_with_chr.clone());
+                aliases.push(info.name_without_chr.clone());
+            }
+            if let Some(acc) = contig_manager.get_accession(&record.name) {
+                aliases.push(acc.to_string());
             }
 
-            // store by raw name (if it looks like an accession).
-            if !stored
-                || record.name.starts_with("NC_")
-                || record.name.starts_with("NT_")
-                || record.name.starts_with("NW_")
-            {
-                accession_to_index.insert(record.name.clone(), record.clone());
+            for alias in aliases {
+                // Check for collision before inserting
+                if let Some(existing_record) = alias_to_index.get(&alias)
+                    && existing_record.name != record.name
+                {
+                    return Err(anyhow!(
+                        "Alias collision: alias '{}' is already mapped to '{}', cannot map to '{}'",
+                        alias,
+                        existing_record.name,
+                        record.name
+                    ));
+                }
+
+                alias_to_index.insert(alias.clone(), record.clone());
+                if contig_manager.is_mitochondrial_alias(&alias) {
+                    circular_contigs.insert(alias);
+                }
             }
         }
 
@@ -197,7 +240,8 @@ impl UnbufferedIndexedFastaAccess {
         Ok(Self {
             path,
             mmap,
-            accession_to_index,
+            alias_to_index,
+            circular_contigs,
         })
     }
 }
@@ -209,16 +253,16 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
         start: Option<u64>,
         end: Option<u64>,
     ) -> anyhow::Result<Option<Vec<u8>>> {
-        if let Some(index_record) = self.accession_to_index.get(ac) {
-            if let Some(s) = start {
-                if s >= index_record.length {
-                    return Err(anyhow!(
-                        "Requested start ({}) is out of bounds for sequence {} of length {}",
-                        s,
-                        ac,
-                        index_record.length
-                    ));
-                }
+        if let Some(index_record) = self.alias_to_index.get(ac) {
+            if let Some(s) = start
+                && s >= index_record.length
+            {
+                return Err(anyhow!(
+                    "Requested start ({}) is out of bounds for sequence {} of length {}",
+                    s,
+                    ac,
+                    index_record.length
+                ));
             }
 
             let (start, end) = match (start, end) {
@@ -273,9 +317,7 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
                     .collect())
             };
 
-            // In the case of the circular mitochondrial genome, check if the requested end (with padding)
-            // is larger than the sequence length. If so, wrap around to the beginning.
-            if ac == "NC_012920.1" && end > index_record.length {
+            if self.circular_contigs.contains(ac) && end > index_record.length {
                 let mut sequence = get_linear_slice(start, index_record.length)?;
                 let wrap_around_end = (end - index_record.length).min(index_record.length);
                 if wrap_around_end > 0 {

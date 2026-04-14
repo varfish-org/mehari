@@ -4,7 +4,7 @@ use derive_new::new;
 use enumflags2::BitFlags;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::fs::File;
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use strum::Display;
 
 use crate::annotate::seqvars::load_tx_db;
-use crate::db::create::Reason as FilterReason;
+use crate::db::create::models::Reason as FilterReason;
 use crate::pbs::txs::{TranscriptDb, TranscriptTag};
 
 /// Check a mehari transcript database against information from
@@ -222,19 +222,19 @@ impl TxDbData {
             let is_mane = tx.tags.contains(&(TranscriptTag::ManeSelect as i32))
                 || tx.tags.contains(&(TranscriptTag::ManePlusClinical as i32));
 
-            if let Some(bits) = tx.filter_reason {
-                if bits != 0 {
-                    let reason = BitFlags::<FilterReason>::from_bits_truncate(bits);
-                    if tx.filtered.unwrap_or(false) {
-                        hard_filter_reasons.insert(id.clone(), reason);
-                        if is_mane {
-                            discarded_mane_entries.insert(id, reason);
-                        }
-                    } else {
-                        soft_filter_reasons.insert(id.clone(), reason);
-                        if is_mane {
-                            soft_filtered_mane_entries.insert(id, reason);
-                        }
+            if let Some(bits) = tx.filter_reason
+                && bits != 0
+            {
+                let reason = BitFlags::<FilterReason>::from_bits_truncate(bits);
+                if tx.filtered.unwrap_or(false) {
+                    hard_filter_reasons.insert(id.clone(), reason);
+                    if is_mane {
+                        discarded_mane_entries.insert(id, reason);
+                    }
+                } else {
+                    soft_filter_reasons.insert(id.clone(), reason);
+                    if is_mane {
+                        soft_filtered_mane_entries.insert(id, reason);
                     }
                 }
             }
@@ -243,14 +243,14 @@ impl TxDbData {
         // Process Genes
         for g in &tx_db.gene_to_tx {
             let id = Id::Hgnc(g.gene_id.clone());
-            if let Some(bits) = g.filter_reason {
-                if bits != 0 {
-                    let reason = BitFlags::<FilterReason>::from_bits_truncate(bits);
-                    if g.filtered.unwrap_or(false) {
-                        hard_filter_reasons.insert(id, reason);
-                    } else {
-                        soft_filter_reasons.insert(id, reason);
-                    }
+            if let Some(bits) = g.filter_reason
+                && bits != 0
+            {
+                let reason = BitFlags::<FilterReason>::from_bits_truncate(bits);
+                if g.filtered.unwrap_or(false) {
+                    hard_filter_reasons.insert(id, reason);
+                } else {
+                    soft_filter_reasons.insert(id, reason);
                 }
             }
         }
@@ -269,7 +269,7 @@ impl TxDbData {
 fn load_cdot_files(paths: &[PathBuf]) -> Result<IdentifierMap> {
     let cdot_container = paths
         .iter()
-        .map(crate::db::create::read_cdot_json)
+        .map(crate::db::create::cdot::read_cdot_json)
         .collect::<Result<Vec<_>>>()?
         .into_iter()
         .reduce(|mut a, b| {

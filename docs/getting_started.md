@@ -43,6 +43,6 @@ mehari annotate seqvars \
     --transcripts path/to/mehari-transcript-db \
     --frequencies path/to/mehari-frequency-db \
     --clinvar path/to/mehari-clinvar-db \
-    --path-input-vcf example.vcf \
-    --path-output-vcf example.out.vcf
+    --input example.vcf \
+    --output example.out.vcf
 ```

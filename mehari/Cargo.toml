@@ -1,13 +1,13 @@
 [package]
 name = "mehari"
 version = "0.41.2"
-edition = "2021"
+edition = "2024"
+rust-version = "1.88"
 authors = ["Manuel Holtgrewe <manuel.holtgrewe@bih-charite.de>"]
 description = "Variant effect prediction all in Rust"
 license = "MIT"
 repository = "https://github.com/varfish-org/mehari"
 readme = "../README.md"
-rust-version = "1.75.0"
 
 [features]
 default = ["jemalloc", "server"]
@@ -33,7 +33,7 @@ annonars = { version = "0.44.2", default-features = false }
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bio = "3.0.0"
-biocommons-bioutils = "0.1.5"
+biocommons-bioutils = "0.2.0"
 built = { version = "0.8", features = ["chrono", "semver"] }
 byte-unit = "5.2"
 chrono = "0.4"
@@ -47,7 +47,7 @@ enumflags2 = { version = "0.7.11", features = ["serde"] }
 env_logger = "0.11"
 flate2 = "1.1"
 futures = "0.3"
-hgvs = "0.20.1"
+hgvs = "0.22"
 indexmap = { version = "2.13", features = ["serde"] }
 itertools = "0.14"
 jsonl = "4.0"
@@ -73,7 +73,7 @@ serde_yaml = "0.9"
 strum = { version = "0.28", features = ["derive"] }
 tempfile = "3"
 thousands = "0.2"
-tokio = { version = "1.50", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "io-std"] }
 tracing-subscriber = "0.3"
 tracing = { version = "0.1", features = ["log"] }
 uuid = { version = "1.23", features = ["fast-rng", "serde"] }
@@ -82,10 +82,15 @@ utoipa = { version = "5.4.0", features = ["actix_extras", "chrono", "indexmap", 
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"], optional = true }
 memmap2 = "0.9.10"
 serde-aux = "4.7.0"
+thiserror = "2.0"
 
 [dependencies.noodles]
-version = "0.97.0"
-features = ["async", "bgzf", "core", "vcf", "bcf", "csi", "fasta", "tabix"]
+version = "0.109.0"
+features = ["async", "core", "vcf", "bcf", "csi", "fasta", "tabix", "gff"]
+
+[dependencies.noodles-bgzf]
+version = "0.46.0"
+features = ["async", "libdeflate"]
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }

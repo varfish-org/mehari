@@ -1,0 +1,5 @@
+---
+source: mehari/src/annotate/seqvars/mod.rs
+expression: snapshot_data
+---
+"X:2733841:T:TACACACACACAC": ~

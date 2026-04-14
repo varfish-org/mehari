@@ -1,6 +1,7 @@
 ---
-source: src/db/create/mod.rs
+source: mehari/src/db/create/mod.rs
 expression: "String::from_utf8(buf)?"
+snapshot_kind: text
 ---
 txDb:
   transcripts:
@@ -15,7 +16,7 @@ txDb:
     startCodon: 15
     stopCodon: 513
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000001.11
       cdsStart: 86863473
       cdsEnd: 86914111
@@ -50,6 +51,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 99
         cigar: 99M
+      genomeBuild: grch38
     filtered: false
   - id: NM_203341.3
     geneSymbol: SELENOF
@@ -61,7 +63,7 @@ txDb:
     startCodon: 15
     stopCodon: 390
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000001.11
       cdsStart: 86863546
       cdsEnd: 86914111
@@ -90,13 +92,14 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 99
         cigar: 99M
+      genomeBuild: grch38
     filtered: false
   - id: NR_144512.1
     geneSymbol: SELENOF
     geneId: HGNC:17705
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000001.11
       strand: STRAND_MINUS
       exons:
@@ -129,6 +132,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 161
         cigar: 161M
+      genomeBuild: grch38
     filtered: true
     filterReason: 1049088
   - id: NR_144513.1
@@ -136,7 +140,7 @@ txDb:
     geneId: HGNC:17705
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     genomeAlignments:
-    - genomeBuild: GENOME_BUILD_GRCH38
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
       contig: NC_000001.11
       strand: STRAND_MINUS
       exons:
@@ -169,6 +173,7 @@ txDb:
         altCdsStartI: 1
         altCdsEndI: 145
         cigar: 145M
+      genomeBuild: grch38
     filtered: true
     filterReason: 1049088
   geneToTx:
@@ -192,6 +197,9 @@ seqDb:
 version: 0.0.0
 sourceVersion:
 - mehariVersion: 0.0.0
-  assembly: ASSEMBLY_GRCH38
-  sourceName: SOURCE_REFSEQ
-  cdotVersion: 0.2.22
+  assemblyEnum: ASSEMBLY_GRCH38
+  sourceNameEnum: SOURCE_REFSEQ
+  annotationVersion: 0.2.22
+  annotationName: cdot
+  assembly: grch38
+  sourceName: refseq

@@ -4,17 +4,17 @@ use crate::annotate::seqvars::csq::Config;
 use crate::pbs::txs::TranscriptTag;
 use enumflags2::bitflags;
 use hgvs::data::cdot::json::models::Tag;
+use nom::Parser;
 use nom::bytes::complete::take_until;
 use nom::character::complete::char;
 use nom::combinator::{map_res, opt, rest};
 use nom::multi::separated_list1;
-use nom::Parser;
 use nom::{
+    IResult,
     branch::alt,
     bytes::complete::tag,
     character::complete::{alphanumeric1, digit1},
     combinator::{all_consuming, map},
-    IResult,
 };
 use parse_display::{Display, FromStr};
 use std::collections::BTreeMap;
@@ -25,6 +25,8 @@ pub const ANN_TX_SEQ_REF: &str = "tx_sequence_ref";
 pub const ANN_TX_SEQ_ALT: &str = "tx_sequence_alt";
 pub const ANN_AA_SEQ_REF: &str = "aa_sequence_ref";
 pub const ANN_AA_SEQ_ALT: &str = "aa_sequence_alt";
+pub const ANN_COMPOUND_IDS: &str = "compound_ids";
+pub const ANN_COMPOUND_VARIANTS: &str = "compound_variants";
 
 /// Putative impact level.
 #[derive(
@@ -431,11 +433,39 @@ pub enum Allele {
         other_ref: String,
         other_alt: String,
     },
+    /// Multiple variants grouped together into a single compound event.
+    #[display("grouped({0})")]
+    Grouped(GroupedAlleles),
+}
+
+/// Wrapper around multiple grouped alleles storing both references and alternatives.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize)]
+pub struct GroupedAlleles {
+    pub references: Vec<String>,
+    pub alternatives: Vec<String>,
+}
+
+impl std::fmt::Display for GroupedAlleles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.alternatives.join("+"))
+    }
+}
+
+impl std::str::FromStr for GroupedAlleles {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(GroupedAlleles {
+            // during parsing from INFO/ANN, references aren't available, so leave them empty.
+            references: Vec::new(),
+            alternatives: s.split('+').map(|a| a.to_string()).collect(),
+        })
+    }
 }
 
 mod parse {
-    use nom::bytes::complete::take_while1;
     use nom::Parser;
+    use nom::bytes::complete::take_while1;
 
     pub static NA_IUPAC: &str = "ACGTURYMKWSBDHVNacgturymkwsbdhvn";
 
@@ -447,10 +477,28 @@ mod parse {
 impl Allele {
     pub fn parse(input: &str) -> IResult<&str, Self> {
         all_consuming(alt((
+            Self::parse_grouped,
             Self::parse_compound,
             Self::parse_alt_ref,
             Self::parse_alt,
         )))
+        .parse(input)
+    }
+
+    fn parse_grouped(input: &str) -> IResult<&str, Self> {
+        map(
+            (
+                tag("grouped("),
+                separated_list1(tag("+"), parse::na1),
+                tag(")"),
+            ),
+            |(_, alternatives, _)| {
+                Allele::Grouped(GroupedAlleles {
+                    references: Vec::new(),
+                    alternatives: alternatives.into_iter().map(|s| s.to_string()).collect(),
+                })
+            },
+        )
         .parse(input)
     }
 
@@ -817,11 +865,7 @@ impl Pos {
     fn parse_number_neg(input: &str) -> IResult<&str, i32> {
         map((tag("-"), digit1::<&str, _>), |(sign, num)| {
             let num = num.parse::<i32>().unwrap();
-            if sign == "-" {
-                -num
-            } else {
-                num
-            }
+            if sign == "-" { -num } else { num }
         })
         .parse(input)
     }
@@ -1171,51 +1215,109 @@ impl AnnField {
     }
 
     pub fn format(&self, config: &Config) -> String {
-        fn opt_str(o: &Option<String>) -> String {
-            o.clone().unwrap_or_default()
-        }
-        fn opt_fmt<T: ToString>(o: &Option<T>) -> String {
-            o.as_ref().map(|v| v.to_string()).unwrap_or_default()
-        }
-        fn vec_fmt<T: ToString>(v: &[T]) -> String {
-            v.iter()
-                .map(|x| x.to_string())
-                .collect::<Vec<_>>()
-                .join("&")
-        }
-        fn opt_vec_fmt<T: ToString>(o: &Option<Vec<T>>) -> String {
-            o.as_ref().map(|v| vec_fmt(v)).unwrap_or_default()
+        use std::fmt::Write;
+
+        let mut buf = String::with_capacity(256);
+
+        let _ = write!(buf, "{}|", self.allele);
+
+        let mut first = true;
+        for c in &self.consequences {
+            if !first {
+                buf.push('&');
+            }
+            let _ = write!(buf, "{}", c);
+            first = false;
         }
 
-        let mut parts = vec![
-            self.allele.to_string(),
-            vec_fmt(&self.consequences),
-            self.putative_impact.to_string(),
-            self.gene_symbol.clone(),
-            self.gene_id.clone(),
-            self.feature_type.to_string(),
-            self.feature_id.clone(),
-            vec_fmt(&self.feature_biotype),
-            vec_fmt(&self.feature_tags),
-            opt_fmt(&self.rank),
-            opt_str(&self.hgvs_g),
-            opt_str(&self.hgvs_n),
-            opt_str(&self.hgvs_c),
-            opt_str(&self.hgvs_p),
-            opt_fmt(&self.cdna_pos),
-            opt_fmt(&self.cds_pos),
-            opt_fmt(&self.protein_pos),
-            opt_fmt(&self.distance),
-            self.strand.to_string(),
-            opt_vec_fmt(&self.messages),
-        ];
+        let _ = write!(
+            buf,
+            "|{}|{}|{}|{}|{}|",
+            self.putative_impact,
+            self.gene_symbol,
+            self.gene_id,
+            self.feature_type,
+            self.feature_id
+        );
+
+        first = true;
+        for b in &self.feature_biotype {
+            if !first {
+                buf.push('&');
+            }
+            let _ = write!(buf, "{}", b);
+            first = false;
+        }
+        buf.push('|');
+
+        first = true;
+        for t in &self.feature_tags {
+            if !first {
+                buf.push('&');
+            }
+            let _ = write!(buf, "{}", t);
+            first = false;
+        }
+        buf.push('|');
+
+        if let Some(rank) = &self.rank {
+            let _ = write!(buf, "{}", rank);
+        }
+        buf.push('|');
+        if let Some(g) = &self.hgvs_g {
+            buf.push_str(g);
+        }
+        buf.push('|');
+        if let Some(n) = &self.hgvs_n {
+            buf.push_str(n);
+        }
+        buf.push('|');
+        if let Some(c) = &self.hgvs_c {
+            buf.push_str(c);
+        }
+        buf.push('|');
+        if let Some(p) = &self.hgvs_p {
+            buf.push_str(p);
+        }
+        buf.push('|');
+
+        if let Some(pos) = &self.cdna_pos {
+            let _ = write!(buf, "{}", pos);
+        }
+        buf.push('|');
+        if let Some(pos) = &self.cds_pos {
+            let _ = write!(buf, "{}", pos);
+        }
+        buf.push('|');
+        if let Some(pos) = &self.protein_pos {
+            let _ = write!(buf, "{}", pos);
+        }
+        buf.push('|');
+
+        if let Some(distance) = &self.distance {
+            let _ = write!(buf, "{}", distance);
+        }
+        let _ = write!(buf, "|{}|", self.strand);
+
+        if let Some(messages) = &self.messages {
+            first = true;
+            for m in messages {
+                if !first {
+                    buf.push('&');
+                }
+                let _ = write!(buf, "{}", m);
+                first = false;
+            }
+        }
 
         for col_name in &config.custom_columns {
-            let val = self.custom_fields.get(col_name).and_then(|v| v.clone());
-            parts.push(opt_str(&val));
+            buf.push('|');
+            if let Some(Some(val)) = self.custom_fields.get(col_name) {
+                buf.push_str(val);
+            }
         }
 
-        parts.join("|")
+        buf
     }
 }
 

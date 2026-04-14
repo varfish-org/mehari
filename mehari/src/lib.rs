@@ -22,11 +22,14 @@ pub mod user_doc {
 pub mod annotate;
 pub mod common;
 pub mod db;
+pub mod errors;
 pub mod pbs;
 pub mod ped;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod verify;
+
+pub mod postprocess;
 
 /// Information about the build.
 pub mod built_info {

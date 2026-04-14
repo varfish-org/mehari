@@ -7,9 +7,9 @@ use actix_web::{
     web::{self, Data, Json, Path},
 };
 
-use crate::{annotate::seqvars::csq::VcfVariant, common::GenomeRelease};
+use crate::annotate::seqvars::csq::VcfVariant;
 
-use super::{versions::VersionsInfoResponse, CustomError};
+use super::{CustomError, versions::VersionsInfoResponse};
 
 /// Query parameters of the `/api/v1/seqvars/frequency` endpoint.
 #[derive(
@@ -19,7 +19,7 @@ use super::{versions::VersionsInfoResponse, CustomError};
 #[serde_with::skip_serializing_none]
 pub(crate) struct FrequencyQuery {
     /// The assembly.
-    pub genome_release: GenomeRelease,
+    pub assembly: String,
     /// SPDI sequence.
     pub chromosome: String,
     /// SPDI position.
@@ -105,7 +105,7 @@ async fn handle_impl(
     query: web::Query<FrequencyQuery>,
 ) -> actix_web::Result<Json<FrequencyResponse>, super::CustomError> {
     let FrequencyQuery {
-        genome_release,
+        assembly: genome_release,
         chromosome,
         position,
         reference,
@@ -118,7 +118,7 @@ async fn handle_impl(
         .ok_or_else(|| {
             super::CustomError::new(anyhow::anyhow!(
                 "genome release not supported: {:?}",
-                &query.genome_release
+                &query.assembly
             ))
         })?;
 

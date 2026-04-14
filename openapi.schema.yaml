@@ -8,7 +8,7 @@ info:
   license:
     name: MIT
     identifier: MIT
-  version: 0.39.0
+  version: 0.41.2
 paths:
   /api/v1/genes/transcripts:
     get:
@@ -66,12 +66,12 @@ paths:
       summary: Query for ClinVar information of a variant.
       operationId: seqvarsClinvar
       parameters:
-      - name: genome_release
+      - name: assembly
         in: query
         description: The assembly.
         required: true
         schema:
-          $ref: '#/components/schemas/GenomeRelease'
+          type: string
       - name: chromosome
         in: query
         description: SPDI sequence.
@@ -118,12 +118,12 @@ paths:
       summary: Query for consequence of a variant.
       operationId: seqvarsCsq
       parameters:
-      - name: genome_release
+      - name: assembly
         in: query
         description: The assembly.
         required: true
         schema:
-          $ref: '#/components/schemas/GenomeRelease'
+          type: string
       - name: chromosome
         in: query
         description: SPDI sequence.
@@ -178,12 +178,12 @@ paths:
       summary: Query for gnomAD frequencies of a variant.
       operationId: seqvarsFrequency
       parameters:
-      - name: genome_release
+      - name: assembly
         in: query
         description: The assembly.
         required: true
         schema:
-          $ref: '#/components/schemas/GenomeRelease'
+          type: string
       - name: chromosome
         in: query
         description: SPDI sequence.
@@ -230,12 +230,12 @@ paths:
       summary: Query for consequence of a variant.
       operationId: strucvarsCsq
       parameters:
-      - name: genome_release
+      - name: assembly
         in: query
         description: The assembly.
         required: true
         schema:
-          $ref: '#/components/schemas/GenomeRelease'
+          type: string
       - name: chromosome
         in: query
         description: Chromosome.
@@ -345,14 +345,14 @@ components:
       type: object
       description: Query parameters of the `/api/v1/seqvars/clinvar` endpoint.
       required:
-      - genome_release
+      - assembly
       - chromosome
       - position
       - reference
       - alternative
       properties:
-        genome_release:
-          $ref: '#/components/schemas/GenomeRelease'
+        assembly:
+          type: string
           description: The assembly.
         chromosome:
           type: string
@@ -473,11 +473,12 @@ components:
       type: object
       description: Specification of data version for a given genome build.
       required:
-      - genome_build
-      - version_cdot
+      - assembly
+      - version_annotation
+      - annotation_name
       properties:
-        genome_build:
-          $ref: '#/components/schemas/Assembly'
+        assembly:
+          type: string
           description: Assembly for which the data version is specified.
         version_refseq:
           type:
@@ -489,9 +490,12 @@ components:
           - string
           - 'null'
           description: Version of the Ensembl database, if any.
-        version_cdot:
+        version_annotation:
           type: string
-          description: Version of cdot used.
+          description: Version of annotation used.
+        annotation_name:
+          type: string
+          description: Name of the annotation used.
     ExonAlignment:
       type: object
       description: Store the alignment of one exon to the reference.
@@ -642,14 +646,14 @@ components:
       type: object
       description: Query parameters of the `/api/v1/seqvars/frequency` endpoint.
       required:
-      - genome_release
+      - assembly
       - chromosome
       - position
       - reference
       - alternative
       properties:
-        genome_release:
-          $ref: '#/components/schemas/GenomeRelease'
+        assembly:
+          type: string
           description: The assembly.
         chromosome:
           type: string
@@ -780,12 +784,6 @@ components:
           items:
             $ref: '#/components/schemas/ExonAlignment'
           description: Exons of the alignment.
-    GenomeRelease:
-      type: string
-      description: Select the genome release to use.
-      enum:
-      - grch37
-      - grch38
     GonosomalResultEntry:
       type: object
       required:
@@ -917,14 +915,14 @@ components:
       type: object
       description: Query parameters of the `/api/v1/seqvars/csq` endpoint.
       required:
-      - genome_release
+      - assembly
       - chromosome
       - position
       - reference
       - alternative
       properties:
-        genome_release:
-          $ref: '#/components/schemas/GenomeRelease'
+        assembly:
+          type: string
           description: The assembly.
         chromosome:
           type: string
@@ -1087,13 +1085,13 @@ components:
       type: object
       description: Query parameters of the `/api/v1/strucvars/csq` endpoint.
       required:
-      - genome_release
+      - assembly
       - chromosome
       - start
       - sv_type
       properties:
-        genome_release:
-          $ref: '#/components/schemas/GenomeRelease'
+        assembly:
+          type: string
           description: The assembly.
         chromosome:
           type: string

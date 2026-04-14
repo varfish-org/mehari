@@ -7,16 +7,11 @@ use actix_web::{
     web::{self, Data, Json, Path},
 };
 
-use super::{versions::VersionsInfoResponse, CustomError};
+use super::{CustomError, versions::VersionsInfoResponse};
 use crate::annotate::seqvars::ann::FeatureTag;
-use crate::{
-    annotate::seqvars::{
-        ann::{
-            AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank,
-        },
-        csq::VcfVariant,
-    },
-    common::GenomeRelease,
+use crate::annotate::seqvars::{
+    ann::{AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank},
+    csq::VcfVariant,
 };
 
 /// Query parameters of the `/api/v1/seqvars/csq` endpoint.
@@ -27,7 +22,7 @@ use crate::{
 #[serde_with::skip_serializing_none]
 pub(crate) struct SeqvarsCsqQuery {
     /// The assembly.
-    pub genome_release: GenomeRelease,
+    pub assembly: String,
     /// SPDI sequence.
     pub chromosome: String,
     /// SPDI position.
@@ -99,7 +94,7 @@ async fn handle_impl(
     query: web::Query<SeqvarsCsqQuery>,
 ) -> actix_web::Result<Json<SeqvarsCsqResponse>, super::CustomError> {
     let SeqvarsCsqQuery {
-        genome_release,
+        assembly: genome_release,
         chromosome,
         position,
         reference,
@@ -113,7 +108,7 @@ async fn handle_impl(
         .ok_or_else(|| {
             super::CustomError::new(anyhow::anyhow!(
                 "genome release not supported: {:?}",
-                &query.genome_release
+                &query.assembly
             ))
         })?;
 

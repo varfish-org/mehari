@@ -1,17 +1,19 @@
 //! Contig name harmonization.
 
-use biocommons_bioutils::assemblies::{Assembly, Sequence, ASSEMBLY_INFOS};
-use std::collections::HashMap;
+use biocommons_bioutils::assemblies::{ASSEMBLY_INFOS, Assembly, Sequence};
+use indexmap::IndexMap;
 
 /// A manager for contig name harmonization.
 #[derive(Debug, Clone)]
 pub struct ContigManager {
     /// Mapping from any known alias (e.g., "1", "chr1", "NC_000001.10") to the RefSeq accession.
-    alias_to_accession: HashMap<String, String>,
+    alias_to_accession: IndexMap<String, String>,
     /// Mapping from the RefSeq accession back to the primary sequence info.
-    accession_to_info: HashMap<String, Sequence>,
+    accession_to_info: IndexMap<String, Sequence>,
     /// Mapping from the primary name (e.g., "1", "X", "MT") to the chromosome number.
-    name_to_chrom_no: HashMap<String, u32>,
+    name_to_chrom_no: IndexMap<String, u32>,
+    /// Name of the assembly.
+    assembly: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,28 +37,43 @@ const CHR_M: u32 = 25;
 
 impl ContigManager {
     /// Create a new manager for a given assembly.
-    pub fn new(assembly: Assembly) -> Self {
-        let mut alias_to_accession = HashMap::new();
-        let mut accession_to_info = HashMap::new();
-        let mut name_to_chrom_no = HashMap::new();
+    /// Create a new manager for a given assembly name.
+    pub fn new(assembly_name: &str) -> Self {
+        let mut alias_to_accession = IndexMap::new();
+        let mut accession_to_info = IndexMap::new();
+        let mut name_to_chrom_no = IndexMap::new();
 
-        for seq in &ASSEMBLY_INFOS[assembly].sequences {
-            // Skip non-primary sequences, but keep chrMT.
-            if !["Primary Assembly", "non-nuclear"].contains(&&*seq.assembly_unit)
-                || seq.sequence_role != "assembled-molecule"
-            {
-                tracing::debug!("Skipping non-primary sequence: {:?}", seq);
-                continue;
-            }
-            // Store mapping from accession to the full sequence info.
-            accession_to_info.insert(seq.refseq_ac.clone(), seq.clone());
+        let assembly = match assembly_name.to_lowercase().as_str() {
+            "grch37" | "grch37p10" => Some(Assembly::Grch37p10),
+            "grch38" => Some(Assembly::Grch38),
+            _ => None,
+        };
 
-            // Map all known identifiers to the RefSeq accession.
-            alias_to_accession.insert(seq.name.clone(), seq.refseq_ac.clone());
-            alias_to_accession.insert(seq.refseq_ac.clone(), seq.refseq_ac.clone());
-            for alias in &seq.aliases {
-                alias_to_accession.insert(alias.clone(), seq.refseq_ac.clone());
+        if let Some(assembly) = assembly {
+            for seq in &ASSEMBLY_INFOS[assembly].sequences {
+                // Skip non-primary sequences, but keep chrMT.
+                if !["Primary Assembly", "non-nuclear"].contains(&&*seq.assembly_unit)
+                    || seq.sequence_role != "assembled-molecule"
+                {
+                    tracing::debug!("Skipping non-primary sequence: {:?}", seq);
+                    continue;
+                }
+                // Store mapping from accession to the full sequence info.
+                accession_to_info.insert(seq.refseq_ac.clone(), seq.clone());
+
+                // Map all known identifiers to the RefSeq accession.
+                alias_to_accession.insert(seq.name.clone(), seq.refseq_ac.clone());
+                alias_to_accession.insert(seq.refseq_ac.clone(), seq.refseq_ac.clone());
+                for alias in &seq.aliases {
+                    alias_to_accession.insert(alias.clone(), seq.refseq_ac.clone());
+                }
             }
+        } else {
+            // Fallback for unknown assemblies: leave assembly-derived alias/accession mappings empty.
+            tracing::debug!(
+                "Unknown assembly '{}', no assembly-derived contig mappings available",
+                assembly_name
+            );
         }
 
         // Build chrom_no map based on the primary sequence names.
@@ -75,7 +92,7 @@ impl ContigManager {
         name_to_chrom_no.insert("M".to_string(), CHR_M);
         name_to_chrom_no.insert("chrM".to_string(), CHR_M);
 
-        let mut additional_aliases = HashMap::new();
+        let mut additional_aliases = IndexMap::new();
         for (accession, info) in &accession_to_info {
             let name = &info.name;
 
@@ -87,10 +104,10 @@ impl ContigManager {
                 }
             }
             // Case 2: "chr1", "chrX". Add "1", "X" as an alias.
-            else if let Some(stripped_name) = name.strip_prefix("chr") {
-                if !alias_to_accession.contains_key(stripped_name) {
-                    additional_aliases.insert(stripped_name.to_string(), accession.clone());
-                }
+            else if let Some(stripped_name) = name.strip_prefix("chr")
+                && !alias_to_accession.contains_key(stripped_name)
+            {
+                additional_aliases.insert(stripped_name.to_string(), accession.clone());
             }
         }
 
@@ -106,10 +123,15 @@ impl ContigManager {
         }
 
         Self {
+            assembly: assembly_name.to_string(),
             alias_to_accession,
             accession_to_info,
             name_to_chrom_no,
         }
+    }
+
+    pub fn assembly(&self) -> &str {
+        &self.assembly
     }
 
     /// Get the RefSeq accession for any given contig name/alias.
@@ -225,5 +247,9 @@ impl ContigManager {
             accession: accession.clone(),
             chrom_no,
         })
+    }
+
+    pub fn sequences(&self) -> impl Iterator<Item = &Sequence> {
+        self.accession_to_info.values()
     }
 }

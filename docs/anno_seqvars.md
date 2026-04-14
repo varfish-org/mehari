@@ -31,12 +31,20 @@ You can invoke Mehari to annotate a VCF file `IN.vcf` creating an output file `O
 ```text
 $ mehari annotate seqvars \
     --transcripts path/to/transcripts-db \
-    --path-input-vcf IN.vcf \
-    --path-output-vcf OUT.vcf
+    --input IN.vcf \
+    --output OUT.vcf
 ```
 
 Note that the input and output files can optionally be gzip/bgzip compressed VCF files with suffixes (`.gz` or `.bgz`) or BCF files with suffix `.bcf`.
-The database genome build should match the one in the input VCF file (e.g., both should either be GRCh37/hg19 or GRCh38/hg38).
+The database assembly should match the one in the input VCF file (e.g., both should either be GRCh37/hg19 or GRCh38/hg38).
+You can optionally define the assembly via `--assembly`.
+Output formats can be toggled using `--output-format` (e.g., `vcf` or `jsonl`), and you can control the number of threads used for parallel processing by using the `--threads` flag (we recommend a value of around 5).
+
+### Experimental: Compound Variants
+
+Mehari includes an experimental feature that allows you to evaluate the compound effect of multiple variants on the same transcript.
+You can enable this behavior by passing the `--enable-compound-variants` flag.
+The evaluation strategy can be managed via `--phasing-strategy` (options include `strict` [default], `relaxed`, or `ignore`).
 
 ## Interpreting Annotation Output
 

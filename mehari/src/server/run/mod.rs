@@ -1,22 +1,18 @@
 use crate::annotate::cli::{PredictorSettings, Sources};
 use crate::annotate::seqvars::csq::ConfigBuilder;
 use crate::annotate::seqvars::{
-    initialize_clinvar_annotators_for_assembly, initialize_frequency_annotators_for_assembly,
-    load_transcript_dbs_for_assembly, ConsequenceAnnotator,
+    ConsequenceAnnotator, initialize_clinvar_annotators_for_assembly,
+    initialize_frequency_annotators_for_assembly, load_transcript_dbs_for_assembly,
+};
+use crate::annotate::{
+    seqvars::csq::ConsequencePredictor as SeqvarConsequencePredictor,
+    strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor,
 };
 use crate::common::contig::ContigManager;
-use crate::common::guess_assembly_from_fasta;
 use crate::db::merge::merge_transcript_databases;
-use crate::{
-    annotate::{
-        seqvars::csq::ConsequencePredictor as SeqvarConsequencePredictor,
-        strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor,
-    },
-    common::GenomeRelease,
-};
-use biocommons_bioutils::assemblies::Assembly;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use strum::EnumString;
 
@@ -32,7 +28,6 @@ pub mod openapi {
     use crate::annotate::strucvars::csq::{
         StrucvarsGeneTranscriptEffects, StrucvarsTranscriptEffect,
     };
-    use crate::common::GenomeRelease;
     use crate::server::run::actix_server::gene_txs::{
         ExonAlignment, GenesTranscriptsListQuery, GenesTranscriptsListResponse, GenomeAlignment,
         Strand, Transcript, TranscriptBiotype, TranscriptTag,
@@ -55,8 +50,8 @@ pub mod openapi {
     };
 
     use super::actix_server::{
-        gene_txs, seqvars_clinvar, seqvars_csq, seqvars_frequencies, strucvars_csq, versions,
-        CustomError,
+        CustomError, gene_txs, seqvars_clinvar, seqvars_csq, seqvars_frequencies, strucvars_csq,
+        versions,
     };
 
     /// Utoipa-based `OpenAPI` generation helper.
@@ -80,7 +75,6 @@ pub mod openapi {
             StrucvarsCsqQuery,
             StrucvarsGeneTranscriptEffects,
             StrucvarsSvType,
-            GenomeRelease,
             StrucvarsTranscriptEffect,
             SeqvarsCsqQuery,
             SeqvarsCsqResponse,
@@ -115,16 +109,41 @@ pub mod openapi {
     pub struct ApiDoc;
 }
 
+#[derive(Debug, Clone)]
+pub struct AssemblyReference {
+    pub assembly: String,
+    pub path: PathBuf,
+}
+
+impl FromStr for AssemblyReference {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split_once('=') {
+            Some((assembly, path)) if !assembly.is_empty() && !path.is_empty() => {
+                Ok(AssemblyReference {
+                    assembly: assembly.to_lowercase(),
+                    path: PathBuf::from(path),
+                })
+            }
+            _ => Err(format!(
+                "Invalid reference format `{}`. Expected `ASSEMBLY=PATH`",
+                s
+            )),
+        }
+    }
+}
+
 /// Command line arguments for "server run` command.
 #[derive(clap::Parser, Debug)]
 #[command(about = "Run Mehari REST API server", long_about = None)]
 pub struct Args {
     /// Path to the reference genome(s), with accompanying index.
     ///
-    /// The assembly for each reference is detected from its FASTA index (.fai).
     /// Provide one reference per assembly you want to serve (e.g., GRCh37 and/or GRCh38).
-    #[arg(long)]
-    pub reference: Vec<PathBuf>,
+    /// Example: --reference grch37=/path/to/grch37.fa
+    #[arg(long, value_name = "ASSEMBLY=PATH")]
+    pub reference: Vec<AssemblyReference>,
 
     /// Read the reference genome into memory.
     #[arg(long, requires = "reference")]
@@ -159,7 +178,7 @@ enum Endpoint {
 }
 
 /// Print some hints via `tracing::info!`.
-fn print_hints(args: &Args, enabled_sources: &[(GenomeRelease, Endpoint)]) {
+fn print_hints(args: &Args, enabled_sources: &[(String, Endpoint)]) {
     tracing::info!(
         "Launching server main on http://{}:{} ...",
         args.listen_host.as_str(),
@@ -172,57 +191,56 @@ fn print_hints(args: &Args, enabled_sources: &[(GenomeRelease, Endpoint)]) {
     }
 
     use Endpoint::*;
-    use GenomeRelease::*;
 
     let prefix = format!(
         "try: http://{host}:{port}/api/v1/",
         host = args.listen_host,
         port = args.listen_port
     );
-    let examples: HashMap<(GenomeRelease, Endpoint), Vec<&str>> = HashMap::from([
+    let examples: HashMap<(String, Endpoint), Vec<&str>> = HashMap::from([
         (
-            (Grch37, Transcripts),
+            ("grch37".into(), Transcripts),
             vec![
                 r#"genes/transcripts?hgnc_id=HGNC:1100&genome_build=grch37"#,
-                r#"seqvars/csq?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
-                r#"seqvars/csq?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A&hgnc_id=HGNC:2197"#,
-                r#"strucvars/csq?genome_release=grch37&chromosome=17&start=48275360&&stop=48275370&sv_type=DEL""#,
+                r#"seqvars/csq?assembly=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
+                r#"seqvars/csq?assembly=grch37&chromosome=17&position=48275363&reference=C&alternative=A&hgnc_id=HGNC:2197"#,
+                r#"strucvars/csq?assembly=grch37&chromosome=17&start=48275360&&stop=48275370&sv_type=DEL""#,
             ],
         ),
         (
-            (Grch37, Frequency),
+            ("grch37".into(), Frequency),
             vec![
-                r#"seqvars/frequency?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
+                r#"seqvars/frequency?assembly=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
             ],
         ),
         (
-            (Grch37, Clinvar),
+            ("grch37".into(), Clinvar),
             vec![
-                r#"seqvars/clinvar?genome_release=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
+                r#"seqvars/clinvar?assembly=grch37&chromosome=17&position=48275363&reference=C&alternative=A"#,
             ],
         ),
         (
-            (Grch38, Transcripts),
+            ("grch38".into(), Transcripts),
             vec![
                 r#"genes/transcripts?hgnc_id=HGNC:1100&genome_build=grch38"#,
-                r#"seqvars/csq?genome_release=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
+                r#"seqvars/csq?assembly=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
             ],
         ),
         (
-            (Grch38, Frequency),
+            ("grch38".into(), Frequency),
             vec![
-                r#"seqvars/frequency?genome_release=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
+                r#"seqvars/frequency?assembly=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
             ],
         ),
         (
-            (Grch38, Clinvar),
+            ("grch38".into(), Clinvar),
             vec![
-                r#"seqvars/clinvar?genome_release=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
+                r#"seqvars/clinvar?assembly=grch38&chromosome=2&position=26364839&reference=C&alternative=T"#,
             ],
         ),
     ]);
     for (genome_release, endpoint) in enabled_sources {
-        if let Some(examples) = examples.get(&(*genome_release, *endpoint)) {
+        if let Some(examples) = examples.get(&(genome_release.clone(), *endpoint)) {
             for example in examples {
                 tracing::info!("{}{}", prefix, example);
             }
@@ -252,40 +270,24 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     let before_loading = std::time::Instant::now();
     let mut data = actix_server::WebServerData::default();
 
-    let mut reference_paths: HashMap<Assembly, PathBuf> = HashMap::new();
-    for ref_path in &args.reference {
-        match guess_assembly_from_fasta(ref_path, false, None) {
-            Ok(assembly) => {
-                if reference_paths.insert(assembly, ref_path.clone()).is_some() {
-                    tracing::warn!(
-                        "Duplicate reference file provided for {:?}. Overwriting.",
-                        assembly
-                    );
-                }
-                tracing::info!(
-                    "Detected {:?} for reference {}",
-                    assembly,
-                    ref_path.display()
-                );
-            }
-            Err(e) => {
-                tracing::warn!("Skipping reference file {}: {}", ref_path.display(), e);
-            }
-        }
-    }
+    let reference_paths: HashMap<String, PathBuf> = args
+        .reference
+        .iter()
+        .map(|r| (r.assembly.clone(), r.path.clone()))
+        .collect();
 
-    let associate_db_path = |path: &str| -> Option<GenomeRelease> {
+    let associate_db_path = |path: &str| -> Option<String> {
         let path_str = path.to_lowercase();
         if path_str.contains("grch37") {
-            Some(GenomeRelease::Grch37)
+            Some("grch37".into())
         } else if path_str.contains("grch38") {
-            Some(GenomeRelease::Grch38)
+            Some("grch38".into())
         } else {
             None
         }
     };
 
-    let mut transcript_paths: HashMap<GenomeRelease, Vec<String>> = HashMap::new();
+    let mut transcript_paths: HashMap<String, Vec<String>> = HashMap::new();
     if let Some(paths) = args.sources.transcripts.as_ref() {
         for path in paths {
             if let Some(release) = associate_db_path(path) {
@@ -305,11 +307,11 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     let mut frequency_paths = HashMap::new();
     if let Some(paths) = args.sources.frequencies.as_ref() {
         for path in paths {
-            if let Some(release) = associate_db_path(path) {
-                if let Some(prev) = frequency_paths.insert(release, path.clone()) {
+            if let Some(assembly) = associate_db_path(path) {
+                if let Some(prev) = frequency_paths.insert(assembly.clone(), path.clone()) {
                     tracing::warn!(
                         "Duplicate frequency DB for {:?}: {} overwritten by {}",
-                        release,
+                        assembly,
                         prev,
                         path
                     );
@@ -326,11 +328,11 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
     let mut clinvar_paths = HashMap::new();
     if let Some(paths) = args.sources.clinvar.as_ref() {
         for path in paths {
-            if let Some(release) = associate_db_path(path) {
-                if let Some(prev) = clinvar_paths.insert(release, path.clone()) {
+            if let Some(assembly) = associate_db_path(path) {
+                if let Some(prev) = clinvar_paths.insert(assembly.clone(), path.clone()) {
                     tracing::warn!(
                         "Duplicate ClinVar DB for {:?}: {} overwritten by {}",
-                        release,
+                        assembly,
                         prev,
                         path
                     );
@@ -344,35 +346,34 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         }
     }
 
-    let mut all_releases: HashSet<GenomeRelease> = HashSet::new();
-    all_releases.extend(transcript_paths.keys());
-    all_releases.extend(frequency_paths.keys());
-    all_releases.extend(clinvar_paths.keys());
+    let mut all_releases: HashSet<String> = HashSet::new();
+    all_releases.extend(transcript_paths.keys().cloned());
+    all_releases.extend(frequency_paths.keys().cloned());
+    all_releases.extend(clinvar_paths.keys().cloned());
 
     let mut enabled_sources = vec![];
-    for &genome_release in all_releases.iter() {
-        let assembly: Assembly = genome_release.into();
+    for assembly in all_releases.iter() {
         let contig_manager = Arc::new(ContigManager::new(assembly));
-        let reference_path = reference_paths.get(&assembly);
+        let reference_path = reference_paths.get(&assembly.clone());
 
-        tracing::info!("Loading data for assembly {:?}...", genome_release);
+        tracing::info!("Loading data for assembly {:?}...", &assembly);
 
         // Load transcript data if available for this release.
         // At the moment, this is the only type of data that can benefit from a reference FASTA.
-        if let Some(tx_db_paths) = transcript_paths.get(&genome_release) {
+        if let Some(tx_db_paths) = transcript_paths.get(&assembly.clone()) {
             if reference_path.is_none() {
                 tracing::warn!(
-                    "No reference FASTA provided for {:?}. Some features like HGVSg normalization will be unavailable.",
-                    genome_release
+                    "No reference FASTA provided for {}. Some features like HGVSg normalization will be unavailable.",
+                    &assembly
                 );
             }
 
-            tracing::info!("Building seqvars predictors for {:?}...", genome_release);
+            tracing::info!("Building seqvars predictors for {}...", &assembly);
             let tx_dbs = load_transcript_dbs_for_assembly(tx_db_paths, assembly)?;
             if tx_dbs.is_empty() {
                 tracing::warn!(
-                    "No transcript databases loaded for {:?}, respective endpoints will be unavailable.",
-                    genome_release
+                    "No transcript databases loaded for {}, respective endpoints will be unavailable.",
+                    &assembly
                 );
             } else {
                 let tx_db = merge_transcript_databases(tx_dbs)?;
@@ -388,36 +389,31 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                             .transcript_settings
                             .report_most_severe_consequence_by,
                     )
-                    .transcript_source(
-                        args.predictor_settings
-                            .transcript_settings
-                            .transcript_source,
-                    )
                     .build()?;
 
                 let provider = annotator.predictor.provider.clone();
-                data.provider.insert(genome_release, provider.clone());
+                data.provider.insert(assembly.clone(), provider.clone());
                 data.seqvars_predictors.insert(
-                    genome_release,
+                    assembly.clone(),
                     SeqvarConsequencePredictor::new(provider.clone(), config),
                 );
                 tracing::info!("Finished building seqvars predictors.");
 
                 tracing::info!("Building strucvars predictors...");
                 data.strucvars_predictors.insert(
-                    genome_release,
+                    assembly.clone(),
                     StrucvarConsequencePredictor::new(provider.clone()),
                 );
-                enabled_sources.push((genome_release, Endpoint::Transcripts));
+                enabled_sources.push((assembly.clone(), Endpoint::Transcripts));
                 tracing::info!(
                     "Finished building seqvars predictors for {:?}.",
-                    genome_release
+                    assembly.clone()
                 );
             }
         }
 
-        if let Some(freq_path) = frequency_paths.get(&genome_release) {
-            tracing::info!("Loading frequency data for {:?}...", genome_release);
+        if let Some(freq_path) = frequency_paths.get(&assembly.clone()) {
+            tracing::info!("Loading frequency data for {:?}...", assembly);
             let annotators = initialize_frequency_annotators_for_assembly(
                 std::slice::from_ref(freq_path),
                 assembly,
@@ -425,27 +421,30 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
             )?;
             if let Some(frequency_db) = annotators.into_iter().next() {
                 data.frequency_annotators
-                    .insert(genome_release, frequency_db);
-                enabled_sources.push((genome_release, Endpoint::Frequency));
-                tracing::info!("... done loading frequency data for {:?}.", genome_release);
+                    .insert(assembly.clone(), frequency_db);
+                enabled_sources.push((assembly.clone(), Endpoint::Frequency));
+                tracing::info!(
+                    "... done loading frequency data for {:?}.",
+                    assembly.clone()
+                );
             } else {
-                tracing::warn!("Could not load frequency data for {:?}.", genome_release);
+                tracing::warn!("Could not load frequency data for {:?}.", assembly.clone());
             }
         }
 
-        if let Some(clinvar_path) = clinvar_paths.get(&genome_release) {
-            tracing::info!("Loading ClinVar data for {:?}...", genome_release);
+        if let Some(clinvar_path) = clinvar_paths.get(&assembly.clone()) {
+            tracing::info!("Loading ClinVar data for {:?}...", assembly.clone());
             let annotators = initialize_clinvar_annotators_for_assembly(
                 std::slice::from_ref(clinvar_path),
                 assembly,
                 contig_manager.clone(),
             )?;
             if let Some(annotator) = annotators.into_iter().next() {
-                data.clinvar_annotators.insert(genome_release, annotator);
-                enabled_sources.push((genome_release, Endpoint::Clinvar));
-                tracing::info!("... done loading ClinVar data for {:?}.", genome_release);
+                data.clinvar_annotators.insert(assembly.clone(), annotator);
+                enabled_sources.push((assembly.clone(), Endpoint::Clinvar));
+                tracing::info!("... done loading ClinVar data for {:?}.", assembly.clone());
             } else {
-                tracing::warn!("Could not load ClinVar data for {:?}.", genome_release);
+                tracing::warn!("Could not load ClinVar data for {:?}.", assembly.clone());
             }
         }
     }

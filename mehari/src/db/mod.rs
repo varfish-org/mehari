@@ -1,8 +1,6 @@
 //! Database construction and introspection tools.
 
-use crate::pbs;
 use crate::pbs::txs::TxSeqDatabase;
-use biocommons_bioutils::assemblies::Assembly;
 
 pub mod check;
 pub mod create;
@@ -13,22 +11,34 @@ pub mod subset;
 /// Trait for transcript databases.
 pub trait TranscriptDatabase {
     /// Get the assembly of the transcript database.
-    fn assembly(&self) -> Assembly;
+    fn assembly(&self) -> String;
 }
 
 impl TranscriptDatabase for TxSeqDatabase {
-    fn assembly(&self) -> Assembly {
-        let assembly = self
+    fn assembly(&self) -> String {
+        let source_version = self
             .source_version
             .iter()
-            .map(|v| pbs::txs::Assembly::try_from(v.assembly).unwrap())
             .next()
             .expect("At least one source_version entry expected");
 
+        // Prefer the new string field, fall back to deprecated enum field
+        let assembly = if !source_version.assembly.trim().is_empty() {
+            source_version.assembly.as_str()
+        } else {
+            // Fall back to deprecated enum field
+            #[allow(deprecated)]
+            match source_version.assembly_enum() {
+                crate::pbs::txs::Assembly::Grch37 => "grch37",
+                crate::pbs::txs::Assembly::Grch38 => "grch38",
+                _ => "",
+            }
+        };
+
         match assembly {
-            pbs::txs::Assembly::Grch37 => Assembly::Grch37p10, // has MT
-            pbs::txs::Assembly::Grch38 => Assembly::Grch38,
-            _ => panic!("Unsupported assembly"),
+            "grch37" | "grch37p10" => "grch37".into(),
+            "grch38" => "grch38".into(),
+            x => x.into(),
         }
     }
 }

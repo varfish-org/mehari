@@ -3,17 +3,15 @@
 //! Also includes the implementation of the `/strucvars/csq` endpoint (deprecated).
 
 use actix_web::{
-    get,
+    Responder, get,
     web::{self, Data, Json, Path},
-    Responder,
 };
 
 use crate::{
     annotate::strucvars::csq::{
-        interface::{self, StrucvarsSvType},
         StrucvarsGeneTranscriptEffects,
+        interface::{self, StrucvarsSvType},
     },
-    common::GenomeRelease,
     server::run::actix_server::CustomError,
 };
 
@@ -26,7 +24,7 @@ use super::versions::VersionsInfoResponse;
 #[serde_with::skip_serializing_none]
 struct Query {
     /// The assembly.
-    pub genome_release: GenomeRelease,
+    pub assembly: String,
     /// Chromosome.
     pub chromosome: String,
     /// 1-based start position.
@@ -96,11 +94,11 @@ async fn handle(
 ) -> actix_web::Result<impl Responder, super::CustomError> {
     let predictor = data
         .strucvars_predictors
-        .get(&query.genome_release)
+        .get(&query.assembly)
         .ok_or_else(|| {
             super::CustomError::new(anyhow::anyhow!(
                 "genome release not supported: {:?}",
-                &query.genome_release
+                &query.assembly
             ))
         })?;
 
@@ -123,7 +121,7 @@ async fn handle(
 #[serde_with::skip_serializing_none]
 pub(crate) struct StrucvarsCsqQuery {
     /// The assembly.
-    pub genome_release: GenomeRelease,
+    pub assembly: String,
     /// Chromosome.
     pub chromosome: String,
     /// 1-based start position.
@@ -196,11 +194,11 @@ async fn handle_with_openapi(
 ) -> actix_web::Result<Json<StrucvarsCsqResponse>, CustomError> {
     let predictor = data
         .strucvars_predictors
-        .get(&query.genome_release)
+        .get(&query.assembly)
         .ok_or_else(|| {
             super::CustomError::new(anyhow::anyhow!(
                 "genome release not supported: {:?}",
-                &query.genome_release
+                &query.assembly
             ))
         })?;
 
