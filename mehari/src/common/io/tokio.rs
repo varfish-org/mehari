@@ -7,7 +7,13 @@ use std::pin::Pin;
 use tokio::fs::File;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader};
 
-use crate::common::io::std::is_gz;
+/// Returns whether the path looks like a gzip or bgzip file.
+pub fn is_gz<P>(path: P) -> bool
+where
+    P: AsRef<Path>,
+{
+    [Some(Some("gz")), Some(Some("bgz"))].contains(&path.as_ref().extension().map(|s| s.to_str()))
+}
 
 /// Transparently open a file with gzip decoder for reading.
 ///
@@ -153,6 +159,7 @@ mod test {
     #[case("14kb.txt.bgz")]
     #[tokio::test]
     async fn open_write_maybe_bgzf(#[case] filename: &str) -> Result<(), anyhow::Error> {
+        use std::io::Read;
         crate::common::set_snapshot_suffix!("{}", filename);
         // Note that the 14kb.txt file contains about 14 KB of data so bgz will have multiple 4KB
         // blocks.
@@ -172,10 +179,9 @@ mod test {
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         let mut buffer: Vec<u8> = Vec::new();
-        hxdmp::hexdump(
-            &crate::common::io::std::read_to_bytes(&tmp_file_path)?,
-            &mut buffer,
-        )?;
+        let mut file_buffer: Vec<u8> = Vec::new();
+        std::fs::File::open(&tmp_file_path)?.read_to_end(&mut file_buffer)?;
+        hxdmp::hexdump(&file_buffer, &mut buffer)?;
         insta::assert_snapshot!(String::from_utf8_lossy(&buffer));
 
         Ok(())
