@@ -586,50 +586,91 @@
             }
         }
 
-        csqItems.forEach(item => {
-            item.addEventListener('mouseenter', (e) => {
-                const targetCsq = e.target.getAttribute('data-csq');
+        function activateCsqItem(item) {
+            const targetCsq = item.getAttribute('data-csq');
+            if (!targetCsq) return;
 
-                hitboxes.forEach(el => el.classList.add('dimmed'));
-                csqItems.forEach(el => el.classList.add('dimmed'));
+            hitboxes.forEach(el => el.classList.add('dimmed'));
+            csqItems.forEach(el => el.classList.add('dimmed'));
 
-                e.target.classList.remove('dimmed');
-                e.target.classList.add('active');
+            item.classList.remove('dimmed');
+            item.classList.add('active');
 
-                document.querySelectorAll(`.hitbox[data-csq~="${targetCsq}"]`).forEach(el => {
+            document.querySelectorAll(`.hitbox[data-csq~="${targetCsq}"]`).forEach(el => {
+                el.classList.remove('dimmed');
+                el.classList.add('active');
+            });
+
+            setDefinition([targetCsq], targetCsq);
+        }
+
+        function activateHitbox(hitbox) {
+            const csqString = hitbox.getAttribute('data-csq');
+            if (!csqString) return;
+
+            const csqList = csqString.split(' ').filter(c => consequences[c] && consequences[c].supported !== false);
+            if (csqList.length === 0) return;
+
+            hitboxes.forEach(el => el.classList.add('dimmed'));
+            csqItems.forEach(el => el.classList.add('dimmed'));
+
+            hitbox.classList.remove('dimmed');
+            hitbox.classList.add('active');
+
+            csqList.forEach(csq => {
+                document.querySelectorAll(`.csq-item[data-csq="${csq}"]`).forEach(el => {
                     el.classList.remove('dimmed');
                     el.classList.add('active');
                 });
+            });
 
-                setDefinition([targetCsq], targetCsq);
+            setDefinition(csqList);
+        }
+
+        csqItems.forEach(item => {
+            const targetCsq = item.getAttribute('data-csq');
+            item.setAttribute('tabindex', '0');
+            item.setAttribute('role', 'button');
+            if (targetCsq) {
+                item.setAttribute('aria-label', `Show consequence details for ${targetCsq}`);
+            }
+
+            item.addEventListener('mouseenter', () => activateCsqItem(item));
+            item.addEventListener('focus', () => activateCsqItem(item));
+            item.addEventListener('click', () => activateCsqItem(item));
+            item.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    activateCsqItem(item);
+                }
             });
             item.addEventListener('mouseleave', resetUI);
+            item.addEventListener('blur', resetUI);
         });
 
         hitboxes.forEach(hitbox => {
-            hitbox.addEventListener('mouseenter', (e) => {
-                const csqString = e.target.getAttribute('data-csq');
-                if (!csqString) return;
+            const csqString = hitbox.getAttribute('data-csq');
+            const csqList = csqString
+                ? csqString.split(' ').filter(c => consequences[c] && consequences[c].supported !== false)
+                : [];
 
-                const csqList = csqString.split(' ').filter(c => consequences[c] && consequences[c].supported !== false);
-                if (csqList.length === 0) return;
+            hitbox.setAttribute('tabindex', '0');
+            hitbox.setAttribute('role', 'button');
+            if (csqList.length > 0) {
+                hitbox.setAttribute('aria-label', `Show consequence details for ${csqList.join(', ')}`);
+            }
 
-                hitboxes.forEach(el => el.classList.add('dimmed'));
-                csqItems.forEach(el => el.classList.add('dimmed'));
-
-                e.target.classList.remove('dimmed');
-                e.target.classList.add('active');
-
-                csqList.forEach(csq => {
-                    document.querySelectorAll(`.csq-item[data-csq="${csq}"]`).forEach(el => {
-                        el.classList.remove('dimmed');
-                        el.classList.add('active');
-                    });
-                });
-
-                setDefinition(csqList);
+            hitbox.addEventListener('mouseenter', () => activateHitbox(hitbox));
+            hitbox.addEventListener('focus', () => activateHitbox(hitbox));
+            hitbox.addEventListener('click', () => activateHitbox(hitbox));
+            hitbox.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    activateHitbox(hitbox);
+                }
             });
             hitbox.addEventListener('mouseleave', resetUI);
+            hitbox.addEventListener('blur', resetUI);
         });
     </script>
 </body>
