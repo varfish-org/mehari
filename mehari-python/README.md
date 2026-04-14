@@ -102,3 +102,20 @@ This column is a polars `List(Struct)` with the following fields:
 - `distance`: `Int32`
 - `strand`: `Int32`
 - `messages`: `List(String)`
+
+
+## Building a transcript database
+To build a transcript database, you can use the `build_transcript_db` function:
+
+```python
+from mehari import build_transcript_db
+build_transcript_db(
+    assembly="grch38",
+    annotation=["grch38.gff.gz"],
+    transcript_sequences="grch38.fasta",
+    transcript_source="ensembl",
+    output="grch38.bin.zst"
+)
+```
+
+This may take a while (several minutes for GRCh38 + Ensembl).
