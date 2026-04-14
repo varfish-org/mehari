@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.42.0](https://github.com/varfish-org/mehari/compare/v0.41.2...v0.42.0) (2026-04-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* add experimental option to predict compound effect of multiple variants on the same transcript, allow building txdb from gff3+fasta ([#972](https://github.com/varfish-org/mehari/issues/972))
+
+### Features
+
+* add experimental option to predict compound effect of multiple variants on the same transcript, allow building txdb from gff3+fasta ([#972](https://github.com/varfish-org/mehari/issues/972)) ([e377c4e](https://github.com/varfish-org/mehari/commit/e377c4eeeb7da1644feba7d37be7a71dc86ada69))
+* add options to include reference/alternative cDNA and protein sequences in output ([#966](https://github.com/varfish-org/mehari/issues/966)) ([ec87cb0](https://github.com/varfish-org/mehari/commit/ec87cb0e5c8bf6c70672a5d2b8fd5f76da82c0b5))
+
 ## [0.41.2](https://github.com/varfish-org/mehari/compare/v0.41.1...v0.41.2) (2026-03-22)
 
 
