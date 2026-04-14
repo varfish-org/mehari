@@ -74,7 +74,7 @@ pub enum Reason {
     InvalidCdsLength,
     MissingGene,
     MissingGeneSymbol,
-    MissingGeneId,
+    MissingHgncId,
     MissingSequence,
     MissingStopCodon,
     NoTranscriptLeft,
@@ -570,22 +570,47 @@ impl TranscriptLoader {
                 }
             }
         }
-        // Compute totals from discard data structures
-        let n_transcripts_discarded = self
-            .discards
-            .keys()
-            .filter(|id| matches!(id, Identifier::Transcript(_)))
-            .count();
-        let n_gene_ids_discarded = self
-            .discards
-            .keys()
-            .filter(|id| matches!(id, Identifier::Gene(_)))
-            .count();
+
+        let mut hard_txs = 0;
+        let mut soft_txs = 0;
+        let mut hard_genes = 0;
+        let mut soft_genes = 0;
+
+        for (id, reason) in &self.discards {
+            let is_hard = reason.intersects(Reason::hard());
+            let is_soft = reason.intersects(Reason::soft());
+
+            match id {
+                Identifier::Transcript(_) => {
+                    if is_hard {
+                        hard_txs += 1;
+                    } else if is_soft {
+                        soft_txs += 1;
+                    }
+                }
+                Identifier::Gene(_) => {
+                    if is_hard {
+                        hard_genes += 1;
+                    } else if is_soft {
+                        soft_genes += 1;
+                    }
+                }
+            }
+        }
+
         tracing::info!(
-            "Discarded {} transcripts and {} Gene IDs",
-            n_transcripts_discarded,
-            n_gene_ids_discarded
+            "Filtered {} transcripts ({} hard discarded, {} soft flagged)",
+            hard_txs + soft_txs,
+            hard_txs,
+            soft_txs
         );
+        tracing::info!(
+            "Filtered {} Gene IDs ({} hard discarded, {} soft flagged)",
+            hard_genes + soft_genes,
+            hard_genes,
+            soft_genes
+        );
+
         for kind in kinds {
             tracing::info!(
                 "{}: {:?}",

@@ -226,7 +226,7 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
     // e.g. to discard transcripts with an older version within the same gene id group
     type Filter = fn(&Params) -> bool;
     let tx_filters: [(Filter, Reason); 6] = [
-        (missing_hgnc, Reason::MissingGeneId),
+        (missing_hgnc, Reason::MissingHgncId),
         (empty_genome_builds, Reason::EmptyGenomeBuilds),
         (partial, Reason::OnlyPartialAlignmentInRefSeq),
         (predicted, Reason::PredictedTranscript),
