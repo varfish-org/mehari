@@ -22,24 +22,37 @@ impl SequenceProvider {
             AliasOrSeqId::SeqId(id) => id,
         };
 
+        let clean_id = id.strip_prefix("transcript:").unwrap_or(id);
+        let versionless_clean_id = clean_id.split('.').next().unwrap_or("");
+
         match self {
             SequenceProvider::SeqRepo(repo) => repo.fetch_sequence(alias).map_err(Into::into),
-            SequenceProvider::FastaMap(map) => {
-                let clean_id = id.strip_prefix("transcript:").unwrap_or(id);
-
-                map.get(clean_id)
-                    .or_else(|| map.get(clean_id.split('.').next().unwrap_or("")))
-                    .cloned()
-                    .ok_or_else(|| {
-                        tracing::debug!(
-                            "Sequence not found in FASTA map for clean_id: '{}' (original id: '{}')",
-                            clean_id, id
-                        );
-                        anyhow!("Sequence not found in FASTA map for {}", id)
-                    })
-            }
+            SequenceProvider::FastaMap(map) => map
+                .get(clean_id)
+                .or_else(|| map.get(versionless_clean_id))
+                .cloned()
+                .ok_or_else(|| {
+                    tracing::debug!(
+                        "Sequence not found in FASTA map for clean_id: '{}' (original id: '{}')",
+                        clean_id,
+                        id
+                    );
+                    anyhow!("Sequence not found in FASTA map for {}", id)
+                }),
             SequenceProvider::IndexedFasta(reader) => {
                 if let Some(seq) = reader.get(id, None, None)? {
+                    return Ok(String::from_utf8(seq)?);
+                }
+
+                if clean_id != id
+                    && let Some(seq) = reader.get(clean_id, None, None)?
+                {
+                    return Ok(String::from_utf8(seq)?);
+                }
+                if versionless_clean_id != clean_id
+                    && versionless_clean_id != id
+                    && let Some(seq) = reader.get(versionless_clean_id, None, None)?
+                {
                     return Ok(String::from_utf8(seq)?);
                 }
 
