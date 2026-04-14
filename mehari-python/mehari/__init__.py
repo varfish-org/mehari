@@ -1,4 +1,5 @@
 import typing
+from pathlib import Path
 
 import polars as pl
 import pyarrow as pa
@@ -9,6 +10,7 @@ from ._mehari import (
     putative_impact_variants,
     feature_biotype_variants,
 )
+from ._mehari import build_transcript_db as _build_transcript_db
 
 ConsequenceEnum = pl.Enum(consequence_variants())
 ImpactEnum = pl.Enum(putative_impact_variants())
@@ -207,3 +209,67 @@ class SeqvarsAnnotator:
                 raise TypeError("Variants must be strings or VariantDict dictionaries.")
 
         return self._annotator.annotate_multiple(parsed_variants)
+
+
+def _resolve_path(p: str | Path | None) -> str | None:
+    """Expands '~' and resolves to an absolute path for Rust's PathBuf."""
+    if p is None:
+        return None
+    return str(Path(p).expanduser().resolve())
+
+
+def build_transcript_db(
+    assembly: str,
+    annotation: list[str | Path],
+    output: str | Path,
+    transcript_source: str,
+    assembly_version: str | None = None,
+    annotation_version: str | None = None,
+    transcript_source_version: str | None = None,
+    seqrepo: str | Path | None = None,
+    transcript_sequences: str | Path | None = None,
+    mane_transcripts: str | Path | None = None,
+    disable_filters: bool = False,
+    threads: int = 1,
+    compression_level: int = 19,
+) -> None:
+    """
+    Construct a mehari transcripts and sequence database (.bin.zst) from input annotations.
+
+    Args:
+        assembly: Targeted genome assembly (e.g., "GRCh38").
+        annotation: List of paths to transcript annotations (cdot JSON or GFF3).
+        output: Path to write the compressed database output (.bin.zst).
+        transcript_source: Source of the transcripts (e.g., "RefSeq" or "Ensembl").
+        assembly_version: Version of the genome assembly (e.g., "GRCh38.p13").
+        annotation_version: Version of the annotation data.
+        transcript_source_version: Version of the source (e.g., "112" for Ensembl). Required if source is Ensembl.
+        seqrepo: Path to a seqrepo instance directory.
+        transcript_sequences: Path to FASTA file(s) containing transcript sequences (alternative to seqrepo).
+        mane_transcripts: Path to TSV file for MANE label transfer.
+        disable_filters: Disable rigorous quality filtering (useful for custom/novel annotations).
+        threads: Number of threads to use for parallel processing.
+        compression_level: ZSTD compression level (default: 19).
+
+    Raises:
+        ValueError: If neither seqrepo nor transcript_sequences are provided, or if Ensembl version is missing.
+        RuntimeError: If the database building fails during processing.
+    """
+
+    _build_transcript_db(
+        assembly=str(assembly),
+        annotation=[_resolve_path(p) for p in annotation],
+        output=_resolve_path(output),
+        transcript_source=str(transcript_source),
+        assembly_version=str(assembly_version) if assembly_version else None,
+        annotation_version=str(annotation_version) if annotation_version else None,
+        transcript_source_version=str(transcript_source_version)
+        if transcript_source_version
+        else None,
+        seqrepo=_resolve_path(seqrepo),
+        transcript_sequences=_resolve_path(transcript_sequences),
+        mane_transcripts=_resolve_path(mane_transcripts),
+        disable_filters=bool(disable_filters),
+        threads=int(threads),
+        compression_level=int(compression_level),
+    )

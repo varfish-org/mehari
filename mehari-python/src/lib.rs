@@ -454,11 +454,84 @@ impl PySeqvarsAnnotator {
     }
 }
 
+#[pyfunction]
+#[pyo3(signature = (
+    assembly,
+    annotation,
+    output,
+    transcript_source,
+    assembly_version=None,
+    annotation_version=None,
+    transcript_source_version=None,
+    seqrepo=None,
+    transcript_sequences=None,
+    mane_transcripts=None,
+    disable_filters=false,
+    threads=1,
+    compression_level=19
+))]
+#[allow(clippy::too_many_arguments)]
+fn build_transcript_db(
+    assembly: String,
+    annotation: Vec<PathBuf>,
+    output: PathBuf,
+    transcript_source: String,
+    assembly_version: Option<String>,
+    annotation_version: Option<String>,
+    transcript_source_version: Option<String>,
+    seqrepo: Option<PathBuf>,
+    transcript_sequences: Option<PathBuf>,
+    mane_transcripts: Option<PathBuf>,
+    disable_filters: bool,
+    threads: usize,
+    compression_level: i32,
+) -> PyResult<()> {
+    if seqrepo.is_none() && transcript_sequences.is_none() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "Either 'seqrepo' or 'transcript_sequences' must be provided",
+        ));
+    }
+
+    if transcript_source.to_lowercase() == "ensembl" && transcript_source_version.is_none() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "'transcript_source_version' is required when source is 'ensembl'",
+        ));
+    }
+
+    let args = mehari::db::create::cli::Args {
+        assembly,
+        assembly_version,
+        annotation,
+        annotation_version,
+        transcript_source,
+        transcript_source_version,
+        seqrepo,
+        transcript_sequences,
+        mane_transcripts,
+        disable_filters,
+        threads,
+        compression_level,
+        output,
+    };
+
+    let common_args = mehari::common::Args::default();
+
+    mehari::db::create::run(&common_args, &args).map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!(
+            "Failed to build transcript database: {}",
+            e
+        ))
+    })?;
+
+    Ok(())
+}
+
 #[pymodule(name = "_mehari")]
 fn mehari_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySeqvarsAnnotator>()?;
     m.add_function(wrap_pyfunction!(consequence_variants, m)?)?;
     m.add_function(wrap_pyfunction!(putative_impact_variants, m)?)?;
     m.add_function(wrap_pyfunction!(feature_biotype_variants, m)?)?;
+    m.add_function(wrap_pyfunction!(build_transcript_db, m)?)?;
     Ok(())
 }
