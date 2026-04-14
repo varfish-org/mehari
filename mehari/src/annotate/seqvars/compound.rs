@@ -223,10 +223,7 @@ impl VariantBuffer {
                 .iter()
                 .any(|(_, phasing)| *phasing == Phasing::Phased);
 
-            if !is_phased
-                && self.strategy == PhasingStrategy::Strict
-                && !is_homozygous_alt
-            {
+            if !is_phased && self.strategy == PhasingStrategy::Strict && !is_homozygous_alt {
                 return vec![PhaseGroup::Unphased];
             }
 
