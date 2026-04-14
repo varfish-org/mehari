@@ -114,7 +114,7 @@ You can build the transcript database protocolbuffers binary using either standa
 
 ## Option A: Creating from SeqRepo & Cdot JSON
 
-Either use the mehari-data-ty snakemake workflow to build the transcript database or manually perform the following actions:
+Either use the mehari-data-tx snakemake workflow to build the transcript database or manually perform the following actions:
 Download the gzip-ed JSON files for a release of your choice from [SACGF/cdot](https://github.com/SACGF/cdot/releases/).
 Create a [seqrepo](https://github.com/biocommons/biocommons.seqrepo) repository that contains the transcript reference sequences that match the transcripts of the CDOT JSON files.
 
