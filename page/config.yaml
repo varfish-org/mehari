@@ -39,11 +39,10 @@ features:
     !--transcripts! grch37.txs.bin.zst \
     !--clinvar! clinvar_db \
     !--frequencies! gnomad_db
-- title: Fast & Memory Safe with Python Bindings
+- title: Python Bindings
   desc: |
-    Written in Rust, mehari ensures fast speed and memory safety. It can be used as a standalone CLI, a reliable backend library, as a REST server with OpenAPI schema, or directly from Python via pyO3 bindings.
+    Run variant annotation from within python.
   code: |
-    code: |
     from mehari import SeqvarsAnnotator
 
     annotator = SeqvarsAnnotator(
