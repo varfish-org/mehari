@@ -41,6 +41,11 @@ enum Source {
 
 // Version information for the database.
 message SourceVersion {
+  // Historical field name for tag 6 before it was generalized to
+  // `annotation_version`. Reserving the old name prevents accidental reuse and
+  // documents the source-level migration for generated clients.
+  reserved "cdot_version";
+
   // Version of mehari used to build the database.
   string mehari_version = 1;
   // DEPRECATED: Use the string-based assembly (tag 8) instead.
@@ -51,7 +56,11 @@ message SourceVersion {
   Source source_name_enum = 4 [deprecated = true];
   // Version of the source, e.g. 112 for Ensembl.
   string source_version = 5;
-  // Version of annotation.
+  // Version of the annotation.
+  //
+  // This field keeps historical wire tag 6 for compatibility. It was
+  // previously exposed as `cdot_version`; downstream consumers should treat
+  // this as a source-level rename/generalization rather than a new field.
   string annotation_version = 6;
   // Name of the annotation source, e.g. "cdot".
   string annotation_name = 7;

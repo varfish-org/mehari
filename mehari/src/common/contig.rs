@@ -69,13 +69,11 @@ impl ContigManager {
                 }
             }
         } else {
-            // Fallback for unknown assemblies: seed minimal mappings so exact contig names resolve
+            // Fallback for unknown assemblies: leave assembly-derived alias/accession mappings empty.
             tracing::debug!(
-                "Unknown assembly '{}', using fallback minimal mappings",
+                "Unknown assembly '{}', no assembly-derived contig mappings available",
                 assembly_name
             );
-            // Map the assembly_name to itself as a minimal contig entry
-            alias_to_accession.insert(assembly_name.to_string(), assembly_name.to_string());
         }
 
         // Build chrom_no map based on the primary sequence names.

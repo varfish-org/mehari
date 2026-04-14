@@ -223,7 +223,10 @@ impl VariantBuffer {
                 .iter()
                 .any(|(_, phasing)| *phasing == Phasing::Phased);
 
-            if !is_phased && self.strategy == PhasingStrategy::Strict {
+            if !is_phased
+                && self.strategy == PhasingStrategy::Strict
+                && !is_homozygous_alt
+            {
                 return vec![PhaseGroup::Unphased];
             }
 
@@ -239,12 +242,8 @@ impl VariantBuffer {
                             phase_set: Some(1),
                             haplotype_idx: hap_idx,
                         });
-                    } else if self.strategy == PhasingStrategy::Relaxed {
-                        if is_homozygous_alt {
-                            groups.push(PhaseGroup::Homozygous);
-                        } else {
-                            groups.push(PhaseGroup::Unphased);
-                        }
+                    } else if is_homozygous_alt {
+                        groups.push(PhaseGroup::Homozygous);
                     } else {
                         groups.push(PhaseGroup::Unphased);
                     }
@@ -253,7 +252,14 @@ impl VariantBuffer {
         }
 
         if groups.is_empty() {
-            groups.push(PhaseGroup::Unphased);
+            if self.strategy == PhasingStrategy::Ignore {
+                groups.push(PhaseGroup::Phased {
+                    phase_set: Some(1),
+                    haplotype_idx: 0,
+                });
+            } else {
+                groups.push(PhaseGroup::Unphased);
+            }
         } else {
             groups.sort_unstable_by_key(|g| format!("{:?}", g));
             groups.dedup();
