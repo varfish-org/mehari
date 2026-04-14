@@ -54,18 +54,18 @@ pub fn open_seqrepo(path: impl AsRef<Path>) -> Result<SeqRepo, Error> {
     tracing::info!("Opening seqrepo…");
     let start = Instant::now();
     let seqrepo = PathBuf::from(path.as_ref());
-    let p = path.as_ref().to_str();
+    let p = path.as_ref();
     let path = seqrepo
         .parent()
         .ok_or(anyhow::anyhow!("Could not get parent from {:?}", &p))?
         .to_str()
-        .unwrap()
+        .ok_or_else(|| anyhow!("Could not convert parent path to UTF-8 from {:?}", &p))?
         .to_string();
     let instance = seqrepo
         .file_name()
         .ok_or(anyhow::anyhow!("Could not get basename from {:?}", &p))?
         .to_str()
-        .unwrap()
+        .ok_or_else(|| anyhow!("Could not convert basename to UTF-8 from {:?}", &p))?
         .to_string();
     let seqrepo = SeqRepo::new(path, &instance)?;
     tracing::info!("… seqrepo opened in {:?}", start.elapsed());
