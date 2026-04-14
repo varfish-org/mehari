@@ -212,7 +212,7 @@ struct Postprocess {
 /// Enum supporting the parsing of "postprocess *" sub commands.
 #[derive(Debug, Subcommand)]
 enum PostprocessCommands {
-    /// Extract the proteome from a mehari-annotated (seqvars, with aa sequences) VCF file.
+    /// Experimental: Extract the proteome from a mehari-annotated (seqvars, with aa sequences) VCF file.
     Proteome(mehari::postprocess::proteome::Args),
 
     /// Convert a mehari-annotated (seqvars) VCF file to a VarFish-compatible TSV file.
