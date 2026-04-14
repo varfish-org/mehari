@@ -1,0 +1,102 @@
+color: orange
+
+features:
+- title: Annotate VCF/BCF Files
+  desc: |
+    mehari annotates small variants (SNV/indel/MNV) with their predicted impact on gene transcripts and protein sequences, population frequencies (gnomAD, HelixMtDb), and ClinVar information.
+  code: |
+    mehari annotate seqvars \
+    !--reference! ref.fasta \
+    !--transcripts! transcript_db \
+    !--frequencies! gnomad_db \
+    !--clinvar! clinvar_db \
+    !--input! input.vcf !--output! output.bcf
+- title: Experimental Compound Variants
+  desc: |
+    Evaluate the compound effect of multiple variants on the same transcript with our experimental compound variant analysis, choosing between strict, relaxed, or ignore phasing strategies.
+  code: |
+    mehari annotate seqvars \
+    !--enable-compound-variants! \
+    !--phasing-strategy! strict \
+    ...
+- title: Build Databases from Arbitrary References
+  desc: |
+    Build your own transcript databases directly from standard GFF3 annotations and FASTA reference sequences, or from Cdot JSON releases.
+  code: |
+    mehari db create txs \
+    !--output! custom_assembly.txs.bin.zst \
+    !--transcript-sequences! reference.fasta.gz \
+    !--annotation! reference_annotations.gff3.gz \
+    !--assembly! custom_assembly
+- title: Run as a REST server
+  desc: |
+    Run mehari as a REST server with OpenAPI schema.
+  code: |
+    mehari server run \
+    !--reference! grch38=grch38.fasta \
+    !--reference! grch37=grch37.fasta \
+    !--transcripts! grch38.txs.bin.zst \
+    !--transcripts! grch37.txs.bin.zst \
+    !--clinvar! clinvar_db \
+    !--frequencies! gnomad_db
+- title: Python Bindings
+  desc: |
+    Run variant annotation from within python.
+  code: |
+    from mehari import SeqvarsAnnotator
+
+    annotator = SeqvarsAnnotator(
+        transcript_db_paths=["path/to/txs.bin.zst"],
+        reference_path="path/to/reference.fa"
+    )
+    result1 = annotator.annotate("17:41197701:G:C")
+    result2 = annotator.annotate(chromosome="3", position=193332511, reference="G", alternative="T")
+- title: Interactive Variant Consequences
+  desc: |
+    Have a look at our [interactive consequences](consequences.html) to find out about the Sequence Ontology terms used by mehari.
+  img: consequences.png
+
+logo:
+  dark: logo_dark.svg
+  light: logo.svg
+
+header:
+  links:
+  - text: GitHub
+    url: https://github.com/varfish-org/mehari
+    icon: fa-brands fa-github
+  - text: Documentation
+    url: https://docs.rs/mehari
+  - text: Consequences
+    url: consequences.html
+  logo: logo.svg
+  name: "mehari"
+
+hero:
+  img:
+    dark: logo.svg
+    light: logo.svg
+  links:
+  - text: Read the docs
+    url: https://docs.rs/mehari
+  - text: View Consequence Terms
+    url: consequences.html
+  statements:
+  - High-performance VCF variant effect and consequence prediction.
+  - HGVS predictions that aim to mirror VariantValidator.
+  - Fast Rust core with seamless Python bindings.
+
+project:
+  authors: Manuel Holtgrewe, Till Hartmann
+  copyright: 2026, Till Hartmann, Manuel Holtgrewe, Max Zhao
+  name: mehari
+
+repo:
+  contributors:
+    skip:
+    - github-actions[bot]
+    - dependabot[bot]
+  name: varfish-org/mehari
+
+assets:
+  - consequences.html

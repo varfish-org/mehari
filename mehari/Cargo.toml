@@ -75,7 +75,7 @@ thousands = "0.2"
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "io-std"] }
 tracing-subscriber = "0.3"
 tracing = { version = "0.1", features = ["log"] }
-uuid = { version = "1.22", features = ["fast-rng", "serde"] }
+uuid = { version = "1.23", features = ["fast-rng", "serde"] }
 zstd = "0.13"
 utoipa = { version = "5.4.0", features = ["actix_extras", "chrono", "indexmap", "openapi_extensions", "preserve_order", "yaml"], optional = true }
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"], optional = true }
@@ -107,7 +107,7 @@ prost-build = "0.14.3"
 [dev-dependencies]
 csv = "1.4"
 hxdmp = "0.2"
-insta = { version = "1.46", features = ["yaml"] }
+insta = { version = "1.47", features = ["yaml"] }
 pretty_assertions = "1.4"
 rstest = "0.26"
 temp_testdir = "0.2"
