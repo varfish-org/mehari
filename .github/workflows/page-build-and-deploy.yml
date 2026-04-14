@@ -1,4 +1,4 @@
-name: build-and-deploy
+name: GitHub Pages Build And Deploy
 
 on:
   schedule:
