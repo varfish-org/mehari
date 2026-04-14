@@ -1,89 +1,17 @@
+use crate::annotate::seqvars::reference::{ReferenceReader, UnbufferedIndexedFastaAccess};
+use crate::common::contig::ContigManager;
 use crate::db::create::cli::Args;
 use anyhow::{Error, anyhow};
-use noodles::core::Region;
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
-use std::ops::RangeFull;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-pub struct BasicIndexedFasta {
-    fasta_path: PathBuf,
-    index: noodles::fasta::fai::Index,
-    id_lookup: HashMap<String, String>,
-}
-
-impl BasicIndexedFasta {
-    pub fn new(fasta_path: PathBuf, index_path: PathBuf) -> Result<Self, Error> {
-        let index = File::open(index_path)
-            .map(BufReader::new)
-            .map(noodles::fasta::fai::io::Reader::new)?
-            .read_index()?;
-
-        // Build lookup map once
-        let mut id_lookup = HashMap::new();
-        for record in index.as_ref() {
-            let rec_name = String::from_utf8_lossy(record.name()).to_string();
-            let rec_name_base = rec_name.split('.').next().unwrap_or(&rec_name).to_string();
-
-            // Store exact name mapping
-            id_lookup.insert(rec_name.clone(), rec_name.clone());
-            // Store base name mapping (without version)
-            id_lookup.entry(rec_name_base).or_insert(rec_name);
-        }
-
-        Ok(Self {
-            fasta_path,
-            index,
-            id_lookup,
-        })
-    }
-
-    pub fn get_sequence(&self, id: &str) -> Result<Option<String>, Error> {
-        let clean_id = id.strip_prefix("transcript:").unwrap_or(id);
-        let clean_id_base = clean_id.split('.').next().unwrap_or(clean_id);
-
-        // Use precomputed lookup map
-        let target_name = self
-            .id_lookup
-            .get(clean_id)
-            .or_else(|| self.id_lookup.get(clean_id_base));
-
-        let target_name = match target_name {
-            Some(name) => name.clone(),
-            None => {
-                tracing::debug!(
-                    "Sequence not found in FAI index for clean_id: '{}' (original id: '{}')",
-                    clean_id,
-                    id
-                );
-                return Ok(None);
-            }
-        };
-
-        let mut reader = File::open(&self.fasta_path)
-            .map(BufReader::new)
-            .map(|r| noodles::fasta::io::IndexedReader::new(r, self.index.clone()))?;
-
-        let region = Region::new::<String, RangeFull>(target_name, RangeFull);
-        match reader.query(&region) {
-            Ok(record) => {
-                let seq = String::from_utf8(record.sequence().as_ref().to_vec())?;
-                Ok(Some(seq))
-            }
-            Err(e) => {
-                tracing::warn!("Failed to query region from indexed FASTA: {}", e);
-                Ok(None)
-            }
-        }
-    }
-}
-
 pub enum SequenceProvider {
     SeqRepo(SeqRepo),
-    IndexedFasta(BasicIndexedFasta),
+    IndexedFasta(UnbufferedIndexedFastaAccess),
     FastaMap(HashMap<String, String>),
 }
 
@@ -111,8 +39,8 @@ impl SequenceProvider {
                     })
             }
             SequenceProvider::IndexedFasta(reader) => {
-                if let Some(seq) = reader.get_sequence(id)? {
-                    return Ok(seq);
+                if let Some(seq) = reader.get(id, None, None)? {
+                    return Ok(String::from_utf8(seq)?);
                 }
 
                 Err(anyhow!("Sequence not found in indexed FASTA for {}", id))
@@ -159,10 +87,12 @@ pub fn open_sequence_provider(args: &Args) -> Result<SequenceProvider, Error> {
                 fasta_path.display(),
                 fai_path.display()
             );
-            return Ok(SequenceProvider::IndexedFasta(BasicIndexedFasta::new(
-                fasta_path.clone(),
-                fai_path,
-            )?));
+            return Ok(SequenceProvider::IndexedFasta(
+                UnbufferedIndexedFastaAccess::from_path(
+                    fasta_path.clone(),
+                    std::sync::Arc::new(ContigManager::new(&args.assembly)),
+                )?,
+            ));
         }
 
         tracing::info!(
