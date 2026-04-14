@@ -1,0 +1,23 @@
+name: GitHub Pages Test Build
+
+on:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          lfs: true
+
+      - name: locosopa
+        uses: koesterlab/locosopa@31df1859c7e22173bfaf6e234c6ae4260b4479db # v1.0.6
+        with:
+          config: page/config.yaml
+          path: build
+          deploy: "false"
