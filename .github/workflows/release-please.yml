@@ -22,7 +22,7 @@ jobs:
       release_created: ${{ steps.release.outputs.releases_created }}
       release_name: ${{ steps.release.outputs['mehari--version'] || steps.release.outputs['mehari-python--version'] }}
     steps:
-      - uses: GoogleCloudPlatform/release-please-action@v4
+      - uses: GoogleCloudPlatform/release-please-action@v5
         id: release
         with:
           token: ${{ secrets.BOT_TOKEN }}
