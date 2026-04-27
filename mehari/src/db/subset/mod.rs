@@ -8,8 +8,10 @@ use crate::pbs::txs::{TranscriptDb, TxSeqDatabase};
 use anyhow::{Error, Result};
 use clap::Parser;
 use indexmap::{IndexMap, IndexSet};
+use noodles::core::{Position, Region};
 use noodles::vcf::variant::Record;
 use prost::Message as _;
+use std::collections::Bound;
 use std::{io::Write, path::PathBuf};
 
 /// Command line arguments for `db subset` sub command.
@@ -26,6 +28,10 @@ pub struct Args {
 
     #[command(flatten)]
     pub selection: Selection,
+
+    /// Compression level to use when writing the output file.
+    #[arg(long)]
+    pub compression_level: Option<u32>,
 }
 
 #[derive(Debug, Default, Clone, clap::Args)]
@@ -42,6 +48,10 @@ pub struct Selection {
     /// Limit transcript database to the specified transcript ID. Can be specified multiple times.
     #[arg(long)]
     transcript_id: Option<Vec<String>>,
+
+    /// Limit transcript database to the transcripts overlapping the specified region. Can be specified multiple times.
+    #[arg(long)]
+    region: Option<Vec<Region>>,
 }
 
 /// Main entry point.
@@ -66,11 +76,13 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error> {
     let mut writer: Box<dyn Write> = if ext == Some(Some("gz")) {
         Box::new(flate2::write::GzEncoder::new(
             file,
-            flate2::Compression::default(),
+            args.compression_level
+                .map(flate2::Compression::new)
+                .unwrap_or_default(),
         ))
     } else if ext == Some(Some("zst")) {
         Box::new(
-            zstd::Encoder::new(file, 0)
+            zstd::Encoder::new(file, args.compression_level.map(|l| l as i32).unwrap_or(0))
                 .map_err(|e| {
                     anyhow::anyhow!(
                         "failed to open zstd encoder for {}: {}",
@@ -98,14 +110,16 @@ fn subset_tx_db(container: &TxSeqDatabase, selection: &Selection) -> Result<TxSe
         vcf,
         hgnc_id: hgnc_ids,
         transcript_id: transcript_ids,
+        region: regions,
     } = selection;
 
-    let (tx_idxs, tx_ids, gene_ids) = match (hgnc_ids, transcript_ids, vcf) {
-        (Some(hgnc_ids), _, _) => _extract_transcripts_by_hgnc_id(container_tx_db, hgnc_ids)?,
-        (_, Some(transcript_ids), _) => {
+    let (tx_idxs, tx_ids, gene_ids) = match (hgnc_ids, transcript_ids, vcf, regions) {
+        (Some(hgnc_ids), _, _, _) => _extract_transcripts_by_hgnc_id(container_tx_db, hgnc_ids)?,
+        (_, Some(transcript_ids), _, _) => {
             _extract_transcripts_by_txid(container_tx_db, transcript_ids)
         }
-        (_, _, Some(vcf)) => _extract_transcripts_by_region(container, vcf)?,
+        (_, _, Some(vcf), _) => _extract_transcripts_by_vcf(container, vcf)?,
+        (_, _, _, Some(regions)) => _extract_transcripts_by_regions(container, regions)?,
         _ => unreachable!(),
     };
     tracing::info!(
@@ -185,7 +199,7 @@ fn subset_tx_db(container: &TxSeqDatabase, selection: &Selection) -> Result<TxSe
     })
 }
 
-fn _extract_transcripts_by_region(
+fn _extract_transcripts_by_vcf(
     container: &TxSeqDatabase,
     vcf: &PathBuf,
 ) -> Result<(IndexSet<usize>, IndexSet<String>, IndexSet<String>)> {
@@ -216,6 +230,51 @@ fn _extract_transcripts_by_region(
     if transcript_ids.is_empty() {
         return Err(anyhow::anyhow!(
             "no transcripts overlapping VCF variants found in transcript database"
+        ));
+    }
+    let (tx_idxs, gene_ids) = __extract_transcripts_from_db(container_tx_db, &transcript_ids);
+    Ok((
+        IndexSet::<usize>::from_iter(tx_idxs),
+        transcript_ids,
+        gene_ids,
+    ))
+}
+
+fn _extract_transcripts_by_regions(
+    container: &TxSeqDatabase,
+    regions: &[Region],
+) -> Result<(IndexSet<usize>, IndexSet<String>, IndexSet<String>)> {
+    let container_tx_db = container.tx_db.as_ref().expect("no tx_db");
+    let trees = TxIntervalTrees::new(container);
+
+    let contig_manager = ContigManager::new(&container.assembly());
+
+    let mut transcript_ids = IndexSet::<String>::new();
+    for region in regions {
+        let (start, end) = (region.start(), region.end());
+        let chrom = region.name().to_string();
+        if let Some(accession) = contig_manager.get_accession(&chrom) {
+            let txs = trees.get_tx_for_region(
+                container,
+                accession,
+                "splign",
+                match start {
+                    Bound::Included(i) => usize::from(i).try_into()?,
+                    Bound::Excluded(i) => usize::from(i).try_into().map(|i: i32| i + 1)?,
+                    Bound::Unbounded => 0,
+                },
+                match end {
+                    Bound::Included(i) => usize::from(i).try_into()?,
+                    Bound::Excluded(i) => usize::from(i).try_into().map(|i: i32| i - 1)?,
+                    Bound::Unbounded => i32::MAX,
+                },
+            )?;
+            transcript_ids.extend(txs.into_iter().map(|tx| tx.tx_ac));
+        }
+    }
+    if transcript_ids.is_empty() {
+        return Err(anyhow::anyhow!(
+            "no transcripts overlapping the specified regions found in transcript database"
         ));
     }
     let (tx_idxs, gene_ids) = __extract_transcripts_from_db(container_tx_db, &transcript_ids);
@@ -309,6 +368,7 @@ mod tests {
                     hgnc_id: Some(vec!["HGNC:12403".into()]),
                     ..Default::default()
                 },
+                compression_level: None,
             },
         )?;
 
