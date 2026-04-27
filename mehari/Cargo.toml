@@ -2,7 +2,7 @@
 name = "mehari"
 version = "0.42.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.91"
 authors = ["Manuel Holtgrewe <manuel.holtgrewe@bih-charite.de>"]
 description = "Variant effect prediction all in Rust"
 license = "MIT"

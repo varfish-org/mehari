@@ -188,15 +188,15 @@ impl UnbufferedIndexedFastaAccess {
         contig_manager: Arc<ContigManager>,
     ) -> anyhow::Result<Self> {
         let path = path.as_ref().to_path_buf();
-        let index_path = format!("{}.fai", path.to_str().ok_or(anyhow!("Invalid path"))?);
-        tracing::info!("Reading reference index from {}", &index_path);
+        let index_path = path.with_added_extension("fai");
+        tracing::info!("Reading reference index from {:?}", &index_path);
         let index_records: Vec<IndexRecord> = csv::ReaderBuilder::new()
             .has_headers(false)
             .delimiter(b'\t')
-            .from_path(index_path)?
+            .from_path(&index_path)
+            .map_err(|e| anyhow!("Failed to read index file from {:?}: {}", &index_path, e))?
             .deserialize()
-            .map(|record| record.expect("Failed to read index record"))
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let mut alias_to_index: FxHashMap<String, IndexRecord> = FxHashMap::default();
         let mut circular_contigs = FxHashSet::default();
