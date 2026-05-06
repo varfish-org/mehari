@@ -228,6 +228,12 @@ pub struct Provider {
 
     /// The schema version.
     schema_version: String,
+
+    /// The transcript(-feature)s to pick, if any
+    pub pick_transcript: Vec<TranscriptPickType>,
+
+    /// How to handle multiple transcripts. Default is to keep all.
+    pub pick_transcript_mode: TranscriptPickMode,
 }
 
 enum ReferenceReaderImpl {
@@ -249,7 +255,7 @@ impl ReferenceReader for ReferenceReaderImpl {
     }
 }
 
-fn transcript_length(tx: &Transcript) -> i32 {
+pub(crate) fn transcript_length(tx: &Transcript) -> i32 {
     let mut max_tx_length = 0;
     for genome_alignment in tx.genome_alignments.iter() {
         // We just count length in reference so we don't have to look
@@ -263,6 +269,31 @@ fn transcript_length(tx: &Transcript) -> i32 {
         }
     }
     max_tx_length
+}
+
+pub(crate) fn tag_to_picktype(tag: &i32) -> Option<TranscriptPickType> {
+    match TranscriptTag::try_from(*tag).unwrap() {
+        TranscriptTag::Unknown | TranscriptTag::Other | TranscriptTag::OtherBackport => None,
+        TranscriptTag::Basic => Some(TranscriptPickType::Basic),
+        TranscriptTag::EnsemblCanonical => Some(TranscriptPickType::EnsemblCanonical),
+        TranscriptTag::ManeSelect => Some(TranscriptPickType::ManeSelect),
+        TranscriptTag::ManePlusClinical => Some(TranscriptPickType::ManePlusClinical),
+        TranscriptTag::RefSeqSelect => Some(TranscriptPickType::RefSeqSelect),
+        TranscriptTag::Selenoprotein => None,
+        TranscriptTag::GencodePrimary => Some(TranscriptPickType::GencodePrimary),
+        TranscriptTag::EnsemblGraft => None,
+        TranscriptTag::BasicBackport => Some(TranscriptPickType::BasicBackport),
+        TranscriptTag::EnsemblCanonicalBackport => {
+            Some(TranscriptPickType::EnsemblCanonicalBackport)
+        }
+        TranscriptTag::ManeSelectBackport => Some(TranscriptPickType::ManeSelectBackport),
+        TranscriptTag::ManePlusClinicalBackport => {
+            Some(TranscriptPickType::ManePlusClinicalBackport)
+        }
+        TranscriptTag::RefSeqSelectBackport => Some(TranscriptPickType::RefSeqSelectBackport),
+        TranscriptTag::SelenoproteinBackport => None,
+        TranscriptTag::GencodePrimaryBackport => Some(TranscriptPickType::GencodePrimaryBackport),
+    }
 }
 
 impl Provider {
@@ -408,11 +439,13 @@ impl Provider {
             reference_reader,
             data_version,
             schema_version,
+            pick_transcript: config.pick_transcript,
+            pick_transcript_mode: config.pick_transcript_mode,
         }
     }
 
     /// When transcript picking is enabled, restrict to ManeSelect and ManePlusClinical if we have any such transcript.
-    /// Otherwise, fall back to the longest transcript.
+    /// Length has to be handled explicitly after determining overlapping transcripts.
     fn picked_genes_to_tx_map(
         tx_seq_db: &mut TxSeqDatabase,
         config: &Config,
@@ -424,117 +457,62 @@ impl Provider {
         let tx_db = tx_seq_db.tx_db.as_mut().unwrap();
         let mut new_gene_to_tx = Vec::new();
 
-        fn tag_to_picktype(tag: &i32) -> Option<TranscriptPickType> {
-            match TranscriptTag::try_from(*tag).unwrap() {
-                TranscriptTag::Unknown | TranscriptTag::Other | TranscriptTag::OtherBackport => {
-                    None
-                }
-                TranscriptTag::Basic => Some(TranscriptPickType::Basic),
-                TranscriptTag::EnsemblCanonical => Some(TranscriptPickType::EnsemblCanonical),
-                TranscriptTag::ManeSelect => Some(TranscriptPickType::ManeSelect),
-                TranscriptTag::ManePlusClinical => Some(TranscriptPickType::ManePlusClinical),
-                TranscriptTag::RefSeqSelect => Some(TranscriptPickType::RefSeqSelect),
-                TranscriptTag::Selenoprotein => None,
-                TranscriptTag::GencodePrimary => Some(TranscriptPickType::GencodePrimary),
-                TranscriptTag::EnsemblGraft => None,
-                TranscriptTag::BasicBackport => Some(TranscriptPickType::BasicBackport),
-                TranscriptTag::EnsemblCanonicalBackport => {
-                    Some(TranscriptPickType::EnsemblCanonicalBackport)
-                }
-                TranscriptTag::ManeSelectBackport => Some(TranscriptPickType::ManeSelectBackport),
-                TranscriptTag::ManePlusClinicalBackport => {
-                    Some(TranscriptPickType::ManePlusClinicalBackport)
-                }
-                TranscriptTag::RefSeqSelectBackport => {
-                    Some(TranscriptPickType::RefSeqSelectBackport)
-                }
-                TranscriptTag::SelenoproteinBackport => None,
-                TranscriptTag::GencodePrimaryBackport => {
-                    Some(TranscriptPickType::GencodePrimaryBackport)
-                }
-            }
-        }
-
-        // FIXME: This source classification is a legacy artifact for VarFish TSV compatibility.
-        //   It should be removed once the varfish tsv export/import is updated.
-        let transcript_id_to_source = |tx_id: &str| -> String {
-            if tx_id.starts_with("ENST") {
-                "Ensembl".to_string()
-            } else if tx_id.starts_with('N') || tx_id.starts_with('X') {
-                "RefSeq".to_string()
-            } else {
-                // Safe fallback for arbitrary databases (e.g., TAIR10, custom assemblies)
-                "Other".to_string()
-            }
-        };
-
-        // Process each gene.
         for entry in tx_db.gene_to_tx.iter() {
-            let mut longest_tx_per_source: FxHashMap<String, (bool, usize, i32)> =
-                FxHashMap::default();
-            let mut tx_tags = entry
+            let tx_tags = entry
                 .tx_ids
                 .iter()
                 .filter_map(|tx_id| {
                     tx_map.get(tx_id).map(|tx_idx| {
                         let tx = &tx_db.transcripts[*tx_idx as usize];
                         let tags = tx.tags.iter().filter_map(tag_to_picktype).collect_vec();
-                        let length = transcript_length(tx);
-                        let source = transcript_id_to_source(tx_id);
-                        let is_clean = tx.is_clean();
-                        (tx_id, tags, length, source, is_clean)
+                        (tx_id, tags)
                     })
-                })
-                .enumerate()
-                .map(|(i, (tx_id, tags, length, source, is_clean))| {
-                    longest_tx_per_source
-                        .entry(source)
-                        .and_modify(|(prev_clean, prev_i, prev_length)| {
-                            if (is_clean, length) > (*prev_clean, *prev_length) {
-                                *prev_clean = is_clean;
-                                *prev_i = i;
-                                *prev_length = length;
-                            }
-                        })
-                        .or_insert((is_clean, i, length));
-                    (tx_id, tags, length)
                 })
                 .collect_vec();
 
-            for (_, (_, i, _)) in longest_tx_per_source.iter() {
-                tx_tags[*i].1.push(TranscriptPickType::Length);
-            }
-
             let tx_ids = match config.pick_transcript_mode {
                 TranscriptPickMode::First => {
-                    // only keep the first transcript that fulfills the transcript picking strategy,
-                    // if any
-                    let tx_id = config
-                        .pick_transcript
-                        .iter()
-                        .filter_map(|pick| {
-                            tx_tags
-                                .iter()
-                                .find(|(_, tags, _)| tags.contains(pick))
-                                .map(|(tx_id, _, _)| tx_id)
-                        })
-                        .next();
-                    if let Some(tx_id) = tx_id {
-                        vec![tx_id.to_string()]
-                    } else {
-                        vec![]
+                    let mut resolved = vec![];
+                    for pick in &config.pick_transcript {
+                        if *pick == TranscriptPickType::Length {
+                            // Defer dynamic length logic: Keep all transcripts for this gene
+                            resolved = tx_tags.iter().map(|(id, _)| id.to_string()).collect();
+                            break;
+                        }
+                        let matched: Vec<_> = tx_tags
+                            .iter()
+                            .filter(|(_, tags)| tags.contains(pick))
+                            .map(|(id, _)| id.to_string())
+                            .collect();
+                        if !matched.is_empty() {
+                            resolved = vec![matched[0].clone()];
+                            break;
+                        }
                     }
+                    resolved
                 }
                 TranscriptPickMode::All => {
-                    // keep all transcripts that fulfill the transcript picking strategy
-                    tx_tags
-                        .iter()
-                        .filter_map(|(tx_id, tags, _)| {
-                            tags.iter()
-                                .any(|tag| config.pick_transcript.contains(tag))
-                                .then_some(tx_id.to_string())
-                        })
-                        .collect()
+                    let mut resolved = vec![];
+                    let mut defer_length = false;
+                    for pick in &config.pick_transcript {
+                        if *pick == TranscriptPickType::Length {
+                            defer_length = true;
+                            continue;
+                        }
+                        resolved.extend(
+                            tx_tags
+                                .iter()
+                                .filter(|(_, tags)| tags.contains(pick))
+                                .map(|(id, _)| id.to_string()),
+                        );
+                    }
+                    if defer_length {
+                        // Defer dynamic length logic: Add all transcripts for evaluation
+                        resolved.extend(tx_tags.iter().map(|(id, _)| id.to_string()));
+                        resolved.sort();
+                        resolved.dedup();
+                    }
+                    resolved
                 }
             };
 
