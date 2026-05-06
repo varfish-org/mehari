@@ -8,7 +8,7 @@ use crate::pbs::txs::{TranscriptDb, TxSeqDatabase};
 use anyhow::{Error, Result};
 use clap::Parser;
 use indexmap::{IndexMap, IndexSet};
-use noodles::core::{Position, Region};
+use noodles::core::Region;
 use noodles::vcf::variant::Record;
 use prost::Message as _;
 use std::collections::Bound;

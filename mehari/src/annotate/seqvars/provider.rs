@@ -9,7 +9,7 @@ use crate::db::TranscriptDatabase;
 use crate::db::create::models::Reason;
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
-    pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
+    pbs::txs::{Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use enumflags2::BitFlags;
@@ -216,10 +216,6 @@ pub struct Provider {
     /// string used in the database (e.g. "1")
     contig_alias_map: FxHashMap<String, String>,
 
-    /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
-    /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
-    picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
-
     /// for reading parts of reference sequences
     reference_reader: Option<ReferenceReaderImpl>,
 
@@ -303,7 +299,7 @@ impl Provider {
     ///
     /// * `tx_seq_db` - The `TxSeqDatabase` to use.
     pub fn new(
-        mut tx_seq_db: TxSeqDatabase,
+        tx_seq_db: TxSeqDatabase,
         reference: Option<impl AsRef<Path>>,
         in_memory_reference: bool,
         config: Config,
@@ -396,8 +392,6 @@ impl Provider {
                 .map(|(alias, idx)| (alias.clone(), *idx)),
         );
 
-        let picked_gene_to_tx_id = Self::picked_genes_to_tx_map(&mut tx_seq_db, &config, &tx_map);
-
         // TODO obtain or construct data_version and schema_version somehow
         // for now, these are just set to a combination of things that make this provider instance
         // unique, such that `data_version` and `schema_version` can be used as keys for
@@ -435,117 +429,12 @@ impl Provider {
             tx_map,
             seq_map,
             assembly_map,
-            picked_gene_to_tx_id,
             reference_reader,
             data_version,
             schema_version,
             pick_transcript: config.pick_transcript,
             pick_transcript_mode: config.pick_transcript_mode,
         }
-    }
-
-    /// When transcript picking is enabled, restrict to ManeSelect and ManePlusClinical if we have any such transcript.
-    /// Length has to be handled explicitly after determining overlapping transcripts.
-    fn picked_genes_to_tx_map(
-        tx_seq_db: &mut TxSeqDatabase,
-        config: &Config,
-        tx_map: &FxHashMap<String, u32>,
-    ) -> Option<Vec<GeneToTxId>> {
-        if config.pick_transcript.is_empty() || tx_seq_db.tx_db.is_none() {
-            return None;
-        }
-        let tx_db = tx_seq_db.tx_db.as_mut().unwrap();
-        let mut new_gene_to_tx = Vec::new();
-
-        for entry in tx_db.gene_to_tx.iter() {
-            let tx_tags = entry
-                .tx_ids
-                .iter()
-                .filter_map(|tx_id| {
-                    tx_map.get(tx_id).map(|tx_idx| {
-                        let tx = &tx_db.transcripts[*tx_idx as usize];
-                        let tags = tx.tags.iter().filter_map(tag_to_picktype).collect_vec();
-                        (tx_id, tags)
-                    })
-                })
-                .collect_vec();
-
-            let tx_ids = match config.pick_transcript_mode {
-                TranscriptPickMode::First => {
-                    let mut resolved = vec![];
-                    for pick in &config.pick_transcript {
-                        if *pick == TranscriptPickType::Length {
-                            // Defer dynamic length logic: Keep all transcripts for this gene
-                            resolved = tx_tags.iter().map(|(id, _)| id.to_string()).collect();
-                            break;
-                        }
-                        let matched: Vec<_> = tx_tags
-                            .iter()
-                            .filter(|(_, tags)| tags.contains(pick))
-                            .map(|(id, _)| id.to_string())
-                            .collect();
-                        if !matched.is_empty() {
-                            resolved = vec![matched[0].clone()];
-                            break;
-                        }
-                    }
-                    resolved
-                }
-                TranscriptPickMode::All => {
-                    let mut resolved = vec![];
-                    let mut defer_length = false;
-                    for pick in &config.pick_transcript {
-                        if *pick == TranscriptPickType::Length {
-                            defer_length = true;
-                            continue;
-                        }
-                        resolved.extend(
-                            tx_tags
-                                .iter()
-                                .filter(|(_, tags)| tags.contains(pick))
-                                .map(|(id, _)| id.to_string()),
-                        );
-                    }
-                    if defer_length {
-                        // Defer dynamic length logic: Add all transcripts for evaluation
-                        resolved.extend(tx_tags.iter().map(|(id, _)| id.to_string()));
-                        resolved.sort();
-                        resolved.dedup();
-                    }
-                    resolved
-                }
-            };
-
-            let new_entry = if !tx_ids.is_empty() {
-                GeneToTxId {
-                    gene_id: entry.gene_id.clone(),
-                    tx_ids,
-                    filtered: Some(false),
-                    filter_reason: None,
-                }
-            } else {
-                tracing::trace!(
-                    "no transcript found for gene {} with the chosen transcript picking strategy: {:?}",
-                    &entry.gene_id,
-                    &config.pick_transcript
-                );
-                GeneToTxId {
-                    gene_id: entry.gene_id.clone(),
-                    tx_ids: vec![],
-                    filtered: Some(true),
-                    filter_reason: Some(Reason::NoTranscriptLeft as u32),
-                }
-            };
-
-            tracing::trace!(
-                "picked transcripts {:?} for gene {}",
-                new_entry.tx_ids,
-                new_entry.gene_id
-            );
-            new_gene_to_tx.push(new_entry);
-        }
-
-        Some(new_gene_to_tx)
     }
 
     /// Return the assembly of the provider.
@@ -559,7 +448,7 @@ impl Provider {
 
     /// Return whether transcript picking is enabled.
     pub fn transcript_picking(&self) -> bool {
-        self.picked_gene_to_tx_id.is_some()
+        !self.pick_transcript.is_empty()
     }
 
     /// Return the picked transcript IDs for a gene.
@@ -573,19 +462,9 @@ impl Provider {
     /// The picked transcript IDs, or None if the gene is not found.
     pub fn get_picked_transcripts(&self, hgnc_id: &str) -> Option<Vec<String>> {
         self.gene_map.get(hgnc_id).and_then(|gene_idx| {
-            let gene_to_tx = if let Some(picked_gene_to_tx_id) = self.picked_gene_to_tx_id.as_ref()
-            {
-                picked_gene_to_tx_id
-            } else {
-                &self.tx_seq_db.tx_db.as_ref().expect("no tx_db?").gene_to_tx
-            };
-
-            // tracing::trace!(
-            //     "get_picked_transcripts({}) = {:?}",
-            //     hgnc_id,
-            //     &gene_to_tx[*gene_idx as usize].tx_ids
-            // );
+            let gene_to_tx = &self.tx_seq_db.tx_db.as_ref().expect("no tx_db?").gene_to_tx;
             let gene = &gene_to_tx[*gene_idx as usize];
+
             if let Some(true) = gene.filtered {
                 None
             } else {

@@ -1,6 +1,7 @@
 ---
 source: mehari/src/annotate/seqvars/csq.rs
 expression: res
+snapshot_kind: text
 ---
 - allele:
     Alt:
@@ -13,26 +14,28 @@ expression: res
   feature_type:
     so_term:
       term: Transcript
-  feature_id: NM_001256850.1
+  feature_id: NM_001267550.2
   feature_biotype:
     - coding
-  feature_tags: []
+  feature_tags:
+    - ref_seq_select
+    - mane_select_backport
   rank:
     ord: 41
-    total: 313
+    total: 363
   hgvs_g: g.179631246G>A
   hgvs_n: n.9790C>T
   hgvs_c: c.9565C>T
   hgvs_p: p.Gln3189Ter
   cdna_pos:
     ord: 9790
-    total: 104301
+    total: 109224
   cds_pos:
     ord: 9565
-    total: 103053
+    total: 107976
   protein_pos:
     ord: 3189
-    total: 34351
+    total: 35992
   distance: 0
   strand: -1
   messages: ~
