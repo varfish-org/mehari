@@ -9,7 +9,7 @@ use crate::db::TranscriptDatabase;
 use crate::db::create::models::Reason;
 use crate::{
     annotate::seqvars::csq::ALT_ALN_METHOD,
-    pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
+    pbs::txs::{Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use enumflags2::BitFlags;
@@ -178,6 +178,10 @@ pub struct Config {
     ///
     /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
     /// either the first one is kept or all are kept.
+    ///
+    /// Transcripts are evaluated in the order these options are provided.
+    /// To prevent variants from being completely dropped, if none of the overlapping
+    /// transcripts match the requested criteria, the longest transcript is the implicit fallback.
     #[builder(default)]
     pub pick_transcript: Vec<TranscriptPickType>,
 
@@ -216,10 +220,6 @@ pub struct Provider {
     /// string used in the database (e.g. "1")
     contig_alias_map: FxHashMap<String, String>,
 
-    /// When transcript picking is enabled, contains the `GeneToTxIdx` entries
-    /// for each gene; the order matches the one of `tx_seq_db.gene_to_tx`.
-    picked_gene_to_tx_id: Option<Vec<GeneToTxId>>,
-
     /// for reading parts of reference sequences
     reference_reader: Option<ReferenceReaderImpl>,
 
@@ -228,6 +228,12 @@ pub struct Provider {
 
     /// The schema version.
     schema_version: String,
+
+    /// The transcript(-feature)s to pick, if any
+    pub pick_transcript: Vec<TranscriptPickType>,
+
+    /// How to handle multiple transcripts. Default is to keep all.
+    pub pick_transcript_mode: TranscriptPickMode,
 }
 
 enum ReferenceReaderImpl {
@@ -249,7 +255,7 @@ impl ReferenceReader for ReferenceReaderImpl {
     }
 }
 
-fn transcript_length(tx: &Transcript) -> i32 {
+pub(crate) fn transcript_length(tx: &Transcript) -> i32 {
     let mut max_tx_length = 0;
     for genome_alignment in tx.genome_alignments.iter() {
         // We just count length in reference so we don't have to look
@@ -265,6 +271,31 @@ fn transcript_length(tx: &Transcript) -> i32 {
     max_tx_length
 }
 
+pub(crate) fn tag_to_picktype(tag: &i32) -> Option<TranscriptPickType> {
+    match TranscriptTag::try_from(*tag).unwrap() {
+        TranscriptTag::Unknown | TranscriptTag::Other | TranscriptTag::OtherBackport => None,
+        TranscriptTag::Basic => Some(TranscriptPickType::Basic),
+        TranscriptTag::EnsemblCanonical => Some(TranscriptPickType::EnsemblCanonical),
+        TranscriptTag::ManeSelect => Some(TranscriptPickType::ManeSelect),
+        TranscriptTag::ManePlusClinical => Some(TranscriptPickType::ManePlusClinical),
+        TranscriptTag::RefSeqSelect => Some(TranscriptPickType::RefSeqSelect),
+        TranscriptTag::Selenoprotein => None,
+        TranscriptTag::GencodePrimary => Some(TranscriptPickType::GencodePrimary),
+        TranscriptTag::EnsemblGraft => None,
+        TranscriptTag::BasicBackport => Some(TranscriptPickType::BasicBackport),
+        TranscriptTag::EnsemblCanonicalBackport => {
+            Some(TranscriptPickType::EnsemblCanonicalBackport)
+        }
+        TranscriptTag::ManeSelectBackport => Some(TranscriptPickType::ManeSelectBackport),
+        TranscriptTag::ManePlusClinicalBackport => {
+            Some(TranscriptPickType::ManePlusClinicalBackport)
+        }
+        TranscriptTag::RefSeqSelectBackport => Some(TranscriptPickType::RefSeqSelectBackport),
+        TranscriptTag::SelenoproteinBackport => None,
+        TranscriptTag::GencodePrimaryBackport => Some(TranscriptPickType::GencodePrimaryBackport),
+    }
+}
+
 impl Provider {
     /// Create a new `MehariProvider` from a `TxSeqDatabase`.
     ///
@@ -272,7 +303,7 @@ impl Provider {
     ///
     /// * `tx_seq_db` - The `TxSeqDatabase` to use.
     pub fn new(
-        mut tx_seq_db: TxSeqDatabase,
+        tx_seq_db: TxSeqDatabase,
         reference: Option<impl AsRef<Path>>,
         in_memory_reference: bool,
         config: Config,
@@ -365,8 +396,6 @@ impl Provider {
                 .map(|(alias, idx)| (alias.clone(), *idx)),
         );
 
-        let picked_gene_to_tx_id = Self::picked_genes_to_tx_map(&mut tx_seq_db, &config, &tx_map);
-
         // TODO obtain or construct data_version and schema_version somehow
         // for now, these are just set to a combination of things that make this provider instance
         // unique, such that `data_version` and `schema_version` can be used as keys for
@@ -404,170 +433,12 @@ impl Provider {
             tx_map,
             seq_map,
             assembly_map,
-            picked_gene_to_tx_id,
             reference_reader,
             data_version,
             schema_version,
+            pick_transcript: config.pick_transcript,
+            pick_transcript_mode: config.pick_transcript_mode,
         }
-    }
-
-    /// When transcript picking is enabled, restrict to ManeSelect and ManePlusClinical if we have any such transcript.
-    /// Otherwise, fall back to the longest transcript.
-    fn picked_genes_to_tx_map(
-        tx_seq_db: &mut TxSeqDatabase,
-        config: &Config,
-        tx_map: &FxHashMap<String, u32>,
-    ) -> Option<Vec<GeneToTxId>> {
-        if config.pick_transcript.is_empty() || tx_seq_db.tx_db.is_none() {
-            return None;
-        }
-        let tx_db = tx_seq_db.tx_db.as_mut().unwrap();
-        let mut new_gene_to_tx = Vec::new();
-
-        fn tag_to_picktype(tag: &i32) -> Option<TranscriptPickType> {
-            match TranscriptTag::try_from(*tag).unwrap() {
-                TranscriptTag::Unknown | TranscriptTag::Other | TranscriptTag::OtherBackport => {
-                    None
-                }
-                TranscriptTag::Basic => Some(TranscriptPickType::Basic),
-                TranscriptTag::EnsemblCanonical => Some(TranscriptPickType::EnsemblCanonical),
-                TranscriptTag::ManeSelect => Some(TranscriptPickType::ManeSelect),
-                TranscriptTag::ManePlusClinical => Some(TranscriptPickType::ManePlusClinical),
-                TranscriptTag::RefSeqSelect => Some(TranscriptPickType::RefSeqSelect),
-                TranscriptTag::Selenoprotein => None,
-                TranscriptTag::GencodePrimary => Some(TranscriptPickType::GencodePrimary),
-                TranscriptTag::EnsemblGraft => None,
-                TranscriptTag::BasicBackport => Some(TranscriptPickType::BasicBackport),
-                TranscriptTag::EnsemblCanonicalBackport => {
-                    Some(TranscriptPickType::EnsemblCanonicalBackport)
-                }
-                TranscriptTag::ManeSelectBackport => Some(TranscriptPickType::ManeSelectBackport),
-                TranscriptTag::ManePlusClinicalBackport => {
-                    Some(TranscriptPickType::ManePlusClinicalBackport)
-                }
-                TranscriptTag::RefSeqSelectBackport => {
-                    Some(TranscriptPickType::RefSeqSelectBackport)
-                }
-                TranscriptTag::SelenoproteinBackport => None,
-                TranscriptTag::GencodePrimaryBackport => {
-                    Some(TranscriptPickType::GencodePrimaryBackport)
-                }
-            }
-        }
-
-        // FIXME: This source classification is a legacy artifact for VarFish TSV compatibility.
-        //   It should be removed once the varfish tsv export/import is updated.
-        let transcript_id_to_source = |tx_id: &str| -> String {
-            if tx_id.starts_with("ENST") {
-                "Ensembl".to_string()
-            } else if tx_id.starts_with('N') || tx_id.starts_with('X') {
-                "RefSeq".to_string()
-            } else {
-                // Safe fallback for arbitrary databases (e.g., TAIR10, custom assemblies)
-                "Other".to_string()
-            }
-        };
-
-        // Process each gene.
-        for entry in tx_db.gene_to_tx.iter() {
-            let mut longest_tx_per_source: FxHashMap<String, (bool, usize, i32)> =
-                FxHashMap::default();
-            let mut tx_tags = entry
-                .tx_ids
-                .iter()
-                .filter_map(|tx_id| {
-                    tx_map.get(tx_id).map(|tx_idx| {
-                        let tx = &tx_db.transcripts[*tx_idx as usize];
-                        let tags = tx.tags.iter().filter_map(tag_to_picktype).collect_vec();
-                        let length = transcript_length(tx);
-                        let source = transcript_id_to_source(tx_id);
-                        let is_clean = tx.is_clean();
-                        (tx_id, tags, length, source, is_clean)
-                    })
-                })
-                .enumerate()
-                .map(|(i, (tx_id, tags, length, source, is_clean))| {
-                    longest_tx_per_source
-                        .entry(source)
-                        .and_modify(|(prev_clean, prev_i, prev_length)| {
-                            if (is_clean, length) > (*prev_clean, *prev_length) {
-                                *prev_clean = is_clean;
-                                *prev_i = i;
-                                *prev_length = length;
-                            }
-                        })
-                        .or_insert((is_clean, i, length));
-                    (tx_id, tags, length)
-                })
-                .collect_vec();
-
-            for (_, (_, i, _)) in longest_tx_per_source.iter() {
-                tx_tags[*i].1.push(TranscriptPickType::Length);
-            }
-
-            let tx_ids = match config.pick_transcript_mode {
-                TranscriptPickMode::First => {
-                    // only keep the first transcript that fulfills the transcript picking strategy,
-                    // if any
-                    let tx_id = config
-                        .pick_transcript
-                        .iter()
-                        .filter_map(|pick| {
-                            tx_tags
-                                .iter()
-                                .find(|(_, tags, _)| tags.contains(pick))
-                                .map(|(tx_id, _, _)| tx_id)
-                        })
-                        .next();
-                    if let Some(tx_id) = tx_id {
-                        vec![tx_id.to_string()]
-                    } else {
-                        vec![]
-                    }
-                }
-                TranscriptPickMode::All => {
-                    // keep all transcripts that fulfill the transcript picking strategy
-                    tx_tags
-                        .iter()
-                        .filter_map(|(tx_id, tags, _)| {
-                            tags.iter()
-                                .any(|tag| config.pick_transcript.contains(tag))
-                                .then_some(tx_id.to_string())
-                        })
-                        .collect()
-                }
-            };
-
-            let new_entry = if !tx_ids.is_empty() {
-                GeneToTxId {
-                    gene_id: entry.gene_id.clone(),
-                    tx_ids,
-                    filtered: Some(false),
-                    filter_reason: None,
-                }
-            } else {
-                tracing::trace!(
-                    "no transcript found for gene {} with the chosen transcript picking strategy: {:?}",
-                    &entry.gene_id,
-                    &config.pick_transcript
-                );
-                GeneToTxId {
-                    gene_id: entry.gene_id.clone(),
-                    tx_ids: vec![],
-                    filtered: Some(true),
-                    filter_reason: Some(Reason::NoTranscriptLeft as u32),
-                }
-            };
-
-            tracing::trace!(
-                "picked transcripts {:?} for gene {}",
-                new_entry.tx_ids,
-                new_entry.gene_id
-            );
-            new_gene_to_tx.push(new_entry);
-        }
-
-        Some(new_gene_to_tx)
     }
 
     /// Return the assembly of the provider.
@@ -581,7 +452,7 @@ impl Provider {
 
     /// Return whether transcript picking is enabled.
     pub fn transcript_picking(&self) -> bool {
-        self.picked_gene_to_tx_id.is_some()
+        !self.pick_transcript.is_empty()
     }
 
     /// Return the picked transcript IDs for a gene.
@@ -595,19 +466,9 @@ impl Provider {
     /// The picked transcript IDs, or None if the gene is not found.
     pub fn get_picked_transcripts(&self, hgnc_id: &str) -> Option<Vec<String>> {
         self.gene_map.get(hgnc_id).and_then(|gene_idx| {
-            let gene_to_tx = if let Some(picked_gene_to_tx_id) = self.picked_gene_to_tx_id.as_ref()
-            {
-                picked_gene_to_tx_id
-            } else {
-                &self.tx_seq_db.tx_db.as_ref().expect("no tx_db?").gene_to_tx
-            };
-
-            // tracing::trace!(
-            //     "get_picked_transcripts({}) = {:?}",
-            //     hgnc_id,
-            //     &gene_to_tx[*gene_idx as usize].tx_ids
-            // );
+            let gene_to_tx = &self.tx_seq_db.tx_db.as_ref().expect("no tx_db?").gene_to_tx;
             let gene = &gene_to_tx[*gene_idx as usize];
+
             if let Some(true) = gene.filtered {
                 None
             } else {

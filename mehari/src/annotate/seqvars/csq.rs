@@ -3,7 +3,7 @@ use super::{
     ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
     provider::Provider as MehariProvider,
 };
-use crate::annotate::cli::ConsequenceBy;
+use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
 use crate::annotate::seqvars::ann::{
     ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, FeatureTag, GroupedAlleles,
 };
@@ -362,25 +362,149 @@ impl ConsequencePredictor {
         }
     }
 
-    // Filter transcripts to the picked ones from the selected transcript source.
     fn filter_picked_sourced_txs(&self, txs: Vec<TxForRegionRecord>) -> Vec<TxForRegionRecord> {
-        // Short-circuit if transcript picking has been disabled.
+        // If no picking is requested, return all overlapping transcripts
         if !self.provider.transcript_picking() {
             return txs;
         }
 
-        // Get gene ids for all transcripts in `txs`, then obtain the picked transcript
-        // identifiers for these genes and limit `txs` to those transcripts.
-        let picked_txs = txs
-            .iter()
-            .flat_map(|tx| self.provider.get_tx(&tx.tx_ac))
-            .flat_map(|tx| self.provider.get_picked_transcripts(&tx.gene_id))
-            .flatten()
-            .collect::<Vec<_>>();
-        // tracing::trace!("Picked transcripts: {:?}", &picked_txs);
-        txs.into_iter()
-            .filter(|tx| picked_txs.contains(&tx.tx_ac))
-            .collect::<Vec<_>>()
+        // Group the physically OVERLAPPING transcripts by gene
+        let mut by_gene: std::collections::HashMap<String, Vec<TxForRegionRecord>> =
+            std::collections::HashMap::new();
+        for tx in &txs {
+            if let Some(t) = self.provider.get_tx(&tx.tx_ac) {
+                by_gene
+                    .entry(t.gene_id.clone())
+                    .or_default()
+                    .push(tx.clone());
+            }
+        }
+
+        let mut dynamic_picked = Vec::new();
+
+        for (_, gene_txs) in by_gene {
+            if gene_txs.is_empty() {
+                continue;
+            }
+
+            // If only one transcript overlaps, it wins by default
+            if gene_txs.len() == 1 {
+                dynamic_picked.push(gene_txs[0].clone());
+                continue;
+            }
+
+            // Helper to find the "smart longest" among a subset of transcripts
+            let find_longest = |subset: &[TxForRegionRecord]| -> TxForRegionRecord {
+                subset
+                    .iter()
+                    .max_by_key(|tx| {
+                        self.provider
+                            .get_tx(&tx.tx_ac)
+                            .map(|t| {
+                                let is_coding = TranscriptBiotype::try_from(t.biotype)
+                                    .unwrap_or(TranscriptBiotype::Unknown)
+                                    == TranscriptBiotype::Coding;
+                                let is_clean = t.is_clean();
+                                let length =
+                                    crate::annotate::seqvars::provider::transcript_length(t);
+                                (is_coding, is_clean, length)
+                            })
+                            .unwrap_or((false, false, 0))
+                    })
+                    .cloned()
+                    .unwrap()
+            };
+
+            match self.provider.pick_transcript_mode {
+                TranscriptPickMode::First => {
+                    let mut resolved = None;
+
+                    // Evaluate criteria in strict CLI order against the OVERLAPPING transcripts
+                    for pick in &self.provider.pick_transcript {
+                        if *pick == TranscriptPickType::Length {
+                            resolved = Some(find_longest(&gene_txs));
+                            break;
+                        } else {
+                            let matched: Vec<_> = gene_txs
+                                .iter()
+                                .filter(|tx| {
+                                    if let Some(t) = self.provider.get_tx(&tx.tx_ac) {
+                                        let tags = t
+                                            .tags
+                                            .iter()
+                                            .filter_map(
+                                                crate::annotate::seqvars::provider::tag_to_picktype,
+                                            )
+                                            .collect::<Vec<_>>();
+                                        tags.contains(pick)
+                                    } else {
+                                        false
+                                    }
+                                })
+                                .cloned()
+                                .collect();
+
+                            if !matched.is_empty() {
+                                // If multiple overlapping transcripts share the tag, break tie with length
+                                resolved = Some(find_longest(&matched));
+                                break;
+                            }
+                        }
+                    }
+
+                    // If none of the CLI criteria matched (e.g. no ManeSelect overlaps, and Length wasn't specified),
+                    // fallback to the longest overlapping transcript to ensure we don't drop the variant.
+                    if let Some(tx) = resolved {
+                        dynamic_picked.push(tx);
+                    } else {
+                        dynamic_picked.push(find_longest(&gene_txs));
+                    }
+                }
+                TranscriptPickMode::All => {
+                    let mut kept_for_gene = Vec::new();
+
+                    for pick in &self.provider.pick_transcript {
+                        if *pick == TranscriptPickType::Length {
+                            let longest = find_longest(&gene_txs);
+                            if !kept_for_gene
+                                .iter()
+                                .any(|tx: &TxForRegionRecord| tx.tx_ac == longest.tx_ac)
+                            {
+                                kept_for_gene.push(longest);
+                            }
+                        } else {
+                            for tx in &gene_txs {
+                                if let Some(t) = self.provider.get_tx(&tx.tx_ac) {
+                                    let tags = t
+                                        .tags
+                                        .iter()
+                                        .filter_map(
+                                            crate::annotate::seqvars::provider::tag_to_picktype,
+                                        )
+                                        .collect::<Vec<_>>();
+                                    if tags.contains(pick)
+                                        && !kept_for_gene
+                                            .iter()
+                                            .any(|kept: &TxForRegionRecord| kept.tx_ac == tx.tx_ac)
+                                    {
+                                        kept_for_gene.push(tx.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if kept_for_gene.is_empty() {
+                        kept_for_gene.push(find_longest(&gene_txs));
+                    }
+
+                    dynamic_picked.extend(kept_for_gene);
+                }
+            }
+        }
+
+        dynamic_picked.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
+        dynamic_picked
     }
 
     /// Filter the ANN fields depending on the configuration.
@@ -394,9 +518,13 @@ impl ConsequencePredictor {
 
         /// Return sort order for ANN biotype, gives priority to ManeSelect and ManePlusClinical.
         fn tag_order(tags: &[FeatureTag]) -> i32 {
-            if tags.contains(&FeatureTag::ManeSelect) {
+            if tags.contains(&FeatureTag::ManeSelect)
+                || tags.contains(&FeatureTag::ManeSelectBackport)
+            {
                 0
-            } else if tags.contains(&FeatureTag::ManePlusClinical) {
+            } else if tags.contains(&FeatureTag::ManePlusClinical)
+                || tags.contains(&FeatureTag::ManePlusClinicalBackport)
+            {
                 1
             } else {
                 2
