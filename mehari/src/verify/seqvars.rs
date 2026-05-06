@@ -47,6 +47,10 @@ pub struct Args {
     ///
     /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
     /// either the first one is kept or all are kept.
+    ///
+    /// Transcripts are evaluated in the order these options are provided.
+    /// To prevent variants from being completely dropped, if none of the overlapping
+    /// transcripts match the requested criteria, the longest transcript is the implicit fallback.
     #[arg(long)]
     pub pick_transcript: Vec<TranscriptPickType>,
 
