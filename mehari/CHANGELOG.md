@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.43.0](https://github.com/varfish-org/mehari/compare/v0.42.0...v0.43.0) (2026-05-06)
+
+
+### Features
+
+* allow db subsetting by region ([#988](https://github.com/varfish-org/mehari/issues/988)) ([09aa020](https://github.com/varfish-org/mehari/commit/09aa0208187cda4928295e7f8e54d2008059de2b))
+
+
+### Bug Fixes
+
+* pick mode first and length picking ([#993](https://github.com/varfish-org/mehari/issues/993)) ([e63b7b0](https://github.com/varfish-org/mehari/commit/e63b7b0c334b092e3a2f63a37aebe861a949697a))
+* use with_added_extension ([#989](https://github.com/varfish-org/mehari/issues/989)) ([0dd76f9](https://github.com/varfish-org/mehari/commit/0dd76f90046badb479b0784c25d79bf891bf6705))
+
 ## [0.42.0](https://github.com/varfish-org/mehari/compare/v0.41.2...v0.42.0) (2026-04-14)
 
 

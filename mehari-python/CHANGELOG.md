@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.42.1](https://github.com/varfish-org/mehari/compare/v0.42.0...v0.42.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* pick mode first and length picking ([#993](https://github.com/varfish-org/mehari/issues/993)) ([e63b7b0](https://github.com/varfish-org/mehari/commit/e63b7b0c334b092e3a2f63a37aebe861a949697a))
+
 ## [0.42.0](https://github.com/varfish-org/mehari/compare/v0.41.2...v0.42.0) (2026-04-14)
 
 
