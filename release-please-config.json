@@ -2,12 +2,10 @@
   "bump-minor-pre-major": true,
   "packages": {
     "mehari": {
-      "release-type": "rust",
-      "include-component-in-tag": false
+      "release-type": "rust"
     },
     "mehari-python": {
       "release-type": "simple",
-      "include-component-in-tag": false,
       "extra-files": [
         {
           "type": "toml",
