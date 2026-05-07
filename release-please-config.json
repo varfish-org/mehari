@@ -5,6 +5,7 @@
       "release-type": "rust"
     },
     "mehari-python": {
+      "component": "mehari-python",
       "release-type": "simple",
       "extra-files": [
         {
