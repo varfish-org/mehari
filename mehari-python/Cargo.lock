@@ -2415,7 +2415,7 @@ dependencies = [
 
 [[package]]
 name = "mehari"
-version = "0.35.0"
+version = "0.43.2"
 dependencies = [
  "annonars",
  "anyhow",
@@ -2477,7 +2477,7 @@ dependencies = [
 
 [[package]]
 name = "mehari-python"
-version = "0.35.0"
+version = "0.43.2"
 dependencies = [
  "anyhow",
  "arrow",
