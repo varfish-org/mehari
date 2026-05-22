@@ -357,6 +357,13 @@ impl VarFishSeqvarTsvWriter {
                 }
             }
         };
+
+        if tsv_record.chromosome == "chrMT" {
+            tsv_record.chromosome = String::from("chrM");
+        } else if tsv_record.chromosome == "MT" {
+            tsv_record.chromosome = String::from("M");
+        }
+
         tsv_record.chromosome_no = self.contig_manager.get_chrom_no(name).unwrap_or(0);
 
         tsv_record.reference = record.reference_bases().to_string();
