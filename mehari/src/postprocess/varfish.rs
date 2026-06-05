@@ -64,7 +64,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     let assembly = match args.assembly.to_lowercase().as_ref() {
         "grch37" => "GRCh37",
         "grch38" => "GRCh38",
-        s => {
+        _ => {
             warn!(
                 "Unrecognized assembly '{}', using as-is in TSV output",
                 &args.assembly
