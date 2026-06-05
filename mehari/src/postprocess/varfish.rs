@@ -67,7 +67,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
         s => {
             warn!(
                 "Unrecognized assembly '{}', using as-is in TSV output",
-                args.assembly.as_ref()
+                &args.assembly
             );
             args.assembly.as_ref()
         }
