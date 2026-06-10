@@ -1579,6 +1579,12 @@ pub(crate) fn setup_seqvars_annotator(
             &assembly,
             contig_manager.clone(),
         )?;
+        if freq_dbs.is_empty() && !rocksdb_paths.is_empty() {
+            anyhow::bail!(
+                "Frequency paths were provided but no frequency databases could be initialized for assembly '{}'",
+                assembly
+            );
+        }
         for freq_db in freq_dbs {
             annotators.push(AnnotatorEnum::Frequency(freq_db))
         }
@@ -1591,6 +1597,12 @@ pub(crate) fn setup_seqvars_annotator(
             &assembly,
             contig_manager.clone(),
         )?;
+        if clinvar_dbs.is_empty() && !rocksdb_paths.is_empty() {
+            anyhow::bail!(
+                "ClinVar paths were provided but no ClinVar databases could be initialized for assembly '{}'",
+                assembly
+            );
+        }
         for clinvar_db in clinvar_dbs {
             annotators.push(AnnotatorEnum::Clinvar(clinvar_db))
         }
