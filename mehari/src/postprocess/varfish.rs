@@ -10,6 +10,7 @@ use clap::Parser;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use futures::TryStreamExt;
+use log::warn;
 use noodles::vcf::Header as VcfHeader;
 use noodles::vcf::variant::record::samples::keys::key::{
     CONDITIONAL_GENOTYPE_QUALITY, GENOTYPE, READ_DEPTH,
@@ -60,7 +61,18 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
 
     let mut reader = open_variant_reader(&args.input).await?;
     let header = reader.read_header().await?;
-    let assembly = args.assembly.clone();
+    let assembly = match args.assembly.to_lowercase().as_ref() {
+        "grch37" => "GRCh37",
+        "grch38" => "GRCh38",
+        _ => {
+            warn!(
+                "Unrecognized assembly '{}', using as-is in TSV output",
+                &args.assembly
+            );
+            args.assembly.as_ref()
+        }
+    }
+    .to_string();
 
     // 3. Initialize TSV Writer
     let mut writer = VarFishSeqvarTsvWriter::from_path(&args.output, args.tsv_contig_style)?;
