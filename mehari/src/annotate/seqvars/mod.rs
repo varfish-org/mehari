@@ -820,6 +820,7 @@ impl FrequencyAnnotator {
             // Build key for RocksDB database from `vcf_var`.
             let key: Vec<u8> = vcf_var.clone().into();
 
+            // Annotate with frequency.
             if contig_manager.is_autosomal_alias(&vcf_var.chrom) {
                 return self.annotate_record_auto(&key);
             } else if contig_manager.is_gonosomal_alias(&vcf_var.chrom) {
@@ -992,7 +993,8 @@ impl ClinvarAnnotator {
             .contig_manager
             .is_canonical_alias(vcf_var.chrom.as_str())
         {
-            let key: Vec<u8> = vcf_var.into();
+            // Build key for RocksDB database from `vcf_var`.
+            let key: Vec<u8> = vcf_var.clone().into();
             return self.annotate_record_clinvar(&key);
         }
         Ok(None)
