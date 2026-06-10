@@ -252,4 +252,128 @@ impl ContigManager {
     pub fn sequences(&self) -> impl Iterator<Item = &Sequence> {
         self.accession_to_info.values()
     }
+
+    /// Canonicalize an alias to be used as a key for annonars' DB accesses.
+    /// Basically strips leading "chr" and converts "M" to "MT".
+    #[inline]
+    pub fn canonicalize(alias: &str) -> String {
+        annonars::common::cli::canonicalize(alias)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn get_manager() -> ContigManager {
+        ContigManager::new("grch37")
+    }
+
+    #[test]
+    fn test_canonicalize() {
+        assert_eq!(ContigManager::canonicalize("chr1"), "1");
+        assert_eq!(ContigManager::canonicalize("1"), "1");
+        assert_eq!(ContigManager::canonicalize("chrX"), "X");
+        assert_eq!(ContigManager::canonicalize("chrM"), "MT");
+        assert_eq!(ContigManager::canonicalize("M"), "MT");
+        assert_eq!(ContigManager::canonicalize("MT"), "MT");
+    }
+
+    #[test]
+    fn test_is_canonical_alias() {
+        let cm = get_manager();
+
+        assert!(cm.is_canonical_alias("chr1"));
+        assert!(cm.is_canonical_alias("1"));
+        assert!(cm.is_canonical_alias("NC_000001.10")); // GRCh37 chr1
+        assert!(cm.is_canonical_alias("chrX"));
+        assert!(cm.is_canonical_alias("chrY"));
+        assert!(cm.is_canonical_alias("chrM"));
+        assert!(cm.is_canonical_alias("MT"));
+
+        assert!(!cm.is_canonical_alias("chrUn_gl000211"));
+        assert!(!cm.is_canonical_alias("random_string"));
+    }
+
+    #[test]
+    fn test_is_autosomal_alias() {
+        let cm = get_manager();
+
+        assert!(cm.is_autosomal_alias("chr1"));
+        assert!(cm.is_autosomal_alias("22"));
+        assert!(cm.is_autosomal_alias("NC_000001.10"));
+
+        assert!(!cm.is_autosomal_alias("chrX"));
+        assert!(!cm.is_autosomal_alias("MT"));
+    }
+
+    #[test]
+    fn test_is_gonosomal_alias() {
+        let cm = get_manager();
+
+        assert!(cm.is_gonosomal_alias("chrX"));
+        assert!(cm.is_gonosomal_alias("Y"));
+        assert!(cm.is_gonosomal_alias("NC_000023.10")); // GRCh37 chrX
+
+        assert!(!cm.is_gonosomal_alias("chr1"));
+        assert!(!cm.is_gonosomal_alias("MT"));
+    }
+
+    #[test]
+    fn test_is_mitochondrial_alias() {
+        let cm = get_manager();
+
+        assert!(cm.is_mitochondrial_alias("chrM"));
+        assert!(cm.is_mitochondrial_alias("MT"));
+        assert!(cm.is_mitochondrial_alias("M"));
+        assert!(cm.is_mitochondrial_alias("NC_012920.1")); // GRCh37 MT
+
+        assert!(!cm.is_mitochondrial_alias("chr1"));
+        assert!(!cm.is_mitochondrial_alias("chrX"));
+    }
+
+    #[test]
+    fn test_get_chrom_no() {
+        let cm = get_manager();
+
+        assert_eq!(cm.get_chrom_no("chr1"), Some(1));
+        assert_eq!(cm.get_chrom_no("NC_000001.10"), Some(1));
+        assert_eq!(cm.get_chrom_no("chrX"), Some(23));
+        assert_eq!(cm.get_chrom_no("Y"), Some(24));
+        assert_eq!(cm.get_chrom_no("chrM"), Some(25));
+        assert_eq!(cm.get_chrom_no("MT"), Some(25));
+        assert_eq!(cm.get_chrom_no("unknown_contig"), None);
+    }
+
+    #[test]
+    fn test_get_primary_name() {
+        let cm = get_manager();
+
+        assert_eq!(cm.get_primary_name("chr1").map(|s| s.as_str()), Some("1"));
+        assert_eq!(
+            cm.get_primary_name("NC_000001.10").map(|s| s.as_str()),
+            Some("1")
+        );
+        assert_eq!(cm.get_primary_name("chrM").map(|s| s.as_str()), Some("MT"));
+        assert_eq!(cm.get_primary_name("M").map(|s| s.as_str()), Some("MT"));
+        assert_eq!(cm.get_primary_name("chrX").map(|s| s.as_str()), Some("X"));
+    }
+
+    #[test]
+    fn test_get_accession() {
+        let cm = get_manager();
+
+        assert_eq!(
+            cm.get_accession("chr1").map(|s| s.as_str()),
+            Some("NC_000001.10")
+        );
+        assert_eq!(
+            cm.get_accession("1").map(|s| s.as_str()),
+            Some("NC_000001.10")
+        );
+        assert_eq!(
+            cm.get_accession("chrM").map(|s| s.as_str()),
+            Some("NC_012920.1")
+        );
+    }
 }
