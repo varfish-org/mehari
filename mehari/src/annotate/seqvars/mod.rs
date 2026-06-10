@@ -848,7 +848,7 @@ impl FrequencyAnnotator {
 
         // Build key for RocksDB database
         let vcf_var = keys::Var::from(
-            &annonars::common::cli::canonicalize(&vcf_var.chromosome),
+            &ContigManager::canonicalize(&vcf_var.chromosome),
             vcf_var.position,
             &vcf_var.reference,
             &vcf_var.alternative,
