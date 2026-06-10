@@ -1009,12 +1009,7 @@ impl ClinvarAnnotator {
         vcf_var: &VcfVariant,
     ) -> anyhow::Result<Option<crate::server::run::actix_server::seqvars_clinvar::ClinvarResultEntry>>
     {
-        let contig_manager = &self.contig_manager;
-
-        let mut chrom = vcf_var.chromosome.clone();
-        if let Some(primary) = contig_manager.get_primary_name(&chrom) {
-            chrom = primary.clone();
-        }
+        let chrom = ContigManager::canonicalize(&vcf_var.chromosome);
 
         // Build key for RocksDB database
         let vcf_var = keys::Var::from(
