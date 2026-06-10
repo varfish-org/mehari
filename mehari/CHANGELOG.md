@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.43.3](https://github.com/varfish-org/mehari/compare/mehari-v0.43.2...mehari-v0.43.3) (2026-06-10)
+
+
+### Bug Fixes
+
+* more robust freqs/clinvar assembly checks ([#1008](https://github.com/varfish-org/mehari/issues/1008)) ([d0ead01](https://github.com/varfish-org/mehari/commit/d0ead012210ae2daa8947f97e6130d0b81922961))
+* varfish postprocess TSV assembly capitalization ([#1007](https://github.com/varfish-org/mehari/issues/1007)) ([d3c997d](https://github.com/varfish-org/mehari/commit/d3c997d01ff5da20a493ad3c621e777e7806c988))
+
 ## [0.43.2](https://github.com/varfish-org/mehari/compare/mehari-v0.43.0...mehari-v0.43.2) (2026-05-07)
 
 
