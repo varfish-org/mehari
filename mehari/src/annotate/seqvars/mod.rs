@@ -818,11 +818,7 @@ impl FrequencyAnnotator {
         // Only attempt lookups into RocksDB for canonical contigs.
         if contig_manager.is_canonical_alias(vcf_var.chrom.as_str()) {
             let mut normalized_var = vcf_var.clone();
-
-            // Normalize "chr1" -> "1" so it matches the RocksDB keys
-            if let Some(primary) = contig_manager.get_primary_name(&normalized_var.chrom) {
-                normalized_var.chrom = primary.clone();
-            }
+            normalized_var.chrom = annonars::common::cli::canonicalize(&normalized_var.chrom);
 
             let key: Vec<u8> = normalized_var.clone().into();
 
@@ -850,14 +846,9 @@ impl FrequencyAnnotator {
             return Ok(None);
         }
 
-        let mut chrom = vcf_var.chromosome.clone();
-        if let Some(primary) = contig_manager.get_primary_name(&chrom) {
-            chrom = primary.clone();
-        }
-
         // Build key for RocksDB database
         let vcf_var = keys::Var::from(
-            &chrom,
+            &annonars::common::cli::canonicalize(&vcf_var.chromosome),
             vcf_var.position,
             &vcf_var.reference,
             &vcf_var.alternative,
@@ -1004,10 +995,7 @@ impl ClinvarAnnotator {
             .is_canonical_alias(vcf_var.chrom.as_str())
         {
             let mut normalized_var = vcf_var.clone();
-
-            if let Some(primary) = self.contig_manager.get_primary_name(&normalized_var.chrom) {
-                normalized_var.chrom = primary.clone();
-            }
+            normalized_var.chrom = annonars::common::cli::canonicalize(&normalized_var.chrom);
 
             let key: Vec<u8> = normalized_var.into();
             return self.annotate_record_clinvar(&key);
