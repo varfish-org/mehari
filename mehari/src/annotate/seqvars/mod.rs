@@ -1579,6 +1579,12 @@ pub(crate) fn setup_seqvars_annotator(
             &assembly,
             contig_manager.clone(),
         )?;
+        if freq_dbs.is_empty() && !rocksdb_paths.is_empty() {
+            anyhow::bail!(
+                "Frequency paths were provided but no frequency databases could be initialized for assembly '{}'",
+                assembly
+            );
+        }
         for freq_db in freq_dbs {
             annotators.push(AnnotatorEnum::Frequency(freq_db))
         }
@@ -1591,6 +1597,12 @@ pub(crate) fn setup_seqvars_annotator(
             &assembly,
             contig_manager.clone(),
         )?;
+        if clinvar_dbs.is_empty() && !rocksdb_paths.is_empty() {
+            anyhow::bail!(
+                "ClinVar paths were provided but no ClinVar databases could be initialized for assembly '{}'",
+                assembly
+            );
+        }
         for clinvar_db in clinvar_dbs {
             annotators.push(AnnotatorEnum::Clinvar(clinvar_db))
         }
@@ -1670,29 +1682,28 @@ pub(crate) fn initialize_clinvar_annotators_for_assembly(
     assembly: &str,
     contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<ClinvarAnnotator>, Error> {
-    rocksdb_paths
-        .iter()
-        .filter_map(|rocksdb_path| {
-            let skip = !rocksdb_path.contains(assembly);
-            if !skip {
-                tracing::info!(
-                    "Loading ClinVar database for assembly {:?} from {}",
-                    &assembly,
-                    &rocksdb_path
-                );
-                Some(ClinvarAnnotator::from_path(
-                    rocksdb_path,
-                    contig_manager.clone(),
-                ))
-            } else {
-                tracing::warn!(
-                "Skipping ClinVar database as its assembly does not match the requested one ({:?})",
-                &assembly
+    let mut annotators = Vec::new();
+    let assembly_lower = assembly.to_lowercase();
+
+    for rocksdb_path in rocksdb_paths {
+        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
+            tracing::info!(
+                "Loading ClinVar database for assembly {:?} from {}",
+                assembly,
+                rocksdb_path
             );
-                None
-            }
-        })
-        .collect()
+            let annotator = ClinvarAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+            annotators.push(annotator);
+        } else {
+            anyhow::bail!(
+                "ClinVar database path '{}' does not match the active assembly '{}'. \
+                 Please ensure the path matches the correct genome build, or adjust your path naming.",
+                rocksdb_path,
+                assembly
+            );
+        }
+    }
+    Ok(annotators)
 }
 
 pub(crate) fn initialize_frequency_annotators_for_assembly(
@@ -1700,20 +1711,28 @@ pub(crate) fn initialize_frequency_annotators_for_assembly(
     assembly: &str,
     contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<FrequencyAnnotator>, Error> {
-    rocksdb_paths.iter().filter_map(|rocksdb_path| {
-        let skip = !rocksdb_path.contains(assembly);
-        if !skip {
+    let mut annotators = Vec::new();
+    let assembly_lower = assembly.to_lowercase();
+
+    for rocksdb_path in rocksdb_paths {
+        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
             tracing::info!(
-                    "Loading frequency database for assembly {:?} from {}",
-                    &assembly,
-                    &rocksdb_path
-                );
-            Some(FrequencyAnnotator::from_path(rocksdb_path, contig_manager.clone()))
+                "Loading frequency database for assembly {:?} from {}",
+                assembly,
+                rocksdb_path
+            );
+            let annotator = FrequencyAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+            annotators.push(annotator);
         } else {
-            tracing::warn!("Skipping frequency database as its assembly does not match the requested one ({:?})", &assembly);
-            None
+            anyhow::bail!(
+                "Frequency database path '{}' does not match the active assembly '{}'. \
+                 Please ensure the path matches the correct genome build, or adjust your path naming.",
+                rocksdb_path,
+                assembly
+            );
         }
-    }).collect()
+    }
+    Ok(annotators)
 }
 
 pub(crate) fn load_transcript_dbs_for_assembly(
