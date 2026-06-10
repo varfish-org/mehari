@@ -817,16 +817,14 @@ impl FrequencyAnnotator {
         let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
         if contig_manager.is_canonical_alias(vcf_var.chrom.as_str()) {
-            let mut normalized_var = vcf_var.clone();
-            normalized_var.chrom = ContigManager::canonicalize(&normalized_var.chrom);
+            // Build key for RocksDB database from `vcf_var`.
+            let key: Vec<u8> = vcf_var.clone().into();
 
-            let key: Vec<u8> = normalized_var.clone().into();
-
-            if contig_manager.is_autosomal_alias(&normalized_var.chrom) {
+            if contig_manager.is_autosomal_alias(&vcf_var.chrom) {
                 return self.annotate_record_auto(&key);
-            } else if contig_manager.is_gonosomal_alias(&normalized_var.chrom) {
+            } else if contig_manager.is_gonosomal_alias(&vcf_var.chrom) {
                 return self.annotate_record_xy(&key);
-            } else if contig_manager.is_mitochondrial_alias(&normalized_var.chrom) {
+            } else if contig_manager.is_mitochondrial_alias(&vcf_var.chrom) {
                 return self.annotate_record_mt(&key);
             }
         }
@@ -848,7 +846,7 @@ impl FrequencyAnnotator {
 
         // Build key for RocksDB database
         let vcf_var = keys::Var::from(
-            &ContigManager::canonicalize(&vcf_var.chromosome),
+            &vcf_var.chromosome,
             vcf_var.position,
             &vcf_var.reference,
             &vcf_var.alternative,
@@ -994,10 +992,7 @@ impl ClinvarAnnotator {
             .contig_manager
             .is_canonical_alias(vcf_var.chrom.as_str())
         {
-            let mut normalized_var = vcf_var.clone();
-            normalized_var.chrom = ContigManager::canonicalize(&normalized_var.chrom);
-
-            let key: Vec<u8> = normalized_var.into();
+            let key: Vec<u8> = vcf_var.into();
             return self.annotate_record_clinvar(&key);
         }
         Ok(None)
@@ -1009,11 +1004,9 @@ impl ClinvarAnnotator {
         vcf_var: &VcfVariant,
     ) -> anyhow::Result<Option<crate::server::run::actix_server::seqvars_clinvar::ClinvarResultEntry>>
     {
-        let chrom = ContigManager::canonicalize(&vcf_var.chromosome);
-
         // Build key for RocksDB database
         let vcf_var = keys::Var::from(
-            &chrom,
+            &vcf_var.chromosome,
             vcf_var.position,
             &vcf_var.reference,
             &vcf_var.alternative,
