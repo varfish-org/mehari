@@ -22,7 +22,7 @@ wheels = [
 
 [[package]]
 name = "mehari"
-version = "0.43.2"
+version = "0.43.3"
 source = { editable = "." }
 dependencies = [
     { name = "polars" },
