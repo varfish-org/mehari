@@ -17,8 +17,8 @@ use std::{io::Write, path::PathBuf};
 /// Command line arguments for `db subset` sub command.
 ///
 /// The subsetting process works in two stages:
-/// 1. First, an initial set of transcripts is selected based on exactly one criterion
-///    provided in the `Selection` group (e.g. by HGNC ID, transcript ID, region, or VCF).
+/// 1. First, an initial set of transcripts is selected based on zero or one criterion
+///    provided in the optional `Selection` group (e.g. by HGNC ID, transcript ID, region, or VCF).
 /// 2. Then, the resulting transcripts can be further filtered using the optional
 ///    `--include-transcripts` and `--exclude-transcripts` regular expressions. If an
 ///    include regex is provided, only transcripts matching it are kept. If an exclude
@@ -170,17 +170,19 @@ fn subset_tx_db(container: &TxSeqDatabase, args: &Args) -> Result<TxSeqDatabase>
             if tx_idxs.contains(&idx) {
                 let tx_id = &tx.id;
 
-                let included = include_re.as_ref().map_or(true, |re| re.is_match(tx_id));
-                let excluded = exclude_re.as_ref().map_or(false, |re| re.is_match(tx_id));
+                let included = include_re.as_ref().map(|re| re.is_match(tx_id));
+                let excluded = exclude_re.as_ref().map(|re| re.is_match(tx_id));
 
-                if included && excluded {
+                if included == Some(true) && excluded == Some(true) {
                     anyhow::bail!(
                         "Transcript {} matches both include and exclude regular expressions. Please adjust the regular expressions to not overlap.",
                         tx_id
                     );
                 }
 
-                if included && !excluded {
+                let keep = included.unwrap_or(true) && !excluded.unwrap_or(false);
+
+                if keep {
                     new_tx_idxs.insert(idx);
                     new_tx_ids.insert(tx_id.clone());
                     new_gene_ids.insert(tx.gene_id.clone());
