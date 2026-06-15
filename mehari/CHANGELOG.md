@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.44.0](https://github.com/varfish-org/mehari/compare/mehari-v0.43.3...mehari-v0.44.0) (2026-06-15)
+
+
+### Features
+
+* add regex db subset options ([#1012](https://github.com/varfish-org/mehari/issues/1012)) ([120f304](https://github.com/varfish-org/mehari/commit/120f304bd667b2a95e91578fb670b5bd04e1ab64))
+
 ## [0.43.3](https://github.com/varfish-org/mehari/compare/mehari-v0.43.2...mehari-v0.43.3) (2026-06-10)
 
 
