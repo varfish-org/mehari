@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.44.1](https://github.com/varfish-org/mehari/compare/mehari-v0.44.0...mehari-v0.44.1) (2026-06-17)
+
+
+### Bug Fixes
+
+* exclude filtered out transcripts from gene-to-tx mapping ([#1016](https://github.com/varfish-org/mehari/issues/1016)) ([17d3bf7](https://github.com/varfish-org/mehari/commit/17d3bf77bcb50249d6d7999c3912741755bdb4f7))
+
 ## [0.44.0](https://github.com/varfish-org/mehari/compare/mehari-v0.43.3...mehari-v0.44.0) (2026-06-15)
 
 

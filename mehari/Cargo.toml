@@ -1,6 +1,6 @@
 [package]
 name = "mehari"
-version = "0.44.0"
+version = "0.44.1"
 edition = "2024"
 rust-version = "1.91"
 authors = ["Manuel Holtgrewe <manuel.holtgrewe@bih-charite.de>"]
