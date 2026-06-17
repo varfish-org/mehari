@@ -219,7 +219,13 @@ fn subset_tx_db(container: &TxSeqDatabase, args: &Args) -> Result<TxSeqDatabase>
             .iter()
             .filter_map(|gene_to_tx| {
                 if gene_ids.contains(gene_to_tx.gene_id.as_str()) {
-                    Some(gene_to_tx.clone())
+                    let mut mapping = gene_to_tx.clone();
+                    mapping.tx_ids.retain(|tx_id| tx_ids.contains(tx_id));
+                    if mapping.tx_ids.is_empty() {
+                        None
+                    } else {
+                        Some(mapping)
+                    }
                 } else {
                     None
                 }

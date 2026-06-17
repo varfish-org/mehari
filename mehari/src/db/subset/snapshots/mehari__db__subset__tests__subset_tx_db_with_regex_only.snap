@@ -13053,7 +13053,6 @@ txDb:
     - NM_007298.3
     - NM_007299.4
     - NM_007300.4
-    - NR_027676.2
     filtered: false
   - geneId: HGNC:1101
     txIds:
