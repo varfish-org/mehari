@@ -31,7 +31,7 @@ jobs:
       - name: locosopa
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        uses: koesterlab/locosopa@54e01e5b0f4e4163c99264cb0739f77ee40c71b8 # v1.1.2
+        uses: koesterlab/locosopa@92c786b2bb21f57e14d5c3ba1db8e7d5234bf39e # v1.2.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config: page/config.yaml

@@ -16,7 +16,7 @@ jobs:
           lfs: true
 
       - name: locosopa
-        uses: koesterlab/locosopa@31df1859c7e22173bfaf6e234c6ae4260b4479db # v1.0.6
+        uses: koesterlab/locosopa@92c786b2bb21f57e14d5c3ba1db8e7d5234bf39e # v1.2.0
         with:
           config: page/config.yaml
           path: build
