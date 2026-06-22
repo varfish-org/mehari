@@ -41,8 +41,8 @@ else
       $(test -e "$PATH_FREQUENCIES_38" && echo --frequencies "$PATH_FREQUENCIES_38") \
       $(test -e "$PATH_CLINVAR_37" && echo --clinvar "$PATH_CLINVAR_37") \
       $(test -e "$PATH_CLINVAR_38" && echo --clinvar "$PATH_CLINVAR_38") \
-      $(test -e "$PATH_REFERENCE_37" && echo --reference "$PATH_REFERENCE_37") \
-      $(test -e "$PATH_REFERENCE_38" && echo --reference "$PATH_REFERENCE_38") \
+      $(test -e "$PATH_REFERENCE_37" && echo --reference "grch37=$PATH_REFERENCE_37") \
+      $(test -e "$PATH_REFERENCE_38" && echo --reference "grch38=$PATH_REFERENCE_38") \
       --listen-host "$HTTP_HOST" \
       --listen-port "$HTTP_PORT"
 fi
