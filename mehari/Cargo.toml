@@ -94,7 +94,7 @@ version = "0.46.0"
 features = ["async", "libdeflate"]
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = { version = "0.6", optional = true }
+tikv-jemallocator = { version = "0.7", optional = true }
 
 [dependencies.dhat]
 version = "0.3.3"
