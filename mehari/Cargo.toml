@@ -90,7 +90,7 @@ version = "0.109.0"
 features = ["async", "core", "vcf", "bcf", "csi", "fasta", "tabix", "gff"]
 
 [dependencies.noodles-bgzf]
-version = "0.46.0"
+version = "0.47.0"
 features = ["async", "libdeflate"]
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
