@@ -37,20 +37,20 @@ pub struct Args {
     pub format: String,
 
     /// TSV: Chromosome column header name
-    #[arg(long)]
-    pub col_chrom: Option<String>,
+    #[arg(long, default_value = "chrom")]
+    pub col_chrom: String,
 
     /// TSV: Position column header name
-    #[arg(long)]
-    pub col_pos: Option<String>,
+    #[arg(long, default_value = "pos")]
+    pub col_pos: String,
 
     /// TSV: Reference allele column header name
-    #[arg(long)]
-    pub col_ref: Option<String>,
+    #[arg(long, default_value = "ref")]
+    pub col_ref: String,
 
     /// TSV: Alternative allele column header name
-    #[arg(long)]
-    pub col_alt: Option<String>,
+    #[arg(long, default_value = "alt")]
+    pub col_alt: String,
 
     /// TSV: List of value column header names to store. If omitted, all other columns are stored.
     #[arg(long)]
@@ -69,89 +69,14 @@ pub mod cli {
     pub use super::Args;
 }
 
-struct TsvColResolver {
-    idx_chrom: usize,
-    idx_pos: usize,
-    idx_ref: usize,
-    idx_alt: usize,
-    value_cols: Vec<(String, usize)>,
-}
-
-impl TsvColResolver {
-    fn new(
-        headers: &[String],
-        col_chrom: &Option<String>,
-        col_pos: &Option<String>,
-        col_ref: &Option<String>,
-        col_alt: &Option<String>,
-        col_values: &Option<Vec<String>>,
-    ) -> Result<Self, Error> {
-        let clean_headers: Vec<String> = headers
-            .iter()
-            .map(|h| h.trim_start_matches('#').to_string())
-            .collect();
-
-        let find_idx = |spec: &Option<String>, default_name: &str| -> Result<usize, Error> {
-            if let Some(s) = spec {
-                if let Some(idx) = clean_headers.iter().position(|h| h.eq_ignore_ascii_case(s)) {
-                    return Ok(idx);
-                }
-                anyhow::bail!("Column not found: {}", s);
-            }
-            if let Some(idx) = clean_headers
-                .iter()
-                .position(|h| h.eq_ignore_ascii_case(default_name))
-            {
-                Ok(idx)
-            } else {
-                anyhow::bail!("Could not resolve column for {}", default_name);
-            }
-        };
-
-        let idx_chrom = find_idx(col_chrom, "chrom")?;
-        let idx_pos = find_idx(col_pos, "pos")?;
-        let idx_ref = find_idx(col_ref, "ref")?;
-        let idx_alt = find_idx(col_alt, "alt")?;
-
-        let mut value_cols = Vec::new();
-        if let Some(vals) = col_values {
-            for v in vals {
-                if let Some(idx) = clean_headers.iter().position(|h| h.eq_ignore_ascii_case(v)) {
-                    value_cols.push((headers[idx].clone(), idx));
-                } else {
-                    anyhow::bail!("Value column not found: {}", v);
-                }
-            }
-        } else {
-            for (idx, h) in headers.iter().enumerate() {
-                if idx != idx_chrom && idx != idx_pos && idx != idx_ref && idx != idx_alt {
-                    value_cols.push((h.clone(), idx));
-                }
-            }
-        }
-
-        Ok(Self {
-            idx_chrom,
-            idx_pos,
-            idx_ref,
-            idx_alt,
-            value_cols,
-        })
-    }
-}
-
 fn open_tsv_reader(
     path: &std::path::Path,
-) -> Result<(csv::Reader<Box<dyn std::io::Read>>, Vec<String>), Error> {
+) -> Result<(csv::Reader<Box<dyn std::io::Read>>, csv::StringRecord), Error> {
     let file = File::open(path)?;
-    let decoder: Box<dyn std::io::Read> = if path.extension().and_then(|s| s.to_str()) == Some("gz")
-    {
-        Box::new(flate2::read::MultiGzDecoder::new(file))
-    } else {
-        Box::new(file)
-    };
-    let mut buf_reader = BufReader::new(decoder);
+    let (reader, _format) = niffler::get_reader(Box::new(file))?;
+    let mut buf_reader = BufReader::new(reader);
 
+    // Skip any leading lines starting with '##'
     let mut header_line = String::new();
     let mut line = String::new();
     while buf_reader.read_line(&mut line)? > 0 {
@@ -159,10 +84,6 @@ fn open_tsv_reader(
         if trimmed.starts_with("##") {
             line.clear();
             continue;
-        }
-        if trimmed.starts_with('#') {
-            header_line = trimmed.to_string();
-            break;
         }
         header_line = trimmed.to_string();
         break;
@@ -177,13 +98,15 @@ fn open_tsv_reader(
         .split('\t')
         .map(|s| s.trim().to_string())
         .collect();
+    let headers_record = csv::StringRecord::from(headers);
 
     let rdr = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .has_headers(false)
+        .comment(Some(b'#'))
         .from_reader(Box::new(buf_reader) as Box<dyn std::io::Read>);
 
-    Ok((rdr, headers))
+    Ok((rdr, headers_record))
 }
 
 fn open_vcf_reader(
@@ -196,13 +119,8 @@ fn open_vcf_reader(
     Error,
 > {
     let file = File::open(path)?;
-    let decoder: Box<dyn std::io::Read> = if path.extension().and_then(|s| s.to_str()) == Some("gz")
-    {
-        Box::new(flate2::read::MultiGzDecoder::new(file))
-    } else {
-        Box::new(file)
-    };
-    let buf_reader = BufReader::new(decoder);
+    let (reader, _format) = niffler::get_reader(Box::new(file))?;
+    let buf_reader = BufReader::new(reader);
     let mut reader =
         noodles::vcf::io::Reader::new(Box::new(buf_reader) as Box<dyn std::io::BufRead>);
     let header = reader.read_header()?;
@@ -335,38 +253,44 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
             }
         } else {
             // TSV
-            let (mut rdr, headers) = open_tsv_reader(input_file)?;
-            let resolver = TsvColResolver::new(
-                &headers,
-                &args.col_chrom,
-                &args.col_pos,
-                &args.col_ref,
-                &args.col_alt,
-                &args.col_values,
-            )?;
-
-            for (name, _) in &resolver.value_cols {
-                seen_keys.insert(name.clone());
-            }
+            let (mut rdr, headers_record) = open_tsv_reader(input_file)?;
 
             for result in rdr.records() {
                 let record = result?;
-                if record.is_empty() || record[0].starts_with('#') {
-                    continue;
-                }
+                let record_map: HashMap<String, String> =
+                    record.deserialize(Some(&headers_record))?;
 
-                if record.len() <= resolver.idx_chrom
-                    || record.len() <= resolver.idx_pos
-                    || record.len() <= resolver.idx_ref
-                    || record.len() <= resolver.idx_alt
-                {
-                    continue;
-                }
-
-                let chrom = &record[resolver.idx_chrom];
-                let pos: i32 = record[resolver.idx_pos].parse()?;
-                let reference = &record[resolver.idx_ref];
-                let alternative = &record[resolver.idx_alt];
+                let chrom = record_map.get(&args.col_chrom).ok_or_else(|| {
+                    anyhow!(
+                        "Missing Chromosome column '{}' in {:?}",
+                        args.col_chrom,
+                        input_file
+                    )
+                })?;
+                let pos: i32 = record_map
+                    .get(&args.col_pos)
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Missing Position column '{}' in {:?}",
+                            args.col_pos,
+                            input_file
+                        )
+                    })?
+                    .parse()?;
+                let reference = record_map.get(&args.col_ref).ok_or_else(|| {
+                    anyhow!(
+                        "Missing Reference column '{}' in {:?}",
+                        args.col_ref,
+                        input_file
+                    )
+                })?;
+                let alternative = record_map.get(&args.col_alt).ok_or_else(|| {
+                    anyhow!(
+                        "Missing Alternative column '{}' in {:?}",
+                        args.col_alt,
+                        input_file
+                    )
+                })?;
 
                 let chrom_std = contig_manager
                     .get_primary_name(chrom)
@@ -374,10 +298,28 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                     .unwrap_or_else(|| chrom.to_string());
 
                 let mut fields = HashMap::new();
-                for (name, idx) in &resolver.value_cols {
-                    if *idx < record.len() {
-                        fields.insert(name.clone(), record[*idx].to_string());
+                if let Some(vals) = &args.col_values {
+                    for v in vals {
+                        if let Some(val) = record_map.get(v) {
+                            fields.insert(v.clone(), val.clone());
+                        } else {
+                            anyhow::bail!("Value column '{}' not found in {:?}", v, input_file);
+                        }
                     }
+                } else {
+                    for (k, v) in &record_map {
+                        if k != &args.col_chrom
+                            && k != &args.col_pos
+                            && k != &args.col_ref
+                            && k != &args.col_alt
+                        {
+                            fields.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+
+                for k in fields.keys() {
+                    seen_keys.insert(k.clone());
                 }
 
                 let var = Var {
