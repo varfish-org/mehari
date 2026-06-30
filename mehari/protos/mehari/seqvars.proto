@@ -1,0 +1,35 @@
+// Protobuf messages for sequence variant annotations (CADD, SpliceAI, and generic key-value lookups).
+
+syntax = "proto3";
+
+package mehari.seqvars;
+
+// Cadd score record for a variant
+message CaddRecord {
+  float raw_score = 1;
+  float phred = 2;
+}
+
+// SpliceAI prediction details for one alternative allele and symbol
+message SpliceAiPrediction {
+  string allele = 1;
+  string symbol = 2;
+  float ds_ag = 3;
+  float ds_al = 4;
+  float ds_dg = 5;
+  float ds_dl = 6;
+  int32 dp_ag = 7;
+  int32 dp_al = 8;
+  int32 dp_dg = 9;
+  int32 dp_dl = 10;
+}
+
+// SpliceAI record containing predictions for a variant (supports multiple transcripts/symbols)
+message SpliceAiRecord {
+  repeated SpliceAiPrediction predictions = 1;
+}
+
+// Generic/custom lookup record for arbitrary key-value databases
+message GenericLookupRecord {
+  map<string, string> fields = 1;
+}
