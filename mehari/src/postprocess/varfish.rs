@@ -102,6 +102,9 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                 consequences,
                 frequencies: None, // TSV writer pulls freqs directly from INFO below
                 clinvar: None,
+                cadd: None,
+                spliceai: None,
+                custom: vec![],
             },
         };
 

@@ -3313,6 +3313,7 @@ mod test {
                     transcripts: Some(vec![tx_path.into()]),
                     frequencies: None,
                     clinvar: None,
+                    ..Default::default()
                 },
             },
         )

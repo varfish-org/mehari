@@ -3411,6 +3411,9 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                             consequences: vec![],
                             frequencies: None,
                             clinvar: None,
+                            cadd: None,
+                            spliceai: None,
+                            custom: vec![],
                         },
                     };
                     writer

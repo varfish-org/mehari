@@ -54,10 +54,13 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 pub mod ann;
 pub mod binning;
+pub mod cadd;
 mod compound;
 pub mod csq;
+pub mod custom;
 pub mod provider;
 pub(crate) mod reference;
+pub mod spliceai;
 
 #[derive(Debug, Clone, clap::ValueEnum, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -125,6 +128,7 @@ fn build_header(
     with_annotations: bool,
     with_frequencies: bool,
     with_clinvar: bool,
+    annotators: &[AnnotatorEnum],
     additional_records: &[(String, String)],
     csq_config: &Config,
 ) -> VcfHeader {
@@ -249,6 +253,12 @@ fn build_header(
             "clinvar_vcv".into(),
             Map::<Info>::new(Number::Count(1), InfoType::String, "ClinVar VCV accession"),
         );
+    }
+
+    for annotator in annotators {
+        if let Err(e) = annotator.register_vcf_headers(&mut header_out) {
+            tracing::error!("Failed to register VCF headers for annotator: {}", e);
+        }
     }
 
     for (key, value) in additional_records {
@@ -421,6 +431,125 @@ pub(crate) fn prepare_vcf_record(
         );
     }
 
+    if let Some(cadd) = &record.annotation.cadd {
+        let infos = out_record.info_mut();
+        infos.insert(
+            "CADD_RAW".into(),
+            Some(field::Value::Array(field::value::Array::Float(vec![Some(
+                cadd.raw_score,
+            )]))),
+        );
+        infos.insert(
+            "CADD_PHRED".into(),
+            Some(field::Value::Array(field::value::Array::Float(vec![Some(
+                cadd.phred,
+            )]))),
+        );
+    }
+
+    if let Some(spliceai) = &record.annotation.spliceai {
+        let infos = out_record.info_mut();
+        let mut symbols = Vec::new();
+        let mut ds_ags = Vec::new();
+        let mut ds_als = Vec::new();
+        let mut ds_dgs = Vec::new();
+        let mut ds_dls = Vec::new();
+        let mut dp_ags = Vec::new();
+        let mut dp_als = Vec::new();
+        let mut dp_dgs = Vec::new();
+        let mut dp_dls = Vec::new();
+
+        for pred in &spliceai.predictions {
+            symbols.push(pred.symbol.clone());
+            ds_ags.push(format!("{:.2}", pred.ds_ag));
+            ds_als.push(format!("{:.2}", pred.ds_al));
+            ds_dgs.push(format!("{:.2}", pred.ds_dg));
+            ds_dls.push(format!("{:.2}", pred.ds_dl));
+            dp_ags.push(format!("{}", pred.dp_ag));
+            dp_als.push(format!("{}", pred.dp_al));
+            dp_dgs.push(format!("{}", pred.dp_dg));
+            dp_dls.push(format!("{}", pred.dp_dl));
+        }
+
+        let symbol_str = symbols.join("&");
+        let ds_ag_str = ds_ags.join("&");
+        let ds_al_str = ds_als.join("&");
+        let ds_dg_str = ds_dgs.join("&");
+        let ds_dl_str = ds_dls.join("&");
+        let dp_ag_str = dp_ags.join("&");
+        let dp_al_str = dp_als.join("&");
+        let dp_dg_str = dp_dgs.join("&");
+        let dp_dl_str = dp_dls.join("&");
+
+        infos.insert(
+            "SpliceAI_pred_SYMBOL".into(),
+            Some(field::Value::Array(field::value::Array::String(vec![
+                Some(symbol_str),
+            ]))),
+        );
+        infos.insert(
+            "SpliceAI_pred_DS_AG".into(),
+            Some(field::Value::Array(field::value::Array::String(vec![
+                Some(ds_ag_str),
+            ]))),
+        );
+        infos.insert(
+            "SpliceAI_pred_DS_AL".into(),
+            Some(field::Value::Array(field::value::Array::String(vec![
+                Some(ds_al_str),
+            ]))),
+        );
+        infos.insert(
+            "SpliceAI_pred_DS_DG".into(),
+            Some(field::Value::Array(field::value::Array::String(vec![
+                Some(ds_dg_str),
+            ]))),
+        );
+        infos.insert(
+            "SpliceAI_pred_DS_DL".into(),
+            Some(field::Value::Array(field::value::Array::String(vec![
+                Some(ds_dl_str),
+            ]))),
+        );
+        infos.insert(
+            "SpliceAI_pred_DP_AG".into(),
+            Some(field::Value::Array(field::value::Array::String(vec![
+                Some(dp_ag_str),
+            ]))),
+        );
+        infos.insert(
+            "SpliceAI_pred_DP_AL".into(),
+            Some(field::Value::Array(field::value::Array::String(vec![
+                Some(dp_al_str),
+            ]))),
+        );
+        infos.insert(
+            "SpliceAI_pred_DP_DG".into(),
+            Some(field::Value::Array(field::value::Array::String(vec![
+                Some(dp_dg_str),
+            ]))),
+        );
+        infos.insert(
+            "SpliceAI_pred_DP_DL".into(),
+            Some(field::Value::Array(field::value::Array::String(vec![
+                Some(dp_dl_str),
+            ]))),
+        );
+    }
+
+    for custom_db in &record.annotation.custom {
+        let infos = out_record.info_mut();
+        for (key, val) in &custom_db.fields {
+            let field_name = format!("{}_{}", custom_db.db_name, key);
+            infos.insert(
+                field_name,
+                Some(field::Value::Array(field::value::Array::String(vec![
+                    Some(val.clone()),
+                ]))),
+            );
+        }
+    }
+
     if !record.annotation.consequences.is_empty() {
         let formatted_anns: Vec<Option<String>> = record
             .annotation
@@ -549,6 +678,9 @@ impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
                         consequences: vec![],
                         frequencies: None,
                         clinvar: None,
+                        cadd: None,
+                        spliceai: None,
+                        custom: vec![],
                     },
                 },
             )
@@ -660,6 +792,9 @@ pub(crate) enum AnnotatorEnum {
     Frequency(FrequencyAnnotator),
     Clinvar(ClinvarAnnotator),
     Consequence(ConsequenceAnnotator),
+    Cadd(cadd::CaddAnnotator),
+    SpliceAi(spliceai::SpliceAiAnnotator),
+    Custom(String, custom::CustomDbAnnotator),
 }
 
 impl AnnotatorEnum {
@@ -693,6 +828,95 @@ impl AnnotatorEnum {
             }
             AnnotatorEnum::Consequence(a) => {
                 annotation.consequences = a.annotate(var)?;
+                Ok(())
+            }
+            AnnotatorEnum::Cadd(a) => {
+                if let Some(cadd) = a.annotate(var)? {
+                    if annotation.cadd.is_some() {
+                        anyhow::bail!(
+                            "Multiple CADD databases returned results for variant {:?}",
+                            var
+                        );
+                    }
+                    annotation.cadd = Some(cadd);
+                }
+                Ok(())
+            }
+            AnnotatorEnum::SpliceAi(a) => {
+                if let Some(spliceai) = a.annotate(var)? {
+                    if annotation.spliceai.is_some() {
+                        anyhow::bail!(
+                            "Multiple SpliceAI databases returned results for variant {:?}",
+                            var
+                        );
+                    }
+                    annotation.spliceai = Some(spliceai);
+                }
+                Ok(())
+            }
+            AnnotatorEnum::Custom(name, a) => {
+                if let Some(custom_res) = a.annotate(name, var)? {
+                    annotation.custom.push(custom_res);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn register_vcf_headers(&self, header: &mut VcfHeader) -> Result<(), Error> {
+        match self {
+            AnnotatorEnum::Frequency(_) => Ok(()),
+            AnnotatorEnum::Clinvar(_) => Ok(()),
+            AnnotatorEnum::Consequence(_) => Ok(()),
+            AnnotatorEnum::Cadd(_) => {
+                header.infos_mut().insert(
+                    "CADD_RAW".into(),
+                    Map::<Info>::new(Number::Count(1), InfoType::Float, "Raw CADD score"),
+                );
+                header.infos_mut().insert(
+                    "CADD_PHRED".into(),
+                    Map::<Info>::new(Number::Count(1), InfoType::Float, "PHRED scaled CADD score"),
+                );
+                Ok(())
+            }
+            AnnotatorEnum::SpliceAi(_) => {
+                let fields = vec![
+                    ("SYMBOL", "gene symbol"),
+                    ("DS_AG", "delta score for acceptor gain"),
+                    ("DS_AL", "delta score for acceptor loss"),
+                    ("DS_DG", "delta score for donor gain"),
+                    ("DS_DL", "delta score for donor loss"),
+                    ("DP_AG", "delta position for acceptor gain"),
+                    ("DP_AL", "delta position for acceptor loss"),
+                    ("DP_DG", "delta position for donor gain"),
+                    ("DP_DL", "delta position for donor loss"),
+                ];
+                for (name, desc) in fields {
+                    let field_name = format!("SpliceAI_pred_{}", name);
+                    header.infos_mut().insert(
+                        field_name.into(),
+                        Map::<Info>::new(
+                            Number::Unknown,
+                            InfoType::String,
+                            format!("SpliceAI (v1.3.1) prediction. {}", desc),
+                        ),
+                    );
+                }
+                Ok(())
+            }
+            AnnotatorEnum::Custom(name, a) => {
+                let fields = a.get_fields()?;
+                for f in fields {
+                    let field_name = format!("{}_{}", name, f);
+                    header.infos_mut().insert(
+                        field_name.into(),
+                        Map::<Info>::new(
+                            Number::Unknown,
+                            InfoType::String,
+                            format!("Custom lookup annotation from database {}", name),
+                        ),
+                    );
+                }
                 Ok(())
             }
         }
@@ -1180,6 +1404,9 @@ impl Annotator {
             consequences: vec![],
             frequencies: None,
             clinvar: None,
+            cadd: None,
+            spliceai: None,
+            custom: vec![],
         };
 
         // Skip records with a deletion as alternative allele.
@@ -1440,6 +1667,7 @@ async fn run_with_writer(
         with_annotations,
         with_frequencies,
         with_clinvar,
+        &annotator.annotators,
         &additional_header_info,
         &csq_config,
     );
@@ -1608,6 +1836,42 @@ pub(crate) fn setup_seqvars_annotator(
         }
     }
 
+    // Add the CADD annotator if requested.
+    if let Some(rocksdb_paths) = &sources.cadd {
+        let cadd_dbs = initialize_cadd_annotators_for_assembly(
+            rocksdb_paths,
+            &assembly,
+            contig_manager.clone(),
+        )?;
+        for cadd_db in cadd_dbs {
+            annotators.push(AnnotatorEnum::Cadd(cadd_db))
+        }
+    }
+
+    // Add the SpliceAI annotator if requested.
+    if let Some(rocksdb_paths) = &sources.spliceai {
+        let spliceai_dbs = initialize_spliceai_annotators_for_assembly(
+            rocksdb_paths,
+            &assembly,
+            contig_manager.clone(),
+        )?;
+        for spliceai_db in spliceai_dbs {
+            annotators.push(AnnotatorEnum::SpliceAi(spliceai_db))
+        }
+    }
+
+    // Add the custom DB annotator if requested.
+    if let Some(custom_db_specs) = &sources.custom_db {
+        let custom_dbs = initialize_custom_db_annotators_for_assembly(
+            custom_db_specs,
+            &assembly,
+            contig_manager.clone(),
+        )?;
+        for (name, custom_db) in custom_dbs {
+            annotators.push(AnnotatorEnum::Custom(name, custom_db))
+        }
+    }
+
     // Add the consequence annotator if requested.
     if !preloaded_tx_dbs.is_empty() {
         // Filter out any loaded databases that don't match the active assembly
@@ -1735,6 +1999,103 @@ pub(crate) fn initialize_frequency_annotators_for_assembly(
     Ok(annotators)
 }
 
+pub(crate) fn initialize_cadd_annotators_for_assembly(
+    rocksdb_paths: &[String],
+    assembly: &str,
+    contig_manager: Arc<ContigManager>,
+) -> Result<Vec<cadd::CaddAnnotator>, Error> {
+    let mut annotators = Vec::new();
+    let assembly_lower = assembly.to_lowercase();
+
+    for rocksdb_path in rocksdb_paths {
+        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
+            tracing::info!(
+                "Loading CADD database for assembly {:?} from {}",
+                assembly,
+                rocksdb_path
+            );
+            let annotator = cadd::CaddAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+            annotators.push(annotator);
+        } else {
+            anyhow::bail!(
+                "CADD database path '{}' does not match the active assembly '{}'.",
+                rocksdb_path,
+                assembly
+            );
+        }
+    }
+    Ok(annotators)
+}
+
+pub(crate) fn initialize_spliceai_annotators_for_assembly(
+    rocksdb_paths: &[String],
+    assembly: &str,
+    contig_manager: Arc<ContigManager>,
+) -> Result<Vec<spliceai::SpliceAiAnnotator>, Error> {
+    let mut annotators = Vec::new();
+    let assembly_lower = assembly.to_lowercase();
+
+    for rocksdb_path in rocksdb_paths {
+        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
+            tracing::info!(
+                "Loading SpliceAI database for assembly {:?} from {}",
+                assembly,
+                rocksdb_path
+            );
+            let annotator =
+                spliceai::SpliceAiAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+            annotators.push(annotator);
+        } else {
+            anyhow::bail!(
+                "SpliceAI database path '{}' does not match the active assembly '{}'.",
+                rocksdb_path,
+                assembly
+            );
+        }
+    }
+    Ok(annotators)
+}
+
+pub(crate) fn initialize_custom_db_annotators_for_assembly(
+    custom_db_specs: &[String],
+    assembly: &str,
+    contig_manager: Arc<ContigManager>,
+) -> Result<Vec<(String, custom::CustomDbAnnotator)>, Error> {
+    let mut annotators = Vec::new();
+    let assembly_lower = assembly.to_lowercase();
+
+    for spec in custom_db_specs {
+        let parts: Vec<&str> = spec.splitn(2, '=').collect();
+        if parts.len() != 2 {
+            anyhow::bail!(
+                "Invalid custom DB specification: '{}'. Must be in name=path format.",
+                spec
+            );
+        }
+        let name = parts[0].to_string();
+        let rocksdb_path = parts[1];
+
+        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
+            tracing::info!(
+                "Loading custom database '{}' for assembly {:?} from {}",
+                name,
+                assembly,
+                rocksdb_path
+            );
+            let annotator =
+                custom::CustomDbAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+            annotators.push((name, annotator));
+        } else {
+            anyhow::bail!(
+                "Custom database path '{}' does not match the active assembly '{}'.",
+                rocksdb_path,
+                assembly
+            );
+        }
+    }
+    Ok(annotators)
+}
+
 pub(crate) fn load_transcript_dbs_for_assembly(
     tx_sources: &[String],
     assembly: &str,
@@ -1850,6 +2211,9 @@ pub struct VariantAnnotation {
     pub consequences: Vec<AnnField>,
     pub frequencies: Option<FreqResult>,
     pub clinvar: Option<ClinvarResult>,
+    pub cadd: Option<cadd::CaddResult>,
+    pub spliceai: Option<spliceai::SpliceAiResult>,
+    pub custom: Vec<custom::CustomDbResult>,
 }
 
 #[derive(Debug, Clone)]
@@ -2009,6 +2373,9 @@ impl<'a> VariantProcessor<'a> {
                         consequences: vec![],
                         frequencies: None,
                         clinvar: None,
+                        cadd: None,
+                        spliceai: None,
+                        custom: vec![],
                     })
             })
             .collect();
@@ -2126,6 +2493,7 @@ mod test {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
+                ..Default::default()
             },
         };
 
@@ -2185,6 +2553,7 @@ mod test {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
+                ..Default::default()
             },
         };
 
@@ -2255,6 +2624,7 @@ mod test {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
+                ..Default::default()
             },
         };
 
@@ -2327,6 +2697,7 @@ mod test {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
+                ..Default::default()
             },
         };
 
@@ -2399,6 +2770,7 @@ mod test {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
                 transcripts: Some(vec![format!("{prefix}/{assembly}/txs.bin.zst")]),
+                ..Default::default()
             },
         };
 

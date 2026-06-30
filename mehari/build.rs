@@ -7,10 +7,14 @@ use std::{env, path::PathBuf};
 fn main() -> Result<(), anyhow::Error> {
     // Integration of `prost-build` and `pbjson-build`.
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("protos");
-    let proto_files = ["mehari/txs.proto", "mehari/server.proto"]
-        .iter()
-        .map(|f| root.join(f))
-        .collect::<Vec<_>>();
+    let proto_files = [
+        "mehari/txs.proto",
+        "mehari/server.proto",
+        "mehari/seqvars.proto",
+    ]
+    .iter()
+    .map(|f| root.join(f))
+    .collect::<Vec<_>>();
 
     // Tell cargo to recompile if any of these proto files are changed
     for proto_file in &proto_files {

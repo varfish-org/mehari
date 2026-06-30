@@ -1,8 +1,9 @@
 use crate::annotate::cli::{PredictorSettings, Sources};
 use crate::annotate::seqvars::csq::ConfigBuilder;
 use crate::annotate::seqvars::{
-    ConsequenceAnnotator, initialize_clinvar_annotators_for_assembly,
-    initialize_frequency_annotators_for_assembly, load_transcript_dbs_for_assembly,
+    ConsequenceAnnotator, initialize_cadd_annotators_for_assembly,
+    initialize_clinvar_annotators_for_assembly, initialize_frequency_annotators_for_assembly,
+    initialize_spliceai_annotators_for_assembly, load_transcript_dbs_for_assembly,
 };
 use crate::annotate::{
     seqvars::csq::ConsequencePredictor as SeqvarConsequencePredictor,
@@ -32,6 +33,9 @@ pub mod openapi {
         ExonAlignment, GenesTranscriptsListQuery, GenesTranscriptsListResponse, GenomeAlignment,
         Strand, Transcript, TranscriptBiotype, TranscriptTag,
     };
+    use crate::server::run::actix_server::seqvars_cadd::{
+        CaddQuery, CaddResponse, CaddResultEntry,
+    };
     use crate::server::run::actix_server::seqvars_clinvar::{
         ClinvarQuery, ClinvarResponse, ClinvarResultEntry,
     };
@@ -42,6 +46,9 @@ pub mod openapi {
         AutosomalResultEntry, FrequencyQuery, FrequencyResponse, FrequencyResultEntry,
         GonosomalResultEntry, MitochondrialResultEntry,
     };
+    use crate::server::run::actix_server::seqvars_spliceai::{
+        SpliceAiPredictionEntry, SpliceAiQuery, SpliceAiResponse,
+    };
     use crate::server::run::actix_server::strucvars_csq::{
         StrucvarsCsqQuery, StrucvarsCsqResponse,
     };
@@ -50,8 +57,8 @@ pub mod openapi {
     };
 
     use super::actix_server::{
-        CustomError, gene_txs, seqvars_clinvar, seqvars_csq, seqvars_frequencies, strucvars_csq,
-        versions,
+        CustomError, gene_txs, seqvars_cadd, seqvars_clinvar, seqvars_csq, seqvars_frequencies,
+        seqvars_spliceai, strucvars_csq, versions,
     };
 
     /// Utoipa-based `OpenAPI` generation helper.
@@ -64,6 +71,8 @@ pub mod openapi {
             strucvars_csq::handle_with_openapi,
             seqvars_frequencies::handle_with_openapi,
             seqvars_clinvar::handle_with_openapi,
+            seqvars_cadd::handle_with_openapi,
+            seqvars_spliceai::handle_with_openapi,
         ),
         components(schemas(
             Assembly,
@@ -104,6 +113,12 @@ pub mod openapi {
             ClinvarQuery,
             ClinvarResponse,
             ClinvarResultEntry,
+            CaddQuery,
+            CaddResponse,
+            CaddResultEntry,
+            SpliceAiQuery,
+            SpliceAiResponse,
+            SpliceAiPredictionEntry,
         ))
     )]
     pub struct ApiDoc;
@@ -175,6 +190,8 @@ enum Endpoint {
     Transcripts,
     Frequency,
     Clinvar,
+    Cadd,
+    Spliceai,
 }
 
 /// Print some hints via `tracing::info!`.
@@ -346,10 +363,54 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         }
     }
 
+    let mut cadd_paths = HashMap::new();
+    if let Some(paths) = args.sources.cadd.as_ref() {
+        for path in paths {
+            if let Some(assembly) = associate_db_path(path) {
+                if let Some(prev) = cadd_paths.insert(assembly.clone(), path.clone()) {
+                    tracing::warn!(
+                        "Duplicate CADD DB for {:?}: {} overwritten by {}",
+                        assembly,
+                        prev,
+                        path
+                    );
+                }
+            } else {
+                tracing::warn!(
+                    "Could not determine assembly for CADD db: {}. Skipping.",
+                    path
+                );
+            }
+        }
+    }
+
+    let mut spliceai_paths = HashMap::new();
+    if let Some(paths) = args.sources.spliceai.as_ref() {
+        for path in paths {
+            if let Some(assembly) = associate_db_path(path) {
+                if let Some(prev) = spliceai_paths.insert(assembly.clone(), path.clone()) {
+                    tracing::warn!(
+                        "Duplicate SpliceAI DB for {:?}: {} overwritten by {}",
+                        assembly,
+                        prev,
+                        path
+                    );
+                }
+            } else {
+                tracing::warn!(
+                    "Could not determine assembly for SpliceAI db: {}. Skipping.",
+                    path
+                );
+            }
+        }
+    }
+
     let mut all_releases: HashSet<String> = HashSet::new();
     all_releases.extend(transcript_paths.keys().cloned());
     all_releases.extend(frequency_paths.keys().cloned());
     all_releases.extend(clinvar_paths.keys().cloned());
+    all_releases.extend(cadd_paths.keys().cloned());
+    all_releases.extend(spliceai_paths.keys().cloned());
 
     let mut enabled_sources = vec![];
     for assembly in all_releases.iter() {
@@ -445,6 +506,38 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                 tracing::info!("... done loading ClinVar data for {:?}.", assembly.clone());
             } else {
                 tracing::warn!("Could not load ClinVar data for {:?}.", assembly.clone());
+            }
+        }
+
+        if let Some(cadd_path) = cadd_paths.get(&assembly.clone()) {
+            tracing::info!("Loading CADD data for {:?}...", assembly.clone());
+            let annotators = initialize_cadd_annotators_for_assembly(
+                std::slice::from_ref(cadd_path),
+                assembly,
+                contig_manager.clone(),
+            )?;
+            if let Some(annotator) = annotators.into_iter().next() {
+                data.cadd_annotators.insert(assembly.clone(), annotator);
+                enabled_sources.push((assembly.clone(), Endpoint::Cadd));
+                tracing::info!("... done loading CADD data for {:?}.", assembly.clone());
+            } else {
+                tracing::warn!("Could not load CADD data for {:?}.", assembly.clone());
+            }
+        }
+
+        if let Some(spliceai_path) = spliceai_paths.get(&assembly.clone()) {
+            tracing::info!("Loading SpliceAI data for {:?}...", assembly.clone());
+            let annotators = initialize_spliceai_annotators_for_assembly(
+                std::slice::from_ref(spliceai_path),
+                assembly,
+                contig_manager.clone(),
+            )?;
+            if let Some(annotator) = annotators.into_iter().next() {
+                data.spliceai_annotators.insert(assembly.clone(), annotator);
+                enabled_sources.push((assembly.clone(), Endpoint::Spliceai));
+                tracing::info!("... done loading SpliceAI data for {:?}.", assembly.clone());
+            } else {
+                tracing::warn!("Could not load SpliceAI data for {:?}.", assembly.clone());
             }
         }
     }

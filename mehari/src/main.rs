@@ -146,11 +146,82 @@ struct Db {
 /// Enum supporting the parsing of "db *" sub commands.
 #[derive(Debug, Subcommand)]
 enum DbCommands {
+    /// Commands related to transcript database
+    Transcripts(TranscriptsArgs),
+    /// Commands related to CADD database
+    Cadd(CaddArgs),
+    /// Commands related to SpliceAI database
+    Spliceai(SpliceaiArgs),
+    /// Commands related to generic lookup database
+    Generic(GenericArgs),
+}
+
+/// Subcommands under "db transcripts"
+#[derive(Debug, Parser)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct TranscriptsArgs {
+    /// The sub command to run
+    #[command(subcommand)]
+    pub command: TranscriptsCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TranscriptsCommands {
+    /// Construct transcripts database
     Create(create::cli::Args),
+    /// Introspect / check transcripts database
     Check(db::check::Args),
+    /// Dump transcripts database
     Dump(db::dump::Args),
+    /// Merge transcript databases
     Merge(db::merge::Args),
+    /// Subset transcripts database
     Subset(db::subset::Args),
+}
+
+/// Subcommands under "db cadd"
+#[derive(Debug, Parser)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct CaddArgs {
+    /// The sub command to run
+    #[command(subcommand)]
+    pub command: CaddCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CaddCommands {
+    /// Construct CADD score database
+    Create(db::create_cadd::cli::Args),
+}
+
+/// Subcommands under "db spliceai"
+#[derive(Debug, Parser)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct SpliceaiArgs {
+    /// The sub command to run
+    #[command(subcommand)]
+    pub command: SpliceaiCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SpliceaiCommands {
+    /// Construct SpliceAI score database
+    Create(db::create_spliceai::cli::Args),
+}
+
+/// Subcommands under "db generic"
+#[derive(Debug, Parser)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct GenericArgs {
+    /// The sub command to run
+    #[command(subcommand)]
+    pub command: GenericCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GenericCommands {
+    /// Construct generic lookup database
+    Create(db::create_generic::cli::Args),
 }
 
 /// Parsing of "annotate *" sub commands.
@@ -249,11 +320,22 @@ async fn main() -> Result<(), anyhow::Error> {
 
     match &cli.command {
         Commands::Db(db) => match &db.command {
-            DbCommands::Create(args) => db::create::run(&cli.common, args)?,
-            DbCommands::Check(args) => db::check::run(&cli.common, args)?,
-            DbCommands::Dump(args) => db::dump::run(&cli.common, args)?,
-            DbCommands::Subset(args) => db::subset::run(&cli.common, args)?,
-            DbCommands::Merge(args) => db::merge::run(&cli.common, args)?,
+            DbCommands::Transcripts(transcripts) => match &transcripts.command {
+                TranscriptsCommands::Create(args) => db::create::run(&cli.common, args)?,
+                TranscriptsCommands::Check(args) => db::check::run(&cli.common, args)?,
+                TranscriptsCommands::Dump(args) => db::dump::run(&cli.common, args)?,
+                TranscriptsCommands::Subset(args) => db::subset::run(&cli.common, args)?,
+                TranscriptsCommands::Merge(args) => db::merge::run(&cli.common, args)?,
+            },
+            DbCommands::Cadd(cadd) => match &cadd.command {
+                CaddCommands::Create(args) => db::create_cadd::run(&cli.common, args)?,
+            },
+            DbCommands::Spliceai(spliceai) => match &spliceai.command {
+                SpliceaiCommands::Create(args) => db::create_spliceai::run(&cli.common, args)?,
+            },
+            DbCommands::Generic(generic) => match &generic.command {
+                GenericCommands::Create(args) => db::create_generic::run(&cli.common, args)?,
+            },
         },
         Commands::Annotate(annotate) => match &annotate.command {
             AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args).await?,
