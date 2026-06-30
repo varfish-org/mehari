@@ -1,0 +1,5 @@
+---
+source: mehari/src/db/transcripts/create/mod.rs
+expression: "&tx_data.annotation_version"
+---
+0.2.22
