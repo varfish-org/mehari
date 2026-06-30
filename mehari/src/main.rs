@@ -56,11 +56,11 @@
 //!
 //! ... for building the databases:
 //!
-//! * `mehari db create txs` -- create a database of transcript sequences from
+//! * `mehari db transcripts create` -- create a database of transcript sequences from
 //!   [cdot JSON files](https://github.com/SACGF/cdot/releases)
-//! * `mehari db create seqvar-freqs` -- create a database of sequence variant (SNV/indel/MNV)
-//!   population frequencies (from [gnomAD](https://gnomad.broadinstitute.org/) and
-//!   [HelixMtDb](https://www.helix.com/pages/mitochondrial-variant-database))
+//! * `mehari db cadd create` -- create a database of CADD scores
+//! * `mehari db spliceai create` -- create a database of SpliceAI predictions
+//! * `mehari db generic create` -- create a database of generic/custom lookup scores
 //!
 //! Full documentation is available in the [user documentation](`self::user_doc`).
 //!
