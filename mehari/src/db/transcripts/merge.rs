@@ -1,6 +1,6 @@
 use crate::annotate::seqvars::load_tx_db;
 use crate::common;
-use crate::db::create::write_tx_db;
+use crate::db::transcripts::create::write_tx_db;
 use crate::pbs::txs::TxSeqDatabase;
 use clap::Parser;
 use itertools::Itertools;

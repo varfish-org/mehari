@@ -2,14 +2,10 @@
 
 use crate::pbs::txs::TxSeqDatabase;
 
-pub mod check;
-pub mod create;
-pub mod create_cadd;
-pub mod create_generic;
-pub mod create_spliceai;
-pub mod dump;
-pub mod merge;
-pub mod subset;
+pub mod cadd;
+pub mod generic;
+pub mod spliceai;
+pub mod transcripts;
 
 /// Trait for transcript databases.
 pub trait TranscriptDatabase {

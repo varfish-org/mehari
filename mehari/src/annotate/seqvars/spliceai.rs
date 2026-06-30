@@ -135,14 +135,14 @@ mod tests {
         let common_args = crate::common::Args {
             verbose: clap_verbosity_flag::Verbosity::new(0, 0),
         };
-        let create_args = crate::db::create_spliceai::Args {
+        let create_args = crate::db::spliceai::Args {
             assembly: "GRCh38".to_string(),
             input: vec![input_path],
             output: output_path.clone(),
             batch_size: 1000,
         };
 
-        crate::db::create_spliceai::run(&common_args, &create_args)?;
+        crate::db::spliceai::run(&common_args, &create_args)?;
 
         let contig_manager = Arc::new(ContigManager::new("GRCh38"));
         let annotator = SpliceAiAnnotator::from_path(&output_path, contig_manager)?;

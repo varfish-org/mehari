@@ -23,7 +23,7 @@ use crate::annotate::seqvars::provider::{
 };
 use crate::common::contig::ContigManager;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
-use crate::db::merge::merge_transcript_databases;
+use crate::db::transcripts::merge::merge_transcript_databases;
 use crate::pbs;
 use crate::pbs::txs::TxSeqDatabase;
 use annonars::common::keys;

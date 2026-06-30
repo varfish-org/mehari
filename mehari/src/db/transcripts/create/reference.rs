@@ -1,6 +1,6 @@
 use crate::annotate::seqvars::reference::{ReferenceReader, UnbufferedIndexedFastaAccess};
 use crate::common::contig::ContigManager;
-use crate::db::create::cli::Args;
+use crate::db::transcripts::create::cli::Args;
 use anyhow::{Error, anyhow};
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
 use std::collections::HashMap;

@@ -92,7 +92,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Args, Parser, Subcommand};
-use mehari::db::create;
+use mehari::db::transcripts::create;
 #[cfg(feature = "server")]
 use mehari::server;
 use mehari::{annotate, common, db, verify};
@@ -170,13 +170,13 @@ pub enum TranscriptsCommands {
     /// Construct transcripts database
     Create(create::cli::Args),
     /// Introspect / check transcripts database
-    Check(db::check::Args),
+    Check(db::transcripts::check::Args),
     /// Dump transcripts database
-    Dump(db::dump::Args),
+    Dump(db::transcripts::dump::Args),
     /// Merge transcript databases
-    Merge(db::merge::Args),
+    Merge(db::transcripts::merge::Args),
     /// Subset transcripts database
-    Subset(db::subset::Args),
+    Subset(db::transcripts::subset::Args),
 }
 
 /// Subcommands under "db cadd"
@@ -191,7 +191,7 @@ pub struct CaddArgs {
 #[derive(Debug, Subcommand)]
 pub enum CaddCommands {
     /// Construct CADD score database
-    Create(db::create_cadd::cli::Args),
+    Create(db::cadd::cli::Args),
 }
 
 /// Subcommands under "db spliceai"
@@ -206,7 +206,7 @@ pub struct SpliceaiArgs {
 #[derive(Debug, Subcommand)]
 pub enum SpliceaiCommands {
     /// Construct SpliceAI score database
-    Create(db::create_spliceai::cli::Args),
+    Create(db::spliceai::cli::Args),
 }
 
 /// Subcommands under "db generic"
@@ -221,7 +221,7 @@ pub struct GenericArgs {
 #[derive(Debug, Subcommand)]
 pub enum GenericCommands {
     /// Construct generic lookup database
-    Create(db::create_generic::cli::Args),
+    Create(db::generic::cli::Args),
 }
 
 /// Parsing of "annotate *" sub commands.
@@ -321,20 +321,24 @@ async fn main() -> Result<(), anyhow::Error> {
     match &cli.command {
         Commands::Db(db) => match &db.command {
             DbCommands::Transcripts(transcripts) => match &transcripts.command {
-                TranscriptsCommands::Create(args) => db::create::run(&cli.common, args)?,
-                TranscriptsCommands::Check(args) => db::check::run(&cli.common, args)?,
-                TranscriptsCommands::Dump(args) => db::dump::run(&cli.common, args)?,
-                TranscriptsCommands::Subset(args) => db::subset::run(&cli.common, args)?,
-                TranscriptsCommands::Merge(args) => db::merge::run(&cli.common, args)?,
+                TranscriptsCommands::Create(args) => {
+                    db::transcripts::create::run(&cli.common, args)?
+                }
+                TranscriptsCommands::Check(args) => db::transcripts::check::run(&cli.common, args)?,
+                TranscriptsCommands::Dump(args) => db::transcripts::dump::run(&cli.common, args)?,
+                TranscriptsCommands::Subset(args) => {
+                    db::transcripts::subset::run(&cli.common, args)?
+                }
+                TranscriptsCommands::Merge(args) => db::transcripts::merge::run(&cli.common, args)?,
             },
             DbCommands::Cadd(cadd) => match &cadd.command {
-                CaddCommands::Create(args) => db::create_cadd::run(&cli.common, args)?,
+                CaddCommands::Create(args) => db::cadd::run(&cli.common, args)?,
             },
             DbCommands::Spliceai(spliceai) => match &spliceai.command {
-                SpliceaiCommands::Create(args) => db::create_spliceai::run(&cli.common, args)?,
+                SpliceaiCommands::Create(args) => db::spliceai::run(&cli.common, args)?,
             },
             DbCommands::Generic(generic) => match &generic.command {
-                GenericCommands::Create(args) => db::create_generic::run(&cli.common, args)?,
+                GenericCommands::Create(args) => db::generic::run(&cli.common, args)?,
             },
         },
         Commands::Annotate(annotate) => match &annotate.command {

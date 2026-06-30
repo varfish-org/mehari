@@ -429,7 +429,7 @@ fn __extract_transcripts_from_db(
 
 #[cfg(test)]
 mod tests {
-    use crate::db::subset::Selection;
+    use crate::db::transcripts::subset::Selection;
     use temp_testdir::TempDir;
 
     #[tracing_test::traced_test]

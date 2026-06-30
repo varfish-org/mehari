@@ -10,7 +10,7 @@ use crate::annotate::{
     strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor,
 };
 use crate::common::contig::ContigManager;
-use crate::db::merge::merge_transcript_databases;
+use crate::db::transcripts::merge::merge_transcript_databases;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::str::FromStr;

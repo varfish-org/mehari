@@ -26,13 +26,13 @@ mod gff3;
 pub mod models;
 pub mod reference;
 
-use crate::db::create::build::build_protobuf;
-use crate::db::create::cdot::load_cdot;
-use crate::db::create::filter::{
+use crate::db::transcripts::create::build::build_protobuf;
+use crate::db::transcripts::create::cdot::load_cdot;
+use crate::db::transcripts::create::filter::{
     filter_empty_gene_id_mappings, filter_genes, filter_initial_gene_id_entries,
     filter_transcripts, filter_transcripts_with_sequence, propagate_discard_reasons,
 };
-use crate::db::create::gff3::load_gff3;
+use crate::db::transcripts::create::gff3::load_gff3;
 use models::*;
 
 fn txid_to_label(
@@ -356,12 +356,12 @@ pub mod test {
     use temp_testdir::TempDir;
 
     use crate::common::Args as CommonArgs;
-    use crate::db::create::cdot::load_cdot;
-    use crate::db::create::cli::Args;
-    use crate::db::create::filter::filter_transcripts;
-    use crate::db::create::models::GeneId;
-    use crate::db::create::models::TranscriptLoader;
-    use crate::db::dump;
+    use crate::db::transcripts::create::cdot::load_cdot;
+    use crate::db::transcripts::create::cli::Args;
+    use crate::db::transcripts::create::filter::filter_transcripts;
+    use crate::db::transcripts::create::models::GeneId;
+    use crate::db::transcripts::create::models::TranscriptLoader;
+    use crate::db::transcripts::dump;
 
     use super::run;
 

@@ -1,7 +1,7 @@
-use crate::db::create::models::{
+use crate::db::transcripts::create::models::{
     Fix, GeneId, Identifier, Reason, TranscriptExt, TranscriptId, TranscriptLoader,
 };
-use crate::db::create::reference::SequenceProvider;
+use crate::db::transcripts::create::reference::SequenceProvider;
 use anyhow::Error;
 use derive_new::new;
 use enumflags2::{BitFlag, BitFlags};

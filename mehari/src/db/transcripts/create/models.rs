@@ -1,6 +1,6 @@
 use crate::annotate::seqvars::ann::FeatureTag;
-use crate::db::create::DisplayFromStr;
-use crate::db::create::filter::MITOCHONDRIAL_ACCESSIONS;
+use crate::db::transcripts::create::DisplayFromStr;
+use crate::db::transcripts::create::filter::MITOCHONDRIAL_ACCESSIONS;
 use anyhow::{Error, anyhow};
 use enumflags2::bitflags;
 use enumflags2::{BitFlag, BitFlags};

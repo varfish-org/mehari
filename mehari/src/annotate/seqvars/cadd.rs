@@ -97,14 +97,14 @@ mod tests {
         let common_args = crate::common::Args {
             verbose: clap_verbosity_flag::Verbosity::new(0, 0),
         };
-        let create_args = crate::db::create_cadd::Args {
+        let create_args = crate::db::cadd::Args {
             assembly: "GRCh38".to_string(),
             input: vec![input_path],
             output: output_path.clone(),
             batch_size: 1000,
         };
 
-        crate::db::create_cadd::run(&common_args, &create_args)?;
+        crate::db::cadd::run(&common_args, &create_args)?;
 
         let contig_manager = Arc::new(ContigManager::new("GRCh38"));
         let annotator = CaddAnnotator::from_path(&output_path, contig_manager)?;
