@@ -58,6 +58,10 @@ pub fn open_db(path: &Path, data_cf: &str) -> Result<rocksdb::DB, Error> {
     options.set_compression_type(rocksdb::DBCompressionType::Zstd);
     options.set_compression_options(-14, 19, 0, 16 * 1024);
 
+    options.set_max_background_jobs(4);
+    options.set_write_buffer_size(128 * 1024 * 1024);
+    options.set_max_write_buffer_number(4);
+
     let cfs = vec!["meta", data_cf];
     let db = rocksdb::DB::open_cf(&options, path, cfs)?;
     Ok(db)
