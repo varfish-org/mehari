@@ -6,27 +6,13 @@ use anyhow::Error;
 use clap::Parser;
 use prost::Message;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 
 /// Arguments for the SpliceAI database construction command.
 #[derive(Parser, Debug, Clone)]
 #[command(about = "Construct SpliceAI score RocksDB database", long_about = None)]
 pub struct Args {
-    /// Genome assembly version (e.g., "grch37" or "grch38").
-    #[arg(long, required = true)]
-    pub assembly: String,
-
-    /// Path(s) to the input SpliceAI VCF file(s).
-    #[arg(long, required = true)]
-    pub input: Vec<PathBuf>,
-
-    /// Path to the output RocksDB database directory.
-    #[arg(long, required = true)]
-    pub output: PathBuf,
-
-    /// Number of records to chunk and commit per database write batch.
-    #[arg(long, default_value = "100000")]
-    pub batch_size: usize,
+    #[command(flatten)]
+    pub common: crate::db::CommonPipelineArgs,
 }
 
 pub mod cli {
@@ -35,10 +21,12 @@ pub mod cli {
 
 pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
     let config = PipelineConfig {
-        assembly: &args.assembly,
-        input: &args.input,
-        output: &args.output,
-        batch_size: args.batch_size,
+        assembly: &args.common.assembly,
+        input: &args.common.input,
+        output: &args.common.output,
+        batch_size: args.common.batch_size,
+        quiet: args.common.quiet,
+        threads: args.common.threads,
         db_type: "spliceai",
         schema_version: "1.0",
         extra_meta: HashMap::new(),

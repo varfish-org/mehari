@@ -21,7 +21,34 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-/// Trait for transcript databases.
+/// Reusable command-line options shared across all database builders.
+#[derive(clap::Args, Debug, Clone)]
+pub struct CommonPipelineArgs {
+    /// Genome assembly version (e.g., "grch37" or "grch38").
+    #[arg(long, required = true)]
+    pub assembly: String,
+
+    /// Path(s) to the input database file(s).
+    #[arg(long, required = true)]
+    pub input: Vec<PathBuf>,
+
+    /// Path to the output RocksDB database directory.
+    #[arg(long, required = true)]
+    pub output: PathBuf,
+
+    /// Number of records to chunk and commit per database write batch.
+    #[arg(long, default_value = "100000")]
+    pub batch_size: usize,
+
+    /// Suppress progress bar rendering and status output.
+    #[arg(long, short)]
+    pub quiet: bool,
+
+    /// Number of threads to use for parallel execution (0 utilizes default Rayon pool).
+    #[arg(long, short, default_value = "0")]
+    pub threads: usize,
+}
+
 pub trait TranscriptDatabase {
     fn assembly(&self) -> String;
 }
@@ -62,6 +89,8 @@ pub struct PipelineConfig<'a> {
     pub db_type: &'a str,
     pub schema_version: &'a str,
     pub extra_meta: HashMap<String, String>,
+    pub quiet: bool,
+    pub threads: usize,
 }
 
 pub fn open_db(path: &Path, data_cf: &str) -> Result<rocksdb::DB, Error> {
@@ -152,8 +181,6 @@ pub fn get_info_string(
     }
 }
 
-/// Core parallel map-reduce orchestration engine.
-/// Handles Tabix space partitioning, Rayon execution, and atomic thread-local batch commits.
 pub fn run_parallel_pipeline<R, M, Rec>(
     config: PipelineConfig,
     region_reader: R,
@@ -178,95 +205,98 @@ where
     let contig_manager = ContigManager::new(config.assembly);
     let db = open_db(config.output, config.db_type)?;
 
-    let mut global_seen_keys = HashSet::new();
-    let mut total_records_written = 0;
-    let window_size = config.batch_size.max(500_000);
-
-    for input_file in config.input {
-        if !input_file.exists() {
-            tracing::warn!("Input file does not exist, skipping: {:?}", input_file);
-            continue;
-        }
-
-        let total_records = get_total_records_from_tabix(input_file)?;
-
-        let tbi_path = input_file.with_added_extension("tbi");
-        let index = noodles::tabix::fs::read(&tbi_path)
-            .with_context(|| format!("Failed to read tabix index: {:?}", tbi_path.display()))?;
-        let tabix_header = index
-            .header()
-            .ok_or_else(|| anyhow!("Missing tabix header"))?;
-
-        let mut windows = Vec::new();
-        for ref_name in tabix_header.reference_sequence_names() {
-            let ref_name_str = ref_name.to_string();
-            let mut begin = 0;
-            let max_len = 300_000_000; // Safe default upper limit for chromosome/scaffold lengths
-            while begin < max_len {
-                let end = (begin + window_size).min(max_len);
-                windows.push((ref_name_str.clone(), begin, end));
-                begin += window_size;
-            }
-        }
-
-        let pb = ProgressBar::new(windows.len() as u64);
-        pb.set_style(ProgressStyle::default_bar().template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")?.progress_chars("█▒░"));
-        if cfg!(test) {
-            pb.set_draw_target(ProgressDrawTarget::hidden());
-        }
-
-        match total_records {
-            Some(count) => {
-                tracing::info!(
-                    "Importing ~{} records across {} genomic windows for file: {:?}",
-                    count,
-                    windows.len(),
-                    input_file
-                );
-            }
-            None => {
-                tracing::info!(
-                    "Importing records across {} genomic windows for file: {:?}",
-                    windows.len(),
-                    input_file
-                );
-            }
-        }
-
-        let cf_data = db
-            .cf_handle(config.db_type)
-            .ok_or_else(|| anyhow!("CF '{}' not found", config.db_type))?;
-
-        let window_results: Vec<Result<(usize, HashSet<String>), Error>> = windows
-            .par_iter()
-            .progress_with(pb)
-            .map(|(chrom, begin, end)| {
-                let mut local_seen_keys = HashSet::new();
-                let mut local_batch = rocksdb::WriteBatch::default();
-                let mut local_count = 0;
-
-                let records = region_reader(input_file, chrom, *begin, *end)?;
-
-                for rec in records {
-                    let (kvs, local_keys) = mapper(&rec, &contig_manager)?;
-                    local_seen_keys.extend(local_keys);
-                    for (key, value, _label) in kvs {
-                        local_batch.put_cf(&cf_data, &key, &value);
-                    }
-                    local_count += 1;
-                }
-
-                db.write(local_batch)?;
-                Ok((local_count, local_seen_keys))
-            })
-            .collect();
-
-        for res in window_results {
-            let (count, local_keys) = res?;
-            total_records_written += count;
-            global_seen_keys.extend(local_keys);
-        }
+    let mut pool_builder = rayon::ThreadPoolBuilder::new();
+    if config.threads > 0 {
+        pool_builder = pool_builder.num_threads(config.threads);
     }
+    let pool = pool_builder
+        .build()
+        .context("Failed to build local Rayon thread pool")?;
+
+    let (total_records_written, global_seen_keys) = pool.install(|| -> Result<_, Error> {
+        let mut global_seen_keys = HashSet::new();
+        let mut total_records_written = 0;
+        let window_size = config.batch_size.max(500_000);
+
+        for input_file in config.input {
+            if !input_file.exists() {
+                tracing::warn!("Input file does not exist, skipping: {:?}", input_file);
+                continue;
+            }
+
+            let total_records = get_total_records_from_tabix(input_file)?;
+            let tbi_path = input_file.with_added_extension("tbi");
+            let index = noodles::tabix::fs::read(&tbi_path)
+                .with_context(|| format!("Failed to read tabix index: {:?}", tbi_path.display()))?;
+            let tabix_header = index
+                .header()
+                .ok_or_else(|| anyhow!("Missing tabix header"))?;
+
+            let mut windows = Vec::new();
+            for ref_name in tabix_header.reference_sequence_names() {
+                let ref_name_str = ref_name.to_string();
+                let mut begin = 0;
+                let max_len = 300_000_000;
+                while begin < max_len {
+                    let end = (begin + window_size).min(max_len);
+                    windows.push((ref_name_str.clone(), begin, end));
+                    begin += window_size;
+                }
+            }
+
+            let pb = ProgressBar::new(windows.len() as u64);
+            pb.set_style(ProgressStyle::default_bar().template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")?.progress_chars("█▒░"));
+
+            // Respect either explicit quiet configuration flag or general test profile context
+            if config.quiet || cfg!(test) {
+                pb.set_draw_target(ProgressDrawTarget::hidden());
+            }
+
+            match total_records {
+                Some(count) => {
+                    tracing::info!("Importing ~{} records across {} genomic windows for file: {:?}", count, windows.len(), input_file);
+                }
+                None => {
+                    tracing::info!("Importing records across {} genomic windows for file: {:?}", windows.len(), input_file);
+                }
+            }
+
+            let cf_data = db
+                .cf_handle(config.db_type)
+                .ok_or_else(|| anyhow!("CF '{}' not found", config.db_type))?;
+
+            let window_results: Vec<Result<(usize, HashSet<String>), Error>> = windows
+                .par_iter()
+                .progress_with(pb)
+                .map(|(chrom, begin, end)| {
+                    let mut local_seen_keys = HashSet::new();
+                    let mut local_batch = rocksdb::WriteBatch::default();
+                    let mut local_count = 0;
+
+                    let records = region_reader(input_file, chrom, *begin, *end)?;
+
+                    for rec in records {
+                        let (kvs, local_keys) = mapper(&rec, &contig_manager)?;
+                        local_seen_keys.extend(local_keys);
+                        for (key, value, _label) in kvs {
+                            local_batch.put_cf(&cf_data, &key, &value);
+                        }
+                        local_count += 1;
+                    }
+
+                    db.write(local_batch)?;
+                    Ok((local_count, local_seen_keys))
+                })
+                .collect();
+
+            for res in window_results {
+                let (count, local_keys) = res?;
+                total_records_written += count;
+                global_seen_keys.extend(local_keys);
+            }
+        }
+        Ok((total_records_written, global_seen_keys))
+    })?;
 
     finalize_pipeline(
         &db,

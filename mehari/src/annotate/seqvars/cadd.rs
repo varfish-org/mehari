@@ -72,6 +72,7 @@ impl CaddAnnotator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::CommonPipelineArgs;
     use temp_testdir::TempDir;
 
     #[test]
@@ -89,10 +90,14 @@ mod tests {
             verbose: clap_verbosity_flag::Verbosity::new(0, 0),
         };
         let create_args = crate::db::cadd::Args {
-            assembly: "GRCh38".to_string(),
-            input: vec![input_path],
-            output: output_path.clone(),
-            batch_size: 1000,
+            common: CommonPipelineArgs {
+                assembly: "GRCh38".to_string(),
+                input: vec![input_path],
+                output: output_path.clone(),
+                batch_size: 1000,
+                quiet: true,
+                threads: 1,
+            },
         };
 
         crate::db::cadd::run(&common_args, &create_args)?;

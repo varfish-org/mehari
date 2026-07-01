@@ -95,6 +95,7 @@ impl CustomDbAnnotator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::CommonPipelineArgs;
     use temp_testdir::TempDir;
 
     #[test]
@@ -112,10 +113,15 @@ mod tests {
         let common_args = crate::common::Args {
             verbose: clap_verbosity_flag::Verbosity::new(0, 0),
         };
-        let create_args = crate::db::generic::Args {
-            assembly: "GRCh38".to_string(),
-            input: vec![input_path],
-            output: output_path.clone(),
+        let create_args = crate::db::generic::cli::Args {
+            common: CommonPipelineArgs {
+                assembly: "GRCh38".to_string(),
+                input: vec![input_path],
+                output: output_path.clone(),
+                batch_size: 1000,
+                quiet: true,
+                threads: 1,
+            },
             db_name: "custom_db".to_string(),
             format: "tsv".to_string(),
             col_chrom: "Chrom".to_string(),
@@ -124,7 +130,6 @@ mod tests {
             col_alt: "Alt".to_string(),
             col_values: Some(vec!["Score1".to_string(), "Score2".to_string()]),
             vcf_info_fields: None,
-            batch_size: 1000,
         };
 
         crate::db::generic::run(&common_args, &create_args)?;

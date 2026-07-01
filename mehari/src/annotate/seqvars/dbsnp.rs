@@ -73,6 +73,7 @@ impl DbsnpAnnotator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::CommonPipelineArgs;
     use temp_testdir::TempDir;
 
     #[test]
@@ -92,10 +93,14 @@ chr1\t10005\trs456;rs789\tA\tG,C\t.\t.\t.";
             verbose: clap_verbosity_flag::Verbosity::new(0, 0),
         };
         let create_args = crate::db::dbsnp::Args {
-            assembly: "GRCh38".to_string(),
-            input: vec![input_path],
-            output: output_path.clone(),
-            batch_size: 1000,
+            common: CommonPipelineArgs {
+                assembly: "GRCh38".to_string(),
+                input: vec![input_path],
+                output: output_path.clone(),
+                batch_size: 1000,
+                quiet: false,
+                threads: 1,
+            },
         };
 
         crate::db::dbsnp::run(&common_args, &create_args)?;
