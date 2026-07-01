@@ -165,9 +165,10 @@ impl PySeqvarsAnnotator {
             tx_dbs.push(db);
         }
 
-        let merged_tx_db = mehari::db::merge::merge_transcript_databases(tx_dbs).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("Failed to merge databases: {}", e))
-        })?;
+        let merged_tx_db = mehari::db::transcripts::merge::merge_transcript_databases(tx_dbs)
+            .map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("Failed to merge databases: {}", e))
+            })?;
 
         let provider_config = ProviderConfigBuilder::default()
             .build()
@@ -498,7 +499,7 @@ fn build_transcript_db(
         ));
     }
 
-    let args = mehari::db::create::cli::Args {
+    let args = mehari::db::transcripts::create::cli::Args {
         assembly,
         assembly_version,
         annotation,
@@ -516,7 +517,7 @@ fn build_transcript_db(
 
     let common_args = mehari::common::Args::default();
 
-    mehari::db::create::run(&common_args, &args).map_err(|e| {
+    mehari::db::transcripts::create::run(&common_args, &args).map_err(|e| {
         pyo3::exceptions::PyRuntimeError::new_err(format!(
             "Failed to build transcript database: {}",
             e
