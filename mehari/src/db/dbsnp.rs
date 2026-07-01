@@ -9,6 +9,8 @@ use crate::db::{DbWriter, finalize_db, open_db, open_vcf_reader};
 use crate::pbs::seqvars::DbsnpRecord;
 use annonars::common::keys::Var;
 use anyhow::{Error, anyhow};
+use itertools::Itertools;
+use noodles::vcf::variant::record::Ids;
 use prost::Message;
 
 /// Command line arguments for `db dbsnp create` subcommand.
@@ -34,13 +36,6 @@ pub struct Args {
 
 pub mod cli {
     pub use super::Args;
-}
-
-fn extract_int(val: &noodles::vcf::variant::record_buf::info::field::Value) -> i32 {
-    match val {
-        noodles::vcf::variant::record_buf::info::field::Value::Integer(i) => *i,
-        _ => 0,
-    }
 }
 
 pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
@@ -109,12 +104,11 @@ fn write_chunk(
             let reference = record.reference_bases();
             let alternative = record.alternate_bases();
 
-            let rs_id = record
-                .info()
-                .get("RS")
-                .flatten()
-                .map(|v| format!("rs{}", extract_int(v)))
-                .unwrap_or_else(|| "".to_string());
+            let rs_id = if record.ids().is_empty() {
+                "".to_string()
+            } else {
+                record.ids().iter().join(";")
+            };
 
             if rs_id.is_empty() {
                 return Ok(kvs);
