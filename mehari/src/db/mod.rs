@@ -440,7 +440,6 @@ impl<'a> DbWriter<'a> {
             let active_batch = std::mem::take(&mut self.batch);
             self.db.write(active_batch)?;
             self.written += self.count;
-            tracing::info!("Imported {} records...", self.written);
             self.count = 0;
         }
         Ok(())

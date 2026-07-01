@@ -62,6 +62,8 @@ pub mod provider;
 pub(crate) mod reference;
 pub mod spliceai;
 
+pub mod dbsnp;
+
 #[derive(Debug, Clone, clap::ValueEnum, PartialEq, Eq)]
 pub enum OutputFormat {
     Vcf,
@@ -537,6 +539,10 @@ pub(crate) fn prepare_vcf_record(
         );
     }
 
+    if let Some(dbsnp) = &record.annotation.dbsnp {
+        out_record.ids_mut().as_mut().insert(dbsnp.rs_id.clone());
+    }
+
     for custom_db in &record.annotation.custom {
         let infos = out_record.info_mut();
         for (key, val) in &custom_db.fields {
@@ -680,6 +686,7 @@ impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
                         clinvar: None,
                         cadd: None,
                         spliceai: None,
+                        dbsnp: None,
                         custom: vec![],
                     },
                 },
@@ -794,6 +801,7 @@ pub(crate) enum AnnotatorEnum {
     Consequence(ConsequenceAnnotator),
     Cadd(cadd::CaddAnnotator),
     SpliceAi(spliceai::SpliceAiAnnotator),
+    Dbsnp(dbsnp::DbsnpAnnotator),
     Custom(String, custom::CustomDbAnnotator),
 }
 
@@ -854,6 +862,18 @@ impl AnnotatorEnum {
                 }
                 Ok(())
             }
+            AnnotatorEnum::Dbsnp(a) => {
+                if let Some(dbsnp) = a.annotate(var)? {
+                    if annotation.dbsnp.is_some() {
+                        anyhow::bail!(
+                            "Multiple dbSNP databases returned results for variant {:?}",
+                            var
+                        );
+                    }
+                    annotation.dbsnp = Some(dbsnp);
+                }
+                Ok(())
+            }
             AnnotatorEnum::Custom(name, a) => {
                 if let Some(custom_res) = a.annotate(name, var)? {
                     annotation.custom.push(custom_res);
@@ -902,6 +922,10 @@ impl AnnotatorEnum {
                         ),
                     );
                 }
+                Ok(())
+            }
+            AnnotatorEnum::Dbsnp(_) => {
+                // dbsnp just inserts IDs into the ID column
                 Ok(())
             }
             AnnotatorEnum::Custom(name, a) => {
@@ -1406,6 +1430,7 @@ impl Annotator {
             clinvar: None,
             cadd: None,
             spliceai: None,
+            dbsnp: None,
             custom: vec![],
         };
 
@@ -1860,6 +1885,18 @@ pub(crate) fn setup_seqvars_annotator(
         }
     }
 
+    // Add the dbSNP annotator if requested.
+    if let Some(rocksdb_paths) = &sources.dbsnp {
+        let dbsnp_dbs = initialize_dbsnp_annotators_for_assembly(
+            rocksdb_paths,
+            &assembly,
+            contig_manager.clone(),
+        )?;
+        for dbsnp_db in dbsnp_dbs {
+            annotators.push(AnnotatorEnum::Dbsnp(dbsnp_db))
+        }
+    }
+
     // Add the custom DB annotator if requested.
     if let Some(custom_db_specs) = &sources.custom_db {
         let custom_dbs = initialize_custom_db_annotators_for_assembly(
@@ -2056,6 +2093,34 @@ pub(crate) fn initialize_spliceai_annotators_for_assembly(
     Ok(annotators)
 }
 
+pub(crate) fn initialize_dbsnp_annotators_for_assembly(
+    rocksdb_paths: &[String],
+    assembly: &str,
+    contig_manager: Arc<ContigManager>,
+) -> Result<Vec<dbsnp::DbsnpAnnotator>, Error> {
+    let mut annotators = Vec::new();
+    let assembly_lower = assembly.to_lowercase();
+
+    for rocksdb_path in rocksdb_paths {
+        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
+            tracing::info!(
+                "Loading dbSNP database for assembly {:?} from {}",
+                assembly,
+                rocksdb_path
+            );
+            let annotator = dbsnp::DbsnpAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+            annotators.push(annotator);
+        } else {
+            anyhow::bail!(
+                "dbSNP database path '{}' does not match the active assembly '{}'.",
+                rocksdb_path,
+                assembly
+            );
+        }
+    }
+    Ok(annotators)
+}
+
 pub(crate) fn initialize_custom_db_annotators_for_assembly(
     custom_db_specs: &[String],
     assembly: &str,
@@ -2213,6 +2278,7 @@ pub struct VariantAnnotation {
     pub clinvar: Option<ClinvarResult>,
     pub cadd: Option<cadd::CaddResult>,
     pub spliceai: Option<spliceai::SpliceAiResult>,
+    pub dbsnp: Option<dbsnp::DbsnpResult>,
     pub custom: Vec<custom::CustomDbResult>,
 }
 
@@ -2375,6 +2441,7 @@ impl<'a> VariantProcessor<'a> {
                         clinvar: None,
                         cadd: None,
                         spliceai: None,
+                        dbsnp: None,
                         custom: vec![],
                     })
             })

@@ -33,6 +33,10 @@ pub struct Sources {
     #[arg(long)]
     pub spliceai: Option<Vec<String>>,
 
+    /// dbSnp database path.
+    #[arg(long)]
+    pub dbsnp: Option<Vec<String>>,
+
     /// Custom database paths (in name=path format, e.g. --custom-db my_db=/path/to/db).
     #[arg(long)]
     pub custom_db: Option<Vec<String>>,

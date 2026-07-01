@@ -3413,6 +3413,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                             clinvar: None,
                             cadd: None,
                             spliceai: None,
+                            dbsnp: None,
                             custom: vec![],
                         },
                     };
