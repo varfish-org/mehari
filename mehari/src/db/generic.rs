@@ -8,55 +8,57 @@ use prost::Message;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-/// Command line arguments for `db generic create` subcommand.
+/// Arguments for the generic database construction command.
 #[derive(Parser, Debug, Clone)]
 #[command(about = "Construct generic lookup RocksDB database", long_about = None)]
 pub struct Args {
-    /// Assembly to use (e.g. GRCh37 or GRCh38)
+    /// Genome assembly version (e.g., "grch37" or "grch38").
     #[arg(long, required = true)]
     pub assembly: String,
 
-    /// Path to input TSV or VCF file(s) (can be gzipped)
+    /// Path(s) to the input data file(s) (VCF or TSV).
     #[arg(long, required = true)]
     pub input: Vec<PathBuf>,
 
-    /// Path to output RocksDB directory
+    /// Path to the output RocksDB database directory.
     #[arg(long, required = true)]
     pub output: PathBuf,
 
-    /// Name of the custom database (used as prefix in INFO field names)
+    /// Internal identifier or name for the generic database being built.
     #[arg(long, required = true)]
     pub db_name: String,
 
-    /// Format of the input file ("tsv" or "vcf")
+    /// Input file format specification: either "vcf" or "tsv".
     #[arg(long, required = true)]
     pub format: String,
 
-    /// TSV: Chromosome column header name
+    /// Column identifier for chromosome coordinates (TSV mode only).
     #[arg(long, default_value = "chrom")]
     pub col_chrom: String,
 
-    /// TSV: Position column header name
+    /// Column identifier for 1-based genomic position coordinates (TSV mode only).
     #[arg(long, default_value = "pos")]
     pub col_pos: String,
 
-    /// TSV: Reference allele column header name
+    /// Column identifier for the reference allele sequence (TSV mode only).
     #[arg(long, default_value = "ref")]
     pub col_ref: String,
 
-    /// TSV: Alternative allele column header name
+    /// Column identifier for the alternative allele sequence (TSV mode only).
     #[arg(long, default_value = "alt")]
     pub col_alt: String,
 
-    /// TSV: List of value column header names to store. If omitted, all other columns are stored.
+    /// Specific column headers to explicitly extract as metadata values (TSV mode only).
+    /// If omitted, all non-coordinate data columns are automatically captured.
     #[arg(long)]
     pub col_values: Option<Vec<String>>,
 
-    /// VCF: List of INFO field keys to store. If omitted, all INFO fields are stored.
+    /// Specific INFO keys to extract from VCF records (VCF mode only).
+    /// If omitted, all encountered INFO flags/keys are captured.
     #[arg(long)]
     pub vcf_info_fields: Option<Vec<String>>,
 
-    /// Number of rows to write in a single RocksDB batch
+    /// Number of records to chunk and commit per database write batch.
     #[arg(long, default_value = "100000")]
     pub batch_size: usize,
 }

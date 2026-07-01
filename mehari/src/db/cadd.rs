@@ -1,35 +1,31 @@
-use clap::Parser;
-use indicatif::{ProgressBar, ProgressStyle};
-use rayon::prelude::*;
-use std::fs::File;
-use std::path::PathBuf;
-use std::time::Instant;
-
 use crate::common::Args as CommonArgs;
-use crate::common::contig::ContigManager;
-use crate::db::{DbWriter, finalize_db, get_total_records_from_tabix, open_db};
+use crate::db::PipelineConfig;
 use crate::pbs::seqvars::CaddRecord;
 use annonars::common::keys::Var;
-use anyhow::{Error, anyhow};
+use anyhow::Error;
+use clap::Parser;
 use prost::Message;
+use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::path::PathBuf;
 
-/// Command line arguments for `db cadd create` subcommand.
+/// Arguments for the CADD database construction command.
 #[derive(Parser, Debug, Clone)]
 #[command(about = "Construct CADD score RocksDB database", long_about = None)]
 pub struct Args {
-    /// Assembly to use (e.g. GRCh37 or GRCh38)
+    /// Genome assembly version (e.g., "grch37" or "grch38").
     #[arg(long, required = true)]
     pub assembly: String,
 
-    /// Path to CADD TSV/TSV.gz input file(s)
+    /// Path(s) to the input CADD TSV file(s).
     #[arg(long, required = true)]
     pub input: Vec<PathBuf>,
 
-    /// Path to output RocksDB directory
+    /// Path to the output RocksDB database directory.
     #[arg(long, required = true)]
     pub output: PathBuf,
 
-    /// Number of rows to write in a single RocksDB batch
+    /// Number of records to chunk and commit per database write batch.
     #[arg(long, default_value = "100000")]
     pub batch_size: usize,
 }
@@ -49,124 +45,53 @@ struct CaddRecordRow {
 }
 
 pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
-    tracing::info!("Creating CADD score RocksDB database at {:?}", args.output);
-    let start_time = Instant::now();
+    let config = PipelineConfig {
+        assembly: &args.assembly,
+        input: &args.input,
+        output: &args.output,
+        batch_size: args.batch_size,
+        db_type: "cadd",
+        schema_version: "1.0",
+        extra_meta: HashMap::new(),
+    };
 
-    // Initialize ContigManager for chromosome name normalization
-    let contig_manager = ContigManager::new(&args.assembly);
-
-    let db = open_db(&args.output, "cadd")?;
-    let mut writer = DbWriter::new(&db, "cadd", args.batch_size)?;
-
-    for input_file in &args.input {
-        tracing::info!("Processing input file: {:?}", input_file);
-
-        let total_records = get_total_records_from_tabix(input_file).unwrap_or(0);
-
-        let pb = if total_records > 0 {
-            ProgressBar::new(total_records)
-        } else {
-            ProgressBar::new_spinner()
-        };
-
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")?
-                .progress_chars("█▒░")
-        );
-
-        let file = File::open(input_file)?;
-        let (reader, _format) = niffler::get_reader(Box::new(file))?;
-
-        let mut rdr = csv::ReaderBuilder::new()
+    let open_reader = |path: &std::path::Path| {
+        let file = File::open(path)?;
+        let (reader, _) = niffler::get_reader(Box::new(file))?;
+        let rdr = csv::ReaderBuilder::new()
             .delimiter(b'\t')
             .has_headers(false)
             .comment(Some(b'#'))
             .from_reader(reader);
+        Ok((rdr, csv::StringRecord::new()))
+    };
 
-        let mut chunk = Vec::with_capacity(args.batch_size);
+    crate::db::run_tsv_pipeline(config, open_reader, |record, _, contig_manager| {
+        let row: CaddRecordRow = record.deserialize(None)?;
+        let chrom_std = contig_manager
+            .get_primary_name(&row.chrom)
+            .cloned()
+            .unwrap_or_else(|| row.chrom.clone());
 
-        for result in rdr.deserialize::<CaddRecordRow>() {
-            chunk.push(result?);
+        let var = Var {
+            chrom: chrom_std,
+            pos: row.pos,
+            reference: row.r#ref.clone(),
+            alternative: row.alt.clone(),
+        };
+        let key: Vec<u8> = var.clone().into();
+        let record_pb = CaddRecord {
+            raw_score: row.raw_score,
+            phred: row.phred,
+        };
 
-            if chunk.len() == args.batch_size {
-                let chunk_len = chunk.len() as u64;
-                write_chunk(&mut writer, &chunk, &contig_manager)?;
-                pb.inc(chunk_len);
-                chunk.clear();
-            }
-        }
+        let mut value = Vec::new();
+        record_pb.encode(&mut value)?;
 
-        if !chunk.is_empty() {
-            let chunk_len = chunk.len() as u64;
-            write_chunk(&mut writer, &chunk, &contig_manager)?;
-            pb.inc(chunk_len);
-            chunk.clear();
-        }
-
-        pb.finish_and_clear();
-    }
-
-    let written = writer.flush()?;
-
-    let cf_meta = db
-        .cf_handle("meta")
-        .ok_or_else(|| anyhow!("meta CF not found"))?;
-    db.put_cf(&cf_meta, b"db_type", b"cadd")?;
-    db.put_cf(&cf_meta, b"assembly", args.assembly.as_bytes())?;
-    db.put_cf(&cf_meta, b"schema_version", b"1.0")?;
-
-    tracing::info!(
-        "Successfully completed CADD import of {} records in {:?}",
-        written,
-        start_time.elapsed()
-    );
-    finalize_db(&db, &["cadd", "meta"])?;
-
-    Ok(())
-}
-
-fn write_chunk(
-    writer: &mut DbWriter,
-    chunk: &[CaddRecordRow],
-    contig_manager: &ContigManager,
-) -> Result<(), Error> {
-    let processed_records: Vec<Result<(Vec<u8>, Vec<u8>, String), Error>> = chunk
-        .par_iter()
-        .map(|row| {
-            // Normalize chrom to primary name
-            let chrom_std = contig_manager
-                .get_primary_name(&row.chrom)
-                .cloned()
-                .unwrap_or_else(|| row.chrom.clone());
-
-            let var = Var {
-                chrom: chrom_std,
-                pos: row.pos,
-                reference: row.r#ref.clone(),
-                alternative: row.alt.clone(),
-            };
-            let key: Vec<u8> = var.clone().into();
-
-            let record_pb = CaddRecord {
-                raw_score: row.raw_score,
-                phred: row.phred,
-            };
-            let mut value = Vec::new();
-            record_pb.encode(&mut value)?;
-
-            let var_label = format!(
-                "{}:{}{}>{}",
-                var.chrom, var.pos, var.reference, var.alternative
-            );
-            Ok((key, value, var_label))
-        })
-        .collect();
-
-    for item in processed_records {
-        let (key, value, var_label) = item?;
-        writer.put(&key, &value, &var_label)?;
-    }
-
-    Ok(())
+        let var_label = format!(
+            "{}:{}{}>{}",
+            var.chrom, var.pos, var.reference, var.alternative
+        );
+        Ok((vec![(key, value, var_label)], HashSet::new()))
+    })
 }

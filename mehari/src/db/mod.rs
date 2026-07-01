@@ -21,7 +21,6 @@ use std::time::Instant;
 
 /// Trait for transcript databases.
 pub trait TranscriptDatabase {
-    /// Get the assembly of the transcript database.
     fn assembly(&self) -> String;
 }
 
@@ -82,7 +81,6 @@ pub fn open_db(path: &Path, data_cf: &str) -> Result<rocksdb::DB, Error> {
     Ok(rocksdb::DB::open_cf(&options, path, cfs)?)
 }
 
-/// Unified compression-aware VCF reader using niffler
 pub fn open_vcf_reader(
     path: &Path,
 ) -> Result<
@@ -436,11 +434,10 @@ impl<'a> DbWriter<'a> {
         if self.db.get_cf(&self.cf, key)?.is_some() {
             tracing::warn!("Duplicate key found in database for variant: {}", var_label);
         }
-
         self.batch.put_cf(&self.cf, key, value);
         self.count += 1;
 
-        if self.count.is_multiple_of(self.batch_size) {
+        if self.count >= self.batch_size {
             let active_batch = std::mem::take(&mut self.batch);
             self.db.write(active_batch)?;
             self.written += self.count;
@@ -459,7 +456,6 @@ impl<'a> DbWriter<'a> {
     }
 }
 
-/// Run a full range compaction across specified column families
 pub fn finalize_db(db: &rocksdb::DB, column_families: &[&str]) -> Result<(), Error> {
     tracing::info!("Running final database compaction...");
     for cf_name in column_families {
