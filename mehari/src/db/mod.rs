@@ -11,7 +11,7 @@ pub mod transcripts;
 
 use crate::common::contig::ContigManager;
 use anyhow::{Context, Error, anyhow};
-use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
+use indicatif::{ParallelProgressIterator, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use noodles::csi::BinningIndex;
 use noodles::csi::binning_index::ReferenceSequence;
 use rayon::prelude::*;
@@ -211,6 +211,9 @@ where
 
         let pb = ProgressBar::new(windows.len() as u64);
         pb.set_style(ProgressStyle::default_bar().template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")?.progress_chars("█▒░"));
+        if cfg!(test) {
+            pb.set_draw_target(ProgressDrawTarget::hidden());
+        }
 
         match total_records {
             Some(count) => {
