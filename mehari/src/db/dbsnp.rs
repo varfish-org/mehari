@@ -68,8 +68,8 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
 
         let (mut reader, header) = open_vcf_reader(input_file)?;
 
-        // dbSnp's rs IDs are larger than the VCF spec max of 32bit signed integers,
-        // so we modify the type to String here.
+        // Modify the header to treat RS as a String.
+        // This ensures noodles doesn't fail with integer overflow errors when decoding the INFO column.
         let mut modified_header = header.clone();
         if let Some(info) = modified_header.infos_mut().get_mut("RS") {
             *info.type_mut() = noodles::vcf::header::record::value::map::info::Type::String;
