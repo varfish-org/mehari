@@ -50,9 +50,16 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
         tracing::info!("Processing input file: {:?}", input_file);
         let (mut reader, header) = open_vcf_reader(input_file)?;
 
+        // dbSnp's rs IDs are larger than the VCF spec max of 32bit signed integers,
+        // so we modify the type to String here.
+        let mut modified_header = header.clone();
+        if let Some(info) = modified_header.infos_mut().get_mut("RS") {
+            *info.type_mut() = noodles::vcf::header::record::value::map::info::Type::String;
+        }
+
         let mut chunk = Vec::with_capacity(args.batch_size);
 
-        for result in reader.record_bufs(&header) {
+        for result in reader.record_bufs(&modified_header) {
             chunk.push(result?);
 
             if chunk.len() == args.batch_size {
