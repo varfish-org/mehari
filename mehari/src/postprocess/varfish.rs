@@ -1,5 +1,5 @@
 use crate::annotate::genotype_string;
-use crate::annotate::seqvars::ann::{AnnField, FeatureBiotype};
+use crate::annotate::seqvars::consequence::terms::{AnnField, FeatureBiotype};
 use crate::annotate::seqvars::{AnnotatedVariant, VariantAnnotation};
 use crate::common::TsvContigStyle;
 use crate::common::contig::ContigManager;
@@ -102,6 +102,10 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                 consequences,
                 frequencies: None, // TSV writer pulls freqs directly from INFO below
                 clinvar: None,
+                cadd: None,
+                spliceai: None,
+                dbsnp: None,
+                custom: vec![],
             },
         };
 

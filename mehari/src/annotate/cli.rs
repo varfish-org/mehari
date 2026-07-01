@@ -1,8 +1,8 @@
-use crate::annotate::seqvars::csq::SequenceReporting;
+use crate::annotate::seqvars::consequence::SequenceReporting;
 use clap::Args as ClapArgs;
 use strum::{Display, VariantArray};
 
-#[derive(Debug, ClapArgs)]
+#[derive(Debug, Clone, Default, ClapArgs)]
 #[group(required = true, multiple = true)]
 pub struct Sources {
     /// Transcript database containing the transcript information.
@@ -24,6 +24,22 @@ pub struct Sources {
     /// Pre-built databases are available at https://github.com/varfish-org/annonars-data-clinvar/releases
     #[arg(long)]
     pub clinvar: Option<Vec<String>>,
+
+    /// CADD database path.
+    #[arg(long)]
+    pub cadd: Option<Vec<String>>,
+
+    /// SpliceAI database path.
+    #[arg(long)]
+    pub spliceai: Option<Vec<String>>,
+
+    /// dbSnp database path.
+    #[arg(long)]
+    pub dbsnp: Option<Vec<String>>,
+
+    /// Custom database paths (in name=path format, e.g. --custom-db my_db=/path/to/db).
+    #[arg(long)]
+    pub custom_db: Option<Vec<String>>,
 }
 
 #[derive(Debug, ClapArgs, Default, Clone)]

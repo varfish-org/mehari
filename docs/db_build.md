@@ -121,7 +121,7 @@ Create a [seqrepo](https://github.com/biocommons/biocommons.seqrepo) repository 
 Create the transcript database using the following command:
 
 ```sh
-mehari db create txs \
+mehari db transcripts create \
   --output grch38.ensembl.txs.bin.zst \
   --seqrepo path/to/seqrepo-data/master \
   --annotation cdot-0.2.32.ensembl.GRCh38.json.gz \
@@ -133,7 +133,7 @@ mehari db create txs \
 If you prefer building transcript databases from arbitrary references without setting up SeqRepo, you can directly pass standard GFF3 and FASTA files to the database builder.
 
 ```sh
-mehari db create txs \
+mehari db transcripts create \
   --output custom_assembly.txs.bin.zst \
   --transcript-sequences reference.fasta \
   --annotation reference_annotations.gff3 \
@@ -144,12 +144,67 @@ You will have to build the transcript database for each genome release that you 
 
 You can enable compression by using the suffix `.gz` for gzip compression and `.zst` for zstandard compression.
 
+# Building CADD Database
+
+To build a lookup-based RocksDB database for CADD scores from one or more TSV files (such as all SNVs and a subset of observed SVs/indels):
+
+```sh
+mehari db cadd create \
+  --assembly grch38 \
+  --input path/to/CADD_snvs.tsv.gz \
+  --input path/to/CADD_indels.tsv.gz \
+  --output path/to/cadd_rocksdb
+```
+
+# Building SpliceAI Database
+
+To build a lookup-based RocksDB database for SpliceAI prediction scores from one or more VCF files (such as all SNVs and a subset of observed SVs/indels):
+
+```sh
+mehari db spliceai create \
+  --assembly grch38 \
+  --input path/to/spliceai_snvs.vcf.gz \
+  --input path/to/spliceai_indels.vcf.gz \
+  --output path/to/spliceai_rocksdb
+```
+
+# Building Generic Lookup Database
+
+To build a custom lookup-based RocksDB database from one or more TSV or VCF files (which will be automatically registered during sequence variant annotation):
+
+### Building from TSV files (using header name matching):
+```sh
+mehari db generic create \
+  --assembly grch38 \
+  --input path/to/custom_data1.tsv.gz \
+  --input path/to/custom_data2.tsv.gz \
+  --output path/to/custom_rocksdb \
+  --db-name custom_db_name \
+  --format tsv \
+  --col-chrom Chrom \
+  --col-pos Pos \
+  --col-ref Ref \
+  --col-alt Alt \
+  --col-values Score1 --col-values Score2
+```
+
+### Building from VCF files (extracting INFO fields):
+```sh
+mehari db generic create \
+  --assembly grch38 \
+  --input path/to/custom_data.vcf.gz \
+  --output path/to/custom_rocksdb \
+  --db-name custom_db_name \
+  --format vcf \
+  --vcf-info-fields Score1 --vcf-info-fields Score2
+```
+
 # Building ClinVar Database
 
 This assumes that you have converted a recent ClinVar XML file to TSV using [clinvar-tsv](https://github.com/varfish-org/clinvar-tsv).
 
 ```sh
-mehari db create seqvar-clinvar \
+mehari db transcripts create seqvar-clinvar \
   --path-output-db ~/Data/mehari/db/grch37/seqsvars/clinvar \
   --path-clinvar-tsv path/to/clinvar_seqvars.b37.tsv.gz
 ```

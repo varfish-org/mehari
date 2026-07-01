@@ -1,5 +1,5 @@
-use crate::db::create::cdot_models;
-use crate::db::create::models::{GeneId, TranscriptId, TranscriptLoader};
+use crate::db::transcripts::create::cdot_models;
+use crate::db::transcripts::create::models::{GeneId, TranscriptId, TranscriptLoader};
 use anyhow::Error;
 use hgvs::data::cdot::json::models::Gene;
 use std::collections::HashMap;

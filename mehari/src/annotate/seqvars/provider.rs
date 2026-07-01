@@ -6,9 +6,9 @@ use crate::annotate::seqvars::reference::{
 };
 use crate::common::contig::ContigManager;
 use crate::db::TranscriptDatabase;
-use crate::db::create::models::Reason;
+use crate::db::transcripts::create::models::Reason;
 use crate::{
-    annotate::seqvars::csq::ALT_ALN_METHOD,
+    annotate::seqvars::consequence::logic::ALT_ALN_METHOD,
     pbs::txs::{Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;

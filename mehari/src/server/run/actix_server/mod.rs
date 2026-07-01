@@ -5,15 +5,18 @@ use std::sync::Arc;
 use actix_web::ResponseError;
 use utoipa::OpenApi as _;
 
-use crate::annotate::seqvars::csq::ConsequencePredictor;
+use crate::annotate::seqvars::clinvar::ClinvarAnnotator;
+use crate::annotate::seqvars::consequence::logic::ConsequencePredictor;
+use crate::annotate::seqvars::frequency::FrequencyAnnotator;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
-use crate::annotate::seqvars::{ClinvarAnnotator, FrequencyAnnotator};
 use crate::annotate::strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor;
 
 pub mod gene_txs;
+pub mod seqvars_cadd;
 pub mod seqvars_clinvar;
 pub mod seqvars_csq;
 pub mod seqvars_frequencies;
+pub mod seqvars_spliceai;
 pub mod strucvars_csq;
 pub mod versions;
 
@@ -57,6 +60,14 @@ pub struct WebServerData {
 
     /// The clinvar annotators for each assembly.
     pub clinvar_annotators: std::collections::HashMap<String, ClinvarAnnotator>,
+
+    /// The CADD annotators for each assembly.
+    pub cadd_annotators:
+        std::collections::HashMap<String, crate::annotate::seqvars::cadd::CaddAnnotator>,
+
+    /// The SpliceAI annotators for each assembly.
+    pub spliceai_annotators:
+        std::collections::HashMap<String, crate::annotate::seqvars::spliceai::SpliceAiAnnotator>,
 }
 
 /// Main entry point for running the REST server.
@@ -78,6 +89,10 @@ pub async fn main(
             .service(seqvars_frequencies::handle_with_openapi)
             .service(seqvars_clinvar::handle)
             .service(seqvars_clinvar::handle_with_openapi)
+            .service(seqvars_cadd::handle)
+            .service(seqvars_cadd::handle_with_openapi)
+            .service(seqvars_spliceai::handle)
+            .service(seqvars_spliceai::handle_with_openapi)
             .service(versions::handle)
             .service(
                 utoipa_swagger_ui::SwaggerUi::new("/swagger-ui/{_:.*}")

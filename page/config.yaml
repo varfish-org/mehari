@@ -23,7 +23,7 @@ features:
   desc: |
     Build your own transcript databases directly from standard GFF3 annotations and FASTA reference sequences, or from Cdot JSON releases.
   code: |
-    mehari db create txs \
+    mehari db transcripts create \
     !--output! custom_assembly.txs.bin.zst \
     !--transcript-sequences! reference.fasta.gz \
     !--annotation! reference_annotations.gff3.gz \

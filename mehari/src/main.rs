@@ -56,11 +56,11 @@
 //!
 //! ... for building the databases:
 //!
-//! * `mehari db create txs` -- create a database of transcript sequences from
+//! * `mehari db transcripts create` -- create a database of transcript sequences from
 //!   [cdot JSON files](https://github.com/SACGF/cdot/releases)
-//! * `mehari db create seqvar-freqs` -- create a database of sequence variant (SNV/indel/MNV)
-//!   population frequencies (from [gnomAD](https://gnomad.broadinstitute.org/) and
-//!   [HelixMtDb](https://www.helix.com/pages/mitochondrial-variant-database))
+//! * `mehari db cadd create` -- create a database of CADD scores
+//! * `mehari db spliceai create` -- create a database of SpliceAI predictions
+//! * `mehari db generic create` -- create a database of generic/custom lookup scores
 //!
 //! Full documentation is available in the [user documentation](`self::user_doc`).
 //!
@@ -92,7 +92,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Args, Parser, Subcommand};
-use mehari::db::create;
+use mehari::db::transcripts::create;
 #[cfg(feature = "server")]
 use mehari::server;
 use mehari::{annotate, common, db, verify};
@@ -146,11 +146,103 @@ struct Db {
 /// Enum supporting the parsing of "db *" sub commands.
 #[derive(Debug, Subcommand)]
 enum DbCommands {
+    /// Commands related to transcript database
+    Transcripts(TranscriptsArgs),
+
+    /// Commands related to CADD database
+    Cadd(CaddArgs),
+
+    /// Commands related to SpliceAI database
+    Spliceai(SpliceaiArgs),
+
+    /// Commands related to dbSNP database
+    DbSnp(DbSnpArgs),
+
+    /// Commands related to generic lookup database
+    Generic(GenericArgs),
+}
+
+/// Subcommands under "db transcripts"
+#[derive(Debug, Parser)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct TranscriptsArgs {
+    /// The sub command to run
+    #[command(subcommand)]
+    pub command: TranscriptsCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TranscriptsCommands {
+    /// Construct transcripts database
     Create(create::cli::Args),
-    Check(db::check::Args),
-    Dump(db::dump::Args),
-    Merge(db::merge::Args),
-    Subset(db::subset::Args),
+    /// Introspect / check transcripts database
+    Check(db::transcripts::check::Args),
+    /// Dump transcripts database
+    Dump(db::transcripts::dump::Args),
+    /// Merge transcript databases
+    Merge(db::transcripts::merge::Args),
+    /// Subset transcripts database
+    Subset(db::transcripts::subset::Args),
+}
+
+/// Subcommands under "db cadd"
+#[derive(Debug, Parser)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct CaddArgs {
+    /// The sub command to run
+    #[command(subcommand)]
+    pub command: CaddCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CaddCommands {
+    /// Construct CADD score database
+    Create(db::cadd::cli::Args),
+}
+
+/// Subcommands under "db spliceai"
+#[derive(Debug, Parser)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct SpliceaiArgs {
+    /// The sub command to run
+    #[command(subcommand)]
+    pub command: SpliceaiCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SpliceaiCommands {
+    /// Construct SpliceAI score database
+    Create(db::spliceai::cli::Args),
+}
+
+/// Subcommands under "db dbsnp"
+#[derive(Debug, Parser)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct DbSnpArgs {
+    /// The sub command to run
+    #[command(subcommand)]
+    pub command: DbSnpCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DbSnpCommands {
+    /// Construct dbSnp lookup database
+    Create(db::dbsnp::cli::Args),
+}
+
+/// Subcommands under "db generic"
+#[derive(Debug, Parser)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct GenericArgs {
+    /// The sub command to run
+    #[command(subcommand)]
+    pub command: GenericCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GenericCommands {
+    /// Construct generic lookup database
+    Create(db::generic::cli::Args),
 }
 
 /// Parsing of "annotate *" sub commands.
@@ -249,11 +341,29 @@ async fn main() -> Result<(), anyhow::Error> {
 
     match &cli.command {
         Commands::Db(db) => match &db.command {
-            DbCommands::Create(args) => db::create::run(&cli.common, args)?,
-            DbCommands::Check(args) => db::check::run(&cli.common, args)?,
-            DbCommands::Dump(args) => db::dump::run(&cli.common, args)?,
-            DbCommands::Subset(args) => db::subset::run(&cli.common, args)?,
-            DbCommands::Merge(args) => db::merge::run(&cli.common, args)?,
+            DbCommands::Transcripts(transcripts) => match &transcripts.command {
+                TranscriptsCommands::Create(args) => {
+                    db::transcripts::create::run(&cli.common, args)?
+                }
+                TranscriptsCommands::Check(args) => db::transcripts::check::run(&cli.common, args)?,
+                TranscriptsCommands::Dump(args) => db::transcripts::dump::run(&cli.common, args)?,
+                TranscriptsCommands::Subset(args) => {
+                    db::transcripts::subset::run(&cli.common, args)?
+                }
+                TranscriptsCommands::Merge(args) => db::transcripts::merge::run(&cli.common, args)?,
+            },
+            DbCommands::Cadd(cadd) => match &cadd.command {
+                CaddCommands::Create(args) => db::cadd::run(&cli.common, args)?,
+            },
+            DbCommands::Spliceai(spliceai) => match &spliceai.command {
+                SpliceaiCommands::Create(args) => db::spliceai::run(&cli.common, args)?,
+            },
+            DbCommands::Generic(generic) => match &generic.command {
+                GenericCommands::Create(args) => db::generic::run(&cli.common, args)?,
+            },
+            DbCommands::DbSnp(dbsnp) => match &dbsnp.command {
+                DbSnpCommands::Create(args) => db::dbsnp::run(&cli.common, args)?,
+            },
         },
         Commands::Annotate(annotate) => match &annotate.command {
             AnnotateCommands::Seqvars(args) => annotate::seqvars::run(&cli.common, args).await?,

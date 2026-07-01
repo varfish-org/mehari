@@ -3284,7 +3284,7 @@ pub fn read_and_cluster_for_contig(
     }
 
     // Finally, sort records by start position and write out.
-    result.sort_by(|a, b| a.start.cmp(&b.start));
+    result.sort_by_key(|a| a.start);
 
     Ok(result)
 }
@@ -3411,6 +3411,10 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                             consequences: vec![],
                             frequencies: None,
                             clinvar: None,
+                            cadd: None,
+                            spliceai: None,
+                            dbsnp: None,
+                            custom: vec![],
                         },
                     };
                     writer
