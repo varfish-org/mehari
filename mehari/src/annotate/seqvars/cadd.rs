@@ -80,9 +80,9 @@ mod tests {
         let input_path = temp.join("cadd_test.tsv.gz");
         let output_path = temp.join("cadd_db");
 
-        let tsv_content = "#Chrom\tPos\tRef\tAlt\tRawScore\tPHRED\
-1\t10000\tC\tT\t1.5\t15.0\
-chr1\t10005\tA\tG\t2.3\t20.5";
+        let tsv_content = "#Chrom\tPos\tRef\tAlt\tRawScore\tPHRED\n\
+                                1\t10000\tC\tT\t1.5\t15.0\n\
+                                chr1\t10005\tA\tG\t2.3\t20.5";
         crate::db::test_utils::write_indexed_file(&input_path, tsv_content)?;
 
         let common_args = crate::common::Args {

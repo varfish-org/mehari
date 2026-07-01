@@ -107,11 +107,11 @@ mod tests {
         let input_path = temp.join("spliceai_test.vcf");
         let output_path = temp.join("spliceai_db");
 
-        let vcf_content = "##fileformat=VCFv4.2\
-##INFO=<ID=SpliceAI,Number=.,Type=String,Description=\"SpliceAI prediction\">\
-#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\
-1\t10000\t.\tC\tT\t.\t.\tSpliceAI=T|GENEA|0.10|0.20|0.30|0.40|10|20|30|40\
-chr1\t10005\t.\tA\tG,C\t.\t.\tSpliceAI=G|GENEB|0.05|0.00|0.15|0.00|5|0|15|0,C|GENEC|0.50|0.00|0.00|0.00|2|0|0|0";
+        let vcf_content = "##fileformat=VCFv4.2\n\
+                                ##INFO=<ID=SpliceAI,Number=.,Type=String,Description=\"SpliceAI prediction\">\n\
+                                #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                                1\t10000\t.\tC\tT\t.\t.\tSpliceAI=T|GENEA|0.10|0.20|0.30|0.40|10|20|30|40\n\
+                                chr1\t10005\t.\tA\tG,C\t.\t.\tSpliceAI=G|GENEB|0.05|0.00|0.15|0.00|5|0|15|0,C|GENEC|0.50|0.00|0.00|0.00|2|0|0|0";
         crate::db::test_utils::write_indexed_file(&input_path, vcf_content)?;
 
         let common_args = crate::common::Args {

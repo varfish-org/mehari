@@ -104,9 +104,9 @@ mod tests {
         let output_path = temp.join("custom_db");
 
         // Write a mock TSV file
-        let tsv_content = "Chrom\tPosition\tRef\tAlt\tScore1\tScore2\
-1\t10000\tC\tT\tA1\tB1\
-chr1\t10005\tA\tG\tA2\tB2";
+        let tsv_content = "Chrom\tPosition\tRef\tAlt\tScore1\tScore2\n\
+                                1\t10000\tC\tT\tA1\tB1\n\
+                                chr1\t10005\tA\tG\tA2\tB2";
         crate::db::test_utils::write_indexed_file(&input_path, tsv_content)?;
 
         let common_args = crate::common::Args {
