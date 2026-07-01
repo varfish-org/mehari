@@ -186,7 +186,7 @@ impl ContigManager {
         chrom_no == CHR_M
     }
 
-    pub fn is_canonical(chrom_no: u32) -> bool {
+    pub fn is_homo_sapiens_canonical(chrom_no: u32) -> bool {
         (1..=25).contains(&chrom_no)
     }
 
@@ -222,8 +222,9 @@ impl ContigManager {
 
     /// Check if the contig is a canonical chromosome (chr1-22, chrX, chrY, or chrMT).
     #[inline]
-    pub fn is_canonical_alias(&self, alias: &str) -> bool {
-        self.get_chrom_no(alias).is_some_and(Self::is_canonical)
+    pub fn is_homo_sapiens_canonical_alias(&self, alias: &str) -> bool {
+        self.get_chrom_no(alias)
+            .is_some_and(Self::is_homo_sapiens_canonical)
     }
 
     pub fn get_contig_info(&self, alias: &str) -> Option<ContigInfo> {
@@ -283,16 +284,16 @@ mod test {
     fn test_is_canonical_alias() {
         let cm = get_manager();
 
-        assert!(cm.is_canonical_alias("chr1"));
-        assert!(cm.is_canonical_alias("1"));
-        assert!(cm.is_canonical_alias("NC_000001.10")); // GRCh37 chr1
-        assert!(cm.is_canonical_alias("chrX"));
-        assert!(cm.is_canonical_alias("chrY"));
-        assert!(cm.is_canonical_alias("chrM"));
-        assert!(cm.is_canonical_alias("MT"));
+        assert!(cm.is_homo_sapiens_canonical_alias("chr1"));
+        assert!(cm.is_homo_sapiens_canonical_alias("1"));
+        assert!(cm.is_homo_sapiens_canonical_alias("NC_000001.10")); // GRCh37 chr1
+        assert!(cm.is_homo_sapiens_canonical_alias("chrX"));
+        assert!(cm.is_homo_sapiens_canonical_alias("chrY"));
+        assert!(cm.is_homo_sapiens_canonical_alias("chrM"));
+        assert!(cm.is_homo_sapiens_canonical_alias("MT"));
 
-        assert!(!cm.is_canonical_alias("chrUn_gl000211"));
-        assert!(!cm.is_canonical_alias("random_string"));
+        assert!(!cm.is_homo_sapiens_canonical_alias("chrUn_gl000211"));
+        assert!(!cm.is_homo_sapiens_canonical_alias("random_string"));
     }
 
     #[test]

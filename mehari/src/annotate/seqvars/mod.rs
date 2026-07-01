@@ -1064,7 +1064,7 @@ impl FrequencyAnnotator {
     fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<FreqResult>> {
         let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
-        if contig_manager.is_canonical_alias(vcf_var.chrom.as_str()) {
+        if contig_manager.is_homo_sapiens_canonical_alias(vcf_var.chrom.as_str()) {
             // Build key for RocksDB database from `vcf_var`.
             let key: Vec<u8> = vcf_var.clone().into();
 
@@ -1089,7 +1089,7 @@ impl FrequencyAnnotator {
     > {
         let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
-        if !contig_manager.is_canonical_alias(&vcf_var.chromosome) {
+        if !contig_manager.is_homo_sapiens_canonical_alias(&vcf_var.chromosome) {
             return Ok(None);
         }
 
@@ -1239,7 +1239,7 @@ impl ClinvarAnnotator {
         // Only attempt lookups into RocksDB for canonical contigs.
         if self
             .contig_manager
-            .is_canonical_alias(vcf_var.chrom.as_str())
+            .is_homo_sapiens_canonical_alias(vcf_var.chrom.as_str())
         {
             // Build key for RocksDB database from `vcf_var`.
             let key: Vec<u8> = vcf_var.clone().into();
