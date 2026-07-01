@@ -148,10 +148,16 @@ struct Db {
 enum DbCommands {
     /// Commands related to transcript database
     Transcripts(TranscriptsArgs),
+
     /// Commands related to CADD database
     Cadd(CaddArgs),
+
     /// Commands related to SpliceAI database
     Spliceai(SpliceaiArgs),
+
+    /// Commands related to dbSNP database
+    DbSnp(DbSnpArgs),
+
     /// Commands related to generic lookup database
     Generic(GenericArgs),
 }
@@ -207,6 +213,21 @@ pub struct SpliceaiArgs {
 pub enum SpliceaiCommands {
     /// Construct SpliceAI score database
     Create(db::spliceai::cli::Args),
+}
+
+/// Subcommands under "db dbsnp"
+#[derive(Debug, Parser)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct DbSnpArgs {
+    /// The sub command to run
+    #[command(subcommand)]
+    pub command: DbSnpCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DbSnpCommands {
+    /// Construct dbSnp lookup database
+    Create(db::dbsnp::cli::Args),
 }
 
 /// Subcommands under "db generic"
@@ -339,6 +360,9 @@ async fn main() -> Result<(), anyhow::Error> {
             },
             DbCommands::Generic(generic) => match &generic.command {
                 GenericCommands::Create(args) => db::generic::run(&cli.common, args)?,
+            },
+            DbCommands::DbSnp(dbsnp) => match &dbsnp.command {
+                DbSnpCommands::Create(args) => db::dbsnp::run(&cli.common, args)?,
             },
         },
         Commands::Annotate(annotate) => match &annotate.command {

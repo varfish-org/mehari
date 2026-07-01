@@ -3,6 +3,7 @@
 use crate::pbs::txs::TxSeqDatabase;
 
 pub mod cadd;
+pub mod dbsnp;
 pub mod generic;
 pub mod spliceai;
 pub mod transcripts;
@@ -115,8 +116,8 @@ impl<'a> DbWriter<'a> {
         self.batch.put_cf(&self.cf, key, value);
         self.count += 1;
 
-        if self.count % self.batch_size == 0 {
-            let active_batch = std::mem::replace(&mut self.batch, rocksdb::WriteBatch::default());
+        if self.count.is_multiple_of(self.batch_size) {
+            let active_batch = std::mem::take(&mut self.batch);
             self.db.write(active_batch)?;
             self.written += self.count;
             tracing::info!("Imported {} records...", self.written);

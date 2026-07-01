@@ -33,3 +33,13 @@ message SpliceAiRecord {
 message GenericLookupRecord {
   map<string, string> fields = 1;
 }
+
+
+// dbSNP record containing only the RS identifier for a variant
+message DbsnpRecord {
+  // The alternative allele this record represents
+  string allele = 1;
+
+  // The RS identifier (e.g., "rs1570391677")
+  string rs_id = 2;
+}
