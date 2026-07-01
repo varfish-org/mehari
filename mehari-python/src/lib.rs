@@ -2,13 +2,13 @@ use arrow::array::{Array, Int32Array, RecordBatch, StringArray};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
-use mehari::annotate::seqvars::ann::{
-    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, AnnField, Consequence,
-    FeatureBiotype, Pos, PutativeImpact, Rank,
+use mehari::annotate::seqvars::consequence::terms::{
+    AnnField, Consequence, FeatureBiotype, Pos, PutativeImpact, Rank,
+    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
 };
-use mehari::annotate::seqvars::csq::SequenceReporting;
-use mehari::annotate::seqvars::csq::{ConfigBuilder, ConsequencePredictor, VcfVariant};
-use mehari::annotate::seqvars::load_tx_db;
+use mehari::annotate::seqvars::consequence::{SequenceReporting, VcfVariant};
+use mehari::annotate::seqvars::consequence::logic::{ConfigBuilder, ConsequencePredictor};
+use mehari::annotate::seqvars::consequence::load_tx_db;
 use mehari::annotate::seqvars::provider::{
     ConfigBuilder as ProviderConfigBuilder, Provider as MehariProvider,
 };

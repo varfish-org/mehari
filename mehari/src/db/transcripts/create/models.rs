@@ -1,4 +1,4 @@
-use crate::annotate::seqvars::ann::FeatureTag;
+use crate::annotate::seqvars::consequence::terms::FeatureTag;
 use crate::db::transcripts::create::DisplayFromStr;
 use crate::db::transcripts::create::filter::MITOCHONDRIAL_ACCESSIONS;
 use anyhow::{Error, anyhow};

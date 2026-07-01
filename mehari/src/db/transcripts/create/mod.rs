@@ -1,6 +1,6 @@
 //! Transcript database.
 
-use crate::annotate::seqvars::ann::FeatureTag;
+use crate::annotate::seqvars::consequence::terms::FeatureTag;
 use crate::common::trace_rss_now;
 use crate::pbs::txs::{Assembly, Source, SourceVersion, TxSeqDatabase};
 use anyhow::{Error, anyhow};

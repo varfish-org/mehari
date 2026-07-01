@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::common::contig::ContigManager;
-use annonars::common::keys;
+use crate::db::keys;
 use anyhow::Error;
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
@@ -51,50 +51,42 @@ impl DbsnpAnnotator {
     }
 
     pub fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<DbsnpResult>> {
-        if self
+        // Normalize chrom to primary name to build standard key
+        let chrom_std = self
             .contig_manager
-            .is_canonical_alias(vcf_var.chrom.as_str())
-        {
-            // Normalize chrom to primary name to build standard key
-            let chrom_std = self
-                .contig_manager
-                .get_primary_name(&vcf_var.chrom)
-                .cloned()
-                .unwrap_or_else(|| vcf_var.chrom.clone());
+            .get_primary_name(&vcf_var.chrom)
+            .cloned()
+            .unwrap_or_else(|| vcf_var.chrom.clone());
 
-            let normalized_var = keys::Var {
-                chrom: chrom_std,
-                pos: vcf_var.pos,
-                reference: vcf_var.reference.clone(),
-                alternative: vcf_var.alternative.clone(),
-            };
+        let normalized_var = keys::Var {
+            chrom: chrom_std,
+            pos: vcf_var.pos,
+            reference: vcf_var.reference.clone(),
+            alternative: vcf_var.alternative.clone(),
+        };
+        let key: Vec<u8> = normalized_var.into();
 
-            let key: Vec<u8> = normalized_var.into();
-            return self.annotate_record_dbsnp(&key);
-        }
-        Ok(None)
+        self.annotate_record_dbsnp(&key)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
-    use std::io::Write;
     use temp_testdir::TempDir;
 
     #[test]
     fn test_dbsnp_import_and_annotate() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
-        let input_path = temp.join("dbsnp_test.vcf");
+        let input_path = temp.join("dbsnp_test.vcf.gz");
         let output_path = temp.join("dbsnp_db");
 
-        let mut file = File::create(&input_path)?;
-        writeln!(file, "##fileformat=VCFv4.2")?;
-        writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")?;
-        writeln!(file, "1\t10000\trs123\tC\tT\t.\t.\t.")?;
-        writeln!(file, "chr1\t10005\trs456;rs789\tA\tG,C\t.\t.\t.")?;
-        file.flush()?;
+        let vcf_content = "##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+1\t10000\trs123\tC\tT\t.\t.\t.
+chr1\t10005\trs456;rs789\tA\tG,C\t.\t.\t.";
+
+        crate::db::test_utils::write_indexed_file(&input_path, vcf_content)?;
 
         let common_args = crate::common::Args {
             verbose: clap_verbosity_flag::Verbosity::new(0, 0),

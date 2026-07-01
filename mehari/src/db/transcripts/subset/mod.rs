@@ -1,6 +1,6 @@
 //! Subset transcript database.
 
-use crate::annotate::seqvars::load_tx_db;
+use crate::annotate::seqvars::consequence::load_tx_db;
 use crate::annotate::seqvars::provider::TxIntervalTrees;
 use crate::common::contig::ContigManager;
 use crate::db::TranscriptDatabase;

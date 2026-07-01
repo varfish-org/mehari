@@ -5,7 +5,7 @@ use crate::pbs::txs::TxSeqDatabase;
 pub mod cadd;
 pub mod dbsnp;
 pub mod generic;
-mod keys;
+pub(crate) mod keys;
 pub mod spliceai;
 pub mod transcripts;
 
@@ -464,5 +464,95 @@ pub fn get_total_records_from_tabix(path: &Path) -> anyhow::Result<Option<u64>> 
         Ok(Some(total_records))
     } else {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+pub mod test_utils {
+    use super::*;
+    use noodles::core::Position;
+    use noodles::csi::binning_index::index::reference_sequence::bin::Chunk;
+    use std::io::Write;
+
+    /// Reusable helper to write a mock text-based database file (VCF or TSV)
+    /// into valid BGZF compression alongside a compiled Tabix (.tbi) index.
+    pub fn write_indexed_file(path: &Path, content: &str) -> anyhow::Result<()> {
+        let mut lines = Vec::new();
+        let mut chroms = std::collections::BTreeSet::new();
+        let mut has_fileformat = false;
+        let mut fileformat_line = String::new();
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if trimmed.starts_with("##fileformat=") {
+                has_fileformat = true;
+                fileformat_line = trimmed.to_string();
+                continue;
+            }
+            if !trimmed.starts_with('#') {
+                let fields: Vec<&str> = trimmed.split('\t').collect();
+                if !fields.is_empty() {
+                    chroms.insert(fields[0].to_string());
+                }
+            }
+            lines.push(trimmed.to_string());
+        }
+
+        let out_file = File::create(path)?;
+        let mut bgzf_writer = noodles_bgzf::io::Writer::new(out_file);
+
+        if has_fileformat {
+            bgzf_writer.write_all(fileformat_line.as_bytes())?;
+            bgzf_writer.write_all(b"\n")?;
+        }
+
+        for chrom in &chroms {
+            let contig_line = format!("##contig=<ID={}>", chrom);
+            bgzf_writer.write_all(contig_line.as_bytes())?;
+            bgzf_writer.write_all(b"\n")?;
+        }
+
+        let mut indexer = noodles::tabix::index::Indexer::default();
+        indexer.set_header(noodles::csi::binning_index::index::header::Builder::vcf().build());
+
+        let mut start_pos = bgzf_writer.virtual_position();
+
+        for line in lines {
+            bgzf_writer.write_all(line.as_bytes())?;
+            bgzf_writer.write_all(b"\n")?;
+            let end_pos = bgzf_writer.virtual_position();
+
+            if line.starts_with('#') {
+                start_pos = end_pos;
+                continue;
+            }
+
+            let fields: Vec<&str> = line.split('\t').collect();
+            if fields.len() >= 2 {
+                let chrom = fields[0];
+                if let Ok(pos_val) = fields[1].parse::<usize>()
+                    && let Some(position) = Position::new(pos_val)
+                {
+                    indexer.add_record(
+                        chrom,
+                        position,
+                        position,
+                        Chunk::new(start_pos, end_pos),
+                    )?;
+                }
+            }
+            start_pos = end_pos;
+        }
+        bgzf_writer.finish()?;
+
+        let index = indexer.build();
+        let tbi_path = path.with_added_extension("tbi");
+        let mut idx_writer = noodles::tabix::io::Writer::new(File::create(&tbi_path)?);
+        idx_writer.write_index(&index)?;
+
+        Ok(())
     }
 }

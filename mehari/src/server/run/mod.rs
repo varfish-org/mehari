@@ -1,12 +1,14 @@
 use crate::annotate::cli::{PredictorSettings, Sources};
-use crate::annotate::seqvars::csq::ConfigBuilder;
+use crate::annotate::seqvars::consequence::ConfigBuilder;
+use crate::annotate::seqvars::consequence::{
+    ConsequenceAnnotator, load_transcript_dbs_for_assembly,
+};
 use crate::annotate::seqvars::{
-    ConsequenceAnnotator, initialize_cadd_annotators_for_assembly,
-    initialize_clinvar_annotators_for_assembly, initialize_frequency_annotators_for_assembly,
-    initialize_spliceai_annotators_for_assembly, load_transcript_dbs_for_assembly,
+    initialize_cadd_annotators_for_assembly, initialize_clinvar_annotators_for_assembly,
+    initialize_frequency_annotators_for_assembly, initialize_spliceai_annotators_for_assembly,
 };
 use crate::annotate::{
-    seqvars::csq::ConsequencePredictor as SeqvarConsequencePredictor,
+    seqvars::consequence::logic::ConsequencePredictor as SeqvarConsequencePredictor,
     strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor,
 };
 use crate::common::contig::ContigManager;
@@ -22,7 +24,7 @@ pub mod actix_server;
 
 /// Module with OpenAPI documentation.
 pub mod openapi {
-    use crate::annotate::seqvars::ann::{
+    use crate::annotate::seqvars::consequence::terms::{
         Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank, SoFeature,
     };
     use crate::annotate::strucvars::csq::interface::StrucvarsSvType;

@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::common::contig::ContigManager;
-use annonars::common::keys;
+use crate::db::keys;
 use anyhow::Error;
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
@@ -50,49 +50,40 @@ impl CaddAnnotator {
     }
 
     pub fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<CaddResult>> {
-        if self
+        // Normalize chrom to primary name to build standard key
+        let chrom_std = self
             .contig_manager
-            .is_canonical_alias(vcf_var.chrom.as_str())
-        {
-            // Normalize chrom to primary name to build standard key
-            let chrom_std = self
-                .contig_manager
-                .get_primary_name(&vcf_var.chrom)
-                .cloned()
-                .unwrap_or_else(|| vcf_var.chrom.clone());
+            .get_primary_name(&vcf_var.chrom)
+            .cloned()
+            .unwrap_or_else(|| vcf_var.chrom.clone());
 
-            let normalized_var = keys::Var {
-                chrom: chrom_std,
-                pos: vcf_var.pos,
-                reference: vcf_var.reference.clone(),
-                alternative: vcf_var.alternative.clone(),
-            };
+        let normalized_var = keys::Var {
+            chrom: chrom_std,
+            pos: vcf_var.pos,
+            reference: vcf_var.reference.clone(),
+            alternative: vcf_var.alternative.clone(),
+        };
 
-            let key: Vec<u8> = normalized_var.into();
-            return self.annotate_record_cadd(&key);
-        }
-        Ok(None)
+        let key: Vec<u8> = normalized_var.into();
+        self.annotate_record_cadd(&key)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
-    use std::io::Write;
     use temp_testdir::TempDir;
 
     #[test]
     fn test_cadd_import_and_annotate() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
-        let input_path = temp.join("cadd_test.tsv");
+        let input_path = temp.join("cadd_test.tsv.gz");
         let output_path = temp.join("cadd_db");
 
-        let mut file = File::create(&input_path)?;
-        writeln!(file, "#Chrom\tPos\tRef\tAlt\tRawScore\tPHRED")?;
-        writeln!(file, "1\t10000\tC\tT\t1.5\t15.0")?;
-        writeln!(file, "chr1\t10005\tA\tG\t2.3\t20.5")?;
-        file.flush()?;
+        let tsv_content = "#Chrom\tPos\tRef\tAlt\tRawScore\tPHRED\
+1\t10000\tC\tT\t1.5\t15.0\
+chr1\t10005\tA\tG\t2.3\t20.5";
+        crate::db::test_utils::write_indexed_file(&input_path, tsv_content)?;
 
         let common_args = crate::common::Args {
             verbose: clap_verbosity_flag::Verbosity::new(0, 0),

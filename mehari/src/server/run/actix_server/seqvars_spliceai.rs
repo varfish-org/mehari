@@ -1,12 +1,11 @@
 //! Implementation of endpoint `/api/v1/seqvars/spliceai`.
 
+use super::{CustomError, versions::VersionsInfoResponse};
+use crate::db::keys::Var;
 use actix_web::{
     get,
     web::{self, Data, Json, Path},
 };
-use annonars::common::keys::Var;
-
-use super::{CustomError, versions::VersionsInfoResponse};
 
 /// Query parameters of the `/api/v1/seqvars/spliceai` endpoint.
 #[derive(

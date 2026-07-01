@@ -1,16 +1,16 @@
 //! Compute molecular consequence of variants.
-use super::{
-    ann::{Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature},
-    provider::Provider as MehariProvider,
-};
-use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
-use crate::annotate::seqvars::ann::{
+use super::terms::{
     ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, FeatureTag, GroupedAlleles,
 };
+use super::terms::{
+    Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature,
+};
+use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
+use crate::annotate::seqvars::consequence::{Config, Consequences, FormattedLoc, VcfVariant};
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
+use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::errors::{GroupValidationError, SeqvarsError};
 use crate::pbs::txs::{GenomeAlignment, Strand, Transcript, TranscriptBiotype, TranscriptTag};
-use enumflags2::BitFlags;
 use hgvs::mapper::altseq::AltSeqBuilder;
 use hgvs::parser::{NoRef, ProteinEdit};
 use hgvs::{
@@ -23,68 +23,7 @@ use hgvs::{
 use itertools::Itertools;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::fmt;
 use std::sync::Arc;
-
-/// A variant description how VCF would do it.
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
-pub struct VcfVariant {
-    /// Chromosome name.
-    pub chromosome: String,
-    /// 1-based position on the chromosome of first base of `reference`.
-    pub position: i32,
-    /// Reference bases.
-    pub reference: String,
-    /// Alternative bases.
-    pub alternative: String,
-}
-
-/// Configuration for consequence prediction.
-#[derive(Debug, Clone, derive_builder::Builder)]
-#[builder(pattern = "immutable")]
-pub struct Config {
-    /// Whether to report only the worst consequence for each picked transcript.
-    #[builder(default)]
-    pub report_most_severe_consequence_by: Option<ConsequenceBy>,
-
-    /// Whether to keep intergenic variants.
-    #[builder(default = "false")]
-    pub keep_intergenic: bool,
-
-    /// Whether to report splice variants in UTRs.
-    #[builder(default = "false")]
-    pub discard_utr_splice_variants: bool,
-
-    /// Whether to normalize HGVS variants.
-    #[builder(default = "true")]
-    pub normalize: bool,
-
-    /// Whether re-normalize genomic variants.
-    #[builder(default = "true")]
-    pub renormalize_g: bool,
-
-    /// Whether to report VEP consequence terms.
-    #[builder(default = "false")]
-    pub vep_consequence_terms: bool,
-
-    /// Whether to report cDNA sequence.
-    #[builder(default)]
-    pub report_cdna_sequence: SequenceReporting,
-
-    /// Whether to report protein sequence.
-    #[builder(default)]
-    pub report_protein_sequence: SequenceReporting,
-
-    /// Ordered list of extra columns registered by plugins/features.
-    #[builder(default)]
-    pub custom_columns: Vec<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        ConfigBuilder::default().build().unwrap()
-    }
-}
 
 /// Wrap mapper, provider, and map for consequence prediction.
 #[derive(derivative::Derivative)]
@@ -107,8 +46,6 @@ pub struct ConsequencePredictor {
 pub const PADDING: i32 = 5_000;
 /// Generally used alternative alignment method.
 pub const ALT_ALN_METHOD: &str = "splign";
-
-pub type Consequences = BitFlags<Consequence>;
 
 #[derive(Debug, Clone)]
 struct HgvsProjectionContext {
@@ -297,7 +234,8 @@ impl ConsequencePredictor {
                 },
                 gene_id: "".to_string(),
                 consequences: vec![Consequence::IntergenicVariant],
-                putative_impact: crate::annotate::seqvars::ann::PutativeImpact::Modifier,
+                putative_impact:
+                    crate::annotate::seqvars::consequence::terms::PutativeImpact::Modifier,
                 feature_type: FeatureType::Custom {
                     value: "Intergenic".to_string(),
                 },
@@ -1118,7 +1056,7 @@ impl ConsequencePredictor {
         consequences: &mut Consequences,
         projection_context: Option<&HgvsProjectionContext>,
     ) {
-        use crate::annotate::seqvars::ann::Consequence::*;
+        use super::terms::Consequence::*;
 
         // vep reports the umbrella intron variant term.
         if consequences.contains(CodingTranscriptIntronVariant) {
@@ -2772,29 +2710,16 @@ impl ConsequencePredictor {
     }
 }
 
-struct FormattedLoc<'a>(&'a HgvsVariant);
-
-impl<'a> fmt::Display for FormattedLoc<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            HgvsVariant::CdsVariant { loc_edit, .. } => write!(f, "c.{}", NoRef(loc_edit)),
-            HgvsVariant::GenomeVariant { loc_edit, .. } => write!(f, "g.{}", NoRef(loc_edit)),
-            HgvsVariant::MtVariant { loc_edit, .. } => write!(f, "m.{}", NoRef(loc_edit)),
-            HgvsVariant::TxVariant { loc_edit, .. } => write!(f, "n.{}", NoRef(loc_edit)),
-            HgvsVariant::ProtVariant { loc_edit, .. } => write!(f, "p.{}", NoRef(loc_edit)),
-            HgvsVariant::RnaVariant { loc_edit, .. } => write!(f, "r.{}", NoRef(loc_edit)),
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::annotate::cli::TranscriptPickMode;
     use crate::annotate::cli::{PredictorSettings, TranscriptPickType, TranscriptSettings};
+    use crate::annotate::seqvars::consequence::ConfigBuilder;
+    use crate::annotate::seqvars::consequence::load_tx_db;
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
-        Args, AsyncAnnotatedVariantWriter, OutputFormat, load_tx_db, run_with_writer,
+        Args, AsyncAnnotatedVariantWriter, OutputFormat, run_with_writer,
     };
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
     use csv::ReaderBuilder;
@@ -2942,10 +2867,9 @@ mod test {
                 .build()?,
         ));
 
-        use crate::annotate::seqvars::ConsequencePredictorConfigBuilder;
         let predictor = ConsequencePredictor::new(
             provider,
-            ConsequencePredictorConfigBuilder::default()
+            ConfigBuilder::default()
                 .report_most_severe_consequence_by(Some(ConsequenceBy::Gene))
                 .build()?,
         );
@@ -3761,34 +3685,5 @@ mod test {
         let _new_substring = &alt_seq[start_idx..end_idx_valid];
 
         Ok(())
-    }
-}
-
-#[derive(
-    Debug,
-    Default,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    clap::ValueEnum,
-    parse_display::FromStr,
-    parse_display::Display,
-)]
-#[display(style = "kebab-case")]
-pub enum SequenceReporting {
-    #[default]
-    None,
-    Reference,
-    Alternative,
-    Both,
-}
-
-impl SequenceReporting {
-    pub fn includes_ref(&self) -> bool {
-        matches!(self, Self::Reference | Self::Both)
-    }
-    pub fn includes_alt(&self) -> bool {
-        matches!(self, Self::Alternative | Self::Both)
     }
 }

@@ -1,4 +1,4 @@
-use crate::annotate::seqvars::load_tx_db;
+use crate::annotate::seqvars::consequence::load_tx_db;
 use crate::common;
 use crate::db::transcripts::create::write_tx_db;
 use crate::pbs::txs::TxSeqDatabase;

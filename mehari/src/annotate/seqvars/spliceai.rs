@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::common::contig::ContigManager;
-use annonars::common::keys;
+use crate::db::keys;
 use anyhow::Error;
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
@@ -77,36 +77,28 @@ impl SpliceAiAnnotator {
     }
 
     pub fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<SpliceAiResult>> {
-        if self
+        // Normalize chrom to primary name to build standard key
+        let chrom_std = self
             .contig_manager
-            .is_canonical_alias(vcf_var.chrom.as_str())
-        {
-            // Normalize chrom to primary name to build standard key
-            let chrom_std = self
-                .contig_manager
-                .get_primary_name(&vcf_var.chrom)
-                .cloned()
-                .unwrap_or_else(|| vcf_var.chrom.clone());
+            .get_primary_name(&vcf_var.chrom)
+            .cloned()
+            .unwrap_or_else(|| vcf_var.chrom.clone());
 
-            let normalized_var = keys::Var {
-                chrom: chrom_std,
-                pos: vcf_var.pos,
-                reference: vcf_var.reference.clone(),
-                alternative: vcf_var.alternative.clone(),
-            };
+        let normalized_var = keys::Var {
+            chrom: chrom_std,
+            pos: vcf_var.pos,
+            reference: vcf_var.reference.clone(),
+            alternative: vcf_var.alternative.clone(),
+        };
 
-            let key: Vec<u8> = normalized_var.into();
-            return self.annotate_record_spliceai(&key);
-        }
-        Ok(None)
+        let key: Vec<u8> = normalized_var.into();
+        self.annotate_record_spliceai(&key)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::File;
-    use std::io::Write;
     use temp_testdir::TempDir;
 
     #[test]
@@ -115,22 +107,12 @@ mod tests {
         let input_path = temp.join("spliceai_test.vcf");
         let output_path = temp.join("spliceai_db");
 
-        let mut file = File::create(&input_path)?;
-        writeln!(file, "##fileformat=VCFv4.2")?;
-        writeln!(
-            file,
-            "##INFO=<ID=SpliceAI,Number=.,Type=String,Description=\"SpliceAI prediction\">"
-        )?;
-        writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")?;
-        writeln!(
-            file,
-            "1\t10000\t.\tC\tT\t.\t.\tSpliceAI=T|GENEA|0.10|0.20|0.30|0.40|10|20|30|40"
-        )?;
-        writeln!(
-            file,
-            "chr1\t10005\t.\tA\tG,C\t.\t.\tSpliceAI=G|GENEB|0.05|0.00|0.15|0.00|5|0|15|0,C|GENEC|0.50|0.00|0.00|0.00|2|0|0|0"
-        )?;
-        file.flush()?;
+        let vcf_content = "##fileformat=VCFv4.2\
+##INFO=<ID=SpliceAI,Number=.,Type=String,Description=\"SpliceAI prediction\">\
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\
+1\t10000\t.\tC\tT\t.\t.\tSpliceAI=T|GENEA|0.10|0.20|0.30|0.40|10|20|30|40\
+chr1\t10005\t.\tA\tG,C\t.\t.\tSpliceAI=G|GENEB|0.05|0.00|0.15|0.00|5|0|15|0,C|GENEC|0.50|0.00|0.00|0.00|2|0|0|0";
+        crate::db::test_utils::write_indexed_file(&input_path, vcf_content)?;
 
         let common_args = crate::common::Args {
             verbose: clap_verbosity_flag::Verbosity::new(0, 0),

@@ -1,5 +1,5 @@
 use crate::annotate::genotype_string;
-use crate::annotate::seqvars::ann::{AnnField, FeatureBiotype};
+use crate::annotate::seqvars::consequence::terms::{AnnField, FeatureBiotype};
 use crate::annotate::seqvars::{AnnotatedVariant, VariantAnnotation};
 use crate::common::TsvContigStyle;
 use crate::common::contig::ContigManager;

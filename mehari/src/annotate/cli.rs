@@ -1,4 +1,4 @@
-use crate::annotate::seqvars::csq::SequenceReporting;
+use crate::annotate::seqvars::consequence::SequenceReporting;
 use clap::Args as ClapArgs;
 use strum::{Display, VariantArray};
 

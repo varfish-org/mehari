@@ -5,9 +5,10 @@ use std::sync::Arc;
 use actix_web::ResponseError;
 use utoipa::OpenApi as _;
 
-use crate::annotate::seqvars::csq::ConsequencePredictor;
+use crate::annotate::seqvars::clinvar::ClinvarAnnotator;
+use crate::annotate::seqvars::consequence::logic::ConsequencePredictor;
+use crate::annotate::seqvars::frequency::FrequencyAnnotator;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
-use crate::annotate::seqvars::{ClinvarAnnotator, FrequencyAnnotator};
 use crate::annotate::strucvars::csq::ConsequencePredictor as StrucvarConsequencePredictor;
 
 pub mod gene_txs;

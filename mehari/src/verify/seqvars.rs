@@ -1,9 +1,11 @@
 //! Verification of the sequence variant consequence prediction.
 
 use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
+use crate::annotate::seqvars::consequence::load_tx_db;
 use crate::annotate::seqvars::{
-    csq::{ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant},
-    load_tx_db,
+    consequence::{
+        ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
+    },
     provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
 };
 use clap::Parser;

@@ -13,7 +13,7 @@ use std::ops::Sub;
 use std::path::{Path, PathBuf};
 use strum::Display;
 
-use crate::annotate::seqvars::load_tx_db;
+use crate::annotate::seqvars::consequence::load_tx_db;
 use crate::db::transcripts::create::models::Reason as FilterReason;
 use crate::pbs::txs::{TranscriptDb, TranscriptTag};
 

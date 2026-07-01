@@ -35,6 +35,50 @@ impl Var {
     }
 }
 
+impl From<Var> for annonars::common::keys::Var {
+    fn from(var: Var) -> Self {
+        annonars::common::keys::Var {
+            chrom: var.chrom,
+            pos: var.pos,
+            reference: var.reference,
+            alternative: var.alternative,
+        }
+    }
+}
+
+impl From<annonars::common::keys::Var> for Var {
+    fn from(var: annonars::common::keys::Var) -> Self {
+        Var {
+            chrom: var.chrom,
+            pos: var.pos,
+            reference: var.reference,
+            alternative: var.alternative,
+        }
+    }
+}
+
+impl From<&Var> for annonars::common::keys::Var {
+    fn from(var: &Var) -> Self {
+        annonars::common::keys::Var {
+            chrom: var.chrom.clone(),
+            pos: var.pos,
+            reference: var.reference.clone(),
+            alternative: var.alternative.clone(),
+        }
+    }
+}
+
+impl From<&annonars::common::keys::Var> for Var {
+    fn from(var: &annonars::common::keys::Var) -> Self {
+        Var {
+            chrom: var.chrom.clone(),
+            pos: var.pos,
+            reference: var.reference.clone(),
+            alternative: var.alternative.clone(),
+        }
+    }
+}
+
 /// Serialize Var into a binary key optimized for RocksDB byte sorting.
 impl From<Var> for Vec<u8> {
     fn from(val: Var) -> Self {
