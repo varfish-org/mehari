@@ -5,12 +5,14 @@ use crate::pbs::txs::TxSeqDatabase;
 pub mod cadd;
 pub mod dbsnp;
 pub mod generic;
+mod keys;
 pub mod spliceai;
 pub mod transcripts;
 
 use crate::common::contig::ContigManager;
-use anyhow::{Error, anyhow};
-use indicatif::{ProgressBar, ProgressStyle};
+use anyhow::{Context, Error, anyhow};
+use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
+use noodles::csi::BinningIndex;
 use noodles::csi::binning_index::ReferenceSequence;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -150,6 +152,128 @@ pub fn get_info_string(
     }
 }
 
+/// Core parallel map-reduce orchestration engine.
+/// Handles Tabix space partitioning, Rayon execution, and atomic thread-local batch commits.
+pub fn run_parallel_pipeline<R, M, Rec>(
+    config: PipelineConfig,
+    region_reader: R,
+    mapper: M,
+) -> Result<(), Error>
+where
+    Rec: Send + Sync,
+    R: Fn(&Path, &str, usize, usize) -> Result<Vec<Rec>, Error> + Sync + Send,
+    M: Fn(
+            &Rec,
+            &ContigManager,
+        ) -> Result<(Vec<(Vec<u8>, Vec<u8>, String)>, HashSet<String>), Error>
+        + Sync
+        + Send,
+{
+    tracing::info!(
+        "Creating {} RocksDB database at {:?}",
+        config.db_type,
+        config.output
+    );
+    let start_time = Instant::now();
+    let contig_manager = ContigManager::new(config.assembly);
+    let db = open_db(config.output, config.db_type)?;
+
+    let mut global_seen_keys = HashSet::new();
+    let mut total_records_written = 0;
+    let window_size = config.batch_size.max(500_000);
+
+    for input_file in config.input {
+        if !input_file.exists() {
+            tracing::warn!("Input file does not exist, skipping: {:?}", input_file);
+            continue;
+        }
+
+        let total_records = get_total_records_from_tabix(input_file)?;
+
+        let tbi_path = input_file.with_added_extension("tbi");
+        let index = noodles::tabix::fs::read(&tbi_path)
+            .with_context(|| format!("Failed to read tabix index: {:?}", tbi_path.display()))?;
+        let tabix_header = index
+            .header()
+            .ok_or_else(|| anyhow!("Missing tabix header"))?;
+
+        let mut windows = Vec::new();
+        for ref_name in tabix_header.reference_sequence_names() {
+            let ref_name_str = ref_name.to_string();
+            let mut begin = 0;
+            let max_len = 300_000_000; // Safe default upper limit for chromosome/scaffold lengths
+            while begin < max_len {
+                let end = (begin + window_size).min(max_len);
+                windows.push((ref_name_str.clone(), begin, end));
+                begin += window_size;
+            }
+        }
+
+        let pb = ProgressBar::new(windows.len() as u64);
+        pb.set_style(ProgressStyle::default_bar().template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")?.progress_chars("█▒░"));
+
+        match total_records {
+            Some(count) => {
+                tracing::info!(
+                    "Importing ~{} records across {} genomic windows for file: {:?}",
+                    count,
+                    windows.len(),
+                    input_file
+                );
+            }
+            None => {
+                tracing::info!(
+                    "Importing records across {} genomic windows for file: {:?}",
+                    windows.len(),
+                    input_file
+                );
+            }
+        }
+
+        let cf_data = db
+            .cf_handle(config.db_type)
+            .ok_or_else(|| anyhow!("CF '{}' not found", config.db_type))?;
+
+        let window_results: Vec<Result<(usize, HashSet<String>), Error>> = windows
+            .par_iter()
+            .progress_with(pb)
+            .map(|(chrom, begin, end)| {
+                let mut local_seen_keys = HashSet::new();
+                let mut local_batch = rocksdb::WriteBatch::default();
+                let mut local_count = 0;
+
+                let records = region_reader(input_file, chrom, *begin, *end)?;
+
+                for rec in records {
+                    let (kvs, local_keys) = mapper(&rec, &contig_manager)?;
+                    local_seen_keys.extend(local_keys);
+                    for (key, value, _label) in kvs {
+                        local_batch.put_cf(&cf_data, &key, &value);
+                    }
+                    local_count += 1;
+                }
+
+                db.write(local_batch)?;
+                Ok((local_count, local_seen_keys))
+            })
+            .collect();
+
+        for res in window_results {
+            let (count, local_keys) = res?;
+            total_records_written += count;
+            global_seen_keys.extend(local_keys);
+        }
+    }
+
+    finalize_pipeline(
+        &db,
+        total_records_written,
+        config,
+        global_seen_keys,
+        start_time,
+    )
+}
+
 pub fn run_vcf_pipeline<M, F>(
     config: PipelineConfig,
     mut header_modifier: Option<F>,
@@ -164,98 +288,45 @@ where
         + Sync
         + Send,
 {
-    tracing::info!(
-        "Creating {} RocksDB database at {:?}",
-        config.db_type,
-        config.output
-    );
-    let start_time = Instant::now();
-    let contig_manager = ContigManager::new(config.assembly);
-    let db = open_db(config.output, config.db_type)?;
-    let mut writer = DbWriter::new(&db, config.db_type, config.batch_size)?;
-    let mut global_seen_keys = HashSet::new();
+    if config.input.is_empty() {
+        return Ok(());
+    }
 
-    for input_file in config.input {
-        tracing::info!("Processing input file: {:?}", input_file);
-        let total_records = get_total_records_from_tabix(input_file).unwrap_or(0);
-        let pb = if total_records > 0 {
-            ProgressBar::new(total_records)
-        } else {
-            ProgressBar::new_spinner()
-        };
-        pb.set_style(ProgressStyle::default_bar().template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")?.progress_chars("█▒░"));
+    // Extract structure schemas upfront
+    let (_, header) = open_vcf_reader(&config.input[0])?;
+    let mut modified_header = header;
+    if let Some(ref mut modifier) = header_modifier {
+        modifier(&mut modified_header);
+    }
+    let shared_header = std::sync::Arc::new(modified_header);
 
-        let (mut reader, header) = open_vcf_reader(input_file)?;
-        let mut modified_header = header;
-        if let Some(ref mut modifier) = header_modifier {
-            modifier(&mut modified_header);
-        }
+    run_parallel_pipeline(
+        config,
+        move |path, chrom, begin, end| {
+            let mut reader =
+                noodles::vcf::io::indexed_reader::Builder::default().build_from_path(path)?;
+            let region = format!("{}:{}-{}", chrom, begin + 1, end).parse()?;
 
-        let mut chunk = Vec::with_capacity(config.batch_size);
-        for result in reader.record_bufs(&modified_header) {
-            chunk.push(result?);
-            if chunk.len() == config.batch_size {
-                process_vcf_chunk(
-                    &mut writer,
-                    &chunk,
-                    &contig_manager,
-                    &mapper,
-                    &mut global_seen_keys,
-                    &pb,
-                )?;
-                chunk.clear();
+            let mut records = Vec::new();
+            match reader.query(&shared_header, &region) {
+                Ok(query) => {
+                    for result in query.records() {
+                        let record_buf = noodles::vcf::variant::RecordBuf::try_from_variant_record(
+                            &shared_header,
+                            &result?,
+                        )?;
+                        records.push(record_buf);
+                    }
+                }
+                Err(e)
+                    if e.to_string()
+                        .contains("region reference sequence does not exist") => {}
+                Err(e) => return Err(Error::from(e)),
             }
-        }
-        if !chunk.is_empty() {
-            process_vcf_chunk(
-                &mut writer,
-                &chunk,
-                &contig_manager,
-                &mapper,
-                &mut global_seen_keys,
-                &pb,
-            )?;
-        }
-        pb.finish_and_clear();
-    }
-
-    // Flush the writer here, releasing the borrow on `db`
-    let written = writer.flush()?;
-
-    // Pass `db` by reference instead of moving it
-    finalize_pipeline(&db, written, config, global_seen_keys, start_time)
-}
-
-fn process_vcf_chunk<M>(
-    writer: &mut DbWriter,
-    chunk: &[noodles::vcf::variant::RecordBuf],
-    contig_manager: &ContigManager,
-    mapper: &M,
-    global_seen_keys: &mut HashSet<String>,
-    pb: &ProgressBar,
-) -> Result<(), Error>
-where
-    M: Fn(
-            &noodles::vcf::variant::RecordBuf,
-            &ContigManager,
-        ) -> Result<(Vec<(Vec<u8>, Vec<u8>, String)>, HashSet<String>), Error>
-        + Sync
-        + Send,
-{
-    let chunk_len = chunk.len() as u64;
-    let processed: Vec<Result<(Vec<(Vec<u8>, Vec<u8>, String)>, HashSet<String>), Error>> = chunk
-        .par_iter()
-        .map(|rec| mapper(rec, contig_manager))
-        .collect();
-    for res in processed {
-        let (kvs, local_keys) = res?;
-        global_seen_keys.extend(local_keys);
-        for (key, value, label) in kvs {
-            writer.put(&key, &value, &label)?;
-        }
-    }
-    pb.inc(chunk_len);
-    Ok(())
+            Ok(records)
+        },
+        mapper,
+    )
 }
 
 pub fn run_tsv_pipeline<M, R>(
@@ -273,99 +344,46 @@ where
         + Sync
         + Send,
 {
-    tracing::info!(
-        "Creating {} RocksDB database at {:?}",
-        config.db_type,
-        config.output
-    );
-    let start_time = Instant::now();
-    let contig_manager = ContigManager::new(config.assembly);
-    let db = open_db(config.output, config.db_type)?;
-    let mut writer = DbWriter::new(&db, config.db_type, config.batch_size)?;
-    let mut global_seen_keys = HashSet::new();
+    if config.input.is_empty() {
+        return Ok(());
+    }
 
-    for input_file in config.input {
-        tracing::info!("Processing input file: {:?}", input_file);
-        let total_records = get_total_records_from_tabix(input_file).unwrap_or(0);
-        let pb = if total_records > 0 {
-            ProgressBar::new(total_records)
-        } else {
-            ProgressBar::new_spinner()
-        };
-        pb.set_style(ProgressStyle::default_bar().template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")?.progress_chars("█▒░"));
+    let (_, headers_record) = open_reader(&config.input[0])?;
+    let shared_headers = std::sync::Arc::new(headers_record);
 
-        let (mut rdr, headers_record) = open_reader(input_file)?;
-        let headers_arc = std::sync::Arc::new(headers_record);
-        let mut chunk = Vec::with_capacity(config.batch_size);
+    let mapper_wrapper = move |record: &csv::StringRecord, contig_manager: &ContigManager| {
+        mapper(record, &shared_headers, contig_manager)
+    };
 
-        for result in rdr.records() {
-            chunk.push(result?);
-            if chunk.len() == config.batch_size {
-                process_tsv_chunk(
-                    &mut writer,
-                    &chunk,
-                    &headers_arc,
-                    &contig_manager,
-                    &mapper,
-                    &mut global_seen_keys,
-                    &pb,
-                )?;
-                chunk.clear();
+    run_parallel_pipeline(
+        config,
+        move |path, chrom, begin, end| {
+            let mut reader =
+                noodles::tabix::io::indexed_reader::Builder::default().build_from_path(path)?;
+            let region = format!("{}:{}-{}", chrom, begin + 1, end).parse()?;
+            let mut records = Vec::new();
+
+            match reader.query(&region) {
+                Ok(query) => {
+                    for line_result in query {
+                        let line = line_result?;
+                        let fields = line
+                            .as_ref()
+                            .split('\t')
+                            .map(String::from)
+                            .collect::<Vec<_>>();
+                        records.push(csv::StringRecord::from(fields));
+                    }
+                }
+                Err(e)
+                    if e.to_string()
+                        .contains("region reference sequence does not exist") => {}
+                Err(e) => return Err(Error::from(e)),
             }
-        }
-        if !chunk.is_empty() {
-            process_tsv_chunk(
-                &mut writer,
-                &chunk,
-                &headers_arc,
-                &contig_manager,
-                &mapper,
-                &mut global_seen_keys,
-                &pb,
-            )?;
-        }
-        pb.finish_and_clear();
-    }
-
-    // Flush the writer here, releasing the borrow on `db`
-    let written = writer.flush()?;
-
-    // Pass `db` by reference instead of moving it
-    finalize_pipeline(&db, written, config, global_seen_keys, start_time)
-}
-
-fn process_tsv_chunk<M>(
-    writer: &mut DbWriter,
-    chunk: &[csv::StringRecord],
-    headers: &csv::StringRecord,
-    contig_manager: &ContigManager,
-    mapper: &M,
-    global_seen_keys: &mut HashSet<String>,
-    pb: &ProgressBar,
-) -> Result<(), Error>
-where
-    M: Fn(
-            &csv::StringRecord,
-            &csv::StringRecord,
-            &ContigManager,
-        ) -> Result<(Vec<(Vec<u8>, Vec<u8>, String)>, HashSet<String>), Error>
-        + Sync
-        + Send,
-{
-    let chunk_len = chunk.len() as u64;
-    let processed: Vec<Result<(Vec<(Vec<u8>, Vec<u8>, String)>, HashSet<String>), Error>> = chunk
-        .par_iter()
-        .map(|rec| mapper(rec, headers, contig_manager))
-        .collect();
-    for res in processed {
-        let (kvs, local_keys) = res?;
-        global_seen_keys.extend(local_keys);
-        for (key, value, label) in kvs {
-            writer.put(&key, &value, &label)?;
-        }
-    }
-    pb.inc(chunk_len);
-    Ok(())
+            Ok(records)
+        },
+        mapper_wrapper,
+    )
 }
 
 fn finalize_pipeline(
@@ -405,55 +423,6 @@ fn finalize_pipeline(
     Ok(())
 }
 
-pub struct DbWriter<'a> {
-    db: &'a rocksdb::DB,
-    cf: rocksdb::ColumnFamilyRef<'a>,
-    batch: rocksdb::WriteBatch,
-    batch_size: usize,
-    count: usize,
-    written: usize,
-}
-
-impl<'a> DbWriter<'a> {
-    pub fn new(db: &'a rocksdb::DB, cf_name: &str, batch_size: usize) -> Result<Self, Error> {
-        let cf = db
-            .cf_handle(cf_name)
-            .ok_or_else(|| anyhow!("CF '{}' not found", cf_name))?;
-        Ok(Self {
-            db,
-            cf,
-            batch: rocksdb::WriteBatch::default(),
-            batch_size,
-            count: 0,
-            written: 0,
-        })
-    }
-
-    pub fn put(&mut self, key: &[u8], value: &[u8], var_label: &str) -> Result<(), Error> {
-        if self.db.get_cf(&self.cf, key)?.is_some() {
-            tracing::warn!("Duplicate key found in database for variant: {}", var_label);
-        }
-        self.batch.put_cf(&self.cf, key, value);
-        self.count += 1;
-
-        if self.count >= self.batch_size {
-            let active_batch = std::mem::take(&mut self.batch);
-            self.db.write(active_batch)?;
-            self.written += self.count;
-            self.count = 0;
-        }
-        Ok(())
-    }
-
-    pub fn flush(mut self) -> Result<usize, Error> {
-        if self.count > 0 {
-            self.db.write(self.batch)?;
-            self.written += self.count;
-        }
-        Ok(self.written)
-    }
-}
-
 pub fn finalize_db(db: &rocksdb::DB, column_families: &[&str]) -> Result<(), Error> {
     tracing::info!("Running final database compaction...");
     for cf_name in column_families {
@@ -466,25 +435,34 @@ pub fn finalize_db(db: &rocksdb::DB, column_families: &[&str]) -> Result<(), Err
     Ok(())
 }
 
-pub fn get_total_records_from_tabix(path: &Path) -> Option<u64> {
-    let tbi_path = path.to_path_buf();
-    let mut os_str = tbi_path.into_os_string();
-    os_str.push(".tbi");
-    let tbi_path = std::path::PathBuf::from(os_str);
+pub fn get_total_records_from_tabix(path: &Path) -> anyhow::Result<Option<u64>> {
+    let tbi_path = path.with_added_extension("tbi");
 
     if !tbi_path.exists() {
-        return None;
+        tracing::warn!(path = %tbi_path.display(), "Index does not exist, skipping.");
+        return Ok(None);
     }
 
-    let mut reader = noodles::tabix::io::Reader::new(File::open(tbi_path).ok()?);
-    let index = reader.read_index().ok()?;
+    let index = noodles::tabix::fs::read(&tbi_path).with_context(|| {
+        format!(
+            "Failed to read tabix index for record counts at {:?}",
+            tbi_path.display()
+        )
+    })?;
 
     let mut total_records = 0;
+    let mut metadata_found = false;
+
     for reference in index.reference_sequences() {
         if let Some(metadata) = reference.metadata() {
             total_records += metadata.mapped_record_count();
+            metadata_found = true;
         }
     }
 
-    Some(total_records)
+    if metadata_found {
+        Ok(Some(total_records))
+    } else {
+        Ok(None)
+    }
 }

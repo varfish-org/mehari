@@ -1,7 +1,7 @@
 use crate::common::Args as CommonArgs;
 use crate::db::PipelineConfig;
+use crate::db::keys::Var;
 use crate::pbs::seqvars::CaddRecord;
-use annonars::common::keys::Var;
 use anyhow::Error;
 use clap::Parser;
 use prost::Message;

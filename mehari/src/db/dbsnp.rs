@@ -1,7 +1,7 @@
 use crate::common::Args as CommonArgs;
 use crate::db::PipelineConfig;
+use crate::db::keys::Var;
 use crate::pbs::seqvars::DbsnpRecord;
-use annonars::common::keys::Var;
 use anyhow::Error;
 use clap::Parser;
 use itertools::Itertools;
