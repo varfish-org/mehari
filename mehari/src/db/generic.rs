@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use crate::common::Args as CommonArgs;
 use crate::common::contig::ContigManager;
+use crate::db::{DbWriter, finalize_db, open_db, open_vcf_reader};
 use crate::pbs::seqvars::GenericLookupRecord;
 use annonars::common::keys::Var;
 use anyhow::{Error, anyhow};
@@ -76,7 +77,6 @@ fn open_tsv_reader(
     let (reader, _format) = niffler::get_reader(Box::new(file))?;
     let mut buf_reader = BufReader::new(reader);
 
-    // Skip any leading lines starting with '##'
     let mut header_line = String::new();
     let mut line = String::new();
     while buf_reader.read_line(&mut line)? > 0 {
@@ -109,24 +109,6 @@ fn open_tsv_reader(
     Ok((rdr, headers_record))
 }
 
-fn open_vcf_reader(
-    path: &std::path::Path,
-) -> Result<
-    (
-        noodles::vcf::io::Reader<Box<dyn std::io::BufRead>>,
-        noodles::vcf::Header,
-    ),
-    Error,
-> {
-    let file = File::open(path)?;
-    let (reader, _format) = niffler::get_reader(Box::new(file))?;
-    let buf_reader = BufReader::new(reader);
-    let mut reader =
-        noodles::vcf::io::Reader::new(Box::new(buf_reader) as Box<dyn std::io::BufRead>);
-    let header = reader.read_header()?;
-    Ok((reader, header))
-}
-
 fn get_info_string(val: &noodles::vcf::variant::record_buf::info::field::Value) -> Option<String> {
     match val {
         noodles::vcf::variant::record_buf::info::field::Value::String(s) => Some(s.to_string()),
@@ -146,28 +128,10 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
         args.output
     );
     let start_time = Instant::now();
-
     let contig_manager = ContigManager::new(&args.assembly);
 
-    let mut options = rocksdb::Options::default();
-    options.create_if_missing(true);
-    options.create_missing_column_families(true);
-    options.set_compression_type(rocksdb::DBCompressionType::Zstd);
-    options.set_compression_options(-14, 19, 0, 0);
-
-    let cfs = vec!["meta", "generic"];
-    let db = rocksdb::DB::open_cf(&options, &args.output, cfs)?;
-
-    let cf_generic = db
-        .cf_handle("generic")
-        .ok_or_else(|| anyhow!("generic CF not found"))?;
-    let cf_meta = db
-        .cf_handle("meta")
-        .ok_or_else(|| anyhow!("meta CF not found"))?;
-
-    let mut batch = rocksdb::WriteBatch::default();
-    let mut count = 0;
-    let mut written = 0;
+    let db = open_db(&args.output, "generic")?;
+    let mut writer = DbWriter::new(&db, "generic", args.batch_size)?;
 
     let is_vcf = args.format.to_lowercase() == "vcf";
     let mut seen_keys = HashSet::new();
@@ -223,74 +187,39 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                     };
                     let key: Vec<u8> = var.clone().into();
 
-                    if db.get_cf(&cf_generic, &key)?.is_some() {
-                        tracing::warn!(
-                            "Duplicate key found in database for variant: {}:{}{}>{}",
-                            var.chrom,
-                            var.pos,
-                            var.reference,
-                            var.alternative
-                        );
-                    }
-
                     let record_pb = GenericLookupRecord {
                         fields: fields.clone(),
                     };
                     let mut value = Vec::new();
                     record_pb.encode(&mut value)?;
 
-                    batch.put_cf(&cf_generic, &key, &value);
-                    count += 1;
-
-                    if count % args.batch_size == 0 {
-                        db.write(batch)?;
-                        batch = rocksdb::WriteBatch::default();
-                        written += count;
-                        tracing::info!("Imported {} records...", written);
-                        count = 0;
-                    }
+                    let var_label = format!(
+                        "{}:{}{}>{}",
+                        var.chrom, var.pos, var.reference, var.alternative
+                    );
+                    writer.put(&key, &value, &var_label)?;
                 }
             }
         } else {
-            // TSV
             let (mut rdr, headers_record) = open_tsv_reader(input_file)?;
-
             for result in rdr.records() {
                 let record = result?;
                 let record_map: HashMap<String, String> =
                     record.deserialize(Some(&headers_record))?;
 
-                let chrom = record_map.get(&args.col_chrom).ok_or_else(|| {
-                    anyhow!(
-                        "Missing Chromosome column '{}' in {:?}",
-                        args.col_chrom,
-                        input_file
-                    )
-                })?;
+                let chrom = record_map
+                    .get(&args.col_chrom)
+                    .ok_or_else(|| anyhow!("Missing Chromosome column"))?;
                 let pos: i32 = record_map
                     .get(&args.col_pos)
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "Missing Position column '{}' in {:?}",
-                            args.col_pos,
-                            input_file
-                        )
-                    })?
+                    .ok_or_else(|| anyhow!("Missing Position column"))?
                     .parse()?;
-                let reference = record_map.get(&args.col_ref).ok_or_else(|| {
-                    anyhow!(
-                        "Missing Reference column '{}' in {:?}",
-                        args.col_ref,
-                        input_file
-                    )
-                })?;
-                let alternative = record_map.get(&args.col_alt).ok_or_else(|| {
-                    anyhow!(
-                        "Missing Alternative column '{}' in {:?}",
-                        args.col_alt,
-                        input_file
-                    )
-                })?;
+                let reference = record_map
+                    .get(&args.col_ref)
+                    .ok_or_else(|| anyhow!("Missing Reference column"))?;
+                let alternative = record_map
+                    .get(&args.col_alt)
+                    .ok_or_else(|| anyhow!("Missing Alternative column"))?;
 
                 let chrom_std = contig_manager
                     .get_primary_name(chrom)
@@ -300,11 +229,10 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                 let mut fields = HashMap::new();
                 if let Some(vals) = &args.col_values {
                     for v in vals {
-                        if let Some(val) = record_map.get(v) {
-                            fields.insert(v.clone(), val.clone());
-                        } else {
-                            anyhow::bail!("Value column '{}' not found in {:?}", v, input_file);
-                        }
+                        let val = record_map
+                            .get(v)
+                            .ok_or_else(|| anyhow!("Value column not found"))?;
+                        fields.insert(v.clone(), val.clone());
                     }
                 } else {
                     for (k, v) in &record_map {
@@ -330,39 +258,24 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                 };
                 let key: Vec<u8> = var.clone().into();
 
-                if db.get_cf(&cf_generic, &key)?.is_some() {
-                    tracing::warn!(
-                        "Duplicate key found in database for variant: {}:{}{}>{}",
-                        var.chrom,
-                        var.pos,
-                        var.reference,
-                        var.alternative
-                    );
-                }
-
                 let record_pb = GenericLookupRecord { fields };
                 let mut value = Vec::new();
                 record_pb.encode(&mut value)?;
 
-                batch.put_cf(&cf_generic, &key, &value);
-                count += 1;
-
-                if count % args.batch_size == 0 {
-                    db.write(batch)?;
-                    batch = rocksdb::WriteBatch::default();
-                    written += count;
-                    tracing::info!("Imported {} records...", written);
-                    count = 0;
-                }
+                let var_label = format!(
+                    "{}:{}{}>{}",
+                    var.chrom, var.pos, var.reference, var.alternative
+                );
+                writer.put(&key, &value, &var_label)?;
             }
         }
     }
 
-    if count > 0 {
-        db.write(batch)?;
-        written += count;
-    }
+    let written = writer.flush()?;
 
+    let cf_meta = db
+        .cf_handle("meta")
+        .ok_or_else(|| anyhow!("meta CF not found"))?;
     db.put_cf(&cf_meta, b"db_type", b"generic")?;
     db.put_cf(&cf_meta, b"db_name", args.db_name.as_bytes())?;
     db.put_cf(&cf_meta, b"assembly", args.assembly.as_bytes())?;
@@ -379,6 +292,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
         written,
         start_time.elapsed()
     );
+    finalize_db(&db, &["generic", "meta"])?;
 
     Ok(())
 }
