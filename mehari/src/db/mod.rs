@@ -23,8 +23,7 @@ impl TranscriptDatabase for TxSeqDatabase {
     fn assembly(&self) -> String {
         let source_version = self
             .source_version
-            .iter()
-            .next()
+            .first()
             .expect("At least one source_version entry expected");
 
         // Prefer the new string field, fall back to deprecated enum field

@@ -894,7 +894,7 @@ impl AnnotatorEnum {
                 for (name, desc) in fields {
                     let field_name = format!("SpliceAI_pred_{}", name);
                     header.infos_mut().insert(
-                        field_name.into(),
+                        field_name,
                         Map::<Info>::new(
                             Number::Unknown,
                             InfoType::String,
@@ -909,7 +909,7 @@ impl AnnotatorEnum {
                 for f in fields {
                     let field_name = format!("{}_{}", name, f);
                     header.infos_mut().insert(
-                        field_name.into(),
+                        field_name,
                         Map::<Info>::new(
                             Number::Unknown,
                             InfoType::String,

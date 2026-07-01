@@ -3284,7 +3284,7 @@ pub fn read_and_cluster_for_contig(
     }
 
     // Finally, sort records by start position and write out.
-    result.sort_by(|a, b| a.start.cmp(&b.start));
+    result.sort_by_key(|a| a.start);
 
     Ok(result)
 }

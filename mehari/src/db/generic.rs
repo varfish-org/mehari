@@ -153,18 +153,18 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                 let mut fields = HashMap::new();
                 if let Some(keys) = &args.vcf_info_fields {
                     for k in keys {
-                        if let Some(val) = record.info().get(k).flatten() {
-                            if let Some(v_str) = get_info_string(val) {
-                                fields.insert(k.clone(), v_str);
-                            }
+                        if let Some(val) = record.info().get(k).flatten()
+                            && let Some(v_str) = get_info_string(val)
+                        {
+                            fields.insert(k.clone(), v_str);
                         }
                     }
                 } else {
                     for (k, val) in record.info().as_ref() {
-                        if let Some(val_inner) = val {
-                            if let Some(v_str) = get_info_string(val_inner) {
-                                fields.insert(k.to_string(), v_str);
-                            }
+                        if let Some(val_inner) = val
+                            && let Some(v_str) = get_info_string(val_inner)
+                        {
+                            fields.insert(k.to_string(), v_str);
                         }
                     }
                 }

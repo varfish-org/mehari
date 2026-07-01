@@ -290,8 +290,8 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
     // Apply second set of filters (which depend on gene id grouping)
     let discarded = loader
         .gene_id_to_transcript_ids
-        .iter()
-        .filter_map(|(_gene_id, tx_ids)| {
+        .values()
+        .filter_map(|tx_ids| {
             let txs = tx_ids
                 .iter()
                 .map(|tx_id| loader.transcript_id_to_transcript.get(tx_id).unwrap())

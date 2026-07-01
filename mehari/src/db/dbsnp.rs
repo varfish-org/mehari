@@ -43,10 +43,7 @@ fn extract_int(val: &noodles::vcf::variant::record_buf::info::field::Value) -> i
 }
 
 pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
-    tracing::info!(
-        "Creating dbSNP RocksDB database at {:?}",
-        args.output
-    );
+    tracing::info!("Creating dbSNP RocksDB database at {:?}", args.output);
     let start_time = Instant::now();
     let contig_manager = ContigManager::new(&args.assembly);
 
