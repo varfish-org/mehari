@@ -15,7 +15,7 @@ use noodles::csi::binning_index::ReferenceSequence;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -85,23 +85,22 @@ pub fn open_vcf_reader(
     path: &Path,
 ) -> Result<
     (
-        noodles::vcf::io::Reader<Box<dyn std::io::BufRead>>,
+        noodles::vcf::io::Reader<Box<dyn BufRead>>,
         noodles::vcf::Header,
     ),
     Error,
 > {
     let file = File::open(path)?;
     let (reader, _) = niffler::get_reader(Box::new(file))?;
-    let mut reader = noodles::vcf::io::Reader::new(
-        Box::new(BufReader::new(reader)) as Box<dyn std::io::BufRead>
-    );
+    let mut reader =
+        noodles::vcf::io::Reader::new(Box::new(BufReader::new(reader)) as Box<dyn BufRead>);
     let header = reader.read_header()?;
     Ok((reader, header))
 }
 
 pub fn open_tsv_reader(
     path: &Path,
-) -> Result<(csv::Reader<Box<dyn std::io::Read>>, csv::StringRecord), Error> {
+) -> Result<(csv::Reader<Box<dyn Read>>, csv::StringRecord), Error> {
     let file = File::open(path)?;
     let (reader, _) = niffler::get_reader(Box::new(file))?;
     let mut buf_reader = BufReader::new(reader);
@@ -131,7 +130,7 @@ pub fn open_tsv_reader(
         .delimiter(b'\t')
         .has_headers(false)
         .comment(Some(b'#'))
-        .from_reader(Box::new(buf_reader) as Box<dyn std::io::Read>);
+        .from_reader(Box::new(buf_reader) as Box<dyn Read>);
 
     Ok((rdr, csv::StringRecord::from(headers)))
 }
@@ -265,7 +264,7 @@ pub fn run_tsv_pipeline<M, R>(
     mapper: M,
 ) -> Result<(), Error>
 where
-    R: Fn(&Path) -> Result<(csv::Reader<Box<dyn std::io::Read>>, csv::StringRecord), Error>,
+    R: Fn(&Path) -> Result<(csv::Reader<Box<dyn Read>>, csv::StringRecord), Error>,
     M: Fn(
             &csv::StringRecord,
             &csv::StringRecord,
