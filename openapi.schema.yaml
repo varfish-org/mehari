@@ -8,7 +8,7 @@ info:
   license:
     name: MIT
     identifier: MIT
-  version: 0.41.2
+  version: 0.44.1
 paths:
   /api/v1/genes/transcripts:
     get:
@@ -53,6 +53,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenesTranscriptsListResponse'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomError'
+  /api/v1/seqvars/cadd:
+    get:
+      tags:
+      - seqvars_cadd
+      operationId: seqvarsCadd
+      parameters:
+      - name: assembly
+        in: query
+        description: The assembly.
+        required: true
+        schema:
+          type: string
+      - name: chromosome
+        in: query
+        description: Chromosome name.
+        required: true
+        schema:
+          type: string
+      - name: position
+        in: query
+        description: 1-based position.
+        required: true
+        schema:
+          type: integer
+          format: int32
+          minimum: 0
+      - name: reference
+        in: query
+        description: Reference allele.
+        required: true
+        schema:
+          type: string
+      - name: alternative
+        in: query
+        description: Alternative allele.
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: CADD scores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaddResponse'
         '500':
           description: Internal server error.
           content:
@@ -223,6 +274,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CustomError'
+  /api/v1/seqvars/spliceai:
+    get:
+      tags:
+      - seqvars_spliceai
+      operationId: seqvarsSpliceai
+      parameters:
+      - name: assembly
+        in: query
+        description: The assembly.
+        required: true
+        schema:
+          type: string
+      - name: chromosome
+        in: query
+        description: Chromosome name.
+        required: true
+        schema:
+          type: string
+      - name: position
+        in: query
+        description: 1-based position.
+        required: true
+        schema:
+          type: integer
+          format: int32
+          minimum: 0
+      - name: reference
+        in: query
+        description: Reference allele.
+        required: true
+        schema:
+          type: string
+      - name: alternative
+        in: query
+        description: Alternative allele.
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: SpliceAI predictions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpliceAiResponse'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomError'
   /api/v1/strucvars/csq:
     get:
       tags:
@@ -341,6 +443,64 @@ components:
           type: integer
           format: int32
           minimum: 0
+    CaddQuery:
+      type: object
+      description: Query parameters of the `/api/v1/seqvars/cadd` endpoint.
+      required:
+      - assembly
+      - chromosome
+      - position
+      - reference
+      - alternative
+      properties:
+        assembly:
+          type: string
+          description: The assembly.
+        chromosome:
+          type: string
+          description: Chromosome name.
+        position:
+          type: integer
+          format: int32
+          description: 1-based position.
+          minimum: 0
+        reference:
+          type: string
+          description: Reference allele.
+        alternative:
+          type: string
+          description: Alternative allele.
+    CaddResponse:
+      type: object
+      description: Response of the `/api/v1/seqvars/cadd` endpoint.
+      required:
+      - version
+      - query
+      properties:
+        version:
+          $ref: '#/components/schemas/VersionsInfoResponse'
+          description: Version information.
+        query:
+          $ref: '#/components/schemas/CaddQuery'
+          description: The original query parameters.
+        result:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/CaddResultEntry'
+            description: The resulting CADD score if found.
+    CaddResultEntry:
+      type: object
+      description: One entry in `CaddResponse`.
+      required:
+      - raw_score
+      - phred
+      properties:
+        raw_score:
+          type: number
+          format: float
+        phred:
+          type: number
+          format: float
     ClinvarQuery:
       type: object
       description: Query parameters of the `/api/v1/seqvars/clinvar` endpoint.
@@ -1074,6 +1234,95 @@ components:
         hgvs_rs:
           type: string
           description: Version of the `hgvs` crate.
+    SpliceAiPredictionEntry:
+      type: object
+      description: One prediction entry in `SpliceAiResponse`.
+      required:
+      - allele
+      - symbol
+      - ds_ag
+      - ds_al
+      - ds_dg
+      - ds_dl
+      - dp_ag
+      - dp_al
+      - dp_dg
+      - dp_dl
+      properties:
+        allele:
+          type: string
+        symbol:
+          type: string
+        ds_ag:
+          type: number
+          format: float
+        ds_al:
+          type: number
+          format: float
+        ds_dg:
+          type: number
+          format: float
+        ds_dl:
+          type: number
+          format: float
+        dp_ag:
+          type: integer
+          format: int32
+        dp_al:
+          type: integer
+          format: int32
+        dp_dg:
+          type: integer
+          format: int32
+        dp_dl:
+          type: integer
+          format: int32
+    SpliceAiQuery:
+      type: object
+      description: Query parameters of the `/api/v1/seqvars/spliceai` endpoint.
+      required:
+      - assembly
+      - chromosome
+      - position
+      - reference
+      - alternative
+      properties:
+        assembly:
+          type: string
+          description: The assembly.
+        chromosome:
+          type: string
+          description: Chromosome name.
+        position:
+          type: integer
+          format: int32
+          description: 1-based position.
+          minimum: 0
+        reference:
+          type: string
+          description: Reference allele.
+        alternative:
+          type: string
+          description: Alternative allele.
+    SpliceAiResponse:
+      type: object
+      description: Response of the `/api/v1/seqvars/spliceai` endpoint.
+      required:
+      - version
+      - query
+      - result
+      properties:
+        version:
+          $ref: '#/components/schemas/VersionsInfoResponse'
+          description: Version information.
+        query:
+          $ref: '#/components/schemas/SpliceAiQuery'
+          description: The original query parameters.
+        result:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpliceAiPredictionEntry'
+          description: The resulting predictions.
     Strand:
       type: string
       description: Enumeration for the two strands of the genome.
