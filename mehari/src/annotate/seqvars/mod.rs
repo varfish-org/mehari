@@ -1978,156 +1978,148 @@ pub(crate) fn setup_seqvars_annotator(
     Ok(annotator)
 }
 
-pub(crate) fn initialize_clinvar_annotators_for_assembly(
+/// Dynamically reads the database's internal metadata to verify its assembly.
+/// Falls back to a loose path-string validation warning if metadata is unreadable.
+fn verify_database_assembly(path: &str, expected_assembly: &str) {
+    let options = rocksdb::Options::default();
+
+    if let Ok(cfs) = rocksdb::DB::list_cf(&options, path) {
+        if let Ok(db) = rocksdb::DB::open_cf_for_read_only(&options, path, &cfs, false) {
+            if let Some(cf_meta) = db.cf_handle("meta") {
+                if let Ok(Some(bytes)) = db.get_cf(&cf_meta, b"assembly") {
+                    if let Ok(actual_assembly) = std::str::from_utf8(&bytes) {
+                        if !actual_assembly.eq_ignore_ascii_case(expected_assembly) {
+                            tracing::warn!(
+                                "Database assembly mismatch! The database at '{}' internal metadata specifies assembly '{}', but the active annotation pipeline is configured for '{}'.",
+                                path,
+                                actual_assembly,
+                                expected_assembly
+                            );
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    let path_lower = path.to_lowercase();
+    let assembly_lower = expected_assembly.to_lowercase();
+    if !path_lower.contains(&assembly_lower) {
+        tracing::warn!(
+            "Database path '{}' does not contain the active assembly name string '{}'. Please ensure it matches your target genome build configuration.",
+            path,
+            expected_assembly
+        );
+    }
+}
+pub fn initialize_clinvar_annotators_for_assembly(
     rocksdb_paths: &[String],
     assembly: &str,
     contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<ClinvarAnnotator>, Error> {
     let mut annotators = Vec::new();
-    let assembly_lower = assembly.to_lowercase();
 
     for rocksdb_path in rocksdb_paths {
-        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
-            tracing::info!(
-                "Loading ClinVar database for assembly {:?} from {}",
-                assembly,
-                rocksdb_path
-            );
-            let annotator = ClinvarAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
-            annotators.push(annotator);
-        } else {
-            anyhow::bail!(
-                "ClinVar database path '{}' does not match the active assembly '{}'. \
-                 Please ensure the path matches the correct genome build, or adjust your path naming.",
-                rocksdb_path,
-                assembly
-            );
-        }
+        verify_database_assembly(rocksdb_path, assembly);
+        tracing::info!(
+            "Loading ClinVar database for assembly {:?} from {}",
+            assembly,
+            rocksdb_path
+        );
+        let annotator = ClinvarAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+        annotators.push(annotator);
     }
     Ok(annotators)
 }
 
-pub(crate) fn initialize_frequency_annotators_for_assembly(
+pub fn initialize_frequency_annotators_for_assembly(
     rocksdb_paths: &[String],
     assembly: &str,
     contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<FrequencyAnnotator>, Error> {
     let mut annotators = Vec::new();
-    let assembly_lower = assembly.to_lowercase();
 
     for rocksdb_path in rocksdb_paths {
-        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
-            tracing::info!(
-                "Loading frequency database for assembly {:?} from {}",
-                assembly,
-                rocksdb_path
-            );
-            let annotator = FrequencyAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
-            annotators.push(annotator);
-        } else {
-            anyhow::bail!(
-                "Frequency database path '{}' does not match the active assembly '{}'. \
-                 Please ensure the path matches the correct genome build, or adjust your path naming.",
-                rocksdb_path,
-                assembly
-            );
-        }
+        verify_database_assembly(rocksdb_path, assembly);
+        tracing::info!(
+            "Loading frequency database for assembly {:?} from {}",
+            assembly,
+            rocksdb_path
+        );
+        let annotator = FrequencyAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+        annotators.push(annotator);
     }
     Ok(annotators)
 }
 
-pub(crate) fn initialize_cadd_annotators_for_assembly(
+pub fn initialize_cadd_annotators_for_assembly(
     rocksdb_paths: &[String],
     assembly: &str,
     contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<cadd::CaddAnnotator>, Error> {
     let mut annotators = Vec::new();
-    let assembly_lower = assembly.to_lowercase();
 
     for rocksdb_path in rocksdb_paths {
-        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
-            tracing::info!(
-                "Loading CADD database for assembly {:?} from {}",
-                assembly,
-                rocksdb_path
-            );
-            let annotator = cadd::CaddAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
-            annotators.push(annotator);
-        } else {
-            anyhow::bail!(
-                "CADD database path '{}' does not match the active assembly '{}'.",
-                rocksdb_path,
-                assembly
-            );
-        }
+        verify_database_assembly(rocksdb_path, assembly);
+        tracing::info!(
+            "Loading CADD database for assembly {:?} from {}",
+            assembly,
+            rocksdb_path
+        );
+        let annotator = cadd::CaddAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+        annotators.push(annotator);
     }
     Ok(annotators)
 }
 
-pub(crate) fn initialize_spliceai_annotators_for_assembly(
+pub fn initialize_spliceai_annotators_for_assembly(
     rocksdb_paths: &[String],
     assembly: &str,
     contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<spliceai::SpliceAiAnnotator>, Error> {
     let mut annotators = Vec::new();
-    let assembly_lower = assembly.to_lowercase();
 
     for rocksdb_path in rocksdb_paths {
-        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
-            tracing::info!(
-                "Loading SpliceAI database for assembly {:?} from {}",
-                assembly,
-                rocksdb_path
-            );
-            let annotator =
-                spliceai::SpliceAiAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
-            annotators.push(annotator);
-        } else {
-            anyhow::bail!(
-                "SpliceAI database path '{}' does not match the active assembly '{}'.",
-                rocksdb_path,
-                assembly
-            );
-        }
+        verify_database_assembly(rocksdb_path, assembly);
+        tracing::info!(
+            "Loading SpliceAI database for assembly {:?} from {}",
+            assembly,
+            rocksdb_path
+        );
+        let annotator =
+            spliceai::SpliceAiAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+        annotators.push(annotator);
     }
     Ok(annotators)
 }
 
-pub(crate) fn initialize_dbsnp_annotators_for_assembly(
+pub fn initialize_dbsnp_annotators_for_assembly(
     rocksdb_paths: &[String],
     assembly: &str,
     contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<dbsnp::DbsnpAnnotator>, Error> {
     let mut annotators = Vec::new();
-    let assembly_lower = assembly.to_lowercase();
 
     for rocksdb_path in rocksdb_paths {
-        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
-            tracing::info!(
-                "Loading dbSNP database for assembly {:?} from {}",
-                assembly,
-                rocksdb_path
-            );
-            let annotator = dbsnp::DbsnpAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
-            annotators.push(annotator);
-        } else {
-            anyhow::bail!(
-                "dbSNP database path '{}' does not match the active assembly '{}'.",
-                rocksdb_path,
-                assembly
-            );
-        }
+        verify_database_assembly(rocksdb_path, assembly);
+        tracing::info!(
+            "Loading dbSNP database for assembly {:?} from {}",
+            assembly,
+            rocksdb_path
+        );
+        let annotator = dbsnp::DbsnpAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+        annotators.push(annotator);
     }
     Ok(annotators)
 }
 
-pub(crate) fn initialize_custom_db_annotators_for_assembly(
+pub fn initialize_custom_db_annotators_for_assembly(
     custom_db_specs: &[String],
     assembly: &str,
     contig_manager: Arc<ContigManager>,
 ) -> Result<Vec<(String, custom::CustomDbAnnotator)>, Error> {
     let mut annotators = Vec::new();
-    let assembly_lower = assembly.to_lowercase();
 
     for spec in custom_db_specs {
         let parts: Vec<&str> = spec.splitn(2, '=').collect();
@@ -2140,23 +2132,15 @@ pub(crate) fn initialize_custom_db_annotators_for_assembly(
         let name = parts[0].to_string();
         let rocksdb_path = parts[1];
 
-        if rocksdb_path.to_lowercase().contains(&assembly_lower) {
-            tracing::info!(
-                "Loading custom database '{}' for assembly {:?} from {}",
-                name,
-                assembly,
-                rocksdb_path
-            );
-            let annotator =
-                custom::CustomDbAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
-            annotators.push((name, annotator));
-        } else {
-            anyhow::bail!(
-                "Custom database path '{}' does not match the active assembly '{}'.",
-                rocksdb_path,
-                assembly
-            );
-        }
+        verify_database_assembly(rocksdb_path, assembly);
+        tracing::info!(
+            "Loading custom database '{}' for assembly {:?} from {}",
+            name,
+            assembly,
+            rocksdb_path
+        );
+        let annotator = custom::CustomDbAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
+        annotators.push((name, annotator));
     }
     Ok(annotators)
 }
