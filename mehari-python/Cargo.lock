@@ -2501,6 +2501,7 @@ dependencies = [
  "futures",
  "hgvs",
  "indexmap",
+ "indicatif",
  "itertools 0.15.0",
  "jsonl",
  "log",

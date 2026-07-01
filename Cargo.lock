@@ -2857,6 +2857,7 @@ dependencies = [
  "hgvs",
  "hxdmp",
  "indexmap",
+ "indicatif",
  "insta",
  "itertools 0.15.0",
  "jsonl",

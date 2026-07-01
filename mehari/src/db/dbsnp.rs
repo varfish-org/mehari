@@ -1,11 +1,12 @@
 use clap::Parser;
+use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::common::Args as CommonArgs;
 use crate::common::contig::ContigManager;
-use crate::db::{DbWriter, finalize_db, open_db, open_vcf_reader};
+use crate::db::{DbWriter, finalize_db, get_total_records_from_tabix, open_db, open_vcf_reader};
 use crate::pbs::seqvars::DbsnpRecord;
 use annonars::common::keys::Var;
 use anyhow::{Error, anyhow};
@@ -48,6 +49,23 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
 
     for input_file in &args.input {
         tracing::info!("Processing input file: {:?}", input_file);
+
+        // Determine total records using our Tabix helper
+        let total_records = get_total_records_from_tabix(input_file).unwrap_or(0);
+
+        // Initialize the progress bar; fallback to a spinner if no tabix index exists
+        let pb = if total_records > 0 {
+            ProgressBar::new(total_records)
+        } else {
+            ProgressBar::new_spinner()
+        };
+
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")?
+                .progress_chars("█▒░")
+        );
+
         let (mut reader, header) = open_vcf_reader(input_file)?;
 
         // dbSnp's rs IDs are larger than the VCF spec max of 32bit signed integers,
@@ -63,15 +81,21 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
             chunk.push(result?);
 
             if chunk.len() == args.batch_size {
+                let chunk_len = chunk.len() as u64;
                 write_chunk(&mut writer, &chunk, &contig_manager)?;
+                pb.inc(chunk_len);
                 chunk.clear();
             }
         }
 
         if !chunk.is_empty() {
+            let chunk_len = chunk.len() as u64;
             write_chunk(&mut writer, &chunk, &contig_manager)?;
+            pb.inc(chunk_len);
             chunk.clear();
         }
+
+        pb.finish_and_clear();
     }
 
     let written = writer.flush()?;

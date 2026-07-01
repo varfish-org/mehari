@@ -1,4 +1,5 @@
 use clap::Parser;
+use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -9,7 +10,7 @@ use std::time::Instant;
 
 use crate::common::Args as CommonArgs;
 use crate::common::contig::ContigManager;
-use crate::db::{DbWriter, finalize_db, open_db, open_vcf_reader};
+use crate::db::{DbWriter, finalize_db, get_total_records_from_tabix, open_db, open_vcf_reader};
 use crate::pbs::seqvars::GenericLookupRecord;
 use annonars::common::keys::Var;
 use anyhow::{Error, anyhow};
@@ -140,6 +141,22 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
 
     for input_file in &args.input {
         tracing::info!("Processing input file: {:?}", input_file);
+
+        // Determine total records using our Tabix helper
+        let total_records = get_total_records_from_tabix(input_file).unwrap_or(0);
+
+        let pb = if total_records > 0 {
+            ProgressBar::new(total_records)
+        } else {
+            ProgressBar::new_spinner()
+        };
+
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")?
+                .progress_chars("█▒░")
+        );
+
         if is_vcf {
             let (mut reader, header) = open_vcf_reader(input_file)?;
             let mut chunk = Vec::with_capacity(args.batch_size);
@@ -148,14 +165,18 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                 chunk.push(result?);
 
                 if chunk.len() == args.batch_size {
+                    let chunk_len = chunk.len() as u64;
                     let fields_seen = write_vcf_chunk(&mut writer, &chunk, &contig_manager, args)?;
                     global_seen_keys.extend(fields_seen);
+                    pb.inc(chunk_len);
                     chunk.clear();
                 }
             }
             if !chunk.is_empty() {
+                let chunk_len = chunk.len() as u64;
                 let fields_seen = write_vcf_chunk(&mut writer, &chunk, &contig_manager, args)?;
                 global_seen_keys.extend(fields_seen);
+                pb.inc(chunk_len);
             }
         } else {
             let (mut rdr, headers_record) = open_tsv_reader(input_file)?;
@@ -166,18 +187,24 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                 chunk.push(result?);
 
                 if chunk.len() == args.batch_size {
+                    let chunk_len = chunk.len() as u64;
                     let fields_seen =
                         write_tsv_chunk(&mut writer, &chunk, &headers_arc, &contig_manager, args)?;
                     global_seen_keys.extend(fields_seen);
+                    pb.inc(chunk_len);
                     chunk.clear();
                 }
             }
             if !chunk.is_empty() {
+                let chunk_len = chunk.len() as u64;
                 let fields_seen =
                     write_tsv_chunk(&mut writer, &chunk, &headers_arc, &contig_manager, args)?;
                 global_seen_keys.extend(fields_seen);
+                pb.inc(chunk_len);
             }
         }
+
+        pb.finish_and_clear();
     }
 
     let written = writer.flush()?;

@@ -9,6 +9,7 @@ pub mod spliceai;
 pub mod transcripts;
 
 use anyhow::{Error, anyhow};
+use noodles::csi::binning_index::ReferenceSequence;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -149,4 +150,27 @@ pub fn finalize_db(db: &rocksdb::DB, column_families: &[&str]) -> Result<(), Err
     }
     tracing::info!("Compaction complete!");
     Ok(())
+}
+
+pub fn get_total_records_from_tabix(path: &Path) -> Option<u64> {
+    let tbi_path = path.to_path_buf();
+    let mut os_str = tbi_path.into_os_string();
+    os_str.push(".tbi");
+    let tbi_path = std::path::PathBuf::from(os_str);
+
+    if !tbi_path.exists() {
+        return None;
+    }
+
+    let mut reader = noodles::tabix::io::Reader::new(File::open(tbi_path).ok()?);
+    let index = reader.read_index().ok()?;
+
+    let mut total_records = 0;
+    for reference in index.reference_sequences() {
+        if let Some(metadata) = reference.metadata() {
+            total_records += metadata.mapped_record_count();
+        }
+    }
+
+    Some(total_records)
 }
