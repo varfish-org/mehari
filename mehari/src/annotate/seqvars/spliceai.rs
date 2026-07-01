@@ -124,7 +124,7 @@ mod tests {
                 input: vec![input_path],
                 output: output_path.clone(),
                 batch_size: 1000,
-                quiet: false,
+                no_progress: false,
                 threads: 1,
             },
         };

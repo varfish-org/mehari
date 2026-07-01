@@ -42,7 +42,7 @@ pub struct CommonPipelineArgs {
 
     /// Suppress progress bar rendering and status output.
     #[arg(long, short)]
-    pub quiet: bool,
+    pub no_progress: bool,
 
     /// Number of threads to use for parallel execution (0 utilizes default Rayon pool).
     #[arg(long, short, default_value = "0")]
@@ -89,7 +89,7 @@ pub struct PipelineConfig<'a> {
     pub db_type: &'a str,
     pub schema_version: &'a str,
     pub extra_meta: HashMap<String, String>,
-    pub quiet: bool,
+    pub no_progress: bool,
     pub threads: usize,
 }
 
@@ -248,7 +248,7 @@ where
             pb.set_style(ProgressStyle::default_bar().template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})")?.progress_chars("█▒░"));
 
             // Respect either explicit quiet configuration flag or general test profile context
-            if config.quiet || cfg!(test) {
+            if config.no_progress || cfg!(test) {
                 pb.set_draw_target(ProgressDrawTarget::hidden());
             }
 

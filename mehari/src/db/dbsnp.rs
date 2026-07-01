@@ -27,7 +27,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
         input: &args.common.input,
         output: &args.common.output,
         batch_size: args.common.batch_size,
-        quiet: args.common.quiet,
+        no_progress: args.common.no_progress,
         threads: args.common.threads,
         db_type: "dbsnp",
         schema_version: "3.0",

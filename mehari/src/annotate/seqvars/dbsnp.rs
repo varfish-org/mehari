@@ -98,7 +98,7 @@ chr1\t10005\trs456;rs789\tA\tG,C\t.\t.\t.";
                 input: vec![input_path],
                 output: output_path.clone(),
                 batch_size: 1000,
-                quiet: false,
+                no_progress: false,
                 threads: 1,
             },
         };
