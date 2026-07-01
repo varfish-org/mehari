@@ -53,7 +53,7 @@ pub(crate) mod reference;
 pub mod spliceai;
 
 pub(crate) mod clinvar;
-pub(crate) mod consequence;
+pub mod consequence;
 pub mod dbsnp;
 pub(crate) mod frequency;
 
