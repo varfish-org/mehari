@@ -1,4 +1,5 @@
 use clap::Parser;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -53,18 +54,61 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
         tracing::info!("Processing input file: {:?}", input_file);
         let (mut reader, header) = open_vcf_reader(input_file)?;
 
+        let mut chunk = Vec::with_capacity(args.batch_size);
+
         for result in reader.record_bufs(&header) {
-            let record = result?;
+            chunk.push(result?);
+
+            if chunk.len() == args.batch_size {
+                write_chunk(&mut writer, &chunk, &contig_manager)?;
+                chunk.clear();
+            }
+        }
+
+        if !chunk.is_empty() {
+            write_chunk(&mut writer, &chunk, &contig_manager)?;
+            chunk.clear();
+        }
+    }
+
+    let written = writer.flush()?;
+
+    let cf_meta = db
+        .cf_handle("meta")
+        .ok_or_else(|| anyhow!("meta CF not found"))?;
+    db.put_cf(&cf_meta, b"db_type", b"spliceai")?;
+    db.put_cf(&cf_meta, b"assembly", args.assembly.as_bytes())?;
+    db.put_cf(&cf_meta, b"schema_version", b"1.0")?;
+
+    tracing::info!(
+        "Successfully completed SpliceAI import of {} records in {:?}",
+        written,
+        start_time.elapsed()
+    );
+    finalize_db(&db, &["spliceai", "meta"])?;
+
+    Ok(())
+}
+
+fn write_chunk(
+    writer: &mut DbWriter,
+    chunk: &[noodles::vcf::variant::RecordBuf],
+    contig_manager: &ContigManager,
+) -> Result<(), Error> {
+    let processed_records: Vec<Result<Vec<(Vec<u8>, Vec<u8>, String)>, Error>> = chunk
+        .par_iter()
+        .map(|record| {
+            let mut kvs = Vec::new();
             let chrom = record.reference_sequence_name();
             let pos = match record.variant_start() {
                 Some(start) => start.get() as i32,
-                None => continue,
+                None => return Ok(kvs),
             };
             let reference = record.reference_bases();
 
             let spliceai_val = match record.info().get("SpliceAI").flatten() {
                 Some(val) => val,
-                None => continue,
+                None => return Ok(kvs),
             };
 
             let spliceai_str = match spliceai_val {
@@ -72,7 +116,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                 noodles::vcf::variant::record_buf::info::field::Value::Array(
                     noodles::vcf::variant::record_buf::info::field::value::Array::String(arr),
                 ) => arr.iter().flatten().cloned().collect::<Vec<_>>().join(","),
-                _ => continue,
+                _ => return Ok(kvs),
             };
 
             // Normalize chrom to primary name
@@ -128,26 +172,18 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                     "{}:{}{}>{}",
                     var.chrom, var.pos, var.reference, var.alternative
                 );
-                writer.put(&key, &value, &var_label)?;
+                kvs.push((key, value, var_label));
             }
+
+            Ok(kvs)
+        })
+        .collect();
+
+    for batch_result in processed_records {
+        for (key, value, var_label) in batch_result? {
+            writer.put(&key, &value, &var_label)?;
         }
     }
-
-    let written = writer.flush()?;
-
-    let cf_meta = db
-        .cf_handle("meta")
-        .ok_or_else(|| anyhow!("meta CF not found"))?;
-    db.put_cf(&cf_meta, b"db_type", b"spliceai")?;
-    db.put_cf(&cf_meta, b"assembly", args.assembly.as_bytes())?;
-    db.put_cf(&cf_meta, b"schema_version", b"1.0")?;
-
-    tracing::info!(
-        "Successfully completed SpliceAI import of {} records in {:?}",
-        written,
-        start_time.elapsed()
-    );
-    finalize_db(&db, &["spliceai", "meta"])?;
 
     Ok(())
 }

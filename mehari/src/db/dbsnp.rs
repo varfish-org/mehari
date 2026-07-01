@@ -1,4 +1,5 @@
 use clap::Parser;
+use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -54,12 +55,56 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
         tracing::info!("Processing input file: {:?}", input_file);
         let (mut reader, header) = open_vcf_reader(input_file)?;
 
+        let mut chunk = Vec::with_capacity(args.batch_size);
+
         for result in reader.record_bufs(&header) {
-            let record = result?;
+            chunk.push(result?);
+
+            if chunk.len() == args.batch_size {
+                write_chunk(&mut writer, &chunk, &contig_manager)?;
+                chunk.clear();
+            }
+        }
+
+        if !chunk.is_empty() {
+            write_chunk(&mut writer, &chunk, &contig_manager)?;
+            chunk.clear();
+        }
+    }
+
+    let written = writer.flush()?;
+
+    // Commit general metadata block
+    let cf_meta = db
+        .cf_handle("meta")
+        .ok_or_else(|| anyhow!("meta CF not found"))?;
+    db.put_cf(&cf_meta, b"db_type", b"dbsnp")?;
+    db.put_cf(&cf_meta, b"assembly", args.assembly.as_bytes())?;
+    db.put_cf(&cf_meta, b"schema_version", b"3.0")?;
+
+    tracing::info!(
+        "Successfully completed lightweight dbSNP import of {} records in {:?}",
+        written,
+        start_time.elapsed()
+    );
+    finalize_db(&db, &["dbsnp", "meta"])?;
+
+    Ok(())
+}
+
+fn write_chunk(
+    writer: &mut DbWriter,
+    chunk: &[noodles::vcf::variant::RecordBuf],
+    contig_manager: &ContigManager,
+) -> Result<(), Error> {
+    let processed_records: Vec<Result<Vec<(Vec<u8>, Vec<u8>, String)>, Error>> = chunk
+        .par_iter()
+        .map(|record| {
+            let mut kvs = Vec::new();
             let chrom = record.reference_sequence_name();
             let pos = match record.variant_start() {
                 Some(start) => start.get() as i32,
-                None => continue,
+                None => return Ok(kvs),
             };
             let reference = record.reference_bases();
             let alternative = record.alternate_bases();
@@ -72,7 +117,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                 .unwrap_or_else(|| "".to_string());
 
             if rs_id.is_empty() {
-                continue;
+                return Ok(kvs);
             }
 
             let chrom_std = contig_manager
@@ -104,27 +149,17 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                     "{}:{}{}>{}",
                     var.chrom, var.pos, var.reference, var.alternative
                 );
-                writer.put(&key, &value, &var_label)?;
+                kvs.push((key, value, var_label));
             }
+            Ok(kvs)
+        })
+        .collect();
+
+    for batch_result in processed_records {
+        for (key, value, var_label) in batch_result? {
+            writer.put(&key, &value, &var_label)?;
         }
     }
-
-    let written = writer.flush()?;
-
-    // Commit general metadata block
-    let cf_meta = db
-        .cf_handle("meta")
-        .ok_or_else(|| anyhow!("meta CF not found"))?;
-    db.put_cf(&cf_meta, b"db_type", b"dbsnp")?;
-    db.put_cf(&cf_meta, b"assembly", args.assembly.as_bytes())?;
-    db.put_cf(&cf_meta, b"schema_version", b"3.0")?;
-
-    tracing::info!(
-        "Successfully completed lightweight dbSNP import of {} records in {:?}",
-        written,
-        start_time.elapsed()
-    );
-    finalize_db(&db, &["dbsnp", "meta"])?;
 
     Ok(())
 }

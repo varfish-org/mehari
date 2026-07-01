@@ -1,8 +1,10 @@
 use clap::Parser;
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::common::Args as CommonArgs;
@@ -134,139 +136,46 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
     let mut writer = DbWriter::new(&db, "generic", args.batch_size)?;
 
     let is_vcf = args.format.to_lowercase() == "vcf";
-    let mut seen_keys = HashSet::new();
+    let mut global_seen_keys = HashSet::new();
 
     for input_file in &args.input {
         tracing::info!("Processing input file: {:?}", input_file);
         if is_vcf {
             let (mut reader, header) = open_vcf_reader(input_file)?;
+            let mut chunk = Vec::with_capacity(args.batch_size);
+
             for result in reader.record_bufs(&header) {
-                let record = result?;
-                let chrom = record.reference_sequence_name();
-                let pos = match record.variant_start() {
-                    Some(start) => start.get() as i32,
-                    None => continue,
-                };
-                let reference = record.reference_bases();
-                let alternative = record.alternate_bases();
+                chunk.push(result?);
 
-                let mut fields = HashMap::new();
-                if let Some(keys) = &args.vcf_info_fields {
-                    for k in keys {
-                        if let Some(val) = record.info().get(k).flatten()
-                            && let Some(v_str) = get_info_string(val)
-                        {
-                            fields.insert(k.clone(), v_str);
-                        }
-                    }
-                } else {
-                    for (k, val) in record.info().as_ref() {
-                        if let Some(val_inner) = val
-                            && let Some(v_str) = get_info_string(val_inner)
-                        {
-                            fields.insert(k.to_string(), v_str);
-                        }
-                    }
+                if chunk.len() == args.batch_size {
+                    let fields_seen = write_vcf_chunk(&mut writer, &chunk, &contig_manager, args)?;
+                    global_seen_keys.extend(fields_seen);
+                    chunk.clear();
                 }
-
-                for k in fields.keys() {
-                    seen_keys.insert(k.clone());
-                }
-
-                let chrom_std = contig_manager
-                    .get_primary_name(chrom)
-                    .cloned()
-                    .unwrap_or_else(|| chrom.to_string());
-
-                for alt in alternative.as_ref() {
-                    let var = Var {
-                        chrom: chrom_std.clone(),
-                        pos,
-                        reference: reference.to_string(),
-                        alternative: alt.to_string(),
-                    };
-                    let key: Vec<u8> = var.clone().into();
-
-                    let record_pb = GenericLookupRecord {
-                        fields: fields.clone(),
-                    };
-                    let mut value = Vec::new();
-                    record_pb.encode(&mut value)?;
-
-                    let var_label = format!(
-                        "{}:{}{}>{}",
-                        var.chrom, var.pos, var.reference, var.alternative
-                    );
-                    writer.put(&key, &value, &var_label)?;
-                }
+            }
+            if !chunk.is_empty() {
+                let fields_seen = write_vcf_chunk(&mut writer, &chunk, &contig_manager, args)?;
+                global_seen_keys.extend(fields_seen);
             }
         } else {
             let (mut rdr, headers_record) = open_tsv_reader(input_file)?;
+            let headers_arc = Arc::new(headers_record);
+            let mut chunk = Vec::with_capacity(args.batch_size);
+
             for result in rdr.records() {
-                let record = result?;
-                let record_map: HashMap<String, String> =
-                    record.deserialize(Some(&headers_record))?;
+                chunk.push(result?);
 
-                let chrom = record_map
-                    .get(&args.col_chrom)
-                    .ok_or_else(|| anyhow!("Missing Chromosome column"))?;
-                let pos: i32 = record_map
-                    .get(&args.col_pos)
-                    .ok_or_else(|| anyhow!("Missing Position column"))?
-                    .parse()?;
-                let reference = record_map
-                    .get(&args.col_ref)
-                    .ok_or_else(|| anyhow!("Missing Reference column"))?;
-                let alternative = record_map
-                    .get(&args.col_alt)
-                    .ok_or_else(|| anyhow!("Missing Alternative column"))?;
-
-                let chrom_std = contig_manager
-                    .get_primary_name(chrom)
-                    .cloned()
-                    .unwrap_or_else(|| chrom.to_string());
-
-                let mut fields = HashMap::new();
-                if let Some(vals) = &args.col_values {
-                    for v in vals {
-                        let val = record_map
-                            .get(v)
-                            .ok_or_else(|| anyhow!("Value column not found"))?;
-                        fields.insert(v.clone(), val.clone());
-                    }
-                } else {
-                    for (k, v) in &record_map {
-                        if k != &args.col_chrom
-                            && k != &args.col_pos
-                            && k != &args.col_ref
-                            && k != &args.col_alt
-                        {
-                            fields.insert(k.clone(), v.clone());
-                        }
-                    }
+                if chunk.len() == args.batch_size {
+                    let fields_seen =
+                        write_tsv_chunk(&mut writer, &chunk, &headers_arc, &contig_manager, args)?;
+                    global_seen_keys.extend(fields_seen);
+                    chunk.clear();
                 }
-
-                for k in fields.keys() {
-                    seen_keys.insert(k.clone());
-                }
-
-                let var = Var {
-                    chrom: chrom_std,
-                    pos,
-                    reference: reference.to_string(),
-                    alternative: alternative.to_string(),
-                };
-                let key: Vec<u8> = var.clone().into();
-
-                let record_pb = GenericLookupRecord { fields };
-                let mut value = Vec::new();
-                record_pb.encode(&mut value)?;
-
-                let var_label = format!(
-                    "{}:{}{}>{}",
-                    var.chrom, var.pos, var.reference, var.alternative
-                );
-                writer.put(&key, &value, &var_label)?;
+            }
+            if !chunk.is_empty() {
+                let fields_seen =
+                    write_tsv_chunk(&mut writer, &chunk, &headers_arc, &contig_manager, args)?;
+                global_seen_keys.extend(fields_seen);
             }
         }
     }
@@ -281,7 +190,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
     db.put_cf(&cf_meta, b"assembly", args.assembly.as_bytes())?;
     db.put_cf(&cf_meta, b"schema_version", b"1.0")?;
 
-    let mut field_names: Vec<String> = seen_keys.into_iter().collect();
+    let mut field_names: Vec<String> = global_seen_keys.into_iter().collect();
     field_names.sort();
     if !field_names.is_empty() {
         db.put_cf(&cf_meta, b"fields", field_names.join(",").as_bytes())?;
@@ -295,4 +204,171 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
     finalize_db(&db, &["generic", "meta"])?;
 
     Ok(())
+}
+
+fn write_vcf_chunk(
+    writer: &mut DbWriter,
+    chunk: &[noodles::vcf::variant::RecordBuf],
+    contig_manager: &ContigManager,
+    args: &Args,
+) -> Result<HashSet<String>, Error> {
+    let processed: Vec<Result<(Vec<(Vec<u8>, Vec<u8>, String)>, HashSet<String>), Error>> = chunk
+        .par_iter()
+        .map(|record| {
+            let mut kvs = Vec::new();
+            let mut local_keys = HashSet::new();
+
+            let chrom = record.reference_sequence_name();
+            let pos = match record.variant_start() {
+                Some(start) => start.get() as i32,
+                None => return Ok((kvs, local_keys)),
+            };
+            let reference = record.reference_bases();
+            let alternative = record.alternate_bases();
+
+            let mut fields = HashMap::new();
+            if let Some(keys) = &args.vcf_info_fields {
+                for k in keys {
+                    if let Some(val) = record.info().get(k).flatten()
+                        && let Some(v_str) = get_info_string(val)
+                    {
+                        fields.insert(k.clone(), v_str);
+                    }
+                }
+            } else {
+                for (k, val) in record.info().as_ref() {
+                    if let Some(val_inner) = val
+                        && let Some(v_str) = get_info_string(val_inner)
+                    {
+                        fields.insert(k.to_string(), v_str);
+                    }
+                }
+            }
+
+            for k in fields.keys() {
+                local_keys.insert(k.clone());
+            }
+
+            let chrom_std = contig_manager
+                .get_primary_name(chrom)
+                .cloned()
+                .unwrap_or_else(|| chrom.to_string());
+
+            for alt in alternative.as_ref() {
+                let var = Var {
+                    chrom: chrom_std.clone(),
+                    pos,
+                    reference: reference.to_string(),
+                    alternative: alt.to_string(),
+                };
+                let key: Vec<u8> = var.clone().into();
+
+                let record_pb = GenericLookupRecord {
+                    fields: fields.clone(),
+                };
+                let mut value = Vec::new();
+                record_pb.encode(&mut value)?;
+
+                let var_label = format!(
+                    "{}:{}{}>{}",
+                    var.chrom, var.pos, var.reference, var.alternative
+                );
+                kvs.push((key, value, var_label));
+            }
+
+            Ok((kvs, local_keys))
+        })
+        .collect();
+
+    let mut chunk_seen = HashSet::new();
+    for res in processed {
+        let (kvs, local_keys) = res?;
+        chunk_seen.extend(local_keys);
+        for (key, value, var_label) in kvs {
+            writer.put(&key, &value, &var_label)?;
+        }
+    }
+    Ok(chunk_seen)
+}
+
+fn write_tsv_chunk(
+    writer: &mut DbWriter,
+    chunk: &[csv::StringRecord],
+    headers_record: &csv::StringRecord,
+    contig_manager: &ContigManager,
+    args: &Args,
+) -> Result<HashSet<String>, Error> {
+    let processed: Vec<Result<((Vec<u8>, Vec<u8>, String), HashSet<String>), Error>> = chunk
+        .par_iter()
+        .map(|record| {
+            let record_map: HashMap<String, String> = record.deserialize(Some(headers_record))?;
+
+            let chrom = record_map
+                .get(&args.col_chrom)
+                .ok_or_else(|| anyhow!("Missing Chromosome column"))?;
+            let pos: i32 = record_map
+                .get(&args.col_pos)
+                .ok_or_else(|| anyhow!("Missing Position column"))?
+                .parse()?;
+            let reference = record_map
+                .get(&args.col_ref)
+                .ok_or_else(|| anyhow!("Missing Reference column"))?;
+            let alternative = record_map
+                .get(&args.col_alt)
+                .ok_or_else(|| anyhow!("Missing Alternative column"))?;
+
+            let chrom_std = contig_manager
+                .get_primary_name(chrom)
+                .cloned()
+                .unwrap_or_else(|| chrom.to_string());
+
+            let mut fields = HashMap::new();
+            if let Some(vals) = &args.col_values {
+                for v in vals {
+                    let val = record_map
+                        .get(v)
+                        .ok_or_else(|| anyhow!("Value column not found"))?;
+                    fields.insert(v.clone(), val.clone());
+                }
+            } else {
+                for (k, v) in &record_map {
+                    if k != &args.col_chrom
+                        && k != &args.col_pos
+                        && k != &args.col_ref
+                        && k != &args.col_alt
+                    {
+                        fields.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+
+            let local_keys: HashSet<String> = fields.keys().cloned().collect();
+
+            let var = Var {
+                chrom: chrom_std,
+                pos,
+                reference: reference.to_string(),
+                alternative: alternative.to_string(),
+            };
+            let key: Vec<u8> = var.clone().into();
+
+            let record_pb = GenericLookupRecord { fields };
+            let mut value = Vec::new();
+            record_pb.encode(&mut value)?;
+
+            let var_label = format!(
+                "{}:{}{}>{}",
+                var.chrom, var.pos, var.reference, var.alternative
+            );
+            Ok(((key, value, var_label), local_keys))
+        })
+        .collect();
+
+    let mut chunk_seen = HashSet::new();
+    for res in processed {
+        let ((key, value, var_label), local_keys) = res?;
+        chunk_seen.extend(local_keys);
+        writer.put(&key, &value, &var_label)?;
+    }
+    Ok(chunk_seen)
 }

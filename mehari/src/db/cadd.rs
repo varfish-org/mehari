@@ -1,4 +1,5 @@
 use clap::Parser;
+use rayon::prelude::*;
 use std::fs::File;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -36,7 +37,7 @@ pub mod cli {
     pub use super::Args;
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Clone)]
 struct CaddRecordRow {
     chrom: String,
     pos: i32,
@@ -67,35 +68,20 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
             .comment(Some(b'#'))
             .from_reader(reader);
 
+        let mut chunk = Vec::with_capacity(args.batch_size);
+
         for result in rdr.deserialize::<CaddRecordRow>() {
-            let row = result?;
+            chunk.push(result?);
 
-            // Normalize chrom to primary name
-            let chrom_std = contig_manager
-                .get_primary_name(&row.chrom)
-                .cloned()
-                .unwrap_or_else(|| row.chrom.clone());
+            if chunk.len() == args.batch_size {
+                write_chunk(&mut writer, &chunk, &contig_manager)?;
+                chunk.clear();
+            }
+        }
 
-            let var = Var {
-                chrom: chrom_std,
-                pos: row.pos,
-                reference: row.r#ref,
-                alternative: row.alt,
-            };
-            let key: Vec<u8> = var.clone().into();
-
-            let record_pb = CaddRecord {
-                raw_score: row.raw_score,
-                phred: row.phred,
-            };
-            let mut value = Vec::new();
-            record_pb.encode(&mut value)?;
-
-            let var_label = format!(
-                "{}:{}{}>{}",
-                var.chrom, var.pos, var.reference, var.alternative
-            );
-            writer.put(&key, &value, &var_label)?;
+        if !chunk.is_empty() {
+            write_chunk(&mut writer, &chunk, &contig_manager)?;
+            chunk.clear();
         }
     }
 
@@ -114,6 +100,51 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
         start_time.elapsed()
     );
     finalize_db(&db, &["cadd", "meta"])?;
+
+    Ok(())
+}
+
+fn write_chunk(
+    writer: &mut DbWriter,
+    chunk: &[CaddRecordRow],
+    contig_manager: &ContigManager,
+) -> Result<(), Error> {
+    let processed_records: Vec<Result<(Vec<u8>, Vec<u8>, String), Error>> = chunk
+        .par_iter()
+        .map(|row| {
+            // Normalize chrom to primary name
+            let chrom_std = contig_manager
+                .get_primary_name(&row.chrom)
+                .cloned()
+                .unwrap_or_else(|| row.chrom.clone());
+
+            let var = Var {
+                chrom: chrom_std,
+                pos: row.pos,
+                reference: row.r#ref.clone(),
+                alternative: row.alt.clone(),
+            };
+            let key: Vec<u8> = var.clone().into();
+
+            let record_pb = CaddRecord {
+                raw_score: row.raw_score,
+                phred: row.phred,
+            };
+            let mut value = Vec::new();
+            record_pb.encode(&mut value)?;
+
+            let var_label = format!(
+                "{}:{}{}>{}",
+                var.chrom, var.pos, var.reference, var.alternative
+            );
+            Ok((key, value, var_label))
+        })
+        .collect();
+
+    for item in processed_records {
+        let (key, value, var_label) = item?;
+        writer.put(&key, &value, &var_label)?;
+    }
 
     Ok(())
 }
