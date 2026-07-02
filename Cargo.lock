@@ -2883,6 +2883,7 @@ dependencies = [
  "rayon",
  "regex",
  "rocksdb",
+ "rocksdb-utils-lookup",
  "rstest",
  "rustc-hash 2.1.2",
  "seqrepo",

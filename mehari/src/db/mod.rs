@@ -94,19 +94,11 @@ pub struct PipelineConfig<'a> {
 }
 
 pub fn open_db(path: &Path, data_cf: &str) -> Result<rocksdb::DB, Error> {
-    let mut options = rocksdb::Options::default();
-    options.create_if_missing(true);
-    options.create_missing_column_families(true);
-
-    let mut block_opts = rocksdb::BlockBasedOptions::default();
-    block_opts.set_block_size(64 * 1024);
-    options.set_block_based_table_factory(&block_opts);
-    options.set_compression_type(rocksdb::DBCompressionType::Zstd);
-    options.set_compression_options(-14, 19, 0, 16 * 1024);
-
-    options.set_max_background_jobs(4);
-    options.set_write_buffer_size(128 * 1024 * 1024);
-    options.set_max_write_buffer_number(4);
+    let options = rocksdb::Options::default();
+    let mut options = rocksdb_utils_lookup::tune_options(options, None);
+    options.set_bottommost_compression_options(-14, 19, 0, 1 << 17, true);
+    options.set_bottommost_compression_type(rocksdb::DBCompressionType::Zstd);
+    options.set_bottommost_zstd_max_train_bytes(1 << 26, true);
 
     let cfs = vec!["meta", data_cf];
     Ok(rocksdb::DB::open_cf(&options, path, cfs)?)
@@ -503,9 +495,9 @@ pub fn get_total_records_from_tabix(path: &Path) -> anyhow::Result<Option<u64>> 
 /// Type alias for the thread-safe contig name to sequential ID lookup map.
 pub type ContigIdMap = std::sync::Arc<std::sync::RwLock<rustc_hash::FxHashMap<String, u32>>>;
 
-/// Standardizes a chromosome name and returns its matching interned `u32` ID.
-/// If the chromosome hasn't been encountered yet, it registers a new sequential ID.
-pub fn get_or_intern_chrom(
+/// Standardizes a contig name and returns its matching interned `u32` ID.
+/// If the contig hasn't been encountered yet, it registers a new sequential ID.
+pub fn get_or_intern_contig(
     chrom: &str,
     contig_manager: &ContigManager,
     chrom_to_id: &ContigIdMap,
@@ -525,6 +517,13 @@ pub fn get_or_intern_chrom(
         None => {
             let mut write_map = chrom_to_id.write().unwrap();
             let next_id = write_map.len() as u32;
+
+            if next_id >= (1 << 24) {
+                panic!(
+                    "Contig limit exceeded! 24-bit storage supports a maximum of 16777215 unique contigs."
+                );
+            }
+
             *write_map.entry(chrom_std.clone()).or_insert(next_id)
         }
     };

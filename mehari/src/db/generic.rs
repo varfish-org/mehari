@@ -103,7 +103,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                 }
 
                 let (chrom_std, chrom_id) =
-                    crate::db::get_or_intern_chrom(&chrom, contig_manager, &chrom_to_id_vcf);
+                    crate::db::get_or_intern_contig(&chrom, contig_manager, &chrom_to_id_vcf);
 
                 let reference = record.reference_bases();
 
@@ -152,7 +152,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                     .ok_or_else(|| anyhow!("Missing Alternative column"))?;
 
                 let (chrom_std, chrom_id) =
-                    crate::db::get_or_intern_chrom(&chrom, contig_manager, &chrom_to_id_tsv);
+                    crate::db::get_or_intern_contig(&chrom, contig_manager, &chrom_to_id_tsv);
 
                 let mut fields = HashMap::new();
                 if let Some(vals) = &args.col_values {
@@ -197,6 +197,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
 
     tracing::info!("Writing generic database contig index metadata mapping...");
     let options = rocksdb::Options::default();
+    let options = rocksdb_utils_lookup::tune_options(options, None);
     let db = rocksdb::DB::open_cf(&options, &args.common.output, vec!["meta", "generic"])?;
     let cf_meta = db
         .cf_handle("meta")

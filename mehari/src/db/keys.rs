@@ -36,11 +36,17 @@ impl Var {
 
     /// Serialize Var into a compact binary key using an interned u32 contig ID.
     pub fn encode_with_id(&self, chrom_id: u32) -> Vec<u8> {
-        // Pre-allocate exactly: 4 bytes (ID) + 4 bytes (pos) + REF + 1 byte (Null) + ALT
-        let estimated_capacity = 4 + 4 + self.reference.len() + 1 + self.alternative.len();
+        debug_assert!(chrom_id < (1 << 24), "Contig ID exceeds 24-bit limit");
+
+        // Pre-allocate exactly: 3 bytes (ID) + 4 bytes (pos) + REF + 1 byte (Null) + ALT
+        let estimated_capacity = 3 + 4 + self.reference.len() + 1 + self.alternative.len();
         let mut result = Vec::with_capacity(estimated_capacity);
 
-        result.extend_from_slice(&chrom_id.to_be_bytes());
+        // Get big-endian bytes and slice off the leading byte (index 0)
+        // because the value fits within 24 bits.
+        let id_bytes = chrom_id.to_be_bytes();
+        result.extend_from_slice(&id_bytes[1..4]);
+
         result.extend_from_slice(&self.pos.to_be_bytes());
         result.extend_from_slice(self.reference.as_bytes());
         result.push(0x00);
@@ -52,19 +58,23 @@ impl Var {
     /// Deserialize raw bytes back into a Var struct using a reverse lookup map/array.
     pub fn decode_with_ctx(value: &[u8], id_to_chrom: &[String]) -> Self {
         assert!(
-            value.len() >= 9,
+            value.len() >= 8,
             "Corrupted database key: underlying byte array too short"
         );
 
-        let chrom_id = u32::from_be_bytes(value[0..4].try_into().unwrap());
+        // Reconstruct u32 from 3 big-endian bytes by padding the highest byte with 0
+        let mut id_bytes = [0u8; 4];
+        id_bytes[1..4].copy_from_slice(&value[0..3]);
+        let chrom_id = u32::from_be_bytes(id_bytes);
+
         let chrom = id_to_chrom
             .get(chrom_id as usize)
             .cloned()
             .expect("Corrupted database: Contig ID missing from metadata context map");
 
-        let pos = i32::from_be_bytes(value[4..8].try_into().unwrap());
+        let pos = i32::from_be_bytes(value[3..7].try_into().unwrap());
 
-        let alleles_buf = &value[8..];
+        let alleles_buf = &value[7..];
         let null_idx = alleles_buf
             .iter()
             .position(|&b| b == 0x00)

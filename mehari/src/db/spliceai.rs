@@ -58,7 +58,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
             };
 
             let (chrom_std, chrom_id) =
-                crate::db::get_or_intern_chrom(chrom, contig_manager, &chrom_to_id_closure);
+                crate::db::get_or_intern_contig(chrom, contig_manager, &chrom_to_id_closure);
 
             let reference = record.reference_bases();
             let mut predictions_by_allele: HashMap<String, Vec<SpliceAiPrediction>> =
@@ -109,6 +109,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
 
     tracing::info!("Writing SpliceAI contig index metadata mapping into the meta CF...");
     let options = rocksdb::Options::default();
+    let options = rocksdb_utils_lookup::tune_options(options, None);
     let db = rocksdb::DB::open_cf(&options, &args.common.output, vec!["meta", "spliceai"])?;
     let cf_meta = db
         .cf_handle("meta")
