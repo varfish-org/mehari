@@ -49,16 +49,22 @@ impl ClinvarAnnotator {
             let mut vcv = Vec::new();
             let mut germline_classification = Vec::new();
             for r in record_list.records.iter() {
-                let accession = r.accession.as_ref().expect("must have VCV");
+                let accession = r
+                    .accession
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("must have VCV"))?;
                 vcv.push(format!("{}.{}", accession.accession, accession.version));
                 if let Some(gc) = &r
                     .classifications
                     .as_ref()
-                    .expect("has cls")
+                    .ok_or_else(|| anyhow::anyhow!("has classifications"))?
                     .germline_classification
                 {
-                    germline_classification
-                        .push(gc.description.as_ref().expect("has desc").to_string());
+                    let description = gc
+                        .description
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("description missing"))?;
+                    germline_classification.push(description.to_string());
                 }
             }
             Ok(Some(ClinvarResult {
@@ -111,18 +117,21 @@ impl ClinvarAnnotator {
                 let mut clinvar_vcvs = Vec::new();
                 let mut clinvar_germline_classifications = Vec::new();
                 for clinvar_record in record_list.records.iter() {
-                    let accession = clinvar_record.accession.as_ref().expect("must have VCV");
+                    let accession = clinvar_record
+                        .accession
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("must have VCV"))?;
                     let vcv = format!("{}.{}", accession.accession, accession.version);
                     let classifications = clinvar_record
                         .classifications
                         .as_ref()
-                        .expect("must have classifications");
+                        .ok_or_else(|| anyhow::anyhow!("must have classifications"))?;
                     if let Some(germline_classification) = &classifications.germline_classification
                     {
                         let description = germline_classification
                             .description
                             .as_ref()
-                            .expect("description missing")
+                            .ok_or_else(|| anyhow::anyhow!("description missing"))?
                             .to_string();
                         clinvar_vcvs.push(vcv);
                         clinvar_germline_classifications.push(description);
