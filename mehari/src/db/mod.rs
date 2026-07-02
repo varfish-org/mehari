@@ -267,16 +267,24 @@ where
 
                     let records = region_reader(input_file, chrom, *begin, *end)?;
 
+                    let mut batch_pair_count = 0;
                     for rec in records {
                         let (kvs, local_keys) = mapper(&rec, &contig_manager)?;
                         local_seen_keys.extend(local_keys);
                         for (key, value, _label) in kvs {
                             local_batch.put_cf(&cf_data, &key, &value);
+                            batch_pair_count += 1;
+                            if batch_pair_count >= config.batch_size {
+                                db.write(local_batch)?;
+                                local_batch = rocksdb::WriteBatch::default();
+                                batch_pair_count = 0;
+                            }
                         }
                         local_count += 1;
                     }
-
-                    db.write(local_batch)?;
+                    if batch_pair_count > 0 {
+                        db.write(local_batch)?;
+                    }
                     Ok((local_count, local_seen_keys))
                 })
                 .collect();
