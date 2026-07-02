@@ -4,6 +4,8 @@ use crate::db::{PipelineConfig, write_contig_dictionary};
 use crate::pbs::seqvars::GenericLookupRecord;
 use anyhow::{Error, anyhow};
 use clap::Parser;
+use noodles::vcf::variant::record_buf::info::field::Value;
+use noodles::vcf::variant::record_buf::info::field::value::Array;
 use prost::Message;
 use rustc_hash::FxHashMap;
 use std::collections::{HashMap, HashSet};
@@ -45,6 +47,76 @@ pub mod cli {
     pub use super::Args;
 }
 
+fn extract_allele_value(val: &Value, idx: usize, alt_count: usize) -> Option<String> {
+    match val {
+        Value::Flag => Some("true".to_string()),
+        Value::Integer(i) => Some(i.to_string()),
+        Value::Float(f) => Some(f.to_string()),
+        Value::Character(c) => Some(c.to_string()),
+        Value::String(s) => Some(s.to_string()),
+        Value::Array(arr) => match arr {
+            Array::Integer(vec) => {
+                if vec.len() == alt_count {
+                    vec.get(idx)?.map(|v| v.to_string())
+                } else if vec.len() == alt_count + 1 {
+                    // Number=R fields (includes the Reference allele at index 0)
+                    vec.get(idx + 1)?.map(|v| v.to_string())
+                } else {
+                    // Fallback for fixed-length or unstructured arrays
+                    Some(
+                        vec.iter()
+                            .map(|o| o.map(|v| v.to_string()).unwrap_or_else(|| ".".to_string()))
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    )
+                }
+            }
+            Array::Float(vec) => {
+                if vec.len() == alt_count {
+                    vec.get(idx)?.map(|v| v.to_string())
+                } else if vec.len() == alt_count + 1 {
+                    vec.get(idx + 1)?.map(|v| v.to_string())
+                } else {
+                    Some(
+                        vec.iter()
+                            .map(|o| o.map(|v| v.to_string()).unwrap_or_else(|| ".".to_string()))
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    )
+                }
+            }
+            Array::Character(vec) => {
+                if vec.len() == alt_count {
+                    vec.get(idx)?.map(|v| v.to_string())
+                } else if vec.len() == alt_count + 1 {
+                    vec.get(idx + 1)?.map(|v| v.to_string())
+                } else {
+                    Some(
+                        vec.iter()
+                            .map(|o| o.map(|v| v.to_string()).unwrap_or_else(|| ".".to_string()))
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    )
+                }
+            }
+            Array::String(vec) => {
+                if vec.len() == alt_count {
+                    vec.get(idx)?.as_deref().map(|s| s.to_string())
+                } else if vec.len() == alt_count + 1 {
+                    vec.get(idx + 1)?.as_deref().map(|s| s.to_string())
+                } else {
+                    Some(
+                        vec.iter()
+                            .map(|o| o.as_deref().unwrap_or("."))
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    )
+                }
+            }
+        },
+    }
+}
+
 pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
     let mut extra_meta = HashMap::new();
     extra_meta.insert("db_name".to_string(), args.db_name.clone());
@@ -79,53 +151,64 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                     None => return Ok((kvs, local_keys)),
                 };
 
-                let mut fields = HashMap::new();
-                if let Some(keys) = &args.vcf_info_fields {
-                    for k in keys {
-                        if let Some(val) = record.info().get(k).flatten()
-                            && let Some(v_str) = crate::db::get_info_string(val)
-                        {
-                            fields.insert(k.clone(), v_str);
+                let alt_bases = record.alternate_bases().as_ref();
+                let alt_count = alt_bases.len();
+
+                for (idx, alt) in alt_bases.iter().enumerate() {
+                    let mut fields = HashMap::new();
+
+                    if let Some(keys) = &args.vcf_info_fields {
+                        for k in keys {
+                            if let Some(val) = record.info().get(k).flatten() {
+                                let v_str =
+                                    extract_allele_value(val, idx, alt_count).ok_or_else(|| {
+                                        anyhow!(
+                                            "Malformed or missing INFO allele data for field: {}",
+                                            k
+                                        )
+                                    })?;
+                                fields.insert(k.clone(), v_str);
+                            }
+                        }
+                    } else {
+                        for (k, val) in record.info().as_ref() {
+                            if let Some(val_inner) = val {
+                                let v_str = extract_allele_value(val_inner, idx, alt_count)
+                                    .ok_or_else(|| {
+                                        anyhow!(
+                                            "Malformed or missing INFO allele data for field: {}",
+                                            k
+                                        )
+                                    })?;
+                                fields.insert(k.to_string(), v_str);
+                            }
                         }
                     }
-                } else {
-                    for (k, val) in record.info().as_ref() {
-                        if let Some(val_inner) = val
-                            && let Some(v_str) = crate::db::get_info_string(val_inner)
-                        {
-                            fields.insert(k.to_string(), v_str);
-                        }
+
+                    for k in fields.keys() {
+                        local_keys.insert(k.clone());
                     }
-                }
 
-                for k in fields.keys() {
-                    local_keys.insert(k.clone());
-                }
+                    let (chrom_std, chrom_id) =
+                        crate::db::get_or_intern_contig(chrom, contig_manager, &chrom_to_id_vcf);
 
-                let (chrom_std, chrom_id) =
-                    crate::db::get_or_intern_contig(chrom, contig_manager, &chrom_to_id_vcf);
-
-                let reference = record.reference_bases();
-
-                for alt in record.alternate_bases().as_ref() {
                     let var = Var::new(
                         chrom_std.clone(),
                         pos,
-                        reference.to_string(),
+                        record.reference_bases().to_string(),
                         alt.to_string(),
                     );
                     let key = var.encode_with_id(chrom_id);
 
-                    let record_pb = GenericLookupRecord {
-                        fields: fields.clone(),
-                    };
-
+                    let record_pb = GenericLookupRecord { fields };
                     let mut value = Vec::new();
                     record_pb.encode(&mut value)?;
 
-                    let var_label = format!("{}:{}{}>{}", chrom_std, pos, reference, alt);
+                    let var_label =
+                        format!("{}:{}{}>{}", chrom_std, pos, record.reference_bases(), alt);
                     kvs.push((key, value, var_label));
                 }
+
                 Ok((kvs, local_keys))
             },
         )?;

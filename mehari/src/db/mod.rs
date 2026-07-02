@@ -336,26 +336,46 @@ where
     run_parallel_pipeline(
         config,
         move |path, chrom, begin, end| {
-            let mut reader =
-                noodles::vcf::io::indexed_reader::Builder::default().build_from_path(path)?;
-            let region = format!("{}:{}-{}", chrom, begin + 1, end).parse()?;
-
-            let mut records = Vec::new();
-            match reader.query(&shared_header, &region) {
-                Ok(query) => {
-                    for result in query.records() {
-                        let record_buf = noodles::vcf::variant::RecordBuf::try_from_variant_record(
-                            &shared_header,
-                            &result?,
-                        )?;
-                        records.push(record_buf);
-                    }
-                }
-                Err(e)
-                    if e.to_string()
-                        .contains("region reference sequence does not exist") => {}
-                Err(e) => return Err(Error::from(e)),
+            thread_local! {
+                static VCF_CACHE: std::cell::RefCell<
+                    Option<(PathBuf, noodles::vcf::io::IndexedReader<noodles_bgzf::io::Reader<File>>)>
+                > = const { std::cell::RefCell::new(None) };
             }
+
+            let region = format!("{}:{}-{}", chrom, begin + 1, end).parse()?;
+            let mut records = Vec::new();
+
+            VCF_CACHE.with(|cache| {
+                let mut cache_borrow = cache.borrow_mut();
+                let reader = match &mut *cache_borrow {
+                    Some((cached_path, reader)) if cached_path == path => reader,
+                    slot => {
+                        let r = noodles::vcf::io::indexed_reader::Builder::default()
+                            .build_from_path(path)?;
+                        *slot = Some((path.to_path_buf(), r));
+                        &mut slot.as_mut().unwrap().1
+                    }
+                };
+
+                match reader.query(&shared_header, &region) {
+                    Ok(query) => {
+                        for result in query.records() {
+                            let record_buf =
+                                noodles::vcf::variant::RecordBuf::try_from_variant_record(
+                                    &shared_header,
+                                    &result?,
+                                )?;
+                            records.push(record_buf);
+                        }
+                    }
+                    Err(e)
+                        if e.to_string()
+                            .contains("region reference sequence does not exist") => {}
+                    Err(e) => return Err(Error::from(e)),
+                }
+                Ok(())
+            })?;
+
             Ok(records)
         },
         mapper,
@@ -391,28 +411,45 @@ where
     run_parallel_pipeline(
         config,
         move |path, chrom, begin, end| {
-            let mut reader =
-                noodles::tabix::io::indexed_reader::Builder::default().build_from_path(path)?;
+            thread_local! {
+                static TSV_CACHE: std::cell::RefCell<Option<(PathBuf, noodles::csi::io::IndexedReader<noodles_bgzf::io::Reader<File>, noodles::tabix::Index>)>> = const { std::cell::RefCell::new(None) };
+            }
+
             let region = format!("{}:{}-{}", chrom, begin + 1, end).parse()?;
             let mut records = Vec::new();
 
-            match reader.query(&region) {
-                Ok(query) => {
-                    for line_result in query {
-                        let line = line_result?;
-                        let fields = line
-                            .as_ref()
-                            .split('\t')
-                            .map(String::from)
-                            .collect::<Vec<_>>();
-                        records.push(csv::StringRecord::from(fields));
+            TSV_CACHE.with(|cache| {
+                let mut cache_borrow = cache.borrow_mut();
+                let reader = match &mut *cache_borrow {
+                    Some((cached_path, reader)) if cached_path == path => reader,
+                    slot => {
+                        let r = noodles::tabix::io::indexed_reader::Builder::default()
+                            .build_from_path(path)?;
+                        *slot = Some((path.to_path_buf(), r));
+                        &mut slot.as_mut().unwrap().1
                     }
+                };
+
+                match reader.query(&region) {
+                    Ok(query) => {
+                        for line_result in query {
+                            let line = line_result?;
+                            let fields = line
+                                .as_ref()
+                                .split('\t')
+                                .map(String::from)
+                                .collect::<Vec<_>>();
+                            records.push(csv::StringRecord::from(fields));
+                        }
+                    }
+                    Err(e)
+                        if e.to_string()
+                            .contains("region reference sequence does not exist") => {}
+                    Err(e) => return Err(Error::from(e)),
                 }
-                Err(e)
-                    if e.to_string()
-                        .contains("region reference sequence does not exist") => {}
-                Err(e) => return Err(Error::from(e)),
-            }
+                Ok(())
+            })?;
+
             Ok(records)
         },
         mapper_wrapper,
