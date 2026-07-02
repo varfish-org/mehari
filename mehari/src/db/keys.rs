@@ -238,15 +238,43 @@ mod tests {
 
     #[test]
     fn test_compact_id_roundtrip() {
-        let original = Var::new("chr2".to_string(), 54321, "C".to_string(), "T".to_string());
-        let chrom_id = 5u32;
-        let serialized = original.encode_with_id(chrom_id);
+        use crate::common::contig::ContigManager;
+        use crate::db::{ContigIdMap, get_or_intern_contig};
 
-        // Mock reverse context lookup array
-        let id_to_chrom = vec!["chrM".to_string(), "chr1".to_string(), "chr2".to_string()];
+        let contig_manager = ContigManager::new("grch37");
+        let chrom_to_id = ContigIdMap::default();
 
-        // Ensure we parse out the exact same structure
-        let deserialized = Var::decode_with_ctx(&serialized, &id_to_chrom);
-        assert_eq!(original, deserialized);
+        let var1 = Var::new("1".to_string(), 100_000, "A".to_string(), "G".to_string());
+        let var2 = Var::new(
+            "chr2".to_string(),
+            200_000,
+            "C".to_string(),
+            "T".to_string(),
+        );
+
+        let (chrom_std1, id1) = get_or_intern_contig(&var1.chrom, &contig_manager, &chrom_to_id);
+        let (chrom_std2, id2) = get_or_intern_contig(&var2.chrom, &contig_manager, &chrom_to_id);
+
+        let serialized1 = var1.encode_with_id(id1);
+        let serialized2 = var2.encode_with_id(id2);
+
+        let map_guard = chrom_to_id.read().unwrap();
+        let mut id_to_chrom = vec![String::new(); map_guard.len()];
+        for (chrom_name, &id) in map_guard.iter() {
+            id_to_chrom[id as usize] = chrom_name.clone();
+        }
+
+        let deserialized1 = Var::decode_with_ctx(&serialized1, &id_to_chrom);
+        let deserialized2 = Var::decode_with_ctx(&serialized2, &id_to_chrom);
+
+        assert_eq!(chrom_std1, deserialized1.chrom);
+        assert_eq!(var1.pos, deserialized1.pos);
+        assert_eq!(var1.reference, deserialized1.reference);
+        assert_eq!(var1.alternative, deserialized1.alternative);
+
+        assert_eq!(chrom_std2, deserialized2.chrom);
+        assert_eq!(var2.pos, deserialized2.pos);
+        assert_eq!(var2.reference, deserialized2.reference);
+        assert_eq!(var2.alternative, deserialized2.alternative);
     }
 }

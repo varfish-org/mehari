@@ -67,7 +67,11 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
             for pred_str in spliceai_str.split(',') {
                 let fields: Vec<&str> = pred_str.split('|').collect();
                 if fields.len() < 10 {
-                    continue;
+                    anyhow::bail!(
+                        "Malformed SpliceAI prediction block: expected at least 10 pipe-separated fields, got {} in token '{}'",
+                        fields.len(),
+                        pred_str
+                    );
                 }
 
                 let allele = fields[0].to_string();
