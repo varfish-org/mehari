@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.45.0](https://github.com/varfish-org/mehari/compare/mehari-python-v0.44.1...mehari-python-v0.45.0) (2026-07-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* support CADD, spliceAI, dbSNP and building custom/generic lookup annotation DBs ([#1025](https://github.com/varfish-org/mehari/issues/1025))
+
+### Features
+
+* support CADD, spliceAI, dbSNP and building custom/generic lookup annotation DBs ([#1025](https://github.com/varfish-org/mehari/issues/1025)) ([7abb129](https://github.com/varfish-org/mehari/commit/7abb12903fde91bd4341c10726e2ca46914769a6))
+
 ## [0.44.1](https://github.com/varfish-org/mehari/compare/mehari-python-v0.44.0...mehari-python-v0.44.1) (2026-06-17)
 
 
