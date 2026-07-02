@@ -36,7 +36,7 @@ impl Var {
 
     /// Serialize Var into a compact binary key using an interned u32 contig ID.
     pub fn encode_with_id(&self, chrom_id: u32) -> Vec<u8> {
-        debug_assert!(chrom_id < (1 << 24), "Contig ID exceeds 24-bit limit");
+        assert!(chrom_id < (1 << 24), "Contig ID exceeds 24-bit limit");
 
         // Pre-allocate exactly: 3 bytes (ID) + 4 bytes (pos) + REF + 1 byte (Null) + ALT
         let estimated_capacity = 3 + 4 + self.reference.len() + 1 + self.alternative.len();
@@ -234,5 +234,19 @@ mod tests {
         // key1 must sort BEFORE key10 even though '5' < '100',
         // because "chr1\0" comes alphabetically before "chr10\0"
         assert!(key1 < key10);
+    }
+
+    #[test]
+    fn test_compact_id_roundtrip() {
+        let original = Var::new("chr2".to_string(), 54321, "C".to_string(), "T".to_string());
+        let chrom_id = 5u32;
+        let serialized = original.encode_with_id(chrom_id);
+
+        // Mock reverse context lookup array
+        let id_to_chrom = vec!["chrM".to_string(), "chr1".to_string(), "chr2".to_string()];
+
+        // Ensure we parse out the exact same structure
+        let deserialized = Var::decode_with_ctx(&serialized, &id_to_chrom);
+        assert_eq!(original, deserialized);
     }
 }
