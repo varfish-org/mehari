@@ -1,0 +1,280 @@
+//! Mehari-native assembly-agnostic key layouts for RocksDB.
+
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct Var {
+    pub chrom: String,
+    pub pos: i32,
+    pub reference: String,
+    pub alternative: String,
+}
+
+impl Var {
+    pub fn new(chrom: String, pos: i32, reference: String, alternative: String) -> Self {
+        Self {
+            chrom,
+            pos,
+            reference,
+            alternative,
+        }
+    }
+
+    /// Helper to convert from a noodles RecordBuf directly.
+    pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usize) -> Self {
+        let chrom = value.reference_sequence_name().to_string();
+        let pos = value
+            .variant_start()
+            .expect("Variant start position is required")
+            .get();
+
+        Self {
+            chrom,
+            pos: pos as i32,
+            reference: value.reference_bases().to_string(),
+            alternative: value.alternate_bases().as_ref()[allele_no].to_string(),
+        }
+    }
+
+    /// Serialize Var into a compact binary key using an interned u32 contig ID.
+    pub fn encode_with_id(&self, chrom_id: u32) -> Vec<u8> {
+        assert!(chrom_id < (1 << 24), "Contig ID exceeds 24-bit limit");
+
+        // Pre-allocate exactly: 3 bytes (ID) + 4 bytes (pos) + REF + 1 byte (Null) + ALT
+        let estimated_capacity = 3 + 4 + self.reference.len() + 1 + self.alternative.len();
+        let mut result = Vec::with_capacity(estimated_capacity);
+
+        // Get big-endian bytes and slice off the leading byte (index 0)
+        // because the value fits within 24 bits.
+        let id_bytes = chrom_id.to_be_bytes();
+        result.extend_from_slice(&id_bytes[1..4]);
+
+        result.extend_from_slice(&self.pos.to_be_bytes());
+        result.extend_from_slice(self.reference.as_bytes());
+        result.push(0x00);
+        result.extend_from_slice(self.alternative.as_bytes());
+
+        result
+    }
+
+    /// Deserialize raw bytes back into a Var struct using a reverse lookup map/array.
+    pub fn decode_with_ctx(value: &[u8], id_to_chrom: &[String]) -> Self {
+        assert!(
+            value.len() >= 8,
+            "Corrupted database key: underlying byte array too short"
+        );
+
+        // Reconstruct u32 from 3 big-endian bytes by padding the highest byte with 0
+        let mut id_bytes = [0u8; 4];
+        id_bytes[1..4].copy_from_slice(&value[0..3]);
+        let chrom_id = u32::from_be_bytes(id_bytes);
+
+        let chrom = id_to_chrom
+            .get(chrom_id as usize)
+            .cloned()
+            .expect("Corrupted database: Contig ID missing from metadata context map");
+
+        let pos = i32::from_be_bytes(value[3..7].try_into().unwrap());
+
+        let alleles_buf = &value[7..];
+        let null_idx = alleles_buf
+            .iter()
+            .position(|&b| b == 0x00)
+            .expect("Corrupted database key: missing allele null-terminator");
+
+        let reference = std::str::from_utf8(&alleles_buf[0..null_idx])
+            .expect("Invalid UTF-8 sequence in reference allele")
+            .to_string();
+        let alternative = std::str::from_utf8(&alleles_buf[null_idx + 1..])
+            .expect("Invalid UTF-8 sequence in alternative allele")
+            .to_string();
+
+        Self {
+            chrom,
+            pos,
+            reference,
+            alternative,
+        }
+    }
+}
+
+impl From<Var> for annonars::common::keys::Var {
+    fn from(var: Var) -> Self {
+        annonars::common::keys::Var {
+            chrom: var.chrom,
+            pos: var.pos,
+            reference: var.reference,
+            alternative: var.alternative,
+        }
+    }
+}
+
+impl From<annonars::common::keys::Var> for Var {
+    fn from(var: annonars::common::keys::Var) -> Self {
+        Var {
+            chrom: var.chrom,
+            pos: var.pos,
+            reference: var.reference,
+            alternative: var.alternative,
+        }
+    }
+}
+
+impl From<&Var> for annonars::common::keys::Var {
+    fn from(var: &Var) -> Self {
+        annonars::common::keys::Var {
+            chrom: var.chrom.clone(),
+            pos: var.pos,
+            reference: var.reference.clone(),
+            alternative: var.alternative.clone(),
+        }
+    }
+}
+
+impl From<&annonars::common::keys::Var> for Var {
+    fn from(var: &annonars::common::keys::Var) -> Self {
+        Var {
+            chrom: var.chrom.clone(),
+            pos: var.pos,
+            reference: var.reference.clone(),
+            alternative: var.alternative.clone(),
+        }
+    }
+}
+
+/// Serialize Var into a binary key optimized for RocksDB byte sorting.
+impl From<Var> for Vec<u8> {
+    fn from(val: Var) -> Self {
+        // Pre-allocate precisely to prevent vector reallocation overhead
+        let estimated_capacity =
+            val.chrom.len() + 1 + 4 + val.reference.len() + 1 + val.alternative.len();
+        let mut result = Vec::with_capacity(estimated_capacity);
+
+        // 1. Write raw chromosome string
+        result.extend_from_slice(val.chrom.as_bytes());
+        // 2. Delimit with a Null Byte. This guarantees that "chr1\0" sorts before "chr10\0"
+        result.push(0x00);
+        // 3. Write position as Big-Endian so it sorts numerically
+        result.extend_from_slice(&val.pos.to_be_bytes());
+        // 4. Append reference and alternative bases
+        result.extend_from_slice(val.reference.as_bytes());
+        result.push(b'>');
+        result.extend_from_slice(val.alternative.as_bytes());
+
+        result
+    }
+}
+
+/// Deserialize from raw RocksDB bytes back into a human-readable Var struct.
+impl From<&[u8]> for Var {
+    fn from(value: &[u8]) -> Self {
+        // Locate the null-byte separator bounding the chromosome name
+        let null_idx = value
+            .iter()
+            .position(|&b| b == 0x00)
+            .expect("Corrupted database key: missing chromosome null-terminator");
+
+        let chrom = std::str::from_utf8(&value[0..null_idx])
+            .expect("Invalid UTF-8 sequence in chromosome name")
+            .to_string();
+
+        // Extract the 4 big-endian position bytes immediately following the null byte
+        let pos_start = null_idx + 1;
+        let pos_end = pos_start + 4;
+        let pos = i32::from_be_bytes(value[pos_start..pos_end].try_into().unwrap());
+
+        // Parse allele structures bounded by the '>' symbol
+        let alleles_buf = &value[pos_end..];
+        let separator_idx = alleles_buf
+            .iter()
+            .position(|&b| b == b'>')
+            .expect("Corrupted database key: missing allele '>' separator");
+
+        let reference = std::str::from_utf8(&alleles_buf[0..separator_idx])
+            .expect("Invalid UTF-8 sequence in reference allele")
+            .to_string();
+        let alternative = std::str::from_utf8(&alleles_buf[separator_idx + 1..])
+            .expect("Invalid UTF-8 sequence in alternative allele")
+            .to_string();
+
+        Self {
+            chrom,
+            pos,
+            reference,
+            alternative,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_roundtrip_arbitrary_scaffold() {
+        let original = Var::new(
+            "NW_021159990.1_unplaced_scaffold".to_string(),
+            123456,
+            "ATCG".to_string(),
+            "G".to_string(),
+        );
+
+        let serialized: Vec<u8> = original.clone().into();
+        let deserialized = Var::from(serialized.as_slice());
+
+        assert_eq!(original, deserialized);
+    }
+
+    #[test]
+    fn test_lexicographical_sorting_order() {
+        let var_chrom1 = Var::new("chr1".into(), 100, "A".into(), "T".into());
+        let var_chrom10 = Var::new("chr10".into(), 5, "A".into(), "T".into());
+
+        let key1: Vec<u8> = var_chrom1.into();
+        let key10: Vec<u8> = var_chrom10.into();
+
+        // key1 must sort BEFORE key10 even though '5' < '100',
+        // because "chr1\0" comes alphabetically before "chr10\0"
+        assert!(key1 < key10);
+    }
+
+    #[test]
+    fn test_compact_id_roundtrip() {
+        use crate::common::contig::ContigManager;
+        use crate::db::{ContigIdMap, get_or_intern_contig};
+
+        let contig_manager = ContigManager::new("grch37");
+        let chrom_to_id = ContigIdMap::default();
+
+        let var1 = Var::new("1".to_string(), 100_000, "A".to_string(), "G".to_string());
+        let var2 = Var::new(
+            "chr2".to_string(),
+            200_000,
+            "C".to_string(),
+            "T".to_string(),
+        );
+
+        let (chrom_std1, id1) = get_or_intern_contig(&var1.chrom, &contig_manager, &chrom_to_id);
+        let (chrom_std2, id2) = get_or_intern_contig(&var2.chrom, &contig_manager, &chrom_to_id);
+
+        let serialized1 = var1.encode_with_id(id1);
+        let serialized2 = var2.encode_with_id(id2);
+
+        let map_guard = chrom_to_id.read().unwrap();
+        let mut id_to_chrom = vec![String::new(); map_guard.len()];
+        for (chrom_name, &id) in map_guard.iter() {
+            id_to_chrom[id as usize] = chrom_name.clone();
+        }
+
+        let deserialized1 = Var::decode_with_ctx(&serialized1, &id_to_chrom);
+        let deserialized2 = Var::decode_with_ctx(&serialized2, &id_to_chrom);
+
+        assert_eq!(chrom_std1, deserialized1.chrom);
+        assert_eq!(var1.pos, deserialized1.pos);
+        assert_eq!(var1.reference, deserialized1.reference);
+        assert_eq!(var1.alternative, deserialized1.alternative);
+
+        assert_eq!(chrom_std2, deserialized2.chrom);
+        assert_eq!(var2.pos, deserialized2.pos);
+        assert_eq!(var2.reference, deserialized2.reference);
+        assert_eq!(var2.alternative, deserialized2.alternative);
+    }
+}

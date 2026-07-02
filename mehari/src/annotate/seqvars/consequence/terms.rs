@@ -1,6 +1,6 @@
 //! Code for annotating variants based on molecular consequence.
 
-use crate::annotate::seqvars::csq::Config;
+use crate::annotate::seqvars::consequence::Config;
 use crate::pbs::txs::TranscriptTag;
 use enumflags2::bitflags;
 use hgvs::data::cdot::json::models::Tag;

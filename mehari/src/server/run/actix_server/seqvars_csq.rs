@@ -8,10 +8,10 @@ use actix_web::{
 };
 
 use super::{CustomError, versions::VersionsInfoResponse};
-use crate::annotate::seqvars::ann::FeatureTag;
-use crate::annotate::seqvars::{
-    ann::{AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank},
-    csq::VcfVariant,
+use crate::annotate::seqvars::consequence::VcfVariant;
+use crate::annotate::seqvars::consequence::terms::FeatureTag;
+use crate::annotate::seqvars::consequence::terms::{
+    AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank,
 };
 
 /// Query parameters of the `/api/v1/seqvars/csq` endpoint.

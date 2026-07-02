@@ -60,15 +60,15 @@ impl InMemoryFastaAccess {
             // Map all aliases to the raw_id and check for circularity
             for alias in aliases {
                 // Check for collision before inserting
-                if let Some(existing_id) = alias_to_id.get(&alias) {
-                    if existing_id != &raw_id {
-                        return Err(anyhow!(
-                            "Alias collision: alias '{}' is already mapped to '{}', cannot map to '{}'",
-                            alias,
-                            existing_id,
-                            raw_id
-                        ));
-                    }
+                if let Some(existing_id) = alias_to_id.get(&alias)
+                    && existing_id != &raw_id
+                {
+                    return Err(anyhow!(
+                        "Alias collision: alias '{}' is already mapped to '{}', cannot map to '{}'",
+                        alias,
+                        existing_id,
+                        raw_id
+                    ));
                 }
                 alias_to_id.insert(alias.clone(), raw_id.clone());
                 if contig_manager.is_mitochondrial_alias(&alias) {

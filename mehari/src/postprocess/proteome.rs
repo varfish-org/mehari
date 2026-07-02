@@ -1,4 +1,6 @@
-use crate::annotate::seqvars::ann::{ANN_AA_SEQ_ALT, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS};
+use crate::annotate::seqvars::consequence::terms::{
+    ANN_AA_SEQ_ALT, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS,
+};
 use crate::common::noodles::NoodlesVariantReader;
 use anyhow::{Context, Error};
 use clap::{Args as ClapArgs, ValueEnum};

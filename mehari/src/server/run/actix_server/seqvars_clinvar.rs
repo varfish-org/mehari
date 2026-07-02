@@ -7,7 +7,7 @@ use actix_web::{
     web::{self, Data, Json, Path},
 };
 
-use crate::annotate::seqvars::csq::VcfVariant;
+use crate::annotate::seqvars::consequence::VcfVariant;
 
 use super::{CustomError, versions::VersionsInfoResponse};
 

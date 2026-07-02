@@ -22,7 +22,7 @@ pub enum PhaseGroup {
 /// Wrapper holding a VCF record, its mapped Mehari variant, and its genomic context.
 #[derive(Debug, Clone)]
 pub struct BufferedVariant {
-    pub vcf_var: crate::annotate::seqvars::csq::VcfVariant,
+    pub vcf_var: crate::annotate::seqvars::consequence::VcfVariant,
     pub record: RecordBuf,
     pub tx_accessions: HashSet<String>,
     pub min_tx_start: i32,
@@ -56,14 +56,14 @@ impl VariantBuffer {
             return false;
         }
         self.current_chrom != next_chrom
-            || next_pos > self.max_tx_end + crate::annotate::seqvars::csq::PADDING
+            || next_pos > self.max_tx_end + crate::annotate::seqvars::consequence::logic::PADDING
     }
 
     #[allow(clippy::too_many_arguments)]
     /// Push a variant into the sliding window and update the genomic boundaries.
     pub fn push(
         &mut self,
-        vcf_var: crate::annotate::seqvars::csq::VcfVariant,
+        vcf_var: crate::annotate::seqvars::consequence::VcfVariant,
         record: RecordBuf,
         tx_accessions: HashSet<String>,
         min_tx_start: i32,

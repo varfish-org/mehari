@@ -1,5 +1,5 @@
-use crate::db::create::cdot_models;
-use crate::db::create::models::{
+use crate::db::transcripts::create::cdot_models;
+use crate::db::transcripts::create::models::{
     GeneId, Identifier, Reason, TranscriptExt, TranscriptId, TranscriptLoader,
 };
 use crate::pbs::txs::{GenomeBuild, SourceVersion, TxSeqDatabase};

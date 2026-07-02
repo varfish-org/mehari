@@ -1,0 +1,10 @@
+---
+source: mehari/src/db/transcripts/create/mod.rs
+expression: "tx_data.gene_id_to_transcript_ids.get(&GeneId::Hgnc(1100)).unwrap().iter().map(|s|\ns.as_str()).sorted_unstable().collect::<Vec<_>>()"
+---
+- NM_007294.4
+- NM_007297.4
+- NM_007298.3
+- NM_007299.4
+- NM_007300.4
+- NR_027676.2

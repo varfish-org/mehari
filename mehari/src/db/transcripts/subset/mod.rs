@@ -1,6 +1,6 @@
 //! Subset transcript database.
 
-use crate::annotate::seqvars::load_tx_db;
+use crate::annotate::seqvars::consequence::load_tx_db;
 use crate::annotate::seqvars::provider::TxIntervalTrees;
 use crate::common::contig::ContigManager;
 use crate::db::TranscriptDatabase;
@@ -429,7 +429,7 @@ fn __extract_transcripts_from_db(
 
 #[cfg(test)]
 mod tests {
-    use crate::db::subset::Selection;
+    use crate::db::transcripts::subset::Selection;
     use temp_testdir::TempDir;
 
     #[tracing_test::traced_test]

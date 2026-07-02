@@ -4,7 +4,7 @@ use std::{io::Write, path::PathBuf};
 
 use clap::Parser;
 
-use crate::annotate::seqvars::load_tx_db;
+use crate::annotate::seqvars::consequence::load_tx_db;
 
 /// Command line arguments for `db dump` sub command.
 #[derive(Parser, Debug)]
