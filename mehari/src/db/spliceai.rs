@@ -1,6 +1,6 @@
 use crate::common::Args as CommonArgs;
 use crate::db::keys::Var;
-use crate::db::{ContigIdMap, PipelineConfig};
+use crate::db::{ContigIdMap, PipelineConfig, write_contig_dictionary};
 use crate::pbs::seqvars::{SpliceAiPrediction, SpliceAiRecord};
 use anyhow::Error;
 use clap::Parser;
@@ -108,16 +108,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
     )?;
 
     tracing::info!("Writing SpliceAI contig index metadata mapping into the meta CF...");
-    let options = rocksdb::Options::default();
-    let options = rocksdb_utils_lookup::tune_options(options, None);
-    let db = rocksdb::DB::open_cf(&options, &args.common.output, vec!["meta", "spliceai"])?;
-    let cf_meta = db
-        .cf_handle("meta")
-        .ok_or_else(|| anyhow::anyhow!("meta CF not found"))?;
-
-    let map_guard = chrom_to_id.read().unwrap();
-    let serialized_dict = serde_json::to_vec(&*map_guard)?;
-    db.put_cf(&cf_meta, b"contig_dictionary", serialized_dict)?;
+    write_contig_dictionary(&args.common.output, "spliceai", &chrom_to_id)?;
 
     Ok(())
 }

@@ -539,6 +539,24 @@ pub fn get_or_intern_contig(
     (chrom_std, chrom_id)
 }
 
+pub fn write_contig_dictionary(
+    output_path: &Path,
+    db_type: &str,
+    chrom_to_id: &ContigIdMap,
+) -> Result<(), Error> {
+    let options = rocksdb::Options::default();
+    let options = rocksdb_utils_lookup::tune_options(options, None);
+    let db = rocksdb::DB::open_cf(&options, output_path, vec!["meta", db_type])?;
+    let cf_meta = db
+        .cf_handle("meta")
+        .ok_or_else(|| anyhow::anyhow!("meta CF not found"))?;
+
+    let map_guard = chrom_to_id.read().unwrap();
+    let serialized_dict = serde_json::to_vec(&*map_guard)?;
+    db.put_cf(&cf_meta, b"contig_dictionary", serialized_dict)?;
+    Ok(())
+}
+
 #[cfg(test)]
 pub mod test_utils {
     use super::*;
