@@ -222,6 +222,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CustomError'
+  /api/v1/seqvars/dbsnp:
+    get:
+      tags:
+      - seqvars_dbsnp
+      operationId: seqvarsDbsnp
+      parameters:
+      - name: assembly
+        in: query
+        description: The assembly.
+        required: true
+        schema:
+          type: string
+      - name: chromosome
+        in: query
+        description: Chromosome name.
+        required: true
+        schema:
+          type: string
+      - name: position
+        in: query
+        description: 1-based position.
+        required: true
+        schema:
+          type: integer
+          format: int32
+          minimum: 0
+      - name: reference
+        in: query
+        description: Reference allele.
+        required: true
+        schema:
+          type: string
+      - name: alternative
+        in: query
+        description: Alternative allele.
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: dbSNP records.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DbsnpResponse'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomError'
   /api/v1/seqvars/frequency:
     get:
       tags:
@@ -656,6 +707,62 @@ components:
         annotation_name:
           type: string
           description: Name of the annotation used.
+    DbsnpQuery:
+      type: object
+      description: Query parameters of the `/api/v1/seqvars/dbsnp` endpoint.
+      required:
+      - assembly
+      - chromosome
+      - position
+      - reference
+      - alternative
+      properties:
+        assembly:
+          type: string
+          description: The assembly.
+        chromosome:
+          type: string
+          description: Chromosome name.
+        position:
+          type: integer
+          format: int32
+          description: 1-based position.
+          minimum: 0
+        reference:
+          type: string
+          description: Reference allele.
+        alternative:
+          type: string
+          description: Alternative allele.
+    DbsnpResponse:
+      type: object
+      description: Response of the `/api/v1/seqvars/dbsnp` endpoint.
+      required:
+      - version
+      - query
+      properties:
+        version:
+          $ref: '#/components/schemas/VersionsInfoResponse'
+          description: Version information.
+        query:
+          $ref: '#/components/schemas/DbsnpQuery'
+          description: The original query parameters.
+        result:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/DbsnpResultEntry'
+            description: The resulting dbSNP record if found.
+    DbsnpResultEntry:
+      type: object
+      description: One entry in `DbsnpResponse`.
+      required:
+      - allele
+      - rs_id
+      properties:
+        allele:
+          type: string
+        rs_id:
+          type: string
     ExonAlignment:
       type: object
       description: Store the alignment of one exon to the reference.

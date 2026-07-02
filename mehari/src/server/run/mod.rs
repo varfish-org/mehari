@@ -5,7 +5,8 @@ use crate::annotate::seqvars::consequence::{
 };
 use crate::annotate::seqvars::{
     initialize_cadd_annotators_for_assembly, initialize_clinvar_annotators_for_assembly,
-    initialize_frequency_annotators_for_assembly, initialize_spliceai_annotators_for_assembly,
+    initialize_dbsnp_annotators_for_assembly, initialize_frequency_annotators_for_assembly,
+    initialize_spliceai_annotators_for_assembly,
 };
 use crate::annotate::{
     seqvars::consequence::logic::ConsequencePredictor as SeqvarConsequencePredictor,
@@ -44,6 +45,9 @@ pub mod openapi {
     use crate::server::run::actix_server::seqvars_csq::{
         SeqvarsCsqQuery, SeqvarsCsqResponse, SeqvarsCsqResultEntry,
     };
+    use crate::server::run::actix_server::seqvars_dbsnp::{
+        DbsnpQuery, DbsnpResponse, DbsnpResultEntry,
+    };
     use crate::server::run::actix_server::seqvars_frequencies::{
         AutosomalResultEntry, FrequencyQuery, FrequencyResponse, FrequencyResultEntry,
         GonosomalResultEntry, MitochondrialResultEntry,
@@ -59,8 +63,8 @@ pub mod openapi {
     };
 
     use super::actix_server::{
-        CustomError, gene_txs, seqvars_cadd, seqvars_clinvar, seqvars_csq, seqvars_frequencies,
-        seqvars_spliceai, strucvars_csq, versions,
+        CustomError, gene_txs, seqvars_cadd, seqvars_clinvar, seqvars_csq, seqvars_dbsnp,
+        seqvars_frequencies, seqvars_spliceai, strucvars_csq, versions,
     };
 
     /// Utoipa-based `OpenAPI` generation helper.
@@ -75,6 +79,7 @@ pub mod openapi {
             seqvars_clinvar::handle_with_openapi,
             seqvars_cadd::handle_with_openapi,
             seqvars_spliceai::handle_with_openapi,
+            seqvars_dbsnp::handle_with_openapi,
         ),
         components(schemas(
             Assembly,
@@ -121,6 +126,9 @@ pub mod openapi {
             SpliceAiQuery,
             SpliceAiResponse,
             SpliceAiPredictionEntry,
+            DbsnpQuery,
+            DbsnpResponse,
+            DbsnpResultEntry,
         ))
     )]
     pub struct ApiDoc;
@@ -194,6 +202,7 @@ enum Endpoint {
     Clinvar,
     Cadd,
     Spliceai,
+    Dbsnp,
 }
 
 /// Print some hints via `tracing::info!`.
@@ -204,7 +213,7 @@ fn print_hints(args: &Args, enabled_sources: &[(String, Endpoint)]) {
         args.listen_port
     );
 
-    // Short-circuit if no hints are to be
+    // Short-circuit if no hints are to be printed
     if args.suppress_hints {
         return;
     }
@@ -407,12 +416,34 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         }
     }
 
+    let mut dbsnp_paths = HashMap::new();
+    if let Some(paths) = args.sources.dbsnp.as_ref() {
+        for path in paths {
+            if let Some(assembly) = associate_db_path(path) {
+                if let Some(prev) = dbsnp_paths.insert(assembly.clone(), path.clone()) {
+                    tracing::warn!(
+                        "Duplicate dbSNP DB for {:?}: {} overwritten by {}",
+                        assembly,
+                        prev,
+                        path
+                    );
+                }
+            } else {
+                tracing::warn!(
+                    "Could not determine assembly for dbSNP db: {}. Skipping.",
+                    path
+                );
+            }
+        }
+    }
+
     let mut all_releases: HashSet<String> = HashSet::new();
     all_releases.extend(transcript_paths.keys().cloned());
     all_releases.extend(frequency_paths.keys().cloned());
     all_releases.extend(clinvar_paths.keys().cloned());
     all_releases.extend(cadd_paths.keys().cloned());
     all_releases.extend(spliceai_paths.keys().cloned());
+    all_releases.extend(dbsnp_paths.keys().cloned());
 
     let mut enabled_sources = vec![];
     for assembly in all_releases.iter() {
@@ -524,6 +555,22 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                 tracing::info!("... done loading CADD data for {:?}.", assembly.clone());
             } else {
                 tracing::warn!("Could not load CADD data for {:?}.", assembly.clone());
+            }
+        }
+
+        if let Some(dbsnp_path) = dbsnp_paths.get(&assembly.clone()) {
+            tracing::info!("Loading dbSNP data for {:?}...", assembly.clone());
+            let annotators = initialize_dbsnp_annotators_for_assembly(
+                std::slice::from_ref(dbsnp_path),
+                assembly,
+                contig_manager.clone(),
+            )?;
+            if let Some(annotator) = annotators.into_iter().next() {
+                data.dbsnp_annotators.insert(assembly.clone(), annotator);
+                enabled_sources.push((assembly.clone(), Endpoint::Dbsnp));
+                tracing::info!("... done loading dbSNP data for {:?}.", assembly.clone());
+            } else {
+                tracing::warn!("Could not load dbSNP data for {:?}.", assembly.clone());
             }
         }
 

@@ -103,7 +103,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                 }
 
                 let (chrom_std, chrom_id) =
-                    crate::db::get_or_intern_contig(&chrom, contig_manager, &chrom_to_id_vcf);
+                    crate::db::get_or_intern_contig(chrom, contig_manager, &chrom_to_id_vcf);
 
                 let reference = record.reference_bases();
 
@@ -152,7 +152,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                     .ok_or_else(|| anyhow!("Missing Alternative column"))?;
 
                 let (chrom_std, chrom_id) =
-                    crate::db::get_or_intern_contig(&chrom, contig_manager, &chrom_to_id_tsv);
+                    crate::db::get_or_intern_contig(chrom, contig_manager, &chrom_to_id_tsv);
 
                 let mut fields = HashMap::new();
                 if let Some(vals) = &args.col_values {

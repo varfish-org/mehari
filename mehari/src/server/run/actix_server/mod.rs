@@ -15,6 +15,7 @@ pub mod gene_txs;
 pub mod seqvars_cadd;
 pub mod seqvars_clinvar;
 pub mod seqvars_csq;
+pub mod seqvars_dbsnp;
 pub mod seqvars_frequencies;
 pub mod seqvars_spliceai;
 pub mod strucvars_csq;
@@ -68,6 +69,10 @@ pub struct WebServerData {
     /// The SpliceAI annotators for each assembly.
     pub spliceai_annotators:
         std::collections::HashMap<String, crate::annotate::seqvars::spliceai::SpliceAiAnnotator>,
+
+    /// The dbSNP annotators for each assembly.
+    pub dbsnp_annotators:
+        std::collections::HashMap<String, crate::annotate::seqvars::dbsnp::DbsnpAnnotator>,
 }
 
 /// Main entry point for running the REST server.
@@ -93,6 +98,8 @@ pub async fn main(
             .service(seqvars_cadd::handle_with_openapi)
             .service(seqvars_spliceai::handle)
             .service(seqvars_spliceai::handle_with_openapi)
+            .service(seqvars_dbsnp::handle)
+            .service(seqvars_dbsnp::handle_with_openapi)
             .service(versions::handle)
             .service(
                 utoipa_swagger_ui::SwaggerUi::new("/swagger-ui/{_:.*}")
