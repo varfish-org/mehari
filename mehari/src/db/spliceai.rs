@@ -1,11 +1,12 @@
 use crate::common::Args as CommonArgs;
-use crate::db::PipelineConfig;
 use crate::db::keys::Var;
+use crate::db::{ContigIdMap, PipelineConfig};
 use crate::pbs::seqvars::{SpliceAiPrediction, SpliceAiRecord};
 use anyhow::Error;
 use clap::Parser;
 use prost::Message;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Arguments for the SpliceAI database construction command.
 #[derive(Parser, Debug, Clone)]
@@ -32,10 +33,13 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
         extra_meta: HashMap::new(),
     };
 
+    let chrom_to_id = ContigIdMap::default();
+    let chrom_to_id_closure = Arc::clone(&chrom_to_id);
+
     crate::db::run_vcf_pipeline(
         config,
         None::<fn(&mut noodles::vcf::Header)>,
-        |record, contig_manager| {
+        move |record, contig_manager| {
             let mut kvs = Vec::new();
             let chrom = record.reference_sequence_name();
             let pos = match record.variant_start() {
@@ -53,10 +57,9 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
                 None => return Ok((kvs, HashSet::new())),
             };
 
-            let chrom_std = contig_manager
-                .get_primary_name(chrom)
-                .cloned()
-                .unwrap_or_else(|| chrom.to_string());
+            let (chrom_std, chrom_id) =
+                crate::db::get_or_intern_chrom(chrom, contig_manager, &chrom_to_id_closure);
+
             let reference = record.reference_bases();
             let mut predictions_by_allele: HashMap<String, Vec<SpliceAiPrediction>> =
                 HashMap::new();
@@ -87,13 +90,8 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
             }
 
             for (allele, predictions) in predictions_by_allele {
-                let var = Var {
-                    chrom: chrom_std.clone(),
-                    pos,
-                    reference: reference.to_string(),
-                    alternative: allele,
-                };
-                let key: Vec<u8> = var.clone().into();
+                let var = Var::new(chrom_std.clone(), pos, reference.to_string(), allele);
+                let key = var.encode_with_id(chrom_id);
                 let record_pb = SpliceAiRecord { predictions };
 
                 let mut value = Vec::new();
@@ -107,5 +105,18 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
             }
             Ok((kvs, HashSet::new()))
         },
-    )
+    )?;
+
+    tracing::info!("Writing SpliceAI contig index metadata mapping into the meta CF...");
+    let options = rocksdb::Options::default();
+    let db = rocksdb::DB::open_cf(&options, &args.common.output, vec!["meta", "spliceai"])?;
+    let cf_meta = db
+        .cf_handle("meta")
+        .ok_or_else(|| anyhow::anyhow!("meta CF not found"))?;
+
+    let map_guard = chrom_to_id.read().unwrap();
+    let serialized_dict = serde_json::to_vec(&*map_guard)?;
+    db.put_cf(&cf_meta, b"contig_dictionary", serialized_dict)?;
+
+    Ok(())
 }

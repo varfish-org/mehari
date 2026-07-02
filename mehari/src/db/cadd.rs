@@ -1,12 +1,13 @@
 use crate::common::Args as CommonArgs;
-use crate::db::PipelineConfig;
 use crate::db::keys::Var;
+use crate::db::{ContigIdMap, PipelineConfig};
 use crate::pbs::seqvars::CaddRecord;
 use anyhow::Error;
 use clap::Parser;
 use prost::Message;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs::File;
+use std::sync::Arc;
 
 /// Arguments for the CADD database construction command.
 #[derive(Parser, Debug, Clone)]
@@ -40,7 +41,7 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
         threads: args.common.threads,
         db_type: "cadd",
         schema_version: "1.0",
-        extra_meta: HashMap::new(),
+        extra_meta: std::collections::HashMap::new(),
     };
 
     let open_reader = |path: &std::path::Path| {
@@ -54,20 +55,22 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
         Ok((rdr, csv::StringRecord::new()))
     };
 
-    crate::db::run_tsv_pipeline(config, open_reader, |record, _, contig_manager| {
-        let row: CaddRecordRow = record.deserialize(None)?;
-        let chrom_std = contig_manager
-            .get_primary_name(&row.chrom)
-            .cloned()
-            .unwrap_or_else(|| row.chrom.clone());
+    let chrom_to_id: ContigIdMap = ContigIdMap::default();
+    let chrom_to_id_closure = Arc::clone(&chrom_to_id);
 
-        let var = Var {
-            chrom: chrom_std,
-            pos: row.pos,
-            reference: row.r#ref.clone(),
-            alternative: row.alt.clone(),
-        };
-        let key: Vec<u8> = var.clone().into();
+    crate::db::run_tsv_pipeline(config, open_reader, move |record, _, contig_manager| {
+        let row: CaddRecordRow = record.deserialize(None)?;
+        let (chrom_std, chrom_id) =
+            crate::db::get_or_intern_chrom(&row.chrom, contig_manager, &chrom_to_id_closure);
+
+        let var = Var::new(
+            chrom_std.clone(),
+            row.pos,
+            row.r#ref.clone(),
+            row.alt.clone(),
+        );
+        let key = var.encode_with_id(chrom_id);
+
         let record_pb = CaddRecord {
             raw_score: row.raw_score,
             phred: row.phred,
@@ -76,10 +79,20 @@ pub fn run(_common: &CommonArgs, args: &Args) -> Result<(), Error> {
         let mut value = Vec::new();
         record_pb.encode(&mut value)?;
 
-        let var_label = format!(
-            "{}:{}{}>{}",
-            var.chrom, var.pos, var.reference, var.alternative
-        );
+        let var_label = format!("{}:{}{}>{}", chrom_std, row.pos, row.r#ref, row.alt);
         Ok((vec![(key, value, var_label)], HashSet::new()))
-    })
+    })?;
+
+    tracing::info!("Writing contig index metadata mapping into the meta CF...");
+    let options = rocksdb::Options::default();
+    let db = rocksdb::DB::open_cf(&options, &args.common.output, vec!["meta", "cadd"])?;
+    let cf_meta = db
+        .cf_handle("meta")
+        .ok_or_else(|| anyhow::anyhow!("meta CF not found"))?;
+
+    let map_guard = chrom_to_id.read().unwrap();
+    let serialized_dict = serde_json::to_vec(&*map_guard)?;
+    db.put_cf(&cf_meta, b"contig_dictionary", serialized_dict)?;
+
+    Ok(())
 }

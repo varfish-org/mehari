@@ -500,6 +500,38 @@ pub fn get_total_records_from_tabix(path: &Path) -> anyhow::Result<Option<u64>> 
     }
 }
 
+/// Type alias for the thread-safe contig name to sequential ID lookup map.
+pub type ContigIdMap = std::sync::Arc<std::sync::RwLock<rustc_hash::FxHashMap<String, u32>>>;
+
+/// Standardizes a chromosome name and returns its matching interned `u32` ID.
+/// If the chromosome hasn't been encountered yet, it registers a new sequential ID.
+pub fn get_or_intern_chrom(
+    chrom: &str,
+    contig_manager: &ContigManager,
+    chrom_to_id: &ContigIdMap,
+) -> (String, u32) {
+    let chrom_std = contig_manager
+        .get_primary_name(chrom)
+        .cloned()
+        .unwrap_or_else(|| chrom.to_string());
+
+    let chrom_id = {
+        let read_map = chrom_to_id.read().unwrap();
+        read_map.get(&chrom_std).cloned()
+    };
+
+    let chrom_id = match chrom_id {
+        Some(id) => id,
+        None => {
+            let mut write_map = chrom_to_id.write().unwrap();
+            let next_id = write_map.len() as u32;
+            *write_map.entry(chrom_std.clone()).or_insert(next_id)
+        }
+    };
+
+    (chrom_std, chrom_id)
+}
+
 #[cfg(test)]
 pub mod test_utils {
     use super::*;

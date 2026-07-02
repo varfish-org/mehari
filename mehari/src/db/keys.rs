@@ -33,6 +33,57 @@ impl Var {
             alternative: value.alternate_bases().as_ref()[allele_no].to_string(),
         }
     }
+
+    /// Serialize Var into a compact binary key using an interned u32 contig ID.
+    pub fn encode_with_id(&self, chrom_id: u32) -> Vec<u8> {
+        // Pre-allocate exactly: 4 bytes (ID) + 4 bytes (pos) + REF + 1 byte (Null) + ALT
+        let estimated_capacity = 4 + 4 + self.reference.len() + 1 + self.alternative.len();
+        let mut result = Vec::with_capacity(estimated_capacity);
+
+        result.extend_from_slice(&chrom_id.to_be_bytes());
+        result.extend_from_slice(&self.pos.to_be_bytes());
+        result.extend_from_slice(self.reference.as_bytes());
+        result.push(0x00);
+        result.extend_from_slice(self.alternative.as_bytes());
+
+        result
+    }
+
+    /// Deserialize raw bytes back into a Var struct using a reverse lookup map/array.
+    pub fn decode_with_ctx(value: &[u8], id_to_chrom: &[String]) -> Self {
+        assert!(
+            value.len() >= 9,
+            "Corrupted database key: underlying byte array too short"
+        );
+
+        let chrom_id = u32::from_be_bytes(value[0..4].try_into().unwrap());
+        let chrom = id_to_chrom
+            .get(chrom_id as usize)
+            .cloned()
+            .expect("Corrupted database: Contig ID missing from metadata context map");
+
+        let pos = i32::from_be_bytes(value[4..8].try_into().unwrap());
+
+        let alleles_buf = &value[8..];
+        let null_idx = alleles_buf
+            .iter()
+            .position(|&b| b == 0x00)
+            .expect("Corrupted database key: missing allele null-terminator");
+
+        let reference = std::str::from_utf8(&alleles_buf[0..null_idx])
+            .expect("Invalid UTF-8 sequence in reference allele")
+            .to_string();
+        let alternative = std::str::from_utf8(&alleles_buf[null_idx + 1..])
+            .expect("Invalid UTF-8 sequence in alternative allele")
+            .to_string();
+
+        Self {
+            chrom,
+            pos,
+            reference,
+            alternative,
+        }
+    }
 }
 
 impl From<Var> for annonars::common::keys::Var {

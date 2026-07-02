@@ -6,11 +6,13 @@ use crate::db::keys;
 use anyhow::Error;
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
+use rustc_hash::FxHashMap;
 
 #[derive(Debug)]
 pub struct DbsnpAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
     contig_manager: Arc<ContigManager>,
+    contig_dict: FxHashMap<String, u32>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -20,8 +22,16 @@ pub struct DbsnpResult {
 }
 
 impl DbsnpAnnotator {
-    pub fn new(db: DBWithThreadMode<MultiThreaded>, contig_manager: Arc<ContigManager>) -> Self {
-        Self { db, contig_manager }
+    pub fn new(
+        db: DBWithThreadMode<MultiThreaded>,
+        contig_manager: Arc<ContigManager>,
+        contig_dict: FxHashMap<String, u32>,
+    ) -> Self {
+        Self {
+            db,
+            contig_manager,
+            contig_dict,
+        }
     }
 
     pub(crate) fn from_path(
@@ -32,7 +42,19 @@ impl DbsnpAnnotator {
         let options = rocksdb::Options::default();
         let db_dbsnp =
             rocksdb::DB::open_cf_for_read_only(&options, &path, ["meta", "dbsnp"], false)?;
-        Ok(Self::new(db_dbsnp, contig_manager))
+
+        let contig_dict = {
+            let cf_meta = db_dbsnp
+                .cf_handle("meta")
+                .ok_or_else(|| anyhow::anyhow!("meta CF not found"))?;
+
+            match db_dbsnp.get_cf(&cf_meta, b"contig_dictionary")? {
+                Some(bytes) => serde_json::from_slice(&bytes)?,
+                None => FxHashMap::default(),
+            }
+        };
+
+        Ok(Self::new(db_dbsnp, contig_manager, contig_dict))
     }
 
     pub fn annotate_record_dbsnp(&self, key: &[u8]) -> Result<Option<DbsnpResult>, Error> {
@@ -58,15 +80,12 @@ impl DbsnpAnnotator {
             .cloned()
             .unwrap_or_else(|| vcf_var.chrom.clone());
 
-        let normalized_var = keys::Var {
-            chrom: chrom_std,
-            pos: vcf_var.pos,
-            reference: vcf_var.reference.clone(),
-            alternative: vcf_var.alternative.clone(),
-        };
-        let key: Vec<u8> = normalized_var.into();
-
-        self.annotate_record_dbsnp(&key)
+        if let Some(&chrom_id) = self.contig_dict.get(&chrom_std) {
+            let key = vcf_var.encode_with_id(chrom_id);
+            self.annotate_record_dbsnp(&key)
+        } else {
+            Ok(None)
+        }
     }
 }
 

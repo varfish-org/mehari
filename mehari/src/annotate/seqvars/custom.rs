@@ -7,11 +7,13 @@ use crate::db::keys;
 use anyhow::{Error, anyhow};
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
+use rustc_hash::FxHashMap;
 
 #[derive(Debug)]
 pub struct CustomDbAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
     contig_manager: Arc<ContigManager>,
+    contig_dict: FxHashMap<String, u32>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -21,8 +23,16 @@ pub struct CustomDbResult {
 }
 
 impl CustomDbAnnotator {
-    pub fn new(db: DBWithThreadMode<MultiThreaded>, contig_manager: Arc<ContigManager>) -> Self {
-        Self { db, contig_manager }
+    pub fn new(
+        db: DBWithThreadMode<MultiThreaded>,
+        contig_manager: Arc<ContigManager>,
+        contig_dict: FxHashMap<String, u32>,
+    ) -> Self {
+        Self {
+            db,
+            contig_manager,
+            contig_dict,
+        }
     }
 
     pub fn get_fields(&self) -> Result<Vec<String>, Error> {
@@ -46,7 +56,19 @@ impl CustomDbAnnotator {
         let options = rocksdb::Options::default();
         let db_custom =
             rocksdb::DB::open_cf_for_read_only(&options, &path, ["meta", "generic"], false)?;
-        Ok(Self::new(db_custom, contig_manager))
+
+        let contig_dict = {
+            let cf_meta = db_custom
+                .cf_handle("meta")
+                .ok_or_else(|| anyhow!("meta CF not found"))?;
+
+            match db_custom.get_cf(&cf_meta, b"contig_dictionary")? {
+                Some(bytes) => serde_json::from_slice(&bytes)?,
+                None => FxHashMap::default(),
+            }
+        };
+
+        Ok(Self::new(db_custom, contig_manager, contig_dict))
     }
 
     pub fn annotate_record_custom(
@@ -80,15 +102,12 @@ impl CustomDbAnnotator {
             .cloned()
             .unwrap_or_else(|| vcf_var.chrom.clone());
 
-        let normalized_var = keys::Var {
-            chrom: chrom_std,
-            pos: vcf_var.pos,
-            reference: vcf_var.reference.clone(),
-            alternative: vcf_var.alternative.clone(),
-        };
-
-        let key: Vec<u8> = normalized_var.into();
-        self.annotate_record_custom(db_name, &key)
+        if let Some(&chrom_id) = self.contig_dict.get(&chrom_std) {
+            let key = vcf_var.encode_with_id(chrom_id);
+            self.annotate_record_custom(db_name, &key)
+        } else {
+            Ok(None)
+        }
     }
 }
 
