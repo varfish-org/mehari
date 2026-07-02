@@ -4,7 +4,6 @@ use crate::pbs::txs::TxSeqDatabase;
 
 pub mod cadd;
 pub mod dbsnp;
-pub mod generic;
 pub(crate) mod keys;
 pub mod spliceai;
 pub mod transcripts;
@@ -325,7 +324,6 @@ where
         return Ok(());
     }
 
-    // Extract structure schemas upfront
     let (_, header) = open_vcf_reader(&config.input[0])?;
     let mut modified_header = header;
     if let Some(ref mut modifier) = header_modifier {

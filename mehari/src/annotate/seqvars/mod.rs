@@ -47,7 +47,6 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 pub mod binning;
 pub mod cadd;
 mod compound;
-pub mod custom;
 pub mod provider;
 pub(crate) mod reference;
 pub mod spliceai;
@@ -487,19 +486,6 @@ pub(crate) fn prepare_vcf_record(
         out_record.ids_mut().as_mut().insert(dbsnp.rs_id.clone());
     }
 
-    for custom_db in &record.annotation.custom {
-        let infos = out_record.info_mut();
-        for (key, val) in &custom_db.fields {
-            let field_name = format!("{}_{}", custom_db.db_name, key);
-            infos.insert(
-                field_name,
-                Some(field::Value::Array(field::value::Array::String(vec![
-                    Some(val.clone()),
-                ]))),
-            );
-        }
-    }
-
     if !record.annotation.consequences.is_empty() {
         let formatted_anns: Vec<Option<String>> = record
             .annotation
@@ -631,7 +617,6 @@ impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
                         cadd: None,
                         spliceai: None,
                         dbsnp: None,
-                        custom: vec![],
                     },
                 },
             )
@@ -746,7 +731,6 @@ pub(crate) enum AnnotatorEnum {
     Cadd(cadd::CaddAnnotator),
     SpliceAi(spliceai::SpliceAiAnnotator),
     Dbsnp(dbsnp::DbsnpAnnotator),
-    Custom(String, custom::CustomDbAnnotator),
 }
 
 impl AnnotatorEnum {
@@ -818,12 +802,6 @@ impl AnnotatorEnum {
                 }
                 Ok(())
             }
-            AnnotatorEnum::Custom(name, a) => {
-                if let Some(custom_res) = a.annotate(name, var)? {
-                    annotation.custom.push(custom_res);
-                }
-                Ok(())
-            }
         }
     }
 
@@ -872,21 +850,6 @@ impl AnnotatorEnum {
                 // dbsnp just inserts IDs into the ID column
                 Ok(())
             }
-            AnnotatorEnum::Custom(name, a) => {
-                let fields = a.get_fields()?;
-                for f in fields {
-                    let field_name = format!("{}_{}", name, f);
-                    header.infos_mut().insert(
-                        field_name,
-                        Map::<Info>::new(
-                            Number::Unknown,
-                            InfoType::String,
-                            format!("Custom lookup annotation from database {}", name),
-                        ),
-                    );
-                }
-                Ok(())
-            }
         }
     }
 }
@@ -927,7 +890,6 @@ impl Annotator {
             cadd: None,
             spliceai: None,
             dbsnp: None,
-            custom: vec![],
         };
 
         // Skip records with a deletion as alternative allele.
@@ -1393,18 +1355,6 @@ pub(crate) fn setup_seqvars_annotator(
         }
     }
 
-    // Add the custom DB annotator if requested.
-    if let Some(custom_db_specs) = &sources.custom_db {
-        let custom_dbs = initialize_custom_db_annotators_for_assembly(
-            custom_db_specs,
-            &assembly,
-            contig_manager.clone(),
-        )?;
-        for (name, custom_db) in custom_dbs {
-            annotators.push(AnnotatorEnum::Custom(name, custom_db))
-        }
-    }
-
     // Add the consequence annotator if requested.
     if !preloaded_tx_dbs.is_empty() {
         // Filter out any loaded databases that don't match the active assembly
@@ -1607,37 +1557,6 @@ pub fn initialize_dbsnp_annotators_for_assembly(
     Ok(annotators)
 }
 
-pub fn initialize_custom_db_annotators_for_assembly(
-    custom_db_specs: &[String],
-    assembly: &str,
-    contig_manager: Arc<ContigManager>,
-) -> Result<Vec<(String, custom::CustomDbAnnotator)>, Error> {
-    let mut annotators = Vec::new();
-
-    for spec in custom_db_specs {
-        let parts: Vec<&str> = spec.splitn(2, '=').collect();
-        if parts.len() != 2 {
-            anyhow::bail!(
-                "Invalid custom DB specification: '{}'. Must be in name=path format.",
-                spec
-            );
-        }
-        let name = parts[0].to_string();
-        let rocksdb_path = parts[1];
-
-        verify_database_assembly(rocksdb_path, assembly);
-        tracing::info!(
-            "Loading custom database '{}' for assembly {:?} from {}",
-            name,
-            assembly,
-            rocksdb_path
-        );
-        let annotator = custom::CustomDbAnnotator::from_path(rocksdb_path, contig_manager.clone())?;
-        annotators.push((name, annotator));
-    }
-    Ok(annotators)
-}
-
 fn _assembly_from_assembly_enum(val: i32) -> String {
     #[allow(deprecated)]
     match pbs::txs::Assembly::from_i32(val).unwrap_or(pbs::txs::Assembly::Unknown) {
@@ -1690,7 +1609,6 @@ pub struct VariantAnnotation {
     pub cadd: Option<cadd::CaddResult>,
     pub spliceai: Option<spliceai::SpliceAiResult>,
     pub dbsnp: Option<dbsnp::DbsnpResult>,
-    pub custom: Vec<custom::CustomDbResult>,
 }
 
 #[derive(Debug, Clone)]
@@ -1817,7 +1735,6 @@ impl<'a> VariantProcessor<'a> {
                         cadd: None,
                         spliceai: None,
                         dbsnp: None,
-                        custom: vec![],
                     })
             })
             .collect();

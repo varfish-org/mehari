@@ -157,9 +157,6 @@ enum DbCommands {
 
     /// Commands related to dbSNP database
     DbSnp(DbSnpArgs),
-
-    /// Commands related to generic lookup database
-    Generic(GenericArgs),
 }
 
 /// Subcommands under "db transcripts"
@@ -228,21 +225,6 @@ pub struct DbSnpArgs {
 pub enum DbSnpCommands {
     /// Construct dbSnp lookup database
     Create(db::dbsnp::cli::Args),
-}
-
-/// Subcommands under "db generic"
-#[derive(Debug, Parser)]
-#[command(args_conflicts_with_subcommands = true)]
-pub struct GenericArgs {
-    /// The sub command to run
-    #[command(subcommand)]
-    pub command: GenericCommands,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum GenericCommands {
-    /// Construct generic lookup database
-    Create(db::generic::cli::Args),
 }
 
 /// Parsing of "annotate *" sub commands.
@@ -357,9 +339,6 @@ async fn main() -> Result<(), anyhow::Error> {
             },
             DbCommands::Spliceai(spliceai) => match &spliceai.command {
                 SpliceaiCommands::Create(args) => db::spliceai::run(&cli.common, args)?,
-            },
-            DbCommands::Generic(generic) => match &generic.command {
-                GenericCommands::Create(args) => db::generic::run(&cli.common, args)?,
             },
             DbCommands::DbSnp(dbsnp) => match &dbsnp.command {
                 DbSnpCommands::Create(args) => db::dbsnp::run(&cli.common, args)?,
