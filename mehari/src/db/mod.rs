@@ -28,7 +28,7 @@ pub struct CommonPipelineArgs {
     #[arg(long, required = true)]
     pub assembly: String,
 
-    /// Path(s) to the input database file(s).
+    /// Path(s) to the input database file(s). All input files must share the same header/schema; mixed-header inputs are unsupported.
     #[arg(long, required = true)]
     pub input: Vec<PathBuf>,
 
