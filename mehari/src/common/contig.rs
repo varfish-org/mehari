@@ -29,6 +29,7 @@ pub struct ContigInfo {
 
     /// The chromosome number (1-25) only.
     pub chrom_no: u32,
+    pub length: usize,
 }
 
 const CHR_X: u32 = 23;
@@ -246,6 +247,7 @@ impl ContigManager {
             name_without_chr,
             name_with_chr,
             accession: accession.clone(),
+            length: seq_info.length,
             chrom_no,
         })
     }

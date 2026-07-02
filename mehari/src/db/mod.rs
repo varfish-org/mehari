@@ -174,6 +174,7 @@ pub fn get_info_string(
 
 pub fn run_parallel_pipeline<R, M, Rec>(
     config: PipelineConfig,
+    header_contig_lengths: HashMap<String, usize>,
     region_reader: R,
     mapper: M,
 ) -> Result<(), Error>
@@ -227,7 +228,17 @@ where
             for ref_name in tabix_header.reference_sequence_names() {
                 let ref_name_str = ref_name.to_string();
                 let mut begin = 0;
-                let max_len = 300_000_000;
+
+                let max_len = header_contig_lengths
+                    .get(&ref_name_str)
+                    .copied()
+                    .or_else(|| {
+                        contig_manager
+                            .get_contig_info(&ref_name_str)
+                            .map(|info| info.length)
+                    })
+                    .unwrap_or(300_000_000);
+
                 while begin < max_len {
                     let end = (begin + window_size).min(max_len);
                     windows.push((ref_name_str.clone(), begin, end));
@@ -329,10 +340,19 @@ where
     if let Some(ref mut modifier) = header_modifier {
         modifier(&mut modified_header);
     }
+
+    let mut header_contig_lengths = HashMap::new();
+    for (name, contig_map) in modified_header.contigs() {
+        if let Some(length) = contig_map.length() {
+            header_contig_lengths.insert(name.to_string(), length);
+        }
+    }
+
     let shared_header = std::sync::Arc::new(modified_header);
 
     run_parallel_pipeline(
         config,
+        header_contig_lengths,
         move |path, chrom, begin, end| {
             thread_local! {
                 static VCF_CACHE: std::cell::RefCell<
@@ -408,6 +428,7 @@ where
 
     run_parallel_pipeline(
         config,
+        HashMap::with_capacity(0),
         move |path, chrom, begin, end| {
             thread_local! {
                 static TSV_CACHE: std::cell::RefCell<Option<(PathBuf, noodles::csi::io::IndexedReader<noodles_bgzf::io::Reader<File>, noodles::tabix::Index>)>> = const { std::cell::RefCell::new(None) };
