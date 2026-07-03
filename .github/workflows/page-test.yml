@@ -18,6 +18,7 @@ jobs:
       - name: locosopa
         uses: koesterlab/locosopa@31df1859c7e22173bfaf6e234c6ae4260b4479db # v1.0.6
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           config: page/config.yaml
           path: build
           deploy: "false"
