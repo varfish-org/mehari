@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.1](https://github.com/varfish-org/mehari/compare/mehari-v0.45.0...mehari-v0.45.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* spliceAI and CADD VCF header types ([#1027](https://github.com/varfish-org/mehari/issues/1027)) ([c9b3132](https://github.com/varfish-org/mehari/commit/c9b313227c155373f1330a489964995e637316ff))
+
 ## [0.45.0](https://github.com/varfish-org/mehari/compare/mehari-v0.44.1...mehari-v0.45.0) (2026-07-02)
 
 
