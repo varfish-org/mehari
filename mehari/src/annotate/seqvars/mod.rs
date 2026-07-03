@@ -305,181 +305,66 @@ pub(crate) fn prepare_vcf_record(
 ) -> noodles::vcf::variant::RecordBuf {
     let mut out_record = record.vcf;
 
+    macro_rules! insert_field {
+        ($key:literal, scalar $variant:ident, $val:expr) => {
+            out_record
+                .info_mut()
+                .insert($key.into(), Some(field::Value::$variant($val)));
+        };
+        ($key:literal, opt_scalar $variant:ident, $val:expr) => {
+            if let Some(v) = $val {
+                out_record
+                    .info_mut()
+                    .insert($key.into(), Some(field::Value::$variant(v)));
+            }
+        };
+        ($key:literal, array $array_variant:ident, $iter:expr) => {
+            out_record.info_mut().insert(
+                $key.into(),
+                Some(field::Value::Array(field::value::Array::$array_variant(
+                    $iter.map(|x| Some(x.clone())).collect(),
+                ))),
+            );
+        };
+    }
+
     if let Some(freqs) = &record.annotation.frequencies {
-        let infos = out_record.info_mut();
-        infos.insert(
-            "gnomad_exomes_an".into(),
-            Some(field::Value::Integer(freqs.gnomad_exomes_an)),
-        );
-        infos.insert(
-            "gnomad_exomes_hom".into(),
-            Some(field::Value::Integer(freqs.gnomad_exomes_hom)),
-        );
-        infos.insert(
-            "gnomad_exomes_het".into(),
-            Some(field::Value::Integer(freqs.gnomad_exomes_het)),
-        );
-        if let Some(hemi) = freqs.gnomad_exomes_hemi {
-            infos.insert(
-                "gnomad_exomes_hemi".into(),
-                Some(field::Value::Integer(hemi)),
-            );
-        }
+        insert_field!("gnomad_exomes_an", scalar Integer, freqs.gnomad_exomes_an);
+        insert_field!("gnomad_exomes_hom", scalar Integer, freqs.gnomad_exomes_hom);
+        insert_field!("gnomad_exomes_het", scalar Integer, freqs.gnomad_exomes_het);
+        insert_field!("gnomad_exomes_hemi", opt_scalar Integer, freqs.gnomad_exomes_hemi);
 
-        infos.insert(
-            "gnomad_genomes_an".into(),
-            Some(field::Value::Integer(freqs.gnomad_genomes_an)),
-        );
-        infos.insert(
-            "gnomad_genomes_hom".into(),
-            Some(field::Value::Integer(freqs.gnomad_genomes_hom)),
-        );
-        infos.insert(
-            "gnomad_genomes_het".into(),
-            Some(field::Value::Integer(freqs.gnomad_genomes_het)),
-        );
-        if let Some(hemi) = freqs.gnomad_genomes_hemi {
-            infos.insert(
-                "gnomad_genomes_hemi".into(),
-                Some(field::Value::Integer(hemi)),
-            );
-        }
+        insert_field!("gnomad_genomes_an", scalar Integer, freqs.gnomad_genomes_an);
+        insert_field!("gnomad_genomes_hom", scalar Integer, freqs.gnomad_genomes_hom);
+        insert_field!("gnomad_genomes_het", scalar Integer, freqs.gnomad_genomes_het);
+        insert_field!("gnomad_genomes_hemi", opt_scalar Integer, freqs.gnomad_genomes_hemi);
 
-        if let Some(an) = freqs.helix_an {
-            infos.insert("helix_an".into(), Some(field::Value::Integer(an)));
-        }
-        if let Some(hom) = freqs.helix_hom {
-            infos.insert("helix_hom".into(), Some(field::Value::Integer(hom)));
-        }
-        if let Some(het) = freqs.helix_het {
-            infos.insert("helix_het".into(), Some(field::Value::Integer(het)));
-        }
+        insert_field!("helix_an", opt_scalar Integer, freqs.helix_an);
+        insert_field!("helix_hom", opt_scalar Integer, freqs.helix_hom);
+        insert_field!("helix_het", opt_scalar Integer, freqs.helix_het);
     }
 
     if let Some(clinvar) = &record.annotation.clinvar {
-        let infos = out_record.info_mut();
-        infos.insert(
-            "clinvar_vcv".into(),
-            Some(field::Value::Array(field::value::Array::String(
-                clinvar.vcv.iter().map(|s| Some(s.clone())).collect(),
-            ))),
-        );
-        infos.insert(
-            "clinvar_germline_classification".into(),
-            Some(field::Value::Array(field::value::Array::String(
-                clinvar
-                    .germline_classification
-                    .iter()
-                    .map(|s| Some(s.clone()))
-                    .collect(),
-            ))),
-        );
+        insert_field!("clinvar_vcv", array String, clinvar.vcv.iter());
+        insert_field!("clinvar_germline_classification", array String, clinvar.germline_classification.iter());
     }
 
     if let Some(cadd) = &record.annotation.cadd {
-        let infos = out_record.info_mut();
-        infos.insert(
-            "CADD_RAW".into(),
-            Some(field::Value::Array(field::value::Array::Float(vec![Some(
-                cadd.raw_score,
-            )]))),
-        );
-        infos.insert(
-            "CADD_PHRED".into(),
-            Some(field::Value::Array(field::value::Array::Float(vec![Some(
-                cadd.phred,
-            )]))),
-        );
+        insert_field!("CADD_RAW", scalar Float, cadd.raw_score);
+        insert_field!("CADD_PHRED", scalar Float, cadd.phred);
     }
 
     if let Some(spliceai) = &record.annotation.spliceai {
-        let infos = out_record.info_mut();
-        let mut symbols = Vec::new();
-        let mut ds_ags = Vec::new();
-        let mut ds_als = Vec::new();
-        let mut ds_dgs = Vec::new();
-        let mut ds_dls = Vec::new();
-        let mut dp_ags = Vec::new();
-        let mut dp_als = Vec::new();
-        let mut dp_dgs = Vec::new();
-        let mut dp_dls = Vec::new();
-
-        for pred in &spliceai.predictions {
-            symbols.push(pred.symbol.clone());
-            ds_ags.push(format!("{:.2}", pred.ds_ag));
-            ds_als.push(format!("{:.2}", pred.ds_al));
-            ds_dgs.push(format!("{:.2}", pred.ds_dg));
-            ds_dls.push(format!("{:.2}", pred.ds_dl));
-            dp_ags.push(format!("{}", pred.dp_ag));
-            dp_als.push(format!("{}", pred.dp_al));
-            dp_dgs.push(format!("{}", pred.dp_dg));
-            dp_dls.push(format!("{}", pred.dp_dl));
-        }
-
-        let symbol_str = symbols.join("&");
-        let ds_ag_str = ds_ags.join("&");
-        let ds_al_str = ds_als.join("&");
-        let ds_dg_str = ds_dgs.join("&");
-        let ds_dl_str = ds_dls.join("&");
-        let dp_ag_str = dp_ags.join("&");
-        let dp_al_str = dp_als.join("&");
-        let dp_dg_str = dp_dgs.join("&");
-        let dp_dl_str = dp_dls.join("&");
-
-        infos.insert(
-            "SpliceAI_pred_SYMBOL".into(),
-            Some(field::Value::Array(field::value::Array::String(vec![
-                Some(symbol_str),
-            ]))),
-        );
-        infos.insert(
-            "SpliceAI_pred_DS_AG".into(),
-            Some(field::Value::Array(field::value::Array::String(vec![
-                Some(ds_ag_str),
-            ]))),
-        );
-        infos.insert(
-            "SpliceAI_pred_DS_AL".into(),
-            Some(field::Value::Array(field::value::Array::String(vec![
-                Some(ds_al_str),
-            ]))),
-        );
-        infos.insert(
-            "SpliceAI_pred_DS_DG".into(),
-            Some(field::Value::Array(field::value::Array::String(vec![
-                Some(ds_dg_str),
-            ]))),
-        );
-        infos.insert(
-            "SpliceAI_pred_DS_DL".into(),
-            Some(field::Value::Array(field::value::Array::String(vec![
-                Some(ds_dl_str),
-            ]))),
-        );
-        infos.insert(
-            "SpliceAI_pred_DP_AG".into(),
-            Some(field::Value::Array(field::value::Array::String(vec![
-                Some(dp_ag_str),
-            ]))),
-        );
-        infos.insert(
-            "SpliceAI_pred_DP_AL".into(),
-            Some(field::Value::Array(field::value::Array::String(vec![
-                Some(dp_al_str),
-            ]))),
-        );
-        infos.insert(
-            "SpliceAI_pred_DP_DG".into(),
-            Some(field::Value::Array(field::value::Array::String(vec![
-                Some(dp_dg_str),
-            ]))),
-        );
-        infos.insert(
-            "SpliceAI_pred_DP_DL".into(),
-            Some(field::Value::Array(field::value::Array::String(vec![
-                Some(dp_dl_str),
-            ]))),
-        );
+        let preds = &spliceai.predictions;
+        insert_field!("SpliceAI_pred_SYMBOL", array String, preds.iter().map(|p| &p.symbol));
+        insert_field!("SpliceAI_pred_DS_AG", array Float, preds.iter().map(|p| &p.ds_ag));
+        insert_field!("SpliceAI_pred_DS_AL", array Float, preds.iter().map(|p| &p.ds_al));
+        insert_field!("SpliceAI_pred_DS_DG", array Float, preds.iter().map(|p| &p.ds_dg));
+        insert_field!("SpliceAI_pred_DS_DL", array Float, preds.iter().map(|p| &p.ds_dl));
+        insert_field!("SpliceAI_pred_DP_AG", array Integer, preds.iter().map(|p| &p.dp_ag));
+        insert_field!("SpliceAI_pred_DP_AL", array Integer, preds.iter().map(|p| &p.dp_al));
+        insert_field!("SpliceAI_pred_DP_DG", array Integer, preds.iter().map(|p| &p.dp_dg));
+        insert_field!("SpliceAI_pred_DP_DL", array Integer, preds.iter().map(|p| &p.dp_dl));
     }
 
     if let Some(dbsnp) = &record.annotation.dbsnp {
@@ -487,18 +372,12 @@ pub(crate) fn prepare_vcf_record(
     }
 
     if !record.annotation.consequences.is_empty() {
-        let formatted_anns: Vec<Option<String>> = record
+        let formatted_anns = record
             .annotation
             .consequences
             .iter()
-            .map(|ann| Some(ann.format(csq_config)))
-            .collect();
-        out_record.info_mut().insert(
-            "ANN".into(),
-            Some(field::Value::Array(field::value::Array::String(
-                formatted_anns,
-            ))),
-        );
+            .map(|ann| ann.format(csq_config));
+        insert_field!("ANN", array String, formatted_anns);
     }
 
     out_record
@@ -823,24 +702,32 @@ impl AnnotatorEnum {
             }
             AnnotatorEnum::SpliceAi(_) => {
                 let fields = vec![
-                    ("SYMBOL", "gene symbol"),
-                    ("DS_AG", "delta score for acceptor gain"),
-                    ("DS_AL", "delta score for acceptor loss"),
-                    ("DS_DG", "delta score for donor gain"),
-                    ("DS_DL", "delta score for donor loss"),
-                    ("DP_AG", "delta position for acceptor gain"),
-                    ("DP_AL", "delta position for acceptor loss"),
-                    ("DP_DG", "delta position for donor gain"),
-                    ("DP_DL", "delta position for donor loss"),
+                    ("SYMBOL", InfoType::String, "gene symbol"),
+                    ("DS_AG", InfoType::Float, "delta score for acceptor gain"),
+                    ("DS_AL", InfoType::Float, "delta score for acceptor loss"),
+                    ("DS_DG", InfoType::Float, "delta score for donor gain"),
+                    ("DS_DL", InfoType::Float, "delta score for donor loss"),
+                    (
+                        "DP_AG",
+                        InfoType::Integer,
+                        "delta position for acceptor gain",
+                    ),
+                    (
+                        "DP_AL",
+                        InfoType::Integer,
+                        "delta position for acceptor loss",
+                    ),
+                    ("DP_DG", InfoType::Integer, "delta position for donor gain"),
+                    ("DP_DL", InfoType::Integer, "delta position for donor loss"),
                 ];
-                for (name, desc) in fields {
+                for (name, ty, desc) in fields {
                     let field_name = format!("SpliceAI_pred_{}", name);
                     header.infos_mut().insert(
                         field_name,
                         Map::<Info>::new(
                             Number::Unknown,
-                            InfoType::String,
-                            format!("SpliceAI (v1.3.1) prediction. {}", desc),
+                            ty,
+                            format!("SpliceAI prediction. {}", desc),
                         ),
                     );
                 }
