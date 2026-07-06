@@ -653,12 +653,11 @@ pub fn finalize_db(
     // purge empty lingering WAL files to keep the directory clean
     if let Ok(entries) = std::fs::read_dir(db.path()) {
         for entry in entries.flatten() {
-            if entry.path().extension() == Some(std::ffi::OsStr::new("log")) {
-                if let Ok(meta) = entry.metadata() {
-                    if meta.len() == 0 {
-                        let _ = std::fs::remove_file(entry.path());
-                    }
-                }
+            if entry.path().extension() == Some(std::ffi::OsStr::new("log"))
+                && let Ok(meta) = entry.metadata()
+                && meta.len() == 0
+            {
+                let _ = std::fs::remove_file(entry.path());
             }
         }
     }
