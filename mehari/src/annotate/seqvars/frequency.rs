@@ -1,4 +1,3 @@
-use crate::annotate::seqvars::consequence::VcfVariant;
 use crate::common::contig::ContigManager;
 use crate::db::keys;
 use annonars::freqs::serialized::{auto, mt, xy};
@@ -8,6 +7,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::path::Path;
 use std::sync::Arc;
+
+#[cfg(feature = "server")]
+use crate::annotate::seqvars::consequence::VcfVariant;
 
 #[derive(Debug)]
 pub struct FrequencyAnnotator {

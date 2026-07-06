@@ -1,4 +1,3 @@
-use crate::annotate::seqvars::consequence::VcfVariant;
 use crate::common::contig::ContigManager;
 use crate::db::keys;
 use anyhow::Error;
@@ -9,6 +8,9 @@ use std::fmt::Display;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
+
+#[cfg(feature = "server")]
+use crate::annotate::seqvars::consequence::VcfVariant;
 
 #[derive(Debug)]
 pub struct ClinvarAnnotator {
