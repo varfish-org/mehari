@@ -144,7 +144,9 @@ You will have to build the transcript database for each genome release that you 
 
 You can enable compression by using the suffix `.gz` for gzip compression and `.zst` for zstandard compression.
 
-# Building CADD Database
+# Lookup Databases
+
+## Building CADD Database
 
 To build a lookup-based RocksDB database for CADD scores from one or more TSV files (such as all SNVs and a subset of observed SVs/indels):
 
@@ -156,7 +158,7 @@ mehari db cadd create \
   --output path/to/cadd_rocksdb
 ```
 
-# Building SpliceAI Database
+## Building SpliceAI Database
 
 To build a lookup-based RocksDB database for SpliceAI prediction scores from one or more VCF files (such as all SNVs and a subset of observed SVs/indels):
 
@@ -168,38 +170,22 @@ mehari db spliceai create \
   --output path/to/spliceai_rocksdb
 ```
 
-# Building Generic Lookup Database
+## Building a Unified Annotation Database
 
-To build a custom lookup-based RocksDB database from one or more TSV or VCF files (which will be automatically registered during sequence variant annotation):
+To optimize storage space and minimize disk seeks during runtime lookups, you can consolidate separate, coordinate-sorted tracking databases (CADD, SpliceAI, dbSNP) into a single, unified key-value database.
 
-### Building from TSV files (using header name matching):
+The command extracts the distinct coordinate maps, aligns them by genomic position using a multi-way stream-join loop, and writes a single packed `IntegratedVariantRecord` message per unique variant.
+
 ```sh
-mehari db generic create \
+mehari db unified create \
   --assembly grch38 \
-  --input path/to/custom_data1.tsv.gz \
-  --input path/to/custom_data2.tsv.gz \
-  --output path/to/custom_rocksdb \
-  --db-name custom_db_name \
-  --format tsv \
-  --col-chrom Chrom \
-  --col-pos Pos \
-  --col-ref Ref \
-  --col-alt Alt \
-  --col-values Score1 --col-values Score2
+  --cadd path/to/cadd_rocksdb \
+  --spliceai path/to/spliceai_rocksdb \
+  --dbsnp path/to/dbsnp_rocksdb \
+  --output path/to/unified_rocksdb
 ```
 
-### Building from VCF files (extracting INFO fields):
-```sh
-mehari db generic create \
-  --assembly grch38 \
-  --input path/to/custom_data.vcf.gz \
-  --output path/to/custom_rocksdb \
-  --db-name custom_db_name \
-  --format vcf \
-  --vcf-info-fields Score1 --vcf-info-fields Score2
-```
-
-# Building ClinVar Database
+## Building ClinVar Database
 
 This assumes that you have converted a recent ClinVar XML file to TSV using [clinvar-tsv](https://github.com/varfish-org/clinvar-tsv).
 

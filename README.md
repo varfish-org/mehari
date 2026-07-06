@@ -9,8 +9,12 @@
 
 <img style="float: right" width="200" height="200" src="misc/camel.jpeg" alt="a camel">
 
-Mehari is a software package for annotating VCF files with variant effect/consequence.
-The program uses [hgvs-rs](https://crates.io/crates/hgvs) for projecting genomic variants to transcripts and proteins and thus has high prediction quality.
+# Mehari
+
+Mehari is a software package for annotating VCF files with genomic variant features. It operates using two distinct operational layers:
+
+1. **Consequence Prediction:** Projecting genomic variants onto transcript and protein sequences via [hgvs-rs](https://crates.io/crates/hgvs) to compute precise molecular impacts.
+2. **Coordinate-Based Point Lookups:** High-throughput lookups matching absolute genomic coordinates (`chrom-pos-ref-alt`) against high-density reference datasets (such as dbSNP, gnomAD, CADD, and SpliceAI).
 
 Other popular tools offering variant effect/consequence prediction include:
 

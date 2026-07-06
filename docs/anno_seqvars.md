@@ -18,11 +18,17 @@ You can find the VCF variant specification [here on Github](https://samtools.git
 
 ## Sequence Variant Annotation
 
-Currently, Mehari will annotate variants using:
+Mehari annotates sequence variants by performing both transcript/HGVS projection and coordinate-based point lookups.
 
-- The predicted impact on gene transcripts and the corresponding protein sequence (in the case of coding genes).
-- Their frequency in the gnomAD exomes and genomes databases as well as the HelixMtDb database in the case of mitochondrial databases.
-- Variant information from ClinVar, if any
+### Transcript Consequence Prediction
+Variants are annotated by projecting the variant onto the transcript and evaluate the resulting changes to the transcript and protein sequences, from which we can derive a functional impact and sequence ontology terms ("consequence").
+
+### Coordinate-Based Point Lookups
+For annotations representing fixed genomic properties, mehari utilizes a flat key-value lookup system.
+Keys are packed into a compact binary format and queried against read-optimized RocksDB backends.
+This layer handles ClinVar classifications, dbSNP RS identifiers, population frequencies across gnomAD, and precomputed dense scores like CADD and SpliceAI.
+
+These lookup databases can be stored as individual, independent RocksDB directories, or consolidated into a single unified database to eliminate duplicate key storage overhead and minimize disk seeks.
 
 ## Command Line Invocation
 
