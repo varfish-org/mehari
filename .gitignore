@@ -250,5 +250,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Local working notes for the convergence-loop workflow (see .claude/skills/issue-workflow)
+issue-*.md
+
 .idea/
 /
