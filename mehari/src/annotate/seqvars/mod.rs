@@ -19,6 +19,7 @@ use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_var
 use crate::db::keys::Var;
 use crate::db::transcripts::merge::merge_transcript_databases;
 use crate::pbs;
+use crate::pbs::seqvars::{CaddRecord, DbsnpRecord, SpliceAiRecord};
 use crate::pbs::txs::TxSeqDatabase;
 use anyhow::Error;
 use biocommons_bioutils::assemblies::Assembly;
@@ -1493,9 +1494,9 @@ pub struct VariantAnnotation {
     pub consequences: Vec<AnnField>,
     pub frequencies: Option<FreqResult>,
     pub clinvar: Option<ClinvarResult>,
-    pub cadd: Option<cadd::CaddResult>,
-    pub spliceai: Option<spliceai::SpliceAiResult>,
-    pub dbsnp: Option<dbsnp::DbsnpResult>,
+    pub cadd: Option<CaddRecord>,
+    pub spliceai: Option<SpliceAiRecord>,
+    pub dbsnp: Option<DbsnpRecord>,
 }
 
 #[derive(Debug, Clone)]

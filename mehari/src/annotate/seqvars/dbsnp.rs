@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::common::contig::ContigManager;
 use crate::db::keys;
+use crate::pbs::seqvars::DbsnpRecord;
 use anyhow::Error;
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
@@ -13,12 +14,6 @@ pub struct DbsnpAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
     contig_manager: Arc<ContigManager>,
     contig_dict: FxHashMap<String, u32>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct DbsnpResult {
-    pub allele: String,
-    pub rs_id: String,
 }
 
 impl DbsnpAnnotator {
@@ -39,9 +34,7 @@ impl DbsnpAnnotator {
         contig_manager: Arc<ContigManager>,
     ) -> anyhow::Result<Self> {
         tracing::info!("Opening dbSNP database at {}", path.as_ref().display());
-        let options = rocksdb::Options::default();
-        let db_dbsnp =
-            rocksdb::DB::open_cf_for_read_only(&options, &path, ["meta", "dbsnp"], false)?;
+        let db_dbsnp = crate::db::open_db_for_read(path.as_ref(), "dbsnp")?;
 
         let contig_dict = {
             let cf_meta = db_dbsnp
@@ -57,22 +50,18 @@ impl DbsnpAnnotator {
         Ok(Self::new(db_dbsnp, contig_manager, contig_dict))
     }
 
-    pub fn annotate_record_dbsnp(&self, key: &[u8]) -> Result<Option<DbsnpResult>, Error> {
+    pub fn annotate_record_dbsnp(&self, key: &[u8]) -> Result<Option<DbsnpRecord>, Error> {
         if let Some(raw_value) = self
             .db
             .get_cf(self.db.cf_handle("dbsnp").as_ref().unwrap(), key)?
         {
-            let record = crate::pbs::seqvars::DbsnpRecord::decode(&raw_value[..])?;
-            Ok(Some(DbsnpResult {
-                allele: record.allele,
-                rs_id: record.rs_id,
-            }))
+            Ok(Some(DbsnpRecord::decode(&raw_value[..])?))
         } else {
             Ok(None)
         }
     }
 
-    pub fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<DbsnpResult>> {
+    pub fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<DbsnpRecord>> {
         // Normalize chrom to primary name to build standard key
         let chrom_std = self
             .contig_manager

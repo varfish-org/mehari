@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::common::contig::ContigManager;
 use crate::db::keys;
+use crate::pbs::seqvars::CaddRecord;
 use anyhow::Error;
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
@@ -13,12 +14,6 @@ pub struct CaddAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
     contig_manager: Arc<ContigManager>,
     contig_dict: FxHashMap<String, u32>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CaddResult {
-    pub raw_score: f32,
-    pub phred: f32,
 }
 
 impl CaddAnnotator {
@@ -39,8 +34,7 @@ impl CaddAnnotator {
         contig_manager: Arc<ContigManager>,
     ) -> anyhow::Result<Self> {
         tracing::info!("Opening CADD database at {}", path.as_ref().display());
-        let options = rocksdb::Options::default();
-        let db_cadd = rocksdb::DB::open_cf_for_read_only(&options, &path, ["meta", "cadd"], false)?;
+        let db_cadd = crate::db::open_db_for_read(path.as_ref(), "cadd")?;
 
         let contig_dict = {
             let cf_meta = db_cadd
@@ -56,22 +50,18 @@ impl CaddAnnotator {
         Ok(Self::new(db_cadd, contig_manager, contig_dict))
     }
 
-    pub fn annotate_record_cadd(&self, key: &[u8]) -> Result<Option<CaddResult>, Error> {
+    pub fn annotate_record_cadd(&self, key: &[u8]) -> Result<Option<CaddRecord>, Error> {
         if let Some(raw_value) = self
             .db
             .get_cf(self.db.cf_handle("cadd").as_ref().unwrap(), key)?
         {
-            let record = crate::pbs::seqvars::CaddRecord::decode(&raw_value[..])?;
-            Ok(Some(CaddResult {
-                raw_score: record.raw_score,
-                phred: record.phred,
-            }))
+            Ok(Some(CaddRecord::decode(&raw_value[..])?))
         } else {
             Ok(None)
         }
     }
 
-    pub fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<CaddResult>> {
+    pub fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<CaddRecord>> {
         // Normalize chrom to primary name to build standard key
         let chrom_std = self
             .contig_manager

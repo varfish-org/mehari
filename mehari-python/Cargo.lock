@@ -1903,7 +1903,7 @@ dependencies = [
  "nom 8.0.0",
  "nom-language",
  "postgres",
- "quick_cache",
+ "quick_cache 0.6.24",
  "regex",
  "seqrepo",
  "serde",
@@ -2544,7 +2544,7 @@ dependencies = [
  "procfs",
  "prost",
  "prost-build",
- "quick_cache",
+ "quick_cache 0.7.0",
  "rand 0.10.2",
  "rayon",
  "regex",
@@ -3688,6 +3688,18 @@ dependencies = [
  "ahash 0.8.12",
  "equivalent",
  "hashbrown 0.16.1",
+ "parking_lot",
+]
+
+[[package]]
+name = "quick_cache"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "403c1a912fec895cafb223201e368234842acb9220aaf08ab042ae89ba5f135c"
+dependencies = [
+ "equivalent",
+ "foldhash 0.2.0",
+ "hashbrown 0.17.1",
  "parking_lot",
 ]
 

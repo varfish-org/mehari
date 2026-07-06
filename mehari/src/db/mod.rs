@@ -14,11 +14,13 @@ use indicatif::{ParallelProgressIterator, ProgressBar, ProgressDrawTarget, Progr
 use noodles::csi::BinningIndex;
 use noodles::csi::binning_index::ReferenceSequence;
 use rayon::prelude::*;
+use rocksdb::{BottommostLevelCompaction, CompactOptions, DBWithThreadMode, MultiThreaded};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use thousands::Separable;
 
 /// Reusable command-line options shared across all database builders.
 #[derive(clap::Args, Debug, Clone)]
@@ -92,15 +94,23 @@ pub struct PipelineConfig<'a> {
     pub threads: usize,
 }
 
-pub fn open_db(path: &Path, data_cf: &str) -> Result<rocksdb::DB, Error> {
+pub fn open_db_for_build(path: &Path, data_cf: &str) -> Result<rocksdb::DB, Error> {
     let options = rocksdb::Options::default();
-    let mut options = rocksdb_utils_lookup::tune_options(options, None);
-    options.set_bottommost_compression_options(-14, 19, 0, 1 << 17, true);
-    options.set_bottommost_compression_type(rocksdb::DBCompressionType::Zstd);
-    options.set_bottommost_zstd_max_train_bytes(1 << 26, true);
+    let options = tune_options_for_build(options, None);
 
     let cfs = vec!["meta", data_cf];
     Ok(rocksdb::DB::open_cf(&options, path, cfs)?)
+}
+
+pub fn open_db_for_read(
+    path: &Path,
+    data_cf: &str,
+) -> Result<DBWithThreadMode<MultiThreaded>, Error> {
+    let options = tune_options_for_read();
+    let cfs = vec!["meta", data_cf];
+    Ok(DBWithThreadMode::<MultiThreaded>::open_cf_for_read_only(
+        &options, path, cfs, false,
+    )?)
 }
 
 pub fn open_vcf_reader(
@@ -195,7 +205,7 @@ where
     );
     let start_time = Instant::now();
     let contig_manager = ContigManager::new(config.assembly);
-    let db = open_db(config.output, config.db_type)?;
+    let db = open_db_for_build(config.output, config.db_type)?;
 
     let mut pool_builder = rayon::ThreadPoolBuilder::new();
     if config.threads > 0 {
@@ -508,19 +518,160 @@ fn finalize_pipeline(
         written,
         start_time.elapsed()
     );
-    finalize_db(db, &[config.db_type, "meta"])?;
+    finalize_db(db, &[config.db_type, "meta"], config.db_type)?;
     Ok(())
 }
 
-pub fn finalize_db(db: &rocksdb::DB, column_families: &[&str]) -> Result<(), Error> {
-    tracing::info!("Running final database compaction...");
-    for cf_name in column_families {
-        let cf = db
-            .cf_handle(cf_name)
-            .ok_or_else(|| anyhow!("CF '{}' not found", cf_name))?;
-        db.compact_range_cf(&cf, None::<&[u8]>, None::<&[u8]>);
+/// Profile optimized for rapid bulk data ingestion.
+pub fn tune_options_for_build(
+    options: rocksdb::Options,
+    wal_dir: Option<&str>,
+) -> rocksdb::Options {
+    let mut options = options;
+
+    options.create_if_missing(true);
+    options.create_missing_column_families(true);
+    options.prepare_for_bulk_load();
+
+    options.set_max_background_jobs(16);
+    options.set_max_subcompactions(8);
+    options.increase_parallelism(8);
+
+    options.set_write_buffer_size(1 << 30);
+    options.set_target_file_size_base(1 << 30);
+
+    if let Some(wal_dir) = wal_dir {
+        options.set_wal_dir(wal_dir);
     }
-    tracing::info!("Compaction complete!");
+
+    // Set lightweight compression for upper levels to protect disk bandwidth,
+    // and heavy ZSTD compression for the bottom level.
+    options.set_compression_per_level(&[
+        rocksdb::DBCompressionType::None, // L0
+        rocksdb::DBCompressionType::Lz4,  // L1
+        rocksdb::DBCompressionType::Lz4,  // L2
+        rocksdb::DBCompressionType::Lz4,  // L3
+        rocksdb::DBCompressionType::Lz4,  // L4
+        rocksdb::DBCompressionType::Lz4,  // L5
+        rocksdb::DBCompressionType::Zstd, // Bottommost
+    ]);
+
+    options
+}
+
+/// Profile optimized purely for high-throughput, read-only lookups.
+pub fn tune_options_for_read() -> rocksdb::Options {
+    let mut options = rocksdb::Options::default();
+
+    // Maximize threading capacity for concurrent file reading
+    options.increase_parallelism(8);
+    options.optimize_for_point_lookup(1 << 26); // 64MB block cache block hint
+
+    // Configure high-efficiency partitioned indexes for your immutable layout
+    let mut block_opts = rocksdb::BlockBasedOptions::default();
+    block_opts.set_index_type(rocksdb::BlockBasedIndexType::TwoLevelIndexSearch);
+    block_opts.set_bloom_filter(10.0, false); // 10 bits per key
+    block_opts.set_partition_filters(true);
+    block_opts.set_metadata_block_size(4096);
+    block_opts.set_cache_index_and_filter_blocks(true);
+    block_opts.set_pin_top_level_index_and_filter(true);
+    block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+
+    options.set_block_based_table_factory(&block_opts);
+    options
+}
+
+/// Finalizes a freshly ingested WORM database by flushing memtables,
+/// forcing a full multi-threaded bottommost compaction, and cleaning up WALs.
+pub fn finalize_db(
+    db: &DBWithThreadMode<MultiThreaded>,
+    cf_names: &[&str],
+    db_type: &str,
+) -> anyhow::Result<()> {
+    tracing::info!(
+        "Starting database finalization protocol for [{}]...",
+        db_type
+    );
+    let total_start = Instant::now();
+
+    // 1. Proactively flush all memtables to disk.
+    // This guarantees all ingested data is on disk as an SST before compaction begins.
+    for cf_name in cf_names {
+        if let Some(cf) = db.cf_handle(cf_name) {
+            tracing::info!("Flushing memtable for Column Family: '{}'...", cf_name);
+            db.flush_cf(&cf)?;
+        }
+    }
+
+    // configure aggressive, exclusive manual compaction down to the bottommost level
+    let mut compact_opt = CompactOptions::default();
+    compact_opt.set_exclusive_manual_compaction(true);
+    compact_opt.set_bottommost_level_compaction(BottommostLevelCompaction::Force);
+
+    tracing::info!("Triggering global parallel bottommost compaction...");
+    for cf_name in cf_names {
+        if let Some(cf) = db.cf_handle(cf_name) {
+            db.compact_range_cf_opt(&cf, None::<&[u8]>, None::<&[u8]>, &compact_opt);
+        }
+    }
+
+    // poll compaction metrics until the database engine falls completely silent
+    let compaction_start = Instant::now();
+    let mut last_logged = compaction_start;
+
+    loop {
+        let pending = db
+            .property_int_value(rocksdb::properties::COMPACTION_PENDING)?
+            .unwrap_or(0);
+        let running = db
+            .property_int_value(rocksdb::properties::NUM_RUNNING_COMPACTIONS)?
+            .unwrap_or(0);
+
+        if pending == 0 && running == 0 {
+            break;
+        }
+
+        if last_logged.elapsed() >= std::time::Duration::from_secs(5) {
+            tracing::info!(
+                "[{}] Still compacting... (Running workers: {}, Tasks pending: {}, Elapsed: {:?})",
+                db_type,
+                running,
+                pending,
+                compaction_start.elapsed()
+            );
+            last_logged = Instant::now();
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    tracing::info!(
+        "Compaction completed successfully in {:?}",
+        compaction_start.elapsed()
+    );
+
+    // purge empty lingering WAL files to keep the directory clean
+    if let Ok(entries) = std::fs::read_dir(db.path()) {
+        for entry in entries.flatten() {
+            if entry.path().extension() == Some(std::ffi::OsStr::new("log")) {
+                if let Ok(meta) = entry.metadata() {
+                    if meta.len() == 0 {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+    }
+
+    // emit some stats
+    if let Ok(Some(sst_size)) = db.property_int_value(rocksdb::properties::LIVE_SST_FILES_SIZE) {
+        tracing::info!(
+            "[{}] Database fully optimized. Total Live SST footprint: {} bytes. Total finalization runtime: {:?}",
+            db_type,
+            sst_size.separate_with_underscores(),
+            total_start.elapsed()
+        );
+    }
+
     Ok(())
 }
 
@@ -601,7 +752,7 @@ pub fn write_contig_dictionary(
     chrom_to_id: &ContigIdMap,
 ) -> Result<(), Error> {
     let options = rocksdb::Options::default();
-    let options = rocksdb_utils_lookup::tune_options(options, None);
+    let options = tune_options_for_build(options, None);
     let db = rocksdb::DB::open_cf(&options, output_path, vec!["meta", db_type])?;
     let cf_meta = db
         .cf_handle("meta")
@@ -610,6 +761,7 @@ pub fn write_contig_dictionary(
     let map_guard = chrom_to_id.read().unwrap();
     let serialized_dict = serde_json::to_vec(&*map_guard)?;
     db.put_cf(&cf_meta, b"contig_dictionary", serialized_dict)?;
+    finalize_db(&db, &["meta"], db_type)?;
     Ok(())
 }
 

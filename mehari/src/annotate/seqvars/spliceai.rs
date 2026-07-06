@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::common::contig::ContigManager;
 use crate::db::keys;
+use crate::pbs::seqvars::SpliceAiRecord;
 use anyhow::Error;
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
@@ -13,25 +14,6 @@ pub struct SpliceAiAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
     contig_manager: Arc<ContigManager>,
     contig_dict: FxHashMap<String, u32>,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SpliceAiPrediction {
-    pub allele: String,
-    pub symbol: String,
-    pub ds_ag: f32,
-    pub ds_al: f32,
-    pub ds_dg: f32,
-    pub ds_dl: f32,
-    pub dp_ag: i32,
-    pub dp_al: i32,
-    pub dp_dg: i32,
-    pub dp_dl: i32,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SpliceAiResult {
-    pub predictions: Vec<SpliceAiPrediction>,
 }
 
 impl SpliceAiAnnotator {
@@ -52,9 +34,7 @@ impl SpliceAiAnnotator {
         contig_manager: Arc<ContigManager>,
     ) -> anyhow::Result<Self> {
         tracing::info!("Opening SpliceAI database at {}", path.as_ref().display());
-        let options = rocksdb::Options::default();
-        let db_spliceai =
-            rocksdb::DB::open_cf_for_read_only(&options, &path, ["meta", "spliceai"], false)?;
+        let db_spliceai = crate::db::open_db_for_read(path.as_ref(), "spliceai")?;
 
         let contig_dict = {
             let cf_meta = db_spliceai
@@ -70,35 +50,18 @@ impl SpliceAiAnnotator {
         Ok(Self::new(db_spliceai, contig_manager, contig_dict))
     }
 
-    pub fn annotate_record_spliceai(&self, key: &[u8]) -> Result<Option<SpliceAiResult>, Error> {
+    pub fn annotate_record_spliceai(&self, key: &[u8]) -> Result<Option<SpliceAiRecord>, Error> {
         if let Some(raw_value) = self
             .db
             .get_cf(self.db.cf_handle("spliceai").as_ref().unwrap(), key)?
         {
-            let record = crate::pbs::seqvars::SpliceAiRecord::decode(&raw_value[..])?;
-            let predictions = record
-                .predictions
-                .into_iter()
-                .map(|p| SpliceAiPrediction {
-                    allele: p.allele,
-                    symbol: p.symbol,
-                    ds_ag: p.ds_ag,
-                    ds_al: p.ds_al,
-                    ds_dg: p.ds_dg,
-                    ds_dl: p.ds_dl,
-                    dp_ag: p.dp_ag,
-                    dp_al: p.dp_al,
-                    dp_dg: p.dp_dg,
-                    dp_dl: p.dp_dl,
-                })
-                .collect();
-            Ok(Some(SpliceAiResult { predictions }))
+            Ok(Some(SpliceAiRecord::decode(&raw_value[..])?))
         } else {
             Ok(None)
         }
     }
 
-    pub fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<SpliceAiResult>> {
+    pub fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<SpliceAiRecord>> {
         // Normalize chrom to primary name to build standard key
         let chrom_std = self
             .contig_manager
