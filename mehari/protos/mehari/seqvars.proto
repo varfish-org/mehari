@@ -29,11 +29,6 @@ message SpliceAiRecord {
   repeated SpliceAiPrediction predictions = 1;
 }
 
-// Generic/custom lookup record for arbitrary key-value databases
-message GenericLookupRecord {
-  map<string, string> fields = 1;
-}
-
 
 // dbSNP record containing only the RS identifier for a variant
 message DbsnpRecord {
