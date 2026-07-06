@@ -7,6 +7,7 @@ pub mod dbsnp;
 pub(crate) mod keys;
 pub mod spliceai;
 pub mod transcripts;
+pub mod unified;
 
 use crate::common::contig::ContigManager;
 use anyhow::{Context, Error, anyhow};

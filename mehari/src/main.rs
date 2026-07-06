@@ -157,6 +157,9 @@ enum DbCommands {
 
     /// Commands related to dbSNP database
     DbSnp(DbSnpArgs),
+
+    /// Commands related to the unified/merged annotation track database
+    Unified(UnifiedArgs),
 }
 
 /// Subcommands under "db transcripts"
@@ -225,6 +228,21 @@ pub struct DbSnpArgs {
 pub enum DbSnpCommands {
     /// Construct dbSnp lookup database
     Create(db::dbsnp::cli::Args),
+}
+
+/// Subcommands under "db unified"
+#[derive(Debug, Parser)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct UnifiedArgs {
+    /// The sub command to run
+    #[command(subcommand)]
+    pub command: UnifiedCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum UnifiedCommands {
+    /// Construct a unified lookup database by merging existing track databases
+    Create(db::unified::cli::Args),
 }
 
 /// Parsing of "annotate *" sub commands.
@@ -342,6 +360,9 @@ async fn main() -> Result<(), anyhow::Error> {
             },
             DbCommands::DbSnp(dbsnp) => match &dbsnp.command {
                 DbSnpCommands::Create(args) => db::dbsnp::run(&cli.common, args)?,
+            },
+            DbCommands::Unified(unified) => match &unified.command {
+                UnifiedCommands::Create(args) => db::unified::run(&cli.common, args)?,
             },
         },
         Commands::Annotate(annotate) => match &annotate.command {
