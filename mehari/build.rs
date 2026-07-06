@@ -21,8 +21,21 @@ fn main() -> Result<(), anyhow::Error> {
         println!("cargo:rerun-if-changed={}", proto_file.display());
     }
 
-    let descriptor_path: PathBuf =
-        PathBuf::from(env::var("OUT_DIR").unwrap()).join("proto_descriptor.bin");
+    let metadata = cargo_metadata::MetadataCommand::new().exec()?;
+    let annonars_package = metadata
+        .packages
+        .iter()
+        .find(|p| p.name == "annonars")
+        .ok_or_else(|| anyhow::anyhow!("annonars dependency not found in metadata graph"))?;
+
+    let annonars_root = annonars_package
+        .manifest_path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Invalid manifest path context"))?;
+
+    let annonars_proto_dir = annonars_root.join("protos");
+
+    let descriptor_path = PathBuf::from(env::var("OUT_DIR")?).join("proto_descriptor.bin");
 
     prost_build::Config::new()
         // Save descriptors to file
@@ -30,8 +43,12 @@ fn main() -> Result<(), anyhow::Error> {
         // Override prost-types with pbjson-types
         .compile_well_known_types()
         .extern_path(".google.protobuf", "::pbjson_types")
+        .extern_path(".annonars", "::annonars::pbs")
         // Define the protobuf files to compile.
-        .compile_protos(&proto_files, &[root])?;
+        .compile_protos(
+            &proto_files,
+            &[root, annonars_proto_dir.into_std_path_buf()],
+        )?;
 
     let descriptor_set = std::fs::read(descriptor_path).unwrap();
     pbjson_build::Builder::new()
@@ -39,8 +56,8 @@ fn main() -> Result<(), anyhow::Error> {
         .build(&[".mehari"])?;
 
     // Integration of `built`. Workaround for python bindings via maturin in mehari-python
-    let src = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let dst = PathBuf::from(env::var("OUT_DIR").unwrap()).join("built.rs");
+    let src = env::var("CARGO_MANIFEST_DIR")?;
+    let dst = PathBuf::from(env::var("OUT_DIR")?).join("built.rs");
     let manifest_path = std::path::Path::new(&src);
 
     if let Err(e) = built::write_built_file_with_opts(Some(manifest_path), &dst) {

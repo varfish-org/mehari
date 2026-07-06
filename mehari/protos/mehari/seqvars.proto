@@ -2,6 +2,14 @@
 
 syntax = "proto3";
 
+import "annonars/gnomad/gnomad2.proto";
+import "annonars/gnomad/gnomad3.proto";
+import "annonars/gnomad/gnomad4.proto";
+import "annonars/gnomad/mtdna.proto";
+import "annonars/helixmtdb/base.proto";
+import "annonars/clinvar/minimal.proto";
+
+
 package mehari.seqvars;
 
 // Cadd score record for a variant
@@ -39,9 +47,19 @@ message DbsnpRecord {
   string rs_id = 2;
 }
 
-// Container holding all integrated variant annotations for a single variant (to reduce key duplication)
+// Container message holding all consolidated human database tracks for a coordinate key
 message IntegratedVariantRecord {
-  CaddRecord cadd = 1;
-  SpliceAiRecord splice_ai = 2;
-  DbsnpRecord dbsnp = 3;
+  // Mehari native tracking tracks
+  optional CaddRecord cadd = 1;
+  optional SpliceAiRecord splice_ai = 2;
+  optional DbsnpRecord dbsnp = 3;
+
+  // gnomAD population frequencies versions & flavors
+  optional annonars.gnomad.gnomad2.Record gnomad_v2 = 4;
+  optional annonars.gnomad.gnomad3.Record gnomad_v3 = 5;
+  optional annonars.gnomad.gnomad4.Record gnomad_v4 = 6;
+  optional annonars.gnomad.mtdna.Record gnomad_mtdna = 7;
+
+  // ClinVar classification entries
+  optional annonars.clinvar.minimal.ExtractedVcvRecordList clinvar = 8;
 }
