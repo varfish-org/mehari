@@ -30,79 +30,79 @@ This is done with [annona-rs](https://github.com/varfish-org/annona-rs).
 The `annonars` crate is a Rust create that ships with a binary for building genome annotation databases as RocksDB databases.
 You can install it using `cargo install annonars` or Bioconda (`conda install -c bioconda annonars`).
 The `mehari` crate links to the `annonars` library for later accessing the data.
-The main advantage is centralized maintanence of the RocksDB related code and the ability for fast import.
+The main advantage is centralized maintenance of the RocksDB related code and the ability for fast import.
 
-```text
-# annonars freqs import \
-    --genome-release grch38 \
-    --path-out-rocksdb annonars-freqs-grch38 \
-    --gnomad-genomes-version 3.1.2 \
-    --gnomad-exomes-version 2.1.1 \
-    --gnomad-mtdna-version 3.1 \
-    --helixmtdb-version 20200327 \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr1.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr2.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr3.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr4.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr5.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr6.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr7.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr8.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr9.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr10.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr11.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr12.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr13.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr14.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr15.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr16.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr17.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr18.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr19.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr20.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr21.vcf.bgz \
-    --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr22.vcf.bgz \
-    --gnomad-exomes-xy annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.X.vcf.bgz \
-    --gnomad-exomes-xy annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.Y.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.1.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.10.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.11.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.12.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.13.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.14.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.15.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.16.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.17.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.18.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.19.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.2.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.20.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.21.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.22.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.3.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.4.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.5.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.6.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.7.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.8.liftover_grch38.vcf.bgz \
-    --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.9.liftover_grch38.vcf.bgz \
-    --path-gnomad-genomes-xy annos/grch38/gnomad_genomes/download/gnomad.genomes.r2.1.1.sites.X.vcf.bgz \
-    --gnomad-mtdna annos/grch38/gnomad_mtdna/gnomad_mtdna.vcf.gz \
-    --path-helixmtdb annos/grch38/helixmtdb/helixmtdb.vcf.gz
+```sh
+annonars freqs import \
+  --genome-release grch38 \
+  --path-out-rocksdb annonars-freqs-grch38 \
+  --gnomad-genomes-version 3.1.2 \
+  --gnomad-exomes-version 2.1.1 \
+  --gnomad-mtdna-version 3.1 \
+  --helixmtdb-version 20200327 \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr1.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr2.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr3.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr4.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr5.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr6.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr7.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr8.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr9.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr10.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr11.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr12.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr13.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr14.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr15.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr16.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr17.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr18.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr19.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr20.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr21.vcf.bgz \
+  --path-gnomad-genomes-auto annos/grch38/gnomad_genomes/download/gnomad.genomes.v3.1.2.sites.chr22.vcf.bgz \
+  --gnomad-exomes-xy annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.X.vcf.bgz \
+  --gnomad-exomes-xy annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.Y.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.1.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.10.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.11.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.12.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.13.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.14.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.15.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.16.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.17.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.18.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.19.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.2.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.20.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.21.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.22.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.3.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.4.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.5.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.6.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.7.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.8.liftover_grch38.vcf.bgz \
+  --gnomad-exomes-auto annos/grch38/gnomad_exomes/download/gnomad.exomes.r2.1.1.sites.9.liftover_grch38.vcf.bgz \
+  --path-gnomad-genomes-xy annos/grch38/gnomad_genomes/download/gnomad.genomes.r2.1.1.sites.X.vcf.bgz \
+  --gnomad-mtdna annos/grch38/gnomad_mtdna/gnomad_mtdna.vcf.gz \
+  --path-helixmtdb annos/grch38/helixmtdb/helixmtdb.vcf.gz
 ```
 
 ### Optional: Strip gnomAD VCF Files Before Import
 
 You can strip greatly reduce the nuclear variant files using the following [bcftools](https://samtools.github.io/bcftools/bcftools.html) command line:
 
-```text
-$ bcftools \
-    annotate \
-    --threads 4 \
-    -x QUAL,FILTER,ID,^INFO/nhomalt,INFO/nhomalt_female,INFO/nhomalt_male,INFO/nhomalt_XX,INFO/nhomalt_XY,INFO/nonpar,INFO/AN,INFO/AC,INFO/AC_het,INFO/AC_hom,INFO/AC_female,INFO/AC_male,INFO/AC_XX,INFO/AC_XY \
-    -O z \
-    IN.vcf \
-    OUT.vcf.gz
+```sh
+bcftools \
+  annotate \
+  --threads 4 \
+  -x QUAL,FILTER,ID,^INFO/nhomalt,INFO/nhomalt_female,INFO/nhomalt_male,INFO/nhomalt_XX,INFO/nhomalt_XY,INFO/nonpar,INFO/AN,INFO/AC,INFO/AC_het,INFO/AC_hom,INFO/AC_female,INFO/AC_male,INFO/AC_XX,INFO/AC_XY \
+  -O z \
+  IN.vcf \
+  OUT.vcf.gz
 ```
 
 The reduction of this is quite big.
@@ -170,11 +170,21 @@ mehari db spliceai create \
   --output path/to/spliceai_rocksdb
 ```
 
+## Building dbSNP Database
+
+To build a lookup-based RocksDB database for dbSNP RS identifiers from one or more VCF files:
+
+```sh
+mehari db dbsnp create \
+  --assembly grch38 \
+  --input path/to/dbsnp.vcf.gz \
+  --output path/to/dbsnp_rocksdb
+```
+
 ## Building a Unified Annotation Database
 
-To optimize storage space and minimize disk seeks during runtime lookups, you can consolidate separate, coordinate-sorted tracking databases (CADD, SpliceAI, dbSNP) into a single, unified key-value database.
-
-The command extracts the distinct coordinate maps, aligns them by genomic position using a multi-way stream-join loop, and writes a single packed `IntegratedVariantRecord` message per unique variant.
+To optimize storage space and minimize disk seeks during lookups, separate coordinate-sorted tracking databases (CADD, SpliceAI, dbSNP) can be consolidated into a single, unified key-value database.
+The command extracts the distinct coordinate maps, aligns them by genomic position, and writes a single packed record per unique variant.
 
 ```sh
 mehari db unified create \
@@ -195,7 +205,7 @@ mehari db transcripts create seqvar-clinvar \
   --path-clinvar-tsv path/to/clinvar_seqvars.b37.tsv.gz
 ```
 
-You can specify an optional `--assembly grch37` argument that will be used to check the ClinVar database to be compatible with your data.
+You can specify an optional `--assembly` argument that will be used to check the ClinVar database to be compatible with your data.
 
 # Getting HGNC Cross-Link TSV File
 
