@@ -55,7 +55,7 @@ jobs:
             ~/.cargo/registry/src/**/librocksdb-sys-*
 
       - name: Set up Python for PyO3
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -110,7 +110,7 @@ jobs:
             ~/.cargo/registry/src/**/librocksdb-sys-*
 
       - name: Set up Python for PyO3
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
