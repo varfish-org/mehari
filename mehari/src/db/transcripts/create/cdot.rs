@@ -89,7 +89,7 @@ pub fn load_cdot(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
 pub(crate) fn read_cdot_json(path: impl AsRef<Path>) -> Result<cdot_models::Container, Error> {
     Ok(if path.as_ref().extension().unwrap_or_default() == "gz" {
         tracing::info!("(from gzip compressed file)");
-        serde_json::from_reader(std::io::BufReader::new(flate2::read::GzDecoder::new(
+        serde_json::from_reader(std::io::BufReader::new(flate2::read::MultiGzDecoder::new(
             File::open(path)?,
         )))?
     } else {
