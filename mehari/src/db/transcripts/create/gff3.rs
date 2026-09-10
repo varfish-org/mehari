@@ -3,7 +3,7 @@ use crate::db::transcripts::create::models::{GeneId, TranscriptId, TranscriptLoa
 use anyhow::Error;
 use hgvs::data::cdot::json::models::{Gene, GenomeAlignment, Transcript};
 use indexmap::IndexMap;
-use noodles::gff::feature::record::Strand;
+use noodles::gff::feature::record::{Phase, Strand};
 use noodles::gff::feature::record_buf::attributes::field::tag;
 use std::collections::HashMap;
 use std::fs::File;
@@ -22,7 +22,10 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
     let mut gff_reader = noodles::gff::io::Reader::new(reader);
 
     let mut tx_exons: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
-    let mut tx_cds: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+    // Keep each CDS fragment's GFF3 phase (column 8) next to its (start, end). Below, the
+    // first fragment in transcript direction is shifted by its phase so the CDS starts on a
+    // codon boundary; after that the phase is dropped again.
+    let mut tx_cds: HashMap<String, Vec<(i32, i32, u8)>> = HashMap::new();
     let mut tx_to_gene: HashMap<String, String> = HashMap::new();
     let mut tx_info: HashMap<String, (String, Strand)> = HashMap::new();
     let mut gene_symbols: HashMap<String, String> = HashMap::new();
@@ -33,7 +36,7 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
 
     // Phase 1: Keep raw parent IDs during parsing
     let mut tx_exons_raw: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
-    let mut tx_cds_raw: HashMap<String, Vec<(i32, i32)>> = HashMap::new();
+    let mut tx_cds_raw: HashMap<String, Vec<(i32, i32, u8)>> = HashMap::new();
     let mut tx_to_gene_raw: HashMap<String, String> = HashMap::new();
 
     for result in gff_reader.record_bufs() {
@@ -129,20 +132,33 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
                     tx_info.insert(resolved_tx_id, (contig, strand));
                 }
             }
-            "exon" | "CDS" => {
+            "exon" => {
                 if let Some(p) = raw_parent {
-                    let target_map = if feature == "exon" {
-                        &mut tx_exons_raw
-                    } else {
-                        &mut tx_cds_raw
+                    for parent_id in p.split(',') {
+                        // Store with raw parent ID
+                        tx_exons_raw
+                            .entry(parent_id.to_string())
+                            .or_default()
+                            .push((start, end));
+                    }
+                }
+            }
+            "CDS" => {
+                if let Some(p) = raw_parent {
+                    // Phase (GFF3 column 8) is required for CDS records; default to 0
+                    // (in-frame) for malformed input rather than failing the whole file.
+                    let phase = match record.phase() {
+                        Some(Phase::Zero) | None => 0u8,
+                        Some(Phase::One) => 1,
+                        Some(Phase::Two) => 2,
                     };
 
                     for parent_id in p.split(',') {
                         // Store with raw parent ID
-                        target_map
+                        tx_cds_raw
                             .entry(parent_id.to_string())
                             .or_default()
-                            .push((start, end));
+                            .push((start, end, phase));
                     }
                 }
             }
@@ -187,7 +203,7 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
     // Finalize transcripts by resolving genomic-to-transcript coordinates
     for (tx_id, (contig, gff_strand)) in tx_info {
         let mut exons = tx_exons.remove(&tx_id).unwrap_or_default();
-        let cds_fragments = tx_cds.remove(&tx_id).unwrap_or_default();
+        let mut cds_fragments = tx_cds.remove(&tx_id).unwrap_or_default();
 
         if exons.is_empty() {
             continue;
@@ -200,6 +216,32 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
         if is_reverse {
             exons.reverse();
         }
+
+        // Honor the GFF3 CDS `phase`: it counts how many bases of the *previous* codon
+        // are already consumed at the first base of a CDS fragment. For a 5'-incomplete
+        // transcript (e.g. GENCODE's `cds_start_NF` tag) the first CDS fragment in
+        // transcript direction has phase 1 or 2, and ignoring it shifts the translated
+        // frame by that many bases. Advance that fragment's genomic start (on `+`) or
+        // pull back its genomic end (on `-`) by its phase so the CDS -- and thus
+        // translation -- start in the right frame. (3'-incomplete CDS lengths, i.e.
+        // `cds_end_NF`, are unrelated to phase and stay flagged as InvalidCdsLength.)
+        let first_fragment = if is_reverse {
+            cds_fragments.iter_mut().max_by_key(|(_, end, _)| *end)
+        } else {
+            cds_fragments.iter_mut().min_by_key(|(start, _, _)| *start)
+        };
+        if let Some((start, end, phase)) = first_fragment {
+            let phase = i32::from(*phase);
+            if is_reverse {
+                *end -= phase;
+            } else {
+                *start += phase;
+            }
+        }
+        let cds_fragments: Vec<(i32, i32)> = cds_fragments
+            .into_iter()
+            .map(|(start, end, _phase)| (start, end))
+            .collect();
 
         let tx_strand = if is_reverse {
             cdot_models::Strand::Minus
@@ -314,4 +356,66 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
             });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// A plus-strand transcript whose first (only) CDS fragment has phase 1, and a
+    /// minus-strand transcript whose first (only) CDS fragment has phase 2 -- as GENCODE
+    /// emits for 5'-incomplete transcripts tagged `cds_start_NF`.
+    const GFF3: &str = "\
+##gff-version 3
+chr1\ttest\tgene\t1\t1000\t.\t+\t.\tID=gene:G1P;Name=G1P
+chr1\ttest\ttranscript\t1\t1000\t.\t+\t.\tID=transcript:T1P;Parent=gene:G1P
+chr1\ttest\texon\t1\t1000\t.\t+\t.\tID=exon:T1P.1;Parent=transcript:T1P
+chr1\ttest\tCDS\t101\t400\t.\t+\t1\tID=cds:T1P.1;Parent=transcript:T1P
+chr1\ttest\tgene\t2001\t3000\t.\t-\t.\tID=gene:G2M;Name=G2M
+chr1\ttest\ttranscript\t2001\t3000\t.\t-\t.\tID=transcript:T2M;Parent=gene:G2M
+chr1\ttest\texon\t2001\t3000\t.\t-\t.\tID=exon:T2M.1;Parent=transcript:T2M
+chr1\ttest\tCDS\t2301\t2600\t.\t-\t2\tID=cds:T2M.1;Parent=transcript:T2M
+";
+
+    fn load(gff3: &str) -> TranscriptLoader {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(gff3.as_bytes()).unwrap();
+        let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
+        load_gff3(&mut loader, file.path()).unwrap();
+        loader
+    }
+
+    #[test]
+    fn cds_start_is_advanced_by_phase_on_plus_strand() {
+        let loader = load(GFF3);
+
+        let tx = loader
+            .transcript_id_to_transcript
+            .get(&TranscriptId::try_new("T1P").unwrap())
+            .unwrap();
+        let alignment = tx.genome_builds.get("GRCh38").unwrap();
+
+        // Phase 1 on the (0-based) fragment (100, 400) moves the genomic CDS start
+        // one base to the right; the CDS end is untouched.
+        assert_eq!(alignment.cds_start, Some(101));
+        assert_eq!(alignment.cds_end, Some(400));
+    }
+
+    #[test]
+    fn cds_end_is_pulled_back_by_phase_on_minus_strand() {
+        let loader = load(GFF3);
+
+        let tx = loader
+            .transcript_id_to_transcript
+            .get(&TranscriptId::try_new("T2M").unwrap())
+            .unwrap();
+        let alignment = tx.genome_builds.get("GRCh38").unwrap();
+
+        // Phase 2 on the (0-based) fragment (2300, 2600) moves the genomic CDS end
+        // two bases to the left (the transcript-direction CDS start, since this
+        // transcript is on the `-` strand); the CDS start is untouched.
+        assert_eq!(alignment.cds_start, Some(2300));
+        assert_eq!(alignment.cds_end, Some(2598));
+    }
 }
