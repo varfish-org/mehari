@@ -253,7 +253,7 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
         let mut tx_cds_start = None;
         let mut tx_cds_end = None;
 
-        let final_exons: Vec<_> = exons
+        let mut final_exons: Vec<_> = exons
             .into_iter()
             .enumerate()
             .map(|(i, (start, end))| {
@@ -293,6 +293,10 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
                 exon_record
             })
             .collect();
+
+        // Store exons in ascending genomic order (as cdot does), regardless of strand;
+        // `ord` above already reflects transcript direction and decreases along this list for minus-strand transcripts.
+        final_exons.sort_by_key(|e| e.alt_start_i);
 
         let cds_start_genomic = cds_fragments.iter().map(|c| c.0).min();
         let cds_end_genomic = cds_fragments.iter().map(|c| c.1).max();
@@ -380,6 +384,21 @@ chr1\ttest\texon\t2001\t3000\t.\t-\t.\tID=exon:T2M.1;Parent=transcript:T2M
 chr1\ttest\tCDS\t2301\t2600\t.\t-\t2\tID=cds:T2M.1;Parent=transcript:T2M
 ";
 
+    /// One plus-strand and one minus-strand transcript, each with three exons.
+    const GFF3_THREE_EXONS: &str = "\
+##gff-version 3
+chr1\ttest\tgene\t1\t1000\t.\t+\t.\tID=gene:G1;Name=G1
+chr1\ttest\ttranscript\t1\t1000\t.\t+\t.\tID=transcript:T1;Parent=gene:G1
+chr1\ttest\texon\t1\t100\t.\t+\t.\tID=exon:T1.1;Parent=transcript:T1
+chr1\ttest\texon\t301\t400\t.\t+\t.\tID=exon:T1.2;Parent=transcript:T1
+chr1\ttest\texon\t601\t700\t.\t+\t.\tID=exon:T1.3;Parent=transcript:T1
+chr1\ttest\tgene\t2001\t3000\t.\t-\t.\tID=gene:G2;Name=G2
+chr1\ttest\ttranscript\t2001\t3000\t.\t-\t.\tID=transcript:T2;Parent=gene:G2
+chr1\ttest\texon\t2001\t2100\t.\t-\t.\tID=exon:T2.1;Parent=transcript:T2
+chr1\ttest\texon\t2301\t2400\t.\t-\t.\tID=exon:T2.2;Parent=transcript:T2
+chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
+";
+
     fn load(gff3: &str) -> TranscriptLoader {
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(gff3.as_bytes()).unwrap();
@@ -459,5 +478,45 @@ chr1\ttest\tCDS\t2301\t2600\t.\t-\t2\tID=cds:T2M.1;Parent=transcript:T2M
         assert_eq!(ids, vec!["TX1".to_string(), "TX2".to_string()]);
 
         Ok(())
+    }
+
+    #[test]
+    fn exons_are_stored_in_ascending_genomic_order() {
+        let loader = load(GFF3_THREE_EXONS);
+
+        let plus_tx = loader
+            .transcript_id_to_transcript
+            .get(&TranscriptId::try_new("T1").unwrap())
+            .unwrap();
+        let plus_exons = &plus_tx.genome_builds.get("GRCh38").unwrap().exons;
+        assert_eq!(
+            plus_exons.iter().map(|e| e.alt_start_i).collect::<Vec<_>>(),
+            vec![0, 300, 600],
+            "plus-strand exons must be in ascending genomic order"
+        );
+        assert_eq!(
+            plus_exons.iter().map(|e| e.ord).collect::<Vec<_>>(),
+            vec![0, 1, 2],
+            "plus-strand ord must increase along the (ascending) exon list"
+        );
+
+        let minus_tx = loader
+            .transcript_id_to_transcript
+            .get(&TranscriptId::try_new("T2").unwrap())
+            .unwrap();
+        let minus_exons = &minus_tx.genome_builds.get("GRCh38").unwrap().exons;
+        assert_eq!(
+            minus_exons
+                .iter()
+                .map(|e| e.alt_start_i)
+                .collect::<Vec<_>>(),
+            vec![2000, 2300, 2600],
+            "minus-strand exons must also be stored in ascending genomic order"
+        );
+        assert_eq!(
+            minus_exons.iter().map(|e| e.ord).collect::<Vec<_>>(),
+            vec![2, 1, 0],
+            "minus-strand ord must decrease along the (ascending) exon list"
+        );
     }
 }
