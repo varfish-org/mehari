@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.2](https://github.com/varfish-org/mehari/compare/mehari-python-v0.45.1...mehari-python-v0.45.2) (2026-09-11)
+
+
+### Miscellaneous Chores
+
+* **mehari-python:** Synchronize mehari-sync versions
+
 ## [0.45.1](https://github.com/varfish-org/mehari/compare/mehari-python-v0.45.0...mehari-python-v0.45.1) (2026-07-03)
 
 
