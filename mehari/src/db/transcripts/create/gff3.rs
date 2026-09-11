@@ -14,7 +14,7 @@ use std::path::Path;
 pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Result<(), Error> {
     let file = File::open(path.as_ref())?;
     let reader: Box<dyn std::io::Read> = if path.as_ref().extension().is_some_and(|e| e == "gz") {
-        Box::new(flate2::read::GzDecoder::new(file))
+        Box::new(flate2::read::MultiGzDecoder::new(file))
     } else {
         Box::new(file)
     };
@@ -361,6 +361,8 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
     use std::io::Write;
 
     /// A plus-strand transcript whose first (only) CDS fragment has phase 1, and a
@@ -417,5 +419,45 @@ chr1\ttest\tCDS\t2301\t2600\t.\t-\t2\tID=cds:T2M.1;Parent=transcript:T2M
         // transcript is on the `-` strand); the CDS start is untouched.
         assert_eq!(alignment.cds_start, Some(2300));
         assert_eq!(alignment.cds_end, Some(2598));
+    }
+
+    /// `bgzip` output is a multi-member gzip stream (one gzip member per block). A plain
+    /// `GzDecoder` only reads the first member, so make sure `load_gff3` reads all of them.
+    #[test]
+    fn load_gff3_reads_all_members_of_multi_member_gzip() -> Result<(), anyhow::Error> {
+        let half_a = "##gff-version 3\n\
+            chr1\ttest\tgene\t1\t1000\t.\t+\t.\tID=gene1;gene_id=GENE1;Name=GENE1\n\
+            chr1\ttest\tmRNA\t1\t1000\t.\t+\t.\tID=tx1;Parent=gene1;transcript_id=TX1\n\
+            chr1\ttest\texon\t1\t500\t.\t+\t.\tID=exon1;Parent=tx1\n\
+            chr1\ttest\texon\t600\t1000\t.\t+\t.\tID=exon2;Parent=tx1\n";
+        let half_b = "chr1\ttest\tgene\t2000\t3000\t.\t+\t.\tID=gene2;gene_id=GENE2;Name=GENE2\n\
+            chr1\ttest\tmRNA\t2000\t3000\t.\t+\t.\tID=tx2;Parent=gene2;transcript_id=TX2\n\
+            chr1\ttest\texon\t2000\t2500\t.\t+\t.\tID=exon3;Parent=tx2\n\
+            chr1\ttest\texon\t2600\t3000\t.\t+\t.\tID=exon4;Parent=tx2\n";
+
+        // Two independently gzip-compressed halves concatenated, like `bgzip` produces.
+        let mut gzipped = Vec::new();
+        for half in [half_a, half_b] {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(half.as_bytes())?;
+            gzipped.extend(encoder.finish()?);
+        }
+
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("annotation.gff3.gz");
+        std::fs::write(&path, &gzipped)?;
+
+        let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
+        load_gff3(&mut loader, &path)?;
+
+        let mut ids = loader
+            .transcript_id_to_transcript
+            .keys()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>();
+        ids.sort();
+        assert_eq!(ids, vec!["TX1".to_string(), "TX2".to_string()]);
+
+        Ok(())
     }
 }

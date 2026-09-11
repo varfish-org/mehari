@@ -86,10 +86,19 @@ fn load_annotations(args: &Args) -> Result<TranscriptLoader, Error> {
                 || (ext == "gz" && (file_stem.ends_with("gff3") || file_stem.ends_with("gff")));
 
             if is_gff3 {
-                load_gff3(&mut loader, path).map(|_| loader)
+                load_gff3(&mut loader, path)?;
             } else {
-                load_cdot(&mut loader, path).map(|_| loader)
+                load_cdot(&mut loader, path)?;
             }
+
+            if loader.transcript_id_to_transcript.is_empty() {
+                tracing::warn!(
+                    "no transcripts loaded from annotation file {}",
+                    path.display()
+                );
+            }
+
+            Ok(loader)
         })
         .collect::<Result<Vec<_>, Error>>()?;
     let mut merged = loaders
