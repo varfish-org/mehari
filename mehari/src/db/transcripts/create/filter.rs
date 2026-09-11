@@ -1,3 +1,4 @@
+use crate::common::progress::{Progress, Unit};
 use crate::db::transcripts::create::models::{
     Fix, GeneId, Identifier, Reason, TranscriptExt, TranscriptId, TranscriptLoader,
 };
@@ -334,6 +335,7 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
 pub(crate) fn filter_transcripts_with_sequence(
     loader: &mut TranscriptLoader,
     seq_provider: &mut SequenceProvider,
+    progress: &dyn Progress,
 ) -> Result<HashMap<TranscriptId, String>, Error> {
     tracing::info!("Filtering transcripts with sequences …");
     let start = Instant::now();
@@ -401,9 +403,15 @@ pub(crate) fn filter_transcripts_with_sequence(
         }
     };
 
+    progress.start(
+        "Fetching transcript sequences",
+        loader.transcript_id_to_transcript.len() as u64,
+        Unit::Transcripts,
+    );
     let (discards, keeps_with_reasons): (Vec<_>, Vec<_>) = loader
         .transcript_id_to_transcript
         .par_iter()
+        .inspect(|_| progress.advance(1))
         .partition_map(|(tx_id, tx)| {
             if let Some(d) = loader.discards.get(&Identifier::Transcript(tx_id.clone()))
                 && d.intersects(Reason::hard())
@@ -508,6 +516,7 @@ pub(crate) fn filter_transcripts_with_sequence(
                 ))
             }
         });
+    progress.finish();
 
     for (id, reason) in discards {
         loader.mark_discarded(&id, reason)?;

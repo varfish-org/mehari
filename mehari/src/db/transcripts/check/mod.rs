@@ -269,7 +269,12 @@ impl TxDbData {
 fn load_cdot_files(paths: &[PathBuf]) -> Result<IdentifierMap> {
     let cdot_container = paths
         .iter()
-        .map(crate::db::transcripts::create::cdot::read_cdot_json)
+        .map(|path| {
+            crate::db::transcripts::create::cdot::read_cdot_json(
+                path,
+                &crate::common::progress::NoProgress,
+            )
+        })
         .collect::<Result<Vec<_>>>()?
         .into_iter()
         .reduce(|mut a, b| {

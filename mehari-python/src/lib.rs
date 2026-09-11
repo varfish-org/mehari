@@ -12,14 +12,18 @@ use mehari::annotate::seqvars::consequence::{ConfigBuilder, SequenceReporting, V
 use mehari::annotate::seqvars::provider::{
     ConfigBuilder as ProviderConfigBuilder, Provider as MehariProvider,
 };
+use mehari::common::progress::{NoProgress, Progress, Unit};
 use pyo3::prelude::*;
+use pyo3::sync::MutexExt;
+use pyo3::types::PyDict;
 use pythonize::pythonize;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Arc, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use strum::IntoEnumIterator;
 
 /// Clears pyo3-log's cache of Python log levels. Set once, at module import.
@@ -470,6 +474,97 @@ impl PySeqvarsAnnotator {
     }
 }
 
+/// Shows progress reports on tqdm-compatible progress bars, one bar per step.
+///
+/// Exceptions raised by a bar go to `sys.unraisablehook`, so they cannot abort the operation.
+struct PyProgress {
+    /// Creates a bar, called like `tqdm(total=..., desc=..., unit=...)`.
+    factory: Py<PyAny>,
+    /// The bar of the current step.
+    bar: Mutex<Option<Py<PyAny>>>,
+    /// Units that are done but not yet passed to the bar.
+    pending: AtomicU64,
+    /// Updates the bar only once this many units are pending, to limit calls into Python.
+    batch: AtomicU64,
+}
+
+impl PyProgress {
+    fn new(factory: Py<PyAny>) -> Self {
+        Self {
+            factory,
+            bar: Mutex::new(None),
+            pending: AtomicU64::new(0),
+            batch: AtomicU64::new(1),
+        }
+    }
+
+    fn lock_bar(&self, py: Python<'_>) -> MutexGuard<'_, Option<Py<PyAny>>> {
+        // A bar may release the GIL (e.g. to write to stderr). `lock_py_attached` releases
+        // the GIL while it waits for the lock, so two threads cannot block each other.
+        self.bar
+            .lock_py_attached(py)
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Passes the pending units to the bar.
+    fn update_bar(&self, py: Python<'_>, bar: &mut Option<Py<PyAny>>) {
+        let n = self.pending.swap(0, Ordering::Relaxed);
+        let Some(current) = bar.as_ref() else { return };
+        if n == 0 {
+            return;
+        }
+        if let Err(err) = current.call_method1(py, "update", (n,)) {
+            err.write_unraisable(py, Some(current.bind(py)));
+            *bar = None;
+        }
+    }
+}
+
+impl Progress for PyProgress {
+    fn start(&self, step: &str, total: u64, unit: Unit) {
+        let (unit, unit_scale, unit_divisor) = match unit {
+            Unit::Bytes => ("B", true, 1024),
+            Unit::Transcripts => ("tx", false, 1000),
+        };
+        self.pending.store(0, Ordering::Relaxed);
+        self.batch.store((total / 1000).max(1), Ordering::Relaxed);
+        Python::attach(|py| {
+            let mut bar = self.lock_bar(py);
+            let kwargs = PyDict::new(py);
+            let created = kwargs
+                .set_item("total", total)
+                .and_then(|_| kwargs.set_item("desc", step))
+                .and_then(|_| kwargs.set_item("unit", unit))
+                .and_then(|_| kwargs.set_item("unit_scale", unit_scale))
+                .and_then(|_| kwargs.set_item("unit_divisor", unit_divisor))
+                .and_then(|_| self.factory.call(py, (), Some(&kwargs)));
+            match created {
+                Ok(created) => *bar = Some(created),
+                Err(err) => err.write_unraisable(py, Some(self.factory.bind(py))),
+            }
+        });
+    }
+
+    fn advance(&self, n: u64) {
+        let pending = self.pending.fetch_add(n, Ordering::Relaxed) + n;
+        if pending >= self.batch.load(Ordering::Relaxed) {
+            Python::attach(|py| self.update_bar(py, &mut self.lock_bar(py)));
+        }
+    }
+
+    fn finish(&self) {
+        Python::attach(|py| {
+            let mut bar = self.lock_bar(py);
+            self.update_bar(py, &mut bar);
+            if let Some(current) = bar.take()
+                && let Err(err) = current.call_method0(py, "close")
+            {
+                err.write_unraisable(py, Some(current.bind(py)));
+            }
+        });
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (
     assembly,
@@ -484,7 +579,8 @@ impl PySeqvarsAnnotator {
     mane_transcripts=None,
     disable_filters=false,
     threads=1,
-    compression_level=19
+    compression_level=19,
+    progress=None
 ))]
 #[allow(clippy::too_many_arguments)]
 fn build_transcript_db(
@@ -502,6 +598,7 @@ fn build_transcript_db(
     disable_filters: bool,
     threads: usize,
     compression_level: i32,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<()> {
     if seqrepo.is_none() && transcript_sequences.is_none() {
         return Err(pyo3::exceptions::PyValueError::new_err(
@@ -534,14 +631,26 @@ fn build_transcript_db(
     let common_args = mehari::common::Args::default();
 
     reread_log_levels();
-    // Release the GIL: `run` logs from a rayon thread pool, and pyo3-log needs the GIL.
-    py.detach(|| mehari::db::transcripts::create::run(&common_args, &args))
-        .map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Failed to build transcript database: {}",
-                e
-            ))
-        })?;
+    let progress = progress.map(PyProgress::new);
+    // Release the GIL: `run` logs and reports progress from a rayon thread pool, and both
+    // need the GIL.
+    let result = py.detach(|| {
+        let progress: &dyn Progress = match &progress {
+            Some(progress) => progress,
+            None => &NoProgress,
+        };
+        mehari::db::transcripts::create::run_with_progress(&common_args, &args, progress)
+    });
+    // A failed step leaves its bar open.
+    if let Some(progress) = &progress {
+        progress.finish();
+    }
+    result.map_err(|e| {
+        pyo3::exceptions::PyRuntimeError::new_err(format!(
+            "Failed to build transcript database: {}",
+            e
+        ))
+    })?;
 
     Ok(())
 }

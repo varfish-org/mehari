@@ -118,7 +118,10 @@ build_transcript_db(
 )
 ```
 
-This may take a while (several minutes for GRCh38 + Ensembl). To follow its progress, enable [logging](#logging).
+This may take a while (several minutes for GRCh38 + Ensembl).
+Most of the time goes into compressing the database at the default `compression_level=19`.
+To show a progress bar for each step, pass a tqdm-compatible class as `progress`, for example `progress=tqdm.auto.tqdm`.
+To follow the steps in between, enable [logging](#logging).
 
 ## Logging
 

@@ -211,6 +211,14 @@ class SeqvarsAnnotator:
         return self._annotator.annotate_multiple(parsed_variants)
 
 
+class ProgressBar(typing.Protocol):
+    """The part of the tqdm progress bar interface that mehari uses."""
+
+    def update(self, n: int) -> object: ...
+
+    def close(self) -> object: ...
+
+
 def _resolve_path(p: str | Path | None) -> str | None:
     """Expands '~' and resolves to an absolute path for Rust's PathBuf."""
     if p is None:
@@ -232,6 +240,7 @@ def build_transcript_db(
     disable_filters: bool = False,
     threads: int = 1,
     compression_level: int = 19,
+    progress: typing.Callable[..., ProgressBar] | None = None,
 ) -> None:
     """
     Construct a mehari transcripts and sequence database (.bin.zst) from input annotations.
@@ -250,6 +259,9 @@ def build_transcript_db(
         disable_filters: Disable rigorous quality filtering (useful for custom/novel annotations).
         threads: Number of threads to use for parallel processing.
         compression_level: ZSTD compression level (default: 19).
+        progress: A tqdm-compatible class, such as `tqdm.auto.tqdm`, to show one progress bar per step.
+                  mehari calls it as `progress(total=..., desc=..., unit=..., unit_scale=..., unit_divisor=...)`,
+                  then calls `update(n)` and `close()` on the returned bar.
 
     Raises:
         ValueError: If neither seqrepo nor transcript_sequences are provided, or if Ensembl version is missing.
@@ -272,4 +284,5 @@ def build_transcript_db(
         disable_filters=bool(disable_filters),
         threads=int(threads),
         compression_level=int(compression_level),
+        progress=progress,
     )
