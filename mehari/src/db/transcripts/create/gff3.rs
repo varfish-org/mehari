@@ -365,6 +365,7 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Context;
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use std::io::Write;
@@ -481,14 +482,18 @@ chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
     }
 
     #[test]
-    fn exons_are_stored_in_ascending_genomic_order() {
+    fn exons_are_stored_in_ascending_genomic_order() -> Result<(), anyhow::Error> {
         let loader = load(GFF3_THREE_EXONS);
 
         let plus_tx = loader
             .transcript_id_to_transcript
-            .get(&TranscriptId::try_new("T1").unwrap())
-            .unwrap();
-        let plus_exons = &plus_tx.genome_builds.get("GRCh38").unwrap().exons;
+            .get(&TranscriptId::try_new("T1")?)
+            .context("transcript T1 not loaded")?;
+        let plus_exons = &plus_tx
+            .genome_builds
+            .get("GRCh38")
+            .context("T1 has no GRCh38 alignment")?
+            .exons;
         assert_eq!(
             plus_exons.iter().map(|e| e.alt_start_i).collect::<Vec<_>>(),
             vec![0, 300, 600],
@@ -502,9 +507,13 @@ chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
 
         let minus_tx = loader
             .transcript_id_to_transcript
-            .get(&TranscriptId::try_new("T2").unwrap())
-            .unwrap();
-        let minus_exons = &minus_tx.genome_builds.get("GRCh38").unwrap().exons;
+            .get(&TranscriptId::try_new("T2")?)
+            .context("transcript T2 not loaded")?;
+        let minus_exons = &minus_tx
+            .genome_builds
+            .get("GRCh38")
+            .context("T2 has no GRCh38 alignment")?
+            .exons;
         assert_eq!(
             minus_exons
                 .iter()
@@ -518,5 +527,7 @@ chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
             vec![2, 1, 0],
             "minus-strand ord must decrease along the (ascending) exon list"
         );
+
+        Ok(())
     }
 }
