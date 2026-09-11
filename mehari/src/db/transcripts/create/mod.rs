@@ -44,29 +44,24 @@ fn txid_to_label(
         .has_headers(false)
         .from_path(label_tsv_path.as_ref())?;
 
-    rdr.deserialize()
-        .map(|result| {
-            result
-                .map_err(anyhow::Error::from)
-                .and_then(|entry: LabelEntry| {
-                    TranscriptId::try_new(entry.transcript_id)
-                        .map(|txid| {
-                            (
-                                txid,
-                                entry
-                                    .label
-                                    .split(',')
-                                    .map(|s| {
-                                        let cdot_tag = cdot_models::str_to_tag(s);
-                                        FeatureTag::from(cdot_tag)
-                                    })
-                                    .collect::<Vec<_>>(),
-                            )
-                        })
-                        .map_err(anyhow::Error::from)
-                })
-        })
-        .collect()
+    // Rows are one-per-label for a given transcript id (e.g. GENCODE-derived tables), so
+    // merge all rows for the same id instead of letting later rows overwrite earlier ones.
+    let mut txid_to_label: HashMap<TranscriptId, Vec<FeatureTag>> = HashMap::new();
+    for result in rdr.deserialize() {
+        let entry: LabelEntry = result?;
+        let txid = TranscriptId::try_new(entry.transcript_id)?;
+        let tags = entry
+            .label
+            .split(',')
+            .map(|s| FeatureTag::from(cdot_models::str_to_tag(s)));
+        txid_to_label.entry(txid).or_default().extend(tags);
+    }
+
+    for tags in txid_to_label.values_mut() {
+        *tags = std::mem::take(tags).into_iter().unique().collect();
+    }
+
+    Ok(txid_to_label)
 }
 
 /// Load the annotations (JSON or GFF3).
@@ -355,11 +350,13 @@ pub mod test {
     use rstest::rstest;
     use temp_testdir::TempDir;
 
+    use crate::annotate::seqvars::consequence::terms::FeatureTag;
     use crate::common::Args as CommonArgs;
     use crate::db::transcripts::create::cdot::load_cdot;
     use crate::db::transcripts::create::cli::Args;
     use crate::db::transcripts::create::filter::filter_transcripts;
     use crate::db::transcripts::create::models::GeneId;
+    use crate::db::transcripts::create::models::TranscriptId;
     use crate::db::transcripts::create::models::TranscriptLoader;
     use crate::db::transcripts::dump;
 
@@ -401,6 +398,30 @@ pub mod test {
         );
 
         insta::assert_snapshot!(&tx_data.annotation_version);
+
+        Ok(())
+    }
+
+    #[test]
+    fn txid_to_label_merges_repeated_rows() -> Result<(), anyhow::Error> {
+        let tmp_dir = TempDir::default();
+        let path_tsv = tmp_dir.join("mane_transcripts.tsv");
+        std::fs::write(
+            &path_tsv,
+            "TX1\t1\tGENE1\tbasic\n\
+             TX1\t1\tGENE1\tMANE_Select\n\
+             TX2\t1\tGENE2\tbasic,MANE_Select\n",
+        )?;
+
+        let labels = super::txid_to_label(&path_tsv)?;
+
+        // Two rows for the same id merge into one entry with both labels …
+        let tx1 = labels.get(&TranscriptId::try_new("TX1")?).unwrap();
+        assert_eq!(tx1, &vec![FeatureTag::Basic, FeatureTag::ManeSelect]);
+
+        // … and a single row with comma-separated labels still works.
+        let tx2 = labels.get(&TranscriptId::try_new("TX2")?).unwrap();
+        assert_eq!(tx2, &vec![FeatureTag::Basic, FeatureTag::ManeSelect]);
 
         Ok(())
     }
