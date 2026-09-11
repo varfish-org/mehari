@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.45.2](https://github.com/varfish-org/mehari/compare/mehari-v0.45.1...mehari-v0.45.2) (2026-09-11)
+
+
+### Bug Fixes
+
+* **db:** honor CDS phase when importing GFF3 transcripts ([#1048](https://github.com/varfish-org/mehari/issues/1048)) ([90e3d89](https://github.com/varfish-org/mehari/commit/90e3d89b0496a0d3743c7615934bb24a3e5936eb))
+* **db:** merge repeated --mane-transcripts rows per transcript ([#1052](https://github.com/varfish-org/mehari/issues/1052)) ([db94ae5](https://github.com/varfish-org/mehari/commit/db94ae504e009f51399c4972cf471d058a8c0a93))
+* read multi-member gzip (BGZF) annotation files completely ([#1050](https://github.com/varfish-org/mehari/issues/1050)) ([ff5766c](https://github.com/varfish-org/mehari/commit/ff5766cf59cdb3b1cb2544855a6640c6091c1b41))
+
 ## [0.45.1](https://github.com/varfish-org/mehari/compare/mehari-v0.45.0...mehari-v0.45.1) (2026-07-03)
 
 
