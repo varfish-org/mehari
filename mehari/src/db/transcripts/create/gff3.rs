@@ -400,45 +400,55 @@ chr1\ttest\texon\t2301\t2400\t.\t-\t.\tID=exon:T2.2;Parent=transcript:T2
 chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
 ";
 
-    fn load(gff3: &str) -> TranscriptLoader {
-        let mut file = tempfile::NamedTempFile::new().unwrap();
-        file.write_all(gff3.as_bytes()).unwrap();
+    fn load(gff3: &str) -> Result<TranscriptLoader, anyhow::Error> {
+        let mut file = tempfile::NamedTempFile::new()?;
+        file.write_all(gff3.as_bytes())?;
         let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
-        load_gff3(&mut loader, file.path()).unwrap();
-        loader
+        load_gff3(&mut loader, file.path())?;
+        Ok(loader)
     }
 
     #[test]
-    fn cds_start_is_advanced_by_phase_on_plus_strand() {
-        let loader = load(GFF3);
+    fn cds_start_is_advanced_by_phase_on_plus_strand() -> Result<(), anyhow::Error> {
+        let loader = load(GFF3)?;
 
         let tx = loader
             .transcript_id_to_transcript
-            .get(&TranscriptId::try_new("T1P").unwrap())
-            .unwrap();
-        let alignment = tx.genome_builds.get("GRCh38").unwrap();
+            .get(&TranscriptId::try_new("T1P")?)
+            .context("transcript T1P not loaded")?;
+        let alignment = tx
+            .genome_builds
+            .get("GRCh38")
+            .context("T1P has no GRCh38 alignment")?;
 
         // Phase 1 on the (0-based) fragment (100, 400) moves the genomic CDS start
         // one base to the right; the CDS end is untouched.
         assert_eq!(alignment.cds_start, Some(101));
         assert_eq!(alignment.cds_end, Some(400));
+
+        Ok(())
     }
 
     #[test]
-    fn cds_end_is_pulled_back_by_phase_on_minus_strand() {
-        let loader = load(GFF3);
+    fn cds_end_is_pulled_back_by_phase_on_minus_strand() -> Result<(), anyhow::Error> {
+        let loader = load(GFF3)?;
 
         let tx = loader
             .transcript_id_to_transcript
-            .get(&TranscriptId::try_new("T2M").unwrap())
-            .unwrap();
-        let alignment = tx.genome_builds.get("GRCh38").unwrap();
+            .get(&TranscriptId::try_new("T2M")?)
+            .context("transcript T2M not loaded")?;
+        let alignment = tx
+            .genome_builds
+            .get("GRCh38")
+            .context("T2M has no GRCh38 alignment")?;
 
         // Phase 2 on the (0-based) fragment (2300, 2600) moves the genomic CDS end
         // two bases to the left (the transcript-direction CDS start, since this
         // transcript is on the `-` strand); the CDS start is untouched.
         assert_eq!(alignment.cds_start, Some(2300));
         assert_eq!(alignment.cds_end, Some(2598));
+
+        Ok(())
     }
 
     /// `bgzip` output is a multi-member gzip stream (one gzip member per block). A plain
@@ -483,7 +493,7 @@ chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
 
     #[test]
     fn exons_are_stored_in_ascending_genomic_order() -> Result<(), anyhow::Error> {
-        let loader = load(GFF3_THREE_EXONS);
+        let loader = load(GFF3_THREE_EXONS)?;
 
         let plus_tx = loader
             .transcript_id_to_transcript
