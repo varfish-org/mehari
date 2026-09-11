@@ -1,6 +1,7 @@
 //! Transcript database.
 
 use crate::annotate::seqvars::consequence::terms::FeatureTag;
+use crate::common::progress::{NoProgress, Progress, Unit};
 use crate::common::trace_rss_now;
 use crate::pbs::txs::{Assembly, Source, SourceVersion, TxSeqDatabase};
 use anyhow::{Error, anyhow};
@@ -65,7 +66,7 @@ fn txid_to_label(
 }
 
 /// Load the annotations (JSON or GFF3).
-fn load_annotations(args: &Args) -> Result<TranscriptLoader, Error> {
+fn load_annotations(args: &Args, progress: &dyn Progress) -> Result<TranscriptLoader, Error> {
     tracing::info!("Loading annotations …");
     let start = Instant::now();
     let labels = args
@@ -86,9 +87,9 @@ fn load_annotations(args: &Args) -> Result<TranscriptLoader, Error> {
                 || (ext == "gz" && (file_stem.ends_with("gff3") || file_stem.ends_with("gff")));
 
             if is_gff3 {
-                load_gff3(&mut loader, path)?;
+                load_gff3(&mut loader, path, progress)?;
             } else {
-                load_cdot(&mut loader, path)?;
+                load_cdot(&mut loader, path, progress)?;
             }
 
             if loader.transcript_id_to_transcript.is_empty() {
@@ -128,7 +129,20 @@ fn load_annotations(args: &Args) -> Result<TranscriptLoader, Error> {
 
 /// Main entry point for `db create txs` sub command.
 pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
-    fn _run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
+    run_with_progress(common, args, &NoProgress)
+}
+
+/// Like [`run`], but reports the progress of the slow steps to `progress`.
+pub fn run_with_progress(
+    common: &crate::common::Args,
+    args: &Args,
+    progress: &dyn Progress,
+) -> Result<(), Error> {
+    fn _run(
+        common: &crate::common::Args,
+        args: &Args,
+        progress: &dyn Progress,
+    ) -> Result<(), Error> {
         // Validate transcript_source case-insensitively for "ensembl"
         if args.transcript_source.to_lowercase() == "ensembl"
             && args.transcript_source_version.is_none()
@@ -150,7 +164,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
             args
         );
 
-        let mut tx_data = load_annotations(args)?;
+        let mut tx_data = load_annotations(args, progress)?;
         for (id, fix) in tx_data.fixes.iter() {
             report(ReportEntry::Fix(LogFix {
                 source: "annotations".into(),
@@ -181,10 +195,11 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         filter_empty_gene_id_mappings(tx_data_)?;
 
         // Open seqrepo / FASTA …
-        let mut seq_provider = reference::open_sequence_provider(args)?;
+        let mut seq_provider = reference::open_sequence_provider(args, progress)?;
         // … and filter transcripts based on their sequences,
         // e.g. checking whether their translation contains a stop codon …
-        let mut sequence_map = filter_transcripts_with_sequence(tx_data_, &mut seq_provider)?;
+        let mut sequence_map =
+            filter_transcripts_with_sequence(tx_data_, &mut seq_provider, progress)?;
         filter_empty_gene_id_mappings(tx_data_)?;
         // … if there are genes with no transcripts left, check whether they are pseudogenes …
         tx_data_.update_pseudogene_status()?;
@@ -244,7 +259,7 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         }
         trace_rss_now();
 
-        write_tx_db(tx_db, &args.output, args.compression_level)?;
+        write_tx_db(tx_db, &args.output, args.compression_level, progress)?;
 
         tracing::info!("Done building transcript and sequence database file");
         Ok(())
@@ -311,13 +326,14 @@ pub fn run(common: &crate::common::Args, args: &Args) -> Result<(), Error> {
         .num_threads(args.threads)
         .build()?;
 
-    threadpool.install(|| _run(common, args))
+    threadpool.install(|| _run(common, args, progress))
 }
 
 pub(crate) fn write_tx_db(
     tx_db: TxSeqDatabase,
     path: impl AsRef<Path>,
     compression_level: i32,
+    progress: &dyn Progress,
 ) -> Result<(), Error> {
     tracing::info!("Writing out final database …");
     let path = path.as_ref();
@@ -342,9 +358,16 @@ pub(crate) fn write_tx_db(
     } else {
         Box::new(file)
     };
-    writer
-        .write_all(&buf)
-        .map_err(|e| anyhow!("failed to write to {}: {}", path.display(), e))?;
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    progress.start(&format!("Writing {name}"), buf.len() as u64, Unit::Bytes);
+    // Write in chunks to report progress; zstd at high levels takes minutes here.
+    for chunk in buf.chunks(1 << 20) {
+        writer
+            .write_all(chunk)
+            .map_err(|e| anyhow!("failed to write to {}: {}", path.display(), e))?;
+        progress.advance(chunk.len() as u64);
+    }
+    progress.finish();
     tracing::info!("  … done writing out final database");
 
     Ok(())
@@ -361,6 +384,7 @@ pub mod test {
 
     use crate::annotate::seqvars::consequence::terms::FeatureTag;
     use crate::common::Args as CommonArgs;
+    use crate::common::progress::NoProgress;
     use crate::db::transcripts::create::cdot::load_cdot;
     use crate::db::transcripts::create::cli::Args;
     use crate::db::transcripts::create::filter::filter_transcripts;
@@ -379,6 +403,7 @@ pub mod test {
         load_cdot(
             &mut tx_data,
             Path::new("tests/data/db/create/txs/cdot-0.2.22.refseq.grch37_grch38.brca1_opa1.json"),
+            &NoProgress,
         )?;
         tx_data.apply_fixes(&Some(labels));
 

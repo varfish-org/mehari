@@ -169,6 +169,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1903,7 +1912,7 @@ dependencies = [
  "nom 8.0.0",
  "nom-language",
  "postgres",
- "quick_cache",
+ "quick_cache 0.6.24",
  "regex",
  "seqrepo",
  "serde",
@@ -2544,7 +2553,7 @@ dependencies = [
  "procfs",
  "prost",
  "prost-build",
- "quick_cache",
+ "quick_cache 0.7.0",
  "rand 0.10.2",
  "rayon",
  "regex",
@@ -2576,6 +2585,7 @@ dependencies = [
  "arrow",
  "mehari",
  "pyo3",
+ "pyo3-log",
  "pythonize",
  "rayon",
  "serde",
@@ -3645,6 +3655,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pyo3-log"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f64083bd3a16a353d9d62335808e8e13d0552d2a2b83fdb084496192dcfa9fcd"
+dependencies = [
+ "arc-swap",
+ "log",
+ "pyo3",
+]
+
+[[package]]
 name = "pyo3-macros"
 version = "0.28.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3688,6 +3709,18 @@ dependencies = [
  "ahash 0.8.12",
  "equivalent",
  "hashbrown 0.16.1",
+ "parking_lot",
+]
+
+[[package]]
+name = "quick_cache"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "403c1a912fec895cafb223201e368234842acb9220aaf08ab042ae89ba5f135c"
+dependencies = [
+ "equivalent",
+ "foldhash 0.2.0",
+ "hashbrown 0.17.1",
  "parking_lot",
 ]
 

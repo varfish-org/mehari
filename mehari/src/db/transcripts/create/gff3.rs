@@ -1,3 +1,4 @@
+use crate::common::progress::{Progress, open_with_progress};
 use crate::db::transcripts::create::cdot_models;
 use crate::db::transcripts::create::models::{GeneId, TranscriptId, TranscriptLoader};
 use anyhow::Error;
@@ -6,18 +7,22 @@ use indexmap::IndexMap;
 use noodles::gff::feature::record::{Phase, Strand};
 use noodles::gff::feature::record_buf::attributes::field::tag;
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
 /// Load and extract from standard generic GFF3 using noodles::gff.
-pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Result<(), Error> {
-    let file = File::open(path.as_ref())?;
-    let reader: Box<dyn std::io::Read> = if path.as_ref().extension().is_some_and(|e| e == "gz") {
-        Box::new(flate2::read::MultiGzDecoder::new(file))
-    } else {
-        Box::new(file)
-    };
+pub fn load_gff3(
+    loader: &mut TranscriptLoader,
+    path: impl AsRef<Path>,
+    progress: &dyn Progress,
+) -> Result<(), Error> {
+    let file = open_with_progress(path.as_ref(), progress)?;
+    let reader: Box<dyn std::io::Read + '_> =
+        if path.as_ref().extension().is_some_and(|e| e == "gz") {
+            Box::new(flate2::read::MultiGzDecoder::new(file))
+        } else {
+            Box::new(file)
+        };
     let reader = BufReader::new(reader);
     let mut gff_reader = noodles::gff::io::Reader::new(reader);
 
@@ -355,12 +360,15 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
                 url: "".into(),
             });
     }
+
+    progress.finish();
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::progress::NoProgress;
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use std::io::Write;
@@ -384,7 +392,7 @@ chr1\ttest\tCDS\t2301\t2600\t.\t-\t2\tID=cds:T2M.1;Parent=transcript:T2M
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(gff3.as_bytes()).unwrap();
         let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
-        load_gff3(&mut loader, file.path()).unwrap();
+        load_gff3(&mut loader, file.path(), &NoProgress).unwrap();
         loader
     }
 
@@ -448,7 +456,7 @@ chr1\ttest\tCDS\t2301\t2600\t.\t-\t2\tID=cds:T2M.1;Parent=transcript:T2M
         std::fs::write(&path, &gzipped)?;
 
         let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
-        load_gff3(&mut loader, &path)?;
+        load_gff3(&mut loader, &path, &NoProgress)?;
 
         let mut ids = loader
             .transcript_id_to_transcript

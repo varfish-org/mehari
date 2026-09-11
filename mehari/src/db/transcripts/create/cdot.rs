@@ -1,19 +1,23 @@
+use crate::common::progress::{Progress, open_with_progress};
 use crate::db::transcripts::create::cdot_models;
 use crate::db::transcripts::create::models::{GeneId, TranscriptId, TranscriptLoader};
 use anyhow::Error;
 use hgvs::data::cdot::json::models::Gene;
 use std::collections::HashMap;
-use std::fs::File;
 use std::path::Path;
 
 /// Load and extract from cdot JSON.
-pub fn load_cdot(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Result<(), Error> {
+pub fn load_cdot(
+    loader: &mut TranscriptLoader,
+    path: impl AsRef<Path>,
+    progress: &dyn Progress,
+) -> Result<(), Error> {
     let cdot_models::Container {
         genes: cdot_genes,
         transcripts: cdot_transcripts,
         cdot_version,
         ..
-    } = read_cdot_json(path.as_ref())?;
+    } = read_cdot_json(path.as_ref(), progress)?;
     let cdot_genes = cdot_genes.into_iter().collect::<HashMap<_, _>>();
     let cdot_transcripts = cdot_transcripts
         .into_iter()
@@ -83,17 +87,22 @@ pub fn load_cdot(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
         loader.transcript_id_to_transcript.insert(tx_id, tx);
     }
 
+    progress.finish();
     Ok(())
 }
 
-pub(crate) fn read_cdot_json(path: impl AsRef<Path>) -> Result<cdot_models::Container, Error> {
+pub(crate) fn read_cdot_json(
+    path: impl AsRef<Path>,
+    progress: &dyn Progress,
+) -> Result<cdot_models::Container, Error> {
+    let file = open_with_progress(path.as_ref(), progress)?;
     Ok(if path.as_ref().extension().unwrap_or_default() == "gz" {
         tracing::info!("(from gzip compressed file)");
         serde_json::from_reader(std::io::BufReader::new(flate2::read::MultiGzDecoder::new(
-            File::open(path)?,
+            file,
         )))?
     } else {
         tracing::info!("(from uncompressed file)");
-        serde_json::from_reader(std::io::BufReader::new(File::open(path)?))?
+        serde_json::from_reader(std::io::BufReader::new(file))?
     })
 }
