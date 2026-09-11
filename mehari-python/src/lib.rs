@@ -19,8 +19,18 @@ use serde::{Deserialize, Serialize};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use strum::IntoEnumIterator;
+
+/// Clears pyo3-log's cache of Python log levels. Set once, at module import.
+static LOG_RESET_HANDLE: OnceLock<pyo3_log::ResetHandle> = OnceLock::new();
+
+/// Makes pyo3-log reread the Python log levels, so recent `logging` configuration applies.
+fn reread_log_levels() {
+    if let Some(handle) = LOG_RESET_HANDLE.get() {
+        handle.reset();
+    }
+}
 
 #[pyfunction]
 fn consequence_variants() -> Vec<String> {
@@ -154,6 +164,8 @@ impl PySeqvarsAnnotator {
         report_cdna_sequence: &str,
         report_protein_sequence: &str,
     ) -> PyResult<Self> {
+        reread_log_levels();
+
         let mut tx_dbs = Vec::new();
         for path in transcript_db_paths {
             let db = load_tx_db(&path).map_err(|e| {
@@ -364,28 +376,31 @@ impl PySeqvarsAnnotator {
         let num_rows = record_batch.num_rows();
         let indices: Vec<usize> = (0..num_rows).collect();
 
-        let results: Result<Vec<ArrowResult>, anyhow::Error> = indices
-            .par_iter()
-            .map(|&i| {
-                let variant = VcfVariant {
-                    chromosome: chrom_arr.value(i).to_string(),
-                    position: pos_arr.value(i),
-                    reference: ref_arr.value(i).to_string(),
-                    alternative: alt_arr.value(i).to_string(),
-                };
+        // Release the GIL: the rayon workers log through pyo3-log, which needs the GIL.
+        let results: Result<Vec<ArrowResult>, anyhow::Error> = py.detach(|| {
+            indices
+                .par_iter()
+                .map(|&i| {
+                    let variant = VcfVariant {
+                        chromosome: chrom_arr.value(i).to_string(),
+                        position: pos_arr.value(i),
+                        reference: ref_arr.value(i).to_string(),
+                        alternative: alt_arr.value(i).to_string(),
+                    };
 
-                let ann_fields = self.predictor.predict(&variant)?.unwrap_or_default();
+                    let ann_fields = self.predictor.predict(&variant)?.unwrap_or_default();
 
-                let arrow_anns: Vec<ArrowAnnField> = ann_fields
-                    .into_iter()
-                    .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
-                    .collect();
+                    let arrow_anns: Vec<ArrowAnnField> = ann_fields
+                        .into_iter()
+                        .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
+                        .collect();
 
-                Ok(ArrowResult {
-                    annotation: arrow_anns,
+                    Ok(ArrowResult {
+                        annotation: arrow_anns,
+                    })
                 })
-            })
-            .collect();
+                .collect()
+        });
 
         let results = results.map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!(
@@ -473,6 +488,7 @@ impl PySeqvarsAnnotator {
 ))]
 #[allow(clippy::too_many_arguments)]
 fn build_transcript_db(
+    py: Python<'_>,
     assembly: String,
     annotation: Vec<PathBuf>,
     output: PathBuf,
@@ -517,18 +533,27 @@ fn build_transcript_db(
 
     let common_args = mehari::common::Args::default();
 
-    mehari::db::transcripts::create::run(&common_args, &args).map_err(|e| {
-        pyo3::exceptions::PyRuntimeError::new_err(format!(
-            "Failed to build transcript database: {}",
-            e
-        ))
-    })?;
+    reread_log_levels();
+    // Release the GIL: `run` logs from a rayon thread pool, and pyo3-log needs the GIL.
+    py.detach(|| mehari::db::transcripts::create::run(&common_args, &args))
+        .map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "Failed to build transcript database: {}",
+                e
+            ))
+        })?;
 
     Ok(())
 }
 
 #[pymodule(name = "_mehari")]
 fn mehari_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Without a tracing subscriber, mehari's `tracing` events become `log` records
+    // (tracing's "log" feature). pyo3-log passes these on to Python's `logging`.
+    let log_reset_handle = pyo3_log::try_init()
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    let _ = LOG_RESET_HANDLE.set(log_reset_handle);
+
     m.add_class::<PySeqvarsAnnotator>()?;
     m.add_function(wrap_pyfunction!(consequence_variants, m)?)?;
     m.add_function(wrap_pyfunction!(putative_impact_variants, m)?)?;
