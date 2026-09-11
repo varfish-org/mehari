@@ -118,4 +118,19 @@ build_transcript_db(
 )
 ```
 
-This may take a while (several minutes for GRCh38 + Ensembl).
+This may take a while (several minutes for GRCh38 + Ensembl). To follow its progress, enable [logging](#logging).
+
+## Logging
+
+mehari writes its log messages to Python's `logging` module, under the logger `mehari`.
+By default, Python shows only warnings and errors.
+To also see progress messages, enable the `INFO` level:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+```
+
+Configure logging before you create a `SeqvarsAnnotator` or call `build_transcript_db`.
+mehari caches the log levels and rereads them only when one of these two starts.
