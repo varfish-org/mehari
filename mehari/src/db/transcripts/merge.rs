@@ -128,7 +128,12 @@ pub fn run(_common_args: &common::Args, args: &Args) -> Result<(), anyhow::Error
     tracing::info!("Merging transcript databases");
     let tx_db = merge_transcript_databases(tx_dbs)?;
     tracing::info!("Writing merged transcript database");
-    write_tx_db(tx_db, &args.output, args.compression_level)?;
+    write_tx_db(
+        tx_db,
+        &args.output,
+        args.compression_level,
+        &common::progress::NoProgress,
+    )?;
     tracing::info!("Done loading, merging and writing transcript databases");
     Ok(())
 }

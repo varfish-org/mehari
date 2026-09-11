@@ -1,10 +1,10 @@
 use crate::annotate::seqvars::reference::{ReferenceReader, UnbufferedIndexedFastaAccess};
 use crate::common::contig::ContigManager;
+use crate::common::progress::{Progress, open_with_progress};
 use crate::db::transcripts::create::cli::Args;
 use anyhow::{Error, anyhow};
 use seqrepo::{AliasOrSeqId, Interface, SeqRepo};
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -85,7 +85,10 @@ pub fn open_seqrepo(path: impl AsRef<Path>) -> Result<SeqRepo, Error> {
     Ok(seqrepo)
 }
 
-pub fn open_sequence_provider(args: &Args) -> Result<SequenceProvider, Error> {
+pub fn open_sequence_provider(
+    args: &Args,
+    progress: &dyn Progress,
+) -> Result<SequenceProvider, Error> {
     if let Some(seqrepo_path) = &args.seqrepo {
         return Ok(SequenceProvider::SeqRepo(open_seqrepo(seqrepo_path)?));
     }
@@ -113,7 +116,8 @@ pub fn open_sequence_provider(args: &Args) -> Result<SequenceProvider, Error> {
             fasta_path.display()
         );
         let mut map = HashMap::new();
-        let file = File::open(fasta_path)?;
+        let file = open_with_progress(fasta_path, progress)?;
+        let bar = file.progress.clone();
 
         let is_gz = fasta_path
             .extension()
@@ -144,6 +148,7 @@ pub fn open_sequence_provider(args: &Args) -> Result<SequenceProvider, Error> {
 
             map.insert(id, seq);
         }
+        bar.finish();
         return Ok(SequenceProvider::FastaMap(map));
     }
 
