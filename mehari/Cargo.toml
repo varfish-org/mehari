@@ -77,7 +77,7 @@ tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "io-std"] }
 tracing-subscriber = "0.3"
 tracing = { version = "0.1", features = ["log"] }
 uuid = { version = "1.23", features = ["fast-rng", "serde"] }
-zstd = "0.13"
+zstd = "0.14"
 utoipa = { version = "5.4.0", features = ["actix_extras", "chrono", "indexmap", "openapi_extensions", "preserve_order", "yaml"], optional = true }
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"], optional = true }
 memmap2 = "0.9.10"
