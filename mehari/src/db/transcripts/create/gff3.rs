@@ -253,7 +253,7 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
         let mut tx_cds_start = None;
         let mut tx_cds_end = None;
 
-        let final_exons: Vec<_> = exons
+        let mut final_exons: Vec<_> = exons
             .into_iter()
             .enumerate()
             .map(|(i, (start, end))| {
@@ -293,6 +293,10 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
                 exon_record
             })
             .collect();
+
+        // Store exons in ascending genomic order (as cdot does), regardless of strand;
+        // `ord` above already reflects transcript direction and decreases along this list for minus-strand transcripts.
+        final_exons.sort_by_key(|e| e.alt_start_i);
 
         let cds_start_genomic = cds_fragments.iter().map(|c| c.0).min();
         let cds_end_genomic = cds_fragments.iter().map(|c| c.1).max();
@@ -361,6 +365,7 @@ pub fn load_gff3(loader: &mut TranscriptLoader, path: impl AsRef<Path>) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Context;
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use std::io::Write;
@@ -380,45 +385,70 @@ chr1\ttest\texon\t2001\t3000\t.\t-\t.\tID=exon:T2M.1;Parent=transcript:T2M
 chr1\ttest\tCDS\t2301\t2600\t.\t-\t2\tID=cds:T2M.1;Parent=transcript:T2M
 ";
 
-    fn load(gff3: &str) -> TranscriptLoader {
-        let mut file = tempfile::NamedTempFile::new().unwrap();
-        file.write_all(gff3.as_bytes()).unwrap();
+    /// One plus-strand and one minus-strand transcript, each with three exons.
+    const GFF3_THREE_EXONS: &str = "\
+##gff-version 3
+chr1\ttest\tgene\t1\t1000\t.\t+\t.\tID=gene:G1;Name=G1
+chr1\ttest\ttranscript\t1\t1000\t.\t+\t.\tID=transcript:T1;Parent=gene:G1
+chr1\ttest\texon\t1\t100\t.\t+\t.\tID=exon:T1.1;Parent=transcript:T1
+chr1\ttest\texon\t301\t400\t.\t+\t.\tID=exon:T1.2;Parent=transcript:T1
+chr1\ttest\texon\t601\t700\t.\t+\t.\tID=exon:T1.3;Parent=transcript:T1
+chr1\ttest\tgene\t2001\t3000\t.\t-\t.\tID=gene:G2;Name=G2
+chr1\ttest\ttranscript\t2001\t3000\t.\t-\t.\tID=transcript:T2;Parent=gene:G2
+chr1\ttest\texon\t2001\t2100\t.\t-\t.\tID=exon:T2.1;Parent=transcript:T2
+chr1\ttest\texon\t2301\t2400\t.\t-\t.\tID=exon:T2.2;Parent=transcript:T2
+chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
+";
+
+    fn load(gff3: &str) -> Result<TranscriptLoader, anyhow::Error> {
+        let mut file = tempfile::NamedTempFile::new()?;
+        file.write_all(gff3.as_bytes())?;
         let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
-        load_gff3(&mut loader, file.path()).unwrap();
-        loader
+        load_gff3(&mut loader, file.path())?;
+        Ok(loader)
     }
 
     #[test]
-    fn cds_start_is_advanced_by_phase_on_plus_strand() {
-        let loader = load(GFF3);
+    fn cds_start_is_advanced_by_phase_on_plus_strand() -> Result<(), anyhow::Error> {
+        let loader = load(GFF3)?;
 
         let tx = loader
             .transcript_id_to_transcript
-            .get(&TranscriptId::try_new("T1P").unwrap())
-            .unwrap();
-        let alignment = tx.genome_builds.get("GRCh38").unwrap();
+            .get(&TranscriptId::try_new("T1P")?)
+            .context("transcript T1P not loaded")?;
+        let alignment = tx
+            .genome_builds
+            .get("GRCh38")
+            .context("T1P has no GRCh38 alignment")?;
 
         // Phase 1 on the (0-based) fragment (100, 400) moves the genomic CDS start
         // one base to the right; the CDS end is untouched.
         assert_eq!(alignment.cds_start, Some(101));
         assert_eq!(alignment.cds_end, Some(400));
+
+        Ok(())
     }
 
     #[test]
-    fn cds_end_is_pulled_back_by_phase_on_minus_strand() {
-        let loader = load(GFF3);
+    fn cds_end_is_pulled_back_by_phase_on_minus_strand() -> Result<(), anyhow::Error> {
+        let loader = load(GFF3)?;
 
         let tx = loader
             .transcript_id_to_transcript
-            .get(&TranscriptId::try_new("T2M").unwrap())
-            .unwrap();
-        let alignment = tx.genome_builds.get("GRCh38").unwrap();
+            .get(&TranscriptId::try_new("T2M")?)
+            .context("transcript T2M not loaded")?;
+        let alignment = tx
+            .genome_builds
+            .get("GRCh38")
+            .context("T2M has no GRCh38 alignment")?;
 
         // Phase 2 on the (0-based) fragment (2300, 2600) moves the genomic CDS end
         // two bases to the left (the transcript-direction CDS start, since this
         // transcript is on the `-` strand); the CDS start is untouched.
         assert_eq!(alignment.cds_start, Some(2300));
         assert_eq!(alignment.cds_end, Some(2598));
+
+        Ok(())
     }
 
     /// `bgzip` output is a multi-member gzip stream (one gzip member per block). A plain
@@ -457,6 +487,56 @@ chr1\ttest\tCDS\t2301\t2600\t.\t-\t2\tID=cds:T2M.1;Parent=transcript:T2M
             .collect::<Vec<_>>();
         ids.sort();
         assert_eq!(ids, vec!["TX1".to_string(), "TX2".to_string()]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn exons_are_stored_in_ascending_genomic_order() -> Result<(), anyhow::Error> {
+        let loader = load(GFF3_THREE_EXONS)?;
+
+        let plus_tx = loader
+            .transcript_id_to_transcript
+            .get(&TranscriptId::try_new("T1")?)
+            .context("transcript T1 not loaded")?;
+        let plus_exons = &plus_tx
+            .genome_builds
+            .get("GRCh38")
+            .context("T1 has no GRCh38 alignment")?
+            .exons;
+        assert_eq!(
+            plus_exons.iter().map(|e| e.alt_start_i).collect::<Vec<_>>(),
+            vec![0, 300, 600],
+            "plus-strand exons must be in ascending genomic order"
+        );
+        assert_eq!(
+            plus_exons.iter().map(|e| e.ord).collect::<Vec<_>>(),
+            vec![0, 1, 2],
+            "plus-strand ord must increase along the (ascending) exon list"
+        );
+
+        let minus_tx = loader
+            .transcript_id_to_transcript
+            .get(&TranscriptId::try_new("T2")?)
+            .context("transcript T2 not loaded")?;
+        let minus_exons = &minus_tx
+            .genome_builds
+            .get("GRCh38")
+            .context("T2 has no GRCh38 alignment")?
+            .exons;
+        assert_eq!(
+            minus_exons
+                .iter()
+                .map(|e| e.alt_start_i)
+                .collect::<Vec<_>>(),
+            vec![2000, 2300, 2600],
+            "minus-strand exons must also be stored in ascending genomic order"
+        );
+        assert_eq!(
+            minus_exons.iter().map(|e| e.ord).collect::<Vec<_>>(),
+            vec![2, 1, 0],
+            "minus-strand ord must decrease along the (ascending) exon list"
+        );
 
         Ok(())
     }
