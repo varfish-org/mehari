@@ -9,6 +9,7 @@ use clap_verbosity_flag::{InfoLevel, Verbosity};
 pub mod contig;
 pub mod io;
 pub mod noodles;
+pub mod progress;
 
 /// Commonly used command line arguments.
 #[derive(Parser, Debug, Default)]

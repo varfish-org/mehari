@@ -1,3 +1,4 @@
+import logging
 import os
 
 import polars as pl
@@ -130,3 +131,17 @@ def test_annotate_lazy_streaming(annotator, sample_variants):
     )
     assert nm_130837 is not None
     assert "splice_acceptor_variant" in nm_130837["consequences"]
+
+
+def test_annotate_batch_forwards_rust_warnings(annotator, sample_variants, caplog):
+    """
+    Batch annotation logs from rayon worker threads. These log records must reach
+    Python logging without deadlocking on the GIL.
+    """
+    unknown_chromosome = sample_variants.with_columns(chromosome=pl.lit("FOO"))
+
+    with caplog.at_level(logging.WARNING, logger="mehari"):
+        result_df = annotator.annotate(unknown_chromosome)
+
+    assert result_df.get_column("annotation").to_list() == [[], []]
+    assert "Could not determine chromosome accession" in caplog.text

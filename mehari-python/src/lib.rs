@@ -12,15 +12,28 @@ use mehari::annotate::seqvars::consequence::{ConfigBuilder, SequenceReporting, V
 use mehari::annotate::seqvars::provider::{
     ConfigBuilder as ProviderConfigBuilder, Provider as MehariProvider,
 };
+use mehari::common::progress::{Progress, ProgressBar, Unit, hidden_bar};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pythonize::pythonize;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 use strum::IntoEnumIterator;
+
+/// Clears pyo3-log's cache of Python log levels. Set once, at module import.
+static LOG_RESET_HANDLE: OnceLock<pyo3_log::ResetHandle> = OnceLock::new();
+
+/// Makes pyo3-log reread the Python log levels, so recent `logging` configuration applies.
+fn reread_log_levels() {
+    if let Some(handle) = LOG_RESET_HANDLE.get() {
+        handle.reset();
+    }
+}
 
 #[pyfunction]
 fn consequence_variants() -> Vec<String> {
@@ -154,6 +167,8 @@ impl PySeqvarsAnnotator {
         report_cdna_sequence: &str,
         report_protein_sequence: &str,
     ) -> PyResult<Self> {
+        reread_log_levels();
+
         let mut tx_dbs = Vec::new();
         for path in transcript_db_paths {
             let db = load_tx_db(&path).map_err(|e| {
@@ -364,28 +379,31 @@ impl PySeqvarsAnnotator {
         let num_rows = record_batch.num_rows();
         let indices: Vec<usize> = (0..num_rows).collect();
 
-        let results: Result<Vec<ArrowResult>, anyhow::Error> = indices
-            .par_iter()
-            .map(|&i| {
-                let variant = VcfVariant {
-                    chromosome: chrom_arr.value(i).to_string(),
-                    position: pos_arr.value(i),
-                    reference: ref_arr.value(i).to_string(),
-                    alternative: alt_arr.value(i).to_string(),
-                };
+        // Release the GIL: the rayon workers log through pyo3-log, which needs the GIL.
+        let results: Result<Vec<ArrowResult>, anyhow::Error> = py.detach(|| {
+            indices
+                .par_iter()
+                .map(|&i| {
+                    let variant = VcfVariant {
+                        chromosome: chrom_arr.value(i).to_string(),
+                        position: pos_arr.value(i),
+                        reference: ref_arr.value(i).to_string(),
+                        alternative: alt_arr.value(i).to_string(),
+                    };
 
-                let ann_fields = self.predictor.predict(&variant)?.unwrap_or_default();
+                    let ann_fields = self.predictor.predict(&variant)?.unwrap_or_default();
 
-                let arrow_anns: Vec<ArrowAnnField> = ann_fields
-                    .into_iter()
-                    .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
-                    .collect();
+                    let arrow_anns: Vec<ArrowAnnField> = ann_fields
+                        .into_iter()
+                        .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
+                        .collect();
 
-                Ok(ArrowResult {
-                    annotation: arrow_anns,
+                    Ok(ArrowResult {
+                        annotation: arrow_anns,
+                    })
                 })
-            })
-            .collect();
+                .collect()
+        });
 
         let results = results.map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!(
@@ -455,6 +473,141 @@ impl PySeqvarsAnnotator {
     }
 }
 
+/// A progress bar that the Rust side created for one step.
+#[derive(Clone)]
+struct StepBar {
+    step: String,
+    total: u64,
+    unit: Unit,
+    bar: ProgressBar,
+}
+
+/// Creates hidden progress bars and keeps them, so that Python can show them.
+#[derive(Default)]
+struct StepBars(Mutex<Vec<StepBar>>);
+
+impl StepBars {
+    fn snapshot(&self) -> Vec<StepBar> {
+        self.0.lock().map(|bars| bars.clone()).unwrap_or_default()
+    }
+}
+
+impl Progress for StepBars {
+    fn bar(&self, step: &str, total: u64, unit: Unit) -> ProgressBar {
+        let bar = hidden_bar(total);
+        if let Ok(mut bars) = self.0.lock() {
+            bars.push(StepBar {
+                step: step.to_string(),
+                total,
+                unit,
+                bar: bar.clone(),
+            });
+        }
+        bar
+    }
+}
+
+/// Mirrors the Rust progress bars onto tqdm-compatible Python bars, one per step.
+///
+/// Exceptions raised by a Python bar go to `sys.unraisablehook`, so they cannot abort the operation.
+struct TqdmBars {
+    /// Creates a Python bar, called like `tqdm(total=..., desc=..., unit=...)`.
+    factory: Py<PyAny>,
+    /// Per step: the open Python bar, and the position that it shows.
+    shown: Vec<(Option<Py<PyAny>>, u64)>,
+}
+
+impl TqdmBars {
+    /// Updates the Python bars, and closes the finished ones. `done` closes all of them.
+    fn sync(&mut self, py: Python<'_>, steps: &[StepBar], done: bool) {
+        for (i, step) in steps.iter().enumerate() {
+            if i == self.shown.len() {
+                let created = self.create(py, step);
+                self.shown.push((created, 0));
+            }
+            let (open, shown_position) = &mut self.shown[i];
+            let Some(py_bar) = open.as_ref() else {
+                continue;
+            };
+            let position = step.bar.position();
+            let close = done || step.bar.is_finished();
+            let n = position.saturating_sub(*shown_position);
+            let result = advance_py_bar(py, py_bar, n, close);
+            *shown_position = position;
+            if let Err(err) = result {
+                err.write_unraisable(py, Some(py_bar.bind(py)));
+                *open = None;
+            } else if close {
+                *open = None;
+            }
+        }
+    }
+
+    fn create(&self, py: Python<'_>, step: &StepBar) -> Option<Py<PyAny>> {
+        let (unit, unit_scale, unit_divisor) = match step.unit {
+            Unit::Bytes => ("B", true, 1024),
+            Unit::Transcripts => ("tx", false, 1000),
+        };
+        let kwargs = PyDict::new(py);
+        let created = kwargs
+            .set_item("total", step.total)
+            .and_then(|_| kwargs.set_item("desc", &step.step))
+            .and_then(|_| kwargs.set_item("unit", unit))
+            .and_then(|_| kwargs.set_item("unit_scale", unit_scale))
+            .and_then(|_| kwargs.set_item("unit_divisor", unit_divisor))
+            .and_then(|_| self.factory.call(py, (), Some(&kwargs)));
+        match created {
+            Ok(py_bar) => Some(py_bar),
+            Err(err) => {
+                err.write_unraisable(py, Some(self.factory.bind(py)));
+                None
+            }
+        }
+    }
+}
+
+fn advance_py_bar(py: Python<'_>, py_bar: &Py<PyAny>, n: u64, close: bool) -> PyResult<()> {
+    if n > 0 {
+        py_bar.call_method1(py, "update", (n,))?;
+    }
+    if close {
+        py_bar.call_method0(py, "close")?;
+    }
+    Ok(())
+}
+
+/// Builds the database on a worker thread and shows its progress on bars from `factory`.
+///
+/// Only the calling thread touches the Python bars, ten times per second. So the Rust threads
+/// never wait for the GIL to report progress.
+fn run_with_tqdm(
+    py: Python<'_>,
+    factory: Py<PyAny>,
+    common_args: &mehari::common::Args,
+    args: &mehari::db::transcripts::create::cli::Args,
+) -> anyhow::Result<()> {
+    let steps = StepBars::default();
+    let mut tqdm = TqdmBars {
+        factory,
+        shown: Vec::new(),
+    };
+    py.detach(|| {
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                mehari::db::transcripts::create::run_with_progress(common_args, args, &steps)
+            });
+            while !worker.is_finished() {
+                std::thread::sleep(Duration::from_millis(100));
+                Python::attach(|py| tqdm.sync(py, &steps.snapshot(), false));
+            }
+            Python::attach(|py| tqdm.sync(py, &steps.snapshot(), true));
+            worker
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        })
+    })
+}
+
 #[pyfunction]
 #[pyo3(signature = (
     assembly,
@@ -469,10 +622,12 @@ impl PySeqvarsAnnotator {
     mane_transcripts=None,
     disable_filters=false,
     threads=1,
-    compression_level=19
+    compression_level=19,
+    progress=None
 ))]
 #[allow(clippy::too_many_arguments)]
 fn build_transcript_db(
+    py: Python<'_>,
     assembly: String,
     annotation: Vec<PathBuf>,
     output: PathBuf,
@@ -486,6 +641,7 @@ fn build_transcript_db(
     disable_filters: bool,
     threads: usize,
     compression_level: i32,
+    progress: Option<Py<PyAny>>,
 ) -> PyResult<()> {
     if seqrepo.is_none() && transcript_sequences.is_none() {
         return Err(pyo3::exceptions::PyValueError::new_err(
@@ -517,7 +673,13 @@ fn build_transcript_db(
 
     let common_args = mehari::common::Args::default();
 
-    mehari::db::transcripts::create::run(&common_args, &args).map_err(|e| {
+    reread_log_levels();
+    let result = match progress {
+        // Release the GIL: `run` logs from a rayon thread pool, and pyo3-log needs the GIL.
+        None => py.detach(|| mehari::db::transcripts::create::run(&common_args, &args)),
+        Some(factory) => run_with_tqdm(py, factory, &common_args, &args),
+    };
+    result.map_err(|e| {
         pyo3::exceptions::PyRuntimeError::new_err(format!(
             "Failed to build transcript database: {}",
             e
@@ -529,6 +691,13 @@ fn build_transcript_db(
 
 #[pymodule(name = "_mehari")]
 fn mehari_python(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Without a tracing subscriber, mehari's `tracing` events become `log` records
+    // (tracing's "log" feature). pyo3-log passes these on to Python's `logging`.
+    // If another logger is already set, import the module without the logging bridge.
+    if let Ok(log_reset_handle) = pyo3_log::try_init() {
+        let _ = LOG_RESET_HANDLE.set(log_reset_handle);
+    }
+
     m.add_class::<PySeqvarsAnnotator>()?;
     m.add_function(wrap_pyfunction!(consequence_variants, m)?)?;
     m.add_function(wrap_pyfunction!(putative_impact_variants, m)?)?;

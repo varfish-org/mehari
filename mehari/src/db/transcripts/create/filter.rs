@@ -1,3 +1,4 @@
+use crate::common::progress::{Progress, Unit};
 use crate::db::transcripts::create::models::{
     Fix, GeneId, Identifier, Reason, TranscriptExt, TranscriptId, TranscriptLoader,
 };
@@ -7,6 +8,7 @@ use derive_new::new;
 use enumflags2::{BitFlag, BitFlags};
 use hgvs::data::cdot::json::models::{BioType, Gene, Tag, Transcript};
 use hgvs::sequences::{TranslationTable, translate_cds};
+use indicatif::ParallelProgressIterator;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use rayon::iter::Either;
@@ -334,6 +336,7 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
 pub(crate) fn filter_transcripts_with_sequence(
     loader: &mut TranscriptLoader,
     seq_provider: &mut SequenceProvider,
+    progress: &dyn Progress,
 ) -> Result<HashMap<TranscriptId, String>, Error> {
     tracing::info!("Filtering transcripts with sequences …");
     let start = Instant::now();
@@ -401,9 +404,15 @@ pub(crate) fn filter_transcripts_with_sequence(
         }
     };
 
+    let bar = progress.bar(
+        "Fetching transcript sequences",
+        loader.transcript_id_to_transcript.len() as u64,
+        Unit::Transcripts,
+    );
     let (discards, keeps_with_reasons): (Vec<_>, Vec<_>) = loader
         .transcript_id_to_transcript
         .par_iter()
+        .progress_with(bar.clone())
         .partition_map(|(tx_id, tx)| {
             if let Some(d) = loader.discards.get(&Identifier::Transcript(tx_id.clone()))
                 && d.intersects(Reason::hard())
@@ -508,6 +517,7 @@ pub(crate) fn filter_transcripts_with_sequence(
                 ))
             }
         });
+    bar.finish();
 
     for (id, reason) in discards {
         loader.mark_discarded(&id, reason)?;
