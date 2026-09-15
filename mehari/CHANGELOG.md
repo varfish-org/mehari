@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.46.0](https://github.com/varfish-org/mehari/compare/mehari-v0.45.1...mehari-v0.46.0) (2026-09-15)
+
+
+### Features
+
+* **mehari-python:** add tqdm-compatible build progress ([#1055](https://github.com/varfish-org/mehari/issues/1055)) ([d54313d](https://github.com/varfish-org/mehari/commit/d54313d5e2730c8ef22d4184a0d2e4cf016c121f))
+
+
+### Bug Fixes
+
+* **db:** honor CDS phase when importing GFF3 transcripts ([#1048](https://github.com/varfish-org/mehari/issues/1048)) ([90e3d89](https://github.com/varfish-org/mehari/commit/90e3d89b0496a0d3743c7615934bb24a3e5936eb))
+* **db:** merge repeated --mane-transcripts rows per transcript ([#1052](https://github.com/varfish-org/mehari/issues/1052)) ([db94ae5](https://github.com/varfish-org/mehari/commit/db94ae504e009f51399c4972cf471d058a8c0a93))
+* read multi-member gzip (BGZF) annotation files completely ([#1050](https://github.com/varfish-org/mehari/issues/1050)) ([ff5766c](https://github.com/varfish-org/mehari/commit/ff5766cf59cdb3b1cb2544855a6640c6091c1b41))
+* store GFF3 exons in genomic order for minus-strand transcripts ([#1046](https://github.com/varfish-org/mehari/issues/1046)) ([c61fa7d](https://github.com/varfish-org/mehari/commit/c61fa7dd86e8f367b966b6cfb1adb31ca9fe34db))
+
 ## [0.45.1](https://github.com/varfish-org/mehari/compare/mehari-v0.45.0...mehari-v0.45.1) (2026-07-03)
 
 

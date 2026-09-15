@@ -2850,7 +2850,7 @@ dependencies = [
 
 [[package]]
 name = "mehari"
-version = "0.45.1"
+version = "0.46.0"
 dependencies = [
  "actix-web",
  "annonars",
