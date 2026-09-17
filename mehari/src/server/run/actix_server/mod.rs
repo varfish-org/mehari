@@ -108,6 +108,7 @@ pub async fn main(
             .wrap(actix_web::middleware::Logger::default())
     })
     .bind((args.listen_host.as_str(), args.listen_port))?
+    .workers(args.number_of_worker.get())
     .run()
     .await
 }
