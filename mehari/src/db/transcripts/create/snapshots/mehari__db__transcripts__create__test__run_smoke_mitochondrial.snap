@@ -111,7 +111,7 @@ txDb:
         altEndI: 9990
         altCdsStartI: 1
         altCdsEndI: 786
-        cigar: 784M2I
+        cigar: 784M2D
       genomeBuild: grch37
     filtered: false
     filterReason: 32
@@ -134,7 +134,7 @@ txDb:
         altEndI: 15887
         altCdsStartI: 1
         altCdsEndI: 1143
-        cigar: 1141M2I
+        cigar: 1141M2D
       genomeBuild: grch37
     filtered: false
     filterReason: 32
@@ -157,7 +157,7 @@ txDb:
         altEndI: 4262
         altCdsStartI: 1
         altCdsEndI: 957
-        cigar: 956M1I
+        cigar: 956M1D
       genomeBuild: grch37
     filtered: false
     filterReason: 32
@@ -180,7 +180,7 @@ txDb:
         altEndI: 5511
         altCdsStartI: 1
         altCdsEndI: 1044
-        cigar: 1042M2I
+        cigar: 1042M2D
       genomeBuild: grch37
     filtered: false
     filterReason: 32
@@ -203,7 +203,7 @@ txDb:
         altEndI: 10404
         altCdsStartI: 1
         altCdsEndI: 348
-        cigar: 346M2I
+        cigar: 346M2D
       genomeBuild: grch37
     filtered: false
     filterReason: 32
@@ -226,7 +226,7 @@ txDb:
         altEndI: 12137
         altCdsStartI: 1
         altCdsEndI: 1380
-        cigar: 1378M2I
+        cigar: 1378M2D
       genomeBuild: grch37
     filtered: false
     filterReason: 32
