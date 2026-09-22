@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.0](https://github.com/varfish-org/mehari/compare/mehari-python-v0.45.1...mehari-python-v0.46.0) (2026-09-22)
+
+
+### Features
+
+* **mehari-python:** add tqdm-compatible build progress ([#1055](https://github.com/varfish-org/mehari/issues/1055)) ([d54313d](https://github.com/varfish-org/mehari/commit/d54313d5e2730c8ef22d4184a0d2e4cf016c121f))
+
 ## [0.45.1](https://github.com/varfish-org/mehari/compare/mehari-python-v0.45.0...mehari-python-v0.45.1) (2026-07-03)
 
 
