@@ -196,7 +196,7 @@ pub struct Args {
 
     /// Control number of actix worker use
     #[arg(long, default_value_t = default_available_parallelism())]
-    pub number_of_worker: std::num::NonZero<usize>,
+    pub threads: std::num::NonZero<usize>,
 }
 
 /// Get default value for number of worker, value use `std::thread::available_parallelism()` if this function failled: return 1.
