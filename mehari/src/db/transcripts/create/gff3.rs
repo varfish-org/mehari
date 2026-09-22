@@ -373,9 +373,13 @@ pub fn load_gff3(
 mod tests {
     use super::*;
     use crate::common::progress::NoProgress;
+    use crate::db::transcripts::create::models::TranscriptExt;
     use anyhow::Context;
     use flate2::Compression;
     use flate2::write::GzEncoder;
+    use hgvs::data::interface::TxExonsRecord;
+    use hgvs::mapper::alignment::build_tx_cigar;
+    use hgvs::mapper::cigar::CigarMapper;
     use std::io::Write;
 
     /// A plus-strand transcript whose first (only) CDS fragment has phase 1, and a
@@ -406,6 +410,25 @@ chr1\ttest\ttranscript\t2001\t3000\t.\t-\t.\tID=transcript:T2;Parent=gene:G2
 chr1\ttest\texon\t2001\t2100\t.\t-\t.\tID=exon:T2.1;Parent=transcript:T2
 chr1\ttest\texon\t2301\t2400\t.\t-\t.\tID=exon:T2.2;Parent=transcript:T2
 chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
+";
+
+    /// A plus-strand and a minus-strand transcript with two exons each. The CDS runs to the
+    /// transcript end and is 190 bases long, as for 3'-incomplete transcripts (GENCODE tag
+    /// `cds_end_NF`), so `fix_cds` pads it by 2 bases.
+    const GFF3_CDS_END_NF: &str = "\
+##gff-version 3
+chr1\ttest\tgene\t1\t1000\t.\t+\t.\tID=gene:G3P;Name=G3P
+chr1\ttest\ttranscript\t1\t400\t.\t+\t.\tID=transcript:T3P;Parent=gene:G3P
+chr1\ttest\texon\t1\t100\t.\t+\t.\tID=exon:T3P.1;Parent=transcript:T3P
+chr1\ttest\texon\t301\t400\t.\t+\t.\tID=exon:T3P.2;Parent=transcript:T3P
+chr1\ttest\tCDS\t11\t100\t.\t+\t0\tID=cds:T3P.1;Parent=transcript:T3P
+chr1\ttest\tCDS\t301\t400\t.\t+\t0\tID=cds:T3P.2;Parent=transcript:T3P
+chr1\ttest\tgene\t2001\t3000\t.\t-\t.\tID=gene:G3M;Name=G3M
+chr1\ttest\ttranscript\t2001\t2400\t.\t-\t.\tID=transcript:T3M;Parent=gene:G3M
+chr1\ttest\texon\t2001\t2100\t.\t-\t.\tID=exon:T3M.2;Parent=transcript:T3M
+chr1\ttest\texon\t2301\t2400\t.\t-\t.\tID=exon:T3M.1;Parent=transcript:T3M
+chr1\ttest\tCDS\t2001\t2100\t.\t-\t0\tID=cds:T3M.2;Parent=transcript:T3M
+chr1\ttest\tCDS\t2301\t2390\t.\t-\t0\tID=cds:T3M.1;Parent=transcript:T3M
 ";
 
     fn load(gff3: &str) -> Result<TranscriptLoader, anyhow::Error> {
@@ -455,6 +478,53 @@ chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
         // transcript is on the `-` strand); the CDS start is untouched.
         assert_eq!(alignment.cds_start, Some(2300));
         assert_eq!(alignment.cds_end, Some(2598));
+
+        Ok(())
+    }
+
+    /// The bases that `fix_cds` pads exist in the transcript only. The alignment must
+    /// therefore keep its genomic length, and the first transcript base must keep its
+    /// position.
+    #[rstest::rstest]
+    #[case("T3P", 1)]
+    #[case("T3M", -1)]
+    fn fix_cds_pads_the_transcript_only(
+        #[case] tx_id: &str,
+        #[case] strand: i16,
+    ) -> Result<(), anyhow::Error> {
+        let mut loader = load(GFF3_CDS_END_NF)?;
+        loader.fix_cds();
+
+        let tx = loader
+            .transcript_id_to_transcript
+            .get(&TranscriptId::try_new(tx_id)?)
+            .context("transcript not loaded")?;
+        let alignment = tx
+            .genome_builds
+            .get("GRCh38")
+            .context("no GRCh38 alignment")?;
+        assert_eq!(tx.cds_length(), Some(192));
+
+        // The alignment as the hgvs mapper sees it, see `Provider::get_tx_exons`.
+        let exons = alignment
+            .exons
+            .iter()
+            .map(|exon| TxExonsRecord {
+                alt_start_i: exon.alt_start_i,
+                alt_end_i: exon.alt_end_i,
+                cigar: exon.cigar.clone(),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+        let mapper = CigarMapper::new(&build_tx_cigar(&exons, strand)?);
+
+        // Two exons of 100 bases around an intron of 200 bases, plus 2 padding bases.
+        assert_eq!(mapper.ref_len, 400);
+        assert_eq!(mapper.tgt_len, 202);
+        // The first transcript base is the first genomic base on `+` and the last one on
+        // `-`, where the mapper counts transcript positions from the genomic start.
+        let (ref_pos, tgt_pos) = if strand == 1 { (0, 0) } else { (399, 201) };
+        assert_eq!(mapper.map_ref_to_tgt(ref_pos, "start", true)?.pos, tgt_pos);
 
         Ok(())
     }

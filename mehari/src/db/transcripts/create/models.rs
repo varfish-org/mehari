@@ -466,7 +466,9 @@ impl TranscriptLoader {
                         .max_by_key(|g| g.alt_cds_end_i)
                         .expect("No exons found during fix_cds");
                     exon.alt_cds_end_i += delta;
-                    exon.cigar.push_str(&format!("{}I", delta));
+                    // The padding bases exist in the transcript only. In the CIGAR
+                    // convention of the hgvs mapper that is `D`; `I` advances the genome.
+                    exon.cigar.push_str(&format!("{}D", delta));
                     self.fixes
                         .entry(Identifier::Transcript(
                             TranscriptId::try_new(&tx.id).unwrap(),
