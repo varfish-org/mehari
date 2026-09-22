@@ -193,6 +193,15 @@ pub struct Args {
     /// Port to listen on.
     #[arg(long, default_value_t = 8080)]
     pub listen_port: u16,
+
+    /// Control number of actix worker use
+    #[arg(long, default_value_t = default_available_parallelism())]
+    pub threads: std::num::NonZero<usize>,
+}
+
+/// Get default value for number of worker, value use `std::thread::available_parallelism()` if this function failled: return 1.
+fn default_available_parallelism() -> std::num::NonZero<usize> {
+    std::thread::available_parallelism().unwrap_or(std::num::NonZero::new(1).unwrap()) // this unwrap can't produce a panic
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString)]
