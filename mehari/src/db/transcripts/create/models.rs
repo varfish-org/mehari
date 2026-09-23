@@ -4,7 +4,7 @@ use crate::db::transcripts::create::filter::MITOCHONDRIAL_ACCESSIONS;
 use anyhow::{Error, anyhow};
 use enumflags2::bitflags;
 use enumflags2::{BitFlag, BitFlags};
-use hgvs::data::cdot::json::models::{BioType, Gene, Tag, Transcript};
+use hgvs::data::cdot::json::models::{BioType, Exon, Gene, Tag, Transcript};
 use itertools::Itertools;
 use nutype::nutype;
 use serde::Serialize;
@@ -114,6 +114,7 @@ pub enum Fix {
     Cds,
     GenomeBuild,
     Tags,
+    UnalignedBases,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -303,6 +304,7 @@ impl TranscriptLoader {
         if let Some(txid_to_label) = transcript_id_to_tags {
             self.update_transcript_tags(txid_to_label);
         }
+        self.fix_unaligned_bases();
         self.fix_cds();
     }
 
@@ -477,6 +479,21 @@ impl TranscriptLoader {
                         .insert(Fix::Cds);
                 }
             });
+    }
+
+    pub(crate) fn fix_unaligned_bases(&mut self) {
+        for (tx_id, tx) in self.transcript_id_to_transcript.iter_mut() {
+            let mut changed = false;
+            for alignment in tx.genome_builds.values_mut() {
+                changed |= fill_unaligned_bases(&mut alignment.exons);
+            }
+            if changed {
+                self.fixes
+                    .entry(Identifier::Transcript(tx_id.clone()))
+                    .or_default()
+                    .insert(Fix::UnalignedBases);
+            }
+        }
     }
 
     pub(crate) fn gene_name(&self, id: &Identifier) -> Option<String> {
@@ -693,6 +710,110 @@ impl TranscriptLoader {
             panic!("Empty discard reason for {:#?}", id);
         }
         *self.discards.entry(id.clone()).or_default() |= reason;
+        Ok(())
+    }
+}
+
+/// Adds transcript bases that do not align to the genome to the exon that follows them, as
+/// transcript-only bases (`D`). RefSeq aligns some transcripts only in parts, which leaves
+/// holes in the transcript coordinates of their exons. The hgvs mapper needs exons that cover
+/// the transcript from position 1 without holes: it rejects holes between exons, and it
+/// counts transcript positions from the start of the first exon.
+///
+/// Returns whether any exon changed.
+fn fill_unaligned_bases(exons: &mut [Exon]) -> bool {
+    let mut in_tx_order: Vec<_> = exons.iter_mut().collect();
+    in_tx_order.sort_by_key(|exon| exon.ord);
+    let mut changed = false;
+    let mut next_tx_start = 1;
+    for exon in in_tx_order {
+        let unaligned = exon.alt_cds_start_i - next_tx_start;
+        if unaligned > 0 {
+            // The CIGAR runs in transcript direction, also on `-`.
+            exon.cigar = format!("{unaligned}D{}", exon.cigar);
+            exon.alt_cds_start_i = next_tx_start;
+            changed = true;
+        }
+        next_tx_start = exon.alt_cds_end_i + 1;
+    }
+    changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hgvs::data::interface::TxExonsRecord;
+    use hgvs::mapper::alignment::build_tx_cigar;
+    use hgvs::mapper::cigar::CigarMapper;
+
+    /// Each exon must still map to the transcript positions of its alignment, and the
+    /// exons must cover the transcript from position 1 without holes.
+    #[rstest::rstest]
+    #[case::hole_plus(1, [(1, 100), (140, 239)], true)]
+    #[case::hole_minus(-1, [(1, 100), (140, 239)], true)]
+    #[case::leading_plus(1, [(8, 107), (108, 207)], true)]
+    #[case::leading_minus(-1, [(8, 107), (108, 207)], true)]
+    #[case::aligned(1, [(1, 100), (101, 200)], false)]
+    fn unaligned_bases_become_transcript_only_bases(
+        #[case] strand: i16,
+        #[case] tx_ranges: [(i32, i32); 2],
+        #[case] changed: bool,
+    ) -> Result<(), anyhow::Error> {
+        // Two exons of 100 bases around an intron of 200 bases. `ord` counts in transcript
+        // direction, so on `-` the first exon is the one at the genomic end.
+        let genomic = if strand == 1 {
+            [(1000, 1100), (1300, 1400)]
+        } else {
+            [(1300, 1400), (1000, 1100)]
+        };
+        let aligned: Vec<_> = (0..)
+            .zip(genomic.into_iter().zip(tx_ranges))
+            .map(
+                |(ord, ((alt_start_i, alt_end_i), (alt_cds_start_i, alt_cds_end_i)))| Exon {
+                    alt_start_i,
+                    alt_end_i,
+                    ord,
+                    alt_cds_start_i,
+                    alt_cds_end_i,
+                    cigar: "100M".into(),
+                },
+            )
+            .collect();
+        let mut exons = aligned.clone();
+        let is_changed = fill_unaligned_bases(&mut exons);
+
+        // The alignment as the hgvs mapper sees it, see `Provider::get_tx_exons`.
+        exons.sort_by_key(|exon| exon.alt_start_i);
+        let records: Vec<_> = exons
+            .iter()
+            .map(|exon| TxExonsRecord {
+                alt_start_i: exon.alt_start_i,
+                alt_end_i: exon.alt_end_i,
+                cigar: exon.cigar.clone(),
+                ..Default::default()
+            })
+            .collect();
+        let mapper = CigarMapper::new(&build_tx_cigar(&records, strand)?);
+        let tx_len = tx_ranges[1].1;
+        assert_eq!(mapper.tgt_len, tx_len);
+        // The first genomic base of each exon maps to its transcript position. The mapper
+        // counts transcript positions from the genomic start, also on `-`.
+        for exon in &aligned {
+            let tgt_pos = if strand == 1 {
+                exon.alt_cds_start_i - 1
+            } else {
+                tx_len - exon.alt_cds_end_i
+            };
+            let mapped = mapper.map_ref_to_tgt(exon.alt_start_i - 1000, "start", true)?;
+            assert_eq!(mapped.pos, tgt_pos, "exon {}", exon.ord);
+        }
+
+        // The hgvs mapper rejects holes between exons, see `NonAdjacentExons`.
+        exons.sort_by_key(|exon| exon.ord);
+        assert_eq!(exons[0].alt_cds_start_i, 1);
+        assert_eq!(exons[1].alt_cds_start_i, exons[0].alt_cds_end_i + 1);
+        assert_eq!(is_changed, changed);
+
         Ok(())
     }
 }
