@@ -512,6 +512,22 @@ impl ConsequencePredictor {
         ann_fields
     }
 
+    /// Return the transcript length: the last transcript position that an exon covers.
+    ///
+    /// The sum of the genomic exon lengths would count genome-only bases (CIGAR `I`) and miss
+    /// transcript-only bases (CIGAR `D`). The stored transcript sequence can end with `A` bases
+    /// that `db create` appends. Bases after the last exon, such as an unaligned poly-A tail,
+    /// do not count.
+    fn tx_len(tx: &Transcript) -> i32 {
+        // `alt_cds_end_i` is the 1-based transcript position of the exon's last base.
+        tx.genome_alignments
+            .iter()
+            .flat_map(|alignment| &alignment.exons)
+            .filter_map(|exon| exon.alt_cds_end_i)
+            .max()
+            .unwrap_or_default()
+    }
+
     fn determine_transcript_context(
         &self,
         alignment: &GenomeAlignment,
@@ -519,13 +535,12 @@ impl ConsequencePredictor {
         var_g: &HgvsVariant,
         var_start: i32,
         var_end: i32,
-    ) -> (TranscriptLocationContext, Consequences, i32) {
+    ) -> (TranscriptLocationContext, Consequences) {
         let mut consequences = Consequences::empty();
         let mut rank = Rank::default();
         let mut is_exonic = false;
         let mut is_intronic = false;
         let mut distance: Option<i32> = None;
-        let mut tx_len = 0;
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
@@ -546,8 +561,6 @@ impl ConsequencePredictor {
         let mut max_end = None;
 
         for exon_alignment in &alignment.exons {
-            tx_len += exon_alignment.alt_end_i - exon_alignment.alt_start_i;
-
             let exon_start = exon_alignment.alt_start_i;
             let exon_end = exon_alignment.alt_end_i;
 
@@ -653,7 +666,6 @@ impl ConsequencePredictor {
                 is_downstream,
             },
             consequences,
-            tx_len,
         )
     }
 
@@ -857,7 +869,7 @@ impl ConsequencePredictor {
         let transcript_biotype =
             TranscriptBiotype::try_from(tx.biotype).expect("invalid transcript biotype");
 
-        let (transcript_location, transcript_consequences, tx_len) =
+        let (transcript_location, transcript_consequences) =
             self.determine_transcript_context(alignment, strand, var_g, var_start, var_end);
 
         let mut consequences = transcript_consequences;
@@ -887,7 +899,7 @@ impl ConsequencePredictor {
                 tx,
                 &tx_record,
                 &transcript_location,
-                tx_len,
+                Self::tx_len(tx),
                 transcript_biotype,
             )?;
 
@@ -2216,7 +2228,7 @@ impl ConsequencePredictor {
         for var in sorted_vars {
             let var_g = Self::get_var_g(var, chrom_acc);
             let (var_start, var_end) = Self::get_var_start_end(&var_g);
-            let (tx_loc, tx_csqs, _) =
+            let (tx_loc, tx_csqs) =
                 self.determine_transcript_context(alignment, strand, &var_g, var_start, var_end);
 
             group_consequences |= tx_csqs;
@@ -2367,7 +2379,7 @@ impl ConsequencePredictor {
 
         n_edits.sort_by(|a, b| b.replace_start.cmp(&a.replace_start));
 
-        let tx_len = ref_data.transcript_sequence.len() as i32;
+        let tx_len = Self::tx_len(tx);
         let mut alt_seq = ref_data.transcript_sequence.to_string();
         let n_min = n_edits.iter().map(|e| e.n_loc_start).min().unwrap();
         let n_max = n_edits.iter().map(|e| e.n_loc_end).max().unwrap();
@@ -2739,6 +2751,109 @@ mod test {
     fn test_sync() {
         fn is_sync<T: Sync>() {}
         is_sync::<super::ConsequencePredictor>();
+    }
+
+    /// One coding transcript whose exon alignments have genome-only (`I`) and
+    /// transcript-only (`D`) bases:
+    ///
+    /// ```text
+    /// exon 1: g.1001_1012 (12 bp), CIGAR 6=2I4=, n.1_10
+    /// exon 2: g.2001_2020 (20 bp), CIGAR 10=3D10=, n.11_33
+    /// ```
+    ///
+    /// The genomic exon lengths add up to 32, but the transcript has 33 bases. The CDS is
+    /// n.3_29. Like `db create` does for a complete CDS, the stored sequence ends with three
+    /// extra `A`.
+    fn tx_db_with_indels_in_exon_cigars() -> crate::pbs::txs::TxSeqDatabase {
+        use crate::pbs::txs::{
+            ExonAlignment, GeneToTxId, SequenceDb, SourceVersion, TranscriptDb, TxSeqDatabase,
+        };
+
+        let exon = |ord, alt_start_i, alt_end_i, tx_start, tx_end, cigar: &str| ExonAlignment {
+            alt_start_i,
+            alt_end_i,
+            ord,
+            alt_cds_start_i: Some(tx_start),
+            alt_cds_end_i: Some(tx_end),
+            cigar: cigar.into(),
+        };
+
+        TxSeqDatabase {
+            tx_db: Some(TranscriptDb {
+                transcripts: vec![Transcript {
+                    id: "NM_000000.1".into(),
+                    gene_symbol: "TEST".into(),
+                    gene_id: "HGNC:0".into(),
+                    biotype: TranscriptBiotype::Coding.into(),
+                    protein: Some("NP_000000.1".into()),
+                    start_codon: Some(2),
+                    stop_codon: Some(29),
+                    genome_alignments: vec![GenomeAlignment {
+                        genome_build: "grch37".into(),
+                        contig: "NC_000001.10".into(),
+                        cds_start: Some(1002),
+                        cds_end: Some(2016),
+                        strand: Strand::Plus.into(),
+                        exons: vec![
+                            exon(0, 1000, 1012, 1, 10, "6=2I4="),
+                            exon(1, 2000, 2020, 11, 33, "10=3D10="),
+                        ],
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                gene_to_tx: vec![GeneToTxId {
+                    gene_id: "HGNC:0".into(),
+                    tx_ids: vec!["NM_000000.1".into()],
+                    ..Default::default()
+                }],
+            }),
+            seq_db: Some(SequenceDb {
+                aliases: vec!["NM_000000.1".into()],
+                aliases_idx: vec![0],
+                seqs: vec!["GG".to_string() + "ATGGCCAAAGGGCCCTTTGGGAAATAA" + "CCCC" + "AAA"],
+            }),
+            source_version: vec![SourceVersion {
+                assembly: "grch37".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// The cDNA total is the transcript length, both for single and for phased variants.
+    #[test]
+    fn annotate_totals_with_indels_in_exon_cigars() -> Result<(), anyhow::Error> {
+        let provider = Arc::new(MehariProvider::new(
+            tx_db_with_indels_in_exon_cigars(),
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let var = |position, reference: &str, alternative: &str| VcfVariant {
+            chromosome: "1".into(),
+            position,
+            reference: reference.into(),
+            alternative: alternative.into(),
+        };
+        // c.14C>A, p.Pro5His
+        let single = predictor.predict(&var(2006, "C", "A"))?.unwrap();
+        // c.[14C>A;16T>G], p.Pro5_Phe6delinsHisVal
+        let phased = predictor
+            .predict_multiple(&[var(2006, "C", "A"), var(2008, "T", "G")])?
+            .unwrap();
+
+        for ann in [&single[0], &phased[0]] {
+            let pos = |ord, total| Some(Pos { ord, total });
+            assert_eq!(ann.feature_id, "NM_000000.1");
+            assert_eq!(ann.cdna_pos, pos(16, Some(33)));
+            assert_eq!(ann.cds_pos, pos(14, Some(27)));
+            assert_eq!(ann.protein_pos, pos(5, Some(9)));
+        }
+
+        Ok(())
     }
 
     #[rstest::rstest]
