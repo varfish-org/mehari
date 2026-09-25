@@ -398,8 +398,17 @@ pub(crate) fn filter_transcripts_with_sequence(
                     .and_then(|start| tx.stop_codon.map(|stop| (start as usize, stop as usize)));
                 let cds = if tx.protein_coding() { cds } else { None };
                 if let Some((cds_start, cds_end)) = cds {
-                    let cds_length = cds_end.saturating_sub(cds_start);
-                    let delta = (3 - (cds_length % 3)).max(cds_end.saturating_sub(seq.len()));
+                    // `fix_cds` completes an incomplete last codon by appending 1 or 2
+                    // bases to the last exon. If the sequence ends before the exons, pad
+                    // it with `A` bases.
+                    let tx_end = tx
+                        .genome_builds
+                        .values()
+                        .flat_map(|gb| gb.exons.iter())
+                        .filter_map(|exon| usize::try_from(exon.alt_cds_end_i).ok())
+                        .max()
+                        .unwrap_or_default();
+                    let delta = tx_end.saturating_sub(seq.len());
                     let seq = append_poly_a(seq, delta);
 
                     let safe_end = cds_end.min(seq.len());
@@ -585,8 +594,6 @@ fn truncated_ends(alignment: &GenomeAlignment) -> Option<(bool, bool)> {
 }
 
 fn append_poly_a(seq: String, length: usize) -> String {
-    // Append poly-A for chrMT transcripts (which are from ENSEMBL).
-    // This also potentially fixes the stop codon.
     let mut seq = seq.into_bytes();
     seq.extend_from_slice(b"A".repeat(length).as_slice());
     String::from_utf8(seq).expect("must be valid UTF-8")
@@ -708,6 +715,70 @@ mod tests {
             ),
             (five_prime || three_prime, five_prime, three_prime),
         );
+        Ok(())
+    }
+
+    /// Load a coding transcript with one exon at genomic `[1000, 1000 + seq.len())` and the
+    /// CDS `0..stop_codon`, apply `fix_cds`, and return the sequence that
+    /// `filter_transcripts_with_sequence` stores for it.
+    fn stored_sequence(contig: &str, seq: &str, stop_codon: i32) -> Result<String, Error> {
+        let len = i32::try_from(seq.len())?;
+        let alignment = GenomeAlignment {
+            cds_start: Some(1000),
+            cds_end: Some(1000 + stop_codon),
+            contig: contig.to_string(),
+            exons: vec![Exon {
+                alt_start_i: 1000,
+                alt_end_i: 1000 + len,
+                ord: 0,
+                alt_cds_start_i: 1,
+                alt_cds_end_i: len,
+                cigar: format!("{len}M"),
+            }],
+            strand: Strand::Plus,
+            tag: None,
+            note: None,
+        };
+        let tx = Transcript {
+            biotype: None,
+            gene_name: None,
+            gene_version: String::new(),
+            genome_builds: IndexMap::from([("GRCh38".to_string(), alignment)]),
+            hgnc: None,
+            id: TX_ID.to_string(),
+            partial: None,
+            protein: Some("NP_000001.1".to_string()),
+            start_codon: Some(0),
+            stop_codon: Some(stop_codon),
+            transl_except: None,
+            transl_table: None,
+        };
+        let tx_id = TranscriptId::try_new(TX_ID)?;
+        let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
+        loader.transcript_id_to_transcript.insert(tx_id.clone(), tx);
+        loader.fix_cds();
+
+        let mut seq_provider =
+            SequenceProvider::FastaMap(HashMap::from([(TX_ID.to_string(), seq.to_string())]));
+        let mut seqs =
+            filter_transcripts_with_sequence(&mut loader, &mut seq_provider, &NoProgress)?;
+        Ok(seqs.remove(&tx_id).unwrap_or_default())
+    }
+
+    #[rstest::rstest]
+    #[case::complete_cds("NC_000001.11", "ATGAAATAGCC", 9, "ATGAAATAGCC")]
+    #[case::stop_codon_at_transcript_end("NC_000001.11", "ATGAAATAG", 9, "ATGAAATAG")]
+    // `fix_cds` completes the stop codon `T` to `TAA`.
+    #[case::stop_codon_completed("NC_012920.1", "ATGAAAT", 7, "ATGAAATAA")]
+    // `fix_cds` extends the CDS into the 3' UTR and appends 1 base to the last exon.
+    #[case::padded_cds_before_transcript_end("NC_000001.11", "ATGAAATAGCC", 8, "ATGAAATAGCCA")]
+    fn stored_sequence_is_padded_only_to_the_exon_end(
+        #[case] contig: &str,
+        #[case] seq: &str,
+        #[case] stop_codon: i32,
+        #[case] expected: &str,
+    ) -> Result<(), Error> {
+        assert_eq!(stored_sequence(contig, seq, stop_codon)?, expected);
         Ok(())
     }
 }
