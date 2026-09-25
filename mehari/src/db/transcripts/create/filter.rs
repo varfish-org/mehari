@@ -436,8 +436,11 @@ pub(crate) fn filter_transcripts_with_sequence(
                     if let Ok(aa_sequence) = aa_sequence_result {
                         let has_missing_stop_codon = (!is_mt && !aa_sequence.ends_with('*'))
                             || (is_mt && !aa_sequence.contains('*'));
-                        if has_missing_stop_codon && !loader.disable_filters {
+                        // Annotation reads this flag, so set it also without filters.
+                        if has_missing_stop_codon {
                             reason |= Reason::MissingStopCodon;
+                        }
+                        if has_missing_stop_codon && !loader.disable_filters {
                             if five_prime_truncated(tx) {
                                 reason |= Reason::FivePrimeEndTruncated;
                             }
@@ -762,8 +765,17 @@ mod tests {
         tx: Transcript,
         seq: &str,
     ) -> Result<(String, BitFlags<Reason>, Option<i32>), Error> {
+        stored_sequence_with(tx, seq, false)
+    }
+
+    /// `stored_sequence` for a loader with the given `disable_filters`.
+    fn stored_sequence_with(
+        tx: Transcript,
+        seq: &str,
+        disable_filters: bool,
+    ) -> Result<(String, BitFlags<Reason>, Option<i32>), Error> {
         let tx_id = TranscriptId::try_new(TX_ID)?;
-        let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
+        let mut loader = TranscriptLoader::new("GRCh38".to_string(), disable_filters);
         loader.transcript_id_to_transcript.insert(tx_id.clone(), tx);
         loader.fix_cds();
 
@@ -838,6 +850,18 @@ mod tests {
         let (seq, reason, stop_codon) = stored_sequence(tx, "ATGAAAT")?;
         assert_eq!(seq, "ATGAAAT");
         assert_eq!(stop_codon, Some(7));
+        assert!(reason.contains(Reason::MissingStopCodon), "{reason:?}");
+        Ok(())
+    }
+
+    /// Annotation reads `MissingStopCodon` as a fact about the CDS, so `db create` sets it also
+    /// without filters.
+    #[rstest::rstest]
+    #[case::with_filters(false)]
+    #[case::without_filters(true)]
+    fn missing_stop_codon_is_flagged(#[case] disable_filters: bool) -> Result<(), Error> {
+        let tx = one_exon_tx("NC_000001.11", 9, 9)?;
+        let (_, reason, _) = stored_sequence_with(tx, "ATGAAAAAA", disable_filters)?;
         assert!(reason.contains(Reason::MissingStopCodon), "{reason:?}");
         Ok(())
     }
