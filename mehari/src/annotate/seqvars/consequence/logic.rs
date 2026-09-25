@@ -1892,11 +1892,13 @@ impl ConsequencePredictor {
             if checked != Consequences::empty()
                 // if the protein consequence is not effectively empty, we remove the CDS frameshift consequence
                 && !(consequences_protein.eq(&Consequence::GeneVariant) || consequences_protein.is_empty())
-                // if the protein consequence also includes a frameshift, then we keep it
+                // if the protein consequence also includes a frameshift, then we keep it,
+                // and also next to a stop as the first changed residue (`p.Val170Ter`)
                 && !consequences_protein.intersects(
                 Consequence::FrameshiftElongation
                     | Consequence::FrameshiftTruncation
-                    | Consequence::FrameshiftVariant,
+                    | Consequence::FrameshiftVariant
+                    | Consequence::StopGained,
             ) {
                 *consequences &= !checked;
             }
@@ -4058,6 +4060,11 @@ mod test {
     #[case("22:19524002:AC:A", "ENST00000403084", true, vec![Consequence::FrameshiftVariant])]
     // `p.Tyr1910Ter`: insertion inside codon 1910
     #[case("22:17791223:T:TC", "ENST00000441493", true, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    // Default terms: `frameshift_variant`, plus `stop_gained` if the first changed codon is a stop
+    #[case("22:19524002:AC:A", "ENST00000403084", false, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    #[case("22:17791223:T:TC", "ENST00000441493", false, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    #[case("22:38112210:TCA:T", "ENST00000332509", false, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    #[case("22:17191782:T:TTATG", "ENST00000262607", false, vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
     // `p.Asp261AlafsTer2`: the new stop lies in the changed codons
     #[case("22:17191782:T:TTATG", "ENST00000262607", true, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
     // `p.Tyr790Ter`: deletion across codons 790 and 791
