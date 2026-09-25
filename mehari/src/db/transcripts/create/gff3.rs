@@ -983,6 +983,26 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
         Ok(())
     }
 
+    /// Without any `cds_end_NF` tag or RefSeq `partial` flag, a source cannot tell an
+    /// incomplete CDS end from a stop codon that the poly-A tail completes. `db create` then
+    /// warns about the CDS whose length is not a multiple of 3.
+    #[rstest::rstest]
+    #[case::untagged("", 2)]
+    #[case::tagged(";tag=cds_end_NF", 0)]
+    fn partial_codons_without_end_tags_are_counted(
+        #[case] tag: &str,
+        #[case] expected: usize,
+    ) -> Result<(), anyhow::Error> {
+        let gff3 = GFF3_CDS_END_NF.replace(
+            "ID=transcript:T3P;Parent=gene:G3P",
+            &format!("ID=transcript:T3P;Parent=gene:G3P{tag}"),
+        );
+        let loader = load(&gff3)?;
+
+        assert_eq!(loader.partial_codons_without_end_tags(), expected);
+        Ok(())
+    }
+
     /// `bgzip` output is a multi-member gzip stream (one gzip member per block). A plain
     /// `GzDecoder` only reads the first member, so make sure `load_gff3` reads all of them.
     #[test]
