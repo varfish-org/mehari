@@ -851,6 +851,23 @@ impl ConsequencePredictor {
                         {
                             context.protein_consequences |= Consequence::StopRetainedVariant;
                         }
+                        if self.config.vep_consequence_terms
+                            && let Ok(alt_data) =
+                                AltSeqBuilder::new(var_c.clone(), &ref_data).build_altseq()
+                            && let Some(alt_data) = alt_data.first()
+                            && let Some(stop_terms) = vep_indel_stop_terms(
+                                var_c,
+                                &ref_data.aa_sequence,
+                                &alt_data.aa_sequence,
+                            )
+                        {
+                            context.protein_consequences.remove(
+                                Consequence::StopGained
+                                    | Consequence::StopLost
+                                    | Consequence::StopRetainedVariant,
+                            );
+                            context.protein_consequences |= stop_terms;
+                        }
                     }
                 }
             }
@@ -1192,10 +1209,6 @@ impl ConsequencePredictor {
             && *consequences != Into::<Consequences>::into(ExonLossVariant)
         {
             consequences.remove(ExonLossVariant);
-        }
-
-        if consequences.contains(FrameshiftVariant) {
-            consequences.remove(StopGained | StopLost);
         }
 
         let suppress_splice_region = SpliceDonorVariant
@@ -2751,6 +2764,65 @@ fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
     }
 }
 
+/// VEP's `stop_gained`, `stop_lost` and `stop_retained_variant` for an indel in the CDS.
+///
+/// VEP translates only the codons that the variant changes (`TranscriptVariationAllele::codon`):
+/// the reference codons, and the complete codons of the altered sequence that replace them. A stop
+/// that a new frame reaches behind these codons thus gives no `stop_gained`. `ref_aa` and `alt_aa`
+/// are the translations of the reference and the altered transcript.
+///
+/// Returns `None` for an edit other than an insertion, duplication, deletion or delins.
+fn vep_indel_stop_terms(var_c: &HgvsVariant, ref_aa: &str, alt_aa: &str) -> Option<Consequences> {
+    let codon = |cds_pos: i32| (cds_pos + 2) / 3;
+
+    let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
+        return None;
+    };
+    let (start, end) = (
+        loc_edit.loc.inner().start.base,
+        loc_edit.loc.inner().end.base,
+    );
+    // The changed reference codons `first..=last`, and the length change. An insertion between two
+    // codons changes no reference codon.
+    let (first, last, len_change) = match loc_edit.edit.inner() {
+        NaEdit::Ins { alternative } => (codon(start + 1), codon(start), alternative.len() as i32),
+        NaEdit::Dup { .. } => (codon(end + 1), codon(end), end - start + 1),
+        NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => {
+            (codon(start), codon(end), start - end - 1)
+        }
+        NaEdit::RefAlt { alternative, .. } => (
+            codon(start),
+            codon(end),
+            alternative.len() as i32 - (end - start + 1),
+        ),
+        _ => return None,
+    };
+    // The last complete codon of the altered sequence that replaces them.
+    let last_new = first - 1 + (3 * (last - first + 1) + len_change) / 3;
+
+    // The amino acids `first..=to` of `seq`.
+    let peptide = |seq: &str, to: i32| -> String {
+        let from = usize::try_from(first - 1).unwrap_or(0);
+        let to = usize::try_from(to).unwrap_or(0);
+        seq.chars().take(to).skip(from).collect()
+    };
+    let (ref_pep, alt_pep) = (peptide(ref_aa, last), peptide(alt_aa, last_new));
+    // VEP's `translation_start > length(_peptide)`: the changed codons start at the stop codon.
+    let starts_at_stop = ref_aa.ends_with('*') && first >= ref_aa.len() as i32;
+
+    Some(
+        if alt_pep.starts_with('*') && (starts_at_stop || ref_pep.starts_with('*')) {
+            Consequence::StopRetainedVariant.into()
+        } else if alt_pep.contains('*') && !ref_pep.contains('*') {
+            Consequence::StopGained.into()
+        } else if ref_pep.contains('*') && !alt_pep.contains('*') {
+            Consequence::StopLost.into()
+        } else {
+            Consequences::empty()
+        },
+    )
+}
+
 #[inline]
 fn overlaps(start_a: i32, end_a: i32, start_b: i32, end_b: i32) -> bool {
     (start_a < end_b) && (end_a > start_b)
@@ -3270,12 +3342,39 @@ mod test {
     /// Indels on Ensembl 108 chr22 transcripts.
     ///
     /// With VEP terms, the expected terms are those of VEP 108 with `--shift_3prime 1`, i.e., at
-    /// the same (3'-shifted) position as mehari's.
+    /// the same (3'-shifted) position as mehari's. mehari adds `feature_elongation` and
+    /// `protein_altering_variant`.
     #[rstest::rstest]
+    // `p.Val170Ter`: VEP's changed codons hold no complete codon of the new frame
+    #[case("22:19524002:AC:A", "ENST00000403084", true, vec![Consequence::FrameshiftVariant])]
+    // `p.Tyr1910Ter`: insertion inside codon 1910
+    #[case("22:17791223:T:TC", "ENST00000441493", true, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    // `p.Asp261AlafsTer2`: the new stop lies in the changed codons
+    #[case("22:17191782:T:TTATG", "ENST00000262607", true, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    // `p.Tyr790Ter`: deletion across codons 790 and 791
+    #[case("22:38112210:TCA:T", "ENST00000332509", true, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    // `p.Glu587Ter`: insertion between codons 586 and 587
+    #[case("22:20112682:C:CA", "ENST00000252136", true, vec![Consequence::FrameshiftVariant])]
+    // `p.Ter85ArgextTer9`
+    #[case("22:22895417:CCT:C", "ENST00000531372", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation])]
+    // `p.Ter204TrpextTer73`
+    #[case("22:42571197:T:TG", "ENST00000340239", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation])]
+    // `p.Ter704=`: the new frame completes a stop codon only behind VEP's changed codons
+    #[case("22:45600444:TG:T", "ENST00000327858", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost])]
+    // `p.Ter512=`: the new frame starts with a stop codon
+    #[case("22:17181484:C:CT", "ENST00000262607", true, vec![Consequence::FrameshiftVariant, Consequence::StopRetainedVariant])]
+    // `p.Ter704AspextTer1`: in-frame insertion in front of the stop codon
+    #[case("22:45600443:C:CGAT", "ENST00000327858", true, vec![Consequence::FeatureElongation, Consequence::InframeInsertion])]
+    // `p.Cys203Ter` (VEP: `p.Cys203del`): in-frame deletion in front of the stop codon
+    #[case("22:42571193:CTGT:C", "ENST00000340239", true, vec![Consequence::InframeDeletion])]
+    // in-frame deletion across the stop codon
+    #[case("22:22895418:CTCT:C", "ENST00000531372", true, vec![Consequence::StopLost, Consequence::InframeDeletion, Consequence::ProteinAlteringVariant])]
     // `p.=`: in-frame insertion inside the stop codon that keeps it
     #[case("22:45600443:C:CTAA", "ENST00000327858", false, vec![Consequence::DisruptiveInframeInsertion, Consequence::StopRetainedVariant])]
-    // `p.=`: in-frame insertion of a stop codon in a CDS without a stop codon (`cds_end_NF`)
+    #[case("22:45600443:C:CTAA", "ENST00000327858", true, vec![Consequence::InframeInsertion, Consequence::StopRetainedVariant])]
+    // `p.=`: in-frame insertion that creates a stop codon in a CDS without one (`cds_end_NF`)
     #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::DisruptiveInframeInsertion])]
+    #[case("22:38140065:C:CTAA", "ENST00000430886", true, vec![Consequence::StopGained, Consequence::InframeInsertion])]
     // `p.=`: frameshift in a CDS without a stop codon (`cds_end_NF`)
     #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
     // `c.932_933dup` (`p.=`): the copy lands behind the stop codon
