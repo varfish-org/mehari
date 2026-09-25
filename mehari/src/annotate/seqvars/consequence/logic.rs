@@ -418,6 +418,30 @@ fn cds_edit(var_c: &HgvsVariant) -> Option<(i32, i32, i32)> {
     Some((start, end, len_change))
 }
 
+/// The number of bases after the last exon that complete the stop codon of `tx`. `db create`
+/// adds them as `A` bases, as the poly-A tail does. No total counts them.
+fn stop_codon_padding(tx: &Transcript, tx_len: i32) -> i32 {
+    tx.stop_codon.map_or(0, |stop| (stop - tx_len).max(0))
+}
+
+/// `seq` without the `A` bases that `db create` appended to the stored sequence of `tx` to
+/// complete its stop codon. `ref_len` is the length of the stored sequence. If it runs past
+/// the stop codon, e.g. into a poly-A tail, `db create` appended nothing.
+///
+/// A RefSeq sequence can have an unaligned 3' tail that ends inside the completed stop codon.
+/// `db create` pads it to the stop codon end as well, so this drops the tail bases too. No
+/// such transcript is known.
+fn without_stop_codon_padding(seq: &str, ref_len: usize, tx: &Transcript, tx_len: i32) -> String {
+    let appended = if tx.stop_codon.and_then(|stop| usize::try_from(stop).ok()) == Some(ref_len) {
+        usize::try_from(stop_codon_padding(tx, tx_len)).unwrap_or_default()
+    } else {
+        0
+    };
+    seq.get(..seq.len().saturating_sub(appended))
+        .unwrap_or(seq)
+        .to_string()
+}
+
 /// Whether the CDS of `tx` ends with a partial codon. `db create` completes the last codon
 /// unless the annotation marks the CDS end as incomplete.
 fn has_partial_last_codon(tx: &Transcript) -> bool {
@@ -1106,7 +1130,7 @@ impl ConsequencePredictor {
                     // c.-N (5' UTR) and c.*N (3' UTR) are not positions in the CDS.
                     (start.cds_from == CdsFrom::Start && start.base >= 1).then_some(Pos {
                         ord: start.base,
-                        total: cds_len,
+                        total: cds_len.map(|len| len - stop_codon_padding(tx, tx_len)),
                     })
                 }
                 _ => panic!("Invalid CDS position: {:?}", var_c),
@@ -4707,7 +4731,8 @@ mod test {
         Ok(())
     }
 
-    /// A predictor for `tx`, a transcript on chr1 (GRCh38) with the sequence `seq`.
+    /// A predictor for `tx`, a transcript on chr1 (GRCh38) with the sequence `seq`. It reports
+    /// the transcript sequences.
     fn predictor_for(tx: Transcript, seq: String) -> ConsequencePredictor {
         use crate::pbs::txs::{GeneToTxId, SequenceDb, SourceVersion, TranscriptDb, TxSeqDatabase};
 
@@ -4741,7 +4766,11 @@ mod test {
             true,
             Default::default(),
         ));
-        ConsequencePredictor::new(provider, Default::default())
+        let config = ConfigBuilder::default()
+            .report_cdna_sequence(SequenceReporting::Both)
+            .build()
+            .unwrap();
+        ConsequencePredictor::new(provider, config)
     }
 
     /// A coding transcript `NM_000001.1` with one exon at chr1:1001 on the plus strand. Its
@@ -5001,6 +5030,52 @@ mod test {
                 assert!(!ann.consequences.contains(&consequence), "{ann:?}");
             }
         }
+        Ok(())
+    }
+
+    /// `db create` completes a stop codon at the transcript end with `A` bases. They follow the
+    /// last exon, and no total or sequence counts them.
+    ///
+    /// The transcript has 20 bases of 5' UTR and the CDS `ATG GCC AAG CTG TGG GAA T`
+    /// (`MAKLWE` and the stop codon `T`) at chr1:1021-1039, which ends at the transcript end.
+    /// `db create` completes the stop codon to `TAA`.
+    #[rstest::rstest]
+    #[case::missense("1033:T:C", "p.Trp5Arg", Consequence::MissenseVariant)]
+    #[case::stop_lost("1039:T:C", "p.Ter7GlnextTer?", Consequence::StopLost)]
+    fn totals_without_poly_a_padding(
+        #[case] var: &str,
+        #[case] hgvs_p: &str,
+        #[case] consequence: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let (utr5, cds) = ("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGGAAT");
+        let (tx, seq) = one_exon_tx(utr5, cds, "");
+        let tx = Transcript {
+            stop_codon: tx.stop_codon.map(|stop| stop + 2),
+            ..tx
+        };
+        let var = var.split(':').collect::<Vec<_>>();
+        let position: usize = var[0].parse()?;
+        let anns = predictor_for(tx, format!("{seq}AA"))
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: position.try_into()?,
+                reference: var[1].into(),
+                alternative: var[2].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(ann.hgvs_p.as_deref(), Some(hgvs_p), "{ann:?}");
+        assert!(ann.consequences.contains(&consequence), "{ann:?}");
+        let totals = [&ann.cdna_pos, &ann.cds_pos].map(|pos| pos.as_ref().and_then(|p| p.total));
+        assert_eq!(totals, [Some(39), Some(19)], "{ann:?}");
+        assert_eq!(custom_field(ann, ANN_TX_SEQ_REF), Some(seq.as_str()));
+        let mut seq_alt = seq.clone();
+        seq_alt.replace_range(position - 1001..position - 1000, var[2]);
+        assert_eq!(custom_field(ann, ANN_TX_SEQ_ALT), Some(seq_alt.as_str()));
         Ok(())
     }
 
