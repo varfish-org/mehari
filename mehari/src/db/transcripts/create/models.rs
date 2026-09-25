@@ -47,11 +47,11 @@ impl TranscriptId {
         )?)
     }
 
+    /// Split into accession and version. An ID without a numeric version has version 0.
     pub(crate) fn split_version(&self) -> (&str, u32) {
-        let (ac, version) = self.rsplit_once('.').unwrap_or_else(|| {
-            panic!("Invalid accession, expected format 'ac.version', got {self}")
-        });
-        (ac, version.parse::<u32>().expect("invalid version"))
+        self.rsplit_once('.')
+            .and_then(|(ac, version)| Some((ac, version.parse().ok()?)))
+            .unwrap_or((self.as_ref(), 0))
     }
 }
 
@@ -814,6 +814,17 @@ mod tests {
         assert_eq!(exons[1].alt_cds_start_i, exons[0].alt_cds_end_i + 1);
         assert_eq!(is_changed, changed);
 
+        Ok(())
+    }
+
+    /// GFF3 transcripts without `transcript_id` (e.g. RefSeq tRNAs) keep their `ID`,
+    /// which has no version.
+    #[rstest::rstest]
+    #[case("NM_000001.12", ("NM_000001", 12))]
+    #[case("TRNAV-CAC-1-1", ("TRNAV-CAC-1-1", 0))]
+    #[case("gene.t1", ("gene.t1", 0))]
+    fn split_version(#[case] tx_id: &str, #[case] expected: (&str, u32)) -> Result<(), Error> {
+        assert_eq!(TranscriptId::try_new(tx_id)?.split_version(), expected);
         Ok(())
     }
 }
