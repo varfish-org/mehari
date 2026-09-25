@@ -764,9 +764,11 @@ impl ConsequencePredictor {
     /// inside an exon over one at its edge: its HGVS c. is exonic, so it has a protein
     /// change. Next, ties go to a placement that spares the first and last three bases of each
     /// exon: then the alternate sequence keeps them. The intronic splice region windows are not
-    /// compared. mehari locates an insertion by the base in front of it, so an insertion between
-    /// donor +2 and +3 would count as outside the +3 to +8 window, although it shifts its bases.
-    /// Remaining ties go to the placement nearest to `var_g`, the 3'-most one.
+    /// compared. mehari locates an insertion by the base behind it for a window that counts from
+    /// its left end (the donor region from +3, the fifth base, the polypyrimidine tract on the
+    /// minus strand, the exonic splice region at an exon start), and by the base in front of it
+    /// for the donor and acceptor sites themselves, which test whether the insertion joins the
+    /// exon. Remaining ties go to the placement nearest to `var_g`, the 3'-most one.
     ///
     /// The ends of a transcript do not follow from its sequence. So the terms come from a
     /// placement outside the transcript only if `var_g` lies outside, and then from `var_g`.
@@ -1107,7 +1109,7 @@ impl ConsequencePredictor {
                 is_exonic = true;
                 distance = Some(0);
                 consequences |= Self::analyze_exonic_variant(
-                    strand, var_start, var_end, exon_start, exon_end, &rank, is_utr,
+                    ins_shift, strand, var_start, var_end, exon_start, exon_end, &rank, is_utr,
                 );
             } else if let Some(intron_start) = prev_end
                 && var_start >= intron_start
@@ -2017,6 +2019,7 @@ impl ConsequencePredictor {
 
     #[allow(clippy::too_many_arguments)]
     fn analyze_exonic_variant(
+        ins_shift: i32,
         strand: Strand,
         var_start: i32,
         var_end: i32,
@@ -2029,6 +2032,12 @@ impl ConsequencePredictor {
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
+        // The range of an insertion is the base in front of it. The insertion moves the bases
+        // behind it, so a window that counts from the exon start contains it if it contains
+        // the base behind it.
+        let var_overlaps_behind = |start: i32, end: i32| -> bool {
+            overlaps(var_start + ins_shift, var_end + ins_shift, start, end)
+        };
 
         // Check the cases where the variant overlaps with whole exon.
         if var_start <= exon_start && var_end >= exon_end {
@@ -2064,7 +2073,7 @@ impl ConsequencePredictor {
                 }
             }
         }
-        if var_overlaps(exon_start, exon_start + 3) {
+        if var_overlaps_behind(exon_start, exon_start + 3) {
             if strand == Strand::Plus {
                 if !rank.is_first() {
                     consequences |= Consequence::ExonicSpliceRegionVariant;
@@ -2094,6 +2103,12 @@ impl ConsequencePredictor {
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
+        // The range of an insertion is the base in front of it. The insertion moves the bases
+        // behind it, so a window that counts from the intron start, e.g. donor +3 to +8 on the
+        // plus strand, contains it if it contains the base behind it.
+        let var_overlaps_behind = |start: i32, end: i32| -> bool {
+            overlaps(var_start + ins_shift, var_end + ins_shift, start, end)
+        };
 
         // Check the cases where the variant overlaps with the splice acceptor/donor site.
         if var_overlaps(intron_start, intron_start + 2 - ins_shift) {
@@ -2128,7 +2143,7 @@ impl ConsequencePredictor {
         // n.b. the 1-3 bases in exon check is already done within `analyze_exonic_variant`.
         // We have to check all cases independently and not with `else`
         // because the variant may be larger.
-        if var_overlaps(intron_start + 2, intron_start + 8)
+        if var_overlaps_behind(intron_start + 2, intron_start + 8)
             || var_overlaps(intron_end - 8, intron_end - 2)
         {
             consequences |= Consequence::SpliceRegionVariant;
@@ -2139,14 +2154,14 @@ impl ConsequencePredictor {
         if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
             consequences |= Consequence::SplicePolypyrimidineTractVariant;
         }
-        if strand == Strand::Minus && var_overlaps(intron_start + 2, intron_start + 17) {
+        if strand == Strand::Minus && var_overlaps_behind(intron_start + 2, intron_start + 17) {
             consequences |= Consequence::SplicePolypyrimidineTractVariant;
         }
 
         // Check conditions for splice_donor_region_variant
         // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
         // Note that this is two bases short of the intronic part of splice_region_variant
-        if strand == Strand::Plus && var_overlaps(intron_start + 2, intron_start + 6) {
+        if strand == Strand::Plus && var_overlaps_behind(intron_start + 2, intron_start + 6) {
             consequences |= Consequence::SpliceDonorRegionVariant;
         }
         if strand == Strand::Minus && var_overlaps(intron_end - 6, intron_end - 2) {
@@ -2155,7 +2170,7 @@ impl ConsequencePredictor {
 
         // Check conditions for splice_donor_5th_base_variant
         // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
-        if strand == Strand::Plus && var_overlaps(intron_start + 4, intron_start + 5) {
+        if strand == Strand::Plus && var_overlaps_behind(intron_start + 4, intron_start + 5) {
             consequences |= Consequence::SpliceDonorFifthBaseVariant;
         }
         if strand == Strand::Minus && var_overlaps(intron_end - 5, intron_end - 4) {
@@ -4267,8 +4282,8 @@ mod test {
     // dup of donor +1 to +7: the copy lands behind +7 and leaves the donor intact
     #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", false, "c.1977+1_1977+7dup", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
     #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", true, "c.1977+1_1977+7dup", vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])]
-    // dup of donor +5 and +6: the copy lands behind +6 and leaves the fifth base intact
-    #[case("22:31616877:G:GGT", "ENST00000400288", false, "c.3433+5_3433+6dup", vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    // dup of donor +5 and +6: the copy lands behind +6 and leaves donor +3 to +6 intact
+    #[case("22:31616877:G:GGT", "ENST00000400288", false, "c.3433+5_3433+6dup", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
     // dup of c.16 to c.20: a copy in front of c.16 leaves the last three exon bases intact
     #[case("22:42554033:G:GCCGCA", "ENST00000340239", false, "c.16_20dup", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
     fn annotate_indel_placement_csqs(
@@ -5623,5 +5638,125 @@ mod test {
         #[case] expected: bool,
     ) {
         assert_eq!(deletion_keeps_cds(tx_seq, cds_start, del), expected);
+    }
+
+    /// A coding transcript `NM_000001.1` on the plus strand of chr1. Exon 1 spans
+    /// chr1:1001-1060, the intron chr1:1061-1160 and exon 2 chr1:1161-1220. The CDS is `ATG`,
+    /// 18 `GCC` codons and `TAA`, and starts `cds_start` bases into the transcript.
+    fn two_exon_tx(cds_start: usize) -> (Transcript, String) {
+        let utr = "CAGT".repeat(15);
+        let cds = format!("ATG{}TAA", "GCC".repeat(18));
+        let seq = format!("{}{cds}{}", &utr[..cds_start], &utr[cds_start..]);
+        let start = i32::try_from(cds_start).unwrap();
+        let genomic = |tx_pos: i32| {
+            if tx_pos < 60 {
+                1000 + tx_pos
+            } else {
+                1100 + tx_pos
+            }
+        };
+        let exon = |ord: i32| ExonAlignment {
+            alt_start_i: 1000 + 160 * ord,
+            alt_end_i: 1060 + 160 * ord,
+            ord,
+            alt_cds_start_i: Some(1 + 60 * ord),
+            alt_cds_end_i: Some(60 + 60 * ord),
+            cigar: "60M".into(),
+        };
+        let tx = Transcript {
+            id: "NM_000001.1".into(),
+            gene_symbol: "GENE1".into(),
+            gene_id: "1".into(),
+            biotype: TranscriptBiotype::Coding.into(),
+            protein: Some("NP_000001.1".into()),
+            start_codon: Some(start),
+            stop_codon: Some(start + 60),
+            genome_alignments: vec![GenomeAlignment {
+                genome_build: "grch38".into(),
+                contig: "NC_000001.11".into(),
+                cds_start: Some(genomic(start)),
+                cds_end: Some(genomic(start + 59) + 1),
+                strand: Strand::Plus.into(),
+                exons: vec![exon(0), exon(1)],
+                ..Default::default()
+            }],
+            filtered: Some(false),
+            ..Default::default()
+        };
+        (tx, seq)
+    }
+
+    /// The range of an insertion is the base in front of it. The insertion moves the bases
+    /// behind it, so a splice window that counts from its left end, e.g. donor +3 to +8 on the
+    /// plus strand, contains an insertion if it contains the base behind it. A window that
+    /// counts from its right end contains an insertion if it contains the base in front of it.
+    ///
+    /// `two_exon_tx(20)` has the donor +1 at chr1:1061 and the acceptor -1 at chr1:1160.
+    #[rstest::rstest]
+    #[case::exon_and_donor_1(1060, &[Consequence::ExonicSpliceRegionVariant])]
+    #[case::donor_1_2(1061, &[Consequence::SpliceDonorVariant])]
+    #[case::donor_2_3(
+        1062,
+        &[Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant]
+    )]
+    #[case::donor_4_5(
+        1064,
+        &[
+            Consequence::SpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::SpliceDonorFifthBaseVariant,
+        ]
+    )]
+    #[case::donor_5_6(
+        1065,
+        &[Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant]
+    )]
+    #[case::donor_6_7(1066, &[Consequence::SpliceRegionVariant])]
+    #[case::donor_8_9(1068, &[])]
+    #[case::acceptor_9_8(1152, &[Consequence::SplicePolypyrimidineTractVariant])]
+    #[case::acceptor_3_2(
+        1158,
+        &[Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant]
+    )]
+    #[case::acceptor_1_and_exon(1160, &[Consequence::ExonicSpliceRegionVariant])]
+    #[case::exon_2_3(1162, &[Consequence::ExonicSpliceRegionVariant])]
+    #[case::exon_3_4(1163, &[])]
+    fn splice_windows_for_insertions(
+        #[case] position: i32,
+        #[case] expected: &[Consequence],
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = two_exon_tx(20);
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: "C".into(),
+                alternative: "CTTT".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        let splice_terms = [
+            Consequence::SpliceDonorVariant,
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceRegionVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::SplicePolypyrimidineTractVariant,
+        ];
+        let found = splice_terms
+            .iter()
+            .filter(|term| ann.consequences.contains(term))
+            .collect::<Vec<_>>();
+        let expected = splice_terms
+            .iter()
+            .filter(|term| expected.contains(term))
+            .collect::<Vec<_>>();
+        assert_eq!(found, expected, "{ann:?}");
+        Ok(())
     }
 }
