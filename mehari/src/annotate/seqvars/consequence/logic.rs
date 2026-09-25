@@ -2581,9 +2581,9 @@ impl ConsequencePredictor {
             .map(|v| v.alternative.clone())
             .collect();
 
-        let strand = match tx.genome_alignments.first().unwrap().strand {
-            1 => 1,
-            -1 => -1,
+        let strand = match Strand::try_from(tx.genome_alignments.first().unwrap().strand) {
+            Ok(Strand::Plus) => 1,
+            Ok(Strand::Minus) => -1,
             _ => 0,
         };
 
@@ -3683,6 +3683,47 @@ mod test {
         assert!(new_length_valid >= 0);
         assert!(end_idx_valid <= alt_seq.len());
         let _new_substring = &alt_seq[start_idx..end_idx_valid];
+
+        Ok(())
+    }
+
+    /// Phased annotation reports the transcript strand like `predict` does.
+    /// GRCh37, BRCA1, NM_007294.4 (MANE, reverse).
+    #[test]
+    fn annotate_multiple_brca1_minus_strand() -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let vars = [(41197707, "G", "T"), (41197711, "G", "A")].map(
+            |(position, reference, alternative)| VcfVariant {
+                chromosome: "17".into(),
+                position,
+                reference: reference.into(),
+                alternative: alternative.into(),
+            },
+        );
+        let res = predictor.predict_multiple(&vars)?.unwrap();
+
+        assert!(!res.is_empty());
+        for ann in &res {
+            assert_eq!(ann.strand, -1, "feature_id = {}", ann.feature_id);
+        }
+        // Combines c.5576C>T and c.5580C>A in transcript orientation.
+        let mane = res
+            .iter()
+            .find(|ann| ann.feature_id == "NM_007294.4")
+            .unwrap();
+        assert_eq!(mane.hgvs_c.as_deref(), Some("c.5576_5580delinsTCCAA"));
+        assert_eq!(
+            mane.hgvs_p.as_deref(),
+            Some("p.Pro1859_His1860delinsLeuGln")
+        );
 
         Ok(())
     }
