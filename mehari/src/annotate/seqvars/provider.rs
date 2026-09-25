@@ -258,11 +258,10 @@ impl ReferenceReader for ReferenceReaderImpl {
 pub(crate) fn transcript_length(tx: &Transcript) -> i32 {
     let mut max_tx_length = 0;
     for genome_alignment in tx.genome_alignments.iter() {
-        // We just count length in reference so we don't have to look
-        // into the CIGAR string.
+        // The exon's transcript coordinates are 1-based and inclusive.
         let mut tx_length = 0;
         for exon_alignment in genome_alignment.exons.iter() {
-            tx_length += exon_alignment.alt_cds_end_i() - exon_alignment.alt_cds_start_i();
+            tx_length += exon_alignment.alt_cds_end_i() - exon_alignment.alt_cds_start_i() + 1;
         }
         if tx_length > max_tx_length {
             max_tx_length = tx_length;
@@ -972,5 +971,27 @@ mod test {
     fn test_sync() {
         fn is_sync<T: Sync>() {}
         is_sync::<super::Provider>();
+    }
+
+    #[test]
+    fn transcript_length_counts_all_exon_bases() {
+        use crate::pbs::txs::{ExonAlignment, GenomeAlignment, Transcript};
+
+        // Exons of 100 and 150 bases, in 1-based inclusive transcript coordinates.
+        let exon = |ord, start, end| ExonAlignment {
+            ord,
+            alt_cds_start_i: Some(start),
+            alt_cds_end_i: Some(end),
+            ..Default::default()
+        };
+        let tx = Transcript {
+            genome_alignments: vec![GenomeAlignment {
+                exons: vec![exon(0, 1, 100), exon(1, 101, 250)],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        assert_eq!(super::transcript_length(&tx), 250);
     }
 }
