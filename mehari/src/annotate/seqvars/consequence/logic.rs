@@ -96,6 +96,159 @@ impl HgvsProjectionContext {
     }
 }
 
+/// Check if the c. variant changes only the 5' or 3' UTR and leaves the CDS unchanged.
+///
+/// Insertions and duplications add bases after the end position, so they count as 3' UTR
+/// variants if the end position is in the 3' UTR. This is the UTR check of hgvs-rs
+/// `AltSeqBuilder`, which returns the reference sequence as alternative for these variants.
+/// In addition, an insertion between c.-1 and c.1 counts as 5' UTR variant, because it keeps
+/// the start codon intact. `AltSeqBuilder` treats it as CDS variant and inserts after c.1.
+fn is_utr_variant(var_c: &HgvsVariant) -> bool {
+    let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
+        return false;
+    };
+    let loc = loc_edit.loc.inner();
+    let edit = loc_edit.edit.inner();
+
+    let is_5_prime = (loc.start.base < 0 && loc.end.base < 0)
+        || (edit.is_ins() && loc.start.base == -1 && loc.end.base == 1);
+    let is_3_prime = loc.end.cds_from == CdsFrom::End
+        && (loc.start.cds_from == CdsFrom::End || edit.is_ins() || edit.is_dup());
+
+    is_5_prime || is_3_prime
+}
+
+/// Check if the alternative transcript of the n. variant depends on an unknown splice outcome.
+///
+/// This is the case if the variant has an intronic offset at either end. It is also the case
+/// if the variant starts and ends in different exons of `alignment`: then it covers a whole
+/// intron with both splice sites, although its positions have no intronic offset. Insertions
+/// have no reference bases, so they never cover an intron.
+pub(crate) fn alt_depends_on_splicing(var_n: &HgvsVariant, alignment: &GenomeAlignment) -> bool {
+    if var_n.spans_intron() {
+        return true;
+    }
+    let HgvsVariant::TxVariant { loc_edit, .. } = var_n else {
+        return false;
+    };
+    if loc_edit.edit.inner().is_ins() {
+        return false;
+    }
+    let loc = loc_edit.loc.inner();
+
+    // An intron follows the end of each exon except the last one.
+    let exon_ends = alignment.exons.iter().filter_map(|exon| exon.alt_cds_end_i);
+    let last_exon_end = exon_ends.clone().max();
+    exon_ends
+        .filter(|end| Some(*end) != last_exon_end)
+        .any(|end| (loc.start.base..loc.end.base).contains(&end))
+}
+
+/// Applies non-overlapping n. variants to the transcript sequence `tx_seq`.
+///
+/// Returns `None` if a variant is not an n. variant, has an intronic offset, uses an
+/// unsupported edit (inversion), or lies outside `tx_seq`.
+pub(crate) fn apply_n_edits(tx_seq: &str, vars_n: &[&HgvsVariant]) -> Option<String> {
+    struct NEdit {
+        replace_start: usize,
+        replace_end: usize,
+        alt: String,
+    }
+    let mut n_edits = Vec::with_capacity(vars_n.len());
+
+    for var_n in vars_n {
+        let HgvsVariant::TxVariant { loc_edit, .. } = var_n else {
+            return None;
+        };
+        if var_n.spans_intron() {
+            return None;
+        }
+        let loc = loc_edit.loc.inner();
+        let edit = loc_edit.edit.inner();
+
+        let n_loc_start = loc.start.base;
+        let n_loc_end = loc.end.base;
+
+        if n_loc_start > n_loc_end {
+            tracing::warn!(
+                "Invalid transcript coordinates ({} > {}) after HGVS projection on transcript {}.",
+                n_loc_start,
+                n_loc_end,
+                var_n.accession().value
+            );
+            return None;
+        }
+
+        let replace_start;
+        let replace_end;
+        let alt;
+
+        match edit {
+            NaEdit::RefAlt { alternative, .. } | NaEdit::NumAlt { alternative, .. } => {
+                replace_start = (n_loc_start - 1) as usize;
+                replace_end = n_loc_end as usize;
+                alt = alternative.clone();
+            }
+            NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => {
+                replace_start = (n_loc_start - 1) as usize;
+                replace_end = n_loc_end as usize;
+                alt = "".to_string();
+            }
+            NaEdit::Dup { reference } => {
+                replace_start = (n_loc_start - 1) as usize;
+                replace_end = n_loc_end as usize;
+                alt = format!("{}{}", reference, reference);
+            }
+            NaEdit::Ins { alternative } => {
+                replace_start = n_loc_start as usize;
+                replace_end = n_loc_start as usize;
+                alt = alternative.clone();
+            }
+            _ => {
+                tracing::warn!(
+                    "Unsupported NaEdit type {:?} for transcript sequence assembly. Skipping.",
+                    edit
+                );
+                return None;
+            }
+        }
+
+        n_edits.push(NEdit {
+            replace_start,
+            replace_end,
+            alt,
+        });
+    }
+
+    n_edits.sort_by_key(|edit| std::cmp::Reverse(edit.replace_start));
+
+    let mut alt_seq = tx_seq.to_string();
+    for edit in &n_edits {
+        if edit.replace_start > alt_seq.len() || edit.replace_end > alt_seq.len() {
+            tracing::warn!(
+                "Edit range out of bounds: {}..{} exceeds sequence length {}. Cannot assemble variant.",
+                edit.replace_start,
+                edit.replace_end,
+                alt_seq.len()
+            );
+            return None;
+        }
+
+        if edit.replace_start > edit.replace_end {
+            tracing::warn!(
+                "Invalid edit range: start {} > end {}. Cannot assemble variant.",
+                edit.replace_start,
+                edit.replace_end
+            );
+            return None;
+        }
+
+        alt_seq.replace_range(edit.replace_start..edit.replace_end, &edit.alt);
+    }
+
+    Some(alt_seq)
+}
+
 #[derive(Debug)]
 struct TranscriptLocationContext {
     rank: Rank,
@@ -981,6 +1134,7 @@ impl ConsequencePredictor {
         let p_alt = self.config.report_protein_sequence.includes_alt();
 
         if (c_ref || c_alt || p_ref || p_alt)
+            && let Some(var_n) = projection.as_ref().and_then(|p| p.n.as_ref())
             && let Some(var_c) = projection.as_ref().and_then(|p| p.c.as_ref())
             && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
                 self.provider.clone(),
@@ -1001,23 +1155,32 @@ impl ConsequencePredictor {
                 );
             }
 
-            if (c_alt || p_alt)
-                && matches!(var_c, HgvsVariant::CdsVariant { .. })
-                && let Ok(alt_data_vec) =
-                    AltSeqBuilder::new(var_c.clone(), &ref_data).build_altseq()
-                && let Some(alt_data) = alt_data_vec.into_iter().next()
-            {
-                if c_alt {
-                    custom_fields.insert(
-                        ANN_TX_SEQ_ALT.into(),
-                        Some(alt_data.transcript_sequence.to_string()),
-                    );
-                }
-                if p_alt {
-                    custom_fields.insert(
-                        ANN_AA_SEQ_ALT.into(),
-                        Some(alt_data.aa_sequence.to_string()),
-                    );
+            if c_alt || p_alt {
+                let alt_seqs = if alt_depends_on_splicing(var_n, alignment) {
+                    // The alternative transcript is unknown.
+                    None
+                } else if is_utr_variant(var_c) {
+                    // `AltSeqBuilder` returns the reference for UTR variants, so apply the n.
+                    // edit here. The CDS and thus the protein stay unchanged.
+                    apply_n_edits(&ref_data.transcript_sequence, &[var_n])
+                        .map(|tx_seq| (tx_seq, ref_data.aa_sequence.to_string()))
+                } else if matches!(var_c, HgvsVariant::CdsVariant { .. })
+                    && let Ok(alt_data_vec) =
+                        AltSeqBuilder::new(var_c.clone(), &ref_data).build_altseq()
+                    && let Some(alt_data) = alt_data_vec.into_iter().next()
+                {
+                    Some((alt_data.transcript_sequence, alt_data.aa_sequence))
+                } else {
+                    None
+                };
+
+                if let Some((tx_seq_alt, aa_seq_alt)) = alt_seqs {
+                    if c_alt {
+                        custom_fields.insert(ANN_TX_SEQ_ALT.into(), Some(tx_seq_alt));
+                    }
+                    if p_alt {
+                        custom_fields.insert(ANN_AA_SEQ_ALT.into(), Some(aa_seq_alt));
+                    }
                 }
             }
         }
@@ -2359,110 +2522,27 @@ impl ConsequencePredictor {
             Err(_) => return Ok(None),
         };
 
-        struct NEdit {
-            n_loc_start: i32,
-            n_loc_end: i32,
-            replace_start: usize,
-            replace_end: usize,
-            alt: String,
-        }
-        let mut n_edits = Vec::new();
+        let vars_n = projections
+            .iter()
+            .filter_map(|proj| proj.n.as_ref())
+            .collect_vec();
+        let Some(alt_seq) = apply_n_edits(&ref_data.transcript_sequence, &vars_n) else {
+            return Ok(None);
+        };
 
-        for proj in &projections {
-            if let Some(HgvsVariant::TxVariant { loc_edit, .. }) = &proj.n {
-                let loc = loc_edit.loc.inner();
-                let edit = loc_edit.edit.inner();
-
-                let n_loc_start = loc.start.base;
-                let n_loc_end = loc.end.base;
-
-                if n_loc_start > n_loc_end {
-                    tracing::warn!(
-                        "Invalid transcript coordinates ({} > {}) after HGVS projection. \
-                        Skipping compound prediction for transcript {}.",
-                        n_loc_start,
-                        n_loc_end,
-                        tx.id
-                    );
-                    return Ok(None);
-                }
-
-                let replace_start;
-                let replace_end;
-                let alt;
-
-                match edit {
-                    NaEdit::RefAlt { alternative, .. } | NaEdit::NumAlt { alternative, .. } => {
-                        replace_start = (n_loc_start - 1) as usize;
-                        replace_end = n_loc_end as usize;
-                        alt = alternative.clone();
-                    }
-                    NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => {
-                        replace_start = (n_loc_start - 1) as usize;
-                        replace_end = n_loc_end as usize;
-                        alt = "".to_string();
-                    }
-                    NaEdit::Dup { reference } => {
-                        replace_start = (n_loc_start - 1) as usize;
-                        replace_end = n_loc_end as usize;
-                        alt = format!("{}{}", reference, reference);
-                    }
-                    NaEdit::Ins { alternative } => {
-                        replace_start = n_loc_start as usize;
-                        replace_end = n_loc_start as usize;
-                        alt = alternative.clone();
-                    }
-                    _ => {
-                        tracing::warn!(
-                            "Unsupported NaEdit type {:?} in multi-assembly. Skipping.",
-                            edit
-                        );
-                        return Ok(None);
-                    }
-                }
-
-                n_edits.push(NEdit {
-                    n_loc_start,
-                    n_loc_end,
-                    replace_start,
-                    replace_end,
-                    alt,
-                });
-            }
-        }
-
-        n_edits.sort_by(|a, b| b.replace_start.cmp(&a.replace_start));
+        let n_locs = vars_n.iter().filter_map(|var_n| match var_n {
+            HgvsVariant::TxVariant { loc_edit, .. } => Some(loc_edit.loc.inner()),
+            _ => None,
+        });
+        let (Some(n_min), Some(n_max)) = (
+            n_locs.clone().map(|loc| loc.start.base).min(),
+            n_locs.map(|loc| loc.end.base).max(),
+        ) else {
+            return Ok(None);
+        };
 
         let tx_len = Self::tx_len(tx);
-        let mut alt_seq = ref_data.transcript_sequence.to_string();
-        let n_min = n_edits.iter().map(|e| e.n_loc_start).min().unwrap();
-        let n_max = n_edits.iter().map(|e| e.n_loc_end).max().unwrap();
-
-        let mut total_delta = 0i32;
-        for edit in &n_edits {
-            if edit.replace_start > alt_seq.len() || edit.replace_end > alt_seq.len() {
-                tracing::warn!(
-                    "Edit range out of bounds: {}..{} exceeds sequence length {}. Cannot assemble variant.",
-                    edit.replace_start,
-                    edit.replace_end,
-                    alt_seq.len()
-                );
-                return Ok(None);
-            }
-
-            if edit.replace_start > edit.replace_end {
-                tracing::warn!(
-                    "Invalid edit range: start {} > end {}. Cannot assemble variant.",
-                    edit.replace_start,
-                    edit.replace_end
-                );
-                return Ok(None);
-            }
-
-            alt_seq.replace_range(edit.replace_start..edit.replace_end, &edit.alt);
-            let orig_len = edit.replace_end - edit.replace_start;
-            total_delta += edit.alt.len() as i32 - orig_len as i32;
-        }
+        let total_delta = alt_seq.len() as i32 - ref_data.transcript_sequence.len() as i32;
 
         let new_length = (n_max - n_min + 1) + total_delta;
         if new_length < 0 {
@@ -2841,6 +2921,7 @@ mod test {
     use crate::annotate::cli::TranscriptPickMode;
     use crate::annotate::cli::{PredictorSettings, TranscriptPickType, TranscriptSettings};
     use crate::annotate::seqvars::consequence::ConfigBuilder;
+    use crate::annotate::seqvars::consequence::SequenceReporting;
     use crate::annotate::seqvars::consequence::load_tx_db;
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
@@ -2848,6 +2929,7 @@ mod test {
     };
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
     use crate::db::transcripts::create::models::Reason;
+    use crate::pbs::txs::ExonAlignment;
     use csv::ReaderBuilder;
     use enumflags2::BitFlags;
     use futures::TryStreamExt;
@@ -4128,6 +4210,220 @@ mod test {
             mane.hgvs_p.as_deref(),
             Some("p.Pro1859_His1860delinsLeuGln")
         );
+
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case("n.2C>T", Some("ATGTAC"))]
+    #[case("n.2_3del", Some("ATAC"))]
+    #[case("n.2_3insGG", Some("ACGGGTAC"))]
+    #[case("n.2_3dupCG", Some("ACGCGTAC"))]
+    #[case("n.2+1C>T", None)] // intronic offset
+    #[case("n.7C>T", None)] // outside the sequence
+    fn apply_n_edits_to_sequence(
+        #[case] edit: &str,
+        #[case] expected: Option<&str>,
+    ) -> Result<(), anyhow::Error> {
+        let var_n = HgvsVariant::from_str(&format!("NM_000000.1:{edit}"))?;
+        assert_eq!(apply_n_edits("ACGTAC", &[&var_n]).as_deref(), expected);
+
+        Ok(())
+    }
+
+    /// Exons at n.1_10, n.11_20 and n.21_30.
+    #[rstest::rstest]
+    #[case("n.5_10del", false)] // ends with exon 1
+    #[case("n.10_11del", true)] // last base of exon 1, first base of exon 2
+    #[case("n.8_25del", true)]
+    #[case("n.10_11insA", false)] // no reference bases
+    #[case("n.10+1G>A", true)] // intronic offset
+    #[case("n.28_32del", false)] // from the last exon past the transcript end
+    fn alt_depends_on_splicing_in_exons(
+        #[case] edit: &str,
+        #[case] expected: bool,
+    ) -> Result<(), anyhow::Error> {
+        let alignment = GenomeAlignment {
+            exons: [(1, 10), (11, 20), (21, 30)]
+                .into_iter()
+                .enumerate()
+                .map(|(ord, (start, end))| ExonAlignment {
+                    ord: ord as i32,
+                    alt_cds_start_i: Some(start),
+                    alt_cds_end_i: Some(end),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let var_n = HgvsVariant::from_str(&format!("NM_000000.1:{edit}"))?;
+        assert_eq!(alt_depends_on_splicing(&var_n, &alignment), expected);
+
+        Ok(())
+    }
+
+    /// Annotates `spdis` (several: as phased variants) with reference and alternative sequences
+    /// reported, and returns the annotation for `tx_id`. NM_007294.4 is BRCA1 (minus strand, CDS
+    /// at n.114_5705).
+    fn annotate_with_sequences(spdis: &[&str], tx_id: &str) -> Result<AnnField, anyhow::Error> {
+        let vars = spdis
+            .iter()
+            .map(|spdi| {
+                let spdi = spdi.split(':').collect::<Vec<_>>();
+                Ok(VcfVariant {
+                    chromosome: spdi[0].to_string(),
+                    position: spdi[1].parse()?,
+                    reference: spdi[2].to_string(),
+                    alternative: spdi[3].to_string(),
+                })
+            })
+            .collect::<Result<Vec<_>, anyhow::Error>>()?;
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .report_cdna_sequence(SequenceReporting::Both)
+                .report_protein_sequence(SequenceReporting::Both)
+                .build()?,
+        );
+
+        let anns = match vars.as_slice() {
+            [var] => predictor.predict(var)?,
+            _ => predictor.predict_multiple(&vars)?,
+        };
+        anns.unwrap_or_default()
+            .into_iter()
+            .find(|ann| ann.feature_id == tx_id)
+            .ok_or_else(|| anyhow::anyhow!("no annotation for {tx_id}"))
+    }
+
+    fn custom_field<'a>(ann: &'a AnnField, key: &str) -> Option<&'a str> {
+        ann.custom_fields.get(key).and_then(|v| v.as_deref())
+    }
+
+    #[test]
+    fn alt_sequences_cds_snv() -> Result<(), anyhow::Error> {
+        let ann = annotate_with_sequences(&["17:41197701:G:C"], "NM_007294.4")?;
+        assert_eq!(ann.hgvs_n.as_deref(), Some("n.5699C>G"));
+        assert_eq!(ann.hgvs_p.as_deref(), Some("p.His1862Gln"));
+
+        let mut tx_alt = custom_field(&ann, ANN_TX_SEQ_REF).unwrap().to_string();
+        tx_alt.replace_range(5698..5699, "G");
+        assert_eq!(custom_field(&ann, ANN_TX_SEQ_ALT), Some(tx_alt.as_str()));
+        let mut aa_alt = custom_field(&ann, ANN_AA_SEQ_REF).unwrap().to_string();
+        aa_alt.replace_range(1861..1862, "Q");
+        assert_eq!(custom_field(&ann, ANN_AA_SEQ_ALT), Some(aa_alt.as_str()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn alt_sequences_utr5_snv() -> Result<(), anyhow::Error> {
+        let ann = annotate_with_sequences(&["17:41277340:T:C"], "NM_007294.4")?;
+        assert_eq!(ann.hgvs_n.as_deref(), Some("n.42A>G"));
+        assert_eq!(ann.hgvs_c.as_deref(), Some("c.-72A>G"));
+
+        let mut tx_alt = custom_field(&ann, ANN_TX_SEQ_REF).unwrap().to_string();
+        tx_alt.replace_range(41..42, "G");
+        assert_eq!(custom_field(&ann, ANN_TX_SEQ_ALT), Some(tx_alt.as_str()));
+        assert_eq!(
+            custom_field(&ann, ANN_AA_SEQ_ALT),
+            custom_field(&ann, ANN_AA_SEQ_REF)
+        );
+
+        Ok(())
+    }
+
+    /// An insertion between c.-1 and c.1 lies in the 5' UTR: the start codon stays intact.
+    #[test]
+    fn alt_sequences_utr5_insertion_before_cds() -> Result<(), anyhow::Error> {
+        let ann = annotate_with_sequences(&["17:41276113:T:TG"], "NM_007294.4")?;
+        assert_eq!(ann.hgvs_n.as_deref(), Some("n.113_114insC"));
+        assert_eq!(ann.hgvs_c.as_deref(), Some("c.-1_1insC"));
+
+        let mut tx_alt = custom_field(&ann, ANN_TX_SEQ_REF).unwrap().to_string();
+        tx_alt.insert(113, 'C');
+        assert_eq!(&tx_alt[113..117], "CATG");
+        assert_eq!(custom_field(&ann, ANN_TX_SEQ_ALT), Some(tx_alt.as_str()));
+        assert_eq!(
+            custom_field(&ann, ANN_AA_SEQ_ALT),
+            custom_field(&ann, ANN_AA_SEQ_REF)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn alt_sequences_utr3_deletion() -> Result<(), anyhow::Error> {
+        let ann = annotate_with_sequences(&["17:41196499:CAAA:C"], "NM_007294.4")?;
+        assert_eq!(ann.hgvs_n.as_deref(), Some("n.6898_6900del"));
+        assert_eq!(ann.hgvs_c.as_deref(), Some("c.*1193_*1195del"));
+
+        let mut tx_alt = custom_field(&ann, ANN_TX_SEQ_REF).unwrap().to_string();
+        tx_alt.replace_range(6897..6900, "");
+        assert_eq!(custom_field(&ann, ANN_TX_SEQ_ALT), Some(tx_alt.as_str()));
+        assert_eq!(
+            custom_field(&ann, ANN_AA_SEQ_ALT),
+            custom_field(&ann, ANN_AA_SEQ_REF)
+        );
+
+        Ok(())
+    }
+
+    /// With an intronic offset, the alternative transcript is unknown.
+    #[rstest::rstest]
+    #[case("17:41197837:G:A", "c.5468-18C>T")] // CDS intron
+    #[case("17:41277000:G:C", "c.-20+288C>G")] // 5' UTR intron
+    fn alt_sequences_intronic(
+        #[case] spdi: &str,
+        #[case] hgvs_c: &str,
+    ) -> Result<(), anyhow::Error> {
+        let ann = annotate_with_sequences(&[spdi], "NM_007294.4")?;
+        assert_eq!(ann.hgvs_c.as_deref(), Some(hgvs_c));
+
+        assert!(custom_field(&ann, ANN_TX_SEQ_REF).is_some());
+        assert!(custom_field(&ann, ANN_AA_SEQ_REF).is_some());
+        assert_eq!(custom_field(&ann, ANN_TX_SEQ_ALT), None);
+        assert_eq!(custom_field(&ann, ANN_AA_SEQ_ALT), None);
+
+        Ok(())
+    }
+
+    /// A deletion from exon 13 into exon 14 (0-based `ord`) of NM_130837.3 (OPA1, plus strand)
+    /// covers the whole intron between them. Its c. positions have no intronic offset, but the
+    /// alternative transcript is unknown. The test database has no genome sequence, so the
+    /// intron bases of the VCF REF allele are made up.
+    #[test]
+    fn alt_sequences_deletion_covers_intron() -> Result<(), anyhow::Error> {
+        let reference = format!("TAAT{}ACT", "A".repeat(83));
+        let ann = annotate_with_sequences(&[&format!("3:193361230:{reference}:T")], "NM_130837.3")?;
+        assert_eq!(ann.hgvs_n.as_deref(), Some("n.1545_1550del"));
+
+        assert!(custom_field(&ann, ANN_TX_SEQ_REF).is_some());
+        assert!(custom_field(&ann, ANN_AA_SEQ_REF).is_some());
+        assert_eq!(custom_field(&ann, ANN_TX_SEQ_ALT), None);
+        assert_eq!(custom_field(&ann, ANN_AA_SEQ_ALT), None);
+
+        Ok(())
+    }
+
+    /// The phased path applies the n. edits of all variants to the transcript sequence.
+    #[test]
+    fn alt_sequences_phased_cds() -> Result<(), anyhow::Error> {
+        let ann = annotate_with_sequences(&["17:41197701:G:C", "17:41197709:GG:G"], "NM_007294.4")?;
+        assert_eq!(ann.hgvs_n.as_deref(), Some("n.5691_5699delinsACAGCCAG"));
+        assert_eq!(ann.hgvs_p.as_deref(), Some("p.His1860ThrfsTer62"));
+
+        let mut tx_alt = custom_field(&ann, ANN_TX_SEQ_REF).unwrap().to_string();
+        tx_alt.replace_range(5698..5699, "G");
+        tx_alt.replace_range(5690..5691, "");
+        assert_eq!(custom_field(&ann, ANN_TX_SEQ_ALT), Some(tx_alt.as_str()));
 
         Ok(())
     }
