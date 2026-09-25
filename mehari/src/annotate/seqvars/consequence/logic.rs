@@ -874,7 +874,24 @@ impl ConsequencePredictor {
                     _ => false,
                 };
 
-                if is_purely_intronic {
+                // An insertion between c.-1 and c.1 leaves the start codon intact, but
+                // hgvs-rs places it after c.1 and reports p.Met1?.  Inject p.? instead, like
+                // hgvs-rs does for other 5' UTR variants.
+                let is_ins_before_start_codon = match var_c {
+                    HgvsVariant::CdsVariant { loc_edit, .. } => {
+                        let loc = loc_edit.loc.inner();
+                        matches!(loc_edit.edit.inner(), NaEdit::Ins { .. })
+                            && loc.start.cds_from == CdsFrom::Start
+                            && loc.start.base == -1
+                            && loc.start.offset.unwrap_or(0) == 0
+                            && loc.end.cds_from == CdsFrom::Start
+                            && loc.end.base == 1
+                            && loc.end.offset.unwrap_or(0) == 0
+                    }
+                    _ => false,
+                };
+
+                if is_purely_intronic || is_ins_before_start_codon {
                     projection.p = Some(HgvsVariant::ProtVariant {
                         accession: var_c.accession().clone(),
                         gene_symbol: var_c.gene_symbol().clone(),
@@ -3556,6 +3573,43 @@ mod test {
         Ok(())
     }
 
+    /// An insertion between c.-1 and c.1 leaves the start codon intact.
+    #[rstest::rstest]
+    #[case("3:193311166:G:GC", "NM_130837.3", "c.-1_1insC")] // OPA1, forward
+    #[case("17:41258543:T:TA", "NM_007297.4", "c.-1_1insT")] // BRCA1, reverse
+    fn annotate_ins_before_start_codon(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_hgvs_c: &str,
+    ) -> Result<(), anyhow::Error> {
+        let spdi = spdi.split(':').collect::<Vec<_>>();
+
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].to_string(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].to_string(),
+                alternative: spdi[3].to_string(),
+            })?
+            .unwrap();
+
+        let ann = res.iter().find(|ann| ann.feature_id == tx_id).unwrap();
+        assert_eq!(ann.hgvs_c.as_deref(), Some(expected_hgvs_c));
+        assert_eq!(ann.hgvs_p.as_deref(), Some("p.?"));
+        assert_eq!(ann.consequences, vec![Consequence::FivePrimeUtrExonVariant]);
+
+        Ok(())
+    }
+
     #[tracing_test::traced_test]
     #[rstest::rstest]
     #[case("17:41197701:G:C", false, true)] // don't pick transcripts, report worst
@@ -4053,12 +4107,6 @@ mod test {
                         (expected_one_of.contains(&"disruptive_inframe_deletion")
                             || expected_one_of.contains(&"inframe_indel"))
                             && (record_csqs.contains(&"protein_altering_variant")),
-                        // In the case of `GRCh37:17:41258543:T:TA`, the `hgvs` prediction is `c.-1_1insT` and
-                        // `p.Met1?` which leads to `start_lost` while VEP predicts `5_prime_UTR_variant`.
-                        // This may be a bug in `hgvs` and we don't change this for now.  We accept the call
-                        // by VEP, of course.
-                        expected_one_of.contains(&"start_lost")
-                            && (record_csqs.contains(&"5_prime_UTR_variant")),
                         // We have specialized {5,3}_prime_UTR_{exon,intron}_variant handling, while
                         // vep and snpEff do not
                         record_csqs.contains(&"5_prime_UTR_variant")
@@ -4108,8 +4156,9 @@ mod test {
                         // SnpEff may predict `pMet1.?` as `initiator_codon_variant` rather than `start_lost`.
                         expected_one_of.contains(&"start_lost")
                             && (record_csqs.contains(&"initiator_codon_variant")),
-                        // Similarly, SnpEff may predict `c.-1_1` as `start_retained` rather than `start_lost`.
-                        expected_one_of.contains(&"start_lost")
+                        // SnpEff predicts `c.-1_1ins` as `start_retained` while VEP and we predict a
+                        // 5' UTR variant.
+                        expected_one_of.contains(&"5_prime_UTR_exon_variant")
                             && (record_csqs.contains(&"start_retained_variant")),
                         // SnpEff calls this insertion at c.5193+2_5193+3insT a splice donor variant
                         // even though the third intronic base is affected, not the first or second
