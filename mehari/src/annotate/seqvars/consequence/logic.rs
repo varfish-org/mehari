@@ -822,6 +822,36 @@ impl ConsequencePredictor {
                         &tx_record.tx_ac,
                         incomplete_3p,
                     );
+
+                    let indel_in_cds = context.cds_consequences.intersects(
+                        Consequence::FrameshiftVariant
+                            | Consequence::ConservativeInframeInsertion
+                            | Consequence::DisruptiveInframeInsertion
+                            | Consequence::ConservativeInframeDeletion
+                            | Consequence::DisruptiveInframeDeletion,
+                    );
+                    if indel_in_cds
+                        && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
+                            self.provider.clone(),
+                            &tx_record.tx_ac,
+                            None,
+                        )
+                    {
+                        // An indel that keeps the protein (`p.=`) keeps the stop codon, if the
+                        // CDS has one.
+                        if ref_data.aa_sequence.ends_with('*')
+                            && matches!(
+                                var_p,
+                                HgvsVariant::ProtVariant {
+                                    loc_edit: ProtLocEdit::NoChange
+                                        | ProtLocEdit::NoChangeUncertain,
+                                    ..
+                                }
+                            )
+                        {
+                            context.protein_consequences |= Consequence::StopRetainedVariant;
+                        }
+                    }
                 }
             }
         }
@@ -1914,9 +1944,8 @@ impl ConsequencePredictor {
                         }
                     };
                 }
-                ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain => {
-                    consequences |= Consequence::SynonymousVariant;
-                }
+                // The protein does not change (`p.=`), e.g., for a dup behind the stop codon.
+                ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain => {}
                 ProtLocEdit::InitiationUncertain => {
                     consequences |= Consequence::StartLost;
                 }
@@ -3233,6 +3262,12 @@ mod test {
 
     /// Indels on Ensembl 108 chr22 transcripts.
     #[rstest::rstest]
+    // `p.=`: in-frame insertion inside the stop codon that keeps it
+    #[case("22:45600443:C:CTAA", "ENST00000327858", false, vec![Consequence::DisruptiveInframeInsertion, Consequence::StopRetainedVariant])]
+    // `p.=`: in-frame insertion of a stop codon in a CDS without a stop codon (`cds_end_NF`)
+    #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::DisruptiveInframeInsertion])]
+    // `p.=`: frameshift in a CDS without a stop codon (`cds_end_NF`)
+    #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
     // `p.Gln147AlafsTer?`: no stop codon in the new frame (`cds_end_NF` transcript)
     #[case("22:38140124:G:GC", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
     // `p.Asp443ProfsTer?`: no stop codon in the new frame (complete transcript)
