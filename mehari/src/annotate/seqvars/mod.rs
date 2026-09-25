@@ -13,6 +13,7 @@ use crate::common::contig::ContigManager;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
 use crate::db::keys::Var;
 use crate::db::transcripts::merge::merge_transcript_databases;
+use crate::errors::SeqvarsError;
 use crate::pbs;
 use crate::pbs::txs::TxSeqDatabase;
 use anyhow::Error;
@@ -1650,6 +1651,14 @@ impl VariantProcessor {
                     .map(|&i| variants[i].vcf_var.clone())
                     .collect();
 
+                // The group's variants, for messages.
+                let group = || {
+                    vcf_vars
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                };
                 match predictor.predict_multiple(&vcf_vars) {
                     Ok(Some(ann_fields)) => {
                         for &i in &group_indices {
@@ -1658,10 +1667,17 @@ impl VariantProcessor {
                                 .extend(ann_fields.clone());
                         }
                     }
-                    // A failing plugin stops the run, as for single variants.
-                    Err(error @ crate::errors::SeqvarsError::Plugin(_)) => return Err(error.into()),
-                    // Groups mehari cannot evaluate keep their single-variant annotations.
-                    Ok(None) | Err(_) => {}
+                    Ok(None) => {}
+                    // An invalid group cannot be combined, but its variants keep their
+                    // single-variant annotations.
+                    Err(SeqvarsError::GroupValidation(e)) => {
+                        tracing::warn!("Skipping compound variant {}: {}", group(), e);
+                    }
+                    // Other errors, e.g. of a plugin, stop the run, as for single variants.
+                    Err(e) => {
+                        return Err(Error::from(e)
+                            .context(format!("Failed to annotate compound variant {}", group())));
+                    }
                 }
             }
         }
@@ -1680,7 +1696,12 @@ impl VariantProcessor {
 #[cfg(test)]
 mod test {
     use super::binning::bin_from_range;
-    use super::{Args, OutputFormat, run};
+    use super::consequence::{ConsequenceAnnotator, VcfVariant, load_tx_db};
+    use super::{
+        AnnotatedVariant, Annotator, AnnotatorEnum, Args, OutputFormat, VariantProcessor,
+        VcfRecord, run,
+    };
+    use crate::annotate::cli::{CompoundSettings, PhasingStrategy};
     use crate::annotate::cli::{PickUnit, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
     use crate::annotate::seqvars::consequence::plugin::{BuiltinPlugin, PluginSpec};
@@ -1688,9 +1709,12 @@ mod test {
     use clap_verbosity_flag::Verbosity;
     use futures::TryStreamExt;
     use pretty_assertions::assert_eq;
-    use std::path::Path;
+    use std::collections::HashSet;
+    use std::path::{Path, PathBuf};
     use temp_testdir::TempDir;
 
+    use noodles::core::Position;
+    use noodles::vcf::variant::record_buf::AlternateBases;
     use noodles::vcf::variant::record_buf::info::field::Value;
     use noodles::vcf::variant::record_buf::info::field::value::Array;
 
@@ -2270,6 +2294,92 @@ mod test {
 
         insta::assert_yaml_snapshot!("brca2_zar1l_affected_output", snapshot_data);
 
+        Ok(())
+    }
+
+    /// Push `(chrom, pos, ref, alt)` variants without genotypes on one transcript
+    /// into the compound buffer and flush it. `PhasingStrategy::Ignore` makes them one group.
+    fn compound_processor_flush(
+        annotator: &Annotator,
+        variants: &[(&str, i32, &str, &str)],
+    ) -> Result<Vec<AnnotatedVariant>, anyhow::Error> {
+        let compound_settings = CompoundSettings {
+            enable_compound_variants: true,
+            phasing_strategy: PhasingStrategy::Ignore,
+        };
+        let mut processor = VariantProcessor::new(annotator, &compound_settings);
+        for &(chrom, pos, reference, alternative) in variants {
+            let record = VcfRecord::builder()
+                .set_reference_sequence_name(chrom)
+                .set_variant_start(Position::try_from(pos as usize)?)
+                .set_reference_bases(reference)
+                .set_alternate_bases(AlternateBases::from(vec![alternative.to_string()]))
+                .build();
+            let vcf_var = VcfVariant {
+                chromosome: chrom.into(),
+                position: pos,
+                reference: reference.into(),
+                alternative: alternative.into(),
+            };
+            let tx_accessions = HashSet::from(["NM_007294.3".to_string()]);
+            processor
+                .buffer
+                .push(vcf_var, record, tx_accessions, 0, 100_000_000, 0, 1);
+        }
+        processor.flush()
+    }
+
+    fn compound_annotator() -> Result<Annotator, anyhow::Error> {
+        let predictor_settings = PredictorSettings {
+            compound_settings: CompoundSettings {
+                enable_compound_variants: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let consequence = ConsequenceAnnotator::from_db_and_settings(
+            tx_db,
+            None::<PathBuf>,
+            false,
+            &predictor_settings,
+        )?;
+        Ok(Annotator::new(vec![AnnotatorEnum::Consequence(
+            consequence,
+        )]))
+    }
+
+    #[test]
+    fn compound_prediction_error_is_returned() -> Result<(), anyhow::Error> {
+        let annotator = compound_annotator()?;
+        // "chrFake" has no accession, so `predict_multiple` fails with an
+        // error that is not a group validation error.
+        let result = compound_processor_flush(
+            &annotator,
+            &[("chrFake", 100, "A", "C"), ("chrFake", 200, "A", "C")],
+        );
+
+        let msg = format!("{:#}", result.expect_err("expected an error"));
+        assert!(msg.contains("chrFake:100:A:C,chrFake:200:A:C"), "{msg}");
+        assert!(
+            msg.contains("Could not determine chromosome accession"),
+            "{msg}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[tracing_test::traced_test]
+    fn compound_group_validation_error_is_logged() -> Result<(), anyhow::Error> {
+        let annotator = compound_annotator()?;
+        // The deletion covers the SNV, so the group fails validation.
+        let annotated = compound_processor_flush(
+            &annotator,
+            &[("17", 41197700, "AG", "A"), ("17", 41197701, "G", "C")],
+        )?;
+
+        assert_eq!(annotated.len(), 2);
+        assert!(logs_contain("Overlapping variants detected"));
         Ok(())
     }
 }
