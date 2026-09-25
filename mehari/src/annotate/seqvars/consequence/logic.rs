@@ -1622,8 +1622,14 @@ impl ConsequencePredictor {
             }
             // stop codon
             let starts_left_of_stop = start_cds_from == CdsFrom::Start;
-            let ends_right_of_stop = end_cds_from == CdsFrom::End;
-            if starts_left_of_stop && ends_right_of_stop && !incomplete_3p {
+            // A duplication of the last CDS bases inserts its copy behind the stop codon.
+            let dup_behind_stop = matches!(edit, NaEdit::Dup { .. })
+                && end_cds_from == CdsFrom::Start
+                && loc_end_offset == 0
+                && !incomplete_3p
+                && available_cds_len == Some(end_base);
+            let ends_right_of_stop = end_cds_from == CdsFrom::End || dup_behind_stop;
+            if starts_left_of_stop && ends_right_of_stop && !incomplete_3p && !dup_behind_stop {
                 consequences |= Consequence::StopLost;
             }
 
@@ -2781,6 +2787,7 @@ mod test {
     use serde::Deserialize;
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
+    use std::str::FromStr;
     use std::{fs::File, io::BufReader};
     use tempfile::NamedTempFile;
 
@@ -3261,6 +3268,9 @@ mod test {
     }
 
     /// Indels on Ensembl 108 chr22 transcripts.
+    ///
+    /// With VEP terms, the expected terms are those of VEP 108 with `--shift_3prime 1`, i.e., at
+    /// the same (3'-shifted) position as mehari's.
     #[rstest::rstest]
     // `p.=`: in-frame insertion inside the stop codon that keeps it
     #[case("22:45600443:C:CTAA", "ENST00000327858", false, vec![Consequence::DisruptiveInframeInsertion, Consequence::StopRetainedVariant])]
@@ -3268,6 +3278,9 @@ mod test {
     #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::DisruptiveInframeInsertion])]
     // `p.=`: frameshift in a CDS without a stop codon (`cds_end_NF`)
     #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
+    // `c.932_933dup` (`p.=`): the copy lands behind the stop codon
+    #[case("22:21469819:T:TAA", "ENST00000432134", false, vec![Consequence::ThreePrimeUtrExonVariant])]
+    #[case("22:21469819:T:TAA", "ENST00000432134", true, vec![Consequence::ThreePrimeUtrVariant])]
     // `p.Gln147AlafsTer?`: no stop codon in the new frame (`cds_end_NF` transcript)
     #[case("22:38140124:G:GC", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
     // `p.Asp443ProfsTer?`: no stop codon in the new frame (complete transcript)
@@ -3321,6 +3334,30 @@ mod test {
             "spdi = {}, hgvs_p = {:?}",
             spdi.join(":"),
             ann.hgvs_p
+        );
+
+        Ok(())
+    }
+
+    /// A dup of the last CDS bases lands behind the stop codon. An intronic dup does not.
+    #[rstest::rstest]
+    #[case("NM_000000.1:c.3857_3858dup", true, true)]
+    #[case("NM_000000.1:c.3858+1dup", false, false)]
+    fn analyze_cds_variant_dup_behind_stop(
+        #[case] var_c: &str,
+        #[case] is_exonic: bool,
+        #[case] expected_utr: bool,
+    ) -> Result<(), anyhow::Error> {
+        let var_c = HgvsVariant::from_str(var_c)?;
+        let csqs =
+            ConsequencePredictor::analyze_cds_variant(&var_c, is_exonic, false, false, Some(3858));
+        assert_eq!(
+            csqs.intersects(
+                Consequence::ThreePrimeUtrExonVariant | Consequence::ThreePrimeUtrIntronVariant
+            ),
+            expected_utr,
+            "{:?}",
+            csqs
         );
 
         Ok(())
