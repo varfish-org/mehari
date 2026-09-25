@@ -936,13 +936,13 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
         Ok(())
     }
 
-    /// The bases that `fix_cds` pads exist in the transcript only. The alignment must
-    /// therefore keep its genomic length, and the first transcript base must keep its
-    /// position.
+    /// `fix_cds` completes the stop codon with bases after the last exon. The alignment keeps
+    /// its length on the genome and on the transcript, and the first transcript base keeps
+    /// its position.
     #[rstest::rstest]
     #[case("T3P", 1)]
     #[case("T3M", -1)]
-    fn fix_cds_pads_the_transcript_only(
+    fn fix_cds_keeps_the_alignment(
         #[case] tx_id: &str,
         #[case] strand: i16,
     ) -> Result<(), anyhow::Error> {
@@ -972,12 +972,12 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
             .collect::<Vec<_>>();
         let mapper = CigarMapper::new(&build_tx_cigar(&exons, strand)?);
 
-        // Two exons of 100 bases around an intron of 200 bases, plus 2 padding bases.
+        // Two exons of 100 bases around an intron of 200 bases.
         assert_eq!(mapper.ref_len, 400);
-        assert_eq!(mapper.tgt_len, 202);
+        assert_eq!(mapper.tgt_len, 200);
         // The first transcript base is the first genomic base on `+` and the last one on
         // `-`, where the mapper counts transcript positions from the genomic start.
-        let (ref_pos, tgt_pos) = if strand == 1 { (0, 0) } else { (399, 201) };
+        let (ref_pos, tgt_pos) = if strand == 1 { (0, 0) } else { (399, 199) };
         assert_eq!(mapper.map_ref_to_tgt(ref_pos, "start", true)?.pos, tgt_pos);
 
         Ok(())

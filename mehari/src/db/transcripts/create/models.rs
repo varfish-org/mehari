@@ -460,7 +460,8 @@ impl TranscriptLoader {
 
     /// Complete the stop codon of a CDS whose length is not a multiple of 3 with `A` bases, as
     /// the poly-A tail does. This applies only if the CDS runs to the transcript end and the
-    /// annotation does not mark the CDS end as incomplete.
+    /// annotation does not mark the CDS end as incomplete. The CDS then ends after the last
+    /// exon.
     pub(crate) fn fix_cds(&mut self) {
         self.transcript_id_to_transcript
             .values_mut()
@@ -483,23 +484,17 @@ impl TranscriptLoader {
                     return;
                 }
 
-                for gb in tx.genome_builds.values_mut() {
+                for gb in tx.genome_builds.values() {
                     let delta = 3 - (cds_len % 3);
                     // `alt_cds_end_i` is the last transcript position of an exon.
                     let tx_end = gb.exons.iter().map(|exon| exon.alt_cds_end_i).max();
                     if delta == 0 || tx_end != Some(cds_end) {
                         continue;
                     };
+                    // The completing bases follow the last exon, so the exons stay as
+                    // annotated. `filter_transcripts_with_sequence` appends them to the
+                    // sequence.
                     tx.stop_codon = Some(cds_end + delta);
-                    let exon = gb
-                        .exons
-                        .iter_mut()
-                        .max_by_key(|g| g.alt_cds_end_i)
-                        .expect("No exons found during fix_cds");
-                    exon.alt_cds_end_i += delta;
-                    // The padding bases exist in the transcript only. In the CIGAR
-                    // convention of the hgvs mapper that is `D`; `I` advances the genome.
-                    exon.cigar.push_str(&format!("{}D", delta));
                     self.fixes
                         .entry(Identifier::Transcript(
                             TranscriptId::try_new(&tx.id).unwrap(),

@@ -398,9 +398,9 @@ pub(crate) fn filter_transcripts_with_sequence(
                     .and_then(|start| tx.stop_codon.map(|stop| (start as usize, stop as usize)));
                 let cds = if tx.protein_coding() { cds } else { None };
                 if let Some((cds_start, cds_end)) = cds {
-                    // `fix_cds` completes an incomplete last codon by appending 1 or 2
-                    // bases to the last exon. If the sequence ends before the exons, pad
-                    // it with `A` bases.
+                    // `fix_cds` completes a stop codon at the transcript end with 1 or 2
+                    // bases after the last exon. If the sequence ends before the exons or
+                    // the CDS, pad it with `A` bases.
                     let tx_end = tx
                         .genome_builds
                         .values()
@@ -408,7 +408,7 @@ pub(crate) fn filter_transcripts_with_sequence(
                         .filter_map(|exon| usize::try_from(exon.alt_cds_end_i).ok())
                         .max()
                         .unwrap_or_default();
-                    let delta = tx_end.saturating_sub(seq.len());
+                    let delta = tx_end.max(cds_end).saturating_sub(seq.len());
                     let seq = append_poly_a(seq, delta);
 
                     let safe_end = cds_end.min(seq.len());
@@ -783,7 +783,7 @@ mod tests {
     #[rstest::rstest]
     #[case::complete_cds("NC_000001.11", "ATGAAATAGCC", 9, "ATGAAATAGCC")]
     #[case::stop_codon_at_transcript_end("NC_000001.11", "ATGAAATAG", 9, "ATGAAATAG")]
-    fn stored_sequence_is_padded_only_to_the_exon_end(
+    fn complete_cds_is_not_padded(
         #[case] contig: &str,
         #[case] seq: &str,
         #[case] stop_codon: i32,
