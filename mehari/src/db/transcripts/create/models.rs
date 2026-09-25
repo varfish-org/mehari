@@ -505,6 +505,24 @@ impl TranscriptLoader {
             });
     }
 
+    /// The number of coding transcripts whose CDS length is not a multiple of 3, or 0 if a
+    /// transcript marks its CDS end as incomplete. A source without such marks, e.g. Ensembl
+    /// GFF3, cannot tell an incomplete CDS end from a stop codon that the poly-A tail
+    /// completes.
+    pub(crate) fn partial_codons_without_end_tags(&self) -> usize {
+        let coding = || {
+            self.transcript_id_to_transcript
+                .values()
+                .filter(|tx| tx.protein_coding())
+        };
+        if coding().any(|tx| tx.cds_end_incomplete()) {
+            return 0;
+        }
+        coding()
+            .filter(|tx| tx.cds_length().is_some_and(|len| len % 3 != 0))
+            .count()
+    }
+
     pub(crate) fn fix_unaligned_bases(&mut self) {
         for (tx_id, tx) in self.transcript_id_to_transcript.iter_mut() {
             let mut changed = false;
