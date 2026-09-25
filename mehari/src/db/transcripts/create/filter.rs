@@ -413,6 +413,8 @@ pub(crate) fn filter_transcripts_with_sequence(
 
                     let safe_end = cds_end.min(seq.len());
                     let safe_start = cds_start.min(safe_end);
+                    // An incomplete CDS end can leave a partial last codon. It is no stop codon.
+                    let safe_end = safe_end - (safe_end - safe_start) % 3;
 
                     let tx_seq_to_translate = &seq[safe_start..safe_end];
 
@@ -718,11 +720,10 @@ mod tests {
         Ok(())
     }
 
-    /// Load a coding transcript with one exon at genomic `[1000, 1000 + seq.len())` and the
-    /// CDS `0..stop_codon`, apply `fix_cds`, and return the sequence that
-    /// `filter_transcripts_with_sequence` stores for it.
-    fn stored_sequence(contig: &str, seq: &str, stop_codon: i32) -> Result<String, Error> {
-        let len = i32::try_from(seq.len())?;
+    /// A coding transcript with one exon at genomic `[1000, 1000 + len)` and the CDS
+    /// `0..stop_codon`.
+    fn one_exon_tx(contig: &str, len: usize, stop_codon: i32) -> Result<Transcript, Error> {
+        let len = i32::try_from(len)?;
         let alignment = GenomeAlignment {
             cds_start: Some(1000),
             cds_end: Some(1000 + stop_codon),
@@ -739,7 +740,7 @@ mod tests {
             tag: None,
             note: None,
         };
-        let tx = Transcript {
+        Ok(Transcript {
             biotype: None,
             gene_name: None,
             gene_version: String::new(),
@@ -752,7 +753,15 @@ mod tests {
             stop_codon: Some(stop_codon),
             transl_except: None,
             transl_table: None,
-        };
+        })
+    }
+
+    /// Apply `fix_cds` and `filter_transcripts_with_sequence` to `tx` with the sequence
+    /// `seq`. Return the stored sequence, the discard reasons and the stop codon.
+    fn stored_sequence(
+        tx: Transcript,
+        seq: &str,
+    ) -> Result<(String, BitFlags<Reason>, Option<i32>), Error> {
         let tx_id = TranscriptId::try_new(TX_ID)?;
         let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
         loader.transcript_id_to_transcript.insert(tx_id.clone(), tx);
@@ -762,7 +771,13 @@ mod tests {
             SequenceProvider::FastaMap(HashMap::from([(TX_ID.to_string(), seq.to_string())]));
         let mut seqs =
             filter_transcripts_with_sequence(&mut loader, &mut seq_provider, &NoProgress)?;
-        Ok(seqs.remove(&tx_id).unwrap_or_default())
+        let reason = loader
+            .discards
+            .get(&Identifier::Transcript(tx_id.clone()))
+            .copied()
+            .unwrap_or_default();
+        let stop_codon = loader.transcript_id_to_transcript[&tx_id].stop_codon;
+        Ok((seqs.remove(&tx_id).unwrap_or_default(), reason, stop_codon))
     }
 
     #[rstest::rstest]
@@ -778,7 +793,30 @@ mod tests {
         #[case] stop_codon: i32,
         #[case] expected: &str,
     ) -> Result<(), Error> {
-        assert_eq!(stored_sequence(contig, seq, stop_codon)?, expected);
+        let tx = one_exon_tx(contig, seq.len(), stop_codon)?;
+        assert_eq!(stored_sequence(tx, seq)?.0, expected);
+        Ok(())
+    }
+
+    /// A CDS whose end the annotation marks as incomplete keeps its partial last codon. It has
+    /// no stop codon.
+    #[rstest::rstest]
+    #[case::cds_end_nf(Some(Tag::Other("cds_end_NF".into())), None)]
+    #[case::partial(None, Some(1))]
+    fn incomplete_cds_end_is_not_padded(
+        #[case] tag: Option<Tag>,
+        #[case] partial: Option<u8>,
+    ) -> Result<(), Error> {
+        let mut tx = one_exon_tx("NC_000001.11", 7, 7)?;
+        for alignment in tx.genome_builds.values_mut() {
+            alignment.tag = tag.clone().map(|tag| vec![tag]);
+        }
+        tx.partial = partial;
+
+        let (seq, reason, stop_codon) = stored_sequence(tx, "ATGAAAT")?;
+        assert_eq!(seq, "ATGAAAT");
+        assert_eq!(stop_codon, Some(7));
+        assert!(reason.contains(Reason::MissingStopCodon), "{reason:?}");
         Ok(())
     }
 }

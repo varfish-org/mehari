@@ -205,6 +205,10 @@ pub trait TranscriptExt {
     fn protein_coding(&self) -> bool;
 
     fn is_on_contig(&self, contig: &str) -> bool;
+
+    /// Whether the annotation marks the CDS end as incomplete: GENCODE tag `cds_end_NF` or
+    /// RefSeq `partial`.
+    fn cds_end_incomplete(&self) -> bool;
 }
 
 impl TranscriptExt for Transcript {
@@ -223,6 +227,15 @@ impl TranscriptExt for Transcript {
 
     fn is_on_contig(&self, contig: &str) -> bool {
         self.genome_builds.values().any(|gb| gb.contig == contig)
+    }
+
+    fn cds_end_incomplete(&self) -> bool {
+        self.partial == Some(1)
+            || self.genome_builds.values().any(|gb| {
+                gb.tag
+                    .as_ref()
+                    .is_some_and(|tags| tags.contains(&Tag::Other("cds_end_NF".into())))
+            })
     }
 }
 
@@ -445,10 +458,12 @@ impl TranscriptLoader {
             });
     }
 
+    /// Complete the last codon of a CDS whose length is not a multiple of 3, unless the
+    /// annotation marks the CDS end as incomplete.
     pub(crate) fn fix_cds(&mut self) {
         self.transcript_id_to_transcript
             .values_mut()
-            .filter(|tx| tx.protein_coding())
+            .filter(|tx| tx.protein_coding() && !tx.cds_end_incomplete())
             .filter_map(|tx| {
                 tx.start_codon
                     .and_then(|start| tx.stop_codon.map(|stop| (start, stop)))
