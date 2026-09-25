@@ -671,8 +671,8 @@ impl ConsequencePredictor {
         }
     }
 
-    /// All placements of a deletion or insertion, in genome order, from its left- and
-    /// right-normalized form.
+    /// All placements of a deletion, insertion or duplication, in genome order, from its left-
+    /// and right-normalized form.
     ///
     /// Returns `None` for other variants, or if the genome sequence is not available.
     fn equivalent_placements(
@@ -724,9 +724,22 @@ impl ConsequencePredictor {
                     })
                     .collect()
             }
-            (NaEdit::Ins { .. }, NaEdit::Ins { alternative }) => {
-                // An insertion lies behind its start base.
-                let (first, last, bases) = (left_start, right_start, alternative.clone());
+            (
+                left_edit @ (NaEdit::Ins { .. } | NaEdit::Dup { .. }),
+                right_edit @ (NaEdit::Ins { .. } | NaEdit::Dup { .. }),
+            ) => {
+                // An insertion lies behind its start base. The copy of a duplication can go in
+                // front of or behind the duplicated bases.
+                let first = if matches!(left_edit, NaEdit::Dup { .. }) {
+                    left_start - 1
+                } else {
+                    left_start
+                };
+                let (last, bases) = match right_edit {
+                    NaEdit::Dup { .. } => (right_end, fetch(right_start - 1, right_end)?),
+                    NaEdit::Ins { alternative } => (right_start, alternative.clone()),
+                    _ => return None,
+                };
                 // The alternate sequence from `first` to the end of the inserted bases.
                 let alt = fetch(first, last)? + &bases;
                 (first..=last)
@@ -4238,6 +4251,19 @@ mod test {
     #[case("22:28987075:G:GC", "ENST00000402174", false, "c.1-1_1insC", vec![Consequence::ExonicSpliceRegionVariant, Consequence::FivePrimeUtrExonVariant])]
     // insertion between the last stop codon base and donor +1: the 3' UTR gains a base
     #[case("22:31879752:G:GA", "ENST00000646998", false, "c.3858_3858+1insA", vec![Consequence::ExonicSpliceRegionVariant, Consequence::ThreePrimeUtrExonVariant])]
+    // minus strand: dup of the last exon base, in front of donor +1 or inside the exon
+    #[case("22:28710005:C:CA", "ENST00000348295", false, "c.846dup", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // dup inside the stop codon that equals one behind it (`TAA` to `TAAAA`)
+    #[case("22:21469819:T:TAA", "ENST00000432134", false, "c.932_933dup", vec![Consequence::ThreePrimeUtrExonVariant])]
+    // frameshift inside the stop codon: every placement changes the stop codon
+    #[case("22:42571197:T:TG", "ENST00000340239", false, "c.611dup", vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    // dup of donor +1 to +7: the copy lands behind +7 and leaves the donor intact
+    #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", false, "c.1977+1_1977+7dup", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", true, "c.1977+1_1977+7dup", vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])]
+    // dup of donor +5 and +6: the copy lands behind +6 and leaves the fifth base intact
+    #[case("22:31616877:G:GGT", "ENST00000400288", false, "c.3433+5_3433+6dup", vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    // dup of c.16 to c.20: a copy in front of c.16 leaves the last three exon bases intact
+    #[case("22:42554033:G:GCCGCA", "ENST00000340239", false, "c.16_20dup", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
     fn annotate_indel_placement_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
