@@ -1530,33 +1530,26 @@ impl ConsequencePredictor {
                 && c_loc.end.cds_from == CdsFrom::Start
             {
                 // … then we need to check whether this is a start lost or a start retained.
-                // To that end, extract the first 3 bases plus/minus 3 bases …
-                if let Ok(first_codon_pm1) = self.provider.get_seq_part(
-                    &accession.value,
-                    Some(
-                        usize::try_from(n_loc.start.base - start + 1)
-                            .unwrap()
-                            .saturating_sub(4),
-                    ),
-                    Some(usize::try_from(n_loc.end.base - start + 1).unwrap() + 5),
-                ) {
-                    // … and introduce the change into the sequence.
-                    let mut first_codon = first_codon_pm1.clone();
-                    let (start, end) = (start as usize, end as usize);
-                    let start_retained = match c_edit {
-                        NaEdit::DelRef { .. } => {
-                            first_codon.replace_range(3 + start - 1..=3 + end - 1, "");
-                            // If the first codon is still a start codon, then it is a start retained.
-                            first_codon[2..5].contains("ATG")
+                // To that end, check the deletion against the transcript sequence (0-based).
+                let start_retained = match c_edit {
+                    NaEdit::DelRef { .. } => match (
+                        self.provider.get_seq_part(&accession.value, None, None),
+                        usize::try_from(n_loc.start.base - start),
+                        usize::try_from(n_loc.start.base - 1),
+                        usize::try_from(n_loc.end.base),
+                    ) {
+                        (Ok(tx_seq), Ok(cds_start), Ok(del_start), Ok(del_end)) => {
+                            deletion_keeps_cds(&tx_seq, cds_start, del_start..del_end)
                         }
-                        // TODO: handle other cases
                         _ => false,
-                    };
-                    if start_retained {
-                        tracing::trace!("Fixing StartLost → StartRetained for {:?}", &projection,);
-                        *consequences &= !Consequence::StartLost;
-                        *consequences |= Consequence::StartRetainedVariant;
-                    }
+                    },
+                    // TODO: handle other cases
+                    _ => false,
+                };
+                if start_retained {
+                    tracing::trace!("Fixing StartLost → StartRetained for {:?}", &projection,);
+                    *consequences &= !Consequence::StartLost;
+                    *consequences |= Consequence::StartRetainedVariant;
                 }
             }
         }
@@ -2901,6 +2894,25 @@ fn vep_indel_stop_terms(var_c: &HgvsVariant, ref_aa: &str, alt_aa: &str) -> Opti
             Consequences::empty()
         },
     )
+}
+
+/// Whether deleting `tx_seq[del]` leaves the CDS that starts at `cds_start` intact.
+///
+/// `del` must start at or after `cds_start`.  The CDS stays intact if it then starts
+/// `del.len()` bases earlier, i.e. if the same bases could be deleted from the 5' UTR.
+/// VEP's `_ins_del_start_altered` checks the same.
+fn deletion_keeps_cds(tx_seq: &str, cds_start: usize, del: std::ops::Range<usize>) -> bool {
+    let Some(new_cds_start) = cds_start.checked_sub(del.len()) else {
+        return false;
+    };
+    // Behind the deletion, the edited sequence equals the reference.
+    match (
+        tx_seq.get(new_cds_start..del.start),
+        tx_seq.get(cds_start..del.end),
+    ) {
+        (Some(new), Some(old)) => new == old,
+        _ => false,
+    }
 }
 
 #[inline]
@@ -4426,5 +4438,25 @@ mod test {
         assert_eq!(custom_field(&ann, ANN_TX_SEQ_ALT), Some(tx_alt.as_str()));
 
         Ok(())
+    }
+
+    /// Deletions within the start codon, after 5' UTRs of 0 to 3 bases.
+    #[rstest::rstest]
+    #[case::utr0_c1_3del("ATGTAG", 0, 0..3, false)]
+    #[case::utr1_c1del_after_a("AATGGCCTAA", 1, 1..2, true)]
+    #[case::utr1_c1del_after_c("CATGGCCTAA", 1, 1..2, false)]
+    #[case::utr2_c1del_after_a("CAATGGCCTAA", 2, 2..3, true)]
+    #[case::utr2_c3del("CCATGCCTAA", 2, 4..5, false)]
+    #[case::utr3_c1del_after_a("GCAATGGCCTAA", 3, 3..4, true)]
+    #[case::utr3_c1del_after_c("GCCATGGCCTAA", 3, 3..4, false)]
+    #[case::utr3_c1_2del_repeat("GATATGGCCTAA", 3, 3..5, true)]
+    #[case::utr3_c1_3del("GCAATGTGCTAA", 3, 3..6, false)]
+    fn deletion_in_start_codon_keeps_cds(
+        #[case] tx_seq: &str,
+        #[case] cds_start: usize,
+        #[case] del: std::ops::Range<usize>,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(deletion_keeps_cds(tx_seq, cds_start, del), expected);
     }
 }
