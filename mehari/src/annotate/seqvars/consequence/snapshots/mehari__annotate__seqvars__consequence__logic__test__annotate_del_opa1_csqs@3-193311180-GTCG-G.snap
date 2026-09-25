@@ -34,7 +34,7 @@ expression: res
     total: 3048
   protein_pos:
     ord: 6
-    total: 1016
+    total: 1015
   distance: 0
   strand: 1
   messages: ~

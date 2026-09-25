@@ -798,9 +798,11 @@ impl ConsequencePredictor {
                 ) {
                     // protein_pos and protein_consequences remain intentionally empty (or rather None)
                 } else {
+                    // Like VEP, do not count the stop codon (if the transcript has one).
                     let prot_len = cds_len
                         .expect("cds_len cannot be None if hgvs.p projection has been successful")
-                        / 3;
+                        / 3
+                        - i32::from(!incomplete_3p);
                     context.protein_pos = match var_p {
                         HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
                             ProtLocEdit::Ordinary { loc, .. } => Some(Pos {
@@ -1832,7 +1834,7 @@ impl ConsequencePredictor {
                                     // then it is not a stop gained
                                     // cf. 1:43450470:GCCT:G, ENST00000634258.3:c.10294_10296del/p.Leu3432Ter
                                     if let Some(p) = protein_pos
-                                        && p.total.is_some_and(|t| p.ord == t - 1)
+                                        && p.total.is_some_and(|t| p.ord == t)
                                         && conservative
                                     {
                                         consequences &= !Consequence::StopGained;
@@ -2734,7 +2736,9 @@ mod test {
         Args, AsyncAnnotatedVariantWriter, OutputFormat, run_with_writer,
     };
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
+    use crate::db::transcripts::create::models::Reason;
     use csv::ReaderBuilder;
+    use enumflags2::BitFlags;
     use futures::TryStreamExt;
     use insta::assert_yaml_snapshot;
     use noodles::vcf::variant::Record as NoodlesRecord;
@@ -2850,8 +2854,58 @@ mod test {
             assert_eq!(ann.feature_id, "NM_000000.1");
             assert_eq!(ann.cdna_pos, pos(16, Some(33)));
             assert_eq!(ann.cds_pos, pos(14, Some(27)));
-            assert_eq!(ann.protein_pos, pos(5, Some(9)));
+            assert_eq!(ann.protein_pos, pos(5, Some(8)));
         }
+
+        Ok(())
+    }
+
+    /// Like in VEP, the protein total does not count the stop codon. A variant in the stop
+    /// codon therefore has a protein position one past the total. A transcript without a stop
+    /// codon counts all of its codons.
+    #[test]
+    fn annotate_protein_total_excludes_stop_codon() -> Result<(), anyhow::Error> {
+        let predictor = |db| {
+            let provider = Arc::new(MehariProvider::new(
+                db,
+                None::<PathBuf>,
+                true,
+                Default::default(),
+            ));
+            ConsequencePredictor::new(provider, Default::default())
+        };
+        let var = |position, reference: &str, alternative: &str| VcfVariant {
+            chromosome: "1".into(),
+            position,
+            reference: reference.into(),
+            alternative: alternative.into(),
+        };
+        let pos = |ord, total| Some(Pos { ord, total });
+
+        // c.26A>C in the stop codon TAA
+        let ann = predictor(tx_db_with_indels_in_exon_cigars())
+            .predict(&var(2015, "A", "C"))?
+            .unwrap();
+        assert_eq!(ann[0].protein_pos, pos(9, Some(8)));
+
+        // c.22_24del deletes the last codon before the stop codon: no stop_gained.
+        let ann = predictor(tx_db_with_indels_in_exon_cigars())
+            .predict(&var(2010, "TAAA", "T"))?
+            .unwrap();
+        assert_eq!(ann[0].hgvs_p.as_deref(), Some("p.Lys8Ter"));
+        assert_eq!(
+            ann[0].consequences,
+            vec![Consequence::ConservativeInframeDeletion]
+        );
+
+        let mut db = tx_db_with_indels_in_exon_cigars();
+        if let Some(tx_db) = db.tx_db.as_mut() {
+            tx_db.transcripts[0].filter_reason =
+                Some(BitFlags::from(Reason::MissingStopCodon).bits());
+        }
+        // c.14C>A, p.Pro5His
+        let ann = predictor(db).predict(&var(2006, "C", "A"))?.unwrap();
+        assert_eq!(ann[0].protein_pos, pos(5, Some(9)));
 
         Ok(())
     }

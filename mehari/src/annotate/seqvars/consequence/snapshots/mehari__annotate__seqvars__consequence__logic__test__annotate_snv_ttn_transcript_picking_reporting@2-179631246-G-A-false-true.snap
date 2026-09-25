@@ -32,7 +32,7 @@ expression: res
     total: 103053
   protein_pos:
     ord: 3189
-    total: 34351
+    total: 34350
   distance: 0
   strand: -1
   messages: ~
@@ -68,7 +68,7 @@ expression: res
     total: 107976
   protein_pos:
     ord: 3189
-    total: 35992
+    total: 35991
   distance: 0
   strand: -1
   messages: ~
@@ -102,7 +102,7 @@ expression: res
     total: 80781
   protein_pos:
     ord: 3143
-    total: 26927
+    total: 26926
   distance: 0
   strand: -1
   messages: ~
@@ -136,7 +136,7 @@ expression: res
     total: 100272
   protein_pos:
     ord: 3189
-    total: 33424
+    total: 33423
   distance: 0
   strand: -1
   messages: ~
@@ -170,7 +170,7 @@ expression: res
     total: 16815
   protein_pos:
     ord: 3189
-    total: 5605
+    total: 5604
   distance: 0
   strand: -1
   messages: ~
@@ -204,7 +204,7 @@ expression: res
     total: 81156
   protein_pos:
     ord: 3143
-    total: 27052
+    total: 27051
   distance: 0
   strand: -1
   messages: ~
@@ -238,7 +238,7 @@ expression: res
     total: 81357
   protein_pos:
     ord: 3143
-    total: 27119
+    total: 27118
   distance: 0
   strand: -1
   messages: ~
