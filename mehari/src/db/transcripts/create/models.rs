@@ -458,8 +458,9 @@ impl TranscriptLoader {
             });
     }
 
-    /// Complete the last codon of a CDS whose length is not a multiple of 3, unless the
-    /// annotation marks the CDS end as incomplete.
+    /// Complete the stop codon of a CDS whose length is not a multiple of 3 with `A` bases, as
+    /// the poly-A tail does. This applies only if the CDS runs to the transcript end and the
+    /// annotation does not mark the CDS end as incomplete.
     pub(crate) fn fix_cds(&mut self) {
         self.transcript_id_to_transcript
             .values_mut()
@@ -484,7 +485,9 @@ impl TranscriptLoader {
 
                 for gb in tx.genome_builds.values_mut() {
                     let delta = 3 - (cds_len % 3);
-                    if delta == 0 {
+                    // `alt_cds_end_i` is the last transcript position of an exon.
+                    let tx_end = gb.exons.iter().map(|exon| exon.alt_cds_end_i).max();
+                    if delta == 0 || tx_end != Some(cds_end) {
                         continue;
                     };
                     tx.stop_codon = Some(cds_end + delta);

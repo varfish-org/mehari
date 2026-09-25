@@ -783,10 +783,6 @@ mod tests {
     #[rstest::rstest]
     #[case::complete_cds("NC_000001.11", "ATGAAATAGCC", 9, "ATGAAATAGCC")]
     #[case::stop_codon_at_transcript_end("NC_000001.11", "ATGAAATAG", 9, "ATGAAATAG")]
-    // `fix_cds` completes the stop codon `T` to `TAA`.
-    #[case::stop_codon_completed("NC_012920.1", "ATGAAAT", 7, "ATGAAATAA")]
-    // `fix_cds` extends the CDS into the 3' UTR and appends 1 base to the last exon.
-    #[case::padded_cds_before_transcript_end("NC_000001.11", "ATGAAATAGCC", 8, "ATGAAATAGCCA")]
     fn stored_sequence_is_padded_only_to_the_exon_end(
         #[case] contig: &str,
         #[case] seq: &str,
@@ -795,6 +791,32 @@ mod tests {
     ) -> Result<(), Error> {
         let tx = one_exon_tx(contig, seq.len(), stop_codon)?;
         assert_eq!(stored_sequence(tx, seq)?.0, expected);
+        Ok(())
+    }
+
+    /// Polyadenylation completes a stop codon such as `T` or `TA` to `TAA`, on chrMT and
+    /// elsewhere. It can do so only at the transcript end.
+    #[rstest::rstest]
+    #[case::chr_mt("NC_012920.1", "ATGAAAT", 7, "ATGAAATAA", 9)]
+    #[case::nuclear("NC_000002.12", "ATGAAATA", 8, "ATGAAATAA", 9)]
+    #[case::before_transcript_end("NC_000001.11", "ATGAAATAGCC", 8, "ATGAAATAGCC", 8)]
+    fn stop_codon_is_completed_only_at_the_transcript_end(
+        #[case] contig: &str,
+        #[case] seq: &str,
+        #[case] stop_codon: i32,
+        #[case] expected_seq: &str,
+        #[case] expected_stop_codon: i32,
+    ) -> Result<(), Error> {
+        let tx = one_exon_tx(contig, seq.len(), stop_codon)?;
+        let (stored, reason, stop_codon) = stored_sequence(tx, seq)?;
+        assert_eq!(stored, expected_seq);
+        assert_eq!(stop_codon, Some(expected_stop_codon));
+        // Without a completed stop codon, the CDS has none.
+        assert_eq!(
+            reason.contains(Reason::MissingStopCodon),
+            expected_stop_codon % 3 != 0,
+            "{reason:?}"
+        );
         Ok(())
     }
 
