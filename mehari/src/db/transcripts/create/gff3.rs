@@ -162,7 +162,8 @@ fn parse_biotype(value: &str) -> Option<BioType> {
 ///
 /// Reads the same transcript fields as cdot does, plus the biotype attribute of transcripts.
 /// For RefSeq, these fields include the `cDNA_match` rows, which align some transcripts to the
-/// genome, including gaps.
+/// genome, including gaps. Genes keep the gene ID of the annotation, whereas `load_cdot` names
+/// them by HGNC ID.
 pub fn load_gff3(
     loader: &mut TranscriptLoader,
     path: impl AsRef<Path>,
@@ -233,9 +234,18 @@ pub fn load_gff3(
             };
 
         match feature.as_str() {
-            f if f.contains("gene") => {
+            // As cdot does, read only rows without `Parent` as genes. A RefSeq gene segment
+            // below its gene names the same NCBI Gene ID and would replace the gene.
+            f if f.contains("gene") && raw_parent.is_none() => {
+                // Genes keep the ID of the annotation. GFF3 has no shared attribute for it:
+                // GENCODE and Ensembl write `gene_id`, RefSeq writes the NCBI Gene ID into
+                // `Dbxref`, and `ID` is only unique within the file.
+                let ncbi_gene_id = get_values("Dbxref")
+                    .iter()
+                    .find_map(|x| x.strip_prefix("GeneID:"))
+                    .map(String::from);
                 let resolved_gene_id = resolve_id(
-                    get_attr("gene_id"),
+                    get_attr("gene_id").or(ncbi_gene_id),
                     get_attr("version").or_else(|| get_attr("gene_version")),
                     &["gene:"],
                 );
@@ -668,6 +678,7 @@ chr1\ttest\tCDS\t2301\t2390\t.\t-\t0\tID=cds:T3M.1;Parent=transcript:T3M
     /// - NR_000004.1: a partial lnc_RNA without `cDNA_match` rows.
     /// - NR_000005.1: a miRNA primary transcript. Its mature miRNA row is not a transcript.
     /// - ND1: a mitochondrial mRNA without `transcript_id`.
+    /// - IGKC: a gene with a `C_gene_segment` row below it, which names the same Gene ID.
     const GFF3_REFSEQ: &str = "\
 ##gff-version 3
 NC_000001.11\tBestRefSeq\tgene\t1001\t1300\t.\t+\t.\tID=gene-GA;Dbxref=GeneID:11,HGNC:HGNC:1;Name=GA;gene_biotype=protein_coding
@@ -705,6 +716,9 @@ NC_000001.11\tBestRefSeq\tprimary_transcript\t6001\t6100\t.\t+\t.\tID=rna-NR_000
 NC_000001.11\tBestRefSeq\texon\t6001\t6100\t.\t+\t.\tID=exon-NR_000005.1-1;Parent=rna-NR_000005.1;transcript_id=NR_000005.1
 NC_000001.11\tBestRefSeq\tmiRNA\t6021\t6042\t.\t+\t.\tID=rna-MIR1;Parent=rna-NR_000005.1;gene=MIR1
 NC_000001.11\tBestRefSeq\texon\t6021\t6042\t.\t+\t.\tID=exon-MIR1-1;Parent=rna-MIR1;gene=MIR1
+NC_000001.11\tCurated Genomic\tgene\t7001\t7300\t.\t-\t.\tID=gene-IGKC;Dbxref=GeneID:3514,HGNC:HGNC:5716;Name=IGKC;description=immunoglobulin kappa constant;gene_biotype=C_region
+NC_000001.11\tCurated Genomic\tC_gene_segment\t7001\t7300\t.\t-\t.\tID=id-IGKC;Parent=gene-IGKC;Dbxref=GeneID:3514,HGNC:HGNC:5716;gbkey=C_region;gene=IGKC
+NC_000001.11\tCurated Genomic\tCDS\t7001\t7300\t.\t-\t0\tID=cds-IGKC;Parent=id-IGKC;Dbxref=GeneID:3514;gene=IGKC
 NC_012920.1\tRefSeq\tgene\t3307\t4262\t.\t+\t.\tID=gene-ND1;Dbxref=GeneID:4535,HGNC:HGNC:7455;Name=ND1;gene_biotype=protein_coding
 NC_012920.1\tRefSeq\tmRNA\t3307\t4262\t.\t+\t.\tID=rna-ND1;Parent=gene-ND1;Dbxref=GeneID:4535,HGNC:HGNC:7455;gene=ND1
 NC_012920.1\tRefSeq\texon\t3307\t4262\t.\t+\t.\tID=exon-ND1-1;Parent=rna-ND1;gene=ND1
@@ -1093,7 +1107,7 @@ chr22\tHAVANA\tCDS\t3101\t3400\t.\t+\t0\tID=CDS:ENST00000100003.1;Parent=ENST000
         assert_eq!(tx.partial, Some(1));
         assert_eq!(alignment.tag, None);
         assert_eq!(
-            loader.gene_id_to_gene[&GeneId::Gene("gene-GD".into())].biotype,
+            loader.gene_id_to_gene[&GeneId::Gene("44".into())].biotype,
             Some(vec![BioType::LncRna, BioType::NcRna])
         );
 
@@ -1137,6 +1151,31 @@ chr22\tHAVANA\tCDS\t3101\t3400\t.\t+\t0\tID=CDS:ENST00000100003.1;Parent=ENST000
         Ok(())
     }
 
+    /// Genes keep the ID of the annotation, even if it names an HGNC ID.
+    #[rstest::rstest]
+    #[case::refseq_ncbi_gene_id(GFF3_REFSEQ, "NM_000001.1", "11")]
+    #[case::refseq_without_hgnc(GFF3_REFSEQ, "NM_000003.1", "33")]
+    #[case::gencode_gene_id(GFF3_GENCODE_ENSEMBL, "ENST00000399012.6", "ENSG00000182378.15")]
+    #[case::ensembl_gene_id_and_version(
+        GFF3_GENCODE_ENSEMBL,
+        "ENST00000100001.2",
+        "ENSG00000100001.3"
+    )]
+    fn gene_id_comes_from_the_annotation(
+        #[case] gff3: &str,
+        #[case] tx_id: &str,
+        #[case] gene_id: &str,
+    ) -> Result<(), anyhow::Error> {
+        let loader = load(gff3)?;
+
+        assert!(
+            loader.gene_id_to_transcript_ids[&GeneId::Gene(gene_id.into())]
+                .contains(&TranscriptId::try_new(tx_id)?)
+        );
+
+        Ok(())
+    }
+
     /// A malformed `cDNA_match` row fails the load, and the error names the value.
     #[rstest::rstest]
     #[case("Target=NM_000001.1 1 x +", "invalid Target \"NM_000001.1 1 x +\"")]
@@ -1150,5 +1189,20 @@ chr22\tHAVANA\tCDS\t3101\t3400\t.\t+\t0\tID=CDS:ENST00000100003.1;Parent=ENST000
         );
         let error = load(&gff3).map(|_| ()).unwrap_err();
         assert!(format!("{error:#}").contains(message), "{error:#}");
+    }
+
+    /// A gene segment names the Gene ID of the gene above it, but must not replace that gene.
+    #[test]
+    fn gene_segment_does_not_replace_its_gene() -> Result<(), anyhow::Error> {
+        let loader = load(GFF3_REFSEQ)?;
+
+        let gene = &loader.gene_id_to_gene[&GeneId::Gene("3514".into())];
+        assert_eq!(gene.gene_symbol.as_deref(), Some("IGKC"));
+        assert_eq!(
+            gene.description.as_deref(),
+            Some("immunoglobulin kappa constant")
+        );
+
+        Ok(())
     }
 }

@@ -104,7 +104,7 @@ pub(crate) fn build_protobuf(
             let gene_id_reason = loader.discards.get(&Identifier::Gene(gene_id.clone()));
             let filtered = gene_id_reason.is_some_and(|reason| reason.intersects(Reason::hard()));
             crate::pbs::txs::GeneToTxId {
-                gene_id: gene_id.to_string(),
+                gene_id: gene_id.to_db_string(),
                 tx_ids: tx_ids
                     .iter()
                     .sorted_unstable()
@@ -218,7 +218,7 @@ fn protobuf_transcript(
     crate::pbs::txs::Transcript {
         id: (*tx_id).to_string(),
         gene_symbol: gene_symbol.unwrap_or("<MISSING>".to_string()),
-        gene_id: gene_id.to_string(),
+        gene_id: gene_id.to_db_string(),
         biotype,
         tags,
         protein,

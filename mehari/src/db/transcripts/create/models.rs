@@ -174,6 +174,17 @@ impl Display for GeneId {
     }
 }
 
+impl GeneId {
+    /// The ID as written to the database: `HGNC:1100` for an HGNC ID, else the ID without the
+    /// `GENE:` prefix, e.g. `ENSG00000182378.15`.
+    pub(crate) fn to_db_string(&self) -> String {
+        match self {
+            GeneId::Hgnc(_) => self.to_string(),
+            GeneId::Gene(id) => id.clone(),
+        }
+    }
+}
+
 impl FromStr for GeneId {
     type Err = std::num::ParseIntError;
 
@@ -826,5 +837,13 @@ mod tests {
     fn split_version(#[case] tx_id: &str, #[case] expected: (&str, u32)) -> Result<(), Error> {
         assert_eq!(TranscriptId::try_new(tx_id)?.split_version(), expected);
         Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case(GeneId::Hgnc(1100), "HGNC:1100")]
+    #[case(GeneId::Gene("ENSG00000182378.15".into()), "ENSG00000182378.15")]
+    #[case(GeneId::Gene("85358".into()), "85358")]
+    fn gene_id_to_db_string(#[case] gene_id: GeneId, #[case] expected: &str) {
+        assert_eq!(gene_id.to_db_string(), expected);
     }
 }
