@@ -6,7 +6,7 @@ use crate::db::transcripts::create::reference::SequenceProvider;
 use anyhow::Error;
 use derive_new::new;
 use enumflags2::{BitFlag, BitFlags};
-use hgvs::data::cdot::json::models::{BioType, Gene, Tag, Transcript};
+use hgvs::data::cdot::json::models::{BioType, Gene, GenomeAlignment, Strand, Tag, Transcript};
 use hgvs::sequences::{TranslationTable, translate_cds};
 use indicatif::ParallelProgressIterator;
 use itertools::Itertools;
@@ -168,36 +168,9 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
         } else if p.tx.protein_coding() {
             // Safely handle build lookup without panicking
             if let Some(alignment) = p.tx.genome_builds.values().next() {
-                let exons = alignment.exons.clone();
-                if exons.is_empty() {
-                    return true;
-                }
-                let is_reverse = matches!(
-                    alignment.strand,
-                    hgvs::data::cdot::json::models::Strand::Minus
-                );
-                let five_prime_trunc = {
-                    let cds_start = alignment.cds_start;
-                    // 5' exon: lowest genomic coordinate on '+', highest on '-'
-                    let first = if is_reverse {
-                        exons.iter().max_by_key(|e| e.alt_start_i).unwrap()
-                    } else {
-                        exons.iter().min_by_key(|e| e.alt_start_i).unwrap()
-                    };
-                    Some(first.alt_start_i) == cds_start
-                };
-                let three_prime_trunc = {
-                    let cds_end = alignment.cds_end;
-                    // 3' exon: highest genomic coordinate on '+', lowest on '-'
-                    let last = if is_reverse {
-                        exons.iter().min_by_key(|e| e.alt_end_i).unwrap()
-                    } else {
-                        exons.iter().max_by_key(|e| e.alt_end_i).unwrap()
-                    };
-                    Some(last.alt_end_i) == cds_end
-                };
-                // Flag partial when either end is truncated
-                five_prime_trunc || three_prime_trunc
+                // Flag partial when either end is truncated, or when there are no exons
+                truncated_ends(alignment)
+                    .is_none_or(|(five_prime, three_prime)| five_prime || three_prime)
             } else {
                 // No builds available, treat as non-partial
                 false
@@ -344,24 +317,9 @@ pub(crate) fn filter_transcripts_with_sequence(
     let five_prime_truncated = |tx: &Transcript| -> bool {
         let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
         if tx.protein_coding() && !is_mt {
-            tx.genome_builds.iter().any(|(_release, alignment)| {
-                let cds_start = alignment.cds_start;
-                let exons = alignment.exons.clone();
-                if exons.is_empty() {
-                    return true;
-                }
-                let is_reverse = matches!(
-                    alignment.strand,
-                    hgvs::data::cdot::json::models::Strand::Minus
-                );
-                // 5' exon: lowest genomic coordinate on '+', highest on '-'
-                let first = if is_reverse {
-                    exons.iter().max_by_key(|e| e.alt_start_i).unwrap()
-                } else {
-                    exons.iter().min_by_key(|e| e.alt_start_i).unwrap()
-                };
-                Some(first.alt_start_i) == cds_start
-            })
+            tx.genome_builds
+                .values()
+                .any(|alignment| truncated_ends(alignment).is_none_or(|(five_prime, _)| five_prime))
         } else {
             false
         }
@@ -369,23 +327,8 @@ pub(crate) fn filter_transcripts_with_sequence(
     let three_prime_truncated = |tx: &Transcript| -> bool {
         let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
         if tx.protein_coding() && !is_mt {
-            tx.genome_builds.iter().any(|(_release, alignment)| {
-                let cds_end = alignment.cds_end;
-                let exons = alignment.exons.clone();
-                if exons.is_empty() {
-                    return true;
-                }
-                let is_reverse = matches!(
-                    alignment.strand,
-                    hgvs::data::cdot::json::models::Strand::Minus
-                );
-                // 3' exon: highest genomic coordinate on '+', lowest on '-'
-                let last = if is_reverse {
-                    exons.iter().min_by_key(|e| e.alt_end_i).unwrap()
-                } else {
-                    exons.iter().max_by_key(|e| e.alt_end_i).unwrap()
-                };
-                Some(last.alt_end_i) == cds_end
+            tx.genome_builds.values().any(|alignment| {
+                truncated_ends(alignment).is_none_or(|(_, three_prime)| three_prime)
             })
         } else {
             false
@@ -624,6 +567,23 @@ fn group_transcripts_by_release_and_version<'a>(
     versioned
 }
 
+/// Returns `(5' truncated, 3' truncated)`: whether the CDS reaches the 5' end and the 3' end
+/// of the transcript, i.e. whether the 5' UTR and the 3' UTR are missing.
+/// Returns `None` if the alignment has no exons.
+///
+/// `cds_start`, `cds_end` and the exon coordinates are genomic on both strands.
+/// The 5' end of a minus-strand transcript is therefore its highest coordinate.
+fn truncated_ends(alignment: &GenomeAlignment) -> Option<(bool, bool)> {
+    let tx_start = alignment.exons.iter().map(|e| e.alt_start_i).min()?;
+    let tx_end = alignment.exons.iter().map(|e| e.alt_end_i).max()?;
+    let low_end = alignment.cds_start == Some(tx_start);
+    let high_end = alignment.cds_end == Some(tx_end);
+    Some(match alignment.strand {
+        Strand::Plus => (low_end, high_end),
+        Strand::Minus => (high_end, low_end),
+    })
+}
+
 fn append_poly_a(seq: String, length: usize) -> String {
     // Append poly-A for chrMT transcripts (which are from ENSEMBL).
     // This also potentially fixes the stop codon.
@@ -659,4 +619,93 @@ pub(crate) fn propagate_discard_reasons(loader: &mut TranscriptLoader) -> Result
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::progress::NoProgress;
+    use hgvs::data::cdot::json::models::Exon;
+    use indexmap::IndexMap;
+
+    const TX_ID: &str = "NM_000001.1";
+
+    /// Loader with one partial, coding transcript whose exons are at genomic
+    /// `[100, 200)` and `[300, 400)`. Its all-`C` sequence has no stop codon, so
+    /// `filter_transcripts_with_sequence` runs its 5'/3' truncation checks.
+    fn loader_with_tx(strand: Strand, cds_start: i32, cds_end: i32) -> TranscriptLoader {
+        let (low_ord, high_ord) = match strand {
+            Strand::Plus => (0, 1),
+            Strand::Minus => (1, 0),
+        };
+        let exon = |ord: i32, alt_start_i: i32| Exon {
+            alt_start_i,
+            alt_end_i: alt_start_i + 100,
+            ord,
+            alt_cds_start_i: ord * 100 + 1,
+            alt_cds_end_i: ord * 100 + 100,
+            cigar: "100M".to_string(),
+        };
+        let alignment = GenomeAlignment {
+            cds_start: Some(cds_start),
+            cds_end: Some(cds_end),
+            contig: "NC_000017.11".to_string(),
+            exons: vec![exon(low_ord, 100), exon(high_ord, 300)],
+            strand,
+            tag: None,
+            note: None,
+        };
+        let tx = Transcript {
+            biotype: None,
+            gene_name: None,
+            gene_version: String::new(),
+            genome_builds: IndexMap::from([("GRCh38".to_string(), alignment)]),
+            hgnc: None,
+            id: TX_ID.to_string(),
+            partial: Some(1),
+            protein: Some("NP_000001.1".to_string()),
+            start_codon: Some(0),
+            stop_codon: Some(99),
+        };
+        let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
+        loader
+            .transcript_id_to_transcript
+            .insert(TranscriptId::try_new(TX_ID).unwrap(), tx);
+        loader
+    }
+
+    /// `cds_start` and `cds_end` are genomic on both strands. The 5' end of a
+    /// minus-strand transcript is therefore its highest coordinate.
+    #[rstest::rstest]
+    #[case::plus_no_5p_utr(Strand::Plus, 100, 350, true, false)]
+    #[case::plus_no_3p_utr(Strand::Plus, 150, 400, false, true)]
+    #[case::plus_both_utrs(Strand::Plus, 150, 350, false, false)]
+    #[case::minus_no_5p_utr(Strand::Minus, 150, 400, true, false)]
+    #[case::minus_no_3p_utr(Strand::Minus, 100, 350, false, true)]
+    #[case::minus_both_utrs(Strand::Minus, 150, 350, false, false)]
+    fn truncation_is_checked_at_strand_aware_ends(
+        #[case] strand: Strand,
+        #[case] cds_start: i32,
+        #[case] cds_end: i32,
+        #[case] five_prime: bool,
+        #[case] three_prime: bool,
+    ) -> Result<(), Error> {
+        let mut loader = loader_with_tx(strand, cds_start, cds_end);
+        let mut seq_provider =
+            SequenceProvider::FastaMap(HashMap::from([(TX_ID.to_string(), "C".repeat(200))]));
+
+        filter_transcripts(&mut loader)?;
+        filter_transcripts_with_sequence(&mut loader, &mut seq_provider, &NoProgress)?;
+
+        let reason = loader.discards[&Identifier::Transcript(TranscriptId::try_new(TX_ID)?)];
+        assert_eq!(
+            (
+                reason.contains(Reason::OnlyPartialAlignmentInRefSeq),
+                reason.contains(Reason::FivePrimeEndTruncated),
+                reason.contains(Reason::ThreePrimeEndTruncated),
+            ),
+            (five_prime || three_prime, five_prime, three_prime),
+        );
+        Ok(())
+    }
 }
