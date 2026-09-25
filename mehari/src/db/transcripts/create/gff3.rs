@@ -743,8 +743,8 @@ chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
 ";
 
     /// A plus-strand and a minus-strand transcript with two exons each. The CDS runs to the
-    /// transcript end and is 190 bases long, as for 3'-incomplete transcripts (GENCODE tag
-    /// `cds_end_NF`), so `fix_cds` pads it by 2 bases.
+    /// transcript end and is 190 bases long. No `cds_end_NF` tag marks it as incomplete, so
+    /// `fix_cds` pads it by 2 bases.
     const GFF3_CDS_END_NF: &str = "\
 ##gff-version 3
 chr1\ttest\tgene\t1\t1000\t.\t+\t.\tID=gene:G3P;Name=G3P
