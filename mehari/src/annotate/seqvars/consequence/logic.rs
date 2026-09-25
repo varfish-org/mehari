@@ -1782,35 +1782,39 @@ impl ConsequencePredictor {
                                 {
                                     let altered_sequence = &alt_data.aa_sequence;
 
-                                    // trim altered sequence to the first stop encountered
-                                    let altered_sequence =
-                                        if let Some(pos) = altered_sequence.find('*') {
-                                            // do not use the 'X' fallback here,
-                                            // as that is _usually_ only added
-                                            // when the number of bases is not divisible by 3.
-                                            // We only want to identify cases where a new/later
-                                            // stop codon is encountered
-                                            // .or_else(|| altered_sequence.find('X'))
-                                            &altered_sequence[..=pos]
-                                        } else {
-                                            altered_sequence
-                                        };
-
-                                    match altered_sequence.len().cmp(&original_sequence_len) {
-                                        Ordering::Less => {
-                                            consequences |= Consequence::FrameshiftTruncation;
-                                        }
-                                        Ordering::Equal => {
-                                            if !self.config.vep_consequence_terms {
-                                                consequences |= Consequence::MissenseVariant;
-                                                // TODO: discuss stop_retained
-                                                // consequences |= Consequence::StopRetainedVariant;
-                                                consequences &= !Consequence::FrameshiftVariant;
+                                    // Compare the lengths up to the first stop of the new frame.
+                                    // A new frame without a stop (`fsTer?`) runs to the
+                                    // transcript end. It is an elongation only if it reads past
+                                    // the reference stop codon. Without a reference stop codon,
+                                    // hgvs cuts it to the reference length.
+                                    //
+                                    // do not use the 'X' fallback here,
+                                    // as that is _usually_ only added
+                                    // when the number of bases is not divisible by 3.
+                                    // We only want to identify cases where a new/later
+                                    // stop codon is encountered
+                                    // .or_else(|| altered_sequence.find('X'))
+                                    if let Some(pos) = altered_sequence.find('*') {
+                                        match (pos + 1).cmp(&original_sequence_len) {
+                                            Ordering::Less => {
+                                                consequences |= Consequence::FrameshiftTruncation;
+                                            }
+                                            Ordering::Equal => {
+                                                if !self.config.vep_consequence_terms {
+                                                    consequences |= Consequence::MissenseVariant;
+                                                    // TODO: discuss stop_retained
+                                                    // consequences |= Consequence::StopRetainedVariant;
+                                                    consequences &= !Consequence::FrameshiftVariant;
+                                                }
+                                            }
+                                            Ordering::Greater => {
+                                                consequences |= Consequence::FrameshiftElongation;
                                             }
                                         }
-                                        Ordering::Greater => {
-                                            consequences |= Consequence::FrameshiftElongation;
-                                        }
+                                    } else if reference_data.aa_sequence.ends_with('*')
+                                        && altered_sequence.len() > original_sequence_len
+                                    {
+                                        consequences |= Consequence::FrameshiftElongation;
                                     }
                                 }
                             }
@@ -3223,6 +3227,66 @@ mod test {
             spdi.join(":")
         );
         insta::assert_yaml_snapshot!(res);
+
+        Ok(())
+    }
+
+    /// Indels on Ensembl 108 chr22 transcripts.
+    #[rstest::rstest]
+    // `p.Gln147AlafsTer?`: no stop codon in the new frame (`cds_end_NF` transcript)
+    #[case("22:38140124:G:GC", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
+    // `p.Asp443ProfsTer?`: no stop codon in the new frame (complete transcript)
+    #[case(
+        "22:50525872:GCCGCTGAGCGCGGGGCCGTC:G",
+        "ENST00000487577",
+        false,
+        vec![Consequence::FrameshiftVariant]
+    )]
+    // `p.Gln482ProfsTer?`: the new frame reads past the stop codon to the transcript end
+    #[case("22:50525774:T:TG", "ENST00000487577", false, vec![Consequence::FrameshiftVariant, Consequence::FrameshiftElongation])]
+    fn annotate_indel_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] vep_consequence_terms: bool,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_path = "tests/data/annotate/db/grch38/GRCh38-ensembl.frameshift-subset.txs.bin.zst";
+        let tx_db = load_tx_db(tx_path)?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .vep_consequence_terms(vep_consequence_terms)
+                .build()?,
+        );
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+
+        let ann = res
+            .iter()
+            .find(|ann| ann.feature_id.starts_with(tx_id))
+            .unwrap();
+        assert_eq!(
+            ann.consequences,
+            expected_csqs,
+            "spdi = {}, hgvs_p = {:?}",
+            spdi.join(":"),
+            ann.hgvs_p
+        );
 
         Ok(())
     }
