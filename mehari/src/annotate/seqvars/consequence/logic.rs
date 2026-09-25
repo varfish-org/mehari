@@ -11,7 +11,10 @@ use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::errors::{GroupValidationError, SeqvarsError};
 use crate::pbs::txs::{GenomeAlignment, Strand, Transcript, TranscriptBiotype, TranscriptTag};
-use hgvs::mapper::altseq::{AltSeqBuilder, RefTranscriptData, VariantLocation};
+use hgvs::mapper::altseq::{
+    AltSeqBuilder, AltSeqToHgvsp, AltTranscriptData, RefTranscriptData, VariantLocation,
+    ref_transcript_data_cached,
+};
 use hgvs::parser::{NoRef, ProteinEdit};
 use hgvs::sequences::translate_cds_with_exceptions;
 use hgvs::{
@@ -405,6 +408,14 @@ fn cds_edit(var_c: &HgvsVariant) -> Option<(i32, i32, i32)> {
         _ => return None,
     };
     Some((start, end, len_change))
+}
+
+/// Whether the CDS of `tx` ends with a partial codon. `db create` completes the last codon
+/// unless the annotation marks the CDS end as incomplete.
+fn has_partial_last_codon(tx: &Transcript) -> bool {
+    tx.start_codon
+        .zip(tx.stop_codon)
+        .is_some_and(|(start, stop)| (stop - start) % 3 != 0)
 }
 
 /// Applies non-overlapping n. variants to the transcript sequence `tx_seq`.
@@ -1158,7 +1169,6 @@ impl ConsequencePredictor {
         &self,
         projection: &HgvsProjectionContext,
         tx: &Transcript,
-        tx_record: &TxForRegionRecord,
         transcript_location: &TranscriptLocationContext,
         tx_len: i32,
         transcript_biotype: TranscriptBiotype,
@@ -1244,7 +1254,7 @@ impl ConsequencePredictor {
                         var_p,
                         &context.protein_pos,
                         conservative,
-                        &tx_record.tx_ac,
+                        tx,
                         incomplete_3p,
                     );
 
@@ -1284,13 +1294,7 @@ impl ConsequencePredictor {
                         if protein_unchanged {
                             context.protein_consequences |= Consequence::SynonymousVariant;
                         }
-                    } else if indel_in_cds
-                        && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
-                            self.provider.clone(),
-                            &tx_record.tx_ac,
-                            None,
-                        )
-                    {
+                    } else if indel_in_cds && let Ok(ref_data) = self.ref_transcript_data(tx) {
                         // An indel that keeps the protein (`p.=`) keeps the stop codon, if the
                         // CDS has one.
                         if ref_data.aa_sequence.ends_with('*') && protein_unchanged {
@@ -1303,11 +1307,7 @@ impl ConsequencePredictor {
             // VEP takes the stop terms and `synonymous_variant` of an indel from the changed
             // codons, whatever `p.` says.
             if self.config.vep_consequence_terms
-                && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
-                    self.provider.clone(),
-                    &tx_record.tx_ac,
-                    None,
-                )
+                && let Ok(ref_data) = self.ref_transcript_data(tx)
                 && let Some(stop_terms) = var_c.vep_indel_stop_terms(
                     projection.unshifted_c.as_ref().unwrap_or(var_c),
                     &ref_data,
@@ -1400,7 +1400,6 @@ impl ConsequencePredictor {
             let consequence_ctx = self.analyze_transcript_consequences(
                 &projection,
                 tx,
-                &tx_record,
                 &transcript_location,
                 tx.tx_len(),
                 transcript_biotype,
@@ -1437,11 +1436,7 @@ impl ConsequencePredictor {
         if (c_ref || c_alt || p_ref || p_alt)
             && let Some(var_n) = projection.as_ref().and_then(|p| p.n.as_ref())
             && let Some(var_c) = projection.as_ref().and_then(|p| p.c.as_ref())
-            && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
-                self.provider.clone(),
-                &tx.id,
-                None,
-            )
+            && let Ok(ref_data) = self.ref_transcript_data(tx)
         {
             if c_ref {
                 custom_fields.insert(
@@ -1469,8 +1464,7 @@ impl ConsequencePredictor {
                     apply_n_edits(&ref_data.transcript_sequence, &[var_n])
                         .map(|tx_seq| (tx_seq, ref_data.aa_sequence.to_string()))
                 } else if matches!(var_c, HgvsVariant::CdsVariant { .. })
-                    && let Ok(alt_data_vec) =
-                        AltSeqBuilder::new(var_c.clone(), &ref_data).build_altseq()
+                    && let Ok(alt_data_vec) = self.build_altseq(var_c, &ref_data)
                     && let Some(alt_data) = alt_data_vec.into_iter().next()
                 {
                     Some((alt_data.transcript_sequence, alt_data.aa_sequence))
@@ -2125,10 +2119,12 @@ impl ConsequencePredictor {
                 consequences |= Consequence::StopLost;
             }
 
+            // The last codon starts at the last codon boundary. It is partial if the CDS
+            // length is not a multiple of 3.
             if incomplete_3p
                 && let Some(cds_len) = available_cds_len
                 && start_base <= cds_len
-                && end_base >= cds_len - 2
+                && end_base >= cds_len - (cds_len - 1) % 3
             {
                 consequences |= Consequence::IncompleteTerminalCodonVariant;
             }
@@ -2272,7 +2268,7 @@ impl ConsequencePredictor {
         var_p: &HgvsVariant,
         protein_pos: &Option<Pos>,
         conservative: bool,
-        tx_accession: &str,
+        tx: &Transcript,
         incomplete_3p: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
@@ -2297,17 +2293,9 @@ impl ConsequencePredictor {
                             // in the case of frameshifts, we will get the altered protein sequence
                             // in order to compare it with the unaltered one
 
-                            if let Ok(reference_data) =
-                                hgvs::mapper::altseq::ref_transcript_data_cached(
-                                    self.provider.clone(),
-                                    tx_accession,
-                                    None,
-                                )
-                            {
+                            if let Ok(reference_data) = self.ref_transcript_data(tx) {
                                 let original_sequence_len = reference_data.aa_sequence.len();
-                                if let Ok(alt_data) =
-                                    AltSeqBuilder::new(var_c.clone(), &reference_data)
-                                        .build_altseq()
+                                if let Ok(alt_data) = self.build_altseq(var_c, &reference_data)
                                     && let Some(alt_data) = alt_data.first()
                                 {
                                     let altered_sequence = &alt_data.aa_sequence;
@@ -2325,7 +2313,11 @@ impl ConsequencePredictor {
                                     // stop codon is encountered
                                     // .or_else(|| altered_sequence.find('X'))
                                     if let Some(pos) = altered_sequence.find('*') {
-                                        match (pos + 1).cmp(&original_sequence_len) {
+                                        // Count the amino acids before the stops. A CDS with an
+                                        // incomplete end has no stop codon.
+                                        let original_amino_acids =
+                                            reference_data.aa_sequence.trim_end_matches('*').len();
+                                        match pos.cmp(&original_amino_acids) {
                                             Ordering::Less => {
                                                 consequences |= Consequence::FrameshiftTruncation;
                                             }
@@ -2833,11 +2825,7 @@ impl ConsequencePredictor {
             return Ok(None);
         }
 
-        let ref_data = match hgvs::mapper::altseq::ref_transcript_data_cached(
-            self.provider.clone(),
-            &tx.id,
-            None,
-        ) {
+        let ref_data = match self.ref_transcript_data(tx) {
             Ok(r) => r,
             Err(_) => return Ok(None),
         };
@@ -2965,8 +2953,7 @@ impl ConsequencePredictor {
                 );
             }
             if (c_alt || p_alt)
-                && let Ok(alt_data_vec) =
-                    AltSeqBuilder::new(compound_var_c.clone(), &ref_data).build_altseq()
+                && let Ok(alt_data_vec) = self.build_altseq(&compound_var_c, &ref_data)
                 && let Some(alt_data) = alt_data_vec.into_iter().next()
             {
                 if c_alt {
@@ -2996,7 +2983,6 @@ impl ConsequencePredictor {
         let c_ctx = self.analyze_transcript_consequences(
             &compound_proj,
             tx,
-            tx_record,
             &tlc,
             tx_len,
             transcript_biotype,
@@ -3119,10 +3105,102 @@ impl ConsequencePredictor {
         .ok()
     }
 
-    /// Project `var_c` on `tx` to the protein.
+    /// The reference data of `tx`. A CDS with a partial last codon translates up to its last
+    /// complete codon.
+    fn ref_transcript_data(&self, tx: &Transcript) -> Result<RefTranscriptData, Error> {
+        if has_partial_last_codon(tx) {
+            self.partial_codon_ref_transcript_data(&tx.id)
+        } else {
+            ref_transcript_data_cached(self.provider.clone(), &tx.id, None)
+        }
+    }
+
+    /// The alternative sequences of `var_c`, with `ref_data` from `ref_transcript_data`.
+    fn build_altseq(
+        &self,
+        var_c: &HgvsVariant,
+        ref_data: &RefTranscriptData,
+    ) -> Result<Vec<AltTranscriptData>, Error> {
+        if !matches!(var_c, HgvsVariant::CdsVariant { .. }) {
+            // `AltSeqBuilder::new` panics for other variants.
+            Err(Error::ExpectedCdsVariant(var_c.to_string()))
+        } else {
+            AltSeqBuilder::new(var_c.clone(), ref_data).build_altseq()
+        }
+    }
+
+    /// The reference data of a CDS with a partial last codon. hgvs-rs translates only a CDS
+    /// whose length is a multiple of 3, so translate up to the last complete codon here.
+    fn partial_codon_ref_transcript_data(&self, tx_ac: &str) -> Result<RefTranscriptData, Error> {
+        let tx_info = self.provider.get_tx_identity_info(tx_ac)?;
+        let (Some(cds_start_i), Some(cds_end_i)) = (tx_info.cds_start_i, tx_info.cds_end_i) else {
+            return Err(Error::CdsUndefined(tx_ac.to_string()));
+        };
+        let transcript_sequence: Arc<str> = self.provider.get_seq(tx_ac)?.into();
+        let full_codons_end = cds_end_i - (cds_end_i - cds_start_i) % 3;
+        let cds = usize::try_from(cds_start_i)
+            .ok()
+            .zip(usize::try_from(full_codons_end).ok())
+            .and_then(|(start, end)| transcript_sequence.get(start..end))
+            .ok_or(Error::CoordinateOutsideReference)?;
+        let translation_exceptions = self.provider.get_tx_translation_exceptions(tx_ac)?;
+        let codon_exceptions: Vec<_> = translation_exceptions
+            .iter()
+            .filter_map(|exception| {
+                let codon = usize::try_from(exception.position).ok()?.checked_sub(1)?;
+                Some((codon, exception.amino_acid))
+            })
+            .collect();
+        let aa_sequence = translate_cds_with_exceptions(
+            cds,
+            true,
+            "*",
+            tx_info.translation_table,
+            &codon_exceptions,
+        )?
+        .into();
+        let protein_accession = self
+            .provider
+            .get_pro_ac_for_tx_ac(tx_ac)?
+            .unwrap_or_default()
+            .into();
+        Ok(RefTranscriptData {
+            transcript_sequence,
+            aa_sequence,
+            cds_start: cds_start_i + 1,
+            cds_stop: cds_end_i,
+            protein_accession,
+            translation_table: tx_info.translation_table,
+            translation_exceptions,
+        })
+    }
+
+    /// Project `var_c` on `tx` to the protein, see `ref_transcript_data`.
     fn c_to_p(&self, var_c: &HgvsVariant, tx: &Transcript) -> Result<HgvsVariant, Error> {
-        let var_p = self.mapper.variant_mapper().c_to_p(var_c, None)?;
-        self.ext_without_stop_codon(var_p, var_c, tx)
+        let var_p = if has_partial_last_codon(tx) {
+            // `Mapper::c_to_p` would fail on the reference data, so follow it here without
+            // validating `var_c` or replacing its reference bases.
+            let ref_data = self.ref_transcript_data(tx)?;
+            let alt_data = self
+                .build_altseq(var_c, &ref_data)?
+                .into_iter()
+                .next()
+                .ok_or(Error::ProtVariantConstructionFailed)?;
+            AltSeqToHgvsp::new(&ref_data, alt_data).build_hgvsp()?
+        } else {
+            self.mapper.variant_mapper().c_to_p(var_c, None)?
+        };
+        let mut var_p = self.ext_without_stop_codon(var_p, var_c, tx)?;
+        // hgvs-rs reports a change behind the last amino acid as `p.=`. Without a stop codon,
+        // the amino acids behind it are unknown.
+        if let HgvsVariant::ProtVariant { loc_edit, .. } = &mut var_p
+            && matches!(loc_edit, ProtLocEdit::NoChange)
+            && cds_edit(var_c).is_some()
+            && !self.ref_transcript_data(tx)?.aa_sequence.ends_with('*')
+        {
+            *loc_edit = ProtLocEdit::Unknown;
+        }
+        Ok(var_p)
     }
 
     /// hgvs-rs reads a change of the last amino acid as a change of the stop codon, i.e. as an
@@ -3141,12 +3219,7 @@ impl ConsequencePredictor {
             && let ProteinEdit::Ext { aa_ext, .. } = edit.inner()
         {
             let alternative = aa_ext.clone().unwrap_or_default();
-            let ref_aa = hgvs::mapper::altseq::ref_transcript_data_cached(
-                self.provider.clone(),
-                &tx.id,
-                None,
-            )?
-            .aa_sequence;
+            let ref_aa = self.ref_transcript_data(tx)?.aa_sequence;
             let number = loc.inner().start.number;
             if !ref_aa.ends_with('*')
                 && let Some(aa) = usize::try_from(number - 1)
@@ -4958,6 +5031,78 @@ mod test {
                 expected.contains(&consequence),
                 "{consequence:?}: {ann:?}"
             );
+        }
+        Ok(())
+    }
+
+    /// A CDS whose end the annotation marks as incomplete keeps its partial last codon, and
+    /// `db create` flags it with `MissingStopCodon`. The protein ends with the last complete
+    /// codon. The amino acids after it are unknown, so a variant after it gives `p.?`.
+    ///
+    /// The transcript has 20 bases of 5' UTR and the CDS `ATG GCC AAG CTG TGG GAA CC`
+    /// (`MAKLWE` and 2 bases) at chr1:1021-1040, which ends at the transcript end.
+    #[rstest::rstest]
+    #[case::stop_gained("1035:G:A", "p.Trp5Ter", &[Consequence::StopGained])]
+    #[case::last_complete_codon("1038:A:G", "p.Glu6=", &[Consequence::SynonymousVariant])]
+    #[case::partial_codon(
+        "1039:C:T",
+        "p.?",
+        &[Consequence::IncompleteTerminalCodonVariant]
+    )]
+    #[case::frameshift_into_partial_codon(
+        "1039:C:CGTGGGAAC",
+        "p.?",
+        &[Consequence::FrameshiftVariant, Consequence::IncompleteTerminalCodonVariant]
+    )]
+    // c.13_14insCCTA: the new stop takes the place of the last complete codon
+    #[case::frameshift_truncation(
+        "1033:T:TCCTA",
+        "p.Trp5SerfsTer2",
+        &[Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation]
+    )]
+    // c.16_18dup
+    #[case::dup_of_last_complete_codon(
+        "1035:G:GGAA",
+        "p.?",
+        &[Consequence::ConservativeInframeInsertion]
+    )]
+    fn incomplete_cds_end_has_no_stop_codon(
+        #[case] var: &str,
+        #[case] hgvs_p: &str,
+        #[case] expected: &[Consequence],
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGGAACC", "");
+        let tx = Transcript {
+            filter_reason: Some(BitFlags::from(Reason::MissingStopCodon).bits()),
+            ..tx
+        };
+        let var = var.split(':').collect::<Vec<_>>();
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: var[0].parse()?,
+                reference: var[1].into(),
+                alternative: var[2].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(ann.hgvs_p.as_deref(), Some(hgvs_p), "{ann:?}");
+        for consequence in expected {
+            assert!(ann.consequences.contains(consequence), "{ann:?}");
+        }
+        for consequence in [
+            Consequence::StopLost,
+            Consequence::StopRetainedVariant,
+            Consequence::FeatureElongation,
+            Consequence::IncompleteTerminalCodonVariant,
+        ] {
+            if !expected.contains(&consequence) {
+                assert!(!ann.consequences.contains(&consequence), "{ann:?}");
+            }
         }
         Ok(())
     }
