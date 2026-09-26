@@ -142,6 +142,8 @@ mehari db transcripts create \
 
 You will have to build the transcript database for each genome release that you want and manually specify the release via `--assembly`, e.g., `--assembly grch38`.
 
+mehari reads transcripts from GFF3 the way cdot does. If a RefSeq transcript has `cDNA_match` rows, mehari takes its alignment to the genome from these rows, including alignment gaps. Otherwise, mehari takes the exons from the `exon` rows. Genes keep the gene ID of the annotation: `gene_id` for GENCODE and Ensembl, and the NCBI Gene ID from `Dbxref` for RefSeq. These genes have no HGNC ID, so the default filters flag their transcripts with `MissingHgncId`. This is a soft filter: the transcripts stay in the database.
+
 You can enable compression by using the suffix `.gz` for gzip compression and `.zst` for zstandard compression.
 
 # Building CADD Database
