@@ -4200,6 +4200,147 @@ mod test {
         Ok(())
     }
 
+    /// A predictor for one selenoprotein transcript on the plus strand of chr1 (GRCh38).
+    ///
+    /// Its one exon spans chr1:1001-1073: 20 bases of 5' UTR, the CDS
+    /// `ATG GCC AAG CTG TGG GAA CCA TGA CGC GTT TAA` (`MAKLWEPURV*`) at chr1:1021-1053, and 20
+    /// bases of 3' UTR. The eighth codon is the Sec codon.
+    fn selenoprotein_predictor(tagged: bool, positions: Vec<u32>) -> ConsequencePredictor {
+        use crate::pbs::txs::{
+            ExonAlignment, GeneToTxId, SequenceDb, SourceVersion, TranscriptDb,
+            TranslationException, TxSeqDatabase,
+        };
+
+        // hgvs-rs caches the reference protein by the database version, so each database
+        // needs its own version.
+        let version = format!("tagged: {tagged}, positions: {positions:?}");
+        let utr = "CAGTCAGTCAGTCAGTCAGT";
+        let tx = Transcript {
+            id: "NM_000001.1".into(),
+            gene_symbol: "SELENOX".into(),
+            gene_id: "1".into(),
+            biotype: TranscriptBiotype::Coding.into(),
+            tags: tagged
+                .then(|| TranscriptTag::Selenoprotein.into())
+                .into_iter()
+                .collect(),
+            protein: Some("NP_000001.1".into()),
+            start_codon: Some(20),
+            stop_codon: Some(53),
+            genome_alignments: vec![GenomeAlignment {
+                genome_build: "grch38".into(),
+                contig: "NC_000001.11".into(),
+                cds_start: Some(1020),
+                cds_end: Some(1053),
+                strand: Strand::Plus.into(),
+                exons: vec![ExonAlignment {
+                    alt_start_i: 1000,
+                    alt_end_i: 1073,
+                    ord: 0,
+                    alt_cds_start_i: Some(1),
+                    alt_cds_end_i: Some(73),
+                    cigar: "73M".into(),
+                }],
+                ..Default::default()
+            }],
+            filtered: Some(false),
+            translation_exceptions: positions
+                .into_iter()
+                .map(|position| TranslationException {
+                    position,
+                    amino_acid: "U".into(),
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let tx_seq_db = TxSeqDatabase {
+            tx_db: Some(TranscriptDb {
+                transcripts: vec![tx],
+                gene_to_tx: vec![GeneToTxId {
+                    gene_id: "1".into(),
+                    tx_ids: vec!["NM_000001.1".into()],
+                    filtered: Some(false),
+                    filter_reason: None,
+                }],
+            }),
+            seq_db: Some(SequenceDb {
+                aliases: vec!["NM_000001.1".into()],
+                aliases_idx: vec![0],
+                seqs: vec![format!("{utr}ATGGCCAAGCTGTGGGAACCATGACGCGTTTAA{utr}")],
+            }),
+            version: Some(version),
+            source_version: vec![SourceVersion {
+                assembly: "GRCh38".into(),
+                ..Default::default()
+            }],
+        };
+        let provider = Arc::new(MehariProvider::new(
+            tx_seq_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        ConsequencePredictor::new(provider, Default::default())
+    }
+
+    /// With Sec positions, UGA reads as selenocysteine only at them. Without, a transcript
+    /// tagged as selenoprotein reads every UGA as selenocysteine.
+    #[rstest::rstest]
+    #[case::new_uga_is_a_stop(false, vec![8], "1035:G:A", "p.Trp5Ter", Consequence::StopGained)]
+    #[case::new_uga_is_a_stop_despite_tag(
+        true,
+        vec![8],
+        "1035:G:A",
+        "p.Trp5Ter",
+        Consequence::StopGained
+    )]
+    #[case::sec_codon_reads_sec(false, vec![8], "1044:A:G", "p.Sec8Trp", Consequence::MissenseVariant)]
+    #[case::codon_after_sec_codon(
+        false,
+        vec![8],
+        "1046:G:A",
+        "p.Arg9His",
+        Consequence::MissenseVariant
+    )]
+    #[case::sec_codon_moves_with_deletion(
+        false,
+        vec![8],
+        "1035:GGAA:G",
+        "p.Glu6del",
+        Consequence::ConservativeInframeDeletion
+    )]
+    #[case::tag_without_positions(true, vec![], "1035:G:A", "p.Trp5Sec", Consequence::MissenseVariant)]
+    fn selenocysteine_only_at_its_positions(
+        #[case] tagged: bool,
+        #[case] positions: Vec<u32>,
+        #[case] var: &str,
+        #[case] hgvs_p: &str,
+        #[case] consequence: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let var = var.split(':').collect::<Vec<_>>();
+        let anns = selenoprotein_predictor(tagged, positions)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: var[0].parse()?,
+                reference: var[1].into(),
+                alternative: var[2].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(ann.hgvs_p.as_deref(), Some(hgvs_p));
+        assert!(
+            ann.consequences.contains(&consequence),
+            "{:?}",
+            ann.consequences
+        );
+
+        Ok(())
+    }
+
     #[test]
     fn test_predict_multiple_bounds_checking() -> Result<(), anyhow::Error> {
         let alt_seq = String::from("ATGCGTACGTAGCTAGCT");
