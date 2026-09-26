@@ -163,6 +163,10 @@ impl VariantBuffer {
             }
         }
 
+        // The hash maps above iterate in random order. Sort the groups by variant index
+        // so that the compound IDs derived from this order are the same in every run.
+        compound_groups.sort_unstable();
+
         self.min_tx_start = i32::MAX;
         self.max_tx_end = -1;
 
@@ -263,5 +267,62 @@ impl VariantBuffer {
         }
 
         groups
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::annotate::seqvars::consequence::VcfVariant;
+    use noodles::core::Position;
+    use noodles::vcf::variant::record_buf::samples::Keys;
+    use noodles::vcf::variant::record_buf::{AlternateBases, Samples};
+
+    /// Push an SNV with genotype `0|1` in phase set `ps` on transcript `tx`.
+    fn push_phased_snv(buffer: &mut VariantBuffer, tx: &str, pos: i32, ps: i32) {
+        let keys: Keys = ["GT", "PS"].into_iter().map(String::from).collect();
+        let samples = Samples::new(
+            keys,
+            vec![vec![
+                Some(Value::String("0|1".into())),
+                Some(Value::Integer(ps)),
+            ]],
+        );
+        let record = RecordBuf::builder()
+            .set_reference_sequence_name("17")
+            .set_variant_start(Position::try_from(pos as usize).unwrap())
+            .set_reference_bases("A")
+            .set_alternate_bases(AlternateBases::from(vec![String::from("C")]))
+            .set_samples(samples)
+            .build();
+        let vcf_var = VcfVariant {
+            chromosome: "17".into(),
+            position: pos,
+            reference: "A".into(),
+            alternative: "C".into(),
+        };
+        let tx_accessions = HashSet::from([tx.to_string()]);
+        buffer.push(vcf_var, record, tx_accessions, 0, 1_000_000, 0, 1);
+    }
+
+    #[test]
+    fn flush_returns_groups_in_input_order() {
+        // 4 transcripts with 4 phase sets each, two variants per phase set:
+        // 16 groups, so a hash-map order matches input order only by chance.
+        let mut buffer = VariantBuffer::new(PhasingStrategy::Strict);
+        let mut pos = 1000;
+        for tx in ["tx1", "tx2", "tx3", "tx4"] {
+            for ps in 1..=4 {
+                for _ in 0..2 {
+                    push_phased_snv(&mut buffer, tx, pos, ps);
+                    pos += 10;
+                }
+            }
+        }
+
+        let (_, groups) = buffer.flush();
+
+        let expected: Vec<Vec<usize>> = (0..16).map(|g| vec![2 * g, 2 * g + 1]).collect();
+        assert_eq!(groups, expected);
     }
 }
