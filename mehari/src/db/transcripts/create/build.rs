@@ -5,6 +5,7 @@ use crate::db::transcripts::create::models::{
 use crate::pbs::txs::{GenomeBuild, SourceVersion, TxSeqDatabase};
 use anyhow::Error;
 use hgvs::data::cdot::json::models::{BioType, Gene, GenomeAlignment, Tag, Transcript};
+use hgvs::sequences::aa3_to_aa1;
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::ops::Not;
@@ -230,7 +231,42 @@ fn protobuf_transcript(
             .is_empty()
             .not()
             .then(|| combined_reason.bits()),
+        translation_exceptions: translation_exceptions(tx),
     }
+}
+
+/// The one-letter code of an amino acid in `transl_except`, as hgvs-rs reads cdot: `Other` is
+/// an unspecified amino acid (`X`) and `TERM` a stop codon (`*`).
+fn transl_except_amino_acid(name: &str) -> Option<char> {
+    match name {
+        "Other" => Some('X'),
+        "TERM" => Some('*'),
+        _ if name.len() == 3 => aa3_to_aa1(name).ok()?.chars().next(),
+        _ => None,
+    }
+}
+
+/// The translation exceptions of `tx`, ordered by position. An amino acid without one-letter
+/// code is skipped with a warning.
+fn translation_exceptions(tx: &Transcript) -> Vec<crate::pbs::txs::TranslationException> {
+    let mut exceptions = Vec::new();
+    for (name, positions) in tx.transl_except.iter().flatten() {
+        let Some(amino_acid) = transl_except_amino_acid(name) else {
+            tracing::warn!(
+                "skipping transl_except {name} of {}: unknown amino acid",
+                tx.id
+            );
+            continue;
+        };
+        exceptions.extend(positions.iter().map(|&position| {
+            crate::pbs::txs::TranslationException {
+                position,
+                amino_acid: amino_acid.to_string(),
+            }
+        }));
+    }
+    exceptions.sort_by_key(|exception| exception.position);
+    exceptions
 }
 
 fn protobuf_genome_alignment(

@@ -41,6 +41,9 @@ struct TranscriptChildren {
     cds: Vec<(i32, i32, u8)>,
     protein: Option<String>,
     note: Option<String>,
+    /// Translation exceptions: the genomic interval of each codon, 0-based and half-open, and
+    /// its amino acid as `transl_except` names it, e.g. `Sec`.
+    transl_except: Vec<(i32, i32, String)>,
 }
 
 /// An exon and its alignment to the genome, as cdot stores it.
@@ -145,6 +148,24 @@ fn parse_gap(gap: &str) -> Result<Vec<(u8, i32)>, Error> {
         .collect()
 }
 
+/// The genomic interval and the amino acid of a `transl_except` value, e.g.
+/// `(pos:complement(19877111..19877113),aa:Sec)`. The interval is 0-based and half-open. A
+/// codon split by an intron spans the intron.
+fn parse_transl_except(value: &str) -> Option<(i32, i32, String)> {
+    let (pos, aa) = value
+        .trim_matches(|c| c == '(' || c == ')')
+        .split_once(",aa:")?;
+    let bounds: Vec<i32> = pos
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|n| n.parse().ok())
+        .collect();
+    Some((
+        bounds.iter().min()? - 1,
+        *bounds.iter().max()?,
+        aa.to_string(),
+    ))
+}
+
 /// Parse a GFF3 type or biotype, e.g. `lnc_RNA` or `protein_coding`.
 fn parse_biotype(value: &str) -> Option<BioType> {
     // Ensembl and GENCODE write `nonsense_mediated_decay`. `BioType` names it by the SO term
@@ -184,6 +205,10 @@ pub fn load_gff3(
     let mut tx_raw_ids: HashSet<String> = HashSet::new();
     // Keyed by the `Parent` of the exon and CDS rows.
     let mut raw_children: HashMap<String, TranscriptChildren> = HashMap::new();
+    // The `Parent` of the CDS rows, keyed by their `ID`.
+    let mut cds_parents: HashMap<String, Vec<String>> = HashMap::new();
+    // The `Parent` and genomic interval of each Sec codon row.
+    let mut sec_rows: Vec<(String, i32, i32)> = Vec::new();
     // Keyed by the transcript accession in `Target`, with the contig of each row.
     let mut cdna_matches: HashMap<String, Vec<(String, AlignedExon)>> = HashMap::new();
     let mut raw_id_to_gene_id: HashMap<String, GeneId> = HashMap::new();
@@ -342,11 +367,33 @@ pub fn load_gff3(
                             None => id,
                         });
 
+                    // RefSeq names the translation exceptions in `transl_except` on every CDS
+                    // row.
+                    let transl_except: Vec<_> = get_values("transl_except")
+                        .iter()
+                        .filter_map(|value| parse_transl_except(value))
+                        .collect();
+
                     for parent_id in p.split(',') {
                         let children = raw_children.entry(parent_id.to_string()).or_default();
                         children.cds.push((start, end, phase));
                         children.protein = protein.clone().or(children.protein.take());
                         children.note = get_attr("Note").or(children.note.take());
+                        children.transl_except.extend(transl_except.iter().cloned());
+                    }
+                    if let Some(id) = raw_id {
+                        cds_parents
+                            .entry(id)
+                            .or_insert_with(|| p.split(',').map(String::from).collect());
+                    }
+                }
+            }
+            // GENCODE writes each Sec codon as a row below the CDS. An Ensembl GTF converted
+            // to GFF3 keeps its `Selenocysteine` rows, usually below the transcript.
+            "stop_codon_redefined_as_selenocysteine" | "Selenocysteine" => {
+                if let Some(p) = raw_parent {
+                    for parent_id in p.split(',') {
+                        sec_rows.push((parent_id.to_string(), start, end));
                     }
                 }
             }
@@ -370,6 +417,21 @@ pub fn load_gff3(
                 ));
             }
             _ => {}
+        }
+    }
+
+    // Attach each Sec codon row to its transcript, also if it is below the CDS.
+    for (parent, start, end) in sec_rows {
+        let parents = cds_parents
+            .get(&parent)
+            .cloned()
+            .unwrap_or_else(|| vec![parent]);
+        for parent in parents {
+            raw_children.entry(parent).or_default().transl_except.push((
+                start,
+                end,
+                "Sec".to_string(),
+            ));
         }
     }
 
@@ -494,6 +556,34 @@ pub fn load_gff3(
             tracing::warn!("CDS of {tx_id} is not within its aligned exons");
         }
 
+        // The translation exceptions by amino acid, as cdot stores them: 1-based positions in
+        // the protein, counted from the first base of each codon in transcript direction.
+        let mut transl_except: IndexMap<String, Vec<u32>> = IndexMap::new();
+        let mut raw_transl_except = children.transl_except;
+        raw_transl_except.sort_unstable();
+        raw_transl_except.dedup();
+        for (start, end, amino_acid) in raw_transl_except {
+            let first = tx_position(if is_reverse { end - 1 } else { start });
+            let position = match (tx_cds_start, tx_cds_end, first) {
+                (Some(cds_start), Some(cds_end), Some(first))
+                    if (cds_start..cds_end).contains(&first) && (first - cds_start) % 3 == 0 =>
+                {
+                    u32::try_from((first - cds_start) / 3 + 1).ok()
+                }
+                _ => None,
+            };
+            match position {
+                Some(position) => transl_except.entry(amino_acid).or_default().push(position),
+                None => tracing::warn!(
+                    "{amino_acid} codon at {}-{end} is not a codon of the CDS of {tx_id}",
+                    start + 1
+                ),
+            }
+        }
+        for positions in transl_except.values_mut() {
+            positions.sort_unstable();
+        }
+
         let mut final_exons: Vec<_> = exons
             .iter()
             .enumerate()
@@ -565,6 +655,8 @@ pub fn load_gff3(
             stop_codon: tx_cds_end,
             partial: row.partial.then_some(1),
             genome_builds: IndexMap::from([(loader.genome_release.clone(), alignment)]),
+            transl_except: (!transl_except.is_empty()).then_some(transl_except),
+            transl_table: None,
         };
 
         let t_id = TranscriptId::try_new(tx_id)?;
@@ -608,6 +700,7 @@ pub fn load_gff3(
 mod tests {
     use super::*;
     use crate::common::progress::NoProgress;
+    use crate::db::transcripts::create::build::build_protobuf;
     use crate::db::transcripts::create::filter::filter_transcripts;
     use crate::db::transcripts::create::models::{Identifier, Reason, TranscriptExt};
     use anyhow::Context;
@@ -650,8 +743,8 @@ chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
 ";
 
     /// A plus-strand and a minus-strand transcript with two exons each. The CDS runs to the
-    /// transcript end and is 190 bases long, as for 3'-incomplete transcripts (GENCODE tag
-    /// `cds_end_NF`), so `fix_cds` pads it by 2 bases.
+    /// transcript end and is 190 bases long. No `cds_end_NF` tag marks it as incomplete, so
+    /// `fix_cds` pads it by 2 bases.
     const GFF3_CDS_END_NF: &str = "\
 ##gff-version 3
 chr1\ttest\tgene\t1\t1000\t.\t+\t.\tID=gene:G3P;Name=G3P
@@ -758,6 +851,40 @@ chr22\tHAVANA\texon\t3001\t4000\t.\t+\t.\tID=exon:ENST00000100003.1:1;Parent=ENS
 chr22\tHAVANA\tCDS\t3101\t3400\t.\t+\t0\tID=CDS:ENST00000100003.1;Parent=ENST00000100003.1;protein_id=ENSP00000100003.1
 ";
 
+    /// Transcripts with translation exceptions, as each source names them:
+    /// - NM_000006.1 (`-`): RefSeq, in `transl_except` on every CDS row, Met at the start codon
+    ///   and Sec at the codon that starts 57 bases into the CDS.
+    /// - ENST00000100007.1 (`+`): GENCODE, in a `stop_codon_redefined_as_selenocysteine` row
+    ///   below the CDS. The Sec codon starts 111 bases into the CDS, in the second exon.
+    /// - ENST00000100008.1 (`+`): an Ensembl GTF converted to GFF3, in a `Selenocysteine` row
+    ///   below the transcript. The Sec codon starts 12 bases into the CDS.
+    /// - NM_000009.1 (`+`): RefSeq, `Other` at the codon that starts 30 bases into the CDS, and
+    ///   `Pyl`, which has no one-letter code in hgvs-rs.
+    const GFF3_TRANSL_EXCEPT: &str = "\
+##gff-version 3
+NC_000001.11\tBestRefSeq\tgene\t1001\t1300\t.\t-\t.\tID=gene-GS;Dbxref=GeneID:66;Name=GS;gene_biotype=protein_coding
+NC_000001.11\tBestRefSeq\tmRNA\t1001\t1300\t.\t-\t.\tID=rna-NM_000006.1;Parent=gene-GS;transcript_id=NM_000006.1
+NC_000001.11\tBestRefSeq\texon\t1201\t1300\t.\t-\t.\tParent=rna-NM_000006.1
+NC_000001.11\tBestRefSeq\texon\t1001\t1100\t.\t-\t.\tParent=rna-NM_000006.1
+NC_000001.11\tBestRefSeq\tCDS\t1201\t1290\t.\t-\t0\tID=cds-NP_000006.1;Parent=rna-NM_000006.1;protein_id=NP_000006.1;transl_except=(pos:complement(1231..1233)%2Caa:Sec),(pos:complement(1288..1290)%2Caa:Met)
+NC_000001.11\tBestRefSeq\tCDS\t1051\t1100\t.\t-\t0\tID=cds-NP_000006.1;Parent=rna-NM_000006.1;protein_id=NP_000006.1;transl_except=(pos:complement(1231..1233)%2Caa:Sec),(pos:complement(1288..1290)%2Caa:Met)
+chr1\tHAVANA\tgene\t3001\t3300\t.\t+\t.\tID=ENSG00000100007.1;gene_id=ENSG00000100007.1;gene_name=GT
+chr1\tHAVANA\ttranscript\t3001\t3300\t.\t+\t.\tID=ENST00000100007.1;Parent=ENSG00000100007.1;gene_id=ENSG00000100007.1;transcript_id=ENST00000100007.1;tag=basic,seleno
+chr1\tHAVANA\texon\t3001\t3100\t.\t+\t.\tID=exon:ENST00000100007.1:1;Parent=ENST00000100007.1
+chr1\tHAVANA\texon\t3201\t3300\t.\t+\t.\tID=exon:ENST00000100007.1:2;Parent=ENST00000100007.1
+chr1\tHAVANA\tCDS\t3011\t3100\t.\t+\t0\tID=CDS:ENST00000100007.1;Parent=ENST00000100007.1;protein_id=ENSP00000100007.1
+chr1\tHAVANA\tCDS\t3201\t3250\t.\t+\t0\tID=CDS:ENST00000100007.1;Parent=ENST00000100007.1;protein_id=ENSP00000100007.1
+chr1\tHAVANA\tstop_codon_redefined_as_selenocysteine\t3222\t3224\t.\t+\t.\tID=selenocysteine:ENST00000100007.1:38;Parent=CDS:ENST00000100007.1;transcript_id=ENST00000100007.1
+22\tensembl_havana\tgene\t5001\t5300\t.\t+\t.\tID=gene:ENSG00000100008;Name=GU;biotype=protein_coding;gene_id=ENSG00000100008;version=1
+22\tensembl_havana\tmRNA\t5001\t5300\t.\t+\t.\tID=transcript:ENST00000100008;Parent=gene:ENSG00000100008;biotype=protein_coding;transcript_id=ENST00000100008;version=1
+22\tensembl_havana\texon\t5001\t5300\t.\t+\t.\tParent=transcript:ENST00000100008
+22\tensembl_havana\tCDS\t5011\t5100\t.\t+\t0\tParent=transcript:ENST00000100008;protein_id=ENSP00000100008;protein_version=1
+22\tensembl_havana\tSelenocysteine\t5023\t5025\t.\t+\t.\tParent=transcript:ENST00000100008
+NC_000001.11\tBestRefSeq\tmRNA\t7001\t7300\t.\t+\t.\tID=rna-NM_000009.1;transcript_id=NM_000009.1
+NC_000001.11\tBestRefSeq\texon\t7001\t7300\t.\t+\t.\tParent=rna-NM_000009.1
+NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rna-NM_000009.1;protein_id=NP_000009.1;transl_except=(pos:7041..7043%2Caa:Other),(pos:7050..7052%2Caa:Pyl)
+";
+
     fn load(gff3: &str) -> Result<TranscriptLoader, anyhow::Error> {
         let mut file = tempfile::NamedTempFile::new()?;
         file.write_all(gff3.as_bytes())?;
@@ -809,13 +936,13 @@ chr22\tHAVANA\tCDS\t3101\t3400\t.\t+\t0\tID=CDS:ENST00000100003.1;Parent=ENST000
         Ok(())
     }
 
-    /// The bases that `fix_cds` pads exist in the transcript only. The alignment must
-    /// therefore keep its genomic length, and the first transcript base must keep its
-    /// position.
+    /// `fix_cds` completes the stop codon with bases after the last exon. The alignment keeps
+    /// its length on the genome and on the transcript, and the first transcript base keeps
+    /// its position.
     #[rstest::rstest]
     #[case("T3P", 1)]
     #[case("T3M", -1)]
-    fn fix_cds_pads_the_transcript_only(
+    fn fix_cds_keeps_the_alignment(
         #[case] tx_id: &str,
         #[case] strand: i16,
     ) -> Result<(), anyhow::Error> {
@@ -845,14 +972,34 @@ chr22\tHAVANA\tCDS\t3101\t3400\t.\t+\t0\tID=CDS:ENST00000100003.1;Parent=ENST000
             .collect::<Vec<_>>();
         let mapper = CigarMapper::new(&build_tx_cigar(&exons, strand)?);
 
-        // Two exons of 100 bases around an intron of 200 bases, plus 2 padding bases.
+        // Two exons of 100 bases around an intron of 200 bases.
         assert_eq!(mapper.ref_len, 400);
-        assert_eq!(mapper.tgt_len, 202);
+        assert_eq!(mapper.tgt_len, 200);
         // The first transcript base is the first genomic base on `+` and the last one on
         // `-`, where the mapper counts transcript positions from the genomic start.
-        let (ref_pos, tgt_pos) = if strand == 1 { (0, 0) } else { (399, 201) };
+        let (ref_pos, tgt_pos) = if strand == 1 { (0, 0) } else { (399, 199) };
         assert_eq!(mapper.map_ref_to_tgt(ref_pos, "start", true)?.pos, tgt_pos);
 
+        Ok(())
+    }
+
+    /// Without any `cds_end_NF` tag or RefSeq `partial` flag, a source cannot tell an
+    /// incomplete CDS end from a stop codon that the poly-A tail completes. `db create` then
+    /// warns about the CDS whose length is not a multiple of 3.
+    #[rstest::rstest]
+    #[case::untagged("", 2)]
+    #[case::tagged(";tag=cds_end_NF", 0)]
+    fn partial_codons_without_end_tags_are_counted(
+        #[case] tag: &str,
+        #[case] expected: usize,
+    ) -> Result<(), anyhow::Error> {
+        let gff3 = GFF3_CDS_END_NF.replace(
+            "ID=transcript:T3P;Parent=gene:G3P",
+            &format!("ID=transcript:T3P;Parent=gene:G3P{tag}"),
+        );
+        let loader = load(&gff3)?;
+
+        assert_eq!(loader.partial_codons_without_end_tags(), expected);
         Ok(())
     }
 
@@ -1189,6 +1336,36 @@ chr22\tHAVANA\tCDS\t3101\t3400\t.\t+\t0\tID=CDS:ENST00000100003.1;Parent=ENST000
         );
         let error = load(&gff3).map(|_| ()).unwrap_err();
         assert!(format!("{error:#}").contains(message), "{error:#}");
+    }
+
+    /// The translation exceptions of each source reach the database as protein positions and
+    /// one-letter amino acids. An amino acid without one-letter code is skipped.
+    #[rstest::rstest]
+    #[case::refseq_transl_except("NM_000006.1", &[(1, "M"), (20, "U")])]
+    #[case::gencode_row_below_cds("ENST00000100007.1", &[(38, "U")])]
+    #[case::gtf_row_below_transcript("ENST00000100008.1", &[(5, "U")])]
+    #[case::refseq_other_and_unknown("NM_000009.1", &[(11, "X")])]
+    fn translation_exceptions_reach_the_database(
+        #[case] tx_id: &str,
+        #[case] expected: &[(u32, &str)],
+    ) -> Result<(), anyhow::Error> {
+        let mut loader = load(GFF3_TRANSL_EXCEPT)?;
+        let db = build_protobuf(&mut loader, &mut HashMap::new(), Default::default())?;
+
+        let tx = db
+            .tx_db
+            .iter()
+            .flat_map(|tx_db| &tx_db.transcripts)
+            .find(|tx| tx.id == tx_id)
+            .with_context(|| format!("{tx_id} not in the database"))?;
+        let exceptions: Vec<_> = tx
+            .translation_exceptions
+            .iter()
+            .map(|exception| (exception.position, exception.amino_acid.as_str()))
+            .collect();
+        assert_eq!(exceptions, expected);
+
+        Ok(())
     }
 
     /// A gene segment names the Gene ID of the gene above it, but must not replace that gene.

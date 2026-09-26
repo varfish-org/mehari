@@ -398,12 +398,23 @@ pub(crate) fn filter_transcripts_with_sequence(
                     .and_then(|start| tx.stop_codon.map(|stop| (start as usize, stop as usize)));
                 let cds = if tx.protein_coding() { cds } else { None };
                 if let Some((cds_start, cds_end)) = cds {
-                    let cds_length = cds_end.saturating_sub(cds_start);
-                    let delta = (3 - (cds_length % 3)).max(cds_end.saturating_sub(seq.len()));
+                    // `fix_cds` completes a stop codon at the transcript end with 1 or 2
+                    // bases after the last exon. If the sequence ends before the exons or
+                    // the CDS, pad it with `A` bases.
+                    let tx_end = tx
+                        .genome_builds
+                        .values()
+                        .flat_map(|gb| gb.exons.iter())
+                        .filter_map(|exon| usize::try_from(exon.alt_cds_end_i).ok())
+                        .max()
+                        .unwrap_or_default();
+                    let delta = tx_end.max(cds_end).saturating_sub(seq.len());
                     let seq = append_poly_a(seq, delta);
 
                     let safe_end = cds_end.min(seq.len());
                     let safe_start = cds_start.min(safe_end);
+                    // An incomplete CDS end can leave a partial last codon. It is no stop codon.
+                    let safe_end = safe_end - (safe_end - safe_start) % 3;
 
                     let tx_seq_to_translate = &seq[safe_start..safe_end];
 
@@ -425,8 +436,11 @@ pub(crate) fn filter_transcripts_with_sequence(
                     if let Ok(aa_sequence) = aa_sequence_result {
                         let has_missing_stop_codon = (!is_mt && !aa_sequence.ends_with('*'))
                             || (is_mt && !aa_sequence.contains('*'));
-                        if has_missing_stop_codon && !loader.disable_filters {
+                        // Annotation reads this flag, so set it also without filters.
+                        if has_missing_stop_codon {
                             reason |= Reason::MissingStopCodon;
+                        }
+                        if has_missing_stop_codon && !loader.disable_filters {
                             if five_prime_truncated(tx) {
                                 reason |= Reason::FivePrimeEndTruncated;
                             }
@@ -585,8 +599,6 @@ fn truncated_ends(alignment: &GenomeAlignment) -> Option<(bool, bool)> {
 }
 
 fn append_poly_a(seq: String, length: usize) -> String {
-    // Append poly-A for chrMT transcripts (which are from ENSEMBL).
-    // This also potentially fixes the stop codon.
     let mut seq = seq.into_bytes();
     seq.extend_from_slice(b"A".repeat(length).as_slice());
     String::from_utf8(seq).expect("must be valid UTF-8")
@@ -666,6 +678,8 @@ mod tests {
             protein: Some("NP_000001.1".to_string()),
             start_codon: Some(0),
             stop_codon: Some(99),
+            transl_except: None,
+            transl_table: None,
         };
         let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
         loader
@@ -706,6 +720,149 @@ mod tests {
             ),
             (five_prime || three_prime, five_prime, three_prime),
         );
+        Ok(())
+    }
+
+    /// A coding transcript with one exon at genomic `[1000, 1000 + len)` and the CDS
+    /// `0..stop_codon`.
+    fn one_exon_tx(contig: &str, len: usize, stop_codon: i32) -> Result<Transcript, Error> {
+        let len = i32::try_from(len)?;
+        let alignment = GenomeAlignment {
+            cds_start: Some(1000),
+            cds_end: Some(1000 + stop_codon),
+            contig: contig.to_string(),
+            exons: vec![Exon {
+                alt_start_i: 1000,
+                alt_end_i: 1000 + len,
+                ord: 0,
+                alt_cds_start_i: 1,
+                alt_cds_end_i: len,
+                cigar: format!("{len}M"),
+            }],
+            strand: Strand::Plus,
+            tag: None,
+            note: None,
+        };
+        Ok(Transcript {
+            biotype: None,
+            gene_name: None,
+            gene_version: String::new(),
+            genome_builds: IndexMap::from([("GRCh38".to_string(), alignment)]),
+            hgnc: None,
+            id: TX_ID.to_string(),
+            partial: None,
+            protein: Some("NP_000001.1".to_string()),
+            start_codon: Some(0),
+            stop_codon: Some(stop_codon),
+            transl_except: None,
+            transl_table: None,
+        })
+    }
+
+    /// Apply `fix_cds` and `filter_transcripts_with_sequence` to `tx` with the sequence
+    /// `seq`. Return the stored sequence, the discard reasons and the stop codon.
+    fn stored_sequence(
+        tx: Transcript,
+        seq: &str,
+    ) -> Result<(String, BitFlags<Reason>, Option<i32>), Error> {
+        stored_sequence_with(tx, seq, false)
+    }
+
+    /// `stored_sequence` for a loader with the given `disable_filters`.
+    fn stored_sequence_with(
+        tx: Transcript,
+        seq: &str,
+        disable_filters: bool,
+    ) -> Result<(String, BitFlags<Reason>, Option<i32>), Error> {
+        let tx_id = TranscriptId::try_new(TX_ID)?;
+        let mut loader = TranscriptLoader::new("GRCh38".to_string(), disable_filters);
+        loader.transcript_id_to_transcript.insert(tx_id.clone(), tx);
+        loader.fix_cds();
+
+        let mut seq_provider =
+            SequenceProvider::FastaMap(HashMap::from([(TX_ID.to_string(), seq.to_string())]));
+        let mut seqs =
+            filter_transcripts_with_sequence(&mut loader, &mut seq_provider, &NoProgress)?;
+        let reason = loader
+            .discards
+            .get(&Identifier::Transcript(tx_id.clone()))
+            .copied()
+            .unwrap_or_default();
+        let stop_codon = loader.transcript_id_to_transcript[&tx_id].stop_codon;
+        Ok((seqs.remove(&tx_id).unwrap_or_default(), reason, stop_codon))
+    }
+
+    #[rstest::rstest]
+    #[case::complete_cds("NC_000001.11", "ATGAAATAGCC", 9, "ATGAAATAGCC")]
+    #[case::stop_codon_at_transcript_end("NC_000001.11", "ATGAAATAG", 9, "ATGAAATAG")]
+    fn complete_cds_is_not_padded(
+        #[case] contig: &str,
+        #[case] seq: &str,
+        #[case] stop_codon: i32,
+        #[case] expected: &str,
+    ) -> Result<(), Error> {
+        let tx = one_exon_tx(contig, seq.len(), stop_codon)?;
+        assert_eq!(stored_sequence(tx, seq)?.0, expected);
+        Ok(())
+    }
+
+    /// Polyadenylation completes a stop codon such as `T` or `TA` to `TAA`, on chrMT and
+    /// elsewhere. It can do so only at the transcript end.
+    #[rstest::rstest]
+    #[case::chr_mt("NC_012920.1", "ATGAAAT", 7, "ATGAAATAA", 9)]
+    #[case::nuclear("NC_000002.12", "ATGAAATA", 8, "ATGAAATAA", 9)]
+    #[case::before_transcript_end("NC_000001.11", "ATGAAATAGCC", 8, "ATGAAATAGCC", 8)]
+    fn stop_codon_is_completed_only_at_the_transcript_end(
+        #[case] contig: &str,
+        #[case] seq: &str,
+        #[case] stop_codon: i32,
+        #[case] expected_seq: &str,
+        #[case] expected_stop_codon: i32,
+    ) -> Result<(), Error> {
+        let tx = one_exon_tx(contig, seq.len(), stop_codon)?;
+        let (stored, reason, stop_codon) = stored_sequence(tx, seq)?;
+        assert_eq!(stored, expected_seq);
+        assert_eq!(stop_codon, Some(expected_stop_codon));
+        // Without a completed stop codon, the CDS has none.
+        assert_eq!(
+            reason.contains(Reason::MissingStopCodon),
+            expected_stop_codon % 3 != 0,
+            "{reason:?}"
+        );
+        Ok(())
+    }
+
+    /// A CDS whose end the annotation marks as incomplete keeps its partial last codon. It has
+    /// no stop codon.
+    #[rstest::rstest]
+    #[case::cds_end_nf(Some(Tag::Other("cds_end_NF".into())), None)]
+    #[case::partial(None, Some(1))]
+    fn incomplete_cds_end_is_not_padded(
+        #[case] tag: Option<Tag>,
+        #[case] partial: Option<u8>,
+    ) -> Result<(), Error> {
+        let mut tx = one_exon_tx("NC_000001.11", 7, 7)?;
+        for alignment in tx.genome_builds.values_mut() {
+            alignment.tag = tag.clone().map(|tag| vec![tag]);
+        }
+        tx.partial = partial;
+
+        let (seq, reason, stop_codon) = stored_sequence(tx, "ATGAAAT")?;
+        assert_eq!(seq, "ATGAAAT");
+        assert_eq!(stop_codon, Some(7));
+        assert!(reason.contains(Reason::MissingStopCodon), "{reason:?}");
+        Ok(())
+    }
+
+    /// Annotation reads `MissingStopCodon` as a fact about the CDS, so `db create` sets it also
+    /// without filters.
+    #[rstest::rstest]
+    #[case::with_filters(false)]
+    #[case::without_filters(true)]
+    fn missing_stop_codon_is_flagged(#[case] disable_filters: bool) -> Result<(), Error> {
+        let tx = one_exon_tx("NC_000001.11", 9, 9)?;
+        let (_, reason, _) = stored_sequence_with(tx, "ATGAAAAAA", disable_filters)?;
+        assert!(reason.contains(Reason::MissingStopCodon), "{reason:?}");
         Ok(())
     }
 }
