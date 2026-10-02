@@ -29,7 +29,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = { version = "4.12", optional = true }
-annonars = { version = "0.44.2", default-features = false }
+annonars = { version = "0.45.0", default-features = false }
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bio = "4.0.0"
@@ -93,7 +93,7 @@ version = "0.109.0"
 features = ["async", "core", "vcf", "bcf", "csi", "fasta", "tabix", "gff"]
 
 [dependencies.noodles-bgzf]
-version = "0.46.0"
+version = "0.51.0"
 features = ["async", "libdeflate"]
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
