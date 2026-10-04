@@ -18,8 +18,8 @@ use hgvs::{
     data::{
         cdot::json::NCBI_ALN_METHOD,
         interface::{
-            Provider as ProviderInterface, TxExonsRecord, TxForRegionRecord, TxIdentityInfo,
-            TxInfoRecord, TxMappingOptionsRecord,
+            Provider as ProviderInterface, TranslationException, TxExonsRecord, TxForRegionRecord,
+            TxIdentityInfo, TxInfoRecord, TxMappingOptionsRecord,
         },
     },
     sequences::{TranslationTable, seq_md5},
@@ -854,6 +854,10 @@ impl ProviderInterface for Provider {
             .expect("no tx_db?")
             .transcripts[tx_idx];
         let is_selenoprotein = tx.tags.contains(&(TranscriptTag::Selenoprotein as i32));
+        let has_selenocysteine = tx
+            .translation_exceptions
+            .iter()
+            .any(|exception| exception.amino_acid == "U");
 
         let hgnc = tx.gene_id.clone();
 
@@ -889,12 +893,38 @@ impl ProviderInterface for Provider {
             hgnc,
             translation_table: if is_mitochondrial {
                 TranslationTable::VertebrateMitochondrial
-            } else if is_selenoprotein {
+            } else if is_selenoprotein && !has_selenocysteine {
+                // With selenocysteine in the translation exceptions, UGA reads as
+                // selenocysteine only there.
                 TranslationTable::Selenocysteine
             } else {
                 TranslationTable::Standard
             },
         })
+    }
+
+    fn get_tx_translation_exceptions(
+        &self,
+        tx_ac: &str,
+    ) -> Result<Vec<TranslationException>, Error> {
+        let tx = self
+            .get_tx(tx_ac)
+            .ok_or_else(|| Error::NoTranscriptFound(tx_ac.to_string()))?;
+        tx.translation_exceptions
+            .iter()
+            .map(|exception| {
+                let amino_acid = exception.amino_acid.parse().map_err(|_| {
+                    Error::UnsupportedTranslationException(
+                        tx_ac.to_string(),
+                        exception.amino_acid.clone(),
+                    )
+                })?;
+                Ok(TranslationException {
+                    position: exception.position,
+                    amino_acid,
+                })
+            })
+            .collect()
     }
 
     fn get_tx_info(

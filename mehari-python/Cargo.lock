@@ -1841,12 +1841,11 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hgvs"
 version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3946762a4944fd19452c7d903bc21545ce8bff9c54ee1e2f26f59a376f33aca"
+source = "git+https://github.com/Hoeze/hgvs-rs?rev=b64c2555e1b42c850c27a6494f99e062457abecc#b64c2555e1b42c850c27a6494f99e062457abecc"
 dependencies = [
  "ahash",
  "base16ct",
- "bio 3.0.0",
+ "bio 4.0.1",
  "biocommons-bioutils 0.2.0",
  "cached",
  "chrono",
@@ -1857,7 +1856,7 @@ dependencies = [
  "nom 8.0.0",
  "nom-language",
  "postgres",
- "quick_cache 0.6.24",
+ "quick_cache",
  "regex",
  "seqrepo",
  "serde",
@@ -2511,7 +2510,7 @@ dependencies = [
  "procfs",
  "prost",
  "prost-build",
- "quick_cache 0.7.0",
+ "quick_cache",
  "rand 0.10.3",
  "rayon",
  "regex",
@@ -3614,18 +3613,6 @@ checksum = "0b79f670c9626c8b651c0581011b57b6ba6970bb69faf01a7c4c0cfc81c43f95"
 dependencies = [
  "pyo3",
  "serde",
-]
-
-[[package]]
-name = "quick_cache"
-version = "0.6.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9c6658afe513a3b484e3abfdaa0d03ef3c0bbf017542c178dd55f94eb3051f9"
-dependencies = [
- "ahash",
- "equivalent",
- "hashbrown 0.16.1",
- "parking_lot",
 ]
 
 [[package]]

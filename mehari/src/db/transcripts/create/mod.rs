@@ -88,6 +88,18 @@ fn load_annotations(args: &Args, progress: &dyn Progress) -> Result<TranscriptLo
 
             if is_gff3 {
                 load_gff3(&mut loader, path, progress)?;
+                let partial_codons = loader.partial_codons_without_end_tags();
+                if partial_codons > 0 {
+                    tracing::warn!(
+                        "{} marks no CDS end as incomplete (tag `cds_end_NF` or RefSeq `partial`), \
+                         but {} coding transcripts have a CDS length that is not a multiple of 3. \
+                         mehari completes their stop codon with `A` bases if the CDS runs to the \
+                         transcript end, also where the CDS end is incomplete. Prefer GENCODE GFF3 \
+                         or cdot JSON, which carry the `cds_end_NF` tag.",
+                        path.display(),
+                        partial_codons
+                    );
+                }
             } else {
                 load_cdot(&mut loader, path, progress)?;
             }

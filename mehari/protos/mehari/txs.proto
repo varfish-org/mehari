@@ -144,6 +144,16 @@ enum TranscriptTag {
   TRANSCRIPT_TAG_OTHER_BACKPORT = 18;
 }
 
+// An amino acid that the annotation assigns to one codon, whatever the translation table says,
+// e.g., selenocysteine at a UGA codon or methionine at a non-AUG start codon.
+message TranslationException {
+  // 1-based position of the codon in the protein.
+  uint32 position = 1;
+  // The amino acid as one-letter code, e.g., `"U"` for selenocysteine, `"X"` for an
+  // unspecified amino acid, or `"*"` for a stop codon.
+  string amino_acid = 2;
+}
+
 // Store information about a transcript.
 message Transcript {
   // Transcript accession with version, e.g., `"NM_007294.3"` or `"ENST00000461574.1"` for BRCA1.
@@ -168,6 +178,10 @@ message Transcript {
   optional bool filtered = 10;
   // Reason for filtering.
   optional uint32 filter_reason = 11;
+  // Codons whose amino acid the annotation sets, ordered by position. Without a
+  // selenocysteine here, a transcript tagged as selenoprotein reads every UGA as
+  // selenocysteine.
+  repeated TranslationException translation_exceptions = 12;
 }
 
 

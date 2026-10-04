@@ -316,7 +316,7 @@ pub(crate) struct Transcript {
     pub protein: Option<String>,
     /// CDS start codon.
     pub start_codon: Option<i32>,
-    /// CDS stop codon.
+    /// CDS stop codon. If the poly-A tail completes the stop codon, it ends 1 or 2 bases after the last exon.
     pub stop_codon: Option<i32>,
     /// Alignments on the different genome builds.
     pub genome_alignments: Vec<GenomeAlignment>,

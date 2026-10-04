@@ -144,6 +144,8 @@ You will have to build the transcript database for each genome release that you 
 
 mehari reads transcripts from GFF3 the way cdot does. If a RefSeq transcript has `cDNA_match` rows, mehari takes its alignment to the genome from these rows, including alignment gaps. Otherwise, mehari takes the exons from the `exon` rows. Genes keep the gene ID of the annotation: `gene_id` for GENCODE and Ensembl, and the NCBI Gene ID from `Dbxref` for RefSeq. These genes have no HGNC ID, so the default filters flag their transcripts with `MissingHgncId`. This is a soft filter: the transcripts stay in the database.
 
+Ensembl GFF3 files have no `cds_end_NF` tag, so mehari cannot tell an incomplete CDS end from a stop codon that the poly-A tail completes. It completes the stop codon with `A` bases wherever a CDS with a partial last codon runs to the transcript end, and `db create` warns about it. Prefer GENCODE GFF3 or cdot JSON, which carry the tag.
+
 You can enable compression by using the suffix `.gz` for gzip compression and `.zst` for zstandard compression.
 
 # Building CADD Database

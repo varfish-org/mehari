@@ -1564,7 +1564,7 @@ components:
           - integer
           - 'null'
           format: int32
-          description: CDS stop codon.
+          description: CDS stop codon. If the poly-A tail completes the stop codon, it ends 1 or 2 bases after the last exon.
         genome_alignments:
           type: array
           items:
