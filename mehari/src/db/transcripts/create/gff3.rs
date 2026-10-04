@@ -3,7 +3,9 @@ use crate::db::transcripts::create::cdot_models;
 use crate::db::transcripts::create::filter::MITOCHONDRIAL_ACCESSIONS;
 use crate::db::transcripts::create::models::{GeneId, TranscriptId, TranscriptLoader};
 use anyhow::{Context, Error, anyhow};
-use hgvs::data::cdot::json::models::{BioType, Gene, GenomeAlignment, Tag, Transcript};
+use hgvs::data::cdot::json::models::{
+    BioType, Gene, GenomeAlignment, Tag, Transcript, Translation,
+};
 use indexmap::IndexMap;
 use noodles::gff::feature::record::{Phase, Strand};
 use noodles::gff::feature::record_buf::attributes::field::tag;
@@ -655,8 +657,10 @@ pub fn load_gff3(
             stop_codon: tx_cds_end,
             partial: row.partial.then_some(1),
             genome_builds: IndexMap::from([(loader.genome_release.clone(), alignment)]),
-            transl_except: (!transl_except.is_empty()).then_some(transl_except),
-            transl_table: None,
+            translation: (!transl_except.is_empty()).then(|| Translation {
+                transl_except: Some(transl_except),
+                transl_table: None,
+            }),
         };
 
         let t_id = TranscriptId::try_new(tx_id)?;
