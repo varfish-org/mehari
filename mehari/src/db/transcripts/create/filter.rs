@@ -678,8 +678,7 @@ mod tests {
             protein: Some("NP_000001.1".to_string()),
             start_codon: Some(0),
             stop_codon: Some(99),
-            transl_except: None,
-            transl_table: None,
+            translation: None,
         };
         let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
         loader
@@ -754,8 +753,7 @@ mod tests {
             protein: Some("NP_000001.1".to_string()),
             start_codon: Some(0),
             stop_codon: Some(stop_codon),
-            transl_except: None,
-            transl_table: None,
+            translation: None,
         })
     }
 

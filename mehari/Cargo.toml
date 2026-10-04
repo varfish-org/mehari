@@ -47,8 +47,8 @@ enumflags2 = { version = "0.7.11", features = ["serde"] }
 env_logger = "0.11"
 flate2 = "1.1"
 futures = "0.3"
-# Switch to the hgvs-rs release once hgvs-rs #293 (translation exceptions) is released.
-hgvs = { git = "https://github.com/Hoeze/hgvs-rs", rev = "b64c2555e1b42c850c27a6494f99e062457abecc" }
+# Switch to the next hgvs-rs release; it will include hgvs-rs #293 (translation exceptions).
+hgvs = { git = "https://github.com/varfish-org/hgvs-rs", rev = "c2394878d02c3b63a51dfafcf6afde9baf38b500" }
 indexmap = { version = "2.13", features = ["serde"] }
 itertools = "0.15"
 jsonl = "4.0"

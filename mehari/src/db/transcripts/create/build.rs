@@ -250,7 +250,11 @@ fn transl_except_amino_acid(name: &str) -> Option<char> {
 /// code is skipped with a warning.
 fn translation_exceptions(tx: &Transcript) -> Vec<crate::pbs::txs::TranslationException> {
     let mut exceptions = Vec::new();
-    for (name, positions) in tx.transl_except.iter().flatten() {
+    let transl_except = tx
+        .translation
+        .as_ref()
+        .and_then(|translation| translation.transl_except.as_ref());
+    for (name, positions) in transl_except.into_iter().flatten() {
         let Some(amino_acid) = transl_except_amino_acid(name) else {
             tracing::warn!(
                 "skipping transl_except {name} of {}: unknown amino acid",
