@@ -331,6 +331,154 @@ struct ConsequenceContext {
     protein_pos: Option<Pos>,
 }
 
+/// Consequences of one placement of a variant on a transcript, with the location and the HGVS
+/// projection they come from.
+#[derive(Debug)]
+struct PlacementConsequences {
+    consequences: Consequences,
+    location: TranscriptLocationContext,
+    /// `None` up- or downstream of the transcript.
+    projection: Option<(HgvsProjectionContext, ConsequenceContext)>,
+}
+
+/// One placement of an indel, in 0-based genome coordinates. In a repeat, an indel has several
+/// placements with the same alternate sequence.
+#[derive(Debug)]
+enum Placement {
+    /// `bases` deleted from `start` on.
+    Del { start: i32, bases: String },
+    /// `bases` inserted in front of `pos`.
+    Ins { pos: i32, bases: String },
+}
+
+impl Placement {
+    /// The genome variant of this placement on the contig `accession`.
+    fn to_var_g(&self, accession: &Accession) -> HgvsVariant {
+        let (start, end, edit) = match self {
+            Placement::Del { start, bases } => (
+                start + 1,
+                start + bases.len() as i32,
+                NaEdit::DelRef {
+                    reference: bases.clone(),
+                },
+            ),
+            Placement::Ins { pos, bases } => (
+                *pos,
+                pos + 1,
+                NaEdit::Ins {
+                    alternative: bases.clone(),
+                },
+            ),
+        };
+        HgvsVariant::GenomeVariant {
+            accession: accession.clone(),
+            gene_symbol: None,
+            loc_edit: GenomeLocEdit {
+                loc: Mu::Certain(GenomeInterval {
+                    start: Some(start),
+                    end: Some(end),
+                }),
+                edit: Mu::Certain(edit),
+            },
+        }
+    }
+
+    /// Whether this placement lies outside the transcript, i.e., changes none of its bases and
+    /// no intron either.
+    fn is_outside(&self, alignment: &GenomeAlignment) -> bool {
+        let (Some(first), Some(last)) = (alignment.exons.first(), alignment.exons.last()) else {
+            return true;
+        };
+        let (tx_start, tx_end) = (first.alt_start_i, last.alt_end_i);
+        match self {
+            Placement::Del { start, bases } => {
+                !overlaps(*start, start + bases.len() as i32, tx_start, tx_end)
+            }
+            Placement::Ins { pos, .. } => *pos <= tx_start || *pos >= tx_end,
+        }
+    }
+
+    /// How much of the transcript this placement changes: 0 nothing (intron only),
+    /// 1 exon bases outside the CDS, 2 CDS bases, 3 an essential splice site.
+    ///
+    /// An insertion changes a splice site only between its two bases. An insertion at an exon
+    /// edge adds its bases to the exon.
+    fn rank(&self, alignment: &GenomeAlignment) -> u8 {
+        let exons = &alignment.exons;
+        // The two bases at each end of each intron.
+        let mut sites = exons.windows(2).flat_map(|pair| {
+            let (intron_start, intron_end) = (pair[0].alt_end_i, pair[1].alt_start_i);
+            [
+                (intron_start, intron_start + 2),
+                (intron_end - 2, intron_end),
+            ]
+        });
+        let cds_start = alignment.cds_start.unwrap_or(-1);
+        let cds_end = alignment.cds_end.unwrap_or(-1);
+        let in_cds = |pos: i32| cds_start <= pos && pos < cds_end;
+
+        match self {
+            Placement::Del { start, bases } => {
+                let end = start + bases.len() as i32;
+                if sites.any(|(site_start, site_end)| overlaps(*start, end, site_start, site_end)) {
+                    3
+                } else if exons.iter().any(|exon| {
+                    overlaps(
+                        *start,
+                        end,
+                        exon.alt_start_i.max(cds_start),
+                        exon.alt_end_i.min(cds_end),
+                    )
+                }) {
+                    2
+                } else if exons
+                    .iter()
+                    .any(|exon| overlaps(*start, end, exon.alt_start_i, exon.alt_end_i))
+                {
+                    1
+                } else {
+                    0
+                }
+            }
+            Placement::Ins { pos, .. } => {
+                if sites.any(|(site_start, _)| *pos == site_start + 1) {
+                    return 3;
+                }
+                // The exon bases in front of and behind the inserted bases, if these join an exon.
+                let flanks = exons.iter().enumerate().find_map(|(i, exon)| {
+                    if exon.alt_start_i < *pos && *pos < exon.alt_end_i {
+                        Some((pos - 1, *pos))
+                    } else if *pos == exon.alt_end_i {
+                        exons.get(i + 1).map(|next| (pos - 1, next.alt_start_i))
+                    } else if *pos == exon.alt_start_i {
+                        i.checked_sub(1)
+                            .and_then(|j| exons.get(j))
+                            .map(|prev| (prev.alt_end_i - 1, *pos))
+                    } else {
+                        None
+                    }
+                });
+                match flanks {
+                    Some((before, behind)) if in_cds(before) && in_cds(behind) => 2,
+                    Some(_) => 1,
+                    None => 0,
+                }
+            }
+        }
+    }
+
+    /// Whether this is an insertion between an exon and an intron (or the outside).
+    fn at_exon_edge(&self, alignment: &GenomeAlignment) -> bool {
+        match self {
+            Placement::Del { .. } => false,
+            Placement::Ins { pos, .. } => alignment
+                .exons
+                .iter()
+                .any(|exon| *pos == exon.alt_start_i || *pos == exon.alt_end_i),
+        }
+    }
+}
+
 impl ConsequencePredictor {
     pub fn new(provider: Arc<MehariProvider>, config: Config) -> Self {
         tracing::info!("Building transcript interval trees ...");
@@ -420,6 +568,12 @@ impl ConsequencePredictor {
         } else {
             (var_g.clone(), var_g.clone())
         };
+        // The consequence terms come from one of these placements, see `terms_var_g`.
+        let placements = if self.mapper.config.renormalize_g {
+            self.equivalent_placements(&var_g_rev, &var_g_fwd)
+        } else {
+            None
+        };
 
         // Get all affected transcripts.
         let (var_start_fwd, var_end_fwd) = Self::get_var_start_end(&var_g_fwd);
@@ -478,11 +632,12 @@ impl ConsequencePredictor {
         let mut anns_all_txs = Vec::with_capacity(txs.len());
 
         for tx in txs {
-            let ann_opt = if tx.alt_strand == -1 {
-                self.build_ann_field(var, &var_g_rev, tx, var_start_rev, var_end_rev)?
+            let var_g = if tx.alt_strand == -1 {
+                &var_g_rev
             } else {
-                self.build_ann_field(var, &var_g_fwd, tx, var_start_fwd, var_end_fwd)?
+                &var_g_fwd
             };
+            let ann_opt = self.build_ann_field(var, var_g, placements.as_deref(), tx)?;
 
             if let Some(ann) = ann_opt {
                 anns_all_txs.push(ann);
@@ -514,6 +669,156 @@ impl ConsequencePredictor {
             }
             _ => unreachable!(),
         }
+    }
+
+    /// All placements of a deletion, insertion or duplication, in genome order, from its left-
+    /// and right-normalized form.
+    ///
+    /// Returns `None` for other variants, or if the genome sequence is not available.
+    fn equivalent_placements(
+        &self,
+        var_g_left: &HgvsVariant,
+        var_g_right: &HgvsVariant,
+    ) -> Option<Vec<Placement>> {
+        let (
+            HgvsVariant::GenomeVariant {
+                accession,
+                loc_edit: left,
+                ..
+            },
+            HgvsVariant::GenomeVariant {
+                loc_edit: right, ..
+            },
+        ) = (var_g_left, var_g_right)
+        else {
+            return None;
+        };
+        let left_start = left.loc.inner().start?;
+        let (right_start, right_end) = (right.loc.inner().start?, right.loc.inner().end?);
+        // Genome sequence of the 0-based range `begin..end`.
+        let fetch = |begin: i32, end: i32| {
+            self.provider
+                .get_seq_part(
+                    &accession.value,
+                    Some(usize::try_from(begin).ok()?),
+                    Some(usize::try_from(end).ok()?),
+                )
+                .ok()
+        };
+
+        match (left.edit.inner(), right.edit.inner()) {
+            (
+                NaEdit::DelRef { .. } | NaEdit::DelNum { .. },
+                NaEdit::DelRef { .. } | NaEdit::DelNum { .. },
+            ) => {
+                let len = usize::try_from(right_end - right_start + 1).ok()?;
+                let first = left_start - 1;
+                let seq = fetch(first, right_end)?;
+                (first..right_start)
+                    .map(|start| {
+                        let i = usize::try_from(start - first).ok()?;
+                        Some(Placement::Del {
+                            start,
+                            bases: seq.get(i..i + len)?.to_string(),
+                        })
+                    })
+                    .collect()
+            }
+            (
+                left_edit @ (NaEdit::Ins { .. } | NaEdit::Dup { .. }),
+                right_edit @ (NaEdit::Ins { .. } | NaEdit::Dup { .. }),
+            ) => {
+                // An insertion lies behind its start base. The copy of a duplication can go in
+                // front of or behind the duplicated bases.
+                let first = if matches!(left_edit, NaEdit::Dup { .. }) {
+                    left_start - 1
+                } else {
+                    left_start
+                };
+                let (last, bases) = match right_edit {
+                    NaEdit::Dup { .. } => (right_end, fetch(right_start - 1, right_end)?),
+                    NaEdit::Ins { alternative } => (right_start, alternative.clone()),
+                    _ => return None,
+                };
+                // The alternate sequence from `first` to the end of the inserted bases.
+                let alt = fetch(first, last)? + &bases;
+                (first..=last)
+                    .map(|pos| {
+                        let i = usize::try_from(pos - first).ok()?;
+                        Some(Placement::Ins {
+                            pos,
+                            bases: alt.get(i..i + bases.len())?.to_string(),
+                        })
+                    })
+                    .collect()
+            }
+            _ => None,
+        }
+    }
+
+    /// The genome variant to compute the consequence terms from, if it differs from `var_g`.
+    ///
+    /// All `placements` give the same alternate sequence. If one of them keeps the essential
+    /// splice site or the stop codon, the alternate sequence keeps it. So the placement that
+    /// changes the least of the transcript shows what the variant does. Ties go to a placement
+    /// inside an exon over one at its edge: its HGVS c. is exonic, so it has a protein
+    /// change. Next, ties go to a placement that spares the first and last three bases of each
+    /// exon: then the alternate sequence keeps them. The intronic splice region windows are not
+    /// compared. mehari locates an insertion by the base behind it for a window that counts from
+    /// its left end (the donor region from +3, the fifth base, the polypyrimidine tract on the
+    /// minus strand, the exonic splice region at an exon start), and by the base in front of it
+    /// for the donor and acceptor sites themselves, which test whether the insertion joins the
+    /// exon. Remaining ties go to the placement nearest to `var_g`, the 3'-most one.
+    ///
+    /// The ends of a transcript do not follow from its sequence. So the terms come from a
+    /// placement outside the transcript only if `var_g` lies outside, and then from `var_g`.
+    fn terms_var_g(
+        &self,
+        placements: &[Placement],
+        alignment: &GenomeAlignment,
+        strand: Strand,
+        var_g: &HgvsVariant,
+    ) -> Option<HgvsVariant> {
+        let HgvsVariant::GenomeVariant { accession, .. } = var_g else {
+            return None;
+        };
+        // The placements from the 3' end on; the first one is `var_g`.
+        let mut from_3p = if strand == Strand::Minus {
+            itertools::Either::Left(placements.iter())
+        } else {
+            itertools::Either::Right(placements.iter().rev())
+        }
+        .peekable();
+        if from_3p.peek()?.is_outside(alignment) {
+            return None;
+        }
+        let placement = from_3p
+            .filter(|placement| !placement.is_outside(alignment))
+            .min_by_key(|placement| {
+                (
+                    placement.rank(alignment),
+                    placement.at_exon_edge(alignment),
+                    self.in_exonic_splice_region(placement, accession, alignment, strand),
+                )
+            })?;
+        let terms_var_g = placement.to_var_g(accession);
+        (terms_var_g != *var_g).then_some(terms_var_g)
+    }
+
+    /// Whether `placement` changes the first or last three bases of an exon, i.e., hits an
+    /// exonic splice region window.
+    fn in_exonic_splice_region(
+        &self,
+        placement: &Placement,
+        accession: &Accession,
+        alignment: &GenomeAlignment,
+        strand: Strand,
+    ) -> bool {
+        let var_g = placement.to_var_g(accession);
+        let (var_start, var_end) = Self::get_var_start_end(&var_g);
+        let (_, consequences) =
+            self.determine_transcript_context(alignment, strand, &var_g, var_start, var_end);
+        consequences.contains(Consequence::ExonicSpliceRegionVariant)
     }
 
     fn filter_picked_sourced_txs(&self, txs: Vec<TxForRegionRecord>) -> Vec<TxForRegionRecord> {
@@ -758,6 +1063,18 @@ impl ConsequencePredictor {
         let mut is_intronic = false;
         let mut distance: Option<i32> = None;
 
+        // The range of an insertion is the base in front of it. An insertion at the start of
+        // an exon adds its bases to the exon, so its range is the first exon base instead.
+        let (var_start, var_end) = match var_g {
+            HgvsVariant::GenomeVariant { loc_edit, .. }
+                if matches!(loc_edit.edit.inner(), NaEdit::Ins { .. })
+                    && (alignment.exons.iter().skip(1)).any(|exon| exon.alt_start_i == var_end) =>
+            {
+                (var_start + 1, var_end + 1)
+            }
+            _ => (var_start, var_end),
+        };
+
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
 
@@ -792,7 +1109,7 @@ impl ConsequencePredictor {
                 is_exonic = true;
                 distance = Some(0);
                 consequences |= Self::analyze_exonic_variant(
-                    strand, var_start, var_end, exon_start, exon_end, &rank, is_utr,
+                    ins_shift, strand, var_start, var_end, exon_start, exon_end, &rank, is_utr,
                 );
             } else if let Some(intron_start) = prev_end
                 && var_start >= intron_start
@@ -1101,13 +1418,78 @@ impl ConsequencePredictor {
         Ok(context)
     }
 
+    /// Consequences of `var_g` on `tx`, with the location and the HGVS projection they come
+    /// from. Returns `None` if the projection onto the transcript fails.
+    fn placement_consequences(
+        &self,
+        var_g: &HgvsVariant,
+        tx: &Transcript,
+        alignment: &GenomeAlignment,
+        strand: Strand,
+        transcript_biotype: TranscriptBiotype,
+    ) -> Result<Option<PlacementConsequences>, SeqvarsError> {
+        let (var_start, var_end) = Self::get_var_start_end(var_g);
+        let (location, mut consequences) =
+            self.determine_transcript_context(alignment, strand, var_g, var_start, var_end);
+
+        if location.is_exonic {
+            if transcript_biotype == TranscriptBiotype::NonCoding {
+                consequences |= Consequence::NonCodingTranscriptExonVariant;
+            }
+        } else if location.is_intronic {
+            if transcript_biotype == TranscriptBiotype::NonCoding {
+                consequences |= Consequence::NonCodingTranscriptIntronVariant;
+            } else {
+                consequences |= Consequence::CodingTranscriptIntronVariant;
+            }
+        }
+
+        let projection = if !location.is_upstream && !location.is_downstream {
+            let projection = self.project_hgvs(var_g, tx, transcript_biotype)?;
+            if projection.n.is_none() {
+                return Ok(None);
+            }
+
+            let consequence_ctx = self.analyze_transcript_consequences(
+                &projection,
+                tx,
+                &location,
+                Self::tx_len(tx),
+                transcript_biotype,
+            )?;
+
+            consequences |= consequence_ctx.cds_consequences | consequence_ctx.protein_consequences;
+
+            self.consequences_fix_special_cases(
+                &mut consequences,
+                // exon_alignment_consequences, // TODO include these as well
+                consequence_ctx.cds_consequences,
+                consequence_ctx.protein_consequences,
+                &projection,
+            );
+
+            Some((projection, consequence_ctx))
+        } else {
+            None
+        };
+
+        Ok(Some(PlacementConsequences {
+            consequences,
+            location,
+            projection,
+        }))
+    }
+
+    /// Annotation of `var_g` on the transcript of `tx_record`.
+    ///
+    /// The HGVS descriptions and positions come from `var_g`, the consequence terms from the
+    /// placement that `terms_var_g` picks from `placements`.
     fn build_ann_field(
         &self,
         orig_var: &VcfVariant,
         var_g: &HgvsVariant,
+        placements: Option<&[Placement]>,
         tx_record: TxForRegionRecord,
-        var_start: i32,
-        var_end: i32,
     ) -> Result<Option<AnnField>, SeqvarsError> {
         let tx = match self.provider.get_tx(&tx_record.tx_ac) {
             Some(tx) => {
@@ -1143,58 +1525,35 @@ impl ConsequencePredictor {
         let transcript_biotype =
             TranscriptBiotype::try_from(tx.biotype).expect("invalid transcript biotype");
 
-        let (transcript_location, transcript_consequences) =
-            self.determine_transcript_context(alignment, strand, var_g, var_start, var_end);
+        let Some(at_var_g) =
+            self.placement_consequences(var_g, tx, alignment, strand, transcript_biotype)?
+        else {
+            return Ok(None); // Early exit if g->n projection failed.
+        };
+        let at_terms_var_g = placements
+            .and_then(|placements| self.terms_var_g(placements, alignment, strand, var_g))
+            .and_then(|terms_var_g| {
+                self.placement_consequences(&terms_var_g, tx, alignment, strand, transcript_biotype)
+                    .inspect_err(|e| {
+                        tracing::debug!("{}: keeping the terms of {}: {}", &tx.id, var_g, e);
+                    })
+                    .ok()
+                    .flatten()
+            });
+        let at_terms_var_g = at_terms_var_g.as_ref().unwrap_or(&at_var_g);
+        let mut consequences = at_terms_var_g.consequences;
+        let terms_projection = at_terms_var_g.projection.as_ref().map(|(p, _)| p);
 
-        let mut consequences = transcript_consequences;
-
-        if transcript_location.is_exonic {
-            if transcript_biotype == TranscriptBiotype::NonCoding {
-                consequences |= Consequence::NonCodingTranscriptExonVariant;
-            }
-        } else if transcript_location.is_intronic {
-            if transcript_biotype == TranscriptBiotype::NonCoding {
-                consequences |= Consequence::NonCodingTranscriptIntronVariant;
-            } else {
-                consequences |= Consequence::CodingTranscriptIntronVariant;
-            }
-        }
-
-        let (rank, projection, cdna_pos, cds_pos, protein_pos) = if !transcript_location.is_upstream
-            && !transcript_location.is_downstream
-        {
-            let projection = self.project_hgvs(var_g, tx, transcript_biotype)?;
-            if projection.n.is_none() {
-                return Ok(None); // Early exit if g->n projection failed.
-            }
-
-            let consequence_ctx = self.analyze_transcript_consequences(
-                &projection,
-                tx,
-                &transcript_location,
-                Self::tx_len(tx),
-                transcript_biotype,
-            )?;
-
-            consequences |= consequence_ctx.cds_consequences | consequence_ctx.protein_consequences;
-
-            self.consequences_fix_special_cases(
-                &mut consequences,
-                // exon_alignment_consequences, // TODO include these as well
-                consequence_ctx.cds_consequences,
-                consequence_ctx.protein_consequences,
-                &projection,
-            );
-
-            (
-                Some(transcript_location.rank),
-                Some(projection),
-                consequence_ctx.cdna_pos,
-                consequence_ctx.cds_pos,
-                consequence_ctx.protein_pos,
-            )
-        } else {
-            (None, None, None, None, None)
+        let transcript_location = &at_var_g.location;
+        let projection = at_var_g.projection.as_ref().map(|(p, _)| p);
+        let (rank, cdna_pos, cds_pos, protein_pos) = match &at_var_g.projection {
+            Some((_, ctx)) => (
+                Some(transcript_location.rank.clone()),
+                ctx.cdna_pos.clone(),
+                ctx.cds_pos.clone(),
+                ctx.protein_pos.clone(),
+            ),
+            None => (None, None, None, None),
         };
 
         let mut custom_fields = BTreeMap::new();
@@ -1205,8 +1564,8 @@ impl ConsequencePredictor {
         let p_alt = self.config.report_protein_sequence.includes_alt();
 
         if (c_ref || c_alt || p_ref || p_alt)
-            && let Some(var_n) = projection.as_ref().and_then(|p| p.n.as_ref())
-            && let Some(var_c) = projection.as_ref().and_then(|p| p.c.as_ref())
+            && let Some(var_n) = projection.and_then(|p| p.n.as_ref())
+            && let Some(var_c) = projection.and_then(|p| p.c.as_ref())
             && let Ok(ref_data) = self.ref_transcript_data(tx)
         {
             let ref_len = ref_data.transcript_sequence.len();
@@ -1263,15 +1622,12 @@ impl ConsequencePredictor {
 
         let hgvs_g = Some(FormattedLoc(var_g).to_string());
         let hgvs_n = projection
-            .as_ref()
             .and_then(|p| p.n.as_ref())
             .map(|var| FormattedLoc(var).to_string());
         let hgvs_c = projection
-            .as_ref()
             .and_then(|p| p.c.as_ref())
             .map(|var| FormattedLoc(var).to_string());
         let hgvs_p = projection
-            .as_ref()
             .and_then(|p| p.p.as_ref())
             .map(|var| FormattedLoc(var).to_string());
 
@@ -1310,7 +1666,7 @@ impl ConsequencePredictor {
         }
 
         if self.config.vep_consequence_terms {
-            self.adjust_vep_terms(&mut consequences, projection.as_ref());
+            self.adjust_vep_terms(&mut consequences, terms_projection);
         }
 
         let consequences = consequences.iter().collect_vec();
@@ -1538,11 +1894,13 @@ impl ConsequencePredictor {
             if checked != Consequences::empty()
                 // if the protein consequence is not effectively empty, we remove the CDS frameshift consequence
                 && !(consequences_protein.eq(&Consequence::GeneVariant) || consequences_protein.is_empty())
-                // if the protein consequence also includes a frameshift, then we keep it
+                // if the protein consequence also includes a frameshift, then we keep it,
+                // and also next to a stop as the first changed residue (`p.Val170Ter`)
                 && !consequences_protein.intersects(
                 Consequence::FrameshiftElongation
                     | Consequence::FrameshiftTruncation
-                    | Consequence::FrameshiftVariant,
+                    | Consequence::FrameshiftVariant
+                    | Consequence::StopGained,
             ) {
                 *consequences &= !checked;
             }
@@ -1661,6 +2019,7 @@ impl ConsequencePredictor {
 
     #[allow(clippy::too_many_arguments)]
     fn analyze_exonic_variant(
+        ins_shift: i32,
         strand: Strand,
         var_start: i32,
         var_end: i32,
@@ -1673,6 +2032,12 @@ impl ConsequencePredictor {
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
+        // The range of an insertion is the base in front of it. The insertion moves the bases
+        // behind it, so a window that counts from the exon start contains it if it contains
+        // the base behind it.
+        let var_overlaps_behind = |start: i32, end: i32| -> bool {
+            overlaps(var_start + ins_shift, var_end + ins_shift, start, end)
+        };
 
         // Check the cases where the variant overlaps with whole exon.
         if var_start <= exon_start && var_end >= exon_end {
@@ -1708,7 +2073,7 @@ impl ConsequencePredictor {
                 }
             }
         }
-        if var_overlaps(exon_start, exon_start + 3) {
+        if var_overlaps_behind(exon_start, exon_start + 3) {
             if strand == Strand::Plus {
                 if !rank.is_first() {
                     consequences |= Consequence::ExonicSpliceRegionVariant;
@@ -1738,9 +2103,15 @@ impl ConsequencePredictor {
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
+        // The range of an insertion is the base in front of it. The insertion moves the bases
+        // behind it, so a window that counts from the intron start, e.g. donor +3 to +8 on the
+        // plus strand, contains it if it contains the base behind it.
+        let var_overlaps_behind = |start: i32, end: i32| -> bool {
+            overlaps(var_start + ins_shift, var_end + ins_shift, start, end)
+        };
 
         // Check the cases where the variant overlaps with the splice acceptor/donor site.
-        if var_overlaps(intron_start - ins_shift, intron_start + 2) {
+        if var_overlaps(intron_start, intron_start + 2 - ins_shift) {
             // Left side, is acceptor/donor depending on transcript's strand.
             match strand {
                 Strand::Plus => {
@@ -1754,7 +2125,7 @@ impl ConsequencePredictor {
         }
 
         // Check the case where the variant overlaps with the splice donor site.
-        if var_overlaps(intron_end - 2, intron_end + ins_shift) {
+        if var_overlaps(intron_end - 2, intron_end - ins_shift) {
             // Left side, is acceptor/donor depending on transcript's strand.
             match strand {
                 Strand::Plus => {
@@ -1772,7 +2143,7 @@ impl ConsequencePredictor {
         // n.b. the 1-3 bases in exon check is already done within `analyze_exonic_variant`.
         // We have to check all cases independently and not with `else`
         // because the variant may be larger.
-        if var_overlaps(intron_start + 2, intron_start + 8)
+        if var_overlaps_behind(intron_start + 2, intron_start + 8)
             || var_overlaps(intron_end - 8, intron_end - 2)
         {
             consequences |= Consequence::SpliceRegionVariant;
@@ -1783,14 +2154,14 @@ impl ConsequencePredictor {
         if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
             consequences |= Consequence::SplicePolypyrimidineTractVariant;
         }
-        if strand == Strand::Minus && var_overlaps(intron_start + 2, intron_start + 17) {
+        if strand == Strand::Minus && var_overlaps_behind(intron_start + 2, intron_start + 17) {
             consequences |= Consequence::SplicePolypyrimidineTractVariant;
         }
 
         // Check conditions for splice_donor_region_variant
         // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
         // Note that this is two bases short of the intronic part of splice_region_variant
-        if strand == Strand::Plus && var_overlaps(intron_start + 2, intron_start + 6) {
+        if strand == Strand::Plus && var_overlaps_behind(intron_start + 2, intron_start + 6) {
             consequences |= Consequence::SpliceDonorRegionVariant;
         }
         if strand == Strand::Minus && var_overlaps(intron_end - 6, intron_end - 2) {
@@ -1799,7 +2170,7 @@ impl ConsequencePredictor {
 
         // Check conditions for splice_donor_5th_base_variant
         // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
-        if strand == Strand::Plus && var_overlaps(intron_start + 4, intron_start + 5) {
+        if strand == Strand::Plus && var_overlaps_behind(intron_start + 4, intron_start + 5) {
             consequences |= Consequence::SpliceDonorFifthBaseVariant;
         }
         if strand == Strand::Minus && var_overlaps(intron_end - 5, intron_end - 4) {
@@ -1810,9 +2181,9 @@ impl ConsequencePredictor {
     }
 
     fn ins_shift(var_g: &HgvsVariant) -> i32 {
-        // For insertions, we need to consider the case of the insertion being right at
-        // the exon/intron junction.  We can express this with a shift of 1 for using
-        // "< / >" X +/- shift and meaning <= / >= X.
+        // The range of an insertion is the base in front of it. An insertion changes a
+        // splice site only between its two bases, i.e., behind the first one. We can express
+        // this with a shift of 1 that drops the second site base.
 
         match var_g {
             HgvsVariant::GenomeVariant {
@@ -1857,6 +2228,23 @@ impl ConsequencePredictor {
             //   such as 5’ UTR, 3’ UTR, or intronic position.
             let is_intronic_or_utr = loc_start_offset != 0 && loc_end_offset != 0;
 
+            // An insertion at an exon edge (`c.10_10+1ins`, `c.11-1_11ins`) keeps the splice
+            // site and adds its bases to the exon. In front of the first CDS base (`c.1-1_1ins`),
+            // they join the 5' UTR. Behind the last one (`c.N_N+1ins`), they join the 3' UTR.
+            let at_exon_edge = matches!(edit, NaEdit::Ins { .. })
+                && start_base == end_base
+                && start_cds_from == end_cds_from
+                && matches!((loc_start_offset, loc_end_offset), (0, 1) | (-1, 0));
+            let ins_in_front_of_start = at_exon_edge
+                && start_cds_from == CdsFrom::Start
+                && start_base == 1
+                && loc_start_offset == -1;
+            let ins_behind_stop = at_exon_edge
+                && end_cds_from == CdsFrom::Start
+                && loc_end_offset == 1
+                && !incomplete_3p
+                && available_cds_len == Some(end_base);
+
             // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
             //
             // start codon
@@ -1873,8 +2261,14 @@ impl ConsequencePredictor {
                 && loc_end_offset == 0
                 && !incomplete_3p
                 && available_cds_len == Some(end_base);
-            let ends_right_of_stop = end_cds_from == CdsFrom::End || dup_behind_stop;
-            if starts_left_of_stop && ends_right_of_stop && !incomplete_3p && !dup_behind_stop {
+            let ends_right_of_stop =
+                end_cds_from == CdsFrom::End || dup_behind_stop || ins_behind_stop;
+            if starts_left_of_stop
+                && ends_right_of_stop
+                && !incomplete_3p
+                && !dup_behind_stop
+                && !ins_behind_stop
+            {
                 consequences |= Consequence::StopLost;
             }
 
@@ -1896,7 +2290,7 @@ impl ConsequencePredictor {
             }
 
             // Detect variants affecting the 5'/3' UTRs.
-            if starts_left_of_start && start_base < 0 {
+            if starts_left_of_start && start_base < 0 || ins_in_front_of_start {
                 if is_intronic_or_utr {
                     consequences |= Consequence::FivePrimeUtrIntronVariant;
                 } else if is_exonic {
@@ -1929,10 +2323,15 @@ impl ConsequencePredictor {
             // i.e. not within the CDS, as the definition is
             // "A sequence variant which causes a disruption of the translational reading frame,
             // because the number of nucleotides inserted or deleted is not a multiple of three."
-            let within_exonic_sequence = loc_start_offset == 0 && loc_end_offset == 0;
+            let within_exonic_sequence =
+                loc_start_offset == 0 && loc_end_offset == 0 || at_exon_edge;
             let _crosses_boundary = (loc_start_offset != 0) ^ (loc_end_offset != 0);
 
-            if !(ends_right_of_stop || starts_left_of_start || is_intronic_or_utr) {
+            if !(ends_right_of_stop
+                || starts_left_of_start
+                || ins_in_front_of_start
+                || is_intronic_or_utr)
+            {
                 match edit {
                     NaEdit::RefAlt {
                         reference,
@@ -3187,7 +3586,7 @@ mod test {
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
-    use std::{fs::File, io::BufReader};
+    use std::{fs::File, io::BufReader, io::Write};
     use tempfile::NamedTempFile;
 
     #[test]
@@ -3676,6 +4075,11 @@ mod test {
     #[case("22:19524002:AC:A", "ENST00000403084", true, vec![Consequence::FrameshiftVariant])]
     // `p.Tyr1910Ter`: insertion inside codon 1910
     #[case("22:17791223:T:TC", "ENST00000441493", true, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    // Default terms: `frameshift_variant`, plus `stop_gained` if the first changed codon is a stop
+    #[case("22:19524002:AC:A", "ENST00000403084", false, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    #[case("22:17791223:T:TC", "ENST00000441493", false, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    #[case("22:38112210:TCA:T", "ENST00000332509", false, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    #[case("22:17191782:T:TTATG", "ENST00000262607", false, vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
     // `p.Asp261AlafsTer2`: the new stop lies in the changed codons
     #[case("22:17191782:T:TTATG", "ENST00000262607", true, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
     // `p.Tyr790Ter`: deletion across codons 790 and 791
@@ -3760,6 +4164,160 @@ mod test {
             "spdi = {}, hgvs_p = {:?}",
             spdi.join(":"),
             ann.hgvs_p
+        );
+
+        Ok(())
+    }
+
+    /// Write chromosome 22 as an indexed FASTA file into `dir`: the windows from `path` and `N`
+    /// elsewhere. Each record ID names the 1-based region of its window, e.g., `22:100-200`.
+    fn write_chr22_from_windows(path: &str, dir: &Path) -> Result<PathBuf, anyhow::Error> {
+        let mut seq = Vec::new();
+        for record in bio::io::fasta::Reader::from_file(path)?.records() {
+            let record = record?;
+            let start = record
+                .id()
+                .split([':', '-'])
+                .nth(1)
+                .ok_or_else(|| anyhow::anyhow!("no window start in {}", record.id()))?
+                .parse::<usize>()?
+                - 1;
+            let end = start + record.seq().len();
+            if seq.len() < end {
+                seq.resize(end, b'N');
+            }
+            seq[start..end].copy_from_slice(record.seq());
+        }
+        let fasta = dir.join("chr22.fa");
+        let mut file = File::create(&fasta)?;
+        file.write_all(b">22\n")?;
+        file.write_all(&seq)?;
+        file.write_all(b"\n")?;
+        std::fs::write(
+            dir.join("chr22.fa.fai"),
+            format!("22\t{}\t4\t{}\t{}\n", seq.len(), seq.len(), seq.len() + 1),
+        )?;
+        Ok(fasta)
+    }
+
+    /// Annotation of `spdi` on the transcript `tx_id`, with Ensembl 108 chr22 transcripts and
+    /// the chr22 reference around the variant, so that mehari shifts indels 3'.
+    fn annotate_chr22_window(
+        spdi: &str,
+        tx_id: &str,
+        vep_consequence_terms: bool,
+    ) -> Result<AnnField, anyhow::Error> {
+        let spdi = spdi.split(':').collect::<Vec<_>>();
+
+        let dir = tempfile::tempdir()?;
+        let reference = write_chr22_from_windows(
+            "tests/data/annotate/seqvars/placement.chr22-windows.fa",
+            dir.path(),
+        )?;
+        let tx_path = "tests/data/annotate/db/grch38/GRCh38-ensembl.placement-subset.txs.bin.zst";
+        let tx_db = load_tx_db(tx_path)?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Some(reference),
+            false,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .vep_consequence_terms(vep_consequence_terms)
+                .build()?,
+        );
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].to_string(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].to_string(),
+                alternative: spdi[3].to_string(),
+            })?
+            .unwrap();
+
+        res.into_iter()
+            .find(|ann| ann.feature_id.starts_with(tx_id))
+            .ok_or_else(|| anyhow::anyhow!("no annotation on {}", tx_id))
+    }
+
+    /// Indels at exon edges on Ensembl 108 chr22 transcripts, with the reference so that mehari
+    /// shifts them 3'. The terms come from the equivalent placement that keeps the essential
+    /// splice site (and in the CDS the stop codon); the HGVS stays 3'-shifted.
+    #[rstest::rstest]
+    // deleting the acceptor G equals deleting the first exon G
+    #[case("22:37713208:AG:A", "ENST00000644935", false, "c.257del", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // deleting the donor G (`GCCG|GTGAGT`) equals deleting the last exon G
+    #[case("22:23772977:CG:C", "ENST00000215743", false, "c.108+1del", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:23772977:CG:C", "ENST00000215743", true, "c.108+1del", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // minus strand: deleting donor +1 to +3 equals deleting the last three exon bases
+    #[case("22:26481718:TCAC:T", "ENST00000336873", false, "c.41+1_41+3del", vec![Consequence::DisruptiveInframeDeletion, Consequence::ExonicSpliceRegionVariant])]
+    // minus strand: deleting acceptor -3 and -2 equals an intronic deletion that keeps the AG
+    #[case("22:50246093:CTG:C", "ENST00000216271", false, "c.1651-3_1651-2del", vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant])]
+    // deletion of donor +3 to +9 that keeps the GT
+    #[case("22:25763388:AGGTAAGT:A", "ENST00000335473", false, "c.198+3_198+9del", vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    // deleting one C of `CCCAG|GT`: a placement in front of the last three exon bases keeps them
+    #[case("22:39101499:TC:T", "ENST00000442487", false, "c.416del", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
+    // every placement of the deletion removes donor +1 and +2
+    #[case("22:28773775:ATGAG:A", "ENST00000249064", false, "c.238_239+2del", vec![Consequence::SpliceDonorVariant, Consequence::ExonicSpliceRegionVariant])]
+    // insertion between the last exon base and donor +1: the exon gains a base
+    #[case("22:20996112:T:TA", "ENST00000646124", false, "c.2219_2219+1insA", vec![Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:20996112:T:TA", "ENST00000646124", true, "c.2219_2219+1insA", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // minus strand: insertion between donor +1 and the last exon base
+    #[case("22:32150991:C:CTT", "ENST00000382097", false, "c.493_493+1insAA", vec![Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
+    // insertion one base past the acceptor, between the first two exon bases
+    #[case("22:50522343:G:GCTTTCTC", "ENST00000299821", false, "c.1234_1235insCTTTCTC", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // insertion between acceptor -1 and the first CDS base: the 5' UTR gains a base
+    #[case("22:28987075:G:GC", "ENST00000402174", false, "c.1-1_1insC", vec![Consequence::ExonicSpliceRegionVariant, Consequence::FivePrimeUtrExonVariant])]
+    // insertion between the last stop codon base and donor +1: the 3' UTR gains a base
+    #[case("22:31879752:G:GA", "ENST00000646998", false, "c.3858_3858+1insA", vec![Consequence::ExonicSpliceRegionVariant, Consequence::ThreePrimeUtrExonVariant])]
+    // minus strand: dup of the last exon base, in front of donor +1 or inside the exon
+    #[case("22:28710005:C:CA", "ENST00000348295", false, "c.846dup", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // dup inside the stop codon that equals one behind it (`TAA` to `TAAAA`)
+    #[case("22:21469819:T:TAA", "ENST00000432134", false, "c.932_933dup", vec![Consequence::ThreePrimeUtrExonVariant])]
+    // frameshift inside the stop codon: every placement changes the stop codon
+    #[case("22:42571197:T:TG", "ENST00000340239", false, "c.611dup", vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    // dup of donor +1 to +7: the copy lands behind +7 and leaves the donor intact
+    #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", false, "c.1977+1_1977+7dup", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", true, "c.1977+1_1977+7dup", vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])]
+    // dup of donor +5 and +6: the copy lands behind +6 and leaves donor +3 to +6 intact
+    #[case("22:31616877:G:GGT", "ENST00000400288", false, "c.3433+5_3433+6dup", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    // dup of c.16 to c.20: a copy in front of c.16 leaves the last three exon bases intact
+    #[case("22:42554033:G:GCCGCA", "ENST00000340239", false, "c.16_20dup", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
+    fn annotate_indel_placement_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] vep_consequence_terms: bool,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let ann = annotate_chr22_window(spdi, tx_id, vep_consequence_terms)?;
+        assert_eq!(ann.hgvs_c.as_deref(), Some(expected_hgvs_c));
+        assert_eq!(
+            ann.consequences, expected_csqs,
+            "spdi = {}, hgvs_c = {:?}",
+            spdi, ann.hgvs_c
+        );
+
+        Ok(())
+    }
+
+    /// An insertion at an exon edge adds its bases to the exon. So it gets the exon number and a
+    /// CDS position.
+    #[test]
+    fn annotate_ins_at_exon_edge_location() -> Result<(), anyhow::Error> {
+        let ann = annotate_chr22_window("22:32150991:C:CTT", "ENST00000382097", false)?;
+        assert_eq!(ann.hgvs_c.as_deref(), Some("c.493_493+1insAA"));
+        assert_eq!(ann.rank, Some(Rank { ord: 6, total: 9 }));
+        assert_eq!(ann.distance, Some(0));
+        assert_eq!(
+            ann.cds_pos,
+            Some(Pos {
+                ord: 493,
+                total: Some(756)
+            })
         );
 
         Ok(())
@@ -4389,6 +4947,15 @@ mod test {
                                 "17-41277285-T-TA",
                             ]
                             .contains(&record.var.as_str()),
+                        // SnpEff calls these insertions at an exon edge a splice donor or acceptor
+                        // variant. The splice site stays intact, and the inserted bases join the
+                        // exon: the CDS of OPA1 and the 5' UTR of BRCA1.
+                        record_csqs.contains(&"splice_donor_variant")
+                            && expected_one_of.contains(&"frameshift_variant")
+                            && record.var == "3-193363589-A-AG",
+                        record_csqs.contains(&"splice_acceptor_variant")
+                            && expected_one_of.contains(&"exonic_splice_region_variant")
+                            && record.var == "17-41276132-A-ACT",
                         // we call exonic_splice_region_variant, while the others only call splice_region_variant
                         record_csqs.contains(&"splice_region_variant")
                             && expected_one_of.contains(&"exonic_splice_region_variant"),
@@ -5071,5 +5638,125 @@ mod test {
         #[case] expected: bool,
     ) {
         assert_eq!(deletion_keeps_cds(tx_seq, cds_start, del), expected);
+    }
+
+    /// A coding transcript `NM_000001.1` on the plus strand of chr1. Exon 1 spans
+    /// chr1:1001-1060, the intron chr1:1061-1160 and exon 2 chr1:1161-1220. The CDS is `ATG`,
+    /// 18 `GCC` codons and `TAA`, and starts `cds_start` bases into the transcript.
+    fn two_exon_tx(cds_start: usize) -> (Transcript, String) {
+        let utr = "CAGT".repeat(15);
+        let cds = format!("ATG{}TAA", "GCC".repeat(18));
+        let seq = format!("{}{cds}{}", &utr[..cds_start], &utr[cds_start..]);
+        let start = i32::try_from(cds_start).unwrap();
+        let genomic = |tx_pos: i32| {
+            if tx_pos < 60 {
+                1000 + tx_pos
+            } else {
+                1100 + tx_pos
+            }
+        };
+        let exon = |ord: i32| ExonAlignment {
+            alt_start_i: 1000 + 160 * ord,
+            alt_end_i: 1060 + 160 * ord,
+            ord,
+            alt_cds_start_i: Some(1 + 60 * ord),
+            alt_cds_end_i: Some(60 + 60 * ord),
+            cigar: "60M".into(),
+        };
+        let tx = Transcript {
+            id: "NM_000001.1".into(),
+            gene_symbol: "GENE1".into(),
+            gene_id: "1".into(),
+            biotype: TranscriptBiotype::Coding.into(),
+            protein: Some("NP_000001.1".into()),
+            start_codon: Some(start),
+            stop_codon: Some(start + 60),
+            genome_alignments: vec![GenomeAlignment {
+                genome_build: "grch38".into(),
+                contig: "NC_000001.11".into(),
+                cds_start: Some(genomic(start)),
+                cds_end: Some(genomic(start + 59) + 1),
+                strand: Strand::Plus.into(),
+                exons: vec![exon(0), exon(1)],
+                ..Default::default()
+            }],
+            filtered: Some(false),
+            ..Default::default()
+        };
+        (tx, seq)
+    }
+
+    /// The range of an insertion is the base in front of it. The insertion moves the bases
+    /// behind it, so a splice window that counts from its left end, e.g. donor +3 to +8 on the
+    /// plus strand, contains an insertion if it contains the base behind it. A window that
+    /// counts from its right end contains an insertion if it contains the base in front of it.
+    ///
+    /// `two_exon_tx(20)` has the donor +1 at chr1:1061 and the acceptor -1 at chr1:1160.
+    #[rstest::rstest]
+    #[case::exon_and_donor_1(1060, &[Consequence::ExonicSpliceRegionVariant])]
+    #[case::donor_1_2(1061, &[Consequence::SpliceDonorVariant])]
+    #[case::donor_2_3(
+        1062,
+        &[Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant]
+    )]
+    #[case::donor_4_5(
+        1064,
+        &[
+            Consequence::SpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::SpliceDonorFifthBaseVariant,
+        ]
+    )]
+    #[case::donor_5_6(
+        1065,
+        &[Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant]
+    )]
+    #[case::donor_6_7(1066, &[Consequence::SpliceRegionVariant])]
+    #[case::donor_8_9(1068, &[])]
+    #[case::acceptor_9_8(1152, &[Consequence::SplicePolypyrimidineTractVariant])]
+    #[case::acceptor_3_2(
+        1158,
+        &[Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant]
+    )]
+    #[case::acceptor_1_and_exon(1160, &[Consequence::ExonicSpliceRegionVariant])]
+    #[case::exon_2_3(1162, &[Consequence::ExonicSpliceRegionVariant])]
+    #[case::exon_3_4(1163, &[])]
+    fn splice_windows_for_insertions(
+        #[case] position: i32,
+        #[case] expected: &[Consequence],
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = two_exon_tx(20);
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: "C".into(),
+                alternative: "CTTT".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        let splice_terms = [
+            Consequence::SpliceDonorVariant,
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceRegionVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::SplicePolypyrimidineTractVariant,
+        ];
+        let found = splice_terms
+            .iter()
+            .filter(|term| ann.consequences.contains(term))
+            .collect::<Vec<_>>();
+        let expected = splice_terms
+            .iter()
+            .filter(|term| expected.contains(term))
+            .collect::<Vec<_>>();
+        assert_eq!(found, expected, "{ann:?}");
+        Ok(())
     }
 }
