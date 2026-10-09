@@ -29,7 +29,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = { version = "4.12", optional = true }
-annonars = { version = "0.44.2", default-features = false }
+annonars = { version = "0.45.0", default-features = false }
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bio = "4.0.0"
@@ -47,7 +47,7 @@ enumflags2 = { version = "0.7.11", features = ["serde"] }
 env_logger = "0.11"
 flate2 = "1.1"
 futures = "0.3"
-hgvs = "0.22"
+hgvs = "1.0"
 indexmap = { version = "2.13", features = ["serde"] }
 itertools = "0.15"
 jsonl = "4.0"
@@ -93,7 +93,7 @@ version = "0.109.0"
 features = ["async", "core", "vcf", "bcf", "csi", "fasta", "tabix", "gff"]
 
 [dependencies.noodles-bgzf]
-version = "0.46.0"
+version = "0.52.0"
 features = ["async", "libdeflate"]
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
