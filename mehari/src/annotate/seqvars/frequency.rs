@@ -105,10 +105,15 @@ impl FrequencyAnnotator {
     pub(crate) fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<FreqResult>> {
         let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
-        if contig_manager.is_homo_sapiens_canonical_alias(vcf_var.chrom.as_str()) {
+        if let Some(chrom) = contig_manager.get_annonars_chrom(&vcf_var.chrom) {
             // Build key for RocksDB database from `vcf_var`.
-            let annonars_var: annonars::common::keys::Var = vcf_var.into();
-            let key: Vec<u8> = annonars_var.into();
+            let key: Vec<u8> = annonars::common::keys::Var::from(
+                chrom,
+                vcf_var.pos,
+                &vcf_var.reference,
+                &vcf_var.alternative,
+            )
+            .into();
 
             // Annotate with frequency.
             if contig_manager.is_autosomal_alias(&vcf_var.chrom) {
@@ -131,13 +136,13 @@ impl FrequencyAnnotator {
     > {
         let contig_manager = &self.contig_manager;
         // Only attempt lookups into RocksDB for canonical contigs.
-        if !contig_manager.is_homo_sapiens_canonical_alias(&vcf_var.chromosome) {
+        let Some(chrom) = contig_manager.get_annonars_chrom(&vcf_var.chromosome) else {
             return Ok(None);
-        }
+        };
 
         // Build key for RocksDB database
         let vcf_var = annonars::common::keys::Var::from(
-            &vcf_var.chromosome.clone(),
+            chrom,
             vcf_var.position,
             &vcf_var.reference.clone(),
             &vcf_var.alternative.clone(),
@@ -238,4 +243,26 @@ pub struct FreqResult {
     pub helix_hom: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub helix_het: Option<i32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[rstest::rstest]
+    #[case("17")]
+    #[case("chr17")]
+    #[case("NC_000017.10")]
+    fn test_annotate_contig_alias(#[case] chrom: &str) -> Result<(), anyhow::Error> {
+        let annotator = FrequencyAnnotator::from_path(
+            "tests/data/annotate/db/grch37/seqvars/freqs",
+            Arc::new(ContigManager::new("grch37")),
+        )?;
+        let var = keys::Var::new(chrom.into(), 41215920, "G".into(), "T".into());
+
+        let result = annotator.annotate(&var)?.unwrap();
+        assert_eq!(result.gnomad_genomes_an, 251312);
+
+        Ok(())
+    }
 }

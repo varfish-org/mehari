@@ -58,9 +58,6 @@
 //!
 //! * `mehari db transcripts create` -- create a database of transcript sequences from
 //!   [cdot JSON files](https://github.com/SACGF/cdot/releases)
-//! * `mehari db cadd create` -- create a database of CADD scores
-//! * `mehari db spliceai create` -- create a database of SpliceAI predictions
-//! * `mehari db generic create` -- create a database of generic/custom lookup scores
 //!
 //! Full documentation is available in the [user documentation](`self::user_doc`).
 //!
@@ -148,15 +145,6 @@ struct Db {
 enum DbCommands {
     /// Commands related to transcript database
     Transcripts(TranscriptsArgs),
-
-    /// Commands related to CADD database
-    Cadd(CaddArgs),
-
-    /// Commands related to SpliceAI database
-    Spliceai(SpliceaiArgs),
-
-    /// Commands related to dbSNP database
-    DbSnp(DbSnpArgs),
 }
 
 /// Subcommands under "db transcripts"
@@ -180,51 +168,6 @@ pub enum TranscriptsCommands {
     Merge(db::transcripts::merge::Args),
     /// Subset transcripts database
     Subset(db::transcripts::subset::Args),
-}
-
-/// Subcommands under "db cadd"
-#[derive(Debug, Parser)]
-#[command(args_conflicts_with_subcommands = true)]
-pub struct CaddArgs {
-    /// The sub command to run
-    #[command(subcommand)]
-    pub command: CaddCommands,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum CaddCommands {
-    /// Construct CADD score database
-    Create(db::cadd::cli::Args),
-}
-
-/// Subcommands under "db spliceai"
-#[derive(Debug, Parser)]
-#[command(args_conflicts_with_subcommands = true)]
-pub struct SpliceaiArgs {
-    /// The sub command to run
-    #[command(subcommand)]
-    pub command: SpliceaiCommands,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum SpliceaiCommands {
-    /// Construct SpliceAI score database
-    Create(db::spliceai::cli::Args),
-}
-
-/// Subcommands under "db dbsnp"
-#[derive(Debug, Parser)]
-#[command(args_conflicts_with_subcommands = true)]
-pub struct DbSnpArgs {
-    /// The sub command to run
-    #[command(subcommand)]
-    pub command: DbSnpCommands,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum DbSnpCommands {
-    /// Construct dbSnp lookup database
-    Create(db::dbsnp::cli::Args),
 }
 
 /// Parsing of "annotate *" sub commands.
@@ -333,15 +276,6 @@ async fn main() -> Result<(), anyhow::Error> {
                     db::transcripts::subset::run(&cli.common, args)?
                 }
                 TranscriptsCommands::Merge(args) => db::transcripts::merge::run(&cli.common, args)?,
-            },
-            DbCommands::Cadd(cadd) => match &cadd.command {
-                CaddCommands::Create(args) => db::cadd::run(&cli.common, args)?,
-            },
-            DbCommands::Spliceai(spliceai) => match &spliceai.command {
-                SpliceaiCommands::Create(args) => db::spliceai::run(&cli.common, args)?,
-            },
-            DbCommands::DbSnp(dbsnp) => match &dbsnp.command {
-                DbSnpCommands::Create(args) => db::dbsnp::run(&cli.common, args)?,
             },
         },
         Commands::Annotate(annotate) => match &annotate.command {

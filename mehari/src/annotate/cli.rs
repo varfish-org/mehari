@@ -25,15 +25,15 @@ pub struct Sources {
     #[arg(long)]
     pub clinvar: Option<Vec<String>>,
 
-    /// CADD database path.
+    /// CADD database path (built with `annonars cadd import`).
     #[arg(long)]
     pub cadd: Option<Vec<String>>,
 
-    /// SpliceAI database path.
+    /// SpliceAI database path (built with `annonars spliceai import`).
     #[arg(long)]
     pub spliceai: Option<Vec<String>>,
 
-    /// dbSnp database path.
+    /// dbSNP database path (built with `annonars dbsnp import`).
     #[arg(long)]
     pub dbsnp: Option<Vec<String>>,
 

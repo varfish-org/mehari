@@ -6,13 +6,11 @@ use crate::db::keys;
 use anyhow::Error;
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
-use rustc_hash::FxHashMap;
 
 #[derive(Debug)]
 pub struct DbsnpAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
     contig_manager: Arc<ContigManager>,
-    contig_dict: FxHashMap<String, u32>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -22,18 +20,11 @@ pub struct DbsnpResult {
 }
 
 impl DbsnpAnnotator {
-    pub fn new(
-        db: DBWithThreadMode<MultiThreaded>,
-        contig_manager: Arc<ContigManager>,
-        contig_dict: FxHashMap<String, u32>,
-    ) -> Self {
-        Self {
-            db,
-            contig_manager,
-            contig_dict,
-        }
+    pub fn new(db: DBWithThreadMode<MultiThreaded>, contig_manager: Arc<ContigManager>) -> Self {
+        Self { db, contig_manager }
     }
 
+    /// Open a dbSNP database built with `annonars dbsnp import`.
     pub(crate) fn from_path(
         path: impl AsRef<Path>,
         contig_manager: Arc<ContigManager>,
@@ -41,31 +32,20 @@ impl DbsnpAnnotator {
         tracing::info!("Opening dbSNP database at {}", path.as_ref().display());
         let options = rocksdb::Options::default();
         let db_dbsnp =
-            rocksdb::DB::open_cf_for_read_only(&options, &path, ["meta", "dbsnp"], false)?;
+            rocksdb::DB::open_cf_for_read_only(&options, &path, ["meta", "dbsnp_data"], false)?;
 
-        let contig_dict = {
-            let cf_meta = db_dbsnp
-                .cf_handle("meta")
-                .ok_or_else(|| anyhow::anyhow!("meta CF not found"))?;
-
-            match db_dbsnp.get_cf(&cf_meta, b"contig_dictionary")? {
-                Some(bytes) => serde_json::from_slice(&bytes)?,
-                None => FxHashMap::default(),
-            }
-        };
-
-        Ok(Self::new(db_dbsnp, contig_manager, contig_dict))
+        Ok(Self::new(db_dbsnp, contig_manager))
     }
 
     pub fn annotate_record_dbsnp(&self, key: &[u8]) -> Result<Option<DbsnpResult>, Error> {
         if let Some(raw_value) = self
             .db
-            .get_cf(self.db.cf_handle("dbsnp").as_ref().unwrap(), key)?
+            .get_cf(self.db.cf_handle("dbsnp_data").as_ref().unwrap(), key)?
         {
-            let record = crate::pbs::seqvars::DbsnpRecord::decode(&raw_value[..])?;
+            let record = annonars::dbsnp::pbs::Record::decode(&raw_value[..])?;
             Ok(Some(DbsnpResult {
-                allele: record.allele,
-                rs_id: record.rs_id,
+                allele: record.alt_allele,
+                rs_id: format!("rs{}", record.rs_id),
             }))
         } else {
             Ok(None)
@@ -73,26 +53,26 @@ impl DbsnpAnnotator {
     }
 
     pub fn annotate(&self, vcf_var: &keys::Var) -> anyhow::Result<Option<DbsnpResult>> {
-        // Normalize chrom to primary name to build standard key
-        let chrom_std = self
-            .contig_manager
-            .get_primary_name(&vcf_var.chrom)
-            .cloned()
-            .unwrap_or_else(|| vcf_var.chrom.clone());
-
-        if let Some(&chrom_id) = self.contig_dict.get(&chrom_std) {
-            let key = vcf_var.encode_with_id(chrom_id);
-            self.annotate_record_dbsnp(&key)
-        } else {
-            Ok(None)
+        // Only attempt lookups into RocksDB for canonical contigs.
+        if let Some(chrom) = self.contig_manager.get_annonars_chrom(&vcf_var.chrom) {
+            let key: Vec<u8> = annonars::common::keys::Var::from(
+                chrom,
+                vcf_var.pos,
+                &vcf_var.reference,
+                &vcf_var.alternative,
+            )
+            .into();
+            return self.annotate_record_dbsnp(&key);
         }
+        Ok(None)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::CommonPipelineArgs;
+    use std::fs::File;
+    use std::io::Write;
     use temp_testdir::TempDir;
 
     #[test]
@@ -102,27 +82,32 @@ mod tests {
         let output_path = temp.join("dbsnp_db");
 
         let vcf_content = "##fileformat=VCFv4.2
+##reference=GRCh38.p14
+##dbSNP_BUILD_ID=156
+##INFO=<ID=RS,Number=1,Type=Integer,Description=\"dbSNP ID\">
 #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
-1\t10000\trs123\tC\tT\t.\t.\t.
-chr1\t10005\trs456;rs789\tA\tG,C\t.\t.\t.";
+1\t10000\trs123\tC\tT\t.\t.\tRS=123
+1\t10005\trs456\tA\tG,C\t.\t.\tRS=456\n";
 
-        crate::db::test_utils::write_indexed_file(&input_path, vcf_content)?;
+        let mut writer = noodles_bgzf::io::Writer::new(File::create(&input_path)?);
+        writer.write_all(vcf_content.as_bytes())?;
+        writer.finish()?;
+        let index = noodles::vcf::fs::index(&input_path)?;
+        noodles::tabix::fs::write(input_path.with_added_extension("tbi"), &index)?;
 
-        let common_args = crate::common::Args {
-            verbose: clap_verbosity_flag::Verbosity::new(0, 0),
+        let common_args = annonars::common::cli::Args {
+            verbose: Default::default(),
         };
-        let create_args = crate::db::dbsnp::Args {
-            common: CommonPipelineArgs {
-                assembly: "GRCh38".to_string(),
-                input: vec![input_path],
-                output: output_path.clone(),
-                batch_size: 1000,
-                no_progress: false,
-                threads: 1,
-            },
+        let import_args = annonars::dbsnp::cli::import::Args {
+            genome_release: annonars::common::cli::GenomeRelease::Grch38,
+            path_in_vcf: input_path.to_string_lossy().into(),
+            path_out_rocksdb: output_path.to_string_lossy().into(),
+            tbi_window_size: 100_000_000,
+            cf_name: "dbsnp_data".to_string(),
+            cf_name_by_rsid: "dbsnp_by_rsid".to_string(),
+            path_wal_dir: None,
         };
-
-        crate::db::dbsnp::run(&common_args, &create_args)?;
+        annonars::dbsnp::cli::import::run(&common_args, &import_args)?;
 
         let contig_manager = Arc::new(ContigManager::new("GRCh38"));
         let annotator = DbsnpAnnotator::from_path(&output_path, contig_manager)?;
@@ -138,6 +123,14 @@ chr1\t10005\trs456;rs789\tA\tG,C\t.\t.\t.";
         assert_eq!(res1.rs_id, "rs123");
         assert_eq!(res1.allele, "T");
 
+        // Test lookup by the RefSeq accession of chr1
+        let var1_ac = keys::Var {
+            chrom: "NC_000001.11".to_string(),
+            ..var1
+        };
+        let res1_ac = annotator.annotate(&var1_ac)?.unwrap();
+        assert_eq!(res1_ac.rs_id, "rs123");
+
         // Test multi-allelic separation lookup allele 1 (G)
         let var2 = keys::Var {
             chrom: "1".to_string(),
@@ -146,7 +139,7 @@ chr1\t10005\trs456;rs789\tA\tG,C\t.\t.\t.";
             alternative: "G".to_string(),
         };
         let res2 = annotator.annotate(&var2)?.unwrap();
-        assert_eq!(res2.rs_id, "rs456;rs789");
+        assert_eq!(res2.rs_id, "rs456");
         assert_eq!(res2.allele, "G");
 
         // Test multi-allelic separation lookup allele 2 (C)
@@ -157,7 +150,7 @@ chr1\t10005\trs456;rs789\tA\tG,C\t.\t.\t.";
             alternative: "C".to_string(),
         };
         let res3 = annotator.annotate(&var3)?.unwrap();
-        assert_eq!(res3.rs_id, "rs456;rs789");
+        assert_eq!(res3.rs_id, "rs456");
         assert_eq!(res3.allele, "C");
 
         Ok(())
