@@ -875,14 +875,25 @@ impl ConsequencePredictor {
                         incomplete_3p,
                     );
 
-                    let indel_in_cds = context.cds_consequences.intersects(
-                        Consequence::FrameshiftVariant
-                            | Consequence::ConservativeInframeInsertion
-                            | Consequence::DisruptiveInframeInsertion
-                            | Consequence::ConservativeInframeDeletion
-                            | Consequence::DisruptiveInframeDeletion,
+                    let indel_terms = Consequence::FrameshiftVariant
+                        | Consequence::ConservativeInframeInsertion
+                        | Consequence::DisruptiveInframeInsertion
+                        | Consequence::ConservativeInframeDeletion
+                        | Consequence::DisruptiveInframeDeletion;
+                    let indel_in_cds = context.cds_consequences.intersects(indel_terms);
+                    let protein_unchanged = matches!(
+                        var_p,
+                        HgvsVariant::ProtVariant {
+                            loc_edit: ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain,
+                            ..
+                        }
                     );
-                    if indel_in_cds
+                    if indel_in_cds && protein_unchanged && !self.config.vep_consequence_terms {
+                        // An indel that keeps the protein (`p.=`) is synonymous. VEP reports the
+                        // indel terms instead.
+                        context.cds_consequences.remove(indel_terms);
+                        context.protein_consequences |= Consequence::SynonymousVariant;
+                    } else if indel_in_cds
                         && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
                             self.provider.clone(),
                             &tx_record.tx_ac,
@@ -891,16 +902,7 @@ impl ConsequencePredictor {
                     {
                         // An indel that keeps the protein (`p.=`) keeps the stop codon, if the
                         // CDS has one.
-                        if ref_data.aa_sequence.ends_with('*')
-                            && matches!(
-                                var_p,
-                                HgvsVariant::ProtVariant {
-                                    loc_edit: ProtLocEdit::NoChange
-                                        | ProtLocEdit::NoChangeUncertain,
-                                    ..
-                                }
-                            )
-                        {
+                        if ref_data.aa_sequence.ends_with('*') && protein_unchanged {
                             context.protein_consequences |= Consequence::StopRetainedVariant;
                         }
                         if self.config.vep_consequence_terms
@@ -3319,13 +3321,13 @@ mod test {
     // in-frame deletion across the stop codon
     #[case("22:22895418:CTCT:C", "ENST00000531372", true, vec![Consequence::StopLost, Consequence::InframeDeletion, Consequence::ProteinAlteringVariant])]
     // `p.=`: in-frame insertion inside the stop codon that keeps it
-    #[case("22:45600443:C:CTAA", "ENST00000327858", false, vec![Consequence::DisruptiveInframeInsertion, Consequence::StopRetainedVariant])]
+    #[case("22:45600443:C:CTAA", "ENST00000327858", false, vec![Consequence::SynonymousVariant])]
     #[case("22:45600443:C:CTAA", "ENST00000327858", true, vec![Consequence::InframeInsertion, Consequence::StopRetainedVariant])]
     // `p.=`: in-frame insertion that creates a stop codon in a CDS without one (`cds_end_NF`)
-    #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::DisruptiveInframeInsertion])]
+    #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::SynonymousVariant])]
     #[case("22:38140065:C:CTAA", "ENST00000430886", true, vec![Consequence::StopGained, Consequence::InframeInsertion])]
     // `p.=`: frameshift in a CDS without a stop codon (`cds_end_NF`)
-    #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
+    #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::SynonymousVariant])]
     // `c.932_933dup` (`p.=`): the copy lands behind the stop codon
     #[case("22:21469819:T:TAA", "ENST00000432134", false, vec![Consequence::ThreePrimeUtrExonVariant])]
     #[case("22:21469819:T:TAA", "ENST00000432134", true, vec![Consequence::ThreePrimeUtrVariant])]
