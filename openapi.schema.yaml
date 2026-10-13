@@ -536,9 +536,9 @@ components:
           description: The original query parameters.
         result:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/CaddResultEntry'
             description: The resulting CADD score if found.
+          - type: 'null'
     CaddResultEntry:
       type: object
       description: One entry in `CaddResponse`.
@@ -749,9 +749,9 @@ components:
           description: The original query parameters.
         result:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/DbsnpResultEntry'
             description: The resulting dbSNP record if found.
+          - type: 'null'
     DbsnpResultEntry:
       type: object
       description: One entry in `DbsnpResponse`.
@@ -1273,9 +1273,9 @@ components:
           description: The feature tags.
         rank:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Rank'
             description: The exon / intron rank.
+          - type: 'null'
         hgvs_g:
           type:
           - string
@@ -1293,19 +1293,19 @@ components:
           description: HGVS p. notation.
         tx_pos:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Pos'
             description: cDNA position.
+          - type: 'null'
         cds_pos:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Pos'
             description: CDS position.
+          - type: 'null'
         protein_pos:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Pos'
             description: Protein position.
+          - type: 'null'
         distance:
           type:
           - integer
