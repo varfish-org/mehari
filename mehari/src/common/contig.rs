@@ -29,7 +29,6 @@ pub struct ContigInfo {
 
     /// The chromosome number (1-25) only.
     pub chrom_no: u32,
-    pub length: usize,
 }
 
 const CHR_X: u32 = 23;
@@ -228,6 +227,17 @@ impl ContigManager {
             .is_some_and(Self::is_homo_sapiens_canonical)
     }
 
+    /// Get the chromosome name for keys of annonars' chromosome-keyed databases (ClinVar,
+    /// frequencies, dbSNP), e.g. "1" for "NC_000001.10"; their keys reject accessions.
+    ///
+    /// Returns `None` for non-canonical contigs, which these databases do not contain.
+    pub(crate) fn get_annonars_chrom<'a>(&'a self, alias: &'a str) -> Option<&'a str> {
+        if !self.is_homo_sapiens_canonical_alias(alias) {
+            return None;
+        }
+        Some(self.get_primary_name(alias).map_or(alias, String::as_str))
+    }
+
     pub fn get_contig_info(&self, alias: &str) -> Option<ContigInfo> {
         let accession = self.get_accession(alias)?;
         let seq_info = self.accession_to_info.get(accession)?;
@@ -247,7 +257,6 @@ impl ContigManager {
             name_without_chr,
             name_with_chr,
             accession: accession.clone(),
-            length: seq_info.length,
             chrom_no,
         })
     }

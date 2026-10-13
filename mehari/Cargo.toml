@@ -29,7 +29,7 @@ path = "src/main.rs"
 
 [dependencies]
 actix-web = { version = "4.12", optional = true }
-annonars = { version = "0.44.2", default-features = false }
+annonars = { version = "0.45.0", default-features = false }
 anyhow = "1.0"
 async-compression = { version = "0.4", features = ["tokio", "gzip"] }
 bio = "4.0.0"
@@ -84,9 +84,7 @@ memmap2 = "0.9.10"
 serde-aux = "4.7.0"
 thiserror = "2.0"
 regex = "1.12.4"
-niffler = "3.0.1"
 indicatif = { version = "0.18.4", features = ["rayon"] }
-rocksdb-utils-lookup = "0.5.1"
 
 [dependencies.noodles]
 version = "0.109.0"

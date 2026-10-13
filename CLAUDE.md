@@ -4,7 +4,7 @@ Variant effect prediction (HGVS, VEP-compatible consequences) for VCF, in Rust. 
 
 ## Layout
 - Cargo **workspace** (`resolver=3`), single member `mehari/` (lib + bin). `mehari-python/` is a **separate** crate, deliberately **excluded** from the workspace (own `[workspace]` stub + `Cargo.lock`) so jemalloc isn't linked into the extension.
-- `mehari/src/`: `annotate/` (seqvars, strucvars), `db/` (transcript/CADD/spliceai/dbsnp builders; keys in `db/keys.rs`), `pbs/` (generated protobuf), `server/` (actix + utoipa REST).
+- `mehari/src/`: `annotate/` (seqvars, strucvars), `db/` (transcript DB builders; CADD/SpliceAI/dbSNP DBs are built by annonars), `pbs/` (generated protobuf), `server/` (actix + utoipa REST).
 - Depends on the sibling crate `annonars` (ClinVar/frequency DBs).
 - CLI subcommands: `db` / `annotate` / `server`.
 

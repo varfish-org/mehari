@@ -3,16 +3,16 @@ use std::sync::Arc;
 
 use crate::common::contig::ContigManager;
 use crate::db::keys;
+use annonars::common::contig::ContigDict;
 use anyhow::Error;
 use prost::Message;
 use rocksdb::{DBWithThreadMode, MultiThreaded};
-use rustc_hash::FxHashMap;
 
 #[derive(Debug)]
 pub struct CaddAnnotator {
     db: DBWithThreadMode<MultiThreaded>,
     contig_manager: Arc<ContigManager>,
-    contig_dict: FxHashMap<String, u32>,
+    contig_dict: ContigDict,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -25,7 +25,7 @@ impl CaddAnnotator {
     pub fn new(
         db: DBWithThreadMode<MultiThreaded>,
         contig_manager: Arc<ContigManager>,
-        contig_dict: FxHashMap<String, u32>,
+        contig_dict: ContigDict,
     ) -> Self {
         Self {
             db,
@@ -34,6 +34,7 @@ impl CaddAnnotator {
         }
     }
 
+    /// Open a CADD track database built with `annonars cadd import`.
     pub(crate) fn from_path(
         path: impl AsRef<Path>,
         contig_manager: Arc<ContigManager>,
@@ -41,17 +42,7 @@ impl CaddAnnotator {
         tracing::info!("Opening CADD database at {}", path.as_ref().display());
         let options = rocksdb::Options::default();
         let db_cadd = rocksdb::DB::open_cf_for_read_only(&options, &path, ["meta", "cadd"], false)?;
-
-        let contig_dict = {
-            let cf_meta = db_cadd
-                .cf_handle("meta")
-                .ok_or_else(|| anyhow::anyhow!("meta CF not found"))?;
-
-            match db_cadd.get_cf(&cf_meta, b"contig_dictionary")? {
-                Some(bytes) => serde_json::from_slice(&bytes)?,
-                None => FxHashMap::default(),
-            }
-        };
+        let contig_dict = annonars::seqvars::read_contig_dict(&db_cadd)?;
 
         Ok(Self::new(db_cadd, contig_manager, contig_dict))
     }
@@ -61,7 +52,7 @@ impl CaddAnnotator {
             .db
             .get_cf(self.db.cf_handle("cadd").as_ref().unwrap(), key)?
         {
-            let record = crate::pbs::seqvars::CaddRecord::decode(&raw_value[..])?;
+            let record = annonars::pbs::seqvars::base::CaddRecord::decode(&raw_value[..])?;
             Ok(Some(CaddResult {
                 raw_score: record.raw_score,
                 phred: record.phred,
@@ -79,8 +70,9 @@ impl CaddAnnotator {
             .cloned()
             .unwrap_or_else(|| vcf_var.chrom.clone());
 
-        if let Some(&chrom_id) = self.contig_dict.get(&chrom_std) {
-            let key = vcf_var.encode_with_id(chrom_id);
+        if let Some(chrom_id) = self.contig_dict.id_of(&chrom_std) {
+            let annonars_var: annonars::common::keys::Var = vcf_var.into();
+            let key = annonars_var.encode_with_id(chrom_id);
             self.annotate_record_cadd(&key)
         } else {
             Ok(None)
@@ -91,35 +83,35 @@ impl CaddAnnotator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::CommonPipelineArgs;
     use temp_testdir::TempDir;
 
     #[test]
     fn test_cadd_import_and_annotate() -> Result<(), anyhow::Error> {
         let temp = TempDir::default();
-        let input_path = temp.join("cadd_test.tsv.gz");
+        let fai_path = temp.join("ref.fa.fai");
+        let input_path = temp.join("cadd_test.tsv");
         let output_path = temp.join("cadd_db");
 
-        let tsv_content = "#Chrom\tPos\tRef\tAlt\tRawScore\tPHRED\n\
-                                1\t10000\tC\tT\t1.5\t15.0\n\
-                                chr1\t10005\tA\tG\t2.3\t20.5";
-        crate::db::test_utils::write_indexed_file(&input_path, tsv_content)?;
+        std::fs::write(&fai_path, "chr1\t248956422\t6\t60\t61\n")?;
+        std::fs::write(
+            &input_path,
+            "#Chrom\tPos\tRef\tAlt\tRawScore\tPHRED\n\
+             1\t10000\tC\tT\t1.5\t15.0\n\
+             chr1\t10005\tA\tG\t2.3\t20.5\n",
+        )?;
 
-        let common_args = crate::common::Args {
-            verbose: clap_verbosity_flag::Verbosity::new(0, 0),
+        let common_args = annonars::common::cli::Args {
+            verbose: Default::default(),
         };
-        let create_args = crate::db::cadd::Args {
-            common: CommonPipelineArgs {
-                assembly: "GRCh38".to_string(),
-                input: vec![input_path],
-                output: output_path.clone(),
-                batch_size: 1000,
-                no_progress: true,
-                threads: 1,
-            },
+        let import_args = annonars::cadd::cli::import::Args {
+            path_in_tsv: input_path.to_string_lossy().into(),
+            path_reference_fai: fai_path.to_string_lossy().into(),
+            assembly: "GRCh38".to_string(),
+            path_out_rocksdb: output_path.to_string_lossy().into(),
+            cf_name: "cadd".to_string(),
+            path_wal_dir: None,
         };
-
-        crate::db::cadd::run(&common_args, &create_args)?;
+        annonars::cadd::cli::import::run(&common_args, &import_args)?;
 
         let contig_manager = Arc::new(ContigManager::new("GRCh38"));
         let annotator = CaddAnnotator::from_path(&output_path, contig_manager)?;

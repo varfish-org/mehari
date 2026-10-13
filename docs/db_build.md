@@ -144,59 +144,29 @@ You will have to build the transcript database for each genome release that you 
 
 You can enable compression by using the suffix `.gz` for gzip compression and `.zst` for zstandard compression.
 
-# Building CADD Database
+# CADD, SpliceAI, and dbSNP Databases
 
-To build a lookup-based RocksDB database for CADD scores from one or more TSV files (such as all SNVs and a subset of observed SVs/indels):
-
-```sh
-mehari db cadd create \
-  --assembly grch38 \
-  --input path/to/CADD_snvs.tsv.gz \
-  --input path/to/CADD_indels.tsv.gz \
-  --output path/to/cadd_rocksdb
-```
-
-# Building SpliceAI Database
-
-To build a lookup-based RocksDB database for SpliceAI prediction scores from one or more VCF files (such as all SNVs and a subset of observed SVs/indels):
+Mehari only builds transcript databases.
+Build the CADD, SpliceAI, and dbSNP lookup databases with [annonars](https://github.com/varfish-org/annonars) (version 0.45.0 or later), then pass them to `mehari annotate seqvars` via `--cadd`, `--spliceai`, and `--dbsnp`.
+CADD and SpliceAI need the FASTA index (`.fai`) of the reference; it defines the contig names the databases use.
 
 ```sh
-mehari db spliceai create \
+annonars cadd import \
   --assembly grch38 \
-  --input path/to/spliceai_snvs.vcf.gz \
-  --input path/to/spliceai_indels.vcf.gz \
-  --output path/to/spliceai_rocksdb
-```
+  --path-reference-fai path/to/reference.fa.fai \
+  --path-in-tsv path/to/CADD_snvs.tsv.gz \
+  --path-out-rocksdb path/to/cadd_rocksdb
 
-# Building Generic Lookup Database
-
-To build a custom lookup-based RocksDB database from one or more TSV or VCF files (which will be automatically registered during sequence variant annotation):
-
-### Building from TSV files (using header name matching):
-```sh
-mehari db generic create \
+annonars spliceai import \
   --assembly grch38 \
-  --input path/to/custom_data1.tsv.gz \
-  --input path/to/custom_data2.tsv.gz \
-  --output path/to/custom_rocksdb \
-  --db-name custom_db_name \
-  --format tsv \
-  --col-chrom Chrom \
-  --col-pos Pos \
-  --col-ref Ref \
-  --col-alt Alt \
-  --col-values Score1 --col-values Score2
-```
+  --path-reference-fai path/to/reference.fa.fai \
+  --path-in-vcf path/to/spliceai_snvs.vcf.gz \
+  --path-out-rocksdb path/to/spliceai_rocksdb
 
-### Building from VCF files (extracting INFO fields):
-```sh
-mehari db generic create \
-  --assembly grch38 \
-  --input path/to/custom_data.vcf.gz \
-  --output path/to/custom_rocksdb \
-  --db-name custom_db_name \
-  --format vcf \
-  --vcf-info-fields Score1 --vcf-info-fields Score2
+annonars dbsnp import \
+  --genome-release grch38 \
+  --path-in-vcf path/to/dbsnp.vcf.gz \
+  --path-out-rocksdb path/to/dbsnp_rocksdb
 ```
 
 # Building ClinVar Database
