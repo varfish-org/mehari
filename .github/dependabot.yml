@@ -14,7 +14,6 @@ updates:
       interval: "weekly"
     ignore:
       - dependency-name: "rocksdb"
-      - dependency-name: "noodles"
     groups:
       # Group together updates to noodles as there are peer dependencies.
       # 
@@ -24,6 +23,7 @@ updates:
           - "annonars"
           - "hgvs"
           - "seqrepo"
+          - "noodles"
           - "noodles-*"
       utoipa:
         patterns:
