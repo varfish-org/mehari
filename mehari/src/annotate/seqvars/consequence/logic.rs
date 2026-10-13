@@ -646,17 +646,6 @@ impl Placement {
             }
         }
     }
-
-    /// Whether this is an insertion between an exon and an intron (or the outside).
-    fn at_exon_edge(&self, alignment: &GenomeAlignment) -> bool {
-        match self {
-            Placement::Del { .. } => false,
-            Placement::Ins { pos, .. } => alignment
-                .exons
-                .iter()
-                .any(|exon| *pos == exon.alt_start_i || *pos == exon.alt_end_i),
-        }
-    }
 }
 
 impl ConsequencePredictor {
@@ -682,6 +671,10 @@ impl ConsequencePredictor {
             renormalize_g: reference_available && config.renormalize_g,
             genome_seq_available: reference_available,
             normalize: config.normalize,
+            // An insertion between an exon and an intron keeps the splice site, so its bases
+            // extend the exon, also in the protein. hgvs-rs reads a dup of the intron bases
+            // next to an exon as such an insertion.
+            ins_at_boundary_is_intronic: false,
             ..Default::default()
         };
         let mapper = assembly::Mapper::new(mapper_config, provider.clone());
@@ -1031,14 +1024,13 @@ impl ConsequencePredictor {
     /// All `placements` give the same alternate sequence. If one of them keeps the essential
     /// splice site or the stop codon, the alternate sequence keeps it. So the placement that
     /// changes the least of the transcript shows what the variant does. Ties go to a placement
-    /// inside an exon over one at its edge: its HGVS c. is exonic, so it has a protein
-    /// change. Next, ties go to a placement that spares the first and last three bases of each
-    /// exon: then the alternate sequence keeps them. The intronic splice region windows are not
-    /// compared. mehari locates an insertion by the base behind it for a window that counts from
-    /// its left end (the donor region from +3, the fifth base, the polypyrimidine tract on the
-    /// minus strand, the exonic splice region at an exon start), and by the base in front of it
-    /// for the donor and acceptor sites themselves, which test whether the insertion joins the
-    /// exon. Remaining ties go to the placement nearest to `var_g`, the 3'-most one.
+    /// that spares the first and last three bases of each exon: then the alternate sequence
+    /// keeps them. The intronic splice region windows are not compared. mehari locates an
+    /// insertion by the base behind it for a window that counts from its left end (the donor
+    /// region from +3, the fifth base, the polypyrimidine tract on the minus strand, the exonic
+    /// splice region at an exon start), and by the base in front of it for the donor and
+    /// acceptor sites themselves, which test whether the insertion joins the exon. Remaining
+    /// ties go to the placement nearest to `var_g`, the 3'-most one.
     ///
     /// The ends of a transcript do not follow from its sequence. So the terms come from a
     /// placement outside the transcript only if `var_g` lies outside, and then from `var_g`.
@@ -1067,7 +1059,6 @@ impl ConsequencePredictor {
             .min_by_key(|placement| {
                 (
                     placement.rank(alignment),
-                    placement.at_exon_edge(alignment),
                     self.in_exonic_splice_region(placement, accession, alignment, strand),
                 )
             })?;
@@ -1298,18 +1289,63 @@ impl ConsequencePredictor {
 
                 // if the variant is purely intronic, we can skip safe_project_c_to_p,
                 // and simply inject p.?
+                //
+                // Except for a dup of the one intron base next to an exon (`c.10+1dup`,
+                // `c.11-1dup`): it equals an insertion of that base at the exon edge, which
+                // keeps the splice site and extends the exon. So hgvs-rs projects it. A longer
+                // dup there has a copy in the intron that keeps the site, see `terms_var_g`.
                 let is_purely_intronic = match var_c {
                     HgvsVariant::CdsVariant { loc_edit, .. } => {
                         let loc = loc_edit.loc.inner();
-                        loc.start.offset.unwrap_or(0) != 0
-                            && loc.end.offset.unwrap_or(0) != 0
+                        let start_offset = loc.start.offset.unwrap_or(0);
+                        let end_offset = loc.end.offset.unwrap_or(0);
+                        let dup_next_to_exon = matches!(loc_edit.edit.inner(), NaEdit::Dup { .. })
+                            && start_offset == end_offset
+                            && start_offset.abs() == 1;
+                        start_offset != 0
+                            && end_offset != 0
                             && loc.start.base == loc.end.base
                             && loc.start.cds_from == loc.end.cds_from
+                            && !dup_next_to_exon
                     }
                     _ => false,
                 };
 
-                if is_purely_intronic {
+                // Bases inserted in front of c.1 (`c.-1_1ins`, `c.1-1_1ins`, the copy of
+                // `c.1-1dup`) leave the start codon intact, but hgvs-rs reports p.Met1?.
+                // Inject p.? instead, like hgvs-rs does for other 5' UTR variants.
+                let is_ins_before_start_codon = match var_c {
+                    HgvsVariant::CdsVariant { loc_edit, .. } => {
+                        let end = &loc_edit.loc.inner().end;
+                        let end_offset = end.offset.unwrap_or(0);
+                        end.cds_from == CdsFrom::Start
+                            && end.base == 1
+                            && match loc_edit.edit.inner() {
+                                NaEdit::Ins { .. } => end_offset == 0,
+                                NaEdit::Dup { .. } => end_offset == -1,
+                                _ => false,
+                            }
+                    }
+                    _ => false,
+                };
+
+                // Bases inserted behind the stop codon at an exon end (`c.N_N+1ins`) join the
+                // 3' UTR, but hgvs-rs reports p.Ter<N/3>=. Inject p.? instead, like hgvs-rs
+                // does for `c.N_*1ins`.
+                let is_ins_behind_stop_codon = match var_c {
+                    HgvsVariant::CdsVariant { loc_edit, .. } => {
+                        let loc = loc_edit.loc.inner();
+                        matches!(loc_edit.edit.inner(), NaEdit::Ins { .. })
+                            && loc.start.cds_from == CdsFrom::Start
+                            && loc.start.offset.unwrap_or(0) == 0
+                            && loc.end.offset == Some(1)
+                            && !tx.is_incomplete_3p()
+                            && tx.available_cds_len(tx.tx_len()) == Some(loc.start.base)
+                    }
+                    _ => false,
+                };
+
+                if is_purely_intronic || is_ins_before_start_codon || is_ins_behind_stop_codon {
                     projection.p = Some(HgvsVariant::ProtVariant {
                         accession: var_c.accession().clone(),
                         gene_symbol: var_c.gene_symbol().clone(),
@@ -2552,8 +2588,7 @@ impl ConsequencePredictor {
                             {
                                 let original_sequence_len = reference_data.aa_sequence.len();
                                 if let Ok(alt_data) =
-                                    AltSeqBuilder::new(var_c.clone(), &reference_data)
-                                        .build_altseq()
+                                    self.alt_seq_builder(var_c, &reference_data).build_altseq()
                                     && let Some(alt_data) = alt_data.first()
                                 {
                                     let altered_sequence = &alt_data.aa_sequence;
@@ -3392,6 +3427,18 @@ impl ConsequencePredictor {
         .ok()
     }
 
+    /// An `AltSeqBuilder` for `var_c` with the settings that `c_to_p` of `self.mapper` uses.
+    fn alt_seq_builder<'a>(
+        &self,
+        var_c: &HgvsVariant,
+        ref_data: &'a RefTranscriptData,
+    ) -> AltSeqBuilder<'a> {
+        AltSeqBuilder {
+            ins_at_boundary_is_intronic: self.mapper.config.ins_at_boundary_is_intronic,
+            ..AltSeqBuilder::new(var_c.clone(), ref_data)
+        }
+    }
+
     /// Safely projects a CDS variant to a Protein variant, gracefully catching
     /// and swallowing expected incomplete-transcript errors as `None`.
     fn safe_project_c_to_p(
@@ -3403,6 +3450,14 @@ impl ConsequencePredictor {
             .c_to_p(var_c, None)
             .map_or_else(
                 |e| {
+                    if matches!(e, Error::DuplicationReferenceMissing(_)) {
+                        // The intron bases of the dup are unknown, so is its protein change.
+                        return Ok(Some(HgvsVariant::ProtVariant {
+                            accession: var_c.accession().clone(),
+                            gene_symbol: var_c.gene_symbol().clone(),
+                            loc_edit: ProtLocEdit::Unknown,
+                        }));
+                    }
                     if matches!(
                         e,
                         Error::TranscriptLengthInvalid(_, _)
@@ -4282,10 +4337,10 @@ mod test {
     // every placement of the deletion removes donor +1 and +2
     #[case("22:28773775:ATGAG:A", "ENST00000249064", false, "c.238_239+2del", vec![Consequence::SpliceDonorVariant, Consequence::ExonicSpliceRegionVariant])]
     // insertion between the last exon base and donor +1: the exon gains a base
-    #[case("22:20996112:T:TA", "ENST00000646124", false, "c.2219_2219+1insA", vec![Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:20996112:T:TA", "ENST00000646124", false, "c.2219_2219+1insA", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     #[case("22:20996112:T:TA", "ENST00000646124", true, "c.2219_2219+1insA", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
     // minus strand: insertion between donor +1 and the last exon base
-    #[case("22:32150991:C:CTT", "ENST00000382097", false, "c.493_493+1insAA", vec![Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:32150991:C:CTT", "ENST00000382097", false, "c.493_493+1insAA", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // insertion one base past the acceptor, between the first two exon bases
     #[case("22:50522343:G:GCTTTCTC", "ENST00000299821", false, "c.1234_1235insCTTTCTC", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // insertion between acceptor -1 and the first CDS base: the 5' UTR gains a base
@@ -6285,6 +6340,20 @@ mod test {
             .filter(|term| expected.contains(term))
             .collect::<Vec<_>>();
         assert_eq!(found, expected, "{ann:?}");
+        Ok(())
+    }
+
+    /// hgvs-rs takes the intron bases of a dup next to an exon from the variant. Without them,
+    /// the protein change is unknown.
+    #[test]
+    fn safe_project_c_to_p_dup_without_intron_bases() -> Result<(), anyhow::Error> {
+        let (tx, seq) = two_exon_tx(20);
+        let var_c = HgvsVariant::from_str("NM_000001.1:c.40+1dup")?;
+        let var_p = predictor_for(tx, seq).safe_project_c_to_p(&var_c)?;
+        assert_eq!(
+            var_p.map(|var_p| FormattedLoc(&var_p).to_string()),
+            Some("p.?".to_string())
+        );
         Ok(())
     }
 
