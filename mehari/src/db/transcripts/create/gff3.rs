@@ -337,6 +337,7 @@ pub fn load_gff3(
             stop_codon: tx_cds_end.map(i32::try_from).transpose()?,
             partial: None,
             genome_builds: IndexMap::from([(loader.genome_release.clone(), alignment)]),
+            translation: None,
         };
 
         let t_id = TranscriptId::try_new(tx_id)?;

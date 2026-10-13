@@ -54,7 +54,7 @@ checksum = "d0427e9fdbf1e7d0d695cae4bbb7e90b1943077f9cb2f2c229a3af45db02ee06"
 dependencies = [
  "anyhow",
  "bgzip",
- "bio 4.0.1",
+ "bio",
  "biocommons-bioutils",
  "boolvec",
  "byteorder",
@@ -85,7 +85,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "serde_yaml",
- "strum 0.28.0",
+ "strum",
  "tempfile",
  "thiserror 2.0.20",
  "tracing",
@@ -492,52 +492,13 @@ dependencies = [
 
 [[package]]
 name = "bio"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2169c40f17068bcf0563e5060ed6ccab694f68068133055f6e96bcdf987b3f32"
-dependencies = [
- "anyhow",
- "approx",
- "bio-types",
- "bit-set 0.8.0",
- "bv",
- "bytecount",
- "csv",
- "custom_derive",
- "derefable",
- "editdistancek",
- "enum-map",
- "fxhash",
- "getset",
- "itertools 0.14.0",
- "itertools-num",
- "multimap",
- "ndarray 0.16.1",
- "newtype_derive",
- "num-integer",
- "num-traits",
- "ordered-float 5.5.0",
- "petgraph",
- "regex",
- "serde",
- "serde_derive",
- "statrs",
- "strum 0.26.3",
- "strum_macros 0.26.4",
- "thiserror 2.0.20",
- "triple_accel",
- "vec_map",
-]
-
-[[package]]
-name = "bio"
 version = "4.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ec70754e9fc444b545c0f4e3ac5547885dd83f297d642be4a260672aa59610b"
 dependencies = [
  "approx",
  "bio-types",
- "bit-set 0.10.0",
+ "bit-set",
  "bv",
  "bytecount",
  "csv",
@@ -550,7 +511,7 @@ dependencies = [
  "itertools 0.15.0",
  "itertools-num",
  "multimap",
- "ndarray 0.17.2",
+ "ndarray",
  "newtype_derive",
  "num-integer",
  "num-traits",
@@ -560,7 +521,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "statrs",
- "strum 0.28.0",
+ "strum",
  "strum_macros 0.28.0",
  "thiserror 2.0.20",
  "triple_accel",
@@ -592,15 +553,6 @@ dependencies = [
  "lazy_static",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "bit-set"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08807e080ed7f9d5433fa9b275196cfc35414f66a0c79d864dc51a0d825231a3"
-dependencies = [
- "bit-vec 0.8.0",
 ]
 
 [[package]]
@@ -1829,13 +1781,13 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hgvs"
-version = "0.22.0"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3946762a4944fd19452c7d903bc21545ce8bff9c54ee1e2f26f59a376f33aca"
+checksum = "602acb815b600c670f3d56ee3d29959ced6a59513ab82019e5ae0c8c46aadd94"
 dependencies = [
  "ahash",
  "base16ct",
- "bio 3.0.0",
+ "bio",
  "biocommons-bioutils",
  "cached",
  "chrono",
@@ -1846,7 +1798,7 @@ dependencies = [
  "nom 8.0.0",
  "nom-language",
  "postgres",
- "quick_cache 0.6.24",
+ "quick_cache",
  "regex",
  "seqrepo",
  "serde",
@@ -2445,7 +2397,7 @@ dependencies = [
  "annonars",
  "anyhow",
  "async-compression",
- "bio 4.0.1",
+ "bio",
  "biocommons-bioutils",
  "built",
  "byte-unit",
@@ -2479,7 +2431,7 @@ dependencies = [
  "procfs",
  "prost",
  "prost-build",
- "quick_cache 0.7.0",
+ "quick_cache",
  "rand 0.10.3",
  "rayon",
  "regex",
@@ -2491,7 +2443,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "serde_yaml",
- "strum 0.28.0",
+ "strum",
  "tempfile",
  "thiserror 2.0.20",
  "thousands",
@@ -2515,7 +2467,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_arrow",
- "strum 0.28.0",
+ "strum",
 ]
 
 [[package]]
@@ -2584,21 +2536,6 @@ dependencies = [
  "rand_distr",
  "simba",
  "typenum",
-]
-
-[[package]]
-name = "ndarray"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "882ed72dce9365842bf196bdeedf5055305f11fc8c03dee7bb0194a6cad34841"
-dependencies = [
- "matrixmultiply",
- "num-complex",
- "num-integer",
- "num-traits",
- "portable-atomic",
- "portable-atomic-util",
- "rawpointer",
 ]
 
 [[package]]
@@ -3570,18 +3507,6 @@ dependencies = [
 
 [[package]]
 name = "quick_cache"
-version = "0.6.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9c6658afe513a3b484e3abfdaa0d03ef3c0bbf017542c178dd55f94eb3051f9"
-dependencies = [
- "ahash",
- "equivalent",
- "hashbrown 0.16.1",
- "parking_lot",
-]
-
-[[package]]
-name = "quick_cache"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "403c1a912fec895cafb223201e368234842acb9220aaf08ab042ae89ba5f135c"
@@ -4224,12 +4149,6 @@ dependencies = [
  "quote 1.0.47",
  "syn 2.0.119",
 ]
-
-[[package]]
-name = "strum"
-version = "0.26.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fec0f0aef304996cf250b31b5a10dee7980c85da9d759361292b8bca5a18f06"
 
 [[package]]
 name = "strum"
