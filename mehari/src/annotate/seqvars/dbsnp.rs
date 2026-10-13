@@ -92,7 +92,9 @@ mod tests {
         let mut writer = noodles_bgzf::io::Writer::new(File::create(&input_path)?);
         writer.write_all(vcf_content.as_bytes())?;
         writer.finish()?;
-        let index = noodles::vcf::fs::index(&input_path)?;
+        let noodles::vcf::Index::Tabix(index) = noodles::vcf::fs::index(&input_path)? else {
+            panic!("expected a tabix index");
+        };
         noodles::tabix::fs::write(input_path.with_added_extension("tbi"), &index)?;
 
         let common_args = annonars::common::cli::Args {
