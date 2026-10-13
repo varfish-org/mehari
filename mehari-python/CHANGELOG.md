@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.47.0](https://github.com/varfish-org/mehari/compare/mehari-python-v0.46.0...mehari-python-v0.47.0) (2026-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deps:** bump hgvs to 2.0 and the MSRV to 1.92 ([#1080](https://github.com/varfish-org/mehari/issues/1080))
+* restrict mehari db to transcripts ([#1033](https://github.com/varfish-org/mehari/issues/1033)) (#1074)
+
+### Bug Fixes
+
+* **python:** bump pyo3 to 0.29 for advisories ([#1077](https://github.com/varfish-org/mehari/issues/1077)) ([c45846a](https://github.com/varfish-org/mehari/commit/c45846a50ebc0d701b75c8f620da15a384755b1d))
+
+
+### Code Refactoring
+
+* restrict mehari db to transcripts ([#1033](https://github.com/varfish-org/mehari/issues/1033)) ([#1074](https://github.com/varfish-org/mehari/issues/1074)) ([ffb923c](https://github.com/varfish-org/mehari/commit/ffb923cca27d831faedad13178c6a6f6c6692af3))
+
+
+### Build System
+
+* **deps:** bump hgvs to 2.0 and the MSRV to 1.92 ([#1080](https://github.com/varfish-org/mehari/issues/1080)) ([2228a2a](https://github.com/varfish-org/mehari/commit/2228a2a7e888234390aefec5375ec9962fbae513))
+
 ## [0.46.0](https://github.com/varfish-org/mehari/compare/mehari-python-v0.45.1...mehari-python-v0.46.0) (2026-09-22)
 
 
