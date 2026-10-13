@@ -4397,6 +4397,58 @@ mod test {
         Ok(())
     }
 
+    /// Dups and insertions at the edges of a coding exon. A dup of the first or last exon base,
+    /// or of the intron base next to the exon, equals an insertion of that base at the exon
+    /// edge. There, it keeps the splice site and joins the exon, so the frame shifts. An
+    /// insertion between the two donor site bases breaks the site instead.
+    ///
+    /// Exon 2 of ENST00000249064 (plus strand) spans c.186 to c.239 (`CAG|TGT`, `GATGA|GTAAGT`).
+    /// On the minus strand, exon 7 of ENST00000348295 ends at c.846 (`CAT|GTAAGT`), and exon 18
+    /// of ENST00000216271 starts at c.1651 (`CAG|ATG`).
+    #[rstest::rstest]
+    // codon 62 CG|T stays, codon 63 GTT (Val) becomes TGT (Cys)
+    #[case("22:28773725:T:TT", "ENST00000249064", "c.186dup", "p.Val63CysfsTer6", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 62 becomes CGG (Arg, as CGT), codon 63 TGT (Cys) as for c.186dup
+    #[case("22:28773724:G:GG", "ENST00000249064", "c.186-1dup", "p.Val63CysfsTer6", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 80 GA|T (Asp, its T in exon 3) becomes GAA (Glu)
+    #[case("22:28773778:A:AA", "ENST00000249064", "c.239dup", "p.Asp80GlufsTer11", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 80 becomes GAG (Glu), the frame as for c.239dup
+    #[case("22:28773779:G:GG", "ENST00000249064", "c.239+1dup", "p.Asp80GlufsTer11", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 80 becomes GAC (Asp, as GAT), codon 81 TGT (Cys) becomes TTG (Leu)
+    #[case("22:28773778:A:AC", "ENST00000249064", "c.239_239+1insC", "p.Cys81LeufsTer10", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28773779:G:GC", "ENST00000249064", "c.239+1_239+2insC", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant])]
+    // minus strand: codon 282 CAT stays, codon 283 CCT (Pro) becomes TCC (Ser)
+    #[case("22:28710005:C:CA", "ENST00000348295", "c.846dup", "p.Pro283SerfsTer7", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 283 becomes GCC (Ala)
+    #[case("22:28710005:C:CC", "ENST00000348295", "c.846+1dup", "p.Pro283AlafsTer7", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 283 becomes CCC (Pro, as CCT), codon 284 TGC (Cys) becomes TTG (Leu)
+    #[case("22:28710005:C:CG", "ENST00000348295", "c.846_846+1insC", "p.Cys284LeufsTer6", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28710004:A:AG", "ENST00000348295", "c.846+1_846+2insC", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant])]
+    // minus strand: codon 551 ATG (Met) becomes AAT (Asn)
+    #[case("22:50246092:T:TT", "ENST00000216271", "c.1651dup", "p.Met551AsnfsTer23", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 551 becomes GAT (Asp)
+    #[case("22:50246093:C:CC", "ENST00000216271", "c.1651-1dup", "p.Met551AspfsTer23", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    fn annotate_exon_boundary_dup_and_ins(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_hgvs_p: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let ann = annotate_chr22_window(spdi, tx_id, false)?;
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_hgvs_c), Some(expected_hgvs_p), &expected_csqs),
+            "spdi = {spdi}"
+        );
+
+        Ok(())
+    }
+
     /// A dup of the last CDS bases in the 3' UTR region gets 3' UTR terms. This also holds if
     /// the transcript is flagged as incomplete at its 3' end: hgvs-rs gives this region only
     /// behind a stop codon. An intronic dup stays intronic.
