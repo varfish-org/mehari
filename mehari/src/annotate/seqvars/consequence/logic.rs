@@ -3468,11 +3468,11 @@ mod test {
     // `p.=`: in-frame insertion inside the stop codon that keeps it
     #[case("22:45600443:C:CTAA", "ENST00000327858", false, vec![Consequence::SynonymousVariant])]
     #[case("22:45600443:C:CTAA", "ENST00000327858", true, vec![Consequence::InframeInsertion, Consequence::StopRetainedVariant])]
-    // `p.=`: in-frame insertion that creates a stop codon in a CDS without one (`cds_end_NF`)
-    #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::SynonymousVariant])]
-    #[case("22:38140065:C:CTAA", "ENST00000430886", true, vec![Consequence::StopGained, Consequence::InframeInsertion])]
-    // `p.=`: frameshift in a CDS without a stop codon (`cds_end_NF`)
-    #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::SynonymousVariant])]
+    // `p.?`: in-frame insertion that creates a stop codon in a CDS without one (`cds_end_NF`)
+    #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::DisruptiveInframeInsertion])]
+    #[case("22:38140065:C:CTAA", "ENST00000430886", true, vec![Consequence::InframeInsertion])]
+    // `p.?`: frameshift in a CDS without a stop codon (`cds_end_NF`)
+    #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
     // `c.932_933dup` (`p.=`): the copy lands behind the stop codon
     #[case("22:21469819:T:TAA", "ENST00000432134", false, vec![Consequence::ThreePrimeUtrExonVariant])]
     #[case("22:21469819:T:TAA", "ENST00000432134", true, vec![Consequence::ThreePrimeUtrVariant])]
