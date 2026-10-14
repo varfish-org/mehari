@@ -105,52 +105,125 @@ impl HgvsProjectionContext {
     }
 }
 
-/// Check if the c. variant changes only the 5' or 3' UTR and leaves the CDS unchanged.
-///
-/// Insertions and duplications add bases after the end position, so they count as 3' UTR
-/// variants if the end position is in the 3' UTR. This is the UTR check of hgvs-rs
-/// `AltSeqBuilder`, which returns the reference sequence as alternative for these variants.
-/// In addition, an insertion between c.-1 and c.1 counts as 5' UTR variant, because it keeps
-/// the start codon intact. `AltSeqBuilder` treats it as CDS variant and inserts after c.1.
-fn is_utr_variant(var_c: &HgvsVariant) -> bool {
-    let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
-        return false;
-    };
-    let loc = loc_edit.loc.inner();
-    let edit = loc_edit.edit.inner();
+/// Extension trait for checks on `HgvsVariant`s that consequence prediction needs.
+pub(crate) trait HgvsVariantExt {
+    /// Check if the c. variant changes only the 5' or 3' UTR and leaves the CDS unchanged.
+    ///
+    /// Insertions and duplications add bases after the end position, so they count as 3' UTR
+    /// variants if the end position is in the 3' UTR. This is the UTR check of hgvs-rs
+    /// `AltSeqBuilder`, which returns the reference sequence as alternative for these variants.
+    /// In addition, an insertion between c.-1 and c.1 counts as 5' UTR variant, because it keeps
+    /// the start codon intact. `AltSeqBuilder` treats it as CDS variant and inserts after c.1.
+    fn is_utr_variant(&self) -> bool;
 
-    let is_5_prime = (loc.start.base < 0 && loc.end.base < 0)
-        || (edit.is_ins() && loc.start.base == -1 && loc.end.base == 1);
-    let is_3_prime = loc.end.cds_from == CdsFrom::End
-        && (loc.start.cds_from == CdsFrom::End || edit.is_ins() || edit.is_dup());
+    /// Check if the alternative transcript of the n. variant depends on an unknown splice outcome.
+    ///
+    /// This is the case if the variant has an intronic offset at either end. It is also the case
+    /// if the variant starts and ends in different exons of `alignment`: then it covers a whole
+    /// intron with both splice sites, although its positions have no intronic offset. Insertions
+    /// have no reference bases, so they never cover an intron.
+    fn alt_depends_on_splicing(&self, alignment: &GenomeAlignment) -> bool;
 
-    is_5_prime || is_3_prime
+    /// VEP's `stop_gained`, `stop_lost` and `stop_retained_variant` for an indel in the CDS.
+    ///
+    /// VEP translates only the codons that the variant changes
+    /// (`TranscriptVariationAllele::codon`): the reference codons, and the complete codons of the
+    /// altered sequence that replace them. A stop that a new frame reaches behind these codons
+    /// thus gives no `stop_gained`. `ref_aa` and `alt_aa` are the translations of the reference
+    /// and the altered transcript.
+    ///
+    /// Returns `None` for an edit other than an insertion, duplication, deletion or delins.
+    fn vep_indel_stop_terms(&self, ref_aa: &str, alt_aa: &str) -> Option<Consequences>;
 }
 
-/// Check if the alternative transcript of the n. variant depends on an unknown splice outcome.
-///
-/// This is the case if the variant has an intronic offset at either end. It is also the case
-/// if the variant starts and ends in different exons of `alignment`: then it covers a whole
-/// intron with both splice sites, although its positions have no intronic offset. Insertions
-/// have no reference bases, so they never cover an intron.
-pub(crate) fn alt_depends_on_splicing(var_n: &HgvsVariant, alignment: &GenomeAlignment) -> bool {
-    if var_n.spans_intron() {
-        return true;
-    }
-    let HgvsVariant::TxVariant { loc_edit, .. } = var_n else {
-        return false;
-    };
-    if loc_edit.edit.inner().is_ins() {
-        return false;
-    }
-    let loc = loc_edit.loc.inner();
+impl HgvsVariantExt for HgvsVariant {
+    fn is_utr_variant(&self) -> bool {
+        let HgvsVariant::CdsVariant { loc_edit, .. } = self else {
+            return false;
+        };
+        let loc = loc_edit.loc.inner();
+        let edit = loc_edit.edit.inner();
 
-    // An intron follows the end of each exon except the last one.
-    let exon_ends = alignment.exons.iter().filter_map(|exon| exon.alt_cds_end_i);
-    let last_exon_end = exon_ends.clone().max();
-    exon_ends
-        .filter(|end| Some(*end) != last_exon_end)
-        .any(|end| (loc.start.base..loc.end.base).contains(&end))
+        let is_5_prime = (loc.start.base < 0 && loc.end.base < 0)
+            || (edit.is_ins() && loc.start.base == -1 && loc.end.base == 1);
+        let is_3_prime = loc.end.cds_from == CdsFrom::End
+            && (loc.start.cds_from == CdsFrom::End || edit.is_ins() || edit.is_dup());
+
+        is_5_prime || is_3_prime
+    }
+
+    fn alt_depends_on_splicing(&self, alignment: &GenomeAlignment) -> bool {
+        if self.spans_intron() {
+            return true;
+        }
+        let HgvsVariant::TxVariant { loc_edit, .. } = self else {
+            return false;
+        };
+        if loc_edit.edit.inner().is_ins() {
+            return false;
+        }
+        let loc = loc_edit.loc.inner();
+
+        // An intron follows the end of each exon except the last one.
+        let exon_ends = alignment.exons.iter().filter_map(|exon| exon.alt_cds_end_i);
+        let last_exon_end = exon_ends.clone().max();
+        exon_ends
+            .filter(|end| Some(*end) != last_exon_end)
+            .any(|end| (loc.start.base..loc.end.base).contains(&end))
+    }
+
+    fn vep_indel_stop_terms(&self, ref_aa: &str, alt_aa: &str) -> Option<Consequences> {
+        let codon = |cds_pos: i32| (cds_pos + 2) / 3;
+
+        let HgvsVariant::CdsVariant { loc_edit, .. } = self else {
+            return None;
+        };
+        let (start, end) = (
+            loc_edit.loc.inner().start.base,
+            loc_edit.loc.inner().end.base,
+        );
+        // The changed reference codons `first..=last`, and the length change. An insertion
+        // between two codons changes no reference codon.
+        let (first, last, len_change) = match loc_edit.edit.inner() {
+            NaEdit::Ins { alternative } => {
+                (codon(start + 1), codon(start), alternative.len() as i32)
+            }
+            NaEdit::Dup { .. } => (codon(end + 1), codon(end), end - start + 1),
+            NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => {
+                (codon(start), codon(end), start - end - 1)
+            }
+            NaEdit::RefAlt { alternative, .. } => (
+                codon(start),
+                codon(end),
+                alternative.len() as i32 - (end - start + 1),
+            ),
+            _ => return None,
+        };
+        // The last complete codon of the altered sequence that replaces them.
+        let last_new = first - 1 + (3 * (last - first + 1) + len_change) / 3;
+
+        // The amino acids `first..=to` of `seq`.
+        let peptide = |seq: &str, to: i32| -> String {
+            let from = usize::try_from(first - 1).unwrap_or(0);
+            let to = usize::try_from(to).unwrap_or(0);
+            seq.chars().take(to).skip(from).collect()
+        };
+        let (ref_pep, alt_pep) = (peptide(ref_aa, last), peptide(alt_aa, last_new));
+        // VEP's `translation_start > length(_peptide)`: the changed codons start at the stop codon.
+        let starts_at_stop = ref_aa.ends_with('*') && first >= ref_aa.len() as i32;
+
+        Some(
+            if alt_pep.starts_with('*') && (starts_at_stop || ref_pep.starts_with('*')) {
+                Consequence::StopRetainedVariant.into()
+            } else if alt_pep.contains('*') && !ref_pep.contains('*') {
+                Consequence::StopGained.into()
+            } else if ref_pep.contains('*') && !alt_pep.contains('*') {
+                Consequence::StopLost.into()
+            } else {
+                Consequences::empty()
+            },
+        )
+    }
 }
 
 /// Applies non-overlapping n. variants to the transcript sequence `tx_seq`.
@@ -909,11 +982,8 @@ impl ConsequencePredictor {
                             && let Ok(alt_data) =
                                 AltSeqBuilder::new(var_c.clone(), &ref_data).build_altseq()
                             && let Some(alt_data) = alt_data.first()
-                            && let Some(stop_terms) = vep_indel_stop_terms(
-                                var_c,
-                                &ref_data.aa_sequence,
-                                &alt_data.aa_sequence,
-                            )
+                            && let Some(stop_terms) = var_c
+                                .vep_indel_stop_terms(&ref_data.aa_sequence, &alt_data.aa_sequence)
                         {
                             context.protein_consequences.remove(
                                 Consequence::StopGained
@@ -2694,65 +2764,6 @@ fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
     }
 }
 
-/// VEP's `stop_gained`, `stop_lost` and `stop_retained_variant` for an indel in the CDS.
-///
-/// VEP translates only the codons that the variant changes (`TranscriptVariationAllele::codon`):
-/// the reference codons, and the complete codons of the altered sequence that replace them. A stop
-/// that a new frame reaches behind these codons thus gives no `stop_gained`. `ref_aa` and `alt_aa`
-/// are the translations of the reference and the altered transcript.
-///
-/// Returns `None` for an edit other than an insertion, duplication, deletion or delins.
-fn vep_indel_stop_terms(var_c: &HgvsVariant, ref_aa: &str, alt_aa: &str) -> Option<Consequences> {
-    let codon = |cds_pos: i32| (cds_pos + 2) / 3;
-
-    let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
-        return None;
-    };
-    let (start, end) = (
-        loc_edit.loc.inner().start.base,
-        loc_edit.loc.inner().end.base,
-    );
-    // The changed reference codons `first..=last`, and the length change. An insertion between two
-    // codons changes no reference codon.
-    let (first, last, len_change) = match loc_edit.edit.inner() {
-        NaEdit::Ins { alternative } => (codon(start + 1), codon(start), alternative.len() as i32),
-        NaEdit::Dup { .. } => (codon(end + 1), codon(end), end - start + 1),
-        NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => {
-            (codon(start), codon(end), start - end - 1)
-        }
-        NaEdit::RefAlt { alternative, .. } => (
-            codon(start),
-            codon(end),
-            alternative.len() as i32 - (end - start + 1),
-        ),
-        _ => return None,
-    };
-    // The last complete codon of the altered sequence that replaces them.
-    let last_new = first - 1 + (3 * (last - first + 1) + len_change) / 3;
-
-    // The amino acids `first..=to` of `seq`.
-    let peptide = |seq: &str, to: i32| -> String {
-        let from = usize::try_from(first - 1).unwrap_or(0);
-        let to = usize::try_from(to).unwrap_or(0);
-        seq.chars().take(to).skip(from).collect()
-    };
-    let (ref_pep, alt_pep) = (peptide(ref_aa, last), peptide(alt_aa, last_new));
-    // VEP's `translation_start > length(_peptide)`: the changed codons start at the stop codon.
-    let starts_at_stop = ref_aa.ends_with('*') && first >= ref_aa.len() as i32;
-
-    Some(
-        if alt_pep.starts_with('*') && (starts_at_stop || ref_pep.starts_with('*')) {
-            Consequence::StopRetainedVariant.into()
-        } else if alt_pep.contains('*') && !ref_pep.contains('*') {
-            Consequence::StopGained.into()
-        } else if ref_pep.contains('*') && !alt_pep.contains('*') {
-            Consequence::StopLost.into()
-        } else {
-            Consequences::empty()
-        },
-    )
-}
-
 /// Whether deleting `tx_seq[del]` leaves the CDS that starts at `cds_start` intact.
 ///
 /// `del` must start at or after `cds_start`.  The CDS stays intact if it then starts
@@ -4306,7 +4317,7 @@ mod test {
             ..Default::default()
         };
         let var_n = HgvsVariant::from_str(&format!("NM_000000.1:{edit}"))?;
-        assert_eq!(alt_depends_on_splicing(&var_n, &alignment), expected);
+        assert_eq!(var_n.alt_depends_on_splicing(&alignment), expected);
 
         Ok(())
     }
