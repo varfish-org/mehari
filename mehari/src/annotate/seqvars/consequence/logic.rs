@@ -399,22 +399,6 @@ impl ConsequencePredictor {
         }
     }
 
-    /// Return the transcript length: the last transcript position that an exon covers.
-    ///
-    /// The sum of the genomic exon lengths would count genome-only bases (CIGAR `I`) and miss
-    /// transcript-only bases (CIGAR `D`). The stored transcript sequence can end with `A` bases
-    /// that `db create` appends. Bases after the last exon, such as an unaligned poly-A tail,
-    /// do not count.
-    fn tx_len(tx: &Transcript) -> i32 {
-        // `alt_cds_end_i` is the 1-based transcript position of the exon's last base.
-        tx.genome_alignments
-            .iter()
-            .flat_map(|alignment| &alignment.exons)
-            .filter_map(|exon| exon.alt_cds_end_i)
-            .max()
-            .unwrap_or_default()
-    }
-
     fn determine_transcript_context(
         &self,
         alignment: &GenomeAlignment,
@@ -799,7 +783,7 @@ impl ConsequencePredictor {
                 tx,
                 &tx_record,
                 &transcript_location,
-                Self::tx_len(tx),
+                tx.tx_len(),
                 transcript_biotype,
             )?;
 
@@ -2273,7 +2257,7 @@ impl ConsequencePredictor {
 
         n_edits.sort_by_key(|a| std::cmp::Reverse(a.replace_start));
 
-        let tx_len = Self::tx_len(tx);
+        let tx_len = tx.tx_len();
         let mut alt_seq = ref_data.transcript_sequence.to_string();
         let n_min = n_edits.iter().map(|e| e.n_loc_start).min().unwrap();
         let n_max = n_edits.iter().map(|e| e.n_loc_end).max().unwrap();
@@ -2703,7 +2687,11 @@ mod test {
     /// The cDNA total is the transcript length, both for single and for phased variants.
     #[test]
     fn annotate_totals_with_indels_in_exon_cigars() -> Result<(), anyhow::Error> {
-        let provider = Arc::new(MehariProvider::new(tx_db_with_indels_in_exon_cigars(), None::<PathBuf>, true));
+        let provider = Arc::new(MehariProvider::new(
+            tx_db_with_indels_in_exon_cigars(),
+            None::<PathBuf>,
+            true,
+        ));
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let var = |position, reference: &str, alternative: &str| VcfVariant {
@@ -2736,12 +2724,7 @@ mod test {
     #[test]
     fn annotate_protein_total_excludes_stop_codon() -> Result<(), anyhow::Error> {
         let predictor = |db| {
-            let provider = Arc::new(MehariProvider::new(
-                db,
-                None::<PathBuf>,
-                true,
-                Default::default(),
-            ));
+            let provider = Arc::new(MehariProvider::new(db, None::<PathBuf>, true));
             ConsequencePredictor::new(provider, Default::default())
         };
         let var = |position, reference: &str, alternative: &str| VcfVariant {

@@ -148,6 +148,14 @@ pub trait PbsTranscriptExt {
     /// Returns true if the transcript is incomplete (e.g. missing stop codon).
     fn is_incomplete_3p(&self) -> bool;
 
+    /// Returns the transcript length: the last transcript position that an exon covers.
+    ///
+    /// The sum of the genomic exon lengths would count genome-only bases (CIGAR `I`) and miss
+    /// transcript-only bases (CIGAR `D`). The stored transcript sequence can end with `A` bases
+    /// that `db create` appends. Bases after the last exon, such as an unaligned poly-A tail,
+    /// do not count.
+    fn tx_len(&self) -> i32;
+
     /// Computes the available CDS length. If the stop codon is missing,
     /// it uses the provided transcript length to bound the remaining sequence.
     fn available_cds_len(&self, tx_len: i32) -> Option<i32>;
@@ -161,6 +169,16 @@ impl PbsTranscriptExt for Transcript {
     fn is_incomplete_3p(&self) -> bool {
         let flags = BitFlags::<Reason>::from_bits_truncate(self.filter_reason.unwrap_or(0));
         flags.intersects(Reason::MissingStopCodon | Reason::ThreePrimeEndTruncated)
+    }
+
+    fn tx_len(&self) -> i32 {
+        // `alt_cds_end_i` is the 1-based transcript position of the exon's last base.
+        self.genome_alignments
+            .iter()
+            .flat_map(|alignment| &alignment.exons)
+            .filter_map(|exon| exon.alt_cds_end_i)
+            .max()
+            .unwrap_or_default()
     }
 
     fn available_cds_len(&self, tx_len: i32) -> Option<i32> {
@@ -223,21 +241,6 @@ impl ReferenceReader for ReferenceReaderImpl {
             ReferenceReaderImpl::Unbuffered(v) => v.get(ac, start, end),
         }
     }
-}
-
-pub(crate) fn transcript_length(tx: &Transcript) -> i32 {
-    let mut max_tx_length = 0;
-    for genome_alignment in tx.genome_alignments.iter() {
-        // The exon's transcript coordinates are 1-based and inclusive.
-        let mut tx_length = 0;
-        for exon_alignment in genome_alignment.exons.iter() {
-            tx_length += exon_alignment.alt_cds_end_i() - exon_alignment.alt_cds_start_i() + 1;
-        }
-        if tx_length > max_tx_length {
-            max_tx_length = tx_length;
-        }
-    }
-    max_tx_length
 }
 
 impl Provider {
@@ -910,7 +913,8 @@ mod test {
     }
 
     #[test]
-    fn transcript_length_counts_all_exon_bases() {
+    fn tx_len_counts_all_exon_bases() {
+        use super::PbsTranscriptExt;
         use crate::pbs::txs::{ExonAlignment, GenomeAlignment, Transcript};
 
         // Exons of 100 and 150 bases, in 1-based inclusive transcript coordinates.
@@ -928,6 +932,6 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(super::transcript_length(&tx), 250);
+        assert_eq!(tx.tx_len(), 250);
     }
 }

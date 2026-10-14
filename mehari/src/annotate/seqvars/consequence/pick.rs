@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use super::plugin::TxAnnotation;
 use super::terms::{ANN_PICK, Consequence, Message};
 use crate::annotate::cli::{PickCriterion, PickUnit, TagCriterion, TranscriptSettings};
-use crate::annotate::seqvars::provider::{PbsTranscriptExt, transcript_length};
+use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::errors::SeqvarsError;
 use crate::pbs::txs::{Transcript, TranscriptBiotype, TranscriptTag};
 
@@ -213,7 +213,7 @@ fn compare(criterion: PickCriterion, a: &Candidate<'_>, b: &Candidate<'_>) -> Or
         PickCriterion::Coding => is_coding(a.tx).cmp(&is_coding(b.tx)),
         PickCriterion::Unflagged => a.tx.is_clean().cmp(&b.tx.is_clean()),
         PickCriterion::Severity => a.severity().cmp(&b.severity()),
-        PickCriterion::Length => transcript_length(a.tx).cmp(&transcript_length(b.tx)),
+        PickCriterion::Length => a.tx.tx_len().cmp(&b.tx.tx_len()),
         _ => match as_tag(criterion) {
             Some(tag) => has_tag(a.tx, tag).cmp(&has_tag(b.tx, tag)),
             None => Ordering::Equal,
