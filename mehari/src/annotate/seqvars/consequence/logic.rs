@@ -343,8 +343,7 @@ impl ConsequencePredictor {
                                     .unwrap_or(TranscriptBiotype::Unknown)
                                     == TranscriptBiotype::Coding;
                                 let is_clean = t.is_clean();
-                                let length =
-                                    crate::annotate::seqvars::provider::transcript_length(t);
+                                let length = t.tx_len();
                                 (is_coding, is_clean, length)
                             })
                             .unwrap_or((false, false, 0))
@@ -510,22 +509,6 @@ impl ConsequencePredictor {
         }
 
         ann_fields
-    }
-
-    /// Return the transcript length: the last transcript position that an exon covers.
-    ///
-    /// The sum of the genomic exon lengths would count genome-only bases (CIGAR `I`) and miss
-    /// transcript-only bases (CIGAR `D`). The stored transcript sequence can end with `A` bases
-    /// that `db create` appends. Bases after the last exon, such as an unaligned poly-A tail,
-    /// do not count.
-    fn tx_len(tx: &Transcript) -> i32 {
-        // `alt_cds_end_i` is the 1-based transcript position of the exon's last base.
-        tx.genome_alignments
-            .iter()
-            .flat_map(|alignment| &alignment.exons)
-            .filter_map(|exon| exon.alt_cds_end_i)
-            .max()
-            .unwrap_or_default()
     }
 
     fn determine_transcript_context(
@@ -901,7 +884,7 @@ impl ConsequencePredictor {
                 tx,
                 &tx_record,
                 &transcript_location,
-                Self::tx_len(tx),
+                tx.tx_len(),
                 transcript_biotype,
             )?;
 
@@ -2381,7 +2364,7 @@ impl ConsequencePredictor {
 
         n_edits.sort_by(|a, b| b.replace_start.cmp(&a.replace_start));
 
-        let tx_len = Self::tx_len(tx);
+        let tx_len = tx.tx_len();
         let mut alt_seq = ref_data.transcript_sequence.to_string();
         let n_min = n_edits.iter().map(|e| e.n_loc_start).min().unwrap();
         let n_max = n_edits.iter().map(|e| e.n_loc_end).max().unwrap();
