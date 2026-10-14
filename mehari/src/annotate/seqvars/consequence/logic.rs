@@ -380,30 +380,6 @@ impl HgvsVariantExt for HgvsVariant {
     }
 }
 
-/// The number of bases after the last exon that complete the stop codon of `tx`. `db create`
-/// adds them as `A` bases, as the poly-A tail does. No total counts them.
-fn stop_codon_padding(tx: &Transcript, tx_len: i32) -> i32 {
-    tx.stop_codon.map_or(0, |stop| (stop - tx_len).max(0))
-}
-
-/// `seq` without the `A` bases that `db create` appended to the stored sequence of `tx` to
-/// complete its stop codon. `ref_len` is the length of the stored sequence. If it runs past
-/// the stop codon, e.g. into a poly-A tail, `db create` appended nothing.
-///
-/// A RefSeq sequence can have an unaligned 3' tail that ends inside the completed stop codon.
-/// `db create` pads it to the stop codon end as well, so this drops the tail bases too. No
-/// such transcript is known.
-fn without_stop_codon_padding(seq: &str, ref_len: usize, tx: &Transcript, tx_len: i32) -> String {
-    let appended = if tx.stop_codon.and_then(|stop| usize::try_from(stop).ok()) == Some(ref_len) {
-        usize::try_from(stop_codon_padding(tx, tx_len)).unwrap_or_default()
-    } else {
-        0
-    };
-    seq.get(..seq.len().saturating_sub(appended))
-        .unwrap_or(seq)
-        .to_string()
-}
-
 /// Applies non-overlapping n. variants to the transcript sequence `tx_seq`.
 ///
 /// Returns `None` if a variant is not an n. variant, has an intronic offset, uses an
@@ -1187,7 +1163,7 @@ impl ConsequencePredictor {
             context.cds_pos = transcript_location.is_exonic.then_some(match var_c {
                 HgvsVariant::CdsVariant { loc_edit, .. } => Pos {
                     ord: loc_edit.loc.inner().start.base,
-                    total: cds_len.map(|len| len - stop_codon_padding(tx, tx_len)),
+                    total: cds_len.map(|len| len - tx.stop_codon_padding(tx_len)),
                 },
                 _ => panic!("Invalid CDS position: {:?}", var_c),
             });
@@ -1445,10 +1421,9 @@ impl ConsequencePredictor {
             if c_ref {
                 custom_fields.insert(
                     ANN_TX_SEQ_REF.into(),
-                    Some(without_stop_codon_padding(
+                    Some(tx.without_stop_codon_padding(
                         &ref_data.transcript_sequence,
                         ref_len,
-                        tx,
                         tx_len,
                     )),
                 );
@@ -1486,7 +1461,7 @@ impl ConsequencePredictor {
                     if c_alt {
                         custom_fields.insert(
                             ANN_TX_SEQ_ALT.into(),
-                            Some(without_stop_codon_padding(&tx_seq_alt, ref_len, tx, tx_len)),
+                            Some(tx.without_stop_codon_padding(&tx_seq_alt, ref_len, tx_len)),
                         );
                     }
                     if p_alt {
@@ -2969,10 +2944,9 @@ impl ConsequencePredictor {
             if c_ref {
                 custom_fields.insert(
                     ANN_TX_SEQ_REF.into(),
-                    Some(without_stop_codon_padding(
+                    Some(tx.without_stop_codon_padding(
                         &ref_data.transcript_sequence,
                         ref_len,
-                        tx,
                         tx_len,
                     )),
                 );
@@ -2991,10 +2965,9 @@ impl ConsequencePredictor {
                 if c_alt {
                     custom_fields.insert(
                         ANN_TX_SEQ_ALT.into(),
-                        Some(without_stop_codon_padding(
+                        Some(tx.without_stop_codon_padding(
                             &alt_data.transcript_sequence,
                             ref_len,
-                            tx,
                             tx_len,
                         )),
                     );
