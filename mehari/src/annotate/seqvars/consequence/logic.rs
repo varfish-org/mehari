@@ -293,7 +293,10 @@ pub(crate) fn apply_n_edits(tx_seq: &str, vars_n: &[&HgvsVariant]) -> Option<Str
         });
     }
 
-    n_edits.sort_by_key(|edit| std::cmp::Reverse(edit.replace_start));
+    // Apply the edits from right to left, so that an edit does not shift the indices of the
+    // edits still to apply. An insertion at index `k` lies left of an edit that replaces bases
+    // from `k` on, so of two edits with the same start, the one with the larger end goes first.
+    n_edits.sort_by_key(|edit| std::cmp::Reverse((edit.replace_start, edit.replace_end)));
 
     let mut alt_seq = tx_seq.to_string();
     for edit in &n_edits {
@@ -2376,7 +2379,8 @@ impl ConsequencePredictor {
                 })
                 .collect();
 
-            g_edits.sort_by(|a, b| b.0.cmp(&a.0));
+            // Apply the edits from right to left, like `apply_n_edits`.
+            g_edits.sort_by_key(|(start, end, _)| std::cmp::Reverse((*start, *end)));
             for (start, end, alt) in g_edits {
                 alt_seq_g.replace_range(start..end, &alt);
             }
@@ -4230,6 +4234,53 @@ mod test {
         Ok(())
     }
 
+    /// A phased insertion in front of an SNV on a plus strand transcript. Both edits start at
+    /// the same transcript index, and the inserted bases stay in front of the changed base.
+    #[test]
+    fn annotate_multiple_insertion_before_snv() -> Result<(), anyhow::Error> {
+        // The genome around the exons, with the two genome-only bases of exon 1 and without the
+        // three transcript-only bases of exon 2. The transcript ends at n.33, before the `A`
+        // bases that the stored sequence appends.
+        let tx_db = tx_db_with_indels_in_exon_cigars();
+        let tx_seq = &tx_db.seq_db.as_ref().unwrap().seqs[0][..33];
+        let genome = [
+            "T".repeat(1000),
+            tx_seq[..6].to_string(),
+            "TT".into(),
+            tx_seq[6..10].to_string(),
+            "T".repeat(988),
+            tx_seq[10..20].to_string(),
+            tx_seq[23..].to_string(),
+            "T".repeat(100),
+        ]
+        .concat();
+        let mut reference = NamedTempFile::new()?;
+        std::io::Write::write_all(&mut reference, format!(">1\n{genome}\n").as_bytes())?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            Some(reference.path()),
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let var = |position, reference: &str, alternative: &str| VcfVariant {
+            chromosome: "1".into(),
+            position,
+            reference: reference.into(),
+            alternative: alternative.into(),
+        };
+        // c.13_14insGGG and c.14C>A turn CCC (Pro5) into CGG GAC (Arg Asp).
+        let res = predictor
+            .predict_multiple(&[var(2005, "C", "CGGG"), var(2006, "C", "A")])?
+            .unwrap();
+
+        assert_eq!(res[0].hgvs_g.as_deref(), Some("g.2005_2006delinsCGGGA"));
+        assert_eq!(res[0].hgvs_p.as_deref(), Some("p.Pro5delinsArgAsp"));
+
+        Ok(())
+    }
+
     /// Phased annotation reports the transcript strand like `predict` does.
     /// GRCh37, BRCA1, NM_007294.4 (MANE, reverse).
     #[test]
@@ -4284,6 +4335,26 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let var_n = HgvsVariant::from_str(&format!("NM_000000.1:{edit}"))?;
         assert_eq!(apply_n_edits("ACGTAC", &[&var_n]).as_deref(), expected);
+
+        Ok(())
+    }
+
+    /// An insertion in front of a changed base starts at the same index as the change. The
+    /// inserted bases stay in front of the changed bases, whatever the input order.
+    #[rstest::rstest]
+    #[case(&["n.2_3insGG", "n.3G>T"], "ACGGTTAC")]
+    #[case(&["n.3G>T", "n.2_3insGG"], "ACGGTTAC")]
+    #[case(&["n.2_3insGG", "n.3_4del"], "ACGGAC")]
+    fn apply_n_edits_insertion_before_change(
+        #[case] edits: &[&str],
+        #[case] expected: &str,
+    ) -> Result<(), anyhow::Error> {
+        let vars_n = edits
+            .iter()
+            .map(|edit| HgvsVariant::from_str(&format!("NM_000000.1:{edit}")))
+            .collect::<Result<Vec<_>, _>>()?;
+        let vars_n = vars_n.iter().collect::<Vec<_>>();
+        assert_eq!(apply_n_edits("ACGTAC", &vars_n).as_deref(), Some(expected));
 
         Ok(())
     }
