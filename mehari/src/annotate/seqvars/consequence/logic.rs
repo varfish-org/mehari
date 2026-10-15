@@ -132,8 +132,13 @@ pub(crate) trait HgvsVariantExt {
     /// the input position of the variant before the 3' shift (`_overlaps_stop_codon_cil`). There,
     /// an insertion overlaps the stop codon only if its bases fit in front of the stop codon end.
     ///
-    /// Returns `None` for an edit other than an insertion, duplication, deletion or delins, for
-    /// an edit that keeps the length, and for an edit with an intronic offset.
+    /// VEP puts an insertion at an exon edge into the exon (`Mapper::map_insert`): `c.N_N+1ins`
+    /// behind c.N, `c.N-1_Nins` in front of c.N. For another indel with an intronic offset, VEP
+    /// builds no codons, and this gives no stop terms. VEP can still report
+    /// `stop_retained_variant` there if the indel overlaps the stop codon on the genome.
+    ///
+    /// Returns `None` for an edit other than an insertion, duplication, deletion or delins, and
+    /// for an edit that keeps the length.
     fn vep_indel_stop_terms(
         &self,
         unshifted: &HgvsVariant,
@@ -182,19 +187,28 @@ impl HgvsVariantExt for HgvsVariant {
             CdsFrom::End => cds_len + pos.base,
         };
         let index = |cds_pos: i32| usize::try_from(cds_pos).ok();
-        // The first and last base that a variant changes, and the bases that replace them. As in
-        // VEP, an insertion lies between `end` and `start = end + 1`.
-        let changed = |variant: &HgvsVariant| -> Option<(i32, i32, String)> {
+        // The first and last base that a variant changes, the bases that replace them, and
+        // whether an insertion lies behind an intron, at an exon start. As in VEP, an insertion
+        // lies between `end` and `start = end + 1`.
+        let changed = |variant: &HgvsVariant| -> Option<(i32, i32, String, bool)> {
             let HgvsVariant::CdsVariant { loc_edit, .. } = variant else {
                 return None;
             };
             let loc = loc_edit.loc.inner();
-            if loc.start.offset.unwrap_or(0) != 0 || loc.end.offset.unwrap_or(0) != 0 {
-                return None;
-            }
+            let edit = loc_edit.edit.inner();
+            let behind_intron = match (loc.start.offset.unwrap_or(0), loc.end.offset.unwrap_or(0)) {
+                (0, 0) => false,
+                (0, 1) if edit.is_ins() => false,
+                (-1, 0) if edit.is_ins() => true,
+                _ => return None,
+            };
             let (start, end) = (cds_pos(&loc.start), cds_pos(&loc.end));
-            Some(match loc_edit.edit.inner() {
-                NaEdit::Ins { alternative } => (start + 1, start, alternative.clone()),
+            let (start, end, alt) = match edit {
+                // `c.N-1_Nins` lies behind c.N-1, the end of the exon in front.
+                NaEdit::Ins { alternative } => {
+                    let behind = start - i32::from(behind_intron);
+                    (behind + 1, behind, alternative.clone())
+                }
                 NaEdit::Dup { .. } => (
                     end + 1,
                     end,
@@ -203,9 +217,30 @@ impl HgvsVariantExt for HgvsVariant {
                 NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => (start, end, String::new()),
                 NaEdit::RefAlt { alternative, .. } => (start, end, alternative.clone()),
                 _ => return None,
-            })
+            };
+            Some((start, end, alt, behind_intron))
         };
-        let (mut start, mut end, mut alt) = changed(self)?;
+        let Some((mut start, mut end, mut alt, _)) = changed(self) else {
+            // VEP builds no codons for another indel with an intronic offset.
+            let HgvsVariant::CdsVariant { loc_edit, .. } = self else {
+                return None;
+            };
+            let indel = match loc_edit.edit.inner() {
+                NaEdit::RefAlt {
+                    reference,
+                    alternative,
+                } => reference.len() != alternative.len(),
+                NaEdit::NumAlt { count, alternative } => {
+                    usize::try_from(*count).ok() != Some(alternative.len())
+                }
+                NaEdit::InvRef { .. } | NaEdit::InvNum { .. } => false,
+                NaEdit::DelRef { .. }
+                | NaEdit::DelNum { .. }
+                | NaEdit::Ins { .. }
+                | NaEdit::Dup { .. } => true,
+            };
+            return indel.then(Consequences::empty);
+        };
         // VEP shifts an insertion or deletion 3' on the genome, also across the CDS end, where
         // hgvs-rs stops. On the genome, an intron follows the end of an exon.
         let base = |cds_pos: i32| cds_and_utr.as_bytes().get(index(cds_pos - 1)?).copied();
@@ -292,13 +327,21 @@ impl HgvsVariantExt for HgvsVariant {
         let overlaps_stop = !incomplete_3p && end >= cds_len - 2 && start <= cds_len;
         // VEP's `_overlaps_stop_codon_cil` works on the genome, at the input position. An
         // insertion overlaps the stop codon only if its bases fit between its position and the
-        // stop codon end. An input position in an intron overlaps no stop codon.
+        // stop codon end. An intron between the two keeps them apart. An input position in an
+        // intron overlaps no stop codon.
         let strand = Strand::try_from(tx.genome_alignments.first()?.strand).ok()?;
         let overlaps_stop_cil = !incomplete_3p
-            && changed(unshifted).is_some_and(|(start, end, alt)| {
+            && changed(unshifted).is_some_and(|(start, end, alt, behind_intron)| {
                 let ins_len = alt.len() as i32;
+                // An insertion behind an intron lies behind the exon end in front of it.
+                let intron_from = if behind_intron { start } else { end };
                 if start <= end {
                     end >= cds_len - 2 && start <= cds_len
+                } else if exon_ends
+                    .iter()
+                    .any(|exon_end| (intron_from..cds_len).contains(exon_end))
+                {
+                    false
                 } else if strand == Strand::Minus {
                     (cds_len - 2 - ins_len..=cds_len - 1).contains(&end)
                 } else {
@@ -1364,14 +1407,15 @@ impl ConsequencePredictor {
             }
 
             // VEP takes the stop terms and `synonymous_variant` of an indel from the changed
-            // codons, whatever `p.` says.
+            // codons, whatever `p.` says. For a dup, these are the codons that the insertion of
+            // its copy changes.
             if self.config.vep_consequence_terms
                 && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
                     self.provider.clone(),
                     &tx_record.tx_ac,
                     None,
                 )
-                && let Some(stop_terms) = var_c.vep_indel_stop_terms(
+                && let Some(stop_terms) = ins_c.unwrap_or(var_c).vep_indel_stop_terms(
                     projection.unshifted_c.as_ref().unwrap_or(var_c),
                     &ref_data,
                     tx,
@@ -4187,7 +4231,8 @@ mod test {
     const CHR22_PLACEMENT_TXS: &str =
         "tests/data/annotate/db/grch38/GRCh38-ensembl.placement-subset.txs.bin.zst";
 
-    /// GENCODE 42 chr22 transcripts that share exon edges with those of `CHR22_PLACEMENT_TXS`.
+    /// GENCODE 42 chr22 transcripts that share exon edges with those of `CHR22_PLACEMENT_TXS`,
+    /// and those of `annotate_dup_csqs` and `annotate_exon_edge_ins_stop_csqs`.
     const CHR22_GENCODE42_TXS: &str =
         "tests/data/annotate/db/grch38/GRCh38-gencode42.placement-subset.txs.bin.zst";
 
@@ -4377,6 +4422,55 @@ mod test {
                 &ann.consequences
             ),
             (Some(expected_hgvs_c), Some(expected_hgvs_p), &expected_csqs),
+            "spdi = {spdi}"
+        );
+
+        Ok(())
+    }
+
+    /// Insertions at exon edges on GENCODE 42 chr22 transcripts, with VEP terms. VEP puts such an
+    /// insertion into the exon and takes its stop terms from the changed codons there. The
+    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`, plus
+    /// `coding_sequence_variant` next to `splice_region_variant`. mehari adds
+    /// `feature_elongation` and `protein_altering_variant`.
+    #[rstest::rstest]
+    // ENST00000381982 (minus strand): an exon ends with c.1081, the first base of the stop codon
+    // (`t|ag`). `*/Y*` (`tag/tACTag`): the stop codon stays behind the new codon.
+    #[case("22:30491572:C:CAGT", "ENST00000381982", "c.1081_1081+1insACT", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `*/*LX` (`tag/tAACTag`): the bases at the old stop codon still read a stop codon. On the
+    // genome, an intron lies between the input position and the stop codon end, so VEP finds no
+    // overlap with the stop codon.
+    #[case("22:30491572:C:CAGTT", "ENST00000381982", "c.1081_1081+1insAACT", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `*/YX` (`tag/tATag`)
+    #[case("22:30491572:C:CAT", "ENST00000381982", "c.1081_1081+1insAT", vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `*/**` (`tag/tAATag`)
+    #[case("22:30491572:C:CATT", "ENST00000381982", "c.1081_1081+1insAAT", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::StopRetainedVariant, Consequence::CodingSequenceVariant])]
+    // `-/K*` (`-/AAATAA`): in front of the exon that starts with c.520
+    #[case("22:30494210:A:ATTATTT", "ENST00000381982", "c.520-1_520insAAATAA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `F/*F` (`ttt/tAGTtt`): the copy lands behind c.520
+    #[case("22:30494209:A:AACT", "ENST00000381982", "c.520-2_520dup", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // ENST00000398941 (plus strand): an exon ends with c.428, the next one starts with c.429.
+    // `S/SX` (`agc/agCGc`)
+    #[case("22:28744708:A:AGC", "ENST00000398941", "c.428_428+1insCG", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `-/X` (`-/GC`): the copy lands behind c.429
+    #[case("22:28751239:A:AGC", "ENST00000398941", "c.429-1_429dup", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `K/N*` (`aag/aaCTAg`)
+    #[case("22:37967169:A:AACT", "ENST00000442738", "c.293_293+1insCTA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::ProteinAlteringVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // minus strand: `-/P` (`-/CCG`)
+    #[case("22:50775771:C:CCGG", "ENST00000395590", "c.297_297+1insCCG", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    fn annotate_exon_edge_ins_stop_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .build()?;
+        let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some(expected_hgvs_c), &expected_csqs),
             "spdi = {spdi}"
         );
 
