@@ -872,15 +872,11 @@ impl ConsequencePredictor {
             let conservative = is_conservative_cds_variant(var_c);
             let incomplete_3p = tx.is_incomplete_3p();
             let available_cds_len = tx.available_cds_len(tx_len);
-            // VEP reports CDS terms for a deletion in the start codon, also if the deletion can
-            // go before c.1. With VEP terms, the position of such a deletion counts, not its 5'
-            // UTR region.
+            // VEP reports CDS terms for an indel that starts in the CDS, also if the indel can go
+            // before c.1, e.g., `c.1del` or `c.1_3dup`. With VEP terms, the position of such an
+            // indel counts, not its 5' UTR region.
             let region = projection.region.filter(|&region| {
-                !(self.config.vep_consequence_terms
-                    && region == VariantLocation::FivePrimeUtr
-                    && var_c
-                        .na_edit()
-                        .is_some_and(|edit| !edit.is_ins() && !edit.is_dup()))
+                !(self.config.vep_consequence_terms && region == VariantLocation::FivePrimeUtr)
             });
             context.cds_consequences = Self::analyze_cds_variant(
                 var_c,
@@ -1448,6 +1444,22 @@ impl ConsequencePredictor {
                     tracing::trace!("Fixing StartLost → StartRetained for {:?}", &projection,);
                     *consequences &= !Consequence::StartLost;
                     *consequences |= Consequence::StartRetainedVariant;
+                }
+
+                // VEP puts the copy of a dup behind the dup. If the inserted bases lie inside
+                // the start codon and can go before c.1, VEP reports `start_lost` and
+                // `start_retained_variant`, but no in-frame insertion.
+                let ins_after = match c_edit {
+                    NaEdit::Ins { .. } => Some(start),
+                    NaEdit::Dup { .. } => Some(end),
+                    _ => None,
+                };
+                if projection.region == Some(VariantLocation::FivePrimeUtr)
+                    && ins_after.is_some_and(|base| base <= 2)
+                {
+                    *consequences |= Consequence::StartLost | Consequence::StartRetainedVariant;
+                    *consequences &= !(Consequence::ConservativeInframeInsertion
+                        | Consequence::DisruptiveInframeInsertion);
                 }
             }
         }
@@ -3529,6 +3541,55 @@ mod test {
         assert_eq!(ann.hgvs_c.as_deref(), Some(expected_hgvs_c));
         assert_eq!(ann.hgvs_p.as_deref(), Some("p.?"));
         assert_eq!(ann.consequences, vec![expected_csq]);
+
+        Ok(())
+    }
+
+    /// With VEP terms, the expected terms are those of VEP 108 with `--shift_3prime 1`. VEP puts
+    /// `c.1dup` between c.1 and c.2 and `c.1_3dup` between c.3 and c.4, so both change the CDS.
+    /// `c.1_2insCCA` equals `c.-1_1insACC`.
+    #[rstest::rstest]
+    #[case("17:41276113:T:TG", "c.-1_1insC", vec![Consequence::FivePrimeUtrVariant])]
+    #[case("17:41276112:A:AT", "c.1dup", vec![Consequence::FrameshiftVariant, Consequence::StartLost, Consequence::StartRetainedVariant])]
+    #[case("17:41276110:C:CCAT", "c.1_3dup", vec![Consequence::InframeInsertion])]
+    #[case("17:41276112:A:ATGG", "c.1_2insCCA", vec![Consequence::StartLost, Consequence::StartRetainedVariant])]
+    fn annotate_ins_keeping_cds_vep(
+        #[case] spdi: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let spdi = spdi.split(':').collect::<Vec<_>>();
+
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .vep_consequence_terms(true)
+                .build()?,
+        );
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].to_string(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].to_string(),
+                alternative: spdi[3].to_string(),
+            })?
+            .unwrap();
+
+        let ann = res
+            .iter()
+            .find(|ann| ann.feature_id == "NM_007294.4")
+            .unwrap();
+        assert_eq!(ann.hgvs_c.as_deref(), Some(expected_hgvs_c));
+        assert_eq!(ann.hgvs_p.as_deref(), Some("p.?"));
+        assert_eq!(ann.consequences, expected_csqs);
 
         Ok(())
     }
