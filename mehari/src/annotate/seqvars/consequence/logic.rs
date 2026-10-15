@@ -5014,6 +5014,62 @@ mod test {
         Ok(())
     }
 
+    /// Deleting the last base of a stop codon at the transcript end loses the stop codon. No
+    /// appended `A` bases complete a new one.
+    ///
+    /// The transcripts come from `db create` with the GENCODE 42 GFF3 records of FAM246B. Its
+    /// transcript `ENST00000652395.1` has one exon, which ends with the stop codon `TGA` at
+    /// chr22:18634680-18634682.
+    #[rstest::rstest]
+    #[case(false, vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    // VEP 116.3 reports `stop_lost` only
+    #[case(true, vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation])]
+    fn stop_codon_at_transcript_end_without_padding(
+        #[case] vep_consequence_terms: bool,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db(
+            "tests/data/annotate/db/grch38/GRCh38-gencode42.stop-at-tx-end.txs.bin.zst",
+        )?;
+        // The test needs no reference: a `G` follows the deleted `A`, so the deletion cannot
+        // shift.
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .vep_consequence_terms(vep_consequence_terms)
+                .build()?,
+        );
+
+        let anns = predictor
+            .predict(&VcfVariant {
+                chromosome: "22".into(),
+                position: 18634681,
+                reference: "GA".into(),
+                alternative: "G".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "ENST00000652395.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for ENST00000652395.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some("c.699del"), Some("p.Ter233XaaextTer?"), &expected_csqs)
+        );
+        Ok(())
+    }
+
     #[test]
     fn test_predict_multiple_bounds_checking() -> Result<(), anyhow::Error> {
         let alt_seq = String::from("ATGCGTACGTAGCTAGCT");
