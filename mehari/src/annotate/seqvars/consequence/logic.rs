@@ -10,7 +10,7 @@ use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::errors::{GroupValidationError, SeqvarsError};
 use crate::pbs::txs::{GenomeAlignment, Strand, Transcript, TranscriptBiotype, TranscriptTag};
-use hgvs::mapper::altseq::AltSeqBuilder;
+use hgvs::mapper::altseq::{AltSeqBuilder, VariantLocation};
 use hgvs::parser::{NoRef, ProteinEdit};
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
@@ -61,6 +61,8 @@ struct HgvsProjectionContext {
     n: Option<HgvsVariant>,
     c: Option<HgvsVariant>,
     p: Option<HgvsVariant>,
+    /// The region of the transcript that `c` changes, as hgvs-rs uses it to project `c` to `p`.
+    region: Option<VariantLocation>,
 }
 
 impl HgvsProjectionContext {
@@ -107,15 +109,6 @@ impl HgvsProjectionContext {
 
 /// Extension trait for checks on `HgvsVariant`s that consequence prediction needs.
 pub(crate) trait HgvsVariantExt {
-    /// Check if the c. variant changes only the 5' or 3' UTR and leaves the CDS unchanged.
-    ///
-    /// Insertions and duplications add bases after the end position, so they count as 3' UTR
-    /// variants if the end position is in the 3' UTR. This is the UTR check of hgvs-rs
-    /// `AltSeqBuilder`, which returns the reference sequence as alternative for these variants.
-    /// In addition, an insertion between c.-1 and c.1 counts as 5' UTR variant, because it keeps
-    /// the start codon intact. `AltSeqBuilder` treats it as CDS variant and inserts after c.1.
-    fn is_utr_variant(&self) -> bool;
-
     /// Check if the alternative transcript of the n. variant depends on an unknown splice outcome.
     ///
     /// This is the case if the variant has an intronic offset at either end. It is also the case
@@ -137,21 +130,6 @@ pub(crate) trait HgvsVariantExt {
 }
 
 impl HgvsVariantExt for HgvsVariant {
-    fn is_utr_variant(&self) -> bool {
-        let HgvsVariant::CdsVariant { loc_edit, .. } = self else {
-            return false;
-        };
-        let loc = loc_edit.loc.inner();
-        let edit = loc_edit.edit.inner();
-
-        let is_5_prime = (loc.start.base < 0 && loc.end.base < 0)
-            || (edit.is_ins() && loc.start.base == -1 && loc.end.base == 1);
-        let is_3_prime = loc.end.cds_from == CdsFrom::End
-            && (loc.start.cds_from == CdsFrom::End || edit.is_ins() || edit.is_dup());
-
-        is_5_prime || is_3_prime
-    }
-
     fn alt_depends_on_splicing(&self, alignment: &GenomeAlignment) -> bool {
         if self.spans_intron() {
             return true;
@@ -785,6 +763,7 @@ impl ConsequencePredictor {
             n: None,
             c: None,
             p: None,
+            region: None,
         };
 
         projection.n = self.mapper.g_to_n(var_g, &tx.id).map_or_else(
@@ -814,6 +793,8 @@ impl ConsequencePredictor {
             if let Some(var_c) = &projection.c
                 && transcript_biotype == TranscriptBiotype::Coding
             {
+                projection.region = self.variant_location(var_c);
+
                 // if the variant is purely intronic, we can skip safe_project_c_to_p,
                 // and simply inject p.?
                 let is_purely_intronic = match var_c {
@@ -827,24 +808,7 @@ impl ConsequencePredictor {
                     _ => false,
                 };
 
-                // An insertion between c.-1 and c.1 leaves the start codon intact, but
-                // hgvs-rs places it after c.1 and reports p.Met1?.  Inject p.? instead, like
-                // hgvs-rs does for other 5' UTR variants.
-                let is_ins_before_start_codon = match var_c {
-                    HgvsVariant::CdsVariant { loc_edit, .. } => {
-                        let loc = loc_edit.loc.inner();
-                        matches!(loc_edit.edit.inner(), NaEdit::Ins { .. })
-                            && loc.start.cds_from == CdsFrom::Start
-                            && loc.start.base == -1
-                            && loc.start.offset.unwrap_or(0) == 0
-                            && loc.end.cds_from == CdsFrom::Start
-                            && loc.end.base == 1
-                            && loc.end.offset.unwrap_or(0) == 0
-                    }
-                    _ => false,
-                };
-
-                if is_purely_intronic || is_ins_before_start_codon {
+                if is_purely_intronic {
                     projection.p = Some(HgvsVariant::ProtVariant {
                         accession: var_c.accession().clone(),
                         gene_symbol: var_c.gene_symbol().clone(),
@@ -910,6 +874,7 @@ impl ConsequencePredictor {
             let available_cds_len = tx.available_cds_len(tx_len);
             context.cds_consequences = Self::analyze_cds_variant(
                 var_c,
+                projection.region,
                 transcript_location.is_exonic,
                 conservative,
                 incomplete_3p,
@@ -1673,6 +1638,7 @@ impl ConsequencePredictor {
 
     fn analyze_cds_variant(
         var_c: &HgvsVariant,
+        region: Option<VariantLocation>,
         is_exonic: bool,
         conservative: bool,
         incomplete_3p: bool,
@@ -1710,16 +1676,15 @@ impl ConsequencePredictor {
             if starts_left_of_start && ends_right_of_start {
                 consequences |= Consequence::StartLost;
             }
+            // hgvs-rs places an insertion or duplication in a UTR if it leaves the CDS intact,
+            // e.g., `c.1dup` in front of the start codon or `c.Ndup` behind the stop codon.
+            // Without a stop codon, the CDS goes on behind `c.N`, so a `c.Ndup` changes it.
+            let in_5_prime_utr = region == Some(VariantLocation::FivePrimeUtr);
+            let in_3_prime_utr = region == Some(VariantLocation::ThreePrimeUtr) && !incomplete_3p;
             // stop codon
             let starts_left_of_stop = start_cds_from == CdsFrom::Start;
-            // A duplication of the last CDS bases inserts its copy behind the stop codon.
-            let dup_behind_stop = matches!(edit, NaEdit::Dup { .. })
-                && end_cds_from == CdsFrom::Start
-                && loc_end_offset == 0
-                && !incomplete_3p
-                && available_cds_len == Some(end_base);
-            let ends_right_of_stop = end_cds_from == CdsFrom::End || dup_behind_stop;
-            if starts_left_of_stop && ends_right_of_stop && !incomplete_3p && !dup_behind_stop {
+            let ends_right_of_stop = end_cds_from == CdsFrom::End || in_3_prime_utr;
+            if starts_left_of_stop && ends_right_of_stop && !incomplete_3p && !in_3_prime_utr {
                 consequences |= Consequence::StopLost;
             }
 
@@ -1739,7 +1704,7 @@ impl ConsequencePredictor {
             }
 
             // Detect variants affecting the 5'/3' UTRs.
-            if starts_left_of_start && start_base < 0 {
+            if (starts_left_of_start && start_base < 0) || in_5_prime_utr {
                 if is_intronic_or_utr {
                     consequences |= Consequence::FivePrimeUtrIntronVariant;
                 } else if is_exonic {
@@ -1775,7 +1740,8 @@ impl ConsequencePredictor {
             let within_exonic_sequence = loc_start_offset == 0 && loc_end_offset == 0;
             let _crosses_boundary = (loc_start_offset != 0) ^ (loc_end_offset != 0);
 
-            if !(ends_right_of_stop || starts_left_of_start || is_intronic_or_utr) {
+            if !(ends_right_of_stop || starts_left_of_start || in_5_prime_utr || is_intronic_or_utr)
+            {
                 match edit {
                     NaEdit::RefAlt {
                         reference,
@@ -2040,7 +2006,8 @@ impl ConsequencePredictor {
                         }
                     };
                 }
-                // The protein does not change (`p.=`), e.g., for a dup behind the stop codon.
+                // The protein does not change (`p.=`), e.g., for an insertion that keeps the stop
+                // codon.
                 ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain => {}
                 ProtLocEdit::InitiationUncertain => {
                     consequences |= Consequence::StartLost;
@@ -2577,6 +2544,7 @@ impl ConsequencePredictor {
             n: Some(compound_var_n.clone()),
             c: Some(compound_var_c.clone()),
             p: compound_var_p,
+            region: self.variant_location(&compound_var_c),
         };
 
         let tlc = TranscriptLocationContext {
@@ -2699,6 +2667,26 @@ impl ConsequencePredictor {
                 .with_ref_data(ref_data),
             ann,
         }))
+    }
+
+    /// The region of the transcript that the c. variant `var_c` changes, as hgvs-rs `c_to_p`
+    /// decides it, e.g., `FivePrimeUtr` for `c.1dup`. With `shift_over_boundary`, `c_to_p` can
+    /// use another placement of `var_c`, so the region can differ then.
+    ///
+    /// Returns `None` if hgvs-rs has no reference data for the transcript.
+    fn variant_location(&self, var_c: &HgvsVariant) -> Option<VariantLocation> {
+        let ref_data = hgvs::mapper::altseq::ref_transcript_data_cached(
+            self.provider.clone(),
+            &var_c.accession().value,
+            None,
+        )
+        .ok()?;
+        AltSeqBuilder {
+            ins_at_boundary_is_intronic: self.mapper.config.ins_at_boundary_is_intronic,
+            ..AltSeqBuilder::new(var_c.clone(), &ref_data)
+        }
+        .variant_location()
+        .ok()
     }
 
     /// Safely projects a CDS variant to a Protein variant, gracefully catching
@@ -3343,7 +3331,7 @@ mod test {
     #[case("22:38140065:C:CTAA", "ENST00000430886", true, vec![Consequence::InframeInsertion])]
     // `p.?`: frameshift in a CDS without a stop codon (`cds_end_NF`)
     #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
-    // `c.932_933dup` (`p.=`): the copy lands behind the stop codon
+    // `c.932_933dup` (`p.?`): the copy lands behind the stop codon
     #[case("22:21469819:T:TAA", "ENST00000432134", false, vec![Consequence::ThreePrimeUtrExonVariant])]
     #[case("22:21469819:T:TAA", "ENST00000432134", true, vec![Consequence::ThreePrimeUtrVariant])]
     // `p.Gln147AlafsTer?`: no stop codon in the new frame (`cds_end_NF` transcript)
@@ -3399,18 +3387,46 @@ mod test {
         Ok(())
     }
 
-    /// A dup of the last CDS bases lands behind the stop codon. An intronic dup does not.
+    /// A dup of the last CDS bases in the 3' UTR region gets 3' UTR terms. Without a stop codon,
+    /// the CDS goes on behind it, so the dup stays a CDS variant. An intronic dup stays intronic.
     #[rstest::rstest]
-    #[case("NM_000000.1:c.3857_3858dup", true, true)]
-    #[case("NM_000000.1:c.3858+1dup", false, false)]
+    #[case(
+        "NM_000000.1:c.3857_3858dup",
+        VariantLocation::ThreePrimeUtr,
+        true,
+        false,
+        true
+    )]
+    #[case(
+        "NM_000000.1:c.3857_3858dup",
+        VariantLocation::ThreePrimeUtr,
+        true,
+        true,
+        false
+    )]
+    #[case(
+        "NM_000000.1:c.3858+1dup",
+        VariantLocation::Intron,
+        false,
+        false,
+        false
+    )]
     fn analyze_cds_variant_dup_behind_stop(
         #[case] var_c: &str,
+        #[case] region: VariantLocation,
         #[case] is_exonic: bool,
+        #[case] incomplete_3p: bool,
         #[case] expected_utr: bool,
     ) -> Result<(), anyhow::Error> {
         let var_c = HgvsVariant::from_str(var_c)?;
-        let csqs =
-            ConsequencePredictor::analyze_cds_variant(&var_c, is_exonic, false, false, Some(3858));
+        let csqs = ConsequencePredictor::analyze_cds_variant(
+            &var_c,
+            Some(region),
+            is_exonic,
+            false,
+            incomplete_3p,
+            Some(3858),
+        );
         assert_eq!(
             csqs.intersects(
                 Consequence::ThreePrimeUtrExonVariant | Consequence::ThreePrimeUtrIntronVariant
@@ -3423,14 +3439,57 @@ mod test {
         Ok(())
     }
 
-    /// An insertion between c.-1 and c.1 leaves the start codon intact.
+    /// An insertion or dup that can go before c.1 or after the last CDS base leaves the CDS
+    /// intact, so it lies in a UTR. `c.1dup` inserts an A in front of the ATG, and `c.1_3dup` an
+    /// ATG. The stop codon of NM_007294.4 ends at c.5592.
     #[rstest::rstest]
-    #[case("3:193311166:G:GC", "NM_130837.3", "c.-1_1insC")] // OPA1, forward
-    #[case("17:41258543:T:TA", "NM_007297.4", "c.-1_1insT")] // BRCA1, reverse
-    fn annotate_ins_before_start_codon(
+    #[case(
+        "3:193311166:G:GC",
+        "NM_130837.3",
+        "c.-1_1insC",
+        Consequence::FivePrimeUtrExonVariant
+    )] // OPA1, forward
+    #[case(
+        "17:41258543:T:TA",
+        "NM_007297.4",
+        "c.-1_1insT",
+        Consequence::FivePrimeUtrExonVariant
+    )] // BRCA1, reverse
+    #[case(
+        "3:193311167:A:AA",
+        "NM_130837.3",
+        "c.1dup",
+        Consequence::FivePrimeUtrExonVariant
+    )]
+    #[case(
+        "17:41276112:A:AT",
+        "NM_007294.4",
+        "c.1dup",
+        Consequence::FivePrimeUtrExonVariant
+    )]
+    #[case(
+        "3:193311169:G:GATG",
+        "NM_130837.3",
+        "c.1_3dup",
+        Consequence::FivePrimeUtrExonVariant
+    )]
+    #[case(
+        "17:41276110:C:CCAT",
+        "NM_007294.4",
+        "c.1_3dup",
+        Consequence::FivePrimeUtrExonVariant
+    )]
+    #[case(
+        "17:41197695:T:TT",
+        "NM_007294.4",
+        "c.5592dup",
+        Consequence::ThreePrimeUtrExonVariant
+    )]
+    fn annotate_ins_keeping_cds(
         #[case] spdi: &str,
         #[case] tx_id: &str,
         #[case] expected_hgvs_c: &str,
+        #[case] expected_csq: Consequence,
     ) -> Result<(), anyhow::Error> {
         let spdi = spdi.split(':').collect::<Vec<_>>();
 
@@ -3450,7 +3509,7 @@ mod test {
         let ann = res.iter().find(|ann| ann.feature_id == tx_id).unwrap();
         assert_eq!(ann.hgvs_c.as_deref(), Some(expected_hgvs_c));
         assert_eq!(ann.hgvs_p.as_deref(), Some("p.?"));
-        assert_eq!(ann.consequences, vec![Consequence::FivePrimeUtrExonVariant]);
+        assert_eq!(ann.consequences, vec![expected_csq]);
 
         Ok(())
     }
@@ -4466,6 +4525,30 @@ mod test {
         let mut tx_alt = custom_field(&ann, ANN_TX_SEQ_REF).unwrap().to_string();
         tx_alt.insert(113, 'C');
         assert_eq!(&tx_alt[113..117], "CATG");
+        assert_eq!(custom_field(&ann, ANN_TX_SEQ_ALT), Some(tx_alt.as_str()));
+        assert_eq!(
+            custom_field(&ann, ANN_AA_SEQ_ALT),
+            custom_field(&ann, ANN_AA_SEQ_REF)
+        );
+
+        Ok(())
+    }
+
+    /// A dup of the A at c.1 or at the last CDS base c.5592 leaves the CDS intact, see
+    /// `annotate_ins_keeping_cds`. The alternative transcript has one more A at `index`.
+    #[rstest::rstest]
+    #[case("17:41276112:A:AT", "c.1dup", 113)]
+    #[case("17:41197695:T:TT", "c.5592dup", 5704)]
+    fn alt_sequences_dup_keeping_cds(
+        #[case] spdi: &str,
+        #[case] hgvs_c: &str,
+        #[case] index: usize,
+    ) -> Result<(), anyhow::Error> {
+        let ann = annotate_with_sequences(&[spdi], "NM_007294.4")?;
+        assert_eq!(ann.hgvs_c.as_deref(), Some(hgvs_c));
+
+        let mut tx_alt = custom_field(&ann, ANN_TX_SEQ_REF).unwrap().to_string();
+        tx_alt.insert(index, 'A');
         assert_eq!(custom_field(&ann, ANN_TX_SEQ_ALT), Some(tx_alt.as_str()));
         assert_eq!(
             custom_field(&ann, ANN_AA_SEQ_ALT),
