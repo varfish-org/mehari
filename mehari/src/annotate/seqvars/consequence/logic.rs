@@ -121,8 +121,8 @@ pub(crate) trait HgvsVariantExt {
     /// have no reference bases, so they never cover an intron.
     fn alt_depends_on_splicing(&self, alignment: &GenomeAlignment) -> bool;
 
-    /// VEP's `stop_gained`, `stop_lost` and `stop_retained_variant` for an indel in the CDS, as
-    /// in VEP 116.3.
+    /// VEP's `stop_gained`, `stop_lost`, `stop_retained_variant` and `synonymous_variant` for an
+    /// indel in the CDS, as in VEP 116.3.
     ///
     /// VEP translates only the codons that the variant changes
     /// (`TranscriptVariationAllele::codon`): the reference codons, and the same stretch of the
@@ -365,6 +365,14 @@ impl HgvsVariantExt for HgvsVariant {
             && peptides
                 .as_ref()
                 .is_some_and(|(ref_pep, alt_pep)| alt_pep.contains('*') && !ref_pep.contains('*'));
+        // VEP's `synonymous_variant`: the changed codons translate to the same peptide without
+        // an `X`, and VEP reports no `stop_retained_variant` or `start_retained_variant`. The
+        // latter holds if the changed codons keep the peptide and include the start codon.
+        let synonymous = !stop_retained
+            && first > 1
+            && peptides.as_ref().is_some_and(|(ref_pep, alt_pep)| {
+                !ref_pep.is_empty() && ref_pep == alt_pep && !alt_pep.contains('X')
+            });
 
         Some(if stop_retained {
             Consequence::StopRetainedVariant.into()
@@ -372,6 +380,8 @@ impl HgvsVariantExt for HgvsVariant {
             Consequence::StopLost.into()
         } else if stop_gained {
             Consequence::StopGained.into()
+        } else if synonymous {
+            Consequence::SynonymousVariant.into()
         } else {
             Consequences::empty()
         })
@@ -1136,11 +1146,29 @@ impl ConsequencePredictor {
                             ..
                         }
                     );
-                    if indel_in_cds && protein_unchanged && !self.config.vep_consequence_terms {
-                        // An indel that keeps the protein (`p.=`) is synonymous. VEP reports the
-                        // indel terms instead.
+                    // A silent change, e.g., `p.Phe703=` or `p.Ter704=`.
+                    let silent = matches!(
+                        var_p,
+                        HgvsVariant::ProtVariant {
+                            loc_edit: ProtLocEdit::Ordinary { edit, .. },
+                            ..
+                        } if match edit.inner() {
+                            ProteinEdit::Ident => true,
+                            ProteinEdit::Subst { alternative } => alternative.is_empty(),
+                            _ => false,
+                        }
+                    );
+                    if indel_in_cds
+                        && (protein_unchanged || silent)
+                        && !self.config.vep_consequence_terms
+                    {
+                        // An indel that keeps the protein (`p.=`) is synonymous. An indel with a
+                        // silent change keeps only the term of that change. VEP reports the indel
+                        // terms instead.
                         context.cds_consequences.remove(indel_terms);
-                        context.protein_consequences |= Consequence::SynonymousVariant;
+                        if protein_unchanged {
+                            context.protein_consequences |= Consequence::SynonymousVariant;
+                        }
                     } else if indel_in_cds
                         && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
                             self.provider.clone(),
@@ -1157,7 +1185,8 @@ impl ConsequencePredictor {
                 }
             }
 
-            // VEP takes the stop terms of an indel from the changed codons, whatever `p.` says.
+            // VEP takes the stop terms and `synonymous_variant` of an indel from the changed
+            // codons, whatever `p.` says.
             if self.config.vep_consequence_terms
                 && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
                     self.provider.clone(),
@@ -1173,7 +1202,8 @@ impl ConsequencePredictor {
                 context.protein_consequences.remove(
                     Consequence::StopGained
                         | Consequence::StopLost
-                        | Consequence::StopRetainedVariant,
+                        | Consequence::StopRetainedVariant
+                        | Consequence::SynonymousVariant,
                 );
                 context.protein_consequences |= stop_terms;
             }
@@ -3573,9 +3603,14 @@ mod test {
     // `c.1449_*18del`: VEP builds no altered sequence for a deletion beyond the transcript end,
     // so the stop codon counts as kept
     #[case("22:50525751:GTTTCGCGGCAAAGGAGCTT:G", "ENST00000487577", true, vec![Consequence::FeatureElongation, Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant])]
-    // `p.=`: in-frame insertion inside the stop codon that keeps it
-    #[case("22:45600443:C:CTAA", "ENST00000327858", false, vec![Consequence::SynonymousVariant])]
+    // `p.Ter704=`: in-frame insertion inside the stop codon that keeps it
+    #[case("22:45600443:C:CTAA", "ENST00000327858", false, vec![Consequence::StopRetainedVariant])]
     #[case("22:45600443:C:CTAA", "ENST00000327858", true, vec![Consequence::InframeInsertion, Consequence::StopRetainedVariant])]
+    // `p.Phe703=`: in-frame insertion that keeps codon 703 and forms a new stop codon in front
+    // of the old one. VEP's changed codons translate to `F` and `F*H`, so VEP reports no
+    // `synonymous_variant`.
+    #[case("22:45600442:T:TTTAGCA", "ENST00000327858", false, vec![Consequence::SynonymousVariant])]
+    #[case("22:45600442:T:TTTAGCA", "ENST00000327858", true, vec![Consequence::InframeInsertion, Consequence::StopRetainedVariant])]
     // `p.?`: in-frame insertion that creates a stop codon in a CDS without one (`cds_end_NF`).
     // VEP's changed codons keep the last amino acid and continue with the stop codon.
     #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::DisruptiveInframeInsertion])]
