@@ -1690,9 +1690,10 @@ impl ConsequencePredictor {
             }
             // hgvs-rs places an insertion or duplication in a UTR if it leaves the CDS intact,
             // e.g., `c.1dup` in front of the start codon or `c.Ndup` behind the stop codon.
-            // Without a stop codon, the CDS goes on behind `c.N`, so a `c.Ndup` changes it.
+            // Without a stop codon, the CDS goes on behind `c.N`, so hgvs-rs keeps a `c.Ndup` in
+            // the CDS.
             let in_5_prime_utr = region == Some(VariantLocation::FivePrimeUtr);
-            let in_3_prime_utr = region == Some(VariantLocation::ThreePrimeUtr) && !incomplete_3p;
+            let in_3_prime_utr = region == Some(VariantLocation::ThreePrimeUtr);
             // stop codon
             let starts_left_of_stop = start_cds_from == CdsFrom::Start;
             let ends_right_of_stop = end_cds_from == CdsFrom::End || in_3_prime_utr;
@@ -3346,6 +3347,8 @@ mod test {
     #[case("22:38140065:C:CTAA", "ENST00000430886", true, vec![Consequence::InframeInsertion])]
     // `p.?`: frameshift in a CDS without a stop codon (`cds_end_NF`)
     #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
+    // `c.498dup` (`p.?`): a dup of the last CDS base, but without a stop codon the CDS goes on
+    #[case("22:38140065:C:CC", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
     // `c.932_933dup` (`p.?`): the copy lands behind the stop codon
     #[case("22:21469819:T:TAA", "ENST00000432134", false, vec![Consequence::ThreePrimeUtrExonVariant])]
     #[case("22:21469819:T:TAA", "ENST00000432134", true, vec![Consequence::ThreePrimeUtrVariant])]
@@ -3402,8 +3405,9 @@ mod test {
         Ok(())
     }
 
-    /// A dup of the last CDS bases in the 3' UTR region gets 3' UTR terms. Without a stop codon,
-    /// the CDS goes on behind it, so the dup stays a CDS variant. An intronic dup stays intronic.
+    /// A dup of the last CDS bases in the 3' UTR region gets 3' UTR terms. This also holds if
+    /// the transcript is flagged as incomplete at its 3' end: hgvs-rs gives this region only
+    /// behind a stop codon. An intronic dup stays intronic.
     #[rstest::rstest]
     #[case(
         "NM_000000.1:c.3857_3858dup",
@@ -3417,7 +3421,7 @@ mod test {
         VariantLocation::ThreePrimeUtr,
         true,
         true,
-        false
+        true
     )]
     #[case(
         "NM_000000.1:c.3858+1dup",
