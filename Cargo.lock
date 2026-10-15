@@ -530,7 +530,7 @@ dependencies = [
  "enum-map",
  "fxhash",
  "getset",
- "itertools 0.15.0",
+ "itertools 0.14.0",
  "itertools-num",
  "multimap",
  "ndarray",
@@ -2242,9 +2242,8 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hgvs"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25c9a0647668aacfb41a47a4b455c32f9059626f44256ae63919ee05cd087447"
+version = "2.0.0"
+source = "git+https://github.com/varfish-org/hgvs-rs?rev=0ea2fa333eb2f05e3a8f5d0425580e7b132b3bcc#0ea2fa333eb2f05e3a8f5d0425580e7b132b3bcc"
 dependencies = [
  "ahash",
  "base16ct",
