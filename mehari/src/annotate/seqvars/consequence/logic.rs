@@ -4397,57 +4397,61 @@ mod test {
     /// splice site (and in the CDS the stop codon); the HGVS stays 3'-shifted.
     #[rstest::rstest]
     // deleting the acceptor G equals deleting the first exon G
-    #[case("22:37713208:AG:A", "ENST00000644935", false, "c.257del", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:37713208:AG:A", "ENST00000644935", false, "c.257del", "p.Gly86AlafsTer33", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // deleting the donor G (`GCCG|GTGAGT`) equals deleting the last exon G
-    #[case("22:23772977:CG:C", "ENST00000215743", false, "c.108+1del", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
-    #[case("22:23772977:CG:C", "ENST00000215743", true, "c.108+1del", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:23772977:CG:C", "ENST00000215743", false, "c.108+1del", "p.?", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:23772977:CG:C", "ENST00000215743", true, "c.108+1del", "p.?", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
     // minus strand: deleting donor +1 to +3 equals deleting the last three exon bases
-    #[case("22:26481718:TCAC:T", "ENST00000336873", false, "c.41+1_41+3del", vec![Consequence::DisruptiveInframeDeletion, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:26481718:TCAC:T", "ENST00000336873", false, "c.41+1_41+3del", "p.?", vec![Consequence::DisruptiveInframeDeletion, Consequence::ExonicSpliceRegionVariant])]
     // minus strand: deleting acceptor -3 and -2 equals an intronic deletion that keeps the AG
-    #[case("22:50246093:CTG:C", "ENST00000216271", false, "c.1651-3_1651-2del", vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:50246093:CTG:C", "ENST00000216271", false, "c.1651-3_1651-2del", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant])]
     // deletion of donor +3 to +9 that keeps the GT
-    #[case("22:25763388:AGGTAAGT:A", "ENST00000335473", false, "c.198+3_198+9del", vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:25763388:AGGTAAGT:A", "ENST00000335473", false, "c.198+3_198+9del", "p.?", vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant])]
     // deleting one C of `CCCAG|GT`: a placement in front of the last three exon bases keeps them
-    #[case("22:39101499:TC:T", "ENST00000442487", false, "c.416del", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
+    #[case("22:39101499:TC:T", "ENST00000442487", false, "c.416del", "p.Pro139GlnfsTer25", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
     // every placement of the deletion removes donor +1 and +2
-    #[case("22:28773775:ATGAG:A", "ENST00000249064", false, "c.238_239+2del", vec![Consequence::SpliceDonorVariant, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28773775:ATGAG:A", "ENST00000249064", false, "c.238_239+2del", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::ExonicSpliceRegionVariant])]
     // insertion between the last exon base and donor +1: the exon gains a base
-    #[case("22:20996112:T:TA", "ENST00000646124", false, "c.2219_2219+1insA", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
-    #[case("22:20996112:T:TA", "ENST00000646124", true, "c.2219_2219+1insA", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:20996112:T:TA", "ENST00000646124", false, "c.2219_2219+1insA", "p.Tyr741LeufsTer41", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:20996112:T:TA", "ENST00000646124", true, "c.2219_2219+1insA", "p.Tyr741LeufsTer41", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
     // minus strand: insertion between donor +1 and the last exon base
-    #[case("22:32150991:C:CTT", "ENST00000382097", false, "c.493_493+1insAA", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:32150991:C:CTT", "ENST00000382097", false, "c.493_493+1insAA", "p.His165GlnfsTer19", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // insertion one base past the acceptor, between the first two exon bases
-    #[case("22:50522343:G:GCTTTCTC", "ENST00000299821", false, "c.1234_1235insCTTTCTC", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:50522343:G:GCTTTCTC", "ENST00000299821", false, "c.1234_1235insCTTTCTC", "p.Val412AlafsTer5", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // insertion between acceptor -1 and the first CDS base: the 5' UTR gains a base
-    #[case("22:28987075:G:GC", "ENST00000402174", false, "c.1-1_1insC", vec![Consequence::ExonicSpliceRegionVariant, Consequence::FivePrimeUtrExonVariant])]
+    #[case("22:28987075:G:GC", "ENST00000402174", false, "c.1-1_1insC", "p.?", vec![Consequence::ExonicSpliceRegionVariant, Consequence::FivePrimeUtrExonVariant])]
     // insertion between the last stop codon base and donor +1: the 3' UTR gains a base
-    #[case("22:31879752:G:GA", "ENST00000646998", false, "c.3858_3858+1insA", vec![Consequence::ExonicSpliceRegionVariant, Consequence::ThreePrimeUtrExonVariant])]
+    #[case("22:31879752:G:GA", "ENST00000646998", false, "c.3858_3858+1insA", "p.?", vec![Consequence::ExonicSpliceRegionVariant, Consequence::ThreePrimeUtrExonVariant])]
     // minus strand: dup of the last exon base, in front of donor +1 or inside the exon
-    #[case("22:28710005:C:CA", "ENST00000348295", false, "c.846dup", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28710005:C:CA", "ENST00000348295", false, "c.846dup", "p.Pro283SerfsTer7", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // dup inside the stop codon that equals one behind it (`TAA` to `TAAAA`)
-    #[case("22:21469819:T:TAA", "ENST00000432134", false, "c.932_933dup", vec![Consequence::ThreePrimeUtrExonVariant])]
+    #[case("22:21469819:T:TAA", "ENST00000432134", false, "c.932_933dup", "p.?", vec![Consequence::ThreePrimeUtrExonVariant])]
     // frameshift inside the stop codon: every placement changes the stop codon
-    #[case("22:42571197:T:TG", "ENST00000340239", false, "c.611dup", vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    #[case("22:42571197:T:TG", "ENST00000340239", false, "c.611dup", "p.Ter204TrpextTer73", vec![Consequence::StopLost, Consequence::FeatureElongation])]
     // dup of donor +1 to +7: the copy lands behind +7 and leaves the donor intact
-    #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", false, "c.1977+1_1977+7dup", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
-    #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", true, "c.1977+1_1977+7dup", vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])]
+    #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", false, "c.1977+1_1977+7dup", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", true, "c.1977+1_1977+7dup", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])]
     // dup of donor +5 and +6: the copy lands behind +6 and leaves donor +3 to +6 intact
-    #[case("22:31616877:G:GGT", "ENST00000400288", false, "c.3433+5_3433+6dup", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:31616877:G:GGT", "ENST00000400288", false, "c.3433+5_3433+6dup", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
     // dup of c.16 to c.20: a copy in front of c.16 leaves the last three exon bases intact
-    #[case("22:42554033:G:GCCGCA", "ENST00000340239", false, "c.16_20dup", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
+    #[case("22:42554033:G:GCCGCA", "ENST00000340239", false, "c.16_20dup", "p.Gly8HisfsTer4", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
     fn annotate_indel_placement_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
         #[case] vep_consequence_terms: bool,
         #[case] expected_hgvs_c: &str,
+        #[case] expected_hgvs_p: &str,
         #[case] expected_csqs: Vec<Consequence>,
     ) -> Result<(), anyhow::Error> {
         let ann = annotate_chr22_window(spdi, tx_id, vep_consequence_terms)?;
-        assert_eq!(ann.hgvs_c.as_deref(), Some(expected_hgvs_c));
         assert_eq!(
-            ann.consequences, expected_csqs,
-            "spdi = {}, hgvs_c = {:?}",
-            spdi, ann.hgvs_c
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_hgvs_c), Some(expected_hgvs_p), &expected_csqs),
+            "spdi = {spdi}"
         );
 
         Ok(())
