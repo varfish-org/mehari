@@ -1212,7 +1212,8 @@ impl ConsequencePredictor {
     }
 
     /// The positions of `projection` at `transcript_location`, and its consequences at
-    /// `terms_location`, see `placement_consequences`.
+    /// `terms_location`, see `placement_consequences`. The CDS terms of a dup come from `ins_c`,
+    /// the c. insertion of its copy.
     #[allow(clippy::too_many_arguments)]
     fn analyze_transcript_consequences(
         &self,
@@ -1221,6 +1222,7 @@ impl ConsequencePredictor {
         tx_record: &TxForRegionRecord,
         transcript_location: &TranscriptLocationContext,
         terms_location: &TranscriptLocationContext,
+        ins_c: Option<&HgvsVariant>,
         tx_len: i32,
         transcript_biotype: TranscriptBiotype,
     ) -> Result<ConsequenceContext, SeqvarsError> {
@@ -1266,7 +1268,7 @@ impl ConsequencePredictor {
                 !(self.config.vep_consequence_terms && region == VariantLocation::FivePrimeUtr)
             });
             context.cds_consequences = Self::analyze_cds_variant(
-                var_c,
+                ins_c.unwrap_or(var_c),
                 region,
                 terms_location.is_exonic,
                 conservative,
@@ -1432,7 +1434,8 @@ impl ConsequencePredictor {
         }
 
         let projection = if !location.is_upstream && !location.is_downstream {
-            // The insertion of the copy of a dup on a coding transcript, as a c. variant.
+            // The insertion of the copy of a dup on a coding transcript, as a c. variant. The CDS
+            // terms of the dup come from it, too.
             let ins_c = ins_g
                 .filter(|_| transcript_biotype == TranscriptBiotype::Coding)
                 .and_then(|ins_g| {
@@ -1460,6 +1463,7 @@ impl ConsequencePredictor {
                 tx_record,
                 &location,
                 terms_location,
+                ins_c.as_ref(),
                 tx.tx_len(),
                 transcript_biotype,
             )?;
@@ -3228,6 +3232,7 @@ impl ConsequencePredictor {
             tx_record,
             &tlc,
             &tlc,
+            None,
             tx_len,
             transcript_biotype,
         )?;
@@ -3240,6 +3245,7 @@ impl ConsequencePredictor {
                     tx_record,
                     &tlc,
                     &tlc,
+                    None,
                     tx_len,
                     transcript_biotype,
                 )
@@ -4343,6 +4349,11 @@ mod test {
     /// copy behind its bases. With VEP terms, the expected terms are those of VEP 108 with
     /// `--shift_3prime 1`, plus `coding_sequence_variant` next to `splice_region_variant`.
     #[rstest::rstest]
+    // ENST00000413051 has no 5' UTR, and the copy lands behind c.2, in the CDS. The copy can
+    // also go in front of c.1, so hgvs-rs places the dup in the 5' UTR and gives `p.?`. With VEP
+    // terms, the position of the copy counts, not its 5' UTR region.
+    #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", false, "c.-21_2dup", "p.?", vec![Consequence::FivePrimeUtrExonVariant])]
+    #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", true, "c.-21_2dup", "p.?", vec![Consequence::FrameshiftVariant])]
     // the copy can go in front of the last three exon bases
     #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", false, "c.491_504dup", "p.Ile169ThrfsTer4", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
     // VEP's changed codons at the 3'-shifted position hold the new stop codon
