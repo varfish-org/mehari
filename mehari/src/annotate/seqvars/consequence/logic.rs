@@ -546,7 +546,7 @@ impl ConsequencePredictor {
             // hgvs-rs then builds `p.` from one that keeps the splice site, if there is one, and
             // mehari takes the terms from it, too. Without the genome, `c_to_p` would fail for
             // indels, as it needs the genome to find the placements. VEP terms keep the
-            // 3'-shifted variant, as VEP 108 with `--shift_3prime 1` does.
+            // 3'-shifted variant, as VEP 116.3 with `--shift_3prime 1` does.
             shift_over_boundary: reference_available && !config.vep_consequence_terms,
             shift_over_boundary_preference: ShiftOverBoundaryPreference::KeepSpliceSite,
             ..Default::default()
@@ -1173,7 +1173,7 @@ impl ConsequencePredictor {
                 && transcript_biotype == TranscriptBiotype::Coding
             {
                 // With VEP terms, there is no placement, and `p.` comes from the 3'-shifted
-                // variant, as in VEP 108. VEP puts the copy of a dup behind the dup, also next to
+                // variant, as in VEP 116.3. VEP puts the copy of a dup behind the dup, also next to
                 // an exon, while hgvs-rs puts it in front of the dup.
                 let vep = self.config.vep_consequence_terms;
                 let var_c = if vep { ins_c.unwrap_or(var_c) } else { var_c };
@@ -4245,7 +4245,7 @@ mod test {
     /// Indels at exon edges on Ensembl 108 chr22 transcripts, with the reference so that mehari
     /// shifts them 3'. The terms and `p.` come from the placement that hgvs-rs builds `p.` from,
     /// one that keeps the essential splice site if there is one. The HGVS stays 3'-shifted. With
-    /// VEP terms, mehari uses no placement, as VEP 108 with `--shift_3prime 1`.
+    /// VEP terms, mehari uses no placement, as VEP 116.3 with `--shift_3prime 1`.
     #[rstest::rstest]
     // deleting the acceptor G equals deleting the first exon G
     #[case("22:37713208:AG:A", "ENST00000644935", false, "c.257del", "p.Gly86AlafsTer33", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
@@ -4346,7 +4346,7 @@ mod test {
     }
 
     /// Dups on GENCODE 42 chr22 transcripts. The terms of a dup come from the insertion of its
-    /// copy behind its bases. With VEP terms, the expected terms are those of VEP 108 with
+    /// copy behind its bases. With VEP terms, the expected terms are those of VEP 116.3 with
     /// `--shift_3prime 1`, plus `coding_sequence_variant` next to `splice_region_variant`.
     #[rstest::rstest]
     // ENST00000413051 has no 5' UTR, and the copy lands behind c.2, in the CDS. The copy can
