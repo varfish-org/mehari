@@ -1112,6 +1112,7 @@ impl ConsequencePredictor {
                     intron_start,
                     exon_start,
                     is_utr,
+                    self.config.vep_consequence_terms,
                 );
             }
 
@@ -2197,6 +2198,7 @@ impl ConsequencePredictor {
         intron_start: i32,
         intron_end: i32,
         _is_utr: bool,
+        vep_terms: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -2207,6 +2209,17 @@ impl ConsequencePredictor {
         // plus strand, contains it if it contains the base behind it.
         let var_overlaps_behind = |start: i32, end: i32| -> bool {
             overlaps(var_start + ins_shift, var_end + ins_shift, start, end)
+        };
+        // VEP 116.3 puts an insertion into the donor region or at the fifth base only if the
+        // bases on both sides of it are inside. So no insertion is at the fifth base.
+        let var_overlaps_donor = |start: i32, end: i32| -> bool {
+            if vep_terms {
+                var_overlaps(start, end) && var_overlaps_behind(start, end)
+            } else if strand == Strand::Plus {
+                var_overlaps_behind(start, end)
+            } else {
+                var_overlaps(start, end)
+            }
         };
 
         // Check the cases where the variant overlaps with the splice acceptor/donor site.
@@ -2260,19 +2273,19 @@ impl ConsequencePredictor {
         // Check conditions for splice_donor_region_variant
         // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
         // Note that this is two bases short of the intronic part of splice_region_variant
-        if strand == Strand::Plus && var_overlaps_behind(intron_start + 2, intron_start + 6) {
+        if strand == Strand::Plus && var_overlaps_donor(intron_start + 2, intron_start + 6) {
             consequences |= Consequence::SpliceDonorRegionVariant;
         }
-        if strand == Strand::Minus && var_overlaps(intron_end - 6, intron_end - 2) {
+        if strand == Strand::Minus && var_overlaps_donor(intron_end - 6, intron_end - 2) {
             consequences |= Consequence::SpliceDonorRegionVariant;
         }
 
         // Check conditions for splice_donor_5th_base_variant
         // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
-        if strand == Strand::Plus && var_overlaps_behind(intron_start + 4, intron_start + 5) {
+        if strand == Strand::Plus && var_overlaps_donor(intron_start + 4, intron_start + 5) {
             consequences |= Consequence::SpliceDonorFifthBaseVariant;
         }
-        if strand == Strand::Minus && var_overlaps(intron_end - 5, intron_end - 4) {
+        if strand == Strand::Minus && var_overlaps_donor(intron_end - 5, intron_end - 4) {
             consequences |= Consequence::SpliceDonorFifthBaseVariant;
         }
 
@@ -4232,7 +4245,8 @@ mod test {
         "tests/data/annotate/db/grch38/GRCh38-ensembl.placement-subset.txs.bin.zst";
 
     /// GENCODE 42 chr22 transcripts that share exon edges with those of `CHR22_PLACEMENT_TXS`,
-    /// and those of `annotate_dup_csqs` and `annotate_exon_edge_ins_stop_csqs`.
+    /// and those of `annotate_dup_csqs`, `annotate_exon_edge_ins_stop_csqs` and
+    /// `annotate_vep_ins_region_csqs`.
     const CHR22_GENCODE42_TXS: &str =
         "tests/data/annotate/db/grch38/GRCh38-gencode42.placement-subset.txs.bin.zst";
 
@@ -4459,6 +4473,36 @@ mod test {
     // minus strand: `-/P` (`-/CCG`)
     #[case("22:50775771:C:CCGG", "ENST00000395590", "c.297_297+1insCCG", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
     fn annotate_exon_edge_ins_stop_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .build()?;
+        let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some(expected_hgvs_c), &expected_csqs),
+            "spdi = {spdi}"
+        );
+
+        Ok(())
+    }
+
+    /// Insertions on GENCODE 42 chr22 transcripts, with VEP terms. VEP counts an insertion as
+    /// inside a region only if the bases on both sides of it are inside. The expected terms are
+    /// those of VEP 116.3 with `--shift_3prime 1`.
+    #[rstest::rstest]
+    // the copy lands between donor +2 and +3, so only one side is in donor +3 to +6
+    #[case("22:15690709:G:GGT", "ENST00000343518", "c.632+1_632+2dup", vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])]
+    // between donor +4 and +5: inside donor +3 to +6, but not at the fifth base
+    #[case("22:15690713:A:AG", "ENST00000343518", "c.632+4_632+5insG", vec![Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])]
+    // minus strand
+    #[case("22:26481719:C:CG", "ENST00000466781", "n.612+2_612+3insC", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptVariant, Consequence::IntronVariant])]
+    #[case("22:26481717:C:CA", "ENST00000466781", "n.612+4_612+5insT", vec![Consequence::SpliceDonorRegionVariant, Consequence::NonCodingTranscriptVariant, Consequence::IntronVariant])]
+    fn annotate_vep_ins_region_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
         #[case] expected_hgvs_c: &str,
