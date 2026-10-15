@@ -1361,7 +1361,13 @@ impl ConsequencePredictor {
         let terms_location = terms_location.as_ref().unwrap_or(&location);
 
         if terms_location.is_exonic {
-            if transcript_biotype == TranscriptBiotype::NonCoding {
+            // VEP 116.3 puts an insertion between an exon and an intron outside the exon.
+            if transcript_biotype == TranscriptBiotype::NonCoding
+                && self.config.vep_consequence_terms
+                && Self::is_ins_at_exon_edge(alignment, ins_g.as_ref().unwrap_or(var_g))
+            {
+                consequences |= Consequence::NonCodingTranscriptVariant;
+            } else if transcript_biotype == TranscriptBiotype::NonCoding {
                 consequences |= Consequence::NonCodingTranscriptExonVariant;
             }
         } else if terms_location.is_intronic {
@@ -2152,6 +2158,23 @@ impl ConsequencePredictor {
             }
             _ => unreachable!(),
         }
+    }
+
+    /// Whether `var_g` is an insertion between an exon and an intron of `alignment`.
+    fn is_ins_at_exon_edge(alignment: &GenomeAlignment, var_g: &HgvsVariant) -> bool {
+        let HgvsVariant::GenomeVariant { loc_edit, .. } = var_g else {
+            return false;
+        };
+        if !matches!(loc_edit.edit.inner(), NaEdit::Ins { .. }) {
+            return false;
+        }
+        // The range of an insertion is the base in front of it, so the insertion is at its end.
+        let (_, var_end) = Self::get_var_start_end(var_g);
+        alignment
+            .exons
+            .iter()
+            .tuple_windows()
+            .any(|(left, right)| left.alt_end_i == var_end || right.alt_start_i == var_end)
     }
 
     fn analyze_cds_variant(
@@ -4427,6 +4450,13 @@ mod test {
     // minus strand
     #[case("22:26481719:C:CG", "ENST00000466781", "n.612+2_612+3insC", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptVariant, Consequence::IntronVariant])]
     #[case("22:26481717:C:CA", "ENST00000466781", "n.612+4_612+5insT", vec![Consequence::SpliceDonorRegionVariant, Consequence::NonCodingTranscriptVariant, Consequence::IntronVariant])]
+    // between an exon and an intron of a non-coding transcript: not in the exon
+    #[case("22:20996112:T:TA", "ENST00000495142", "n.2571_2571+1insA", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptVariant])]
+    #[case("22:28710005:C:CA", "ENST00000491919", "n.403dup", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptVariant])]
+    #[case("22:26481721:C:CA", "ENST00000466781", "n.612_612+1insT", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptVariant])]
+    #[case("22:26479355:C:CA", "ENST00000466781", "n.613-1_613insT", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptVariant])]
+    // between the last two exon bases
+    #[case("22:26481722:C:CG", "ENST00000466781", "n.611_612insC", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptExonVariant])]
     fn annotate_vep_ins_region_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
