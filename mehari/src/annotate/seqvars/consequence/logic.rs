@@ -1422,41 +1422,7 @@ impl ConsequencePredictor {
                     _ => false,
                 };
 
-                // Bases inserted in front of c.1 (`c.-1_1ins`, `c.1-1_1ins`, the copy of
-                // `c.1-1dup`) leave the start codon intact, but hgvs-rs reports p.Met1?.
-                // Inject p.? instead, like hgvs-rs does for other 5' UTR variants.
-                let is_ins_before_start_codon = match var_c {
-                    HgvsVariant::CdsVariant { loc_edit, .. } => {
-                        let end = &loc_edit.loc.inner().end;
-                        let end_offset = end.offset.unwrap_or(0);
-                        end.cds_from == CdsFrom::Start
-                            && end.base == 1
-                            && match loc_edit.edit.inner() {
-                                NaEdit::Ins { .. } => end_offset == 0,
-                                NaEdit::Dup { .. } => end_offset == -1,
-                                _ => false,
-                            }
-                    }
-                    _ => false,
-                };
-
-                // Bases inserted behind the stop codon at an exon end (`c.N_N+1ins`) join the
-                // 3' UTR, but hgvs-rs reports p.Ter<N/3>=. Inject p.? instead, like hgvs-rs
-                // does for `c.N_*1ins`.
-                let is_ins_behind_stop_codon = match var_c {
-                    HgvsVariant::CdsVariant { loc_edit, .. } => {
-                        let loc = loc_edit.loc.inner();
-                        matches!(loc_edit.edit.inner(), NaEdit::Ins { .. })
-                            && loc.start.cds_from == CdsFrom::Start
-                            && loc.start.offset.unwrap_or(0) == 0
-                            && loc.end.offset == Some(1)
-                            && !tx.is_incomplete_3p()
-                            && tx.available_cds_len(tx.tx_len()) == Some(loc.start.base)
-                    }
-                    _ => false,
-                };
-
-                if is_purely_intronic || is_ins_before_start_codon || is_ins_behind_stop_codon {
+                if is_purely_intronic {
                     projection.p = Some(HgvsVariant::ProtVariant {
                         accession: var_c.accession().clone(),
                         gene_symbol: var_c.gene_symbol().clone(),
