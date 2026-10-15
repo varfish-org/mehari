@@ -973,9 +973,19 @@ impl ConsequencePredictor {
             let conservative = is_conservative_cds_variant(var_c);
             let incomplete_3p = tx.is_incomplete_3p();
             let available_cds_len = tx.available_cds_len(tx_len);
+            // VEP reports CDS terms for a deletion in the start codon, also if the deletion can
+            // go before c.1. With VEP terms, the position of such a deletion counts, not its 5'
+            // UTR region.
+            let region = projection.region.filter(|&region| {
+                !(self.config.vep_consequence_terms
+                    && region == VariantLocation::FivePrimeUtr
+                    && var_c
+                        .na_edit()
+                        .is_some_and(|edit| !edit.is_ins() && !edit.is_dup()))
+            });
             context.cds_consequences = Self::analyze_cds_variant(
                 var_c,
-                projection.region,
+                region,
                 transcript_location.is_exonic,
                 conservative,
                 incomplete_3p,
@@ -1548,7 +1558,9 @@ impl ConsequencePredictor {
             *consequences &= !Consequence::StartLost;
         }
 
-        if consequences.contains(Consequence::StartLost)
+        // VEP reports `start_retained_variant` for a deletion in the start codon that leaves the
+        // CDS intact. With default terms, hgvs-rs puts such a deletion in the 5' UTR.
+        if self.config.vep_consequence_terms
             && let (
                 Some(HgvsVariant::TxVariant {
                     loc_edit: n_loc_edit,
@@ -1880,7 +1892,8 @@ impl ConsequencePredictor {
                 && end_base > start_base
                 && end_base > 0
             {
-                if start_base <= 3 && start_cds_from == CdsFrom::Start {
+                // A deletion that can go before c.1 leaves the start codon intact.
+                if start_base <= 3 && start_cds_from == CdsFrom::Start && !in_5_prime_utr {
                     consequences |= Consequence::StartLost;
                 }
 
@@ -2909,6 +2922,8 @@ fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
 /// `del` must start at or after `cds_start`.  The CDS stays intact if it then starts
 /// `del.len()` bases earlier, i.e. if the same bases could be deleted from the 5' UTR.
 /// VEP's `_ins_del_start_altered` checks the same.
+///
+/// Only VEP terms use this check. With default terms, the region from hgvs-rs decides.
 fn deletion_keeps_cds(tx_seq: &str, cds_start: usize, del: std::ops::Range<usize>) -> bool {
     let Some(new_cds_start) = cds_start.checked_sub(del.len()) else {
         return false;
@@ -3668,6 +3683,59 @@ mod test {
         assert_eq!(ann.hgvs_c.as_deref(), Some(expected_hgvs_c));
         assert_eq!(ann.hgvs_p.as_deref(), Some("p.?"));
         assert_eq!(ann.consequences, vec![expected_csq]);
+
+        Ok(())
+    }
+
+    /// A deletion that can go before c.1 or after the last CDS base leaves the CDS intact. hgvs-rs
+    /// then gives `p.?`, and the default terms are UTR terms. In NM_007294.4, c.-2, c.-1 and c.1
+    /// are A bases. In NM_130837.3, c.3048 and c.*1 are A bases.
+    ///
+    /// VEP 108 with `--shift_3prime 1` keeps such a deletion at the start codon in the CDS and
+    /// reports `start_retained_variant`. It shifts the one behind the stop codon into the 3' UTR.
+    #[rstest::rstest]
+    #[case("17:41276112:AT:A", "NM_007294.4", "c.1del", false, vec![Consequence::FivePrimeUtrExonVariant])]
+    #[case("17:41276112:AT:A", "NM_007294.4", "c.1del", true, vec![Consequence::FrameshiftVariant, Consequence::StartRetainedVariant])]
+    #[case("17:41276112:ATT:A", "NM_007294.4", "c.-1_1del", false, vec![Consequence::FivePrimeUtrExonVariant])]
+    #[case("17:41276112:ATT:A", "NM_007294.4", "c.-1_1del", true, vec![Consequence::StartLost, Consequence::FivePrimeUtrVariant])]
+    #[case("3:193409915:AA:A", "NM_130837.3", "c.3048del", false, vec![Consequence::ThreePrimeUtrExonVariant])]
+    #[case("3:193409915:AA:A", "NM_130837.3", "c.3048del", true, vec![Consequence::ThreePrimeUtrVariant])]
+    fn annotate_del_keeping_cds(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] vep_consequence_terms: bool,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let spdi = spdi.split(':').collect::<Vec<_>>();
+
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .vep_consequence_terms(vep_consequence_terms)
+                .build()?,
+        );
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].to_string(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].to_string(),
+                alternative: spdi[3].to_string(),
+            })?
+            .unwrap();
+
+        let ann = res.iter().find(|ann| ann.feature_id == tx_id).unwrap();
+        assert_eq!(ann.hgvs_c.as_deref(), Some(expected_hgvs_c));
+        assert_eq!(ann.hgvs_p.as_deref(), Some("p.?"));
+        assert_eq!(ann.consequences, expected_csqs);
 
         Ok(())
     }
