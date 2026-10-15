@@ -56,7 +56,8 @@ struct HgvsProjectionContext {
     c: Option<HgvsVariant>,
     p: Option<HgvsVariant>,
     /// The c. variant that hgvs-rs builds `p` from: `c`, or an equivalent placement of it that
-    /// keeps the splice site, see `ShiftOverBoundaryPreference::KeepSpliceSite`.
+    /// keeps the splice site, see `ShiftOverBoundaryPreference::KeepSpliceSite`. On a
+    /// non-coding transcript, the n. placement that hgvs-rs picks for `c` in the same way.
     placement: Option<HgvsVariant>,
     /// The region of the transcript that `placement` changes, as hgvs-rs uses it to build `p`.
     region: Option<VariantLocation>,
@@ -1168,6 +1169,18 @@ impl ConsequencePredictor {
                 projection.p = Some(var_p);
                 projection.placement = Some(placement);
                 projection.region = region;
+            }
+
+            // A non-coding transcript has no `p.`, but hgvs-rs places its n. variant the same
+            // way. The terms then come from that placement, as for a c. variant.
+            if transcript_biotype == TranscriptBiotype::NonCoding {
+                projection.placement = self
+                    .mapper
+                    .shift_over_boundary(var_n)
+                    .inspect_err(|e| {
+                        tracing::debug!("{}: cannot place {}: {}", &tx.id, var_n, e);
+                    })
+                    .ok();
             }
         }
 
@@ -3301,8 +3314,8 @@ impl ConsequencePredictor {
         }))
     }
 
-    /// The placement that hgvs-rs builds `p` of `projection` from, if it differs from `c`: its
-    /// genome variant, and `projection` with the placement and its n. variant as `c` and `n`.
+    /// The placement of `projection`, if it differs from `c`: its genome variant, and
+    /// `projection` with the placement and its n. variant as `c` and `n`.
     ///
     /// Returns `None` if a mapping of the placement fails.
     fn placement_projection(
@@ -3318,8 +3331,14 @@ impl ConsequencePredictor {
         // placement back to `c`.
         let mapper = self.mapper.variant_mapper();
         let mapped = mapper
-            .c_to_g(placement, &tx_record.alt_ac, ALT_ALN_METHOD)
-            .and_then(|var_g| Ok((var_g, mapper.c_to_n(placement)?)));
+            .t_to_g(placement, &tx_record.alt_ac, ALT_ALN_METHOD)
+            .and_then(|var_g| {
+                let var_n = match placement {
+                    HgvsVariant::TxVariant { .. } => placement.clone(),
+                    _ => mapper.c_to_n(placement)?,
+                };
+                Ok((var_g, var_n))
+            });
         let (var_g, var_n) = match mapped {
             Ok(mapped) => mapped,
             Err(e) => {
@@ -4128,6 +4147,10 @@ mod test {
         Ok(fasta)
     }
 
+    /// Ensembl 108 chr22 transcripts for `annotate_chr22_window`.
+    const CHR22_PLACEMENT_TXS: &str =
+        "tests/data/annotate/db/grch38/GRCh38-ensembl.placement-subset.txs.bin.zst";
+
     /// Annotation of `spdi` on the transcript `tx_id`, with Ensembl 108 chr22 transcripts and
     /// the chr22 reference around the variant, so that mehari shifts indels 3'.
     fn annotate_chr22_window(
@@ -4138,14 +4161,16 @@ mod test {
         let config = ConfigBuilder::default()
             .vep_consequence_terms(vep_consequence_terms)
             .build()?;
-        annotate_chr22_window_with_config(spdi, tx_id, config)
+        annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_PLACEMENT_TXS)
     }
 
-    /// `annotate_chr22_window` with the predictor configuration `config`.
+    /// `annotate_chr22_window` with the predictor configuration `config` and the transcripts
+    /// in `tx_path`.
     fn annotate_chr22_window_with_config(
         spdi: &str,
         tx_id: &str,
         config: Config,
+        tx_path: &str,
     ) -> Result<AnnField, anyhow::Error> {
         let spdi = spdi.split(':').collect::<Vec<_>>();
 
@@ -4154,7 +4179,6 @@ mod test {
             "tests/data/annotate/seqvars/placement.chr22-windows.fa",
             dir.path(),
         )?;
-        let tx_path = "tests/data/annotate/db/grch38/GRCh38-ensembl.placement-subset.txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
@@ -4243,6 +4267,48 @@ mod test {
         Ok(())
     }
 
+    /// The variants of `annotate_indel_placement_csqs` at the same exon edge of other transcripts
+    /// of the gene (GENCODE 42, i.e., Ensembl 108): in the CDS, in a UTR and on a non-coding
+    /// transcript. hgvs-rs places the c. and the n. variants alike, so they get the same terms
+    /// apart from the region.
+    #[rstest::rstest]
+    // deleting the donor G (`GCCG|GTGAGT`) equals deleting the last exon G
+    #[case("22:23772977:CG:C", "ENST00000215743", false, "c.108+1del", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:23772977:CG:C", "ENST00000428253", false, "n.133+1del", vec![Consequence::ExonicSpliceRegionVariant, Consequence::NonCodingTranscriptExonVariant])]
+    #[case("22:23772977:CG:C", "ENST00000428253", true, "n.133+1del", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptExonVariant])]
+    // minus strand: deleting donor +1 to +3 equals deleting the last three exon bases
+    #[case("22:26481718:TCAC:T", "ENST00000336873", false, "c.41+1_41+3del", vec![Consequence::DisruptiveInframeDeletion, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:26481718:TCAC:T", "ENST00000483631", false, "c.-664+1_-664+3del", vec![Consequence::ExonicSpliceRegionVariant, Consequence::FivePrimeUtrExonVariant])]
+    #[case("22:26481718:TCAC:T", "ENST00000466781", false, "n.612+1_612+3del", vec![Consequence::ExonicSpliceRegionVariant, Consequence::NonCodingTranscriptExonVariant])]
+    // minus strand: deleting acceptor -3 and -2 equals an intronic deletion that keeps the AG
+    #[case("22:50246093:CTG:C", "ENST00000216271", false, "c.1651-3_1651-2del", vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:50246093:CTG:C", "ENST00000415993", false, "c.*1172-3_*1172-2del", vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::ThreePrimeUtrIntronVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:50246093:CTG:C", "ENST00000477814", false, "n.1286-3_1286-2del", vec![Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::NonCodingTranscriptIntronVariant])]
+    fn annotate_utr_and_noncoding_placement_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] vep_consequence_terms: bool,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(vep_consequence_terms)
+            .build()?;
+        let ann = annotate_chr22_window_with_config(
+            spdi,
+            tx_id,
+            config,
+            "tests/data/annotate/db/grch38/GRCh38-gencode42.placement-subset.txs.bin.zst",
+        )?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some(expected_hgvs_c), &expected_csqs),
+            "spdi = {spdi}"
+        );
+
+        Ok(())
+    }
+
     /// An insertion at an exon edge adds its bases to the exon. So it gets the exon number and a
     /// CDS position.
     #[test]
@@ -4270,7 +4336,12 @@ mod test {
             .report_cdna_sequence(SequenceReporting::Both)
             .report_protein_sequence(SequenceReporting::Both)
             .build()?;
-        let ann = annotate_chr22_window_with_config("22:23772977:CG:C", "ENST00000215743", config)?;
+        let ann = annotate_chr22_window_with_config(
+            "22:23772977:CG:C",
+            "ENST00000215743",
+            config,
+            CHR22_PLACEMENT_TXS,
+        )?;
         assert_eq!(ann.hgvs_c.as_deref(), Some("c.108+1del"));
         assert_eq!(ann.hgvs_p.as_deref(), Some("p.Asp37ThrfsTer53"));
 
