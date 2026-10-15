@@ -3771,7 +3771,7 @@ mod test {
         Ok(())
     }
 
-    /// With VEP terms, the expected terms are those of VEP 108 with `--shift_3prime 1`. VEP puts
+    /// With VEP terms, the expected terms are those of VEP 116.3 with `--shift_3prime 1`. VEP puts
     /// `c.1dup` between c.1 and c.2 and `c.1_3dup` between c.3 and c.4, so both change the CDS.
     /// `c.1_2insCCA` equals `c.-1_1insACC`.
     #[rstest::rstest]
@@ -3824,7 +3824,7 @@ mod test {
     /// then gives `p.?`, and the default terms are UTR terms. In NM_007294.4, c.-2, c.-1 and c.1
     /// are A bases. In NM_130837.3, c.3048 and c.*1 are A bases.
     ///
-    /// VEP 108 with `--shift_3prime 1` keeps such a deletion at the start codon in the CDS and
+    /// VEP 116.3 with `--shift_3prime 1` keeps such a deletion at the start codon in the CDS and
     /// reports `start_retained_variant`. It shifts the one behind the stop codon into the 3' UTR.
     #[rstest::rstest]
     #[case("17:41276112:AT:A", "NM_007294.4", "c.1del", false, vec![Consequence::FivePrimeUtrExonVariant])]
