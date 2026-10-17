@@ -291,7 +291,6 @@ impl Provider {
     /// # Arguments
     ///
     /// * `tx_seq_db` - The `TxSeqDatabase` to use.
-    #[allow(deprecated)]
     pub fn new(
         tx_seq_db: TxSeqDatabase,
         reference: Option<impl AsRef<Path>>,
