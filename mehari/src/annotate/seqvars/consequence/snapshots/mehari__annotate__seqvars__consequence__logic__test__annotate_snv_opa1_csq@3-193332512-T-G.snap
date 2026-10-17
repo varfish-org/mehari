@@ -10,7 +10,7 @@ expression: res
     - exonic_splice_region_variant
   putative_impact: moderate
   gene_symbol: OPA1
-  gene_id: "HGNC:8140"
+  gene_id: "4976"
   feature_type:
     so_term:
       term: Transcript
