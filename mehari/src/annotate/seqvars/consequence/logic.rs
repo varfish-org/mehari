@@ -963,11 +963,19 @@ impl ConsequencePredictor {
         let mut distance: Option<i32> = None;
 
         // The range of an insertion is the base in front of it. An insertion at the start of
-        // an exon adds its bases to the exon, so its range is the first exon base instead.
+        // an exon adds its bases to the exon, so its range is the first exon base instead. With
+        // VEP terms, an insertion behind the last exon on the genome lies outside the transcript,
+        // as in VEP 116.3, so its range is the base behind the exon. Without a reference, mehari
+        // does not shift an insertion on the genome, so an insertion that VEP shifts behind the
+        // last exon stays inside.
+        let at_exon_start =
+            (alignment.exons.iter().skip(1)).any(|exon| exon.alt_start_i == var_end);
+        let behind_last_exon = self.config.vep_consequence_terms
+            && alignment.exons.iter().map(|exon| exon.alt_end_i).max() == Some(var_end);
         let (var_start, var_end) = match var_g {
             HgvsVariant::GenomeVariant { loc_edit, .. }
                 if matches!(loc_edit.edit.inner(), NaEdit::Ins { .. })
-                    && (alignment.exons.iter().skip(1)).any(|exon| exon.alt_start_i == var_end) =>
+                    && (at_exon_start || behind_last_exon) =>
             {
                 (var_start + 1, var_end + 1)
             }
@@ -1464,7 +1472,15 @@ impl ConsequencePredictor {
                 transcript_biotype,
             )?;
 
-            consequences |= consequence_ctx.cds_consequences | consequence_ctx.protein_consequences;
+            // With VEP terms, the copy of a dup of the last transcript base lies outside the
+            // transcript, so the dup gets no CDS or protein terms.
+            let copy_outside = copy_location
+                .as_ref()
+                .is_some_and(|location| location.is_upstream || location.is_downstream);
+            if !(self.config.vep_consequence_terms && copy_outside) {
+                consequences |=
+                    consequence_ctx.cds_consequences | consequence_ctx.protein_consequences;
+            }
 
             self.consequences_fix_special_cases(
                 &mut consequences,
@@ -4613,11 +4629,18 @@ mod test {
     #[rstest::rstest]
     // The deletion shifts from `c.1637_*1del` to `c.1638_*1+1del` and keeps the stop codon
     // `TGA`. VEP builds no codons for it, as its end lies in the intron.
-    #[case("22:15719775:TGAG:T", "ENST00000343518", "c.1638_*1+1del", vec![Consequence::SpliceDonorVariant, Consequence::StopRetainedVariant, Consequence::CodingSequenceVariant, Consequence::ThreePrimeUtrVariant])]
+    #[case("22:15719775:TGAG:T", "ENST00000343518", Some("c.1638_*1+1del"), vec![Consequence::SpliceDonorVariant, Consequence::StopRetainedVariant, Consequence::CodingSequenceVariant, Consequence::ThreePrimeUtrVariant])]
+    // ENST00000613577 and ENST00000540833 end with the stop codon `TAA`. The insertion shifts
+    // behind the last base, so VEP puts it outside the transcript. The dup that describes it
+    // stays inside.
+    #[case("22:18530457:T:TA", "ENST00000613577", Some("c.1071dup"), vec![Consequence::DownstreamGeneVariant])]
+    #[case("22:41767606:T:TA", "ENST00000540833", Some("c.1521dup"), vec![Consequence::DownstreamGeneVariant])]
+    // an insertion behind the last base that does not shift
+    #[case("22:18530459:A:AC", "ENST00000613577", None, vec![Consequence::DownstreamGeneVariant])]
     fn annotate_vep_cds_end_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
-        #[case] expected_hgvs_c: &str,
+        #[case] expected_hgvs_c: Option<&str>,
         #[case] expected_csqs: Vec<Consequence>,
     ) -> Result<(), anyhow::Error> {
         let config = ConfigBuilder::default()
@@ -4626,7 +4649,7 @@ mod test {
         let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_CDS_END_TXS)?;
         assert_eq!(
             (ann.hgvs_c.as_deref(), &ann.consequences),
-            (Some(expected_hgvs_c), &expected_csqs),
+            (expected_hgvs_c, &expected_csqs),
             "spdi = {spdi}"
         );
 
