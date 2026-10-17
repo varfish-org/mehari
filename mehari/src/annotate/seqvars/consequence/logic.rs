@@ -144,7 +144,7 @@ pub(crate) trait HgvsVariantExt {
     ///
     /// Returns `None` for an edit other than an insertion, duplication, deletion or delins, and
     /// for an edit that keeps the length.
-    fn vep_indel_stop_terms(
+    fn vep_indel_protein_terms(
         &self,
         unshifted: &HgvsVariant,
         ref_data: &RefTranscriptData,
@@ -188,7 +188,7 @@ impl HgvsVariantExt for HgvsVariant {
         edit.is_ins() && matches!((start.unwrap_or(0), end.unwrap_or(0)), (0, 1) | (-1, 0))
     }
 
-    fn vep_indel_stop_terms(
+    fn vep_indel_protein_terms(
         &self,
         unshifted: &HgvsVariant,
         ref_data: &RefTranscriptData,
@@ -1354,7 +1354,7 @@ impl ConsequencePredictor {
                     &tx_record.tx_ac,
                     None,
                 )
-                && let Some(stop_terms) = ins_c.unwrap_or(var_c).vep_indel_stop_terms(
+                && let Some(protein_terms) = ins_c.unwrap_or(var_c).vep_indel_protein_terms(
                     projection.unshifted_c.as_ref().unwrap_or(var_c),
                     &ref_data,
                     tx,
@@ -1366,7 +1366,7 @@ impl ConsequencePredictor {
                         | Consequence::StopRetainedVariant
                         | Consequence::SynonymousVariant,
                 );
-                context.protein_consequences |= stop_terms;
+                context.protein_consequences |= protein_terms;
             }
         }
 
