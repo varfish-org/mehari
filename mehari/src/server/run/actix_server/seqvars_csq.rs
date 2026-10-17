@@ -15,6 +15,7 @@ use crate::annotate::seqvars::consequence::terms::FeatureTag;
 use crate::annotate::seqvars::consequence::terms::{
     AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank,
 };
+use crate::annotate::seqvars::provider::Provider as MehariProvider;
 
 /// Query parameters of the `/api/v1/seqvars/csq` endpoint.
 #[derive(
@@ -131,7 +132,7 @@ async fn handle_impl(
         for ann_field in ann_fields {
             if let Some(hgnc_id) = &hgnc_id {
                 // Skip if HGNC gene ID is given but does not match.
-                if ann_field.gene_id != *hgnc_id {
+                if !has_hgnc_id(&predictor.provider, &ann_field.feature_id, hgnc_id) {
                     continue;
                 }
             }
@@ -201,6 +202,11 @@ async fn handle_impl(
     Ok(Json(result))
 }
 
+/// Whether the gene of the transcript `tx_ac` has the HGNC ID `hgnc_id`.
+fn has_hgnc_id(provider: &MehariProvider, tx_ac: &str, hgnc_id: &str) -> bool {
+    provider.get_tx(tx_ac).and_then(|tx| provider.hgnc_id(tx)) == Some(hgnc_id)
+}
+
 /// Query for consequence of a variant.
 #[allow(clippy::unused_async)]
 #[get("/seqvars/csq")]
@@ -232,4 +238,29 @@ async fn handle_with_openapi(
     query: web::Query<SeqvarsCsqQuery>,
 ) -> actix_web::Result<Json<SeqvarsCsqResponse>, super::CustomError> {
     handle_impl(data, _path, query).await
+}
+
+#[cfg(test)]
+mod test {
+    /// The filter by HGNC ID uses `hgnc_id`. Databases that predate annotation gene IDs name it
+    /// in `legacy_gene_id`.
+    #[rstest::rstest]
+    #[case::new_database(true, "HGNC:1", true)]
+    #[case::new_database_legacy_gene_id(true, "GENE:11", false)]
+    #[case::old_database(false, "HGNC:1", true)]
+    fn has_hgnc_id(#[case] new: bool, #[case] hgnc_id: &str, #[case] expected: bool) {
+        use crate::annotate::seqvars::provider::{Provider, test_db};
+
+        let provider = Provider::new(
+            test_db::one_gene_db(new),
+            None::<&str>,
+            true,
+            Default::default(),
+        );
+
+        assert_eq!(
+            super::has_hgnc_id(&provider, "NM_000001.1", hgnc_id),
+            expected
+        );
+    }
 }

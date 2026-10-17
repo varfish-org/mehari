@@ -235,8 +235,9 @@ pub struct Provider {
     /// The contig name manager.
     pub contig_manager: Arc<ContigManager>,
 
-    /// Mapping from `legacy_gene_id` to the indices in `TxSeqDatabase::tx_db::gene_to_tx`.
-    /// Two genes with one HGNC ID have the same `legacy_gene_id`.
+    /// Mapping from HGNC ID to the indices in `TxSeqDatabase::tx_db::gene_to_tx`. Two genes can
+    /// have one HGNC ID, e.g. a RefSeq and an Ensembl gene. Databases that predate annotation
+    /// gene IDs map the `legacy_gene_id`.
     gene_map: FxHashMap<String, Vec<u32>>,
 
     /// Mapping from transcript accession to index in `TxSeqDatabase::tx_db::transcripts`.
@@ -349,6 +350,17 @@ impl Provider {
             }
         }
 
+        let legacy_gene_ids = tx_seq_db
+            .tx_db
+            .as_ref()
+            .is_some_and(|tx_db| tx_db.transcripts.iter().any(|tx| tx.gene_id.is_empty()));
+        if legacy_gene_ids {
+            tracing::warn!(
+                "The transcript database predates annotation gene IDs. Outputs report the \
+                legacy gene IDs, e.g. HGNC:1100."
+            );
+        }
+
         let mut gene_map: FxHashMap<String, Vec<u32>> = FxHashMap::default();
         for (idx, entry) in tx_seq_db
             .tx_db
@@ -359,10 +371,17 @@ impl Provider {
             // .filter(|gene| !gene.filtered.unwrap_or(false))
             .enumerate()
         {
-            gene_map
-                .entry(entry.legacy_gene_id.clone())
-                .or_default()
-                .push(idx as u32);
+            let hgnc_id = if legacy_gene_ids {
+                Some(entry.legacy_gene_id.as_str())
+            } else {
+                entry.hgnc_id_or_legacy()
+            };
+            if let Some(hgnc_id) = hgnc_id {
+                gene_map
+                    .entry(hgnc_id.to_string())
+                    .or_default()
+                    .push(idx as u32);
+            }
         }
         let tx_map = FxHashMap::from_iter(
             tx_seq_db
@@ -376,7 +395,6 @@ impl Provider {
                 .map(|(idx, tx)| (tx.id.clone(), idx as u32)),
         );
         let mut tx_genes = Vec::new();
-        let mut legacy_gene_ids = false;
         if let Some(tx_db) = &tx_seq_db.tx_db {
             tx_genes.resize(tx_db.transcripts.len(), None);
             for (gene_idx, gene) in tx_db.gene_to_tx.iter().enumerate() {
@@ -389,13 +407,6 @@ impl Provider {
                     }
                 }
             }
-            legacy_gene_ids = tx_db.transcripts.iter().any(|tx| tx.gene_id.is_empty());
-        }
-        if legacy_gene_ids {
-            tracing::warn!(
-                "The transcript database predates annotation gene IDs. Outputs report the \
-                legacy gene IDs, e.g. HGNC:1100."
-            );
         }
         let seq_map = FxHashMap::from_iter(
             tx_seq_db
@@ -700,8 +711,7 @@ impl ProviderInterface for Provider {
             .expect("no tx_db?")
             .transcripts[tx_idx];
 
-        #[allow(deprecated)]
-        let hgnc = tx.legacy_gene_id.clone();
+        let hgnc = self.hgnc_id(tx).unwrap_or_default().to_string();
         let tx_ac_str = tx_ac.to_string();
         let alt_ac_str = db_contig.to_string();
         let alt_aln_method_str = ALT_ALN_METHOD.to_string();
@@ -846,8 +856,7 @@ impl ProviderInterface for Provider {
 
                     if let Some(genome_alignment) = tx.genome_alignments.first() {
                         Some(Ok(TxInfoRecord {
-                            #[allow(deprecated)]
-                            hgnc: tx.legacy_gene_id.clone(),
+                            hgnc: self.hgnc_id(tx).unwrap_or_default().to_string(),
                             cds_start_i: tx.start_codon,
                             cds_end_i: tx.stop_codon,
                             tx_ac: tx.id.clone(),
@@ -930,8 +939,7 @@ impl ProviderInterface for Provider {
             .as_ref()
             .expect("no tx_db?")
             .transcripts[tx_idx];
-        #[allow(deprecated)]
-        let hgnc = tx.legacy_gene_id.clone();
+        let hgnc = self.hgnc_id(tx).unwrap_or_default().to_string();
 
         let mut tmp = tx
             .genome_alignments
@@ -1031,8 +1039,7 @@ impl ProviderInterface for Provider {
         for genome_alignment in &tx.genome_alignments {
             if genome_alignment.contig == db_contig {
                 return Ok(TxInfoRecord {
-                    #[allow(deprecated)]
-                    hgnc: tx.legacy_gene_id.clone(),
+                    hgnc: self.hgnc_id(tx).unwrap_or_default().to_string(),
                     cds_start_i: tx.start_codon,
                     cds_end_i: tx.stop_codon,
                     tx_ac: tx.id.clone(),
@@ -1242,6 +1249,42 @@ mod test {
         );
 
         assert!(!logs_contain("predates annotation gene IDs"));
+    }
+
+    /// The lookup by HGNC ID uses `hgnc_id`. Databases that predate annotation gene IDs name it
+    /// in `legacy_gene_id`.
+    #[rstest::rstest]
+    #[case::new_database(true, "HGNC:1", true)]
+    #[case::new_database_legacy_gene_id(true, "GENE:11", false)]
+    #[case::old_database(false, "HGNC:1", true)]
+    fn lookup_by_hgnc_id(
+        #[case] new: bool,
+        #[case] hgnc_id: &str,
+        #[case] found: bool,
+    ) -> Result<(), anyhow::Error> {
+        use super::{Provider, test_db};
+        use hgvs::data::interface::Provider as _;
+
+        let provider = Provider::new(
+            test_db::one_gene_db(new),
+            None::<&str>,
+            true,
+            Default::default(),
+        );
+
+        let txs: Vec<_> = provider
+            .get_tx_for_gene(hgnc_id)?
+            .into_iter()
+            .map(|tx| (tx.tx_ac, tx.hgnc))
+            .collect();
+        let expected = if found {
+            vec![("NM_000001.1".to_string(), "HGNC:1".to_string())]
+        } else {
+            vec![]
+        };
+        assert_eq!(txs, expected);
+
+        Ok(())
     }
 
     /// Two genes can have the same HGNC ID. The lookup by HGNC ID returns the transcripts of

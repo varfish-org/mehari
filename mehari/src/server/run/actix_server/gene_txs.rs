@@ -63,7 +63,10 @@ fn genes_tx_impl(
         transcripts: tx_acs[first..last]
             .iter()
             .filter_map(|tx_ac| provider.get_tx(tx_ac))
-            .cloned()
+            .map(|tx| pbs::txs::Transcript {
+                gene_id: provider.gene_id(tx).to_string(),
+                ..tx.clone()
+            })
             .collect::<Vec<_>>(),
         next_page_token: if last < tx_acs.len() {
             Some(tx_acs[last].clone())
@@ -306,7 +309,8 @@ pub(crate) struct Transcript {
     pub id: String,
     /// HGNC symbol, e.g., `"BRCA1"`
     pub gene_symbol: String,
-    /// HGNC gene identifier, e.g., `"1100"` for BRCA1.
+    /// Gene ID of the annotation, e.g., `"672"` for BRCA1 in RefSeq. Databases that predate
+    /// annotation gene IDs give the legacy gene ID, e.g., `"HGNC:1100"`.
     pub gene_id: String,
     /// Transcript biotype.
     pub biotype: TranscriptBiotype,
@@ -333,8 +337,7 @@ impl TryFrom<pbs::txs::Transcript> for Transcript {
         Ok(Transcript {
             id: value.id.clone(),
             gene_symbol: value.gene_symbol.clone(),
-            #[allow(deprecated)]
-            gene_id: value.legacy_gene_id.clone(),
+            gene_id: value.gene_id.clone(),
             biotype: TranscriptBiotype::try_from(pbs::txs::TranscriptBiotype::try_from(
                 value.biotype,
             )?)?,
@@ -451,4 +454,57 @@ async fn handle_with_openapi(
         }]);
     }
     Ok(Json(response))
+}
+
+#[cfg(test)]
+mod test {
+    /// The transcripts of a gene report the gene ID of the annotation. Databases that predate
+    /// annotation gene IDs give the legacy gene ID.
+    #[rstest::rstest]
+    #[case::new_database(true, "11")]
+    #[case::old_database(false, "HGNC:1")]
+    fn gene_id_of_transcripts(
+        #[case] new: bool,
+        #[case] expected: &str,
+    ) -> Result<(), anyhow::Error> {
+        use crate::annotate::seqvars::provider::{Provider, test_db};
+        use crate::pbs::server::GeneTranscriptsQuery;
+        use crate::server::run::actix_server::WebServerData;
+        use std::sync::Arc;
+
+        let provider = Provider::new(
+            test_db::one_gene_db(new),
+            None::<&str>,
+            true,
+            Default::default(),
+        );
+        let data = WebServerData {
+            provider: [("grch38".to_string(), Arc::new(provider))].into(),
+            ..Default::default()
+        };
+        let query = GeneTranscriptsQuery {
+            genome_build: Some("grch38".into()),
+            hgnc_id: Some("HGNC:1".into()),
+            ..Default::default()
+        };
+
+        let response = super::genes_tx_impl(actix_web::web::Data::new(data), query)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let gene_ids: Vec<_> = response
+            .transcripts
+            .iter()
+            .map(|tx| tx.gene_id.clone())
+            .collect();
+        assert_eq!(gene_ids, [expected]);
+
+        let response = super::GenesTranscriptsListResponse::try_from(response)?;
+        let gene_ids: Vec<_> = response
+            .transcripts
+            .iter()
+            .map(|tx| tx.gene_id.clone())
+            .collect();
+        assert_eq!(gene_ids, [expected]);
+
+        Ok(())
+    }
 }

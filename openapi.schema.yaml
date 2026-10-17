@@ -1584,7 +1584,9 @@ components:
           description: HGNC symbol, e.g., `"BRCA1"`
         gene_id:
           type: string
-          description: HGNC gene identifier, e.g., `"1100"` for BRCA1.
+          description: |-
+            Gene ID of the annotation, e.g., `"672"` for BRCA1 in RefSeq. Databases that predate
+            annotation gene IDs give the legacy gene ID, e.g., `"HGNC:1100"`.
         biotype:
           $ref: '#/components/schemas/TranscriptBiotype'
           description: Transcript biotype.
