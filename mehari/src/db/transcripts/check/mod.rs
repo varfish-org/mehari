@@ -271,8 +271,8 @@ impl TxDbData {
     }
 }
 
-/// The ID of a gene in the database: its HGNC ID, else its gene ID, which cdot names
-/// `gene_version`.
+/// The ID of a gene in the database: its HGNC ID, else its gene ID as `Id::GeneVersion`.
+/// An Ensembl gene ID has no version there, unlike the cdot `gene_version`.
 fn gene_id(gene: &GeneToTxId) -> Option<Id> {
     match gene.hgnc_id_or_legacy() {
         Some(hgnc_id) => Some(Id::Hgnc(hgnc_id.to_string())),
