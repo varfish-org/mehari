@@ -323,9 +323,9 @@ fn gene_tx_effect_for_range(
     result
 }
 
-/// Group the effects on transcripts by gene, with one entry per gene entry. A transcript
-/// without gene entry gets its own. Databases that predate annotation gene IDs give one entry
-/// per legacy gene ID.
+/// Group the effects on transcripts by gene, with one entry per gene entry. Transcripts
+/// without gene entry give one entry per gene ID. Databases that predate annotation gene IDs
+/// give one entry per legacy gene ID.
 fn effects_by_gene<'a>(
     mehari_provider: &'a MehariProvider,
     tx_effects: impl Iterator<Item = (&'a Transcript, Vec<StrucvarsTranscriptEffect>)>,
