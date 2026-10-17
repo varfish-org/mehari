@@ -252,10 +252,11 @@ impl TxDbData {
                 && bits != 0
             {
                 let reason = BitFlags::<FilterReason>::from_bits_truncate(bits);
+                // Two genes can have one HGNC ID, so combine their reasons.
                 if g.filtered.unwrap_or(false) {
-                    hard_filter_reasons.insert(id, reason);
+                    *hard_filter_reasons.entry(id).or_default() |= reason;
                 } else {
-                    soft_filter_reasons.insert(id, reason);
+                    *soft_filter_reasons.entry(id).or_default() |= reason;
                 }
             }
         }
@@ -959,18 +960,11 @@ mod tests {
         )
     }
 
-    /// The checks name a gene by its HGNC ID, else by its gene ID. Two genes can have one
-    /// HGNC ID, and either one covers the disease gene.
-    #[test]
-    fn genes_are_named_by_hgnc_id() -> Result<(), anyhow::Error> {
-        let missing = Some(FilterReason::MissingSequence);
-        let (gene_to_tx, transcripts) = [
-            gene("1", Some("HGNC:1100"), "NM_000001.1", None, missing),
-            gene("672", Some("HGNC:1100"), "NM_007294.4", None, None),
-            gene("33", None, "NM_000033.1", missing, missing),
-        ]
-        .into_iter()
-        .unzip();
+    /// The `TxDbData` of a database with `genes`, as `TxDbData::from_path` reads it.
+    fn tx_db_data(
+        genes: impl IntoIterator<Item = (GeneToTxId, Transcript)>,
+    ) -> Result<TxDbData, anyhow::Error> {
+        let (gene_to_tx, transcripts) = genes.into_iter().unzip();
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("txs.bin");
         let tx_db = TxSeqDatabase {
@@ -981,8 +975,39 @@ mod tests {
             ..Default::default()
         };
         write_tx_db(tx_db, &path, 0, &NoProgress)?;
+        TxDbData::from_path(&path)
+    }
 
-        let tx_db_data = TxDbData::from_path(&path)?;
+    /// Two kept genes with one HGNC ID have the soft filter reasons of both.
+    #[test]
+    fn genes_with_one_hgnc_id_combine_their_soft_filter_reasons() -> Result<(), anyhow::Error> {
+        let mut first = gene("1", Some("HGNC:1100"), "NM_000001.1", None, None);
+        first.0.filter_reason = Some(FilterReason::Pseudogene as u32);
+        let mut other = gene("672", Some("HGNC:1100"), "NM_007294.4", None, None);
+        other.0.filter_reason = Some(FilterReason::MissingStopCodon as u32);
+        let tx_db_data = tx_db_data([first, other])?;
+
+        assert_eq!(
+            tx_db_data
+                .soft_filter_reasons
+                .get(&Id::Hgnc("HGNC:1100".into())),
+            Some(&(FilterReason::Pseudogene | FilterReason::MissingStopCodon))
+        );
+        assert!(tx_db_data.hard_filter_reasons.is_empty());
+
+        Ok(())
+    }
+
+    /// The checks name a gene by its HGNC ID, else by its gene ID. Two genes can have one
+    /// HGNC ID, and either one covers the disease gene.
+    #[test]
+    fn genes_are_named_by_hgnc_id() -> Result<(), anyhow::Error> {
+        let missing = Some(FilterReason::MissingSequence);
+        let tx_db_data = tx_db_data([
+            gene("1", Some("HGNC:1100"), "NM_000001.1", None, missing),
+            gene("672", Some("HGNC:1100"), "NM_007294.4", None, None),
+            gene("33", None, "NM_000033.1", missing, missing),
+        ])?;
         let gene_ids: HashSet<_> = tx_db_data
             .all_ids
             .iter()
@@ -1035,6 +1060,36 @@ mod tests {
                 "33",
                 "Gene hard-filtered for unexpected reason"
             )]
+        );
+
+        Ok(())
+    }
+
+    /// Two genes can have one HGNC ID. The HGNC ID has the filter reasons of both.
+    #[test]
+    fn genes_with_one_hgnc_id_combine_their_filter_reasons() -> Result<(), anyhow::Error> {
+        let tx_db_data = tx_db_data([
+            gene(
+                "1",
+                Some("HGNC:1100"),
+                "NM_000001.1",
+                Some(FilterReason::NoTranscriptLeft),
+                None,
+            ),
+            gene(
+                "672",
+                Some("HGNC:1100"),
+                "NM_007294.4",
+                Some(FilterReason::Pseudogene),
+                None,
+            ),
+        ])?;
+
+        assert_eq!(
+            tx_db_data
+                .hard_filter_reasons
+                .get(&Id::Hgnc("HGNC:1100".into())),
+            Some(&(FilterReason::NoTranscriptLeft | FilterReason::Pseudogene))
         );
 
         Ok(())
