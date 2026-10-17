@@ -15,7 +15,7 @@ use strum::Display;
 
 use crate::annotate::seqvars::consequence::load_tx_db;
 use crate::db::transcripts::create::models::Reason as FilterReason;
-use crate::pbs::txs::{TranscriptDb, TranscriptTag};
+use crate::pbs::txs::{GeneToTxId, TranscriptDb, TranscriptTag};
 
 /// Check a mehari transcript database against information from
 /// cdot, HGNC, human-phenotype-ontology and a collection of known issues.
@@ -205,9 +205,9 @@ impl TxDbData {
         let mut all_ids = HashSet::new();
 
         for g in &tx_db.gene_to_tx {
-            #[allow(deprecated)]
-            let hgnc_id = Id::Hgnc(g.legacy_gene_id.clone());
-            all_ids.insert(hgnc_id.clone());
+            if let Some(id) = gene_id(g) {
+                all_ids.insert(id);
+            }
 
             for tx_id in &g.tx_ids {
                 all_ids.insert(Id::from(tx_id));
@@ -245,8 +245,9 @@ impl TxDbData {
 
         // Process Genes
         for g in &tx_db.gene_to_tx {
-            #[allow(deprecated)]
-            let id = Id::Hgnc(g.legacy_gene_id.clone());
+            let Some(id) = gene_id(g) else {
+                continue;
+            };
             if let Some(bits) = g.filter_reason
                 && bits != 0
             {
@@ -267,6 +268,15 @@ impl TxDbData {
             discarded_mane_entries,
             soft_filtered_mane_entries,
         })
+    }
+}
+
+/// The ID of a gene in the database: its HGNC ID, else its gene ID, which cdot names
+/// `gene_version`.
+fn gene_id(gene: &GeneToTxId) -> Option<Id> {
+    match gene.hgnc_id_or_legacy() {
+        Some(hgnc_id) => Some(Id::Hgnc(hgnc_id.to_string())),
+        None => (!gene.gene_id.is_empty()).then(|| Id::GeneVersion(gene.gene_id.clone())),
     }
 }
 
@@ -658,7 +668,9 @@ impl DatabaseChecker {
 
         // Check against HARD reasons
         for (id, &reason) in &data.tx_db_data.hard_filter_reasons {
-            if matches!(id, Id::Hgnc(_)) && !reason.intersects(uninteresting_reasons) {
+            if matches!(id, Id::Hgnc(_) | Id::GeneVersion(_))
+                && !reason.intersects(uninteresting_reasons)
+            {
                 reporter.add_entry(
                     Status::Err,
                     id.clone(),
@@ -738,7 +750,6 @@ impl DatabaseChecker {
     }
 
     /// Check that every disease gene is represented by at least one unfiltered transcript in the tx_db.
-    #[allow(deprecated)]
     fn check_disease_genes_covered_in_tx_db(
         &self,
         data: &ComparisonDataContainer,
@@ -752,16 +763,19 @@ impl DatabaseChecker {
                 );
             }
 
-            let gene_in_db = data
+            // Two genes can have one HGNC ID.
+            let (_, hgnc_id) = disease_gene_id.to_parts();
+            let genes_in_db: Vec<_> = data
                 .tx_db_data
                 .tx_db
                 .gene_to_tx
                 .iter()
-                .find(|g| g.legacy_gene_id == disease_gene_id.to_parts().1);
+                .filter(|g| g.hgnc_id_or_legacy() == Some(hgnc_id.as_str()))
+                .collect();
 
-            let (is_covered, details) = if let Some(gene_entry) = gene_in_db {
+            let (is_covered, details) = if !genes_in_db.is_empty() {
                 // The gene exists in the database. Now check its transcripts.
-                let db_tx_ids = &gene_entry.tx_ids;
+                let db_tx_ids: Vec<_> = genes_in_db.iter().flat_map(|g| &g.tx_ids).collect();
 
                 // Any transcript that is not hard-filtered counts as coverage (including soft-filtered ones)
                 let has_usable_tx = db_tx_ids.iter().any(|tx_id_str| {
@@ -905,4 +919,124 @@ impl DatabaseChecker {
 pub fn run(_common: &crate::common::Args, args: &Args) -> Result<()> {
     let checker = DatabaseChecker::new(args.clone());
     checker.run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::progress::NoProgress;
+    use crate::db::transcripts::create::write_tx_db;
+    use crate::pbs::txs::{Transcript, TxSeqDatabase};
+
+    /// A gene with one transcript. `gene_reason` and `tx_reason` hard-filter them.
+    #[allow(deprecated)]
+    fn gene(
+        gene_id: &str,
+        hgnc_id: Option<&str>,
+        tx_id: &str,
+        gene_reason: Option<FilterReason>,
+        tx_reason: Option<FilterReason>,
+    ) -> (GeneToTxId, Transcript) {
+        let legacy_gene_id = format!("GENE:{gene_id}");
+        (
+            GeneToTxId {
+                legacy_gene_id: legacy_gene_id.clone(),
+                tx_ids: vec![tx_id.into()],
+                filtered: Some(gene_reason.is_some()),
+                filter_reason: gene_reason.map(|reason| reason as u32),
+                gene_id: gene_id.into(),
+                hgnc_id: hgnc_id.map(String::from),
+            },
+            Transcript {
+                id: tx_id.into(),
+                legacy_gene_id,
+                filtered: Some(tx_reason.is_some()),
+                filter_reason: tx_reason.map(|reason| reason as u32),
+                gene_id: gene_id.into(),
+                hgnc_id: hgnc_id.map(String::from),
+                ..Default::default()
+            },
+        )
+    }
+
+    /// The checks name a gene by its HGNC ID, else by its gene ID. Two genes can have one
+    /// HGNC ID, and either one covers the disease gene.
+    #[test]
+    fn genes_are_named_by_hgnc_id() -> Result<(), anyhow::Error> {
+        let missing = Some(FilterReason::MissingSequence);
+        let (gene_to_tx, transcripts) = [
+            gene("1", Some("HGNC:1100"), "NM_000001.1", None, missing),
+            gene("672", Some("HGNC:1100"), "NM_007294.4", None, None),
+            gene("33", None, "NM_000033.1", missing, missing),
+        ]
+        .into_iter()
+        .unzip();
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("txs.bin");
+        let tx_db = TxSeqDatabase {
+            tx_db: Some(TranscriptDb {
+                transcripts,
+                gene_to_tx,
+            }),
+            ..Default::default()
+        };
+        write_tx_db(tx_db, &path, 0, &NoProgress)?;
+
+        let tx_db_data = TxDbData::from_path(&path)?;
+        let gene_ids: HashSet<_> = tx_db_data
+            .all_ids
+            .iter()
+            .filter(|id| matches!(id, Id::Hgnc(_) | Id::GeneVersion(_)))
+            .cloned()
+            .collect();
+        assert_eq!(
+            gene_ids,
+            HashSet::from([Id::Hgnc("HGNC:1100".into()), Id::GeneVersion("33".into())])
+        );
+
+        let data = ComparisonDataContainer::new(
+            tx_db_data,
+            HashSet::new(),
+            IdentifierMap::new(),
+            HashSet::from([Id::Hgnc("HGNC:1100".into())]),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+        );
+        let checker = DatabaseChecker::new(Args {
+            db: PathBuf::new(),
+            cdot: Vec::new(),
+            hgnc: PathBuf::new(),
+            disease_genes: PathBuf::new(),
+            known_issues: PathBuf::new(),
+            clinvar_hgnc_counts: PathBuf::new(),
+            clinvar_tx_acc_counts: PathBuf::new(),
+            output: PathBuf::new(),
+        });
+        let mut reporter = Reporter::new(HashMap::new());
+        checker.check_disease_genes_covered_in_tx_db(&data, &mut reporter);
+        checker.check_unexpected_filtered_genes(&data, &mut reporter);
+
+        let entries: Vec<_> = reporter
+            .entries
+            .iter()
+            .map(|entry| {
+                (
+                    entry.id_type.as_str(),
+                    entry.id_value.as_str(),
+                    entry.check.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            entries,
+            [(
+                "gene_version",
+                "33",
+                "Gene hard-filtered for unexpected reason"
+            )]
+        );
+
+        Ok(())
+    }
 }
