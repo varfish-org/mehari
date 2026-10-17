@@ -216,6 +216,10 @@ pub struct VarFishSeqvarTsvWriter {
     pedigree: Option<PedigreeByName>,
     header: Option<VcfHeader>,
     hgnc_map: Option<FxHashMap<String, HgncRecord>>,
+    /// The HGNC ID of each `ensembl_gene_id` in `hgnc_map`.
+    hgnc_ids_by_ensembl_gene_id: FxHashMap<String, String>,
+    /// The HGNC ID of each `entrez_id` in `hgnc_map`.
+    hgnc_ids_by_entrez_id: FxHashMap<String, String>,
     tsv_contig_style: TsvContigStyle,
     contig_manager: ContigManager,
 }
@@ -237,13 +241,40 @@ impl VarFishSeqvarTsvWriter {
             pedigree: None,
             header: None,
             hgnc_map: None,
+            hgnc_ids_by_ensembl_gene_id: FxHashMap::default(),
+            hgnc_ids_by_entrez_id: FxHashMap::default(),
             tsv_contig_style,
             contig_manager: ContigManager::new(""),
         })
     }
 
     pub fn set_hgnc_map(&mut self, hgnc_map: FxHashMap<String, HgncRecord>) {
+        self.hgnc_ids_by_ensembl_gene_id = hgnc_map
+            .values()
+            .filter(|record| !record.ensembl_gene_id.is_empty())
+            .map(|record| (record.ensembl_gene_id.clone(), record.hgnc_id.clone()))
+            .collect();
+        self.hgnc_ids_by_entrez_id = hgnc_map
+            .values()
+            .filter(|record| !record.entrez_id.is_empty())
+            .map(|record| (record.entrez_id.clone(), record.hgnc_id.clone()))
+            .collect();
         self.hgnc_map = Some(hgnc_map)
+    }
+
+    /// Find the HGNC record of an ANN `Gene_ID`. VCFs of older mehari versions name the HGNC
+    /// ID. Newer ones name the Ensembl gene ID, mostly with version, or the NCBI Gene ID.
+    fn find_hgnc_record(&self, gene_id: &str) -> Option<&HgncRecord> {
+        let hgnc_id: &str = if gene_id.starts_with("HGNC:") {
+            gene_id
+        } else if gene_id.starts_with("ENSG") {
+            // Drop the version and a suffix such as `_PAR_Y`.
+            let stable_id = gene_id.split(['.', '_']).next().unwrap_or_default();
+            self.hgnc_ids_by_ensembl_gene_id.get(stable_id)?
+        } else {
+            self.hgnc_ids_by_entrez_id.get(gene_id)?
+        };
+        self.hgnc_map.as_ref()?.get(hgnc_id)
     }
 
     pub fn set_assembly(&mut self, assembly: String) {
@@ -678,7 +709,11 @@ impl VarFishSeqvarTsvWriter {
             let anns = record.annotation.consequences.clone();
             let mut anns_by_gene: FxHashMap<String, Vec<AnnField>> = FxHashMap::default();
             for ann in anns {
-                let gene_id = ann.gene_id.clone();
+                // The RefSeq and the Ensembl entries of a gene have different `Gene_ID`s, so
+                // group them by their HGNC record.
+                let gene_id = self
+                    .find_hgnc_record(&ann.gene_id)
+                    .map_or_else(|| ann.gene_id.clone(), |record| record.hgnc_id.clone());
                 anns_by_gene.entry(gene_id).or_default().push(ann);
             }
 
@@ -911,8 +946,128 @@ impl VarFishSeqvarTsvRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
     use std::path::PathBuf;
     use temp_testdir::TempDir;
+
+    /// A writer with the HGNC records of the test data, e.g. BRCA1 with `HGNC:1100`,
+    /// `ENSG00000012048` and `672`.
+    fn writer(path: &Path) -> anyhow::Result<VarFishSeqvarTsvWriter> {
+        let hgnc_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/annotate/db/hgnc.tsv")
+            .display()
+            .to_string();
+        let mut writer = VarFishSeqvarTsvWriter::from_path(path, TsvContigStyle::Auto)?;
+        writer.set_hgnc_map(load_hgnc_map(&hgnc_path)?);
+        Ok(writer)
+    }
+
+    /// `Gene_ID` is the HGNC ID in VCFs of older mehari versions. Else it is the Ensembl gene
+    /// ID, mostly with version, or the NCBI Gene ID.
+    #[rstest]
+    #[case::hgnc_id("HGNC:1100", Some("BRCA1"))]
+    #[case::ensembl_gene_id("ENSG00000012048.23", Some("BRCA1"))]
+    #[case::ensembl_gene_id_par_y("ENSG00000012048.23_PAR_Y", Some("BRCA1"))]
+    #[case::ensembl_gene_id_without_version("ENSG00000012048", Some("BRCA1"))]
+    #[case::ncbi_gene_id("672", Some("BRCA1"))]
+    #[case::unknown_hgnc_id("HGNC:1", None)]
+    #[case::unknown_ensembl_gene_id("ENSG00000000001.1", None)]
+    #[case::unknown_ncbi_gene_id("1", None)]
+    fn find_hgnc_record(
+        #[case] gene_id: &str,
+        #[case] expected: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let temp = TempDir::default();
+        let writer = writer(&temp.join("output.tsv"))?;
+
+        let symbol = writer
+            .find_hgnc_record(gene_id)
+            .map(|record| record.gene_symbol.as_str());
+        assert_eq!(symbol, expected);
+
+        Ok(())
+    }
+
+    /// The RefSeq and the Ensembl entry of one gene give one row, also if their `Gene_ID`
+    /// differs. Entries without HGNC record give one row per `Gene_ID`.
+    #[rstest]
+    #[case::gene_ids(
+        "672",
+        "ENSG00000012048.23",
+        &[("672", "NM_007294.4", "ENSG00000012048", "ENST00000357654.9")],
+    )]
+    #[case::hgnc_ids(
+        "HGNC:1100",
+        "HGNC:1100",
+        &[("672", "NM_007294.4", "ENSG00000012048", "ENST00000357654.9")],
+    )]
+    #[case::unknown_gene_ids(
+        "1",
+        "ENSG00000000001.1",
+        &[
+            ("", "NM_007294.4", "", "NM_007294.4"),
+            ("", "ENST00000357654.9", "", "ENST00000357654.9"),
+        ],
+    )]
+    fn one_row_per_gene(
+        #[case] refseq_gene_id: &str,
+        #[case] ensembl_gene_id: &str,
+        #[case] expected: &[(&str, &str, &str, &str)],
+    ) -> anyhow::Result<()> {
+        let temp = TempDir::default();
+        let path = temp.join("output.tsv");
+        let mut writer = writer(&path)?;
+        let ann = |gene_id: &str, feature_id: &str| {
+            AnnField::from_str(&format!(
+                "C|missense_variant|MODERATE|BRCA1|{gene_id}|transcript|{feature_id}|Coding|||||||||||1|"
+            ))
+        };
+        let record = AnnotatedVariant {
+            vcf: Default::default(),
+            annotation: VariantAnnotation {
+                consequences: vec![
+                    ann(refseq_gene_id, "NM_007294.4")?,
+                    ann(ensembl_gene_id, "ENST00000357654.9")?,
+                ],
+                frequencies: None,
+                clinvar: None,
+                cadd: None,
+                spliceai: None,
+                dbsnp: None,
+            },
+        };
+
+        writer.write_header()?;
+        writer.expand_refseq_ensembl_and_write(&record, &mut Default::default())?;
+        writer.flush()?;
+        drop(writer);
+
+        let output = std::fs::read_to_string(&path)?;
+        let mut lines = output
+            .lines()
+            .map(|line| line.split('\t').collect::<Vec<_>>());
+        let header = lines.next().unwrap_or_default();
+        let idx = |name: &str| header.iter().position(|column| *column == name).unwrap();
+        let columns = [
+            idx("refseq_gene_id"),
+            idx("refseq_transcript_id"),
+            idx("ensembl_gene_id"),
+            idx("ensembl_transcript_id"),
+        ];
+        let rows = lines
+            .map(|row| {
+                (
+                    row[columns[0]],
+                    row[columns[1]],
+                    row[columns[2]],
+                    row[columns[3]],
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rows, expected);
+
+        Ok(())
+    }
 
     #[tokio::test]
     async fn smoke_test_export_tsv() -> Result<(), anyhow::Error> {
