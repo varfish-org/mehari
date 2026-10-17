@@ -2796,7 +2796,9 @@ impl ConsequencePredictor {
             .collect();
 
         let mut paired_vars: Vec<_> = variants.iter().cloned().zip(normalized_variants).collect();
-        paired_vars.sort_by_key(|(_, norm)| norm.position);
+        // An insertion lies in front of the base at its position, so it sorts before a variant
+        // that starts at that base.
+        paired_vars.sort_by_key(|(_, norm)| (norm.position, norm.reference.len()));
 
         let sorted_originals: Vec<VcfVariant> =
             paired_vars.iter().map(|(orig, _)| orig.clone()).collect();
@@ -2921,7 +2923,8 @@ impl ConsequencePredictor {
         }
 
         let mut sorted_vars = variants.to_vec();
-        sorted_vars.sort_by_key(|v| v.position);
+        // As in `predict_multiple`, an insertion sorts before a variant at the same position.
+        sorted_vars.sort_by_key(|v| (v.position, v.reference.len()));
 
         for window in sorted_vars.windows(2) {
             let v1 = &window[0];
@@ -6177,6 +6180,39 @@ mod test {
             )
         };
         assert_eq!(fields(&phased[0]), fields(&single[0]));
+
+        Ok(())
+    }
+
+    /// An insertion lies between two bases, so it does not overlap an SNV next to it. The
+    /// order of the input variants does not change the result.
+    #[rstest::rstest]
+    #[case(2005)] // insertion in front of the SNV base
+    #[case(2006)] // insertion behind the SNV base
+    fn annotate_multiple_insertion_and_snv_in_any_order(
+        #[case] ins_position: i32,
+    ) -> Result<(), anyhow::Error> {
+        let provider = Arc::new(MehariProvider::new(
+            tx_db_with_indels_in_exon_cigars(),
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let var = |position, reference: &str, alternative: &str| VcfVariant {
+            chromosome: "1".into(),
+            position,
+            reference: reference.into(),
+            alternative: alternative.into(),
+        };
+        let ins = var(ins_position, "C", "CC");
+        let snv = var(2006, "C", "A");
+        let ins_first = predictor.predict_multiple(&[ins.clone(), snv.clone()])?;
+        let snv_first = predictor.predict_multiple(&[snv, ins])?;
+
+        assert!(ins_first.is_some());
+        assert_eq!(snv_first, ins_first);
 
         Ok(())
     }
