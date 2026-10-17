@@ -5735,15 +5735,10 @@ mod test {
         Ok(())
     }
 
-    /// Picking groups the transcripts by HGNC ID, else by gene entry. Then a database with a
-    /// RefSeq and an Ensembl gene of one HGNC ID picks one transcript. So does a database with
-    /// two versions of a gene without HGNC ID. A database that predates annotation gene IDs
-    /// groups by legacy gene ID, so the two versions give two picks, as before.
-    #[rstest::rstest]
-    #[case::refseq_and_ensembl_gene("merged", 1)]
-    #[case::two_versions_of_a_gene("versions", 1)]
-    #[case::old_database("old", 2)]
-    fn picks_per_gene(#[case] db: &str, #[case] picked: usize) -> Result<(), anyhow::Error> {
+    /// Two transcripts and their gene entries. `merged` has a RefSeq and an Ensembl gene of one
+    /// HGNC ID. `versions` has two versions of a gene without HGNC ID. `old` has these versions
+    /// in a database that predates annotation gene IDs.
+    fn two_transcripts_db(db: &str) -> (Vec<Transcript>, Vec<crate::pbs::txs::GeneToTxId>) {
         use crate::annotate::seqvars::provider::test_db;
         use crate::pbs::txs::GeneToTxId;
 
@@ -5755,7 +5750,7 @@ mod test {
                 legacy_gene_id: legacy_gene_id.into(),
                 ..test_db::transcript(id, 1000)
             };
-        let (transcripts, genes) = if db == "merged" {
+        if db == "merged" {
             let refseq = tx("NM_000001.1", "672", Some("HGNC:1100"), "HGNC:1100");
             let ensembl = tx(
                 "ENST00000000001.1",
@@ -5792,7 +5787,21 @@ mod test {
                 ..test_db::gene(&new)
             };
             (vec![old, new], vec![gene])
-        };
+        }
+    }
+
+    /// Picking groups the transcripts by HGNC ID, else by gene entry. Then a database with a
+    /// RefSeq and an Ensembl gene of one HGNC ID picks one transcript. So does a database with
+    /// two versions of a gene without HGNC ID. A database that predates annotation gene IDs
+    /// groups by legacy gene ID, so the two versions give two picks, as before.
+    #[rstest::rstest]
+    #[case::refseq_and_ensembl_gene("merged", 1)]
+    #[case::two_versions_of_a_gene("versions", 1)]
+    #[case::old_database("old", 2)]
+    fn picks_per_gene(#[case] db: &str, #[case] picked: usize) -> Result<(), anyhow::Error> {
+        use crate::annotate::seqvars::provider::test_db;
+
+        let (transcripts, genes) = two_transcripts_db(db);
         let txs = transcripts
             .iter()
             .map(|tx| TxForRegionRecord {
@@ -5817,6 +5826,56 @@ mod test {
             ConsequencePredictor::new(Arc::new(provider), ConfigBuilder::default().build()?);
 
         assert_eq!(predictor.filter_picked_sourced_txs(txs).len(), picked);
+
+        Ok(())
+    }
+
+    /// The most severe consequence per gene groups the transcripts as picking does. Then a
+    /// database with a RefSeq and an Ensembl gene of one HGNC ID reports one consequence. So
+    /// does a database with two versions of a gene without HGNC ID. A database that predates
+    /// annotation gene IDs groups by legacy gene ID, so the two versions report two, as before.
+    #[rstest::rstest]
+    #[case::refseq_and_ensembl_gene("merged", &["NM_000001.1"])]
+    #[case::two_versions_of_a_gene("versions", &["ENST00000000001.1"])]
+    #[case::old_database("old", &["ENST00000000001.1", "ENST00000000001.2"])]
+    fn most_severe_consequence_per_gene(
+        #[case] db: &str,
+        #[case] expected: &[&str],
+    ) -> Result<(), anyhow::Error> {
+        use crate::annotate::seqvars::provider::test_db;
+
+        let (transcripts, genes) = two_transcripts_db(db);
+        let provider = MehariProvider::new(
+            test_db::tx_seq_db(transcripts.clone(), genes),
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        );
+        // The first transcript has the more severe consequence.
+        let anns = transcripts
+            .iter()
+            .zip([Consequence::MissenseVariant, Consequence::SynonymousVariant])
+            .map(|(tx, consequence)| AnnField {
+                gene_id: provider.gene_id(tx).to_string(),
+                feature_id: tx.id.clone(),
+                consequences: vec![consequence],
+                ..Default::default()
+            })
+            .collect();
+        let predictor = ConsequencePredictor::new(
+            Arc::new(provider),
+            ConfigBuilder::default()
+                .report_most_severe_consequence_by(Some(ConsequenceBy::Gene))
+                .build()?,
+        );
+
+        let mut reported: Vec<_> = predictor
+            .filter_ann_fields(anns)
+            .into_iter()
+            .map(|ann| ann.feature_id)
+            .collect();
+        reported.sort();
+        assert_eq!(reported, expected);
 
         Ok(())
     }

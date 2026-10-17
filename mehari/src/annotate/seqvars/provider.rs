@@ -569,6 +569,16 @@ impl Provider {
             .get(gene_idx as usize)
     }
 
+    /// Return the key that groups `tx` by gene: the HGNC ID if the gene has one, else the gene ID
+    /// of its gene entry, else the gene ID of `tx`. Then the RefSeq and Ensembl genes of one HGNC
+    /// ID form one group, and so do the versions of a gene. Databases that predate annotation
+    /// gene IDs group by legacy gene ID.
+    pub fn gene_key<'a>(&'a self, tx: &'a Transcript) -> &'a str {
+        self.hgnc_id(tx)
+            .or_else(|| self.gene_of(&tx.id).map(|gene| gene.gene_id.as_str()))
+            .unwrap_or(&tx.gene_id)
+    }
+
     pub fn reference_available(&self) -> bool {
         self.reference_reader.is_some()
     }
