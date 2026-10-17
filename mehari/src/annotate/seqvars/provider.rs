@@ -235,8 +235,9 @@ pub struct Provider {
     /// The contig name manager.
     pub contig_manager: Arc<ContigManager>,
 
-    /// Mapping from gene identifier to index in `TxSeqDatabase::tx_db::gene_to_tx`.
-    gene_map: FxHashMap<String, u32>,
+    /// Mapping from `legacy_gene_id` to the indices in `TxSeqDatabase::tx_db::gene_to_tx`.
+    /// Two genes with one HGNC ID have the same `legacy_gene_id`.
+    gene_map: FxHashMap<String, Vec<u32>>,
 
     /// Mapping from transcript accession to index in `TxSeqDatabase::tx_db::transcripts`.
     tx_map: FxHashMap<String, u32>,
@@ -340,17 +341,21 @@ impl Provider {
             }
         }
 
-        let gene_map = FxHashMap::from_iter(
-            tx_seq_db
-                .tx_db
-                .as_ref()
-                .expect("no tx_db?")
-                .gene_to_tx
-                .iter()
-                // .filter(|gene| !gene.filtered.unwrap_or(false))
-                .enumerate()
-                .map(|(idx, entry)| (entry.legacy_gene_id.clone(), idx as u32)),
-        );
+        let mut gene_map: FxHashMap<String, Vec<u32>> = FxHashMap::default();
+        for (idx, entry) in tx_seq_db
+            .tx_db
+            .as_ref()
+            .expect("no tx_db?")
+            .gene_to_tx
+            .iter()
+            // .filter(|gene| !gene.filtered.unwrap_or(false))
+            .enumerate()
+        {
+            gene_map
+                .entry(entry.legacy_gene_id.clone())
+                .or_default()
+                .push(idx as u32);
+        }
         let tx_map = FxHashMap::from_iter(
             tx_seq_db
                 .tx_db
@@ -431,25 +436,29 @@ impl Provider {
         self.tx_seq_db.assembly().clone()
     }
 
-    /// Return the picked transcript IDs for a gene.
+    /// Return the picked transcript IDs of all genes with the HGNC ID.
     ///
     /// # Args
     ///
-    /// * `gene_name` - The gene HGNC ID.
+    /// * `hgnc_id` - The gene HGNC ID.
     ///
     /// # Returns
     ///
-    /// The picked transcript IDs, or None if the gene is not found.
+    /// The picked transcript IDs, or None if no unfiltered gene has the HGNC ID.
     pub fn get_picked_transcripts(&self, hgnc_id: &str) -> Option<Vec<String>> {
-        self.gene_map.get(hgnc_id).and_then(|gene_idx| {
-            let gene_to_tx = &self.tx_seq_db.tx_db.as_ref().expect("no tx_db?").gene_to_tx;
-            let gene = &gene_to_tx[*gene_idx as usize];
-
-            if let Some(true) = gene.filtered {
-                None
-            } else {
-                Some(gene.tx_ids.clone())
-            }
+        let gene_to_tx = &self.tx_seq_db.tx_db.as_ref()?.gene_to_tx;
+        let genes: Vec<_> = self
+            .gene_map
+            .get(hgnc_id)?
+            .iter()
+            .filter_map(|gene_idx| gene_to_tx.get(*gene_idx as usize))
+            .filter(|gene| gene.filtered != Some(true))
+            .collect();
+        (!genes.is_empty()).then(|| {
+            genes
+                .iter()
+                .flat_map(|gene| gene.tx_ids.iter().cloned())
+                .collect()
         })
     }
 
@@ -1029,5 +1038,70 @@ mod test {
         };
 
         assert_eq!(tx.tx_len(), 250);
+    }
+
+    /// Two genes can have the same HGNC ID. The lookup by HGNC ID returns the transcripts of
+    /// both.
+    #[test]
+    #[allow(deprecated)]
+    fn transcripts_of_all_genes_with_the_hgnc_id() -> Result<(), anyhow::Error> {
+        use super::Provider;
+        use crate::pbs::txs::{
+            ExonAlignment, GeneToTxId, GenomeAlignment, SequenceDb, SourceVersion, Transcript,
+            TranscriptDb, TxSeqDatabase,
+        };
+        use hgvs::data::interface::Provider as _;
+
+        let tx = |id: &str, gene_id: &str| Transcript {
+            id: id.into(),
+            gene_symbol: "GENE1".into(),
+            legacy_gene_id: "HGNC:1".into(),
+            gene_id: gene_id.into(),
+            hgnc_id: Some("HGNC:1".into()),
+            genome_alignments: vec![GenomeAlignment {
+                genome_build: "grch38".into(),
+                contig: "NC_000001.11".into(),
+                exons: vec![ExonAlignment {
+                    alt_start_i: 1000,
+                    alt_end_i: 1100,
+                    alt_cds_start_i: Some(1),
+                    alt_cds_end_i: Some(100),
+                    cigar: "100M".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let gene = |tx_id: &str, gene_id: &str| GeneToTxId {
+            legacy_gene_id: "HGNC:1".into(),
+            tx_ids: vec![tx_id.into()],
+            filtered: Some(false),
+            gene_id: gene_id.into(),
+            hgnc_id: Some("HGNC:1".into()),
+            ..Default::default()
+        };
+        let tx_seq_db = TxSeqDatabase {
+            tx_db: Some(TranscriptDb {
+                transcripts: vec![tx("NM_000001.1", "11"), tx("NM_000002.1", "22")],
+                gene_to_tx: vec![gene("NM_000001.1", "11"), gene("NM_000002.1", "22")],
+            }),
+            seq_db: Some(SequenceDb::default()),
+            version: Some("test".into()),
+            source_version: vec![SourceVersion {
+                assembly: "GRCh38".into(),
+                ..Default::default()
+            }],
+        };
+        let provider = Provider::new(tx_seq_db, None::<&str>, true, Default::default());
+
+        let tx_acs: Vec<_> = provider
+            .get_tx_for_gene("HGNC:1")?
+            .into_iter()
+            .map(|tx| tx.tx_ac)
+            .collect();
+        assert_eq!(tx_acs, ["NM_000001.1", "NM_000002.1"]);
+
+        Ok(())
     }
 }
