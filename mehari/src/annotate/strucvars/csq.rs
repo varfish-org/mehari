@@ -317,6 +317,7 @@ fn gene_tx_effect_for_range(
 }
 
 /// Helper that computes effects on transcripts for a single breakend, e.g., one side of BND or INS.
+#[allow(deprecated)]
 fn compute_tx_effects_for_breakpoint(
     sv: &impl interface::StrucVar,
     mehari_provider: &MehariProvider,
@@ -345,7 +346,7 @@ fn compute_tx_effects_for_breakpoint(
         for it in tree.find(query) {
             let tx = &tx_db.transcripts[*it.data() as usize];
             effects_by_gene
-                .entry(tx.gene_id.clone())
+                .entry(tx.legacy_gene_id.clone())
                 .or_default()
                 .extend(gene_tx_effects_for_bp(tx, sv.start()));
         }
@@ -373,6 +374,7 @@ fn compute_tx_effects_for_breakpoint(
 }
 
 /// Compute effect for linear SVs.
+#[allow(deprecated)]
 fn compute_tx_effects_for_linear(
     sv: &impl interface::StrucVar,
     mehari_provider: &MehariProvider,
@@ -401,7 +403,7 @@ fn compute_tx_effects_for_linear(
         for it in tree.find(query) {
             let tx = &tx_db.transcripts[*it.data() as usize];
             effects_by_gene
-                .entry(tx.gene_id.clone())
+                .entry(tx.legacy_gene_id.clone())
                 .or_default()
                 .extend(gene_tx_effect_for_range(tx, sv.start(), sv.stop()));
         }

@@ -1,13 +1,13 @@
 ---
 source: mehari/src/db/transcripts/create/mod.rs
-assertion_line: 538
+assertion_line: 550
 expression: "String::from_utf8(buf)?"
 ---
 txDb:
   transcripts:
   - id: NM_004261.5
     geneSymbol: SELENOF
-    geneId: HGNC:17705
+    legacyGeneId: HGNC:17705
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_MANE_SELECT
@@ -55,7 +55,7 @@ txDb:
     filtered: false
   - id: NM_203341.3
     geneSymbol: SELENOF
-    geneId: HGNC:17705
+    legacyGeneId: HGNC:17705
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_SELENOPROTEIN
@@ -96,7 +96,7 @@ txDb:
     filtered: false
   - id: NR_144512.1
     geneSymbol: SELENOF
-    geneId: HGNC:17705
+    legacyGeneId: HGNC:17705
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     genomeAlignments:
     - genomeBuildEnum: GENOME_BUILD_GRCH38
@@ -137,7 +137,7 @@ txDb:
     filterReason: 1049088
   - id: NR_144513.1
     geneSymbol: SELENOF
-    geneId: HGNC:17705
+    legacyGeneId: HGNC:17705
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     genomeAlignments:
     - genomeBuildEnum: GENOME_BUILD_GRCH38
@@ -177,7 +177,7 @@ txDb:
     filtered: true
     filterReason: 1049088
   geneToTx:
-  - geneId: HGNC:17705
+  - legacyGeneId: HGNC:17705
     txIds:
     - NM_004261.5
     - NM_203341.3

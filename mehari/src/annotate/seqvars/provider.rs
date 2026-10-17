@@ -286,6 +286,7 @@ impl Provider {
     /// # Arguments
     ///
     /// * `tx_seq_db` - The `TxSeqDatabase` to use.
+    #[allow(deprecated)]
     pub fn new(
         tx_seq_db: TxSeqDatabase,
         reference: Option<impl AsRef<Path>>,
@@ -348,7 +349,7 @@ impl Provider {
                 .iter()
                 // .filter(|gene| !gene.filtered.unwrap_or(false))
                 .enumerate()
-                .map(|(idx, entry)| (entry.gene_id.clone(), idx as u32)),
+                .map(|(idx, entry)| (entry.legacy_gene_id.clone(), idx as u32)),
         );
         let tx_map = FxHashMap::from_iter(
             tx_seq_db
@@ -625,7 +626,8 @@ impl ProviderInterface for Provider {
             .expect("no tx_db?")
             .transcripts[tx_idx];
 
-        let hgnc = tx.gene_id.clone();
+        #[allow(deprecated)]
+        let hgnc = tx.legacy_gene_id.clone();
         let tx_ac_str = tx_ac.to_string();
         let alt_ac_str = db_contig.to_string();
         let alt_aln_method_str = ALT_ALN_METHOD.to_string();
@@ -770,7 +772,8 @@ impl ProviderInterface for Provider {
 
                     if let Some(genome_alignment) = tx.genome_alignments.first() {
                         Some(Ok(TxInfoRecord {
-                            hgnc: tx.gene_id.clone(),
+                            #[allow(deprecated)]
+                            hgnc: tx.legacy_gene_id.clone(),
                             cds_start_i: tx.start_codon,
                             cds_end_i: tx.stop_codon,
                             tx_ac: tx.id.clone(),
@@ -853,7 +856,8 @@ impl ProviderInterface for Provider {
             .as_ref()
             .expect("no tx_db?")
             .transcripts[tx_idx];
-        let hgnc = tx.gene_id.clone();
+        #[allow(deprecated)]
+        let hgnc = tx.legacy_gene_id.clone();
 
         let mut tmp = tx
             .genome_alignments
@@ -953,7 +957,8 @@ impl ProviderInterface for Provider {
         for genome_alignment in &tx.genome_alignments {
             if genome_alignment.contig == db_contig {
                 return Ok(TxInfoRecord {
-                    hgnc: tx.gene_id.clone(),
+                    #[allow(deprecated)]
+                    hgnc: tx.legacy_gene_id.clone(),
                     cds_start_i: tx.start_codon,
                     cds_end_i: tx.stop_codon,
                     tx_ac: tx.id.clone(),

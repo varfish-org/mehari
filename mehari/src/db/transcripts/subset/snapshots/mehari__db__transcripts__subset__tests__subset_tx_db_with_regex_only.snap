@@ -1,12 +1,13 @@
 ---
 source: mehari/src/db/transcripts/subset/mod.rs
+assertion_line: 496
 expression: "String::from_utf8(buf)?"
 ---
 txDb:
   transcripts:
   - id: NM_001253908.2
     geneSymbol: AKR1C3
-    geneId: HGNC:386
+    legacyGeneId: HGNC:386
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_001240837.1
     startCodon: 31
@@ -75,7 +76,7 @@ txDb:
     filtered: false
   - id: NM_001253909.2
     geneSymbol: AKR1C3
-    geneId: HGNC:386
+    legacyGeneId: HGNC:386
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_001240838.1
     startCodon: 31
@@ -108,7 +109,7 @@ txDb:
     filtered: false
   - id: NM_003739.6
     geneSymbol: AKR1C3
-    geneId: HGNC:386
+    legacyGeneId: HGNC:386
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_REF_SEQ_SELECT
@@ -180,7 +181,7 @@ txDb:
     filtered: false
   - id: NM_007294.4
     geneSymbol: BRCA1
-    geneId: HGNC:1100
+    legacyGeneId: HGNC:1100
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_REF_SEQ_SELECT
@@ -336,7 +337,7 @@ txDb:
     filtered: false
   - id: NM_007297.4
     geneSymbol: BRCA1
-    geneId: HGNC:1100
+    legacyGeneId: HGNC:1100
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_009228.2
     startCodon: 194
@@ -483,7 +484,7 @@ txDb:
     filtered: false
   - id: NM_007298.3
     geneSymbol: BRCA1
-    geneId: HGNC:1100
+    legacyGeneId: HGNC:1100
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_009229.2
     startCodon: 19
@@ -630,7 +631,7 @@ txDb:
     filtered: false
   - id: NM_007299.4
     geneSymbol: BRCA1
-    geneId: HGNC:1100
+    legacyGeneId: HGNC:1100
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_009230.2
     startCodon: 107
@@ -777,7 +778,7 @@ txDb:
     filtered: false
   - id: NM_007300.4
     geneSymbol: BRCA1
-    geneId: HGNC:1100
+    legacyGeneId: HGNC:1100
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_009231.2
     startCodon: 113
@@ -936,7 +937,7 @@ txDb:
     filtered: false
   - id: NM_000059.4
     geneSymbol: BRCA2
-    geneId: HGNC:1101
+    legacyGeneId: HGNC:1101
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_REF_SEQ_SELECT
@@ -1116,7 +1117,7 @@ txDb:
     filtered: false
   - id: NM_001354663.2
     geneSymbol: OPA1
-    geneId: HGNC:8140
+    legacyGeneId: HGNC:8140
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_001341592.1
     startCodon: 600
@@ -1311,7 +1312,7 @@ txDb:
     filtered: false
   - id: NM_001354664.2
     geneSymbol: OPA1
-    geneId: HGNC:8140
+    legacyGeneId: HGNC:8140
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_001341593.1
     startCodon: 600
@@ -1506,7 +1507,7 @@ txDb:
     filtered: false
   - id: NM_015560.3
     geneSymbol: OPA1
-    geneId: HGNC:8140
+    legacyGeneId: HGNC:8140
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_056375.2
     startCodon: 170
@@ -1695,7 +1696,7 @@ txDb:
     filtered: false
   - id: NM_130831.3
     geneSymbol: OPA1
-    geneId: HGNC:8140
+    legacyGeneId: HGNC:8140
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_570844.1
     startCodon: 170
@@ -1878,7 +1879,7 @@ txDb:
     filtered: false
   - id: NM_130832.3
     geneSymbol: OPA1
-    geneId: HGNC:8140
+    legacyGeneId: HGNC:8140
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_570845.1
     startCodon: 170
@@ -2067,7 +2068,7 @@ txDb:
     filtered: false
   - id: NM_130833.3
     geneSymbol: OPA1
-    geneId: HGNC:8140
+    legacyGeneId: HGNC:8140
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_570846.1
     startCodon: 170
@@ -2256,7 +2257,7 @@ txDb:
     filtered: false
   - id: NM_130834.3
     geneSymbol: OPA1
-    geneId: HGNC:8140
+    legacyGeneId: HGNC:8140
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_570847.2
     startCodon: 170
@@ -2451,7 +2452,7 @@ txDb:
     filtered: false
   - id: NM_130835.3
     geneSymbol: OPA1
-    geneId: HGNC:8140
+    legacyGeneId: HGNC:8140
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_570848.1
     startCodon: 170
@@ -2646,7 +2647,7 @@ txDb:
     filtered: false
   - id: NM_130836.3
     geneSymbol: OPA1
-    geneId: HGNC:8140
+    legacyGeneId: HGNC:8140
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_570849.2
     startCodon: 170
@@ -2841,7 +2842,7 @@ txDb:
     filtered: false
   - id: NM_130837.3
     geneSymbol: OPA1
-    geneId: HGNC:8140
+    legacyGeneId: HGNC:8140
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_REF_SEQ_SELECT
@@ -3045,7 +3046,7 @@ txDb:
     filtered: false
   - id: NM_001256850.1
     geneSymbol: TTN
-    geneId: HGNC:12403
+    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_001243779.1
     startCodon: 225
@@ -4938,7 +4939,7 @@ txDb:
     filtered: false
   - id: NM_001267550.2
     geneSymbol: TTN
-    geneId: HGNC:12403
+    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_REF_SEQ_SELECT
@@ -7134,7 +7135,7 @@ txDb:
     filtered: false
   - id: NM_003319.4
     geneSymbol: TTN
-    geneId: HGNC:12403
+    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_003310.4
     startCodon: 225
@@ -8295,7 +8296,7 @@ txDb:
     filtered: false
   - id: NM_133378.4
     geneSymbol: TTN
-    geneId: HGNC:12403
+    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_596869.4
     startCodon: 225
@@ -10182,7 +10183,7 @@ txDb:
     filtered: false
   - id: NM_133379.5
     geneSymbol: TTN
-    geneId: HGNC:12403
+    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_596870.2
     startCodon: 225
@@ -10473,7 +10474,7 @@ txDb:
     filtered: false
   - id: NM_133432.3
     geneSymbol: TTN
-    geneId: HGNC:12403
+    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_597676.3
     startCodon: 225
@@ -11640,7 +11641,7 @@ txDb:
     filtered: false
   - id: NM_133437.4
     geneSymbol: TTN
-    geneId: HGNC:12403
+    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_597681.4
     startCodon: 225
@@ -12807,7 +12808,7 @@ txDb:
     filtered: false
   - id: NM_001031738.3
     geneSymbol: TMEM150A
-    geneId: HGNC:24677
+    legacyGeneId: HGNC:24677
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_REF_SEQ_SELECT
@@ -12873,7 +12874,7 @@ txDb:
     filtered: false
   - id: NM_001369917.1
     geneSymbol: TMEM150A
-    geneId: HGNC:24677
+    legacyGeneId: HGNC:24677
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_001356846.1
     startCodon: 446
@@ -12930,7 +12931,7 @@ txDb:
     filtered: false
   - id: NM_153342.4
     geneSymbol: TMEM150A
-    geneId: HGNC:24677
+    legacyGeneId: HGNC:24677
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_699173.2
     startCodon: 299
@@ -12987,7 +12988,7 @@ txDb:
     filtered: false
   - id: NM_001136571.2
     geneSymbol: ZAR1L
-    geneId: HGNC:37116
+    legacyGeneId: HGNC:37116
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_REF_SEQ_SELECT
@@ -13040,13 +13041,13 @@ txDb:
       genomeBuild: grch37
     filtered: false
   geneToTx:
-  - geneId: HGNC:386
+  - legacyGeneId: HGNC:386
     txIds:
     - NM_001253908.2
     - NM_001253909.2
     - NM_003739.6
     filtered: false
-  - geneId: HGNC:1100
+  - legacyGeneId: HGNC:1100
     txIds:
     - NM_007294.4
     - NM_007297.4
@@ -13054,11 +13055,11 @@ txDb:
     - NM_007299.4
     - NM_007300.4
     filtered: false
-  - geneId: HGNC:1101
+  - legacyGeneId: HGNC:1101
     txIds:
     - NM_000059.4
     filtered: false
-  - geneId: HGNC:8140
+  - legacyGeneId: HGNC:8140
     txIds:
     - NM_001354663.2
     - NM_001354664.2
@@ -13071,7 +13072,7 @@ txDb:
     - NM_130836.3
     - NM_130837.3
     filtered: false
-  - geneId: HGNC:12403
+  - legacyGeneId: HGNC:12403
     txIds:
     - NM_001256850.1
     - NM_001267550.2
@@ -13081,13 +13082,13 @@ txDb:
     - NM_133432.3
     - NM_133437.4
     filtered: false
-  - geneId: HGNC:24677
+  - legacyGeneId: HGNC:24677
     txIds:
     - NM_001031738.3
     - NM_001369917.1
     - NM_153342.4
     filtered: false
-  - geneId: HGNC:37116
+  - legacyGeneId: HGNC:37116
     txIds:
     - NM_001136571.2
     filtered: false

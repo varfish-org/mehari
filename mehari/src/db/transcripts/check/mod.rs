@@ -205,7 +205,8 @@ impl TxDbData {
         let mut all_ids = HashSet::new();
 
         for g in &tx_db.gene_to_tx {
-            let hgnc_id = Id::Hgnc(g.gene_id.clone());
+            #[allow(deprecated)]
+            let hgnc_id = Id::Hgnc(g.legacy_gene_id.clone());
             all_ids.insert(hgnc_id.clone());
 
             for tx_id in &g.tx_ids {
@@ -244,7 +245,8 @@ impl TxDbData {
 
         // Process Genes
         for g in &tx_db.gene_to_tx {
-            let id = Id::Hgnc(g.gene_id.clone());
+            #[allow(deprecated)]
+            let id = Id::Hgnc(g.legacy_gene_id.clone());
             if let Some(bits) = g.filter_reason
                 && bits != 0
             {
@@ -736,6 +738,7 @@ impl DatabaseChecker {
     }
 
     /// Check that every disease gene is represented by at least one unfiltered transcript in the tx_db.
+    #[allow(deprecated)]
     fn check_disease_genes_covered_in_tx_db(
         &self,
         data: &ComparisonDataContainer,
@@ -754,7 +757,7 @@ impl DatabaseChecker {
                 .tx_db
                 .gene_to_tx
                 .iter()
-                .find(|g| g.gene_id == disease_gene_id.to_parts().1);
+                .find(|g| g.legacy_gene_id == disease_gene_id.to_parts().1);
 
             let (is_covered, details) = if let Some(gene_entry) = gene_in_db {
                 // The gene exists in the database. Now check its transcripts.

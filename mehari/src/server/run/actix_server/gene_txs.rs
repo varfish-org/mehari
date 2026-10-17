@@ -333,7 +333,8 @@ impl TryFrom<pbs::txs::Transcript> for Transcript {
         Ok(Transcript {
             id: value.id.clone(),
             gene_symbol: value.gene_symbol.clone(),
-            gene_id: value.gene_id.clone(),
+            #[allow(deprecated)]
+            gene_id: value.legacy_gene_id.clone(),
             biotype: TranscriptBiotype::try_from(pbs::txs::TranscriptBiotype::try_from(
                 value.biotype,
             )?)?,

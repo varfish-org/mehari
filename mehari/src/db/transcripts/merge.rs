@@ -23,6 +23,7 @@ pub struct Args {
     compression_level: i32,
 }
 
+#[allow(deprecated)]
 pub fn merge_transcript_databases(
     mut databases: Vec<TxSeqDatabase>,
 ) -> anyhow::Result<TxSeqDatabase> {
@@ -89,10 +90,10 @@ pub fn merge_transcript_databases(
             let mut other_gene_to_tx: HashMap<_, _> = other_tx_db
                 .gene_to_tx
                 .into_iter()
-                .map(|g2t| (g2t.gene_id.clone(), g2t))
+                .map(|g2t| (g2t.legacy_gene_id.clone(), g2t))
                 .collect();
             for g2tx in tx_db.gene_to_tx.iter_mut() {
-                if let Some(other_g2tx) = other_gene_to_tx.remove(&g2tx.gene_id) {
+                if let Some(other_g2tx) = other_gene_to_tx.remove(&g2tx.legacy_gene_id) {
                     g2tx.tx_ids.extend(other_g2tx.tx_ids);
                     if let Some(f) = g2tx.filtered.as_mut() {
                         *f &= other_g2tx.filtered.unwrap_or(false);

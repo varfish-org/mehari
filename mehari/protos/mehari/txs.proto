@@ -72,8 +72,11 @@ message SourceVersion {
 
 // Mapping from gene to transcript ID.
 message GeneToTxId {
-  // Gene HGNC ID; serves as gene identifier.
-  string gene_id = 1;
+  // DEPRECATED: Mixed gene identifier, kept for older readers. Databases built
+  // from cdot hold `HGNC:` and the HGNC ID, e.g., `"HGNC:1100"` for BRCA1. Genes
+  // without HGNC ID and genes from GFF3 hold `GENE:` and the gene ID of the
+  // annotation, e.g., `"GENE:672"`.
+  string legacy_gene_id = 1 [deprecated = true];
   // Vector of all transcript IDs.
   repeated string tx_ids = 2;
   // Whether this gene has been filtered out because of missing transcripts.
@@ -160,8 +163,9 @@ message Transcript {
   string id = 1;
   // HGNC symbol, e.g., `"BRCA1"`
   string gene_symbol = 2;
-  // HGNC gene identifier, e.g., `"1100"` for BRCA1.
-  string gene_id = 3;
+  // DEPRECATED: Mixed gene identifier, kept for older readers. Same value as
+  // `GeneToTxId.legacy_gene_id`, e.g., `"HGNC:1100"` for BRCA1.
+  string legacy_gene_id = 3 [deprecated = true];
   // Transcript biotype.
   TranscriptBiotype biotype = 4;
   // Transcript flags.

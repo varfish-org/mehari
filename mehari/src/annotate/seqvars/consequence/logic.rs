@@ -1691,7 +1691,8 @@ impl ConsequencePredictor {
             consequences,
             putative_impact,
             gene_symbol: tx.gene_symbol.clone(),
-            gene_id: tx.gene_id.clone(),
+            #[allow(deprecated)]
+            gene_id: tx.legacy_gene_id.clone(),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -3311,7 +3312,8 @@ impl ConsequencePredictor {
             consequences: consequences_vec,
             putative_impact,
             gene_symbol: tx.gene_symbol.clone(),
-            gene_id: tx.gene_id.clone(),
+            #[allow(deprecated)]
+            gene_id: tx.legacy_gene_id.clone(),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -3596,7 +3598,8 @@ mod test {
                 transcripts: vec![Transcript {
                     id: "NM_000000.1".into(),
                     gene_symbol: "TEST".into(),
-                    gene_id: "HGNC:0".into(),
+                    #[allow(deprecated)]
+                    legacy_gene_id: "HGNC:0".into(),
                     biotype: TranscriptBiotype::Coding.into(),
                     protein: Some("NP_000000.1".into()),
                     start_codon: Some(2),
@@ -3616,7 +3619,8 @@ mod test {
                     ..Default::default()
                 }],
                 gene_to_tx: vec![GeneToTxId {
-                    gene_id: "HGNC:0".into(),
+                    #[allow(deprecated)]
+                    legacy_gene_id: "HGNC:0".into(),
                     tx_ids: vec!["NM_000000.1".into()],
                     ..Default::default()
                 }],
@@ -5541,7 +5545,8 @@ mod test {
         let tx_seq_db = TxSeqDatabase {
             tx_db: Some(TranscriptDb {
                 gene_to_tx: vec![GeneToTxId {
-                    gene_id: tx.gene_id.clone(),
+                    #[allow(deprecated)]
+                    legacy_gene_id: tx.legacy_gene_id.clone(),
                     tx_ids: vec![tx.id.clone()],
                     filtered: Some(false),
                     filter_reason: None,
@@ -5582,7 +5587,8 @@ mod test {
         let tx = Transcript {
             id: "NM_000001.1".into(),
             gene_symbol: "GENE1".into(),
-            gene_id: "1".into(),
+            #[allow(deprecated)]
+            legacy_gene_id: "1".into(),
             biotype: TranscriptBiotype::Coding.into(),
             protein: Some("NP_000001.1".into()),
             start_codon: Some(start),
@@ -6742,7 +6748,8 @@ mod test {
         let tx = Transcript {
             id: "NM_000001.1".into(),
             gene_symbol: "GENE1".into(),
-            gene_id: "1".into(),
+            #[allow(deprecated)]
+            legacy_gene_id: "1".into(),
             biotype: TranscriptBiotype::Coding.into(),
             protein: Some("NP_000001.1".into()),
             start_codon: Some(start),

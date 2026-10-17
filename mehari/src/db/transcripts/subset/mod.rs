@@ -131,6 +131,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error> {
     Ok(())
 }
 
+#[allow(deprecated)]
 fn subset_tx_db(container: &TxSeqDatabase, args: &Args) -> Result<TxSeqDatabase> {
     let container_tx_db = container.tx_db.as_ref().expect("no tx_db");
 
@@ -164,7 +165,7 @@ fn subset_tx_db(container: &TxSeqDatabase, args: &Args) -> Result<TxSeqDatabase>
             for (idx, tx) in container_tx_db.transcripts.iter().enumerate() {
                 tx_idxs.insert(idx);
                 tx_ids.insert(tx.id.clone());
-                gene_ids.insert(tx.gene_id.clone());
+                gene_ids.insert(tx.legacy_gene_id.clone());
             }
             (tx_idxs, tx_ids, gene_ids)
         }
@@ -194,7 +195,7 @@ fn subset_tx_db(container: &TxSeqDatabase, args: &Args) -> Result<TxSeqDatabase>
                 if keep {
                     new_tx_idxs.insert(idx);
                     new_tx_ids.insert(tx_id.clone());
-                    new_gene_ids.insert(tx.gene_id.clone());
+                    new_gene_ids.insert(tx.legacy_gene_id.clone());
                 }
             }
         }
@@ -227,7 +228,7 @@ fn subset_tx_db(container: &TxSeqDatabase, args: &Args) -> Result<TxSeqDatabase>
             .gene_to_tx
             .iter()
             .filter_map(|gene_to_tx| {
-                if gene_ids.contains(gene_to_tx.gene_id.as_str()) {
+                if gene_ids.contains(gene_to_tx.legacy_gene_id.as_str()) {
                     let mut mapping = gene_to_tx.clone();
                     mapping.tx_ids.retain(|tx_id| tx_ids.contains(tx_id));
                     if mapping.tx_ids.is_empty() {
@@ -386,6 +387,7 @@ fn _extract_transcripts_by_txid(
     )
 }
 
+#[allow(deprecated)]
 fn _extract_transcripts_by_hgnc_id(
     container_tx_db: &TranscriptDb,
     gene_symbols: &[String],
@@ -397,13 +399,13 @@ fn _extract_transcripts_by_hgnc_id(
     for (idx, tx) in container_tx_db.transcripts.iter().enumerate() {
         tracing::debug!("considering transcript: {:?}", &tx);
         if hgnc_ids.contains(&tx.gene_symbol)
-            || hgnc_ids.contains(&tx.gene_id)
-            || hgnc_ids.contains(&tx.gene_id.replace("HGNC:", ""))
+            || hgnc_ids.contains(&tx.legacy_gene_id)
+            || hgnc_ids.contains(&tx.legacy_gene_id.replace("HGNC:", ""))
         {
             tracing::debug!("keeping transcript: {}", tx.id);
             tx_idxs.push(idx);
             tx_ids.push(tx.id.clone());
-            gene_ids.insert(tx.gene_id.clone());
+            gene_ids.insert(tx.legacy_gene_id.clone());
         }
     }
     if tx_ids.is_empty() {
@@ -419,6 +421,7 @@ fn _extract_transcripts_by_hgnc_id(
     ))
 }
 
+#[allow(deprecated)]
 fn __extract_transcripts_from_db(
     container_tx_db: &TranscriptDb,
     transcript_ids: &IndexSet<String>,
@@ -430,7 +433,7 @@ fn __extract_transcripts_from_db(
         if transcript_ids.contains(&tx.id) {
             tracing::debug!("keeping transcript: {}", tx.id);
             tx_idxs.push(idx);
-            gene_ids.insert(tx.gene_id.clone());
+            gene_ids.insert(tx.legacy_gene_id.clone());
         }
     }
     (tx_idxs, gene_ids)
