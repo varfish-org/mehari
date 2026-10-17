@@ -34,7 +34,7 @@ expression: res
     total: 5592
   protein_pos:
     ord: 1862
-    total: 1864
+    total: 1863
   distance: 0
   strand: -1
   messages: ~
@@ -68,7 +68,7 @@ expression: res
     total: 5451
   protein_pos:
     ord: 1815
-    total: 1817
+    total: 1816
   distance: 0
   strand: -1
   messages: ~
@@ -102,7 +102,7 @@ expression: res
     total: 2280
   protein_pos:
     ord: 758
-    total: 760
+    total: 759
   distance: 0
   strand: -1
   messages: ~
@@ -168,7 +168,7 @@ expression: res
     total: 5655
   protein_pos:
     ord: 1883
-    total: 1885
+    total: 1884
   distance: 0
   strand: -1
   messages: ~
