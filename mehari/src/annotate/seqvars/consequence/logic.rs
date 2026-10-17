@@ -5550,6 +5550,8 @@ mod test {
                     tx_ids: vec![tx.id.clone()],
                     filtered: Some(false),
                     filter_reason: None,
+                    gene_id: tx.gene_id.clone(),
+                    hgnc_id: tx.hgnc_id.clone(),
                 }],
                 transcripts: vec![tx.clone()],
             }),

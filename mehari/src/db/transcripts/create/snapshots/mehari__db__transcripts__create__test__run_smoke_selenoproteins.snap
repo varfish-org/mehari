@@ -53,6 +53,8 @@ txDb:
         cigar: 99M
       genomeBuild: grch38
     filtered: false
+    geneId: '9403'
+    hgncId: HGNC:17705
   - id: NM_203341.3
     geneSymbol: SELENOF
     legacyGeneId: HGNC:17705
@@ -94,6 +96,8 @@ txDb:
         cigar: 99M
       genomeBuild: grch38
     filtered: false
+    geneId: '9403'
+    hgncId: HGNC:17705
   - id: NR_144512.1
     geneSymbol: SELENOF
     legacyGeneId: HGNC:17705
@@ -135,6 +139,8 @@ txDb:
       genomeBuild: grch38
     filtered: true
     filterReason: 1049088
+    geneId: '9403'
+    hgncId: HGNC:17705
   - id: NR_144513.1
     geneSymbol: SELENOF
     legacyGeneId: HGNC:17705
@@ -176,6 +182,8 @@ txDb:
       genomeBuild: grch38
     filtered: true
     filterReason: 1049088
+    geneId: '9403'
+    hgncId: HGNC:17705
   geneToTx:
   - legacyGeneId: HGNC:17705
     txIds:
@@ -184,6 +192,8 @@ txDb:
     - NR_144512.1
     - NR_144513.1
     filtered: false
+    geneId: '9403'
+    hgncId: HGNC:17705
 seqDb:
   aliases:
   - NM_004261.5

@@ -136,11 +136,7 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
     }
 
     // Check whether the transcript has an HGNC id.
-    let missing_hgnc = |p: &Params| -> bool {
-        p.tx.hgnc.is_none()
-            || p.tx.hgnc.as_ref().unwrap().is_empty()
-            || p.tx.hgnc.as_ref().unwrap().starts_with("GENE:")
-    };
+    let missing_hgnc = |p: &Params| -> bool { p.tx.hgnc.as_deref().is_none_or(str::is_empty) };
 
     // Check whether the transcript has any genome builds.
     let empty_genome_builds = |p: &Params| -> bool { p.tx.genome_builds.is_empty() };

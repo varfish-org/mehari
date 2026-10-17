@@ -439,7 +439,7 @@ pub mod test {
         insta::assert_yaml_snapshot!(
             tx_data
                 .gene_id_to_transcript_ids
-                .get(&GeneId::Hgnc(1100))
+                .get(&GeneId("672".into()))
                 .unwrap()
                 .iter()
                 .map(|s| s.as_str())
@@ -451,7 +451,7 @@ pub mod test {
         insta::assert_yaml_snapshot!(
             tx_data
                 .gene_id_to_transcript_ids
-                .get(&GeneId::Hgnc(1100))
+                .get(&GeneId("672".into()))
                 .unwrap()
                 .iter()
                 .map(|s| s.as_str())

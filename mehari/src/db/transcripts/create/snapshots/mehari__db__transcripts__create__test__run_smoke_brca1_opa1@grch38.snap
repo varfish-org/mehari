@@ -5,910 +5,6 @@ expression: "String::from_utf8(buf)?"
 ---
 txDb:
   transcripts:
-  - id: NM_007294.4
-    geneSymbol: BRCA1
-    legacyGeneId: HGNC:1100
-    biotype: TRANSCRIPT_BIOTYPE_CODING
-    tags:
-    - TRANSCRIPT_TAG_MANE_SELECT
-    protein: NP_009225.1
-    startCodon: 113
-    stopCodon: 5705
-    genomeAlignments:
-    - genomeBuildEnum: GENOME_BUILD_GRCH38
-      contig: NC_000017.11
-      cdsStart: 43045677
-      cdsEnd: 43124096
-      strand: STRAND_MINUS
-      exons:
-      - altStartI: 43044294
-        altEndI: 43045802
-        ord: 22
-        altCdsStartI: 5581
-        altCdsEndI: 7088
-        cigar: 1508M
-      - altStartI: 43047642
-        altEndI: 43047703
-        ord: 21
-        altCdsStartI: 5520
-        altCdsEndI: 5580
-        cigar: 61M
-      - altStartI: 43049120
-        altEndI: 43049194
-        ord: 20
-        altCdsStartI: 5446
-        altCdsEndI: 5519
-        cigar: 74M
-      - altStartI: 43051062
-        altEndI: 43051117
-        ord: 19
-        altCdsStartI: 5391
-        altCdsEndI: 5445
-        cigar: 55M
-      - altStartI: 43057051
-        altEndI: 43057135
-        ord: 18
-        altCdsStartI: 5307
-        altCdsEndI: 5390
-        cigar: 84M
-      - altStartI: 43063332
-        altEndI: 43063373
-        ord: 17
-        altCdsStartI: 5266
-        altCdsEndI: 5306
-        cigar: 41M
-      - altStartI: 43063873
-        altEndI: 43063951
-        ord: 16
-        altCdsStartI: 5188
-        altCdsEndI: 5265
-        cigar: 78M
-      - altStartI: 43067607
-        altEndI: 43067695
-        ord: 15
-        altCdsStartI: 5100
-        altCdsEndI: 5187
-        cigar: 88M
-      - altStartI: 43070927
-        altEndI: 43071238
-        ord: 14
-        altCdsStartI: 4789
-        altCdsEndI: 5099
-        cigar: 311M
-      - altStartI: 43074330
-        altEndI: 43074521
-        ord: 13
-        altCdsStartI: 4598
-        altCdsEndI: 4788
-        cigar: 191M
-      - altStartI: 43076487
-        altEndI: 43076614
-        ord: 12
-        altCdsStartI: 4471
-        altCdsEndI: 4597
-        cigar: 127M
-      - altStartI: 43082403
-        altEndI: 43082575
-        ord: 11
-        altCdsStartI: 4299
-        altCdsEndI: 4470
-        cigar: 172M
-      - altStartI: 43090943
-        altEndI: 43091032
-        ord: 10
-        altCdsStartI: 4210
-        altCdsEndI: 4298
-        cigar: 89M
-      - altStartI: 43091434
-        altEndI: 43094860
-        ord: 9
-        altCdsStartI: 784
-        altCdsEndI: 4209
-        cigar: 3426M
-      - altStartI: 43095845
-        altEndI: 43095922
-        ord: 8
-        altCdsStartI: 707
-        altCdsEndI: 783
-        cigar: 77M
-      - altStartI: 43097243
-        altEndI: 43097289
-        ord: 7
-        altCdsStartI: 661
-        altCdsEndI: 706
-        cigar: 46M
-      - altStartI: 43099774
-        altEndI: 43099880
-        ord: 6
-        altCdsStartI: 555
-        altCdsEndI: 660
-        cigar: 106M
-      - altStartI: 43104121
-        altEndI: 43104261
-        ord: 5
-        altCdsStartI: 415
-        altCdsEndI: 554
-        cigar: 140M
-      - altStartI: 43104867
-        altEndI: 43104956
-        ord: 4
-        altCdsStartI: 326
-        altCdsEndI: 414
-        cigar: 89M
-      - altStartI: 43106455
-        altEndI: 43106533
-        ord: 3
-        altCdsStartI: 248
-        altCdsEndI: 325
-        cigar: 78M
-      - altStartI: 43115725
-        altEndI: 43115779
-        ord: 2
-        altCdsStartI: 194
-        altCdsEndI: 247
-        cigar: 54M
-      - altStartI: 43124016
-        altEndI: 43124115
-        ord: 1
-        altCdsStartI: 95
-        altCdsEndI: 193
-        cigar: 99M
-      - altStartI: 43125270
-        altEndI: 43125364
-        altCdsStartI: 1
-        altCdsEndI: 94
-        cigar: 94M
-      genomeBuild: grch38
-    filtered: false
-  - id: NM_007297.4
-    geneSymbol: BRCA1
-    legacyGeneId: HGNC:1100
-    biotype: TRANSCRIPT_BIOTYPE_CODING
-    protein: NP_009228.2
-    startCodon: 194
-    stopCodon: 5645
-    genomeAlignments:
-    - genomeBuildEnum: GENOME_BUILD_GRCH38
-      contig: NC_000017.11
-      cdsStart: 43045677
-      cdsEnd: 43106526
-      strand: STRAND_MINUS
-      exons:
-      - altStartI: 43044294
-        altEndI: 43045802
-        ord: 21
-        altCdsStartI: 5521
-        altCdsEndI: 7028
-        cigar: 1508M
-      - altStartI: 43047642
-        altEndI: 43047703
-        ord: 20
-        altCdsStartI: 5460
-        altCdsEndI: 5520
-        cigar: 61M
-      - altStartI: 43049120
-        altEndI: 43049194
-        ord: 19
-        altCdsStartI: 5386
-        altCdsEndI: 5459
-        cigar: 74M
-      - altStartI: 43051062
-        altEndI: 43051117
-        ord: 18
-        altCdsStartI: 5331
-        altCdsEndI: 5385
-        cigar: 55M
-      - altStartI: 43057051
-        altEndI: 43057135
-        ord: 17
-        altCdsStartI: 5247
-        altCdsEndI: 5330
-        cigar: 84M
-      - altStartI: 43063332
-        altEndI: 43063373
-        ord: 16
-        altCdsStartI: 5206
-        altCdsEndI: 5246
-        cigar: 41M
-      - altStartI: 43063873
-        altEndI: 43063951
-        ord: 15
-        altCdsStartI: 5128
-        altCdsEndI: 5205
-        cigar: 78M
-      - altStartI: 43067607
-        altEndI: 43067695
-        ord: 14
-        altCdsStartI: 5040
-        altCdsEndI: 5127
-        cigar: 88M
-      - altStartI: 43070927
-        altEndI: 43071238
-        ord: 13
-        altCdsStartI: 4729
-        altCdsEndI: 5039
-        cigar: 311M
-      - altStartI: 43074330
-        altEndI: 43074521
-        ord: 12
-        altCdsStartI: 4538
-        altCdsEndI: 4728
-        cigar: 191M
-      - altStartI: 43076487
-        altEndI: 43076614
-        ord: 11
-        altCdsStartI: 4411
-        altCdsEndI: 4537
-        cigar: 127M
-      - altStartI: 43082403
-        altEndI: 43082575
-        ord: 10
-        altCdsStartI: 4239
-        altCdsEndI: 4410
-        cigar: 172M
-      - altStartI: 43090943
-        altEndI: 43091032
-        ord: 9
-        altCdsStartI: 4150
-        altCdsEndI: 4238
-        cigar: 89M
-      - altStartI: 43091434
-        altEndI: 43094860
-        ord: 8
-        altCdsStartI: 724
-        altCdsEndI: 4149
-        cigar: 3426M
-      - altStartI: 43095845
-        altEndI: 43095922
-        ord: 7
-        altCdsStartI: 647
-        altCdsEndI: 723
-        cigar: 77M
-      - altStartI: 43097243
-        altEndI: 43097289
-        ord: 6
-        altCdsStartI: 601
-        altCdsEndI: 646
-        cigar: 46M
-      - altStartI: 43099774
-        altEndI: 43099880
-        ord: 5
-        altCdsStartI: 495
-        altCdsEndI: 600
-        cigar: 106M
-      - altStartI: 43104121
-        altEndI: 43104261
-        ord: 4
-        altCdsStartI: 355
-        altCdsEndI: 494
-        cigar: 140M
-      - altStartI: 43104867
-        altEndI: 43104956
-        ord: 3
-        altCdsStartI: 266
-        altCdsEndI: 354
-        cigar: 89M
-      - altStartI: 43106455
-        altEndI: 43106533
-        ord: 2
-        altCdsStartI: 188
-        altCdsEndI: 265
-        cigar: 78M
-      - altStartI: 43124016
-        altEndI: 43124115
-        ord: 1
-        altCdsStartI: 89
-        altCdsEndI: 187
-        cigar: 99M
-      - altStartI: 43125276
-        altEndI: 43125364
-        altCdsStartI: 1
-        altCdsEndI: 88
-        cigar: 88M
-      genomeBuild: grch38
-    filtered: false
-  - id: NM_007298.3
-    geneSymbol: BRCA1
-    legacyGeneId: HGNC:1100
-    biotype: TRANSCRIPT_BIOTYPE_CODING
-    protein: NP_009229.2
-    startCodon: 19
-    stopCodon: 2299
-    genomeAlignments:
-    - genomeBuildEnum: GENOME_BUILD_GRCH38
-      contig: NC_000017.11
-      cdsStart: 43045677
-      cdsEnd: 43124096
-      strand: STRAND_MINUS
-      exons:
-      - altStartI: 43044294
-        altEndI: 43045802
-        ord: 21
-        altCdsStartI: 2175
-        altCdsEndI: 3682
-        cigar: 1508M
-      - altStartI: 43047642
-        altEndI: 43047703
-        ord: 20
-        altCdsStartI: 2114
-        altCdsEndI: 2174
-        cigar: 61M
-      - altStartI: 43049120
-        altEndI: 43049194
-        ord: 19
-        altCdsStartI: 2040
-        altCdsEndI: 2113
-        cigar: 74M
-      - altStartI: 43051062
-        altEndI: 43051117
-        ord: 18
-        altCdsStartI: 1985
-        altCdsEndI: 2039
-        cigar: 55M
-      - altStartI: 43057051
-        altEndI: 43057135
-        ord: 17
-        altCdsStartI: 1901
-        altCdsEndI: 1984
-        cigar: 84M
-      - altStartI: 43063332
-        altEndI: 43063373
-        ord: 16
-        altCdsStartI: 1860
-        altCdsEndI: 1900
-        cigar: 41M
-      - altStartI: 43063873
-        altEndI: 43063951
-        ord: 15
-        altCdsStartI: 1782
-        altCdsEndI: 1859
-        cigar: 78M
-      - altStartI: 43067607
-        altEndI: 43067695
-        ord: 14
-        altCdsStartI: 1694
-        altCdsEndI: 1781
-        cigar: 88M
-      - altStartI: 43070927
-        altEndI: 43071238
-        ord: 13
-        altCdsStartI: 1383
-        altCdsEndI: 1693
-        cigar: 311M
-      - altStartI: 43074330
-        altEndI: 43074521
-        ord: 12
-        altCdsStartI: 1192
-        altCdsEndI: 1382
-        cigar: 191M
-      - altStartI: 43076487
-        altEndI: 43076611
-        ord: 11
-        altCdsStartI: 1068
-        altCdsEndI: 1191
-        cigar: 124M
-      - altStartI: 43082403
-        altEndI: 43082575
-        ord: 10
-        altCdsStartI: 896
-        altCdsEndI: 1067
-        cigar: 172M
-      - altStartI: 43090943
-        altEndI: 43091032
-        ord: 9
-        altCdsStartI: 807
-        altCdsEndI: 895
-        cigar: 89M
-      - altStartI: 43094743
-        altEndI: 43094860
-        ord: 8
-        altCdsStartI: 690
-        altCdsEndI: 806
-        cigar: 117M
-      - altStartI: 43095845
-        altEndI: 43095922
-        ord: 7
-        altCdsStartI: 613
-        altCdsEndI: 689
-        cigar: 77M
-      - altStartI: 43097243
-        altEndI: 43097289
-        ord: 6
-        altCdsStartI: 567
-        altCdsEndI: 612
-        cigar: 46M
-      - altStartI: 43099774
-        altEndI: 43099880
-        ord: 5
-        altCdsStartI: 461
-        altCdsEndI: 566
-        cigar: 106M
-      - altStartI: 43104121
-        altEndI: 43104261
-        ord: 4
-        altCdsStartI: 321
-        altCdsEndI: 460
-        cigar: 140M
-      - altStartI: 43104867
-        altEndI: 43104956
-        ord: 3
-        altCdsStartI: 232
-        altCdsEndI: 320
-        cigar: 89M
-      - altStartI: 43106455
-        altEndI: 43106533
-        ord: 2
-        altCdsStartI: 154
-        altCdsEndI: 231
-        cigar: 78M
-      - altStartI: 43115725
-        altEndI: 43115779
-        ord: 1
-        altCdsStartI: 100
-        altCdsEndI: 153
-        cigar: 54M
-      - altStartI: 43124016
-        altEndI: 43124115
-        altCdsStartI: 1
-        altCdsEndI: 99
-        cigar: 99M
-      genomeBuild: grch38
-    filtered: false
-  - id: NM_007299.4
-    geneSymbol: BRCA1
-    legacyGeneId: HGNC:1100
-    biotype: TRANSCRIPT_BIOTYPE_CODING
-    protein: NP_009230.2
-    startCodon: 107
-    stopCodon: 2207
-    genomeAlignments:
-    - genomeBuildEnum: GENOME_BUILD_GRCH38
-      contig: NC_000017.11
-      cdsStart: 43045783
-      cdsEnd: 43124096
-      strand: STRAND_MINUS
-      exons:
-      - altStartI: 43044294
-        altEndI: 43045802
-        ord: 21
-        altCdsStartI: 2189
-        altCdsEndI: 3696
-        cigar: 1508M
-      - altStartI: 43047642
-        altEndI: 43047703
-        ord: 20
-        altCdsStartI: 2128
-        altCdsEndI: 2188
-        cigar: 61M
-      - altStartI: 43051062
-        altEndI: 43051117
-        ord: 19
-        altCdsStartI: 2073
-        altCdsEndI: 2127
-        cigar: 55M
-      - altStartI: 43057051
-        altEndI: 43057135
-        ord: 18
-        altCdsStartI: 1989
-        altCdsEndI: 2072
-        cigar: 84M
-      - altStartI: 43063332
-        altEndI: 43063373
-        ord: 17
-        altCdsStartI: 1948
-        altCdsEndI: 1988
-        cigar: 41M
-      - altStartI: 43063873
-        altEndI: 43063951
-        ord: 16
-        altCdsStartI: 1870
-        altCdsEndI: 1947
-        cigar: 78M
-      - altStartI: 43067607
-        altEndI: 43067695
-        ord: 15
-        altCdsStartI: 1782
-        altCdsEndI: 1869
-        cigar: 88M
-      - altStartI: 43070927
-        altEndI: 43071238
-        ord: 14
-        altCdsStartI: 1471
-        altCdsEndI: 1781
-        cigar: 311M
-      - altStartI: 43074330
-        altEndI: 43074521
-        ord: 13
-        altCdsStartI: 1280
-        altCdsEndI: 1470
-        cigar: 191M
-      - altStartI: 43076487
-        altEndI: 43076611
-        ord: 12
-        altCdsStartI: 1156
-        altCdsEndI: 1279
-        cigar: 124M
-      - altStartI: 43082403
-        altEndI: 43082575
-        ord: 11
-        altCdsStartI: 984
-        altCdsEndI: 1155
-        cigar: 172M
-      - altStartI: 43090943
-        altEndI: 43091032
-        ord: 10
-        altCdsStartI: 895
-        altCdsEndI: 983
-        cigar: 89M
-      - altStartI: 43094743
-        altEndI: 43094860
-        ord: 9
-        altCdsStartI: 778
-        altCdsEndI: 894
-        cigar: 117M
-      - altStartI: 43095845
-        altEndI: 43095922
-        ord: 8
-        altCdsStartI: 701
-        altCdsEndI: 777
-        cigar: 77M
-      - altStartI: 43097243
-        altEndI: 43097289
-        ord: 7
-        altCdsStartI: 655
-        altCdsEndI: 700
-        cigar: 46M
-      - altStartI: 43099774
-        altEndI: 43099880
-        ord: 6
-        altCdsStartI: 549
-        altCdsEndI: 654
-        cigar: 106M
-      - altStartI: 43104121
-        altEndI: 43104261
-        ord: 5
-        altCdsStartI: 409
-        altCdsEndI: 548
-        cigar: 140M
-      - altStartI: 43104867
-        altEndI: 43104956
-        ord: 4
-        altCdsStartI: 320
-        altCdsEndI: 408
-        cigar: 89M
-      - altStartI: 43106455
-        altEndI: 43106533
-        ord: 3
-        altCdsStartI: 242
-        altCdsEndI: 319
-        cigar: 78M
-      - altStartI: 43115725
-        altEndI: 43115779
-        ord: 2
-        altCdsStartI: 188
-        altCdsEndI: 241
-        cigar: 54M
-      - altStartI: 43124016
-        altEndI: 43124115
-        ord: 1
-        altCdsStartI: 89
-        altCdsEndI: 187
-        cigar: 99M
-      - altStartI: 43125276
-        altEndI: 43125364
-        altCdsStartI: 1
-        altCdsEndI: 88
-        cigar: 88M
-      genomeBuild: grch38
-    filtered: false
-  - id: NM_007300.4
-    geneSymbol: BRCA1
-    legacyGeneId: HGNC:1100
-    biotype: TRANSCRIPT_BIOTYPE_CODING
-    protein: NP_009231.2
-    startCodon: 113
-    stopCodon: 5768
-    genomeAlignments:
-    - genomeBuildEnum: GENOME_BUILD_GRCH38
-      contig: NC_000017.11
-      cdsStart: 43045677
-      cdsEnd: 43124096
-      strand: STRAND_MINUS
-      exons:
-      - altStartI: 43044294
-        altEndI: 43045802
-        ord: 23
-        altCdsStartI: 5644
-        altCdsEndI: 7151
-        cigar: 1508M
-      - altStartI: 43047642
-        altEndI: 43047703
-        ord: 22
-        altCdsStartI: 5583
-        altCdsEndI: 5643
-        cigar: 61M
-      - altStartI: 43049120
-        altEndI: 43049194
-        ord: 21
-        altCdsStartI: 5509
-        altCdsEndI: 5582
-        cigar: 74M
-      - altStartI: 43051062
-        altEndI: 43051117
-        ord: 20
-        altCdsStartI: 5454
-        altCdsEndI: 5508
-        cigar: 55M
-      - altStartI: 43057051
-        altEndI: 43057135
-        ord: 19
-        altCdsStartI: 5370
-        altCdsEndI: 5453
-        cigar: 84M
-      - altStartI: 43063332
-        altEndI: 43063373
-        ord: 18
-        altCdsStartI: 5329
-        altCdsEndI: 5369
-        cigar: 41M
-      - altStartI: 43063873
-        altEndI: 43063951
-        ord: 17
-        altCdsStartI: 5251
-        altCdsEndI: 5328
-        cigar: 78M
-      - altStartI: 43067607
-        altEndI: 43067695
-        ord: 16
-        altCdsStartI: 5163
-        altCdsEndI: 5250
-        cigar: 88M
-      - altStartI: 43070927
-        altEndI: 43071238
-        ord: 15
-        altCdsStartI: 4852
-        altCdsEndI: 5162
-        cigar: 311M
-      - altStartI: 43074330
-        altEndI: 43074521
-        ord: 14
-        altCdsStartI: 4661
-        altCdsEndI: 4851
-        cigar: 191M
-      - altStartI: 43076487
-        altEndI: 43076611
-        ord: 13
-        altCdsStartI: 4537
-        altCdsEndI: 4660
-        cigar: 124M
-      - altStartI: 43079333
-        altEndI: 43079399
-        ord: 12
-        altCdsStartI: 4471
-        altCdsEndI: 4536
-        cigar: 66M
-      - altStartI: 43082403
-        altEndI: 43082575
-        ord: 11
-        altCdsStartI: 4299
-        altCdsEndI: 4470
-        cigar: 172M
-      - altStartI: 43090943
-        altEndI: 43091032
-        ord: 10
-        altCdsStartI: 4210
-        altCdsEndI: 4298
-        cigar: 89M
-      - altStartI: 43091434
-        altEndI: 43094860
-        ord: 9
-        altCdsStartI: 784
-        altCdsEndI: 4209
-        cigar: 3426M
-      - altStartI: 43095845
-        altEndI: 43095922
-        ord: 8
-        altCdsStartI: 707
-        altCdsEndI: 783
-        cigar: 77M
-      - altStartI: 43097243
-        altEndI: 43097289
-        ord: 7
-        altCdsStartI: 661
-        altCdsEndI: 706
-        cigar: 46M
-      - altStartI: 43099774
-        altEndI: 43099880
-        ord: 6
-        altCdsStartI: 555
-        altCdsEndI: 660
-        cigar: 106M
-      - altStartI: 43104121
-        altEndI: 43104261
-        ord: 5
-        altCdsStartI: 415
-        altCdsEndI: 554
-        cigar: 140M
-      - altStartI: 43104867
-        altEndI: 43104956
-        ord: 4
-        altCdsStartI: 326
-        altCdsEndI: 414
-        cigar: 89M
-      - altStartI: 43106455
-        altEndI: 43106533
-        ord: 3
-        altCdsStartI: 248
-        altCdsEndI: 325
-        cigar: 78M
-      - altStartI: 43115725
-        altEndI: 43115779
-        ord: 2
-        altCdsStartI: 194
-        altCdsEndI: 247
-        cigar: 54M
-      - altStartI: 43124016
-        altEndI: 43124115
-        ord: 1
-        altCdsStartI: 95
-        altCdsEndI: 193
-        cigar: 99M
-      - altStartI: 43125270
-        altEndI: 43125364
-        altCdsStartI: 1
-        altCdsEndI: 94
-        cigar: 94M
-      genomeBuild: grch38
-    filtered: false
-  - id: NR_027676.2
-    geneSymbol: BRCA1
-    legacyGeneId: HGNC:1100
-    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
-    genomeAlignments:
-    - genomeBuildEnum: GENOME_BUILD_GRCH38
-      contig: NC_000017.11
-      strand: STRAND_MINUS
-      exons:
-      - altStartI: 43044294
-        altEndI: 43045802
-        ord: 22
-        altCdsStartI: 5645
-        altCdsEndI: 7152
-        cigar: 1508M
-      - altStartI: 43047642
-        altEndI: 43047703
-        ord: 21
-        altCdsStartI: 5584
-        altCdsEndI: 5644
-        cigar: 61M
-      - altStartI: 43049120
-        altEndI: 43049194
-        ord: 20
-        altCdsStartI: 5510
-        altCdsEndI: 5583
-        cigar: 74M
-      - altStartI: 43051062
-        altEndI: 43051117
-        ord: 19
-        altCdsStartI: 5455
-        altCdsEndI: 5509
-        cigar: 55M
-      - altStartI: 43057051
-        altEndI: 43057135
-        ord: 18
-        altCdsStartI: 5371
-        altCdsEndI: 5454
-        cigar: 84M
-      - altStartI: 43063332
-        altEndI: 43063373
-        ord: 17
-        altCdsStartI: 5330
-        altCdsEndI: 5370
-        cigar: 41M
-      - altStartI: 43063873
-        altEndI: 43063951
-        ord: 16
-        altCdsStartI: 5252
-        altCdsEndI: 5329
-        cigar: 78M
-      - altStartI: 43067607
-        altEndI: 43067695
-        ord: 15
-        altCdsStartI: 5164
-        altCdsEndI: 5251
-        cigar: 88M
-      - altStartI: 43070927
-        altEndI: 43071238
-        ord: 14
-        altCdsStartI: 4853
-        altCdsEndI: 5163
-        cigar: 311M
-      - altStartI: 43074330
-        altEndI: 43074521
-        ord: 13
-        altCdsStartI: 4662
-        altCdsEndI: 4852
-        cigar: 191M
-      - altStartI: 43076487
-        altEndI: 43076614
-        ord: 12
-        altCdsStartI: 4535
-        altCdsEndI: 4661
-        cigar: 127M
-      - altStartI: 43082403
-        altEndI: 43082575
-        ord: 11
-        altCdsStartI: 4363
-        altCdsEndI: 4534
-        cigar: 172M
-      - altStartI: 43090943
-        altEndI: 43091032
-        ord: 10
-        altCdsStartI: 4274
-        altCdsEndI: 4362
-        cigar: 89M
-      - altStartI: 43091434
-        altEndI: 43094860
-        ord: 9
-        altCdsStartI: 848
-        altCdsEndI: 4273
-        cigar: 3426M
-      - altStartI: 43095845
-        altEndI: 43095922
-        ord: 8
-        altCdsStartI: 771
-        altCdsEndI: 847
-        cigar: 77M
-      - altStartI: 43097243
-        altEndI: 43097289
-        ord: 7
-        altCdsStartI: 725
-        altCdsEndI: 770
-        cigar: 46M
-      - altStartI: 43099774
-        altEndI: 43099877
-        ord: 6
-        altCdsStartI: 622
-        altCdsEndI: 724
-        cigar: 103M
-      - altStartI: 43104121
-        altEndI: 43104261
-        ord: 5
-        altCdsStartI: 482
-        altCdsEndI: 621
-        cigar: 140M
-      - altStartI: 43104867
-        altEndI: 43104956
-        ord: 4
-        altCdsStartI: 393
-        altCdsEndI: 481
-        cigar: 89M
-      - altStartI: 43106477
-        altEndI: 43106533
-        ord: 3
-        altCdsStartI: 337
-        altCdsEndI: 392
-        cigar: 56M
-      - altStartI: 43115725
-        altEndI: 43115779
-        ord: 2
-        altCdsStartI: 283
-        altCdsEndI: 336
-        cigar: 54M
-      - altStartI: 43124016
-        altEndI: 43124115
-        ord: 1
-        altCdsStartI: 184
-        altCdsEndI: 282
-        cigar: 99M
-      - altStartI: 43125181
-        altEndI: 43125364
-        altCdsStartI: 1
-        altCdsEndI: 183
-        cigar: 183M
-      genomeBuild: grch38
-    filtered: false
-    filterReason: 1048576
   - id: NM_001354663.2
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -1104,6 +200,8 @@ txDb:
         cigar: 3206M
       genomeBuild: grch38
     filtered: false
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: NM_001354664.2
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -1299,6 +397,8 @@ txDb:
         cigar: 3206M
       genomeBuild: grch38
     filtered: false
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: NM_015560.3
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -1488,6 +588,8 @@ txDb:
         cigar: 3206M
       genomeBuild: grch38
     filtered: false
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: NM_130831.3
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -1671,6 +773,8 @@ txDb:
         cigar: 3206M
       genomeBuild: grch38
     filtered: false
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: NM_130832.3
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -1860,6 +964,8 @@ txDb:
         cigar: 3206M
       genomeBuild: grch38
     filtered: false
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: NM_130833.3
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -2049,6 +1155,8 @@ txDb:
         cigar: 3206M
       genomeBuild: grch38
     filtered: false
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: NM_130834.3
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -2244,6 +1352,8 @@ txDb:
         cigar: 3206M
       genomeBuild: grch38
     filtered: false
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: NM_130835.3
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -2439,6 +1549,8 @@ txDb:
         cigar: 3206M
       genomeBuild: grch38
     filtered: false
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: NM_130836.3
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -2634,6 +1746,8 @@ txDb:
         cigar: 3206M
       genomeBuild: grch38
     filtered: false
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: NM_130837.3
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -2837,6 +1951,8 @@ txDb:
         cigar: 3206M
       genomeBuild: grch38
     filtered: false
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: XM_047448206.1
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -3033,6 +2149,8 @@ txDb:
       genomeBuild: grch38
     filtered: false
     filterReason: 32768
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: XM_047448207.1
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -3223,6 +2341,8 @@ txDb:
       genomeBuild: grch38
     filtered: false
     filterReason: 32768
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: XM_047448208.1
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -3413,6 +2533,8 @@ txDb:
       genomeBuild: grch38
     filtered: false
     filterReason: 32768
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: XM_047448209.1
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -3597,6 +2719,8 @@ txDb:
       genomeBuild: grch38
     filtered: false
     filterReason: 32768
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: XM_047448210.1
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -3781,6 +2905,8 @@ txDb:
       genomeBuild: grch38
     filtered: false
     filterReason: 32768
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: XM_047448211.1
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -3959,6 +3085,8 @@ txDb:
       genomeBuild: grch38
     filtered: false
     filterReason: 32768
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: XM_047448212.1
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -4161,6 +3289,8 @@ txDb:
       genomeBuild: grch38
     filtered: false
     filterReason: 32768
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: XM_047448213.1
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -4315,6 +3445,8 @@ txDb:
       genomeBuild: grch38
     filtered: false
     filterReason: 32768
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: XM_047448214.1
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -4475,6 +3607,8 @@ txDb:
       genomeBuild: grch38
     filtered: false
     filterReason: 32768
+    geneId: '4976'
+    hgncId: HGNC:8140
   - id: XM_047448216.1
     geneSymbol: OPA1
     legacyGeneId: HGNC:8140
@@ -4641,16 +3775,925 @@ txDb:
       genomeBuild: grch38
     filtered: false
     filterReason: 32768
-  geneToTx:
-  - legacyGeneId: HGNC:1100
-    txIds:
-    - NM_007294.4
-    - NM_007297.4
-    - NM_007298.3
-    - NM_007299.4
-    - NM_007300.4
-    - NR_027676.2
+    geneId: '4976'
+    hgncId: HGNC:8140
+  - id: NM_007294.4
+    geneSymbol: BRCA1
+    legacyGeneId: HGNC:1100
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    tags:
+    - TRANSCRIPT_TAG_MANE_SELECT
+    protein: NP_009225.1
+    startCodon: 113
+    stopCodon: 5705
+    genomeAlignments:
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
+      contig: NC_000017.11
+      cdsStart: 43045677
+      cdsEnd: 43124096
+      strand: STRAND_MINUS
+      exons:
+      - altStartI: 43044294
+        altEndI: 43045802
+        ord: 22
+        altCdsStartI: 5581
+        altCdsEndI: 7088
+        cigar: 1508M
+      - altStartI: 43047642
+        altEndI: 43047703
+        ord: 21
+        altCdsStartI: 5520
+        altCdsEndI: 5580
+        cigar: 61M
+      - altStartI: 43049120
+        altEndI: 43049194
+        ord: 20
+        altCdsStartI: 5446
+        altCdsEndI: 5519
+        cigar: 74M
+      - altStartI: 43051062
+        altEndI: 43051117
+        ord: 19
+        altCdsStartI: 5391
+        altCdsEndI: 5445
+        cigar: 55M
+      - altStartI: 43057051
+        altEndI: 43057135
+        ord: 18
+        altCdsStartI: 5307
+        altCdsEndI: 5390
+        cigar: 84M
+      - altStartI: 43063332
+        altEndI: 43063373
+        ord: 17
+        altCdsStartI: 5266
+        altCdsEndI: 5306
+        cigar: 41M
+      - altStartI: 43063873
+        altEndI: 43063951
+        ord: 16
+        altCdsStartI: 5188
+        altCdsEndI: 5265
+        cigar: 78M
+      - altStartI: 43067607
+        altEndI: 43067695
+        ord: 15
+        altCdsStartI: 5100
+        altCdsEndI: 5187
+        cigar: 88M
+      - altStartI: 43070927
+        altEndI: 43071238
+        ord: 14
+        altCdsStartI: 4789
+        altCdsEndI: 5099
+        cigar: 311M
+      - altStartI: 43074330
+        altEndI: 43074521
+        ord: 13
+        altCdsStartI: 4598
+        altCdsEndI: 4788
+        cigar: 191M
+      - altStartI: 43076487
+        altEndI: 43076614
+        ord: 12
+        altCdsStartI: 4471
+        altCdsEndI: 4597
+        cigar: 127M
+      - altStartI: 43082403
+        altEndI: 43082575
+        ord: 11
+        altCdsStartI: 4299
+        altCdsEndI: 4470
+        cigar: 172M
+      - altStartI: 43090943
+        altEndI: 43091032
+        ord: 10
+        altCdsStartI: 4210
+        altCdsEndI: 4298
+        cigar: 89M
+      - altStartI: 43091434
+        altEndI: 43094860
+        ord: 9
+        altCdsStartI: 784
+        altCdsEndI: 4209
+        cigar: 3426M
+      - altStartI: 43095845
+        altEndI: 43095922
+        ord: 8
+        altCdsStartI: 707
+        altCdsEndI: 783
+        cigar: 77M
+      - altStartI: 43097243
+        altEndI: 43097289
+        ord: 7
+        altCdsStartI: 661
+        altCdsEndI: 706
+        cigar: 46M
+      - altStartI: 43099774
+        altEndI: 43099880
+        ord: 6
+        altCdsStartI: 555
+        altCdsEndI: 660
+        cigar: 106M
+      - altStartI: 43104121
+        altEndI: 43104261
+        ord: 5
+        altCdsStartI: 415
+        altCdsEndI: 554
+        cigar: 140M
+      - altStartI: 43104867
+        altEndI: 43104956
+        ord: 4
+        altCdsStartI: 326
+        altCdsEndI: 414
+        cigar: 89M
+      - altStartI: 43106455
+        altEndI: 43106533
+        ord: 3
+        altCdsStartI: 248
+        altCdsEndI: 325
+        cigar: 78M
+      - altStartI: 43115725
+        altEndI: 43115779
+        ord: 2
+        altCdsStartI: 194
+        altCdsEndI: 247
+        cigar: 54M
+      - altStartI: 43124016
+        altEndI: 43124115
+        ord: 1
+        altCdsStartI: 95
+        altCdsEndI: 193
+        cigar: 99M
+      - altStartI: 43125270
+        altEndI: 43125364
+        altCdsStartI: 1
+        altCdsEndI: 94
+        cigar: 94M
+      genomeBuild: grch38
     filtered: false
+    geneId: '672'
+    hgncId: HGNC:1100
+  - id: NM_007297.4
+    geneSymbol: BRCA1
+    legacyGeneId: HGNC:1100
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: NP_009228.2
+    startCodon: 194
+    stopCodon: 5645
+    genomeAlignments:
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
+      contig: NC_000017.11
+      cdsStart: 43045677
+      cdsEnd: 43106526
+      strand: STRAND_MINUS
+      exons:
+      - altStartI: 43044294
+        altEndI: 43045802
+        ord: 21
+        altCdsStartI: 5521
+        altCdsEndI: 7028
+        cigar: 1508M
+      - altStartI: 43047642
+        altEndI: 43047703
+        ord: 20
+        altCdsStartI: 5460
+        altCdsEndI: 5520
+        cigar: 61M
+      - altStartI: 43049120
+        altEndI: 43049194
+        ord: 19
+        altCdsStartI: 5386
+        altCdsEndI: 5459
+        cigar: 74M
+      - altStartI: 43051062
+        altEndI: 43051117
+        ord: 18
+        altCdsStartI: 5331
+        altCdsEndI: 5385
+        cigar: 55M
+      - altStartI: 43057051
+        altEndI: 43057135
+        ord: 17
+        altCdsStartI: 5247
+        altCdsEndI: 5330
+        cigar: 84M
+      - altStartI: 43063332
+        altEndI: 43063373
+        ord: 16
+        altCdsStartI: 5206
+        altCdsEndI: 5246
+        cigar: 41M
+      - altStartI: 43063873
+        altEndI: 43063951
+        ord: 15
+        altCdsStartI: 5128
+        altCdsEndI: 5205
+        cigar: 78M
+      - altStartI: 43067607
+        altEndI: 43067695
+        ord: 14
+        altCdsStartI: 5040
+        altCdsEndI: 5127
+        cigar: 88M
+      - altStartI: 43070927
+        altEndI: 43071238
+        ord: 13
+        altCdsStartI: 4729
+        altCdsEndI: 5039
+        cigar: 311M
+      - altStartI: 43074330
+        altEndI: 43074521
+        ord: 12
+        altCdsStartI: 4538
+        altCdsEndI: 4728
+        cigar: 191M
+      - altStartI: 43076487
+        altEndI: 43076614
+        ord: 11
+        altCdsStartI: 4411
+        altCdsEndI: 4537
+        cigar: 127M
+      - altStartI: 43082403
+        altEndI: 43082575
+        ord: 10
+        altCdsStartI: 4239
+        altCdsEndI: 4410
+        cigar: 172M
+      - altStartI: 43090943
+        altEndI: 43091032
+        ord: 9
+        altCdsStartI: 4150
+        altCdsEndI: 4238
+        cigar: 89M
+      - altStartI: 43091434
+        altEndI: 43094860
+        ord: 8
+        altCdsStartI: 724
+        altCdsEndI: 4149
+        cigar: 3426M
+      - altStartI: 43095845
+        altEndI: 43095922
+        ord: 7
+        altCdsStartI: 647
+        altCdsEndI: 723
+        cigar: 77M
+      - altStartI: 43097243
+        altEndI: 43097289
+        ord: 6
+        altCdsStartI: 601
+        altCdsEndI: 646
+        cigar: 46M
+      - altStartI: 43099774
+        altEndI: 43099880
+        ord: 5
+        altCdsStartI: 495
+        altCdsEndI: 600
+        cigar: 106M
+      - altStartI: 43104121
+        altEndI: 43104261
+        ord: 4
+        altCdsStartI: 355
+        altCdsEndI: 494
+        cigar: 140M
+      - altStartI: 43104867
+        altEndI: 43104956
+        ord: 3
+        altCdsStartI: 266
+        altCdsEndI: 354
+        cigar: 89M
+      - altStartI: 43106455
+        altEndI: 43106533
+        ord: 2
+        altCdsStartI: 188
+        altCdsEndI: 265
+        cigar: 78M
+      - altStartI: 43124016
+        altEndI: 43124115
+        ord: 1
+        altCdsStartI: 89
+        altCdsEndI: 187
+        cigar: 99M
+      - altStartI: 43125276
+        altEndI: 43125364
+        altCdsStartI: 1
+        altCdsEndI: 88
+        cigar: 88M
+      genomeBuild: grch38
+    filtered: false
+    geneId: '672'
+    hgncId: HGNC:1100
+  - id: NM_007298.3
+    geneSymbol: BRCA1
+    legacyGeneId: HGNC:1100
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: NP_009229.2
+    startCodon: 19
+    stopCodon: 2299
+    genomeAlignments:
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
+      contig: NC_000017.11
+      cdsStart: 43045677
+      cdsEnd: 43124096
+      strand: STRAND_MINUS
+      exons:
+      - altStartI: 43044294
+        altEndI: 43045802
+        ord: 21
+        altCdsStartI: 2175
+        altCdsEndI: 3682
+        cigar: 1508M
+      - altStartI: 43047642
+        altEndI: 43047703
+        ord: 20
+        altCdsStartI: 2114
+        altCdsEndI: 2174
+        cigar: 61M
+      - altStartI: 43049120
+        altEndI: 43049194
+        ord: 19
+        altCdsStartI: 2040
+        altCdsEndI: 2113
+        cigar: 74M
+      - altStartI: 43051062
+        altEndI: 43051117
+        ord: 18
+        altCdsStartI: 1985
+        altCdsEndI: 2039
+        cigar: 55M
+      - altStartI: 43057051
+        altEndI: 43057135
+        ord: 17
+        altCdsStartI: 1901
+        altCdsEndI: 1984
+        cigar: 84M
+      - altStartI: 43063332
+        altEndI: 43063373
+        ord: 16
+        altCdsStartI: 1860
+        altCdsEndI: 1900
+        cigar: 41M
+      - altStartI: 43063873
+        altEndI: 43063951
+        ord: 15
+        altCdsStartI: 1782
+        altCdsEndI: 1859
+        cigar: 78M
+      - altStartI: 43067607
+        altEndI: 43067695
+        ord: 14
+        altCdsStartI: 1694
+        altCdsEndI: 1781
+        cigar: 88M
+      - altStartI: 43070927
+        altEndI: 43071238
+        ord: 13
+        altCdsStartI: 1383
+        altCdsEndI: 1693
+        cigar: 311M
+      - altStartI: 43074330
+        altEndI: 43074521
+        ord: 12
+        altCdsStartI: 1192
+        altCdsEndI: 1382
+        cigar: 191M
+      - altStartI: 43076487
+        altEndI: 43076611
+        ord: 11
+        altCdsStartI: 1068
+        altCdsEndI: 1191
+        cigar: 124M
+      - altStartI: 43082403
+        altEndI: 43082575
+        ord: 10
+        altCdsStartI: 896
+        altCdsEndI: 1067
+        cigar: 172M
+      - altStartI: 43090943
+        altEndI: 43091032
+        ord: 9
+        altCdsStartI: 807
+        altCdsEndI: 895
+        cigar: 89M
+      - altStartI: 43094743
+        altEndI: 43094860
+        ord: 8
+        altCdsStartI: 690
+        altCdsEndI: 806
+        cigar: 117M
+      - altStartI: 43095845
+        altEndI: 43095922
+        ord: 7
+        altCdsStartI: 613
+        altCdsEndI: 689
+        cigar: 77M
+      - altStartI: 43097243
+        altEndI: 43097289
+        ord: 6
+        altCdsStartI: 567
+        altCdsEndI: 612
+        cigar: 46M
+      - altStartI: 43099774
+        altEndI: 43099880
+        ord: 5
+        altCdsStartI: 461
+        altCdsEndI: 566
+        cigar: 106M
+      - altStartI: 43104121
+        altEndI: 43104261
+        ord: 4
+        altCdsStartI: 321
+        altCdsEndI: 460
+        cigar: 140M
+      - altStartI: 43104867
+        altEndI: 43104956
+        ord: 3
+        altCdsStartI: 232
+        altCdsEndI: 320
+        cigar: 89M
+      - altStartI: 43106455
+        altEndI: 43106533
+        ord: 2
+        altCdsStartI: 154
+        altCdsEndI: 231
+        cigar: 78M
+      - altStartI: 43115725
+        altEndI: 43115779
+        ord: 1
+        altCdsStartI: 100
+        altCdsEndI: 153
+        cigar: 54M
+      - altStartI: 43124016
+        altEndI: 43124115
+        altCdsStartI: 1
+        altCdsEndI: 99
+        cigar: 99M
+      genomeBuild: grch38
+    filtered: false
+    geneId: '672'
+    hgncId: HGNC:1100
+  - id: NM_007299.4
+    geneSymbol: BRCA1
+    legacyGeneId: HGNC:1100
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: NP_009230.2
+    startCodon: 107
+    stopCodon: 2207
+    genomeAlignments:
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
+      contig: NC_000017.11
+      cdsStart: 43045783
+      cdsEnd: 43124096
+      strand: STRAND_MINUS
+      exons:
+      - altStartI: 43044294
+        altEndI: 43045802
+        ord: 21
+        altCdsStartI: 2189
+        altCdsEndI: 3696
+        cigar: 1508M
+      - altStartI: 43047642
+        altEndI: 43047703
+        ord: 20
+        altCdsStartI: 2128
+        altCdsEndI: 2188
+        cigar: 61M
+      - altStartI: 43051062
+        altEndI: 43051117
+        ord: 19
+        altCdsStartI: 2073
+        altCdsEndI: 2127
+        cigar: 55M
+      - altStartI: 43057051
+        altEndI: 43057135
+        ord: 18
+        altCdsStartI: 1989
+        altCdsEndI: 2072
+        cigar: 84M
+      - altStartI: 43063332
+        altEndI: 43063373
+        ord: 17
+        altCdsStartI: 1948
+        altCdsEndI: 1988
+        cigar: 41M
+      - altStartI: 43063873
+        altEndI: 43063951
+        ord: 16
+        altCdsStartI: 1870
+        altCdsEndI: 1947
+        cigar: 78M
+      - altStartI: 43067607
+        altEndI: 43067695
+        ord: 15
+        altCdsStartI: 1782
+        altCdsEndI: 1869
+        cigar: 88M
+      - altStartI: 43070927
+        altEndI: 43071238
+        ord: 14
+        altCdsStartI: 1471
+        altCdsEndI: 1781
+        cigar: 311M
+      - altStartI: 43074330
+        altEndI: 43074521
+        ord: 13
+        altCdsStartI: 1280
+        altCdsEndI: 1470
+        cigar: 191M
+      - altStartI: 43076487
+        altEndI: 43076611
+        ord: 12
+        altCdsStartI: 1156
+        altCdsEndI: 1279
+        cigar: 124M
+      - altStartI: 43082403
+        altEndI: 43082575
+        ord: 11
+        altCdsStartI: 984
+        altCdsEndI: 1155
+        cigar: 172M
+      - altStartI: 43090943
+        altEndI: 43091032
+        ord: 10
+        altCdsStartI: 895
+        altCdsEndI: 983
+        cigar: 89M
+      - altStartI: 43094743
+        altEndI: 43094860
+        ord: 9
+        altCdsStartI: 778
+        altCdsEndI: 894
+        cigar: 117M
+      - altStartI: 43095845
+        altEndI: 43095922
+        ord: 8
+        altCdsStartI: 701
+        altCdsEndI: 777
+        cigar: 77M
+      - altStartI: 43097243
+        altEndI: 43097289
+        ord: 7
+        altCdsStartI: 655
+        altCdsEndI: 700
+        cigar: 46M
+      - altStartI: 43099774
+        altEndI: 43099880
+        ord: 6
+        altCdsStartI: 549
+        altCdsEndI: 654
+        cigar: 106M
+      - altStartI: 43104121
+        altEndI: 43104261
+        ord: 5
+        altCdsStartI: 409
+        altCdsEndI: 548
+        cigar: 140M
+      - altStartI: 43104867
+        altEndI: 43104956
+        ord: 4
+        altCdsStartI: 320
+        altCdsEndI: 408
+        cigar: 89M
+      - altStartI: 43106455
+        altEndI: 43106533
+        ord: 3
+        altCdsStartI: 242
+        altCdsEndI: 319
+        cigar: 78M
+      - altStartI: 43115725
+        altEndI: 43115779
+        ord: 2
+        altCdsStartI: 188
+        altCdsEndI: 241
+        cigar: 54M
+      - altStartI: 43124016
+        altEndI: 43124115
+        ord: 1
+        altCdsStartI: 89
+        altCdsEndI: 187
+        cigar: 99M
+      - altStartI: 43125276
+        altEndI: 43125364
+        altCdsStartI: 1
+        altCdsEndI: 88
+        cigar: 88M
+      genomeBuild: grch38
+    filtered: false
+    geneId: '672'
+    hgncId: HGNC:1100
+  - id: NM_007300.4
+    geneSymbol: BRCA1
+    legacyGeneId: HGNC:1100
+    biotype: TRANSCRIPT_BIOTYPE_CODING
+    protein: NP_009231.2
+    startCodon: 113
+    stopCodon: 5768
+    genomeAlignments:
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
+      contig: NC_000017.11
+      cdsStart: 43045677
+      cdsEnd: 43124096
+      strand: STRAND_MINUS
+      exons:
+      - altStartI: 43044294
+        altEndI: 43045802
+        ord: 23
+        altCdsStartI: 5644
+        altCdsEndI: 7151
+        cigar: 1508M
+      - altStartI: 43047642
+        altEndI: 43047703
+        ord: 22
+        altCdsStartI: 5583
+        altCdsEndI: 5643
+        cigar: 61M
+      - altStartI: 43049120
+        altEndI: 43049194
+        ord: 21
+        altCdsStartI: 5509
+        altCdsEndI: 5582
+        cigar: 74M
+      - altStartI: 43051062
+        altEndI: 43051117
+        ord: 20
+        altCdsStartI: 5454
+        altCdsEndI: 5508
+        cigar: 55M
+      - altStartI: 43057051
+        altEndI: 43057135
+        ord: 19
+        altCdsStartI: 5370
+        altCdsEndI: 5453
+        cigar: 84M
+      - altStartI: 43063332
+        altEndI: 43063373
+        ord: 18
+        altCdsStartI: 5329
+        altCdsEndI: 5369
+        cigar: 41M
+      - altStartI: 43063873
+        altEndI: 43063951
+        ord: 17
+        altCdsStartI: 5251
+        altCdsEndI: 5328
+        cigar: 78M
+      - altStartI: 43067607
+        altEndI: 43067695
+        ord: 16
+        altCdsStartI: 5163
+        altCdsEndI: 5250
+        cigar: 88M
+      - altStartI: 43070927
+        altEndI: 43071238
+        ord: 15
+        altCdsStartI: 4852
+        altCdsEndI: 5162
+        cigar: 311M
+      - altStartI: 43074330
+        altEndI: 43074521
+        ord: 14
+        altCdsStartI: 4661
+        altCdsEndI: 4851
+        cigar: 191M
+      - altStartI: 43076487
+        altEndI: 43076611
+        ord: 13
+        altCdsStartI: 4537
+        altCdsEndI: 4660
+        cigar: 124M
+      - altStartI: 43079333
+        altEndI: 43079399
+        ord: 12
+        altCdsStartI: 4471
+        altCdsEndI: 4536
+        cigar: 66M
+      - altStartI: 43082403
+        altEndI: 43082575
+        ord: 11
+        altCdsStartI: 4299
+        altCdsEndI: 4470
+        cigar: 172M
+      - altStartI: 43090943
+        altEndI: 43091032
+        ord: 10
+        altCdsStartI: 4210
+        altCdsEndI: 4298
+        cigar: 89M
+      - altStartI: 43091434
+        altEndI: 43094860
+        ord: 9
+        altCdsStartI: 784
+        altCdsEndI: 4209
+        cigar: 3426M
+      - altStartI: 43095845
+        altEndI: 43095922
+        ord: 8
+        altCdsStartI: 707
+        altCdsEndI: 783
+        cigar: 77M
+      - altStartI: 43097243
+        altEndI: 43097289
+        ord: 7
+        altCdsStartI: 661
+        altCdsEndI: 706
+        cigar: 46M
+      - altStartI: 43099774
+        altEndI: 43099880
+        ord: 6
+        altCdsStartI: 555
+        altCdsEndI: 660
+        cigar: 106M
+      - altStartI: 43104121
+        altEndI: 43104261
+        ord: 5
+        altCdsStartI: 415
+        altCdsEndI: 554
+        cigar: 140M
+      - altStartI: 43104867
+        altEndI: 43104956
+        ord: 4
+        altCdsStartI: 326
+        altCdsEndI: 414
+        cigar: 89M
+      - altStartI: 43106455
+        altEndI: 43106533
+        ord: 3
+        altCdsStartI: 248
+        altCdsEndI: 325
+        cigar: 78M
+      - altStartI: 43115725
+        altEndI: 43115779
+        ord: 2
+        altCdsStartI: 194
+        altCdsEndI: 247
+        cigar: 54M
+      - altStartI: 43124016
+        altEndI: 43124115
+        ord: 1
+        altCdsStartI: 95
+        altCdsEndI: 193
+        cigar: 99M
+      - altStartI: 43125270
+        altEndI: 43125364
+        altCdsStartI: 1
+        altCdsEndI: 94
+        cigar: 94M
+      genomeBuild: grch38
+    filtered: false
+    geneId: '672'
+    hgncId: HGNC:1100
+  - id: NR_027676.2
+    geneSymbol: BRCA1
+    legacyGeneId: HGNC:1100
+    biotype: TRANSCRIPT_BIOTYPE_NON_CODING
+    genomeAlignments:
+    - genomeBuildEnum: GENOME_BUILD_GRCH38
+      contig: NC_000017.11
+      strand: STRAND_MINUS
+      exons:
+      - altStartI: 43044294
+        altEndI: 43045802
+        ord: 22
+        altCdsStartI: 5645
+        altCdsEndI: 7152
+        cigar: 1508M
+      - altStartI: 43047642
+        altEndI: 43047703
+        ord: 21
+        altCdsStartI: 5584
+        altCdsEndI: 5644
+        cigar: 61M
+      - altStartI: 43049120
+        altEndI: 43049194
+        ord: 20
+        altCdsStartI: 5510
+        altCdsEndI: 5583
+        cigar: 74M
+      - altStartI: 43051062
+        altEndI: 43051117
+        ord: 19
+        altCdsStartI: 5455
+        altCdsEndI: 5509
+        cigar: 55M
+      - altStartI: 43057051
+        altEndI: 43057135
+        ord: 18
+        altCdsStartI: 5371
+        altCdsEndI: 5454
+        cigar: 84M
+      - altStartI: 43063332
+        altEndI: 43063373
+        ord: 17
+        altCdsStartI: 5330
+        altCdsEndI: 5370
+        cigar: 41M
+      - altStartI: 43063873
+        altEndI: 43063951
+        ord: 16
+        altCdsStartI: 5252
+        altCdsEndI: 5329
+        cigar: 78M
+      - altStartI: 43067607
+        altEndI: 43067695
+        ord: 15
+        altCdsStartI: 5164
+        altCdsEndI: 5251
+        cigar: 88M
+      - altStartI: 43070927
+        altEndI: 43071238
+        ord: 14
+        altCdsStartI: 4853
+        altCdsEndI: 5163
+        cigar: 311M
+      - altStartI: 43074330
+        altEndI: 43074521
+        ord: 13
+        altCdsStartI: 4662
+        altCdsEndI: 4852
+        cigar: 191M
+      - altStartI: 43076487
+        altEndI: 43076614
+        ord: 12
+        altCdsStartI: 4535
+        altCdsEndI: 4661
+        cigar: 127M
+      - altStartI: 43082403
+        altEndI: 43082575
+        ord: 11
+        altCdsStartI: 4363
+        altCdsEndI: 4534
+        cigar: 172M
+      - altStartI: 43090943
+        altEndI: 43091032
+        ord: 10
+        altCdsStartI: 4274
+        altCdsEndI: 4362
+        cigar: 89M
+      - altStartI: 43091434
+        altEndI: 43094860
+        ord: 9
+        altCdsStartI: 848
+        altCdsEndI: 4273
+        cigar: 3426M
+      - altStartI: 43095845
+        altEndI: 43095922
+        ord: 8
+        altCdsStartI: 771
+        altCdsEndI: 847
+        cigar: 77M
+      - altStartI: 43097243
+        altEndI: 43097289
+        ord: 7
+        altCdsStartI: 725
+        altCdsEndI: 770
+        cigar: 46M
+      - altStartI: 43099774
+        altEndI: 43099877
+        ord: 6
+        altCdsStartI: 622
+        altCdsEndI: 724
+        cigar: 103M
+      - altStartI: 43104121
+        altEndI: 43104261
+        ord: 5
+        altCdsStartI: 482
+        altCdsEndI: 621
+        cigar: 140M
+      - altStartI: 43104867
+        altEndI: 43104956
+        ord: 4
+        altCdsStartI: 393
+        altCdsEndI: 481
+        cigar: 89M
+      - altStartI: 43106477
+        altEndI: 43106533
+        ord: 3
+        altCdsStartI: 337
+        altCdsEndI: 392
+        cigar: 56M
+      - altStartI: 43115725
+        altEndI: 43115779
+        ord: 2
+        altCdsStartI: 283
+        altCdsEndI: 336
+        cigar: 54M
+      - altStartI: 43124016
+        altEndI: 43124115
+        ord: 1
+        altCdsStartI: 184
+        altCdsEndI: 282
+        cigar: 99M
+      - altStartI: 43125181
+        altEndI: 43125364
+        altCdsStartI: 1
+        altCdsEndI: 183
+        cigar: 183M
+      genomeBuild: grch38
+    filtered: false
+    filterReason: 1048576
+    geneId: '672'
+    hgncId: HGNC:1100
+  geneToTx:
   - legacyGeneId: HGNC:8140
     txIds:
     - NM_001354663.2
@@ -4674,6 +4717,19 @@ txDb:
     - XM_047448214.1
     - XM_047448216.1
     filtered: false
+    geneId: '4976'
+    hgncId: HGNC:8140
+  - legacyGeneId: HGNC:1100
+    txIds:
+    - NM_007294.4
+    - NM_007297.4
+    - NM_007298.3
+    - NM_007299.4
+    - NM_007300.4
+    - NR_027676.2
+    filtered: false
+    geneId: '672'
+    hgncId: HGNC:1100
 seqDb:
   aliases:
   - NM_001354663.2

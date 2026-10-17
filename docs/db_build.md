@@ -128,6 +128,8 @@ mehari db transcripts create \
   --assembly grch38
 ```
 
+Genes keep the gene ID of the annotation without version, e.g. `672` for BRCA1 in RefSeq. The versions of a gene in a cdot file form one gene, which takes the HGNC ID of its highest version. mehari warns if a transcript or another version of the gene names another HGNC ID.
+
 ## Option B: Creating from GFF3 & FASTA References
 
 If you prefer building transcript databases from arbitrary references without setting up SeqRepo, you can directly pass standard GFF3 and FASTA files to the database builder.
@@ -142,7 +144,7 @@ mehari db transcripts create \
 
 You will have to build the transcript database for each genome release that you want and manually specify the release via `--assembly`, e.g., `--assembly grch38`.
 
-mehari reads transcripts from GFF3 the way cdot does. If a RefSeq transcript has `cDNA_match` rows, mehari takes its alignment to the genome from these rows, including alignment gaps. Otherwise, mehari takes the exons from the `exon` rows. Genes keep the gene ID of the annotation: `gene_id` for GENCODE and Ensembl, and the NCBI Gene ID from `Dbxref` for RefSeq. These genes have no HGNC ID, so the default filters flag their transcripts with `MissingHgncId`. This is a soft filter: the transcripts stay in the database.
+mehari reads transcripts from GFF3 the way cdot does. If a RefSeq transcript has `cDNA_match` rows, mehari takes its alignment to the genome from these rows, including alignment gaps. Otherwise, mehari takes the exons from the `exon` rows. Genes keep the gene ID of the annotation without version: `gene_id` for GENCODE and Ensembl, and the NCBI Gene ID from `Dbxref` for RefSeq. mehari reads the HGNC ID of a gene as cdot does, from `Dbxref` for RefSeq and from the `description` for Ensembl. It also reads the GENCODE attribute `hgnc_id`. The default filters flag the transcripts of genes without HGNC ID with `MissingHgncId`. This is a soft filter: the transcripts stay in the database.
 
 mehari completes a partial last codon at the transcript end to a stop codon with `A` bases, as the poly-A tail does, only where there is evidence for it: the vertebrate mitochondrial code with a `T` or `TA` tail, or an annotation that says so, as RefSeq does with the note "stop codon completed by the addition of 3' A residues" or a `transl_except` of `TERM`. Any other CDS without a stop codon keeps its partial last codon and the flag `MissingStopCodon`.
 

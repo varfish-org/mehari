@@ -72,10 +72,10 @@ message SourceVersion {
 
 // Mapping from gene to transcript ID.
 message GeneToTxId {
-  // DEPRECATED: Mixed gene identifier, kept for older readers. Databases built
-  // from cdot hold `HGNC:` and the HGNC ID, e.g., `"HGNC:1100"` for BRCA1. Genes
-  // without HGNC ID and genes from GFF3 hold `GENE:` and the gene ID of the
-  // annotation, e.g., `"GENE:672"`.
+  // DEPRECATED: Use `gene_id` (tag 5) and `hgnc_id` (tag 6) instead. Mixed gene
+  // identifier, kept for older readers. Databases built from cdot hold `HGNC:` and
+  // the HGNC ID, e.g., `"HGNC:1100"` for BRCA1. Genes without HGNC ID and genes from
+  // GFF3 hold `GENE:` and the gene ID of the annotation, e.g., `"GENE:672"`.
   string legacy_gene_id = 1 [deprecated = true];
   // Vector of all transcript IDs.
   repeated string tx_ids = 2;
@@ -83,6 +83,11 @@ message GeneToTxId {
   optional bool filtered = 3;
   // Reason for filtering.
   optional uint32 filter_reason = 4;
+  // Gene ID of the annotation: the NCBI Gene ID for RefSeq, e.g., `"672"` for BRCA1,
+  // and `gene_id` for Ensembl and GENCODE, e.g., `"ENSG00000182378.15"` for PLCXD1.
+  string gene_id = 5;
+  // HGNC ID of the gene, e.g., `"HGNC:1100"` for BRCA1. Unset for genes without HGNC ID.
+  optional string hgnc_id = 6;
 }
 
 // Enumeration for the known genome builds.
@@ -163,8 +168,9 @@ message Transcript {
   string id = 1;
   // HGNC symbol, e.g., `"BRCA1"`
   string gene_symbol = 2;
-  // DEPRECATED: Mixed gene identifier, kept for older readers. Same value as
-  // `GeneToTxId.legacy_gene_id`, e.g., `"HGNC:1100"` for BRCA1.
+  // DEPRECATED: Use `gene_id` (tag 13) and `hgnc_id` (tag 14) instead. Mixed gene
+  // identifier, kept for older readers. Same value as `GeneToTxId.legacy_gene_id`,
+  // e.g., `"HGNC:1100"` for BRCA1.
   string legacy_gene_id = 3 [deprecated = true];
   // Transcript biotype.
   TranscriptBiotype biotype = 4;
@@ -186,6 +192,10 @@ message Transcript {
   // selenocysteine here, a transcript tagged as selenoprotein reads every UGA as
   // selenocysteine.
   repeated TranslationException translation_exceptions = 12;
+  // Gene ID of the annotation, same value as `GeneToTxId.gene_id`, e.g., `"672"` for BRCA1.
+  string gene_id = 13;
+  // HGNC ID of the gene, e.g., `"HGNC:1100"` for BRCA1. Unset for genes without HGNC ID.
+  optional string hgnc_id = 14;
 }
 
 
