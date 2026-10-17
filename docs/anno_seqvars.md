@@ -85,8 +85,8 @@ The evaluation strategy can be managed via `--phasing-strategy` (options include
 The variant effect/consequence will be formatted similar to the one in, following the `ANN` field standard [documented here](https://pcingola.github.io/SnpEff/se_inputoutput/#ann-field-vcf-output-files).
 
 `Gene_ID` is the gene ID of the transcript's gene record in the annotation, with its version if it has one, e.g. `672` for BRCA1 in RefSeq or `ENSG00000182378.15` for PLCXD1 in GENCODE.
-With a transcript database that predates annotation gene IDs, `Gene_ID` is the legacy gene ID: `HGNC:` and the HGNC ID, else `GENE:` and the gene ID, e.g. `HGNC:1100` for BRCA1.
-Mehari warns about such a database.
+Mehari refuses a transcript database that predates annotation gene IDs, i.e., one in which no transcript has a gene ID.
+Rebuild such a database with the current mehari version.
 
 The population frequency will be written to the VCF INFO fields as follows:
 
