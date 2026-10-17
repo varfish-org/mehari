@@ -2970,7 +2970,6 @@ impl ConsequencePredictor {
         sorted_vars: &[VcfVariant],
         tx: &Transcript,
         chrom_acc: &str,
-        transcript_biotype: TranscriptBiotype,
     ) -> Result<Option<(Vec<HgvsProjectionContext>, Consequences)>, SeqvarsError> {
         let alignment = tx.genome_alignments.first().unwrap();
         let strand = Strand::try_from(alignment.strand).expect("invalid strand");
@@ -3016,8 +3015,30 @@ impl ConsequencePredictor {
                 return Ok(None);
             }
 
-            let proj = self.project_hgvs(&var_g, &var_g, None, tx, transcript_biotype)?;
-            if proj.n.is_none() || proj.c.is_none() || !proj.is_within_cds_bounds() {
+            // The n. edit stays at the input position. Normalized on its own, it could move
+            // past another variant of the group. `predict_multiple_for_transcript` normalizes
+            // the combined change.
+            let mapper = self.mapper.variant_mapper();
+            let var_n = match mapper.g_to_n(&var_g, &tx.id, ALT_ALN_METHOD) {
+                Ok(var_n) => var_n,
+                Err(Error::NonAdjacentExons(_, _, _, _)) => {
+                    tracing::warn!("{}, {}: NonAdjacentExons, skipping", &tx.id, var_g);
+                    return Ok(None);
+                }
+                Err(e) => return Err(SeqvarsError::from(e)),
+            };
+            let var_c = mapper
+                .n_to_c(&var_n)
+                .map_err(|e| SeqvarsError::HgvsProjection(e.to_string()))?;
+            let proj = HgvsProjectionContext {
+                n: Some(var_n),
+                c: Some(var_c),
+                p: None,
+                placement: None,
+                region: None,
+                unshifted_c: None,
+            };
+            if !proj.is_within_cds_bounds() {
                 return Ok(None);
             }
 
@@ -3047,7 +3068,7 @@ impl ConsequencePredictor {
         }
 
         let (projections, base_group_consequences) =
-            match self.get_group_projections(sorted_vars, tx, chrom_acc, transcript_biotype)? {
+            match self.get_group_projections(sorted_vars, tx, chrom_acc)? {
                 Some((p, csqs)) => (p, csqs),
                 None => return Ok(None),
             };
@@ -3130,33 +3151,14 @@ impl ConsequencePredictor {
             },
         };
 
-        let compound_var_c = match self.mapper.n_to_c(&compound_var_n) {
+        // Like `predict`, normalize the n. variant and project it to c.
+        let compound_var_n = self.mapper.maybe_normalize(&compound_var_n)?;
+        let compound_var_c = match self.mapper.variant_mapper().n_to_c(&compound_var_n) {
             Ok(c) => c,
             Err(e) => {
                 tracing::debug!("Failed to map compound n_loc to c_loc: {}", e);
                 return Ok(None);
             }
-        };
-
-        let compound_var_n = HgvsVariant::TxVariant {
-            accession: projections[0].n.as_ref().unwrap().accession().clone(),
-            gene_symbol: projections[0].n.as_ref().unwrap().gene_symbol().clone(),
-            loc_edit: hgvs::parser::TxLocEdit {
-                loc: Mu::Certain(hgvs::parser::TxInterval {
-                    start: hgvs::parser::TxPos {
-                        base: n_min,
-                        offset: None,
-                    },
-                    end: hgvs::parser::TxPos {
-                        base: n_max,
-                        offset: None,
-                    },
-                }),
-                edit: Mu::Certain(NaEdit::RefAlt {
-                    reference: ref_substring.to_string(),
-                    alternative: new_substring.to_string(),
-                }),
-            },
         };
 
         let compound_var_p = self.safe_project_c_to_p(&compound_var_c)?;
@@ -6132,6 +6134,49 @@ mod test {
 
         assert_eq!(res[0].hgvs_g.as_deref(), Some("g.2005_2006delinsCGGGA"));
         assert_eq!(res[0].hgvs_p.as_deref(), Some("p.Pro5delinsArgAsp"));
+
+        Ok(())
+    }
+
+    /// A phased insertion in a repeat in front of an SNV in the same repeat. The phased path
+    /// annotates the combined change like `predict` does as one variant.
+    #[test]
+    fn annotate_multiple_insertion_in_repeat_before_snv() -> Result<(), anyhow::Error> {
+        let provider = Arc::new(MehariProvider::new(
+            tx_db_with_indels_in_exon_cigars(),
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let var = |position, reference: &str, alternative: &str| VcfVariant {
+            chromosome: "1".into(),
+            position,
+            reference: reference.into(),
+            alternative: alternative.into(),
+        };
+        // A C in front of c.14 and c.14C>A turn CCC (Pro5) into CCAC.
+        let phased = predictor
+            .predict_multiple(&[var(2005, "C", "CC"), var(2006, "C", "A")])?
+            .unwrap();
+        // The same change as one variant.
+        let single = predictor.predict(&var(2006, "C", "CA"))?.unwrap();
+
+        assert_eq!(phased[0].hgvs_c.as_deref(), Some("c.14_15insA"));
+        assert_eq!(phased[0].hgvs_p.as_deref(), Some("p.Phe6LeufsTer?"));
+        let fields = |ann: &AnnField| {
+            (
+                ann.hgvs_n.clone(),
+                ann.hgvs_c.clone(),
+                ann.hgvs_p.clone(),
+                ann.consequences.clone(),
+                ann.cdna_pos.clone(),
+                ann.cds_pos.clone(),
+                ann.protein_pos.clone(),
+            )
+        };
+        assert_eq!(fields(&phased[0]), fields(&single[0]));
 
         Ok(())
     }
