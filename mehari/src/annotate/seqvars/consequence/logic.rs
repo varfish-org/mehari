@@ -1691,7 +1691,7 @@ impl ConsequencePredictor {
             consequences,
             putative_impact,
             gene_symbol: tx.gene_symbol.clone(),
-            gene_id: self.provider.gene_id(tx).to_string(),
+            gene_id: tx.gene_id.clone(),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -3311,7 +3311,7 @@ impl ConsequencePredictor {
             consequences: consequences_vec,
             putative_impact,
             gene_symbol: tx.gene_symbol.clone(),
-            gene_id: self.provider.gene_id(tx).to_string(),
+            gene_id: tx.gene_id.clone(),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -5701,23 +5701,15 @@ mod test {
         Ok(())
     }
 
-    /// `Gene_ID` is the gene ID of the transcript. A database that predates annotation gene IDs
-    /// gives the legacy gene ID.
-    #[rstest::rstest]
-    #[case::new_database("11", Some("HGNC:1"), "GENE:11", "11")]
-    #[case::old_database("", None, "HGNC:1", "HGNC:1")]
-    fn ann_gene_id(
-        #[case] gene_id: &str,
-        #[case] hgnc_id: Option<&str>,
-        #[case] legacy_gene_id: &str,
-        #[case] expected: &str,
-    ) -> Result<(), anyhow::Error> {
+    /// `Gene_ID` is the gene ID of the transcript.
+    #[test]
+    fn ann_gene_id() -> Result<(), anyhow::Error> {
         let (tx, seq) = one_exon_tx("CAGT", "ATGGCCTAA", "CAGT");
         let tx = Transcript {
-            gene_id: gene_id.into(),
-            hgnc_id: hgnc_id.map(String::from),
+            gene_id: "11".into(),
+            hgnc_id: Some("HGNC:1".into()),
             #[allow(deprecated)]
-            legacy_gene_id: legacy_gene_id.into(),
+            legacy_gene_id: "GENE:11".into(),
             ..tx
         };
         let anns = predictor_for(tx, seq)
@@ -5730,14 +5722,13 @@ mod test {
             .unwrap_or_default();
 
         let gene_ids: Vec<_> = anns.iter().map(|ann| ann.gene_id.as_str()).collect();
-        assert_eq!(gene_ids, [expected]);
+        assert_eq!(gene_ids, ["11"]);
 
         Ok(())
     }
 
     /// Two transcripts and their gene entries. `merged` has a RefSeq and an Ensembl gene of one
-    /// HGNC ID. `versions` has two versions of a gene without HGNC ID. `old` has these versions
-    /// in a database that predates annotation gene IDs.
+    /// HGNC ID. `versions` has two versions of a gene without HGNC ID.
     fn two_transcripts_db(db: &str) -> (Vec<Transcript>, Vec<crate::pbs::txs::GeneToTxId>) {
         use crate::annotate::seqvars::provider::test_db;
         use crate::pbs::txs::GeneToTxId;
@@ -5767,22 +5758,20 @@ mod test {
             ];
             (vec![refseq, ensembl], genes)
         } else {
-            // An old database has no gene IDs.
-            let gene_id = |gene_id| if db == "old" { "" } else { gene_id };
             let old = tx(
                 "ENST00000000001.1",
-                gene_id("ENSG00000000001.9"),
+                "ENSG00000000001.9",
                 None,
                 "GENE:ENSG00000000001.9",
             );
             let new = tx(
                 "ENST00000000001.2",
-                gene_id("ENSG00000000001.10"),
+                "ENSG00000000001.10",
                 None,
                 "GENE:ENSG00000000001.10",
             );
             let gene = GeneToTxId {
-                gene_id: gene_id("ENSG00000000001").into(),
+                gene_id: "ENSG00000000001".into(),
                 tx_ids: vec![old.id.clone(), new.id.clone()],
                 ..test_db::gene(&new)
             };
@@ -5792,12 +5781,10 @@ mod test {
 
     /// Picking groups the transcripts by HGNC ID, else by gene entry. Then a database with a
     /// RefSeq and an Ensembl gene of one HGNC ID picks one transcript. So does a database with
-    /// two versions of a gene without HGNC ID. A database that predates annotation gene IDs
-    /// groups by legacy gene ID, so the two versions give two picks, as before.
+    /// two versions of a gene without HGNC ID.
     #[rstest::rstest]
     #[case::refseq_and_ensembl_gene("merged", 1)]
     #[case::two_versions_of_a_gene("versions", 1)]
-    #[case::old_database("old", 2)]
     fn picks_per_gene(#[case] db: &str, #[case] picked: usize) -> Result<(), anyhow::Error> {
         use crate::annotate::seqvars::provider::test_db;
 
@@ -5832,12 +5819,10 @@ mod test {
 
     /// The most severe consequence per gene groups the transcripts as picking does. Then a
     /// database with a RefSeq and an Ensembl gene of one HGNC ID reports one consequence. So
-    /// does a database with two versions of a gene without HGNC ID. A database that predates
-    /// annotation gene IDs groups by legacy gene ID, so the two versions report two, as before.
+    /// does a database with two versions of a gene without HGNC ID.
     #[rstest::rstest]
     #[case::refseq_and_ensembl_gene("merged", &["NM_000001.1"])]
     #[case::two_versions_of_a_gene("versions", &["ENST00000000001.1"])]
-    #[case::old_database("old", &["ENST00000000001.1", "ENST00000000001.2"])]
     fn most_severe_consequence_per_gene(
         #[case] db: &str,
         #[case] expected: &[&str],
@@ -5856,7 +5841,7 @@ mod test {
             .iter()
             .zip([Consequence::MissenseVariant, Consequence::SynonymousVariant])
             .map(|(tx, consequence)| AnnField {
-                gene_id: provider.gene_id(tx).to_string(),
+                gene_id: tx.gene_id.clone(),
                 feature_id: tx.id.clone(),
                 consequences: vec![consequence],
                 ..Default::default()

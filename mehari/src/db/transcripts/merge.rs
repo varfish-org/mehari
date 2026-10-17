@@ -23,7 +23,6 @@ pub struct Args {
     compression_level: i32,
 }
 
-#[allow(deprecated)]
 pub fn merge_transcript_databases(
     mut databases: Vec<TxSeqDatabase>,
 ) -> anyhow::Result<TxSeqDatabase> {
@@ -83,19 +82,17 @@ pub fn merge_transcript_databases(
             tx_db.transcripts.append(&mut other_tx_db.transcripts);
 
             // Merge the gene to transcript mapping:
-            // 1. Create a map from `gene_id` and `legacy_gene_id` to gene to transcript mapping.
-            //    Two genes can share one `legacy_gene_id`, and old databases have no `gene_id`.
+            // 1. Create a map from gene ID to gene to transcript mapping.
             // 2. Iterate over the gene to transcript mappings of the first transcript database (target db).
             //    For each gene to transcript mapping, check if there is a corresponding mapping in the other database.
             //    If so, merge the transcript IDs.
             let mut other_gene_to_tx: HashMap<_, _> = other_tx_db
                 .gene_to_tx
                 .into_iter()
-                .map(|g2t| ((g2t.gene_id.clone(), g2t.legacy_gene_id.clone()), g2t))
+                .map(|g2t| (g2t.gene_id.clone(), g2t))
                 .collect();
             for g2tx in tx_db.gene_to_tx.iter_mut() {
-                let key = (g2tx.gene_id.clone(), g2tx.legacy_gene_id.clone());
-                if let Some(other_g2tx) = other_gene_to_tx.remove(&key) {
+                if let Some(other_g2tx) = other_gene_to_tx.remove(&g2tx.gene_id) {
                     g2tx.tx_ids.extend(other_g2tx.tx_ids);
                     if let Some(f) = g2tx.filtered.as_mut() {
                         *f &= other_g2tx.filtered.unwrap_or(false);
@@ -213,18 +210,6 @@ mod tests {
                 gene("11", "HGNC:1", &["NM_000001.1", "NM_000002.1"]),
                 gene("22", "HGNC:1", &["NM_000003.1"]),
             ]
-        );
-    }
-
-    /// Databases built before `gene_id` existed merge their genes by `legacy_gene_id`.
-    #[test]
-    fn old_databases_merge_genes_by_legacy_gene_id() {
-        let first = db(&[("", "HGNC:1", "NM_000001.1")]);
-        let other = db(&[("", "HGNC:1", "ENST00000000001.1")]);
-
-        assert_eq!(
-            merged_genes(vec![first, other]),
-            [gene("", "HGNC:1", &["NM_000001.1", "ENST00000000001.1"])]
         );
     }
 }

@@ -275,7 +275,7 @@ impl TxDbData {
 /// The ID of a gene in the database: its HGNC ID, else its gene ID as `Id::GeneVersion`.
 /// An Ensembl gene ID has no version there, unlike the cdot `gene_version`.
 fn gene_id(gene: &GeneToTxId) -> Option<Id> {
-    match gene.hgnc_id_or_legacy() {
+    match gene.hgnc_id.as_deref() {
         Some(hgnc_id) => Some(Id::Hgnc(hgnc_id.to_string())),
         None => (!gene.gene_id.is_empty()).then(|| Id::GeneVersion(gene.gene_id.clone())),
     }
@@ -771,7 +771,7 @@ impl DatabaseChecker {
                 .tx_db
                 .gene_to_tx
                 .iter()
-                .filter(|g| g.hgnc_id_or_legacy() == Some(hgnc_id.as_str()))
+                .filter(|g| g.hgnc_id.as_deref() == Some(hgnc_id.as_str()))
                 .collect();
 
             let (is_covered, details) = if !genes_in_db.is_empty() {

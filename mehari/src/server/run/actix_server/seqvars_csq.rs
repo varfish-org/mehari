@@ -204,7 +204,7 @@ async fn handle_impl(
 
 /// Whether the gene of the transcript `tx_ac` has the HGNC ID `hgnc_id`.
 fn has_hgnc_id(provider: &MehariProvider, tx_ac: &str, hgnc_id: &str) -> bool {
-    provider.get_tx(tx_ac).and_then(|tx| provider.hgnc_id(tx)) == Some(hgnc_id)
+    provider.get_tx(tx_ac).and_then(|tx| tx.hgnc_id.as_deref()) == Some(hgnc_id)
 }
 
 /// Query for consequence of a variant.
@@ -242,17 +242,15 @@ async fn handle_with_openapi(
 
 #[cfg(test)]
 mod test {
-    /// The filter by HGNC ID uses `hgnc_id`. Databases that predate annotation gene IDs name it
-    /// in `legacy_gene_id`.
+    /// The filter by HGNC ID uses `hgnc_id`, not `legacy_gene_id`.
     #[rstest::rstest]
-    #[case::new_database(true, "HGNC:1", true)]
-    #[case::new_database_legacy_gene_id(true, "GENE:11", false)]
-    #[case::old_database(false, "HGNC:1", true)]
-    fn has_hgnc_id(#[case] new: bool, #[case] hgnc_id: &str, #[case] expected: bool) {
+    #[case::hgnc_id("HGNC:1", true)]
+    #[case::legacy_gene_id("GENE:11", false)]
+    fn has_hgnc_id(#[case] hgnc_id: &str, #[case] expected: bool) {
         use crate::annotate::seqvars::provider::{Provider, test_db};
 
         let provider = Provider::new(
-            test_db::one_gene_db(new),
+            test_db::one_gene_db(),
             None::<&str>,
             true,
             Default::default(),

@@ -146,13 +146,9 @@ struct TxRegion {
 // #[schema(as=StrucvarsGeneTranscriptEffects)] // TODO: rename back to GeneTranscriptEffects once utoipa's as= is fixed.
 pub struct StrucvarsGeneTranscriptEffects {
     /// Gene ID of the annotation without version, e.g. `"672"` for BRCA1 in RefSeq or
-    /// `"ENSG00000182378"` for PLCXD1 in GENCODE. Unset for databases that predate annotation
-    /// gene IDs.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    gene_id: Option<String>,
+    /// `"ENSG00000182378"` for PLCXD1 in GENCODE.
+    gene_id: String,
     /// HGNC ID of the gene, e.g. `"HGNC:1100"` for BRCA1. Unset for genes without HGNC ID.
-    /// Databases that predate annotation gene IDs give the legacy gene ID, also if it is not an
-    /// HGNC ID.
     hgnc_id: Option<String>,
     /// Transcript effects for the gene.
     transcript_effects: Vec<StrucvarsTranscriptEffect>,
@@ -324,20 +320,17 @@ fn gene_tx_effect_for_range(
 }
 
 /// Group the effects on transcripts by gene, with one entry per gene entry. Transcripts
-/// without gene entry give one entry per gene ID. Databases that predate annotation gene IDs
-/// give one entry per legacy gene ID.
+/// without gene entry give one entry per gene ID.
 fn effects_by_gene<'a>(
     mehari_provider: &'a MehariProvider,
     tx_effects: impl Iterator<Item = (&'a Transcript, Vec<StrucvarsTranscriptEffect>)>,
 ) -> Vec<StrucvarsGeneTranscriptEffects> {
     let mut effects_by_gene: HashMap<_, Vec<_>> = HashMap::new();
     for (tx, effects) in tx_effects {
-        let gene = if mehari_provider.legacy_gene_ids() {
-            (None, mehari_provider.hgnc_id(tx))
-        } else if let Some(gene) = mehari_provider.gene_of(&tx.id) {
-            (Some(gene.gene_id.as_str()), gene.hgnc_id_or_legacy())
+        let gene = if let Some(gene) = mehari_provider.gene_of(&tx.id) {
+            (gene.gene_id.as_str(), gene.hgnc_id.as_deref())
         } else {
-            (Some(tx.gene_id.as_str()), mehari_provider.hgnc_id(tx))
+            (tx.gene_id.as_str(), tx.hgnc_id.as_deref())
         };
         effects_by_gene.entry(gene).or_default().extend(effects);
     }
@@ -348,7 +341,7 @@ fn effects_by_gene<'a>(
             transcript_effects.sort();
             transcript_effects.dedup();
             StrucvarsGeneTranscriptEffects {
-                gene_id: gene_id.map(String::from),
+                gene_id: gene_id.into(),
                 hgnc_id: hgnc_id.map(String::from),
                 transcript_effects,
             }
@@ -504,15 +497,9 @@ mod test {
     }
 
     /// The effects form one entry per gene entry, with its gene ID and HGNC ID. Here, two
-    /// transcripts come from two versions of one gene, and only one names the HGNC ID. A
-    /// database that predates annotation gene IDs gives one entry per legacy gene ID.
-    #[rstest::rstest]
-    #[case::new_database(true, &[(Some("ENSG00000000001"), Some("HGNC:1"))])]
-    #[case::old_database(
-        false,
-        &[(None, Some("GENE:ENSG00000000001.10")), (None, Some("HGNC:1"))]
-    )]
-    fn one_entry_per_gene(#[case] new: bool, #[case] expected: &[(Option<&str>, Option<&str>)]) {
+    /// transcripts come from two versions of one gene, and only one names the HGNC ID.
+    #[test]
+    fn one_entry_per_gene() {
         use crate::annotate::seqvars::provider::{Provider, test_db};
         use crate::pbs::txs::{GeneToTxId, Transcript};
         use std::sync::Arc;
@@ -532,18 +519,14 @@ mod test {
             ),
         ]
         .map(|(id, gene_id, hgnc_id, legacy_gene_id)| Transcript {
-            gene_id: if new { gene_id.into() } else { String::new() },
-            hgnc_id: hgnc_id.filter(|_| new).map(String::from),
+            gene_id: gene_id.into(),
+            hgnc_id: hgnc_id.map(String::from),
             legacy_gene_id: legacy_gene_id.into(),
             ..test_db::transcript(id, 1000)
         });
         let gene = GeneToTxId {
-            gene_id: if new {
-                "ENSG00000000001".into()
-            } else {
-                String::new()
-            },
-            hgnc_id: new.then(|| "HGNC:1".into()),
+            gene_id: "ENSG00000000001".into(),
+            hgnc_id: Some("HGNC:1".into()),
             legacy_gene_id: "HGNC:1".into(),
             tx_ids: txs.iter().map(|tx| tx.id.clone()).collect(),
             filtered: Some(false),
@@ -563,9 +546,35 @@ mod test {
             });
         let mut genes: Vec<_> = effects
             .iter()
-            .map(|gene| (gene.gene_id.as_deref(), gene.hgnc_id.as_deref()))
+            .map(|gene| (gene.gene_id.as_str(), gene.hgnc_id.as_deref()))
             .collect();
         genes.sort();
-        assert_eq!(genes, expected);
+        assert_eq!(genes, [("ENSG00000000001", Some("HGNC:1"))]);
+    }
+
+    /// A transcript without gene entry forms an entry with its own gene ID and HGNC ID.
+    #[test]
+    fn transcript_without_gene_entry() {
+        use crate::annotate::seqvars::provider::{Provider, test_db};
+        use crate::pbs::txs::Transcript;
+        use std::sync::Arc;
+
+        let tx = Transcript {
+            gene_id: "11".into(),
+            hgnc_id: Some("HGNC:1".into()),
+            ..test_db::transcript("NM_000001.1", 1000)
+        };
+        let provider = Provider::new(test_db::tx_seq_db(vec![tx], vec![]), None::<&str>, true);
+
+        let effects =
+            super::ConsequencePredictor::new(Arc::new(provider)).compute_tx_effects(&Deletion {
+                start: 900,
+                stop: 1200,
+            });
+        let genes: Vec<_> = effects
+            .iter()
+            .map(|gene| (gene.gene_id.as_str(), gene.hgnc_id.as_deref()))
+            .collect();
+        assert_eq!(genes, [("11", Some("HGNC:1"))]);
     }
 }

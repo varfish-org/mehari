@@ -395,7 +395,7 @@ fn _extract_transcripts_by_hgnc_id(
     for (idx, tx) in container_tx_db.transcripts.iter().enumerate() {
         tracing::debug!("considering transcript: {:?}", &tx);
         if hgnc_ids.contains(&tx.gene_symbol)
-            || tx.hgnc_id_or_legacy().is_some_and(|hgnc_id| {
+            || tx.hgnc_id.as_deref().is_some_and(|hgnc_id| {
                 hgnc_ids.contains(hgnc_id)
                     || hgnc_id
                         .strip_prefix("HGNC:")
@@ -584,34 +584,26 @@ mod tests {
 
     /// A database with transcript `NM_007294.4` of BRCA1.
     #[allow(deprecated)]
-    fn brca1_tx_db(gene_id: &str, legacy_gene_id: &str, hgnc_id: Option<&str>) -> TranscriptDb {
+    fn brca1_tx_db() -> TranscriptDb {
         TranscriptDb {
             transcripts: vec![Transcript {
                 id: "NM_007294.4".into(),
                 gene_symbol: "BRCA1".into(),
-                legacy_gene_id: legacy_gene_id.into(),
-                gene_id: gene_id.into(),
-                hgnc_id: hgnc_id.map(String::from),
+                legacy_gene_id: "GENE:672".into(),
+                gene_id: "672".into(),
+                hgnc_id: Some("HGNC:1100".into()),
                 ..Default::default()
             }],
             gene_to_tx: vec![],
         }
     }
 
-    /// `--hgnc-id` selects by HGNC ID, with or without `HGNC:`. A database built before
-    /// `gene_id` and `hgnc_id` existed names the HGNC ID in `legacy_gene_id`.
+    /// `--hgnc-id` selects by HGNC ID, with or without `HGNC:`.
     #[rstest::rstest]
-    #[case::hgnc_id("672", "GENE:672", Some("HGNC:1100"), "HGNC:1100")]
-    #[case::hgnc_id_number("672", "GENE:672", Some("HGNC:1100"), "1100")]
-    #[case::old_db("", "HGNC:1100", None, "HGNC:1100")]
-    #[case::old_db_number("", "HGNC:1100", None, "1100")]
-    fn hgnc_id_selects_transcripts(
-        #[case] gene_id: &str,
-        #[case] legacy_gene_id: &str,
-        #[case] hgnc_id: Option<&str>,
-        #[case] query: &str,
-    ) -> Result<(), anyhow::Error> {
-        let tx_db = brca1_tx_db(gene_id, legacy_gene_id, hgnc_id);
+    #[case::hgnc_id("HGNC:1100")]
+    #[case::hgnc_id_number("1100")]
+    fn hgnc_id_selects_transcripts(#[case] query: &str) -> Result<(), anyhow::Error> {
+        let tx_db = brca1_tx_db();
         let (_, tx_ids, _) = super::_extract_transcripts_by_hgnc_id(&tx_db, &[query.into()])?;
         assert_eq!(tx_ids.into_iter().collect::<Vec<_>>(), ["NM_007294.4"]);
         Ok(())

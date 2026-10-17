@@ -236,8 +236,7 @@ pub struct Provider {
     pub contig_manager: Arc<ContigManager>,
 
     /// Mapping from HGNC ID to the indices in `TxSeqDatabase::tx_db::gene_to_tx`. Two genes can
-    /// have one HGNC ID, e.g. a RefSeq and an Ensembl gene. Databases that predate annotation
-    /// gene IDs map the `legacy_gene_id`.
+    /// have one HGNC ID, e.g. a RefSeq and an Ensembl gene.
     gene_map: FxHashMap<String, Vec<u32>>,
 
     /// Mapping from transcript accession to index in `TxSeqDatabase::tx_db::transcripts`.
@@ -246,10 +245,6 @@ pub struct Provider {
     /// Index in `TxSeqDatabase::tx_db::gene_to_tx` of the gene of each transcript, by index in
     /// `TxSeqDatabase::tx_db::transcripts`.
     tx_genes: Vec<Option<u32>>,
-
-    /// Whether outputs report the legacy gene IDs, e.g. `HGNC:1100`. Databases that predate
-    /// annotation gene IDs have only these.
-    legacy_gene_ids: bool,
 
     /// Mapping from sequence accession to index in `TxSeqDatabase::seq_db::seqs`.
     seq_map: FxHashMap<String, u32>,
@@ -350,18 +345,6 @@ impl Provider {
             }
         }
 
-        // A database predates annotation gene IDs if none of its transcripts has one.
-        let legacy_gene_ids = tx_seq_db.tx_db.as_ref().is_some_and(|tx_db| {
-            !tx_db.transcripts.is_empty()
-                && tx_db.transcripts.iter().all(|tx| tx.gene_id.is_empty())
-        });
-        if legacy_gene_ids {
-            tracing::warn!(
-                "The transcript database predates annotation gene IDs. Outputs report the \
-                legacy gene IDs, e.g. HGNC:1100."
-            );
-        }
-
         let mut gene_map: FxHashMap<String, Vec<u32>> = FxHashMap::default();
         for (idx, entry) in tx_seq_db
             .tx_db
@@ -372,14 +355,9 @@ impl Provider {
             // .filter(|gene| !gene.filtered.unwrap_or(false))
             .enumerate()
         {
-            let hgnc_id = if legacy_gene_ids {
-                Some(entry.legacy_gene_id.as_str())
-            } else {
-                entry.hgnc_id_or_legacy()
-            };
-            if let Some(hgnc_id) = hgnc_id {
+            if let Some(hgnc_id) = &entry.hgnc_id {
                 gene_map
-                    .entry(hgnc_id.to_string())
+                    .entry(hgnc_id.clone())
                     .or_default()
                     .push(idx as u32);
             }
@@ -462,7 +440,6 @@ impl Provider {
             gene_map,
             tx_map,
             tx_genes,
-            legacy_gene_ids,
             seq_map,
             assembly_map,
             reference_reader,
@@ -531,34 +508,6 @@ impl Provider {
         })
     }
 
-    /// Return whether outputs report the legacy gene IDs, because the database predates
-    /// annotation gene IDs.
-    pub fn legacy_gene_ids(&self) -> bool {
-        self.legacy_gene_ids
-    }
-
-    /// Return the gene ID that outputs report for `tx`, e.g. `"672"` for BRCA1 in RefSeq.
-    /// Databases that predate annotation gene IDs give the legacy gene ID, e.g. `"HGNC:1100"`.
-    #[allow(deprecated)]
-    pub fn gene_id<'a>(&self, tx: &'a Transcript) -> &'a str {
-        if self.legacy_gene_ids {
-            &tx.legacy_gene_id
-        } else {
-            &tx.gene_id
-        }
-    }
-
-    /// Return the HGNC ID of the gene of `tx`, e.g. `"HGNC:1100"`. Databases that predate
-    /// annotation gene IDs give the legacy gene ID, also if it is not an HGNC ID.
-    #[allow(deprecated)]
-    pub fn hgnc_id<'a>(&self, tx: &'a Transcript) -> Option<&'a str> {
-        if self.legacy_gene_ids {
-            Some(&tx.legacy_gene_id)
-        } else {
-            tx.hgnc_id_or_legacy()
-        }
-    }
-
     /// Return the gene entry of the transcript `tx_ac`, if any.
     pub fn gene_of(&self, tx_ac: &str) -> Option<&GeneToTxId> {
         let tx_idx = *self.tx_map.get(tx_ac)?;
@@ -572,10 +521,10 @@ impl Provider {
 
     /// Return the key that groups `tx` by gene: the HGNC ID if the gene has one, else the gene ID
     /// of its gene entry, else the gene ID of `tx`. Then the RefSeq and Ensembl genes of one HGNC
-    /// ID form one group, and so do the versions of a gene. Databases that predate annotation
-    /// gene IDs group by legacy gene ID.
+    /// ID form one group, and so do the versions of a gene.
     pub fn gene_key<'a>(&'a self, tx: &'a Transcript) -> &'a str {
-        self.hgnc_id(tx)
+        tx.hgnc_id
+            .as_deref()
             .or_else(|| self.gene_of(&tx.id).map(|gene| gene.gene_id.as_str()))
             .unwrap_or(&tx.gene_id)
     }
@@ -728,7 +677,7 @@ impl ProviderInterface for Provider {
             .expect("no tx_db?")
             .transcripts[tx_idx];
 
-        let hgnc = self.hgnc_id(tx).unwrap_or_default().to_string();
+        let hgnc = tx.hgnc_id.clone().unwrap_or_default();
         let tx_ac_str = tx_ac.to_string();
         let alt_ac_str = db_contig.to_string();
         let alt_aln_method_str = ALT_ALN_METHOD.to_string();
@@ -873,7 +822,7 @@ impl ProviderInterface for Provider {
 
                     if let Some(genome_alignment) = tx.genome_alignments.first() {
                         Some(Ok(TxInfoRecord {
-                            hgnc: self.hgnc_id(tx).unwrap_or_default().to_string(),
+                            hgnc: tx.hgnc_id.clone().unwrap_or_default(),
                             cds_start_i: tx.start_codon,
                             cds_end_i: tx.stop_codon,
                             tx_ac: tx.id.clone(),
@@ -956,7 +905,7 @@ impl ProviderInterface for Provider {
             .as_ref()
             .expect("no tx_db?")
             .transcripts[tx_idx];
-        let hgnc = self.hgnc_id(tx).unwrap_or_default().to_string();
+        let hgnc = tx.hgnc_id.clone().unwrap_or_default();
 
         let mut tmp = tx
             .genome_alignments
@@ -1056,7 +1005,7 @@ impl ProviderInterface for Provider {
         for genome_alignment in &tx.genome_alignments {
             if genome_alignment.contig == db_contig {
                 return Ok(TxInfoRecord {
-                    hgnc: self.hgnc_id(tx).unwrap_or_default().to_string(),
+                    hgnc: tx.hgnc_id.clone().unwrap_or_default(),
                     cds_start_i: tx.start_codon,
                     cds_end_i: tx.stop_codon,
                     tx_ac: tx.id.clone(),
@@ -1164,22 +1113,14 @@ pub(crate) mod test_db {
     }
 
     /// A database with the transcript `NM_000001.1` of the gene `11` (`HGNC:1`) and its gene
-    /// entry. A new database has the gene fields that `db create` writes for GFF3: `gene_id`
-    /// `11`, `hgnc_id` `HGNC:1` and `legacy_gene_id` `GENE:11`. An old database has only
-    /// `legacy_gene_id` `HGNC:1`.
-    pub(crate) fn one_gene_db(new: bool) -> TxSeqDatabase {
-        let tx = if new {
-            Transcript {
-                gene_id: "11".into(),
-                hgnc_id: Some("HGNC:1".into()),
-                legacy_gene_id: "GENE:11".into(),
-                ..transcript("NM_000001.1", 1000)
-            }
-        } else {
-            Transcript {
-                legacy_gene_id: "HGNC:1".into(),
-                ..transcript("NM_000001.1", 1000)
-            }
+    /// entry. They have the gene fields that `db create` writes for GFF3: `gene_id` `11`,
+    /// `hgnc_id` `HGNC:1` and `legacy_gene_id` `GENE:11`.
+    pub(crate) fn one_gene_db() -> TxSeqDatabase {
+        let tx = Transcript {
+            gene_id: "11".into(),
+            hgnc_id: Some("HGNC:1".into()),
+            legacy_gene_id: "GENE:11".into(),
+            ..transcript("NM_000001.1", 1000)
         };
         tx_seq_db(vec![tx.clone()], vec![gene(&tx)])
     }
@@ -1216,88 +1157,16 @@ mod test {
         assert_eq!(tx.tx_len(), 250);
     }
 
-    /// A database with two transcripts of one gene, new or old as in `test_db::one_gene_db`.
-    fn two_transcripts_db(new: bool) -> crate::pbs::txs::TxSeqDatabase {
-        use crate::pbs::txs::Transcript;
-
-        let mut tx_seq_db = super::test_db::one_gene_db(new);
-        if let Some(tx_db) = tx_seq_db.tx_db.as_mut() {
-            let tx = Transcript {
-                id: "NM_000002.1".into(),
-                ..tx_db.transcripts[0].clone()
-            };
-            tx_db.transcripts.push(tx);
-        }
-        tx_seq_db
-    }
-
-    /// A database that predates annotation gene IDs gives one warning, for any number of
-    /// transcripts.
-    #[tracing_test::traced_test]
-    #[test]
-    fn warns_once_about_old_database() {
-        super::Provider::new(
-            two_transcripts_db(false),
-            None::<&str>,
-            true,
-            Default::default(),
-        );
-
-        logs_assert(|lines: &[&str]| {
-            match lines
-                .iter()
-                .filter(|line| line.contains("predates annotation gene IDs"))
-                .count()
-            {
-                1 => Ok(()),
-                count => Err(format!("{count} warnings, expected 1")),
-            }
-        });
-    }
-
-    #[tracing_test::traced_test]
-    #[test]
-    fn no_warning_about_new_database() {
-        super::Provider::new(
-            two_transcripts_db(true),
-            None::<&str>,
-            true,
-            Default::default(),
-        );
-
-        assert!(!logs_contain("predates annotation gene IDs"));
-    }
-
-    /// A new database stays new if a single transcript has no gene ID.
-    #[tracing_test::traced_test]
-    #[test]
-    fn new_database_with_one_empty_gene_id() {
-        let mut tx_seq_db = two_transcripts_db(true);
-        if let Some(tx_db) = tx_seq_db.tx_db.as_mut() {
-            tx_db.transcripts[1].gene_id.clear();
-        }
-        let provider = super::Provider::new(tx_seq_db, None::<&str>, true, Default::default());
-
-        assert!(!provider.legacy_gene_ids());
-        assert!(!logs_contain("predates annotation gene IDs"));
-    }
-
-    /// The lookup by HGNC ID uses `hgnc_id`. Databases that predate annotation gene IDs name it
-    /// in `legacy_gene_id`.
+    /// The lookup by HGNC ID uses `hgnc_id`, not `legacy_gene_id`.
     #[rstest::rstest]
-    #[case::new_database(true, "HGNC:1", true)]
-    #[case::new_database_legacy_gene_id(true, "GENE:11", false)]
-    #[case::old_database(false, "HGNC:1", true)]
-    fn lookup_by_hgnc_id(
-        #[case] new: bool,
-        #[case] hgnc_id: &str,
-        #[case] found: bool,
-    ) -> Result<(), anyhow::Error> {
+    #[case::hgnc_id("HGNC:1", true)]
+    #[case::legacy_gene_id("GENE:11", false)]
+    fn lookup_by_hgnc_id(#[case] hgnc_id: &str, #[case] found: bool) -> Result<(), anyhow::Error> {
         use super::{Provider, test_db};
         use hgvs::data::interface::Provider as _;
 
         let provider = Provider::new(
-            test_db::one_gene_db(new),
+            test_db::one_gene_db(),
             None::<&str>,
             true,
             Default::default(),
