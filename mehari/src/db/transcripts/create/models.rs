@@ -60,6 +60,16 @@ pub(crate) fn split_version(id: &str) -> (&str, u32) {
         .unwrap_or((id, 0))
 }
 
+/// A gene ID without its version, e.g. `ENSG00000182378` for `ENSG00000182378.14`. GENCODE
+/// before release 44 names the PAR_Y copy of a gene `ENSG00000182378.14_PAR_Y`. Its gene ID
+/// keeps the suffix: `ENSG00000182378_PAR_Y`.
+pub(crate) fn gene_id_without_version(id: &str) -> String {
+    match id.strip_suffix("_PAR_Y") {
+        Some(id) => format!("{}_PAR_Y", split_version(id).0),
+        None => split_version(id).0.to_string(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Hash)]
 #[serde(tag = "type", content = "value")]
 pub enum Identifier {

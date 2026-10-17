@@ -2,7 +2,7 @@ use crate::common::progress::{Progress, open_with_progress};
 use crate::db::transcripts::create::cdot_models;
 use crate::db::transcripts::create::filter::MITOCHONDRIAL_ACCESSIONS;
 use crate::db::transcripts::create::models::{
-    GeneId, TranscriptId, TranscriptLoader, split_version,
+    GeneId, TranscriptId, TranscriptLoader, gene_id_without_version, split_version,
 };
 use anyhow::{Context, Error, anyhow};
 use hgvs::data::cdot::json::models::{
@@ -298,7 +298,7 @@ pub fn load_gff3(
                     &["gene:"],
                 );
                 let gene_id = GeneId(match get_attr("gene_id") {
-                    Some(id) => split_version(&id).0.to_string(),
+                    Some(id) => gene_id_without_version(&id),
                     None => ncbi_gene_id.unwrap_or_else(|| resolve_id(None, None, &["gene:"])),
                 });
 
@@ -941,6 +941,18 @@ chrY\tHAVANA\texon\t5001\t6000\t.\t+\t.\tID=exon:ENST00000399012.6_PAR_Y:1;Paren
 22\tensembl_havana\tgene\t1001\t2000\t.\t+\t.\tID=gene:ENSG00000100001;Name=GE;biotype=protein_coding;description=test gene [Source:HGNC Symbol%3BAcc:HGNC:8907];gene_id=ENSG00000100001;version=3
 22\tensembl_havana\tmRNA\t1001\t2000\t.\t+\t.\tID=transcript:ENST00000100001;Parent=gene:ENSG00000100001;biotype=protein_coding;transcript_id=ENST00000100001;version=2
 22\tensembl_havana\texon\t1001\t2000\t.\t+\t.\tParent=transcript:ENST00000100001
+";
+
+    /// A gene with a PAR_Y copy, as GENCODE writes it before release 44: the `gene_id` and
+    /// `transcript_id` of the copy end in `_PAR_Y`.
+    const GFF3_GENCODE_PAR_Y_SUFFIX: &str = "\
+##gff-version 3
+chrX\tHAVANA\tgene\t1001\t2000\t.\t+\t.\tID=ENSG00000182378.14;gene_id=ENSG00000182378.14;gene_name=PLCXD1
+chrX\tHAVANA\ttranscript\t1001\t2000\t.\t+\t.\tID=ENST00000399012.5;Parent=ENSG00000182378.14;gene_id=ENSG00000182378.14;transcript_id=ENST00000399012.5
+chrX\tHAVANA\texon\t1001\t2000\t.\t+\t.\tID=exon:ENST00000399012.5:1;Parent=ENST00000399012.5;transcript_id=ENST00000399012.5
+chrY\tHAVANA\tgene\t5001\t6000\t.\t+\t.\tID=ENSG00000182378.14_PAR_Y;gene_id=ENSG00000182378.14_PAR_Y;gene_name=PLCXD1
+chrY\tHAVANA\ttranscript\t5001\t6000\t.\t+\t.\tID=ENST00000399012.5_PAR_Y;Parent=ENSG00000182378.14_PAR_Y;gene_id=ENSG00000182378.14_PAR_Y;transcript_id=ENST00000399012.5_PAR_Y
+chrY\tHAVANA\texon\t5001\t6000\t.\t+\t.\tID=exon:ENST00000399012.5_PAR_Y:1;Parent=ENST00000399012.5_PAR_Y;transcript_id=ENST00000399012.5_PAR_Y
 ";
 
     /// An Ensembl and a GENCODE NMD transcript. Their GFF3 type is `mRNA` and `transcript`,
@@ -1609,6 +1621,37 @@ NC_000001.11\tBestRefSeq\tCDS\t1011\t1100\t.\t+\t0\tID=cds-NP_000020.1;Parent=rn
         assert_eq!(
             gene_fields(&mut loader, tx_id)?,
             [expected.clone(), expected]
+        );
+
+        Ok(())
+    }
+
+    /// The PAR_Y copy of a gene stays a gene of its own. Its gene ID loses the version, but
+    /// keeps the suffix `_PAR_Y`.
+    #[test]
+    fn par_y_copy_with_suffix_is_its_own_gene() -> Result<(), anyhow::Error> {
+        let loader = load(GFF3_GENCODE_PAR_Y_SUFFIX)?;
+
+        let genes: HashMap<_, _> = loader
+            .gene_id_to_transcript_ids
+            .iter()
+            .map(|(gene_id, tx_ids)| {
+                let tx_ids: Vec<_> = tx_ids.iter().map(|tx_id| tx_id.to_string()).collect();
+                (gene_id.to_string(), tx_ids)
+            })
+            .collect();
+        assert_eq!(
+            genes,
+            HashMap::from([
+                (
+                    "ENSG00000182378".to_string(),
+                    vec!["ENST00000399012.5".to_string()]
+                ),
+                (
+                    "ENSG00000182378_PAR_Y".to_string(),
+                    vec!["ENST00000399012.5_PAR_Y".to_string()]
+                ),
+            ])
         );
 
         Ok(())
