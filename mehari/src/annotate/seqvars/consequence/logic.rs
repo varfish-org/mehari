@@ -6126,6 +6126,44 @@ mod test {
         Ok(())
     }
 
+    /// An in-frame deletion of the stop codon can read to the transcript end without a new stop
+    /// codon. If the last bases there do not fill a codon, hgvs-rs ends the protein with `Xaa`.
+    /// `Xaa` is an unknown amino acid, not a stop.
+    #[test]
+    fn in_frame_deletion_of_stop_codon_ending_in_xaa() -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CGCATCA");
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1032,
+                reference: "GTGGTAA".into(),
+                alternative: "G".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (
+                Some("c.13_18del"),
+                Some("p.Trp5_Ter6delinsArgIleXaa"),
+                &vec![
+                    Consequence::StopLost,
+                    Consequence::ConservativeInframeDeletion,
+                    Consequence::ProteinAlteringVariant
+                ]
+            )
+        );
+        Ok(())
+    }
+
     #[test]
     fn test_predict_multiple_bounds_checking() -> Result<(), anyhow::Error> {
         let alt_seq = String::from("ATGCGTACGTAGCTAGCT");
