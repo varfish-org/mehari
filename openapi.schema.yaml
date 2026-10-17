@@ -1533,12 +1533,24 @@ components:
       type: object
       description: Explanation of transcript effect per individual gene.
       required:
-      - hgnc_id
       - transcript_effects
       properties:
+        gene_id:
+          type:
+          - string
+          - 'null'
+          description: |-
+            Gene ID of the annotation without version, e.g. `"672"` for BRCA1 in RefSeq or
+            `"ENSG00000182378"` for PLCXD1 in GENCODE. Unset for databases that predate annotation
+            gene IDs.
         hgnc_id:
-          type: string
-          description: HGNC identifier
+          type:
+          - string
+          - 'null'
+          description: |-
+            HGNC ID of the gene, e.g. `"HGNC:1100"` for BRCA1. Unset for genes without HGNC ID.
+            Databases that predate annotation gene IDs give the legacy gene ID, also if it is not an
+            HGNC ID.
         transcript_effects:
           type: array
           items:

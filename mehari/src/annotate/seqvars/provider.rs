@@ -530,6 +530,12 @@ impl Provider {
         })
     }
 
+    /// Return whether outputs report the legacy gene IDs, because the database predates
+    /// annotation gene IDs.
+    pub fn legacy_gene_ids(&self) -> bool {
+        self.legacy_gene_ids
+    }
+
     /// Return the gene ID that outputs report for `tx`, e.g. `"672"` for BRCA1 in RefSeq.
     /// Databases that predate annotation gene IDs give the legacy gene ID, e.g. `"HGNC:1100"`.
     #[allow(deprecated)]
