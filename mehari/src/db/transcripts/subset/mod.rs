@@ -228,16 +228,12 @@ fn subset_tx_db(container: &TxSeqDatabase, args: &Args) -> Result<TxSeqDatabase>
             .gene_to_tx
             .iter()
             .filter_map(|gene_to_tx| {
-                if gene_ids.contains(gene_to_tx.legacy_gene_id.as_str()) {
-                    let mut mapping = gene_to_tx.clone();
-                    mapping.tx_ids.retain(|tx_id| tx_ids.contains(tx_id));
-                    if mapping.tx_ids.is_empty() {
-                        None
-                    } else {
-                        Some(mapping)
-                    }
-                } else {
+                let mut mapping = gene_to_tx.clone();
+                mapping.tx_ids.retain(|tx_id| tx_ids.contains(tx_id));
+                if mapping.tx_ids.is_empty() {
                     None
+                } else {
+                    Some(mapping)
                 }
             })
             .collect(),
@@ -399,8 +395,12 @@ fn _extract_transcripts_by_hgnc_id(
     for (idx, tx) in container_tx_db.transcripts.iter().enumerate() {
         tracing::debug!("considering transcript: {:?}", &tx);
         if hgnc_ids.contains(&tx.gene_symbol)
-            || hgnc_ids.contains(&tx.legacy_gene_id)
-            || hgnc_ids.contains(&tx.legacy_gene_id.replace("HGNC:", ""))
+            || tx.hgnc_id_or_legacy().is_some_and(|hgnc_id| {
+                hgnc_ids.contains(hgnc_id)
+                    || hgnc_id
+                        .strip_prefix("HGNC:")
+                        .is_some_and(|number| hgnc_ids.contains(number))
+            })
         {
             tracing::debug!("keeping transcript: {}", tx.id);
             tx_idxs.push(idx);
@@ -443,6 +443,7 @@ fn __extract_transcripts_from_db(
 mod tests {
     use crate::annotate::seqvars::consequence::load_tx_db;
     use crate::db::transcripts::subset::Selection;
+    use crate::pbs::txs::{GeneToTxId, SequenceDb, Transcript, TranscriptDb, TxSeqDatabase};
     use prost::Message;
     use temp_testdir::TempDir;
 
@@ -577,6 +578,94 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("matches both include and exclude regular expressions"));
+
+        Ok(())
+    }
+
+    /// A database with transcript `NM_007294.4` of BRCA1, whose gene has the gene ID `672`.
+    #[allow(deprecated)]
+    fn brca1_tx_db(legacy_gene_id: &str, hgnc_id: Option<&str>) -> TranscriptDb {
+        TranscriptDb {
+            transcripts: vec![Transcript {
+                id: "NM_007294.4".into(),
+                gene_symbol: "BRCA1".into(),
+                legacy_gene_id: legacy_gene_id.into(),
+                gene_id: "672".into(),
+                hgnc_id: hgnc_id.map(String::from),
+                ..Default::default()
+            }],
+            gene_to_tx: vec![],
+        }
+    }
+
+    /// `--hgnc-id` selects by HGNC ID, with or without `HGNC:`. A database built before
+    /// `hgnc_id` existed names the HGNC ID in `legacy_gene_id`.
+    #[rstest::rstest]
+    #[case::hgnc_id("GENE:672", Some("HGNC:1100"), "HGNC:1100")]
+    #[case::hgnc_id_number("GENE:672", Some("HGNC:1100"), "1100")]
+    #[case::old_db("HGNC:1100", None, "HGNC:1100")]
+    #[case::old_db_number("HGNC:1100", None, "1100")]
+    fn hgnc_id_selects_transcripts(
+        #[case] legacy_gene_id: &str,
+        #[case] hgnc_id: Option<&str>,
+        #[case] query: &str,
+    ) -> Result<(), anyhow::Error> {
+        let tx_db = brca1_tx_db(legacy_gene_id, hgnc_id);
+        let (_, tx_ids, _) = super::_extract_transcripts_by_hgnc_id(&tx_db, &[query.into()])?;
+        assert_eq!(tx_ids.into_iter().collect::<Vec<_>>(), ["NM_007294.4"]);
+        Ok(())
+    }
+
+    /// A gene keeps its entry if it holds a selected transcript, also if its
+    /// `legacy_gene_id` differs from that of the transcript.
+    #[test]
+    #[allow(deprecated)]
+    fn gene_with_selected_transcript_is_kept() -> Result<(), anyhow::Error> {
+        let container = TxSeqDatabase {
+            tx_db: Some(TranscriptDb {
+                transcripts: vec![Transcript {
+                    id: "NM_000014.6".into(),
+                    gene_symbol: "A2M".into(),
+                    legacy_gene_id: "GENE:2".into(),
+                    gene_id: "2".into(),
+                    hgnc_id: Some("HGNC:7".into()),
+                    ..Default::default()
+                }],
+                gene_to_tx: vec![GeneToTxId {
+                    legacy_gene_id: "HGNC:7".into(),
+                    tx_ids: vec!["NM_000014.6".into()],
+                    gene_id: "2".into(),
+                    hgnc_id: Some("HGNC:7".into()),
+                    ..Default::default()
+                }],
+            }),
+            seq_db: Some(SequenceDb::default()),
+            ..Default::default()
+        };
+        let args = super::Args {
+            path_in: Default::default(),
+            path_out: Default::default(),
+            selection: Selection {
+                transcript_id: Some(vec!["NM_000014.6".into()]),
+                ..Default::default()
+            },
+            compression_level: None,
+            include_transcripts: None,
+            exclude_transcripts: None,
+        };
+
+        let subset = super::subset_tx_db(&container, &args)?;
+        let gene_to_tx = subset
+            .tx_db
+            .map(|tx_db| tx_db.gene_to_tx)
+            .unwrap_or_default();
+        assert_eq!(
+            gene_to_tx,
+            container
+                .tx_db
+                .map(|tx_db| tx_db.gene_to_tx)
+                .unwrap_or_default()
+        );
 
         Ok(())
     }
