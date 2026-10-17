@@ -18,8 +18,8 @@ use hgvs::{
     data::{
         cdot::json::NCBI_ALN_METHOD,
         interface::{
-            Provider as ProviderInterface, TxExonsRecord, TxForRegionRecord, TxIdentityInfo,
-            TxInfoRecord, TxMappingOptionsRecord,
+            Provider as ProviderInterface, TranslationException, TxExonsRecord, TxForRegionRecord,
+            TxIdentityInfo, TxInfoRecord, TxMappingOptionsRecord,
         },
     },
     sequences::{TranslationTable, seq_md5},
@@ -160,6 +160,19 @@ pub trait PbsTranscriptExt {
     /// Computes the available CDS length. If the stop codon is missing,
     /// it uses the provided transcript length to bound the remaining sequence.
     fn available_cds_len(&self, tx_len: i32) -> Option<i32>;
+
+    /// The number of bases after the last exon that complete the stop codon. `db create`
+    /// adds them as `A` bases, as the poly-A tail does. No total counts them.
+    fn stop_codon_padding(&self, tx_len: i32) -> i32;
+
+    /// `seq` without the `A` bases that `db create` appended to the stored sequence to
+    /// complete the stop codon. `ref_len` is the length of the stored sequence. If it runs past
+    /// the stop codon, e.g. into a poly-A tail, `db create` appended nothing.
+    ///
+    /// A RefSeq sequence can have an unaligned 3' tail that ends inside the completed stop codon.
+    /// `db create` pads it to the stop codon end as well, so this drops the tail bases too. No
+    /// such transcript is known.
+    fn without_stop_codon_padding(&self, seq: &str, ref_len: usize, tx_len: i32) -> String;
 }
 
 impl PbsTranscriptExt for Transcript {
@@ -185,6 +198,22 @@ impl PbsTranscriptExt for Transcript {
     fn available_cds_len(&self, tx_len: i32) -> Option<i32> {
         self.start_codon
             .map(|start| self.stop_codon.unwrap_or(tx_len) - start)
+    }
+
+    fn stop_codon_padding(&self, tx_len: i32) -> i32 {
+        self.stop_codon.map_or(0, |stop| (stop - tx_len).max(0))
+    }
+
+    fn without_stop_codon_padding(&self, seq: &str, ref_len: usize, tx_len: i32) -> String {
+        let appended =
+            if self.stop_codon.and_then(|stop| usize::try_from(stop).ok()) == Some(ref_len) {
+                usize::try_from(self.stop_codon_padding(tx_len)).unwrap_or_default()
+            } else {
+                0
+            };
+        seq.get(..seq.len().saturating_sub(appended))
+            .unwrap_or(seq)
+            .to_string()
     }
 }
 
@@ -857,6 +886,10 @@ impl ProviderInterface for Provider {
             .expect("no tx_db?")
             .transcripts[tx_idx];
         let is_selenoprotein = tx.tags.contains(&(TranscriptTag::Selenoprotein as i32));
+        let has_selenocysteine = tx
+            .translation_exceptions
+            .iter()
+            .any(|exception| exception.amino_acid == "U");
 
         let hgnc = tx.gene_id.clone();
 
@@ -892,12 +925,38 @@ impl ProviderInterface for Provider {
             hgnc,
             translation_table: if is_mitochondrial {
                 TranslationTable::VertebrateMitochondrial
-            } else if is_selenoprotein {
+            } else if is_selenoprotein && !has_selenocysteine {
+                // With selenocysteine in the translation exceptions, UGA reads as
+                // selenocysteine only there.
                 TranslationTable::Selenocysteine
             } else {
                 TranslationTable::Standard
             },
         })
+    }
+
+    fn get_tx_translation_exceptions(
+        &self,
+        tx_ac: &str,
+    ) -> Result<Vec<TranslationException>, Error> {
+        let tx = self
+            .get_tx(tx_ac)
+            .ok_or_else(|| Error::NoTranscriptFound(tx_ac.to_string()))?;
+        tx.translation_exceptions
+            .iter()
+            .map(|exception| {
+                let amino_acid = exception.amino_acid.parse().map_err(|_| {
+                    Error::UnsupportedTranslationException(
+                        tx_ac.to_string(),
+                        exception.amino_acid.clone(),
+                    )
+                })?;
+                Ok(TranslationException {
+                    position: exception.position,
+                    amino_acid,
+                })
+            })
+            .collect()
     }
 
     fn get_tx_info(
