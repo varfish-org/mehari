@@ -131,7 +131,6 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error> {
     Ok(())
 }
 
-#[allow(deprecated)]
 fn subset_tx_db(container: &TxSeqDatabase, args: &Args) -> Result<TxSeqDatabase> {
     let container_tx_db = container.tx_db.as_ref().expect("no tx_db");
 
@@ -165,7 +164,7 @@ fn subset_tx_db(container: &TxSeqDatabase, args: &Args) -> Result<TxSeqDatabase>
             for (idx, tx) in container_tx_db.transcripts.iter().enumerate() {
                 tx_idxs.insert(idx);
                 tx_ids.insert(tx.id.clone());
-                gene_ids.insert(tx.legacy_gene_id.clone());
+                gene_ids.insert(tx.gene_id.clone());
             }
             (tx_idxs, tx_ids, gene_ids)
         }
@@ -195,7 +194,7 @@ fn subset_tx_db(container: &TxSeqDatabase, args: &Args) -> Result<TxSeqDatabase>
                 if keep {
                     new_tx_idxs.insert(idx);
                     new_tx_ids.insert(tx_id.clone());
-                    new_gene_ids.insert(tx.legacy_gene_id.clone());
+                    new_gene_ids.insert(tx.gene_id.clone());
                 }
             }
         }
@@ -383,7 +382,6 @@ fn _extract_transcripts_by_txid(
     )
 }
 
-#[allow(deprecated)]
 fn _extract_transcripts_by_hgnc_id(
     container_tx_db: &TranscriptDb,
     gene_symbols: &[String],
@@ -405,7 +403,7 @@ fn _extract_transcripts_by_hgnc_id(
             tracing::debug!("keeping transcript: {}", tx.id);
             tx_idxs.push(idx);
             tx_ids.push(tx.id.clone());
-            gene_ids.insert(tx.legacy_gene_id.clone());
+            gene_ids.insert(tx.gene_id.clone());
         }
     }
     if tx_ids.is_empty() {
@@ -421,7 +419,6 @@ fn _extract_transcripts_by_hgnc_id(
     ))
 }
 
-#[allow(deprecated)]
 fn __extract_transcripts_from_db(
     container_tx_db: &TranscriptDb,
     transcript_ids: &IndexSet<String>,
@@ -433,7 +430,7 @@ fn __extract_transcripts_from_db(
         if transcript_ids.contains(&tx.id) {
             tracing::debug!("keeping transcript: {}", tx.id);
             tx_idxs.push(idx);
-            gene_ids.insert(tx.legacy_gene_id.clone());
+            gene_ids.insert(tx.gene_id.clone());
         }
     }
     (tx_idxs, gene_ids)
