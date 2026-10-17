@@ -209,6 +209,8 @@ mod tests {
     use crate::common::progress::NoProgress;
     use crate::db::transcripts::create::build::build_protobuf;
     use crate::db::transcripts::create::build::tests::gene_fields;
+    use crate::db::transcripts::create::filter::filter_transcripts;
+    use crate::db::transcripts::create::models::{Identifier, Reason};
     use anyhow::Context;
     use serde_json::{Value, json};
     use std::io::Write;
@@ -389,6 +391,28 @@ mod tests {
         assert!(logs_contain(
             "gene 2 has HGNC ID HGNC:7, but its transcripts or other versions name HGNC:8"
         ));
+
+        Ok(())
+    }
+
+    /// A transcript without HGNC ID gets the HGNC ID of its gene record, so the filters do
+    /// not flag it with `MissingHgncId`.
+    #[test]
+    fn transcript_without_hgnc_id_in_gene_with_hgnc_id_is_not_flagged() -> Result<(), Error> {
+        let mut loader = load_json(
+            json!({"2": {"gene_symbol": "A2M", "hgnc": "7", "url": ""}}),
+            json!({"NM_000003.1": cdot_tx("NM_000003.1", "2", None)}),
+        )?;
+        filter_transcripts(&mut loader)?;
+
+        let reason = loader
+            .discards
+            .get(&Identifier::Transcript(TranscriptId::try_new(
+                "NM_000003.1",
+            )?))
+            .copied()
+            .unwrap_or_default();
+        assert!(!reason.contains(Reason::MissingHgncId), "{reason:?}");
 
         Ok(())
     }
