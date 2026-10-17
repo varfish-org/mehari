@@ -2773,25 +2773,17 @@ impl ConsequencePredictor {
         &self,
         variants: &[VcfVariant],
     ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
-        // Run each input variant through single-variant normalization first.
+        // Run each input variant through single-variant normalization first. Like in `predict`,
+        // a VCF indel then lies behind its first REF base, as the VCF specification defines.
         let normalized_variants: Vec<VcfVariant> = variants
             .iter()
             .map(|v| {
-                let (_, r1, a1) =
-                    hgvs::sequences::trim_common_suffixes_slice(&v.reference, &v.alternative);
-                let (prefix_trim, r2, a2) = hgvs::sequences::trim_common_prefixes_slice(r1, a1);
-                // Detect when a2 == "N" and rewrite ALT to the normalized REF
-                let alternative = if a2 == "N" {
-                    r2.to_string()
-                } else {
-                    a2.to_string()
-                };
-                VcfVariant {
-                    chromosome: v.chromosome.clone(),
-                    position: v.position + prefix_trim as i32,
-                    reference: r2.to_string(),
-                    alternative,
+                let mut norm = self.normalize_variant(v);
+                // Detect when ALT == "N" and rewrite ALT to the normalized REF
+                if norm.alternative == "N" {
+                    norm.alternative = norm.reference.clone();
                 }
+                norm
             })
             .collect();
 
@@ -3037,7 +3029,6 @@ impl ConsequencePredictor {
                 n: Some(var_n),
                 c: Some(var_c),
                 p: None,
-                placement: None,
                 region: None,
                 unshifted_c: None,
             };
@@ -6099,13 +6090,11 @@ mod test {
         assert!(without_flag.is_ok());
     }
 
-    /// A phased insertion in front of an SNV on a plus strand transcript. Both edits start at
-    /// the same transcript index, and the inserted bases stay in front of the changed base.
-    #[test]
-    fn annotate_multiple_insertion_before_snv() -> Result<(), anyhow::Error> {
-        // The genome around the exons, with the two genome-only bases of exon 1 and without the
-        // three transcript-only bases of exon 2. The transcript ends at n.33, before the `A`
-        // bases that the stored sequence appends.
+    /// The reference genome for `tx_db_with_indels_in_exon_cigars`: the genome around the exons,
+    /// with the two genome-only bases of exon 1 and without the three transcript-only bases of
+    /// exon 2. The transcript ends at n.33, before the `A` bases that the stored sequence
+    /// appends.
+    fn reference_with_indels_in_exon_cigars() -> Result<NamedTempFile, anyhow::Error> {
         let tx_db = tx_db_with_indels_in_exon_cigars();
         let tx_seq = &tx_db.seq_db.as_ref().unwrap().seqs[0][..33];
         let genome = [
@@ -6121,7 +6110,19 @@ mod test {
         .concat();
         let mut reference = NamedTempFile::new()?;
         std::io::Write::write_all(&mut reference, format!(">1\n{genome}\n").as_bytes())?;
-        let provider = Arc::new(MehariProvider::new(tx_db, Some(reference.path()), true));
+        Ok(reference)
+    }
+
+    /// A phased insertion in front of an SNV on a plus strand transcript. Both edits start at
+    /// the same transcript index, and the inserted bases stay in front of the changed base.
+    #[test]
+    fn annotate_multiple_insertion_before_snv() -> Result<(), anyhow::Error> {
+        let reference = reference_with_indels_in_exon_cigars()?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db_with_indels_in_exon_cigars(),
+            Some(reference.path()),
+            true,
+        ));
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let var = |position, reference: &str, alternative: &str| VcfVariant {
@@ -6149,7 +6150,6 @@ mod test {
             tx_db_with_indels_in_exon_cigars(),
             None::<PathBuf>,
             true,
-            Default::default(),
         ));
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
@@ -6184,6 +6184,50 @@ mod test {
         Ok(())
     }
 
+    /// Like `predict`, the phased path reads a VCF insertion as behind the first REF base. An
+    /// insertion and an SNV at the same VCF position therefore insert behind the changed base.
+    #[test]
+    fn annotate_multiple_snv_before_insertion_in_repeat() -> Result<(), anyhow::Error> {
+        let reference = reference_with_indels_in_exon_cigars()?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db_with_indels_in_exon_cigars(),
+            Some(reference.path()),
+            true,
+        ));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let var = |position, reference: &str, alternative: &str| VcfVariant {
+            chromosome: "1".into(),
+            position,
+            reference: reference.into(),
+            alternative: alternative.into(),
+        };
+        // c.14C>A and a C behind c.14 turn CCC (Pro5) into CACC.
+        let phased = predictor
+            .predict_multiple(&[var(2006, "C", "CC"), var(2006, "C", "A")])?
+            .unwrap();
+        // The same change as one variant.
+        let single = predictor.predict(&var(2006, "C", "AC"))?.unwrap();
+
+        assert_eq!(phased[0].hgvs_g.as_deref(), Some("g.2006_2007delinsACC"));
+        assert_eq!(phased[0].hgvs_c.as_deref(), Some("c.13_14insA"));
+        assert_eq!(phased[0].hgvs_p.as_deref(), Some("p.Pro5HisfsTer?"));
+        let fields = |ann: &AnnField| {
+            (
+                ann.hgvs_n.clone(),
+                ann.hgvs_c.clone(),
+                ann.hgvs_p.clone(),
+                ann.consequences.clone(),
+                ann.cdna_pos.clone(),
+                ann.cds_pos.clone(),
+                ann.protein_pos.clone(),
+            )
+        };
+        assert_eq!(fields(&phased[0]), fields(&single[0]));
+
+        Ok(())
+    }
+
     /// An insertion lies between two bases, so it does not overlap an SNV next to it. The
     /// order of the input variants does not change the result.
     #[rstest::rstest]
@@ -6196,7 +6240,6 @@ mod test {
             tx_db_with_indels_in_exon_cigars(),
             None::<PathBuf>,
             true,
-            Default::default(),
         ));
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
