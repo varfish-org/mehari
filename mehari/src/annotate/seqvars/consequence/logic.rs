@@ -240,6 +240,14 @@ impl HgvsVariantExt for HgvsVariant {
             };
             Some((start, end, alt, behind_intron))
         };
+        // The CDS positions of the exon ends.
+        let exon_ends = tx
+            .genome_alignments
+            .first()?
+            .exons
+            .iter()
+            .filter_map(|exon| Some(exon.alt_cds_end_i? - ref_data.cds_start + 1))
+            .collect::<Vec<_>>();
         let Some((mut start, mut end, mut alt, _)) = changed(self) else {
             // VEP builds no codons for another indel with an intronic offset.
             let HgvsVariant::CdsVariant { loc_edit, .. } = self else {
@@ -273,9 +281,14 @@ impl HgvsVariantExt for HgvsVariant {
                 let end = cds_pos(&loc.end) - i32::from(loc.end.offset.unwrap_or(0) < 0);
                 start <= to && end >= from
             };
+            // VEP takes the stop codon from the genome, as the 3 bases up to the CDS end. An
+            // intron inside the stop codon cuts it short.
+            let stop_from = (exon_ends.iter())
+                .filter(|&&exon_end| exon_end < cds_len)
+                .fold(cds_len - 2, |from, exon_end| from.max(exon_end + 1));
             let stop_retained = !tx.is_incomplete_3p()
                 && covers(self, 1, cds_len)
-                && covers(unshifted, cds_len - 2, cds_len);
+                && covers(unshifted, stop_from, cds_len);
             return indel.then(|| {
                 if stop_retained {
                     Consequence::StopRetainedVariant.into()
@@ -287,13 +300,6 @@ impl HgvsVariantExt for HgvsVariant {
         // VEP shifts an insertion or deletion 3' on the genome, also across the CDS end, where
         // hgvs-rs stops. On the genome, an intron follows the end of an exon.
         let base = |cds_pos: i32| cds_and_utr.as_bytes().get(index(cds_pos - 1)?).copied();
-        let exon_ends = tx
-            .genome_alignments
-            .first()?
-            .exons
-            .iter()
-            .filter_map(|exon| Some(exon.alt_cds_end_i? - ref_data.cds_start + 1))
-            .collect::<Vec<_>>();
         if start > end {
             while !alt.is_empty()
                 && !exon_ends.contains(&end)
@@ -4198,12 +4204,7 @@ mod test {
         let spdi = spdi.split(':').collect::<Vec<_>>();
 
         let tx_db = load_tx_db(CHR22_CDS_END_TXS)?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
@@ -4630,6 +4631,9 @@ mod test {
     // The deletion shifts from `c.1637_*1del` to `c.1638_*1+1del` and keeps the stop codon
     // `TGA`. VEP builds no codons for it, as its end lies in the intron.
     #[case("22:15719775:TGAG:T", "ENST00000343518", Some("c.1638_*1+1del"), vec![Consequence::SpliceDonorVariant, Consequence::StopRetainedVariant, Consequence::CodingSequenceVariant, Consequence::ThreePrimeUtrVariant])]
+    // ENST00000381982 (minus strand): an exon ends with c.1081, the first base of the stop codon
+    // (`t|ag`). VEP takes the stop codon from the genome, so c.1081 lies outside it.
+    #[case("22:30491570:TACAG:T", "ENST00000381982", Some("c.1080_1081+2del"), vec![Consequence::SpliceDonorVariant, Consequence::CodingSequenceVariant])]
     // ENST00000613577 and ENST00000540833 end with the stop codon `TAA`. The insertion shifts
     // behind the last base, so VEP puts it outside the transcript. The dup that describes it
     // stays inside.
