@@ -8,29 +8,67 @@ include!(concat!(env!("OUT_DIR"), "/mehari.txs.rs"));
 include!(concat!(env!("OUT_DIR"), "/mehari.txs.serde.rs"));
 
 impl Transcript {
-    /// The HGNC ID of the gene, e.g. `"HGNC:1100"`. Databases built before `hgnc_id` existed
-    /// name it in `legacy_gene_id`.
+    /// The HGNC ID of the gene, e.g. `"HGNC:1100"`. Databases built before `gene_id` and
+    /// `hgnc_id` existed have an empty `gene_id` and name it in `legacy_gene_id`.
     #[allow(deprecated)]
     pub fn hgnc_id_or_legacy(&self) -> Option<&str> {
-        hgnc_id_or_legacy(self.hgnc_id.as_deref(), &self.legacy_gene_id)
+        hgnc_id_or_legacy(self.hgnc_id.as_deref(), &self.gene_id, &self.legacy_gene_id)
     }
 }
 
 impl GeneToTxId {
-    /// The HGNC ID of the gene, e.g. `"HGNC:1100"`. Databases built before `hgnc_id` existed
-    /// name it in `legacy_gene_id`.
+    /// The HGNC ID of the gene, e.g. `"HGNC:1100"`. Databases built before `gene_id` and
+    /// `hgnc_id` existed have an empty `gene_id` and name it in `legacy_gene_id`.
     #[allow(deprecated)]
     pub fn hgnc_id_or_legacy(&self) -> Option<&str> {
-        hgnc_id_or_legacy(self.hgnc_id.as_deref(), &self.legacy_gene_id)
+        hgnc_id_or_legacy(self.hgnc_id.as_deref(), &self.gene_id, &self.legacy_gene_id)
     }
 }
 
-/// `hgnc_id` if it is set, else `legacy_gene_id` if it names an HGNC ID.
-fn hgnc_id_or_legacy<'a>(hgnc_id: Option<&'a str>, legacy_gene_id: &'a str) -> Option<&'a str> {
+/// `hgnc_id` if it is set. Else, for an old database with empty `gene_id`, `legacy_gene_id`
+/// if it names an HGNC ID.
+fn hgnc_id_or_legacy<'a>(
+    hgnc_id: Option<&'a str>,
+    gene_id: &str,
+    legacy_gene_id: &'a str,
+) -> Option<&'a str> {
     match hgnc_id {
         Some(hgnc_id) if !hgnc_id.is_empty() => Some(hgnc_id),
-        _ => legacy_gene_id
-            .starts_with("HGNC:")
-            .then_some(legacy_gene_id),
+        _ => (gene_id.is_empty() && legacy_gene_id.starts_with("HGNC:")).then_some(legacy_gene_id),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GeneToTxId, Transcript};
+
+    /// Only databases built before `gene_id` and `hgnc_id` existed name the HGNC ID in
+    /// `legacy_gene_id`. They have an empty `gene_id`.
+    #[rstest::rstest]
+    #[case::hgnc_id("672", Some("HGNC:1100"), "GENE:672", Some("HGNC:1100"))]
+    #[case::old_database("", None, "HGNC:1100", Some("HGNC:1100"))]
+    #[case::old_database_without_hgnc_id("", None, "GENE:672", None)]
+    #[case::gene_without_hgnc_id("2", None, "HGNC:7", None)]
+    #[allow(deprecated)]
+    fn hgnc_id_or_legacy(
+        #[case] gene_id: &str,
+        #[case] hgnc_id: Option<&str>,
+        #[case] legacy_gene_id: &str,
+        #[case] expected: Option<&str>,
+    ) {
+        let tx = Transcript {
+            gene_id: gene_id.into(),
+            hgnc_id: hgnc_id.map(String::from),
+            legacy_gene_id: legacy_gene_id.into(),
+            ..Default::default()
+        };
+        let gene = GeneToTxId {
+            gene_id: gene_id.into(),
+            hgnc_id: hgnc_id.map(String::from),
+            legacy_gene_id: legacy_gene_id.into(),
+            ..Default::default()
+        };
+        assert_eq!(tx.hgnc_id_or_legacy(), expected);
+        assert_eq!(gene.hgnc_id_or_legacy(), expected);
     }
 }
