@@ -988,6 +988,24 @@ mod tests {
         Ok(())
     }
 
+    /// An empty `Gene_ID` finds no record, also if a record has no Ensembl or NCBI Gene ID.
+    #[test]
+    fn empty_gene_id_finds_no_record() -> anyhow::Result<()> {
+        let temp = TempDir::default();
+        let mut writer = writer(&temp.join("output.tsv"))?;
+        let record = HgncRecord {
+            hgnc_id: "HGNC:1".into(),
+            ensembl_gene_id: "".into(),
+            entrez_id: "".into(),
+            gene_symbol: "A1BG".into(),
+        };
+        writer.set_hgnc_map(FxHashMap::from_iter([(record.hgnc_id.clone(), record)]));
+
+        assert_eq!(writer.find_hgnc_record(""), None);
+
+        Ok(())
+    }
+
     /// The RefSeq and the Ensembl entry of one gene give one row, also if their `Gene_ID`
     /// differs. Entries without HGNC record give one row per `Gene_ID`.
     #[rstest]
