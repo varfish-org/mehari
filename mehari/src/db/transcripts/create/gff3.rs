@@ -303,7 +303,8 @@ pub fn load_gff3(
                 });
 
                 if let Some(rid) = &raw_id {
-                    raw_id_to_gene_id.insert(rid.clone(), (gene_id.clone(), versioned_gene_id));
+                    raw_id_to_gene_id
+                        .insert(rid.clone(), (gene_id.clone(), versioned_gene_id.clone()));
                 }
 
                 // As cdot does, read the HGNC ID from `Dbxref` in RefSeq and from the
@@ -327,6 +328,9 @@ pub fn load_gff3(
                     .filter(|hgnc| !hgnc.is_empty());
 
                 if !gene_id.0.is_empty() {
+                    loader
+                        .gene_legacy_gene_ids
+                        .insert(gene_id.clone(), format!("GENE:{versioned_gene_id}"));
                     loader.gene_id_to_gene.insert(
                         gene_id.clone(),
                         Gene {
@@ -780,7 +784,7 @@ mod tests {
     use super::*;
     use crate::common::progress::NoProgress;
     use crate::db::transcripts::create::build::build_protobuf;
-    use crate::db::transcripts::create::build::tests::gene_fields;
+    use crate::db::transcripts::create::build::tests::{gene_fields, gene_to_tx_fields};
     use crate::db::transcripts::create::filter::{
         filter_transcripts, filter_transcripts_with_sequence,
     };
@@ -953,6 +957,13 @@ chrX\tHAVANA\texon\t1001\t2000\t.\t+\t.\tID=exon:ENST00000399012.5:1;Parent=ENST
 chrY\tHAVANA\tgene\t5001\t6000\t.\t+\t.\tID=ENSG00000182378.14_PAR_Y;gene_id=ENSG00000182378.14_PAR_Y;gene_name=PLCXD1
 chrY\tHAVANA\ttranscript\t5001\t6000\t.\t+\t.\tID=ENST00000399012.5_PAR_Y;Parent=ENSG00000182378.14_PAR_Y;gene_id=ENSG00000182378.14_PAR_Y;transcript_id=ENST00000399012.5_PAR_Y
 chrY\tHAVANA\texon\t5001\t6000\t.\t+\t.\tID=exon:ENST00000399012.5_PAR_Y:1;Parent=ENST00000399012.5_PAR_Y;transcript_id=ENST00000399012.5_PAR_Y
+";
+
+    /// A RefSeq gene and an Ensembl gene without transcripts. Both have an HGNC ID.
+    const GFF3_GENES_WITHOUT_TRANSCRIPTS: &str = "\
+##gff-version 3
+NC_000001.11\tBestRefSeq\tgene\t1001\t2000\t.\t+\t.\tID=gene-GW;Dbxref=GeneID:77,HGNC:HGNC:77;Name=GW;gene_biotype=protein_coding
+22\tensembl_havana\tgene\t3001\t4000\t.\t+\t.\tID=gene:ENSG00000100010;Name=GZ;biotype=protein_coding;description=test gene [Source:HGNC Symbol%3BAcc:HGNC:78];gene_id=ENSG00000100010;version=5
 ";
 
     /// An Ensembl and a GENCODE NMD transcript. Their GFF3 type is `mRNA` and `transcript`,
@@ -1621,6 +1632,29 @@ NC_000001.11\tBestRefSeq\tCDS\t1011\t1100\t.\t+\t0\tID=cds-NP_000020.1;Parent=rn
         assert_eq!(
             gene_fields(&mut loader, tx_id)?,
             [expected.clone(), expected]
+        );
+
+        Ok(())
+    }
+
+    /// A gene without transcripts keeps `GENE:` and the gene ID with version as
+    /// `legacy_gene_id`, also if it has an HGNC ID.
+    #[rstest::rstest]
+    #[case::refseq("77", "HGNC:77", "GENE:77")]
+    #[case::ensembl("ENSG00000100010", "HGNC:78", "GENE:ENSG00000100010.5")]
+    fn gene_without_transcripts_keeps_its_legacy_gene_id(
+        #[case] gene_id: &str,
+        #[case] hgnc_id: &str,
+        #[case] legacy_gene_id: &str,
+    ) -> Result<(), anyhow::Error> {
+        let mut loader = load(GFF3_GENES_WITHOUT_TRANSCRIPTS)?;
+        assert_eq!(
+            gene_to_tx_fields(&mut loader, gene_id)?,
+            (
+                gene_id.to_string(),
+                Some(hgnc_id.to_string()),
+                legacy_gene_id.to_string()
+            )
         );
 
         Ok(())

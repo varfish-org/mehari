@@ -57,6 +57,12 @@ pub fn load_cdot(
             continue;
         }
         gene_versions.insert(gene_id.clone(), version);
+        match &gene.hgnc {
+            Some(hgnc) => loader
+                .gene_legacy_gene_ids
+                .insert(gene_id.clone(), format!("HGNC:{hgnc}")),
+            None => loader.gene_legacy_gene_ids.remove(&gene_id),
+        };
         loader.gene_id_to_gene.insert(gene_id.clone(), gene);
         loader.gene_id_to_transcript_ids.entry(gene_id).or_default();
     }
@@ -208,7 +214,7 @@ mod tests {
     use super::*;
     use crate::common::progress::NoProgress;
     use crate::db::transcripts::create::build::build_protobuf;
-    use crate::db::transcripts::create::build::tests::gene_fields;
+    use crate::db::transcripts::create::build::tests::{gene_fields, gene_to_tx_fields};
     use crate::db::transcripts::create::filter::filter_transcripts;
     use crate::db::transcripts::create::models::{Identifier, Reason};
     use anyhow::Context;
@@ -391,6 +397,35 @@ mod tests {
         assert!(logs_contain(
             "gene 2 has HGNC ID HGNC:7, but its transcripts or other versions name HGNC:8"
         ));
+
+        Ok(())
+    }
+
+    /// A gene without transcripts keeps its HGNC ID as `legacy_gene_id`, else it gets `GENE:`
+    /// and its gene ID.
+    #[rstest::rstest]
+    #[case::hgnc("2", Some("HGNC:7"), "HGNC:7")]
+    #[case::without_hgnc("3", None, "GENE:3")]
+    fn gene_without_transcripts_keeps_its_legacy_gene_id(
+        #[case] gene_id: &str,
+        #[case] hgnc_id: Option<&str>,
+        #[case] legacy_gene_id: &str,
+    ) -> Result<(), Error> {
+        let mut loader = load_json(
+            json!({
+                "2": {"gene_symbol": "A2M", "hgnc": "7", "url": ""},
+                "3": {"gene_symbol": "GX", "url": ""},
+            }),
+            json!({}),
+        )?;
+        assert_eq!(
+            gene_to_tx_fields(&mut loader, gene_id)?,
+            (
+                gene_id.to_string(),
+                hgnc_id.map(String::from),
+                legacy_gene_id.to_string()
+            )
+        );
 
         Ok(())
     }
