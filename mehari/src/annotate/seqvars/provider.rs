@@ -350,10 +350,11 @@ impl Provider {
             }
         }
 
-        let legacy_gene_ids = tx_seq_db
-            .tx_db
-            .as_ref()
-            .is_some_and(|tx_db| tx_db.transcripts.iter().any(|tx| tx.gene_id.is_empty()));
+        // A database predates annotation gene IDs if none of its transcripts has one.
+        let legacy_gene_ids = tx_seq_db.tx_db.as_ref().is_some_and(|tx_db| {
+            !tx_db.transcripts.is_empty()
+                && tx_db.transcripts.iter().all(|tx| tx.gene_id.is_empty())
+        });
         if legacy_gene_ids {
             tracing::warn!(
                 "The transcript database predates annotation gene IDs. Outputs report the \
@@ -1264,6 +1265,20 @@ mod test {
             Default::default(),
         );
 
+        assert!(!logs_contain("predates annotation gene IDs"));
+    }
+
+    /// A new database stays new if a single transcript has no gene ID.
+    #[tracing_test::traced_test]
+    #[test]
+    fn new_database_with_one_empty_gene_id() {
+        let mut tx_seq_db = two_transcripts_db(true);
+        if let Some(tx_db) = tx_seq_db.tx_db.as_mut() {
+            tx_db.transcripts[1].gene_id.clear();
+        }
+        let provider = super::Provider::new(tx_seq_db, None::<&str>, true, Default::default());
+
+        assert!(!provider.legacy_gene_ids());
         assert!(!logs_contain("predates annotation gene IDs"));
     }
 
