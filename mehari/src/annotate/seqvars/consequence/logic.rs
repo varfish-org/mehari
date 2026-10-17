@@ -139,8 +139,8 @@ pub(crate) trait HgvsVariantExt {
     ///
     /// VEP puts an insertion at an exon edge into the exon (`Mapper::map_insert`): `c.N_N+1ins`
     /// behind c.N, `c.N-1_Nins` in front of c.N. For another indel with an intronic offset, VEP
-    /// builds no codons, and this gives no stop terms. VEP can still report
-    /// `stop_retained_variant` there if the indel overlaps the stop codon on the genome.
+    /// builds no codons. Of the stop terms, VEP then reports only `stop_retained_variant`: if the
+    /// indel covers a CDS base, and if it covers a stop codon base at `unshifted`.
     ///
     /// Returns `None` for an edit other than an insertion, duplication, deletion or delins, and
     /// for an edit that keeps the length.
@@ -259,7 +259,30 @@ impl HgvsVariantExt for HgvsVariant {
                 | NaEdit::Ins { .. }
                 | NaEdit::Dup { .. } => true,
             };
-            return indel.then(Consequences::empty);
+            // Whether a deletion or delins covers an exon base in `from..=to`. A position with
+            // an intronic offset lies between two exon bases.
+            let covers = |variant: &HgvsVariant, from: i32, to: i32| {
+                let HgvsVariant::CdsVariant { loc_edit, .. } = variant else {
+                    return false;
+                };
+                if loc_edit.edit.inner().is_ins() || loc_edit.edit.inner().is_dup() {
+                    return false;
+                }
+                let loc = loc_edit.loc.inner();
+                let start = cds_pos(&loc.start) + i32::from(loc.start.offset.unwrap_or(0) > 0);
+                let end = cds_pos(&loc.end) - i32::from(loc.end.offset.unwrap_or(0) < 0);
+                start <= to && end >= from
+            };
+            let stop_retained = !tx.is_incomplete_3p()
+                && covers(self, 1, cds_len)
+                && covers(unshifted, cds_len - 2, cds_len);
+            return indel.then(|| {
+                if stop_retained {
+                    Consequence::StopRetainedVariant.into()
+                } else {
+                    Consequences::empty()
+                }
+            });
         };
         // VEP shifts an insertion or deletion 3' on the genome, also across the CDS end, where
         // hgvs-rs stops. On the genome, an intron follows the end of an exon.
@@ -4134,9 +4157,8 @@ mod test {
         Ok(())
     }
 
-    /// Insertions at the end of a CDS without a stop codon (`cds_end_NF`). The transcripts come
-    /// from `db create` with the GENCODE 42 chr22 GFF3, so their CDS runs to the transcript end,
-    /// as in VEP. With VEP terms, the expected stop terms are those of VEP 116.3 with
+    /// Insertions at the end of a CDS without a stop codon (`cds_end_NF`), on transcripts of
+    /// `CHR22_CDS_END_TXS`. With VEP terms, the expected stop terms are those of VEP 116.3 with
     /// `--shift_3prime 1`. Inside a partial last codon, VEP reports `coding_sequence_variant`
     /// instead of `frameshift_variant` or `inframe_insertion`, and mehari keeps those.
     #[rstest::rstest]
@@ -4159,9 +4181,7 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let spdi = spdi.split(':').collect::<Vec<_>>();
 
-        let tx_db = load_tx_db(
-            "tests/data/annotate/db/grch38/GRCh38-gencode42.incomplete-codon.txs.bin.zst",
-        )?;
+        let tx_db = load_tx_db(CHR22_CDS_END_TXS)?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
             None::<PathBuf>,
@@ -4237,6 +4257,11 @@ mod test {
     /// `annotate_vep_ins_region_csqs`.
     const CHR22_GENCODE42_TXS: &str =
         "tests/data/annotate/db/grch38/GRCh38-gencode42.exon-edge-subset.txs.bin.zst";
+
+    /// GENCODE 42 chr22 transcripts from `db create` with the GENCODE 42 chr22 GFF3. The CDS of
+    /// a transcript without a stop codon runs to the transcript end, as in VEP.
+    const CHR22_CDS_END_TXS: &str =
+        "tests/data/annotate/db/grch38/GRCh38-gencode42.cds-end.txs.bin.zst";
 
     /// Annotation of `spdi` on the transcript `tx_id`, with Ensembl 108 chr22 transcripts and
     /// the chr22 reference around the variant, so that mehari shifts indels 3'.
@@ -4573,6 +4598,32 @@ mod test {
             .vep_consequence_terms(true)
             .build()?;
         let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some(expected_hgvs_c), &expected_csqs),
+            "spdi = {spdi}"
+        );
+
+        Ok(())
+    }
+
+    /// Indels at the end of the CDS on transcripts of `CHR22_CDS_END_TXS`, with VEP terms. The
+    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`, plus
+    /// `coding_sequence_variant`, which mehari adds for a splice region in the CDS.
+    #[rstest::rstest]
+    // The deletion shifts from `c.1637_*1del` to `c.1638_*1+1del` and keeps the stop codon
+    // `TGA`. VEP builds no codons for it, as its end lies in the intron.
+    #[case("22:15719775:TGAG:T", "ENST00000343518", "c.1638_*1+1del", vec![Consequence::SpliceDonorVariant, Consequence::StopRetainedVariant, Consequence::CodingSequenceVariant, Consequence::ThreePrimeUtrVariant])]
+    fn annotate_vep_cds_end_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .build()?;
+        let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_CDS_END_TXS)?;
         assert_eq!(
             (ann.hgvs_c.as_deref(), &ann.consequences),
             (Some(expected_hgvs_c), &expected_csqs),
