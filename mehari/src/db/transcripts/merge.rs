@@ -93,6 +93,18 @@ pub fn merge_transcript_databases(
                 .collect();
             for g2tx in tx_db.gene_to_tx.iter_mut() {
                 if let Some(other_g2tx) = other_gene_to_tx.remove(&g2tx.gene_id) {
+                    // Keep the HGNC ID of the first database. Warn as the importer does if the
+                    // other database names another one.
+                    if let Some(other_hgnc_id) = &other_g2tx.hgnc_id
+                        && g2tx.hgnc_id.as_ref() != Some(other_hgnc_id)
+                    {
+                        tracing::warn!(
+                            "gene {} has HGNC ID {}, but another database names {}",
+                            g2tx.gene_id,
+                            g2tx.hgnc_id.as_deref().unwrap_or("none"),
+                            other_hgnc_id
+                        );
+                    }
                     g2tx.tx_ids.extend(other_g2tx.tx_ids);
                     if let Some(f) = g2tx.filtered.as_mut() {
                         *f &= other_g2tx.filtered.unwrap_or(false);
@@ -193,6 +205,59 @@ mod tests {
             legacy_gene_id.into(),
             tx_ids.iter().map(|&tx_id| tx_id.into()).collect(),
         )
+    }
+
+    /// The `hgnc_id` values of the merged database. Gene `11` has `first` in the first
+    /// database and `other` in the other one.
+    fn merged_hgnc_ids(first: Option<&str>, other: Option<&str>) -> Vec<Option<String>> {
+        let databases = [(first, "NM_000001.1"), (other, "NM_000002.1")]
+            .into_iter()
+            .map(|(hgnc_id, tx_id)| {
+                let mut db = db(&[("11", "HGNC:1", tx_id)]);
+                db.tx_db.as_mut().unwrap().gene_to_tx[0].hgnc_id = hgnc_id.map(Into::into);
+                db
+            })
+            .collect();
+        merge_transcript_databases(databases)
+            .unwrap()
+            .tx_db
+            .unwrap()
+            .gene_to_tx
+            .into_iter()
+            .map(|gene| gene.hgnc_id)
+            .collect()
+    }
+
+    /// A gene keeps the HGNC ID of the first database. The merge warns if the other
+    /// database names another one, also if the first names none.
+    #[tracing_test::traced_test]
+    #[test]
+    fn merge_warns_about_another_hgnc_id() {
+        assert_eq!(
+            merged_hgnc_ids(Some("HGNC:1"), Some("HGNC:2")),
+            [Some("HGNC:1".to_string())]
+        );
+        assert!(logs_contain(
+            "gene 11 has HGNC ID HGNC:1, but another database names HGNC:2"
+        ));
+
+        assert_eq!(merged_hgnc_ids(None, Some("HGNC:3")), [None]);
+        assert!(logs_contain(
+            "gene 11 has HGNC ID none, but another database names HGNC:3"
+        ));
+    }
+
+    /// The merge does not warn if the other database names the same HGNC ID or none.
+    #[tracing_test::traced_test]
+    #[test]
+    fn merge_accepts_the_same_or_no_hgnc_id() {
+        for other in [Some("HGNC:1"), None] {
+            assert_eq!(
+                merged_hgnc_ids(Some("HGNC:1"), other),
+                [Some("HGNC:1".to_string())]
+            );
+        }
+        assert!(!logs_contain("HGNC ID"));
     }
 
     /// Two genes can share one `legacy_gene_id`. The merge keeps them apart by `gene_id`.
