@@ -8,7 +8,7 @@ use crate::db::TranscriptDatabase;
 use crate::db::transcripts::create::models::Reason;
 use crate::{
     annotate::seqvars::consequence::logic::ALT_ALN_METHOD,
-    pbs::txs::{Strand, Transcript, TranscriptTag, TxSeqDatabase},
+    pbs::txs::{GeneToTxId, Strand, Transcript, TranscriptTag, TxSeqDatabase},
 };
 use bio::data_structures::interval_tree::ArrayBackedIntervalTree;
 use enumflags2::BitFlags;
@@ -242,6 +242,14 @@ pub struct Provider {
     /// Mapping from transcript accession to index in `TxSeqDatabase::tx_db::transcripts`.
     tx_map: FxHashMap<String, u32>,
 
+    /// Index in `TxSeqDatabase::tx_db::gene_to_tx` of the gene of each transcript, by index in
+    /// `TxSeqDatabase::tx_db::transcripts`.
+    tx_genes: Vec<Option<u32>>,
+
+    /// Whether outputs report the legacy gene IDs, e.g. `HGNC:1100`. Databases that predate
+    /// annotation gene IDs have only these.
+    legacy_gene_ids: bool,
+
     /// Mapping from sequence accession to index in `TxSeqDatabase::seq_db::seqs`.
     seq_map: FxHashMap<String, u32>,
 
@@ -367,6 +375,28 @@ impl Provider {
                 .enumerate()
                 .map(|(idx, tx)| (tx.id.clone(), idx as u32)),
         );
+        let mut tx_genes = Vec::new();
+        let mut legacy_gene_ids = false;
+        if let Some(tx_db) = &tx_seq_db.tx_db {
+            tx_genes.resize(tx_db.transcripts.len(), None);
+            for (gene_idx, gene) in tx_db.gene_to_tx.iter().enumerate() {
+                for tx_id in &gene.tx_ids {
+                    if let Some(tx_gene) = tx_map
+                        .get(tx_id)
+                        .and_then(|tx_idx| tx_genes.get_mut(*tx_idx as usize))
+                    {
+                        tx_gene.get_or_insert(gene_idx as u32);
+                    }
+                }
+            }
+            legacy_gene_ids = tx_db.transcripts.iter().any(|tx| tx.gene_id.is_empty());
+        }
+        if legacy_gene_ids {
+            tracing::warn!(
+                "The transcript database predates annotation gene IDs. Outputs report the \
+                legacy gene IDs, e.g. HGNC:1100."
+            );
+        }
         let seq_map = FxHashMap::from_iter(
             tx_seq_db
                 .seq_db
@@ -419,6 +449,8 @@ impl Provider {
             contig_alias_map,
             gene_map,
             tx_map,
+            tx_genes,
+            legacy_gene_ids,
             seq_map,
             assembly_map,
             reference_reader,
@@ -485,6 +517,39 @@ impl Provider {
                 Some(tx)
             }
         })
+    }
+
+    /// Return the gene ID that outputs report for `tx`, e.g. `"672"` for BRCA1 in RefSeq.
+    /// Databases that predate annotation gene IDs give the legacy gene ID, e.g. `"HGNC:1100"`.
+    #[allow(deprecated)]
+    pub fn gene_id<'a>(&self, tx: &'a Transcript) -> &'a str {
+        if self.legacy_gene_ids {
+            &tx.legacy_gene_id
+        } else {
+            &tx.gene_id
+        }
+    }
+
+    /// Return the HGNC ID of the gene of `tx`, e.g. `"HGNC:1100"`. Databases that predate
+    /// annotation gene IDs give the legacy gene ID, also if it is not an HGNC ID.
+    #[allow(deprecated)]
+    pub fn hgnc_id<'a>(&self, tx: &'a Transcript) -> Option<&'a str> {
+        if self.legacy_gene_ids {
+            Some(&tx.legacy_gene_id)
+        } else {
+            tx.hgnc_id_or_legacy()
+        }
+    }
+
+    /// Return the gene entry of the transcript `tx_ac`, if any.
+    pub fn gene_of(&self, tx_ac: &str) -> Option<&GeneToTxId> {
+        let tx_idx = *self.tx_map.get(tx_ac)?;
+        let gene_idx = (*self.tx_genes.get(tx_idx as usize)?)?;
+        self.tx_seq_db
+            .tx_db
+            .as_ref()?
+            .gene_to_tx
+            .get(gene_idx as usize)
     }
 
     pub fn reference_available(&self) -> bool {
@@ -1009,6 +1074,93 @@ impl ProviderInterface for Provider {
     }
 }
 
+/// Small transcript databases on chr1 (GRCh38) for tests.
+#[cfg(test)]
+#[allow(deprecated)]
+pub(crate) mod test_db {
+    use crate::pbs::txs::{
+        ExonAlignment, GeneToTxId, GenomeAlignment, SequenceDb, SourceVersion, Strand, Transcript,
+        TranscriptBiotype, TranscriptDb, TxSeqDatabase,
+    };
+
+    /// A coding transcript `id` with one exon of 100 bases on the plus strand of chr1. The exon
+    /// starts at the 0-based position `start`.
+    pub(crate) fn transcript(id: &str, start: i32) -> Transcript {
+        Transcript {
+            id: id.into(),
+            gene_symbol: "GENE1".into(),
+            biotype: TranscriptBiotype::Coding.into(),
+            genome_alignments: vec![GenomeAlignment {
+                genome_build: "grch38".into(),
+                contig: "NC_000001.11".into(),
+                strand: Strand::Plus.into(),
+                exons: vec![ExonAlignment {
+                    alt_start_i: start,
+                    alt_end_i: start + 100,
+                    alt_cds_start_i: Some(1),
+                    alt_cds_end_i: Some(100),
+                    cigar: "100M".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// The gene entry of `tx` with the gene fields of `tx`.
+    pub(crate) fn gene(tx: &Transcript) -> GeneToTxId {
+        GeneToTxId {
+            legacy_gene_id: tx.legacy_gene_id.clone(),
+            tx_ids: vec![tx.id.clone()],
+            filtered: Some(false),
+            gene_id: tx.gene_id.clone(),
+            hgnc_id: tx.hgnc_id.clone(),
+            ..Default::default()
+        }
+    }
+
+    /// A database with `transcripts` and the gene entries `gene_to_tx`, but no sequences.
+    pub(crate) fn tx_seq_db(
+        transcripts: Vec<Transcript>,
+        gene_to_tx: Vec<GeneToTxId>,
+    ) -> TxSeqDatabase {
+        TxSeqDatabase {
+            tx_db: Some(TranscriptDb {
+                transcripts,
+                gene_to_tx,
+            }),
+            seq_db: Some(SequenceDb::default()),
+            version: Some("test".into()),
+            source_version: vec![SourceVersion {
+                assembly: "GRCh38".into(),
+                ..Default::default()
+            }],
+        }
+    }
+
+    /// A database with the transcript `NM_000001.1` of the gene `11` (`HGNC:1`) and its gene
+    /// entry. A new database has the gene fields that `db create` writes for GFF3: `gene_id`
+    /// `11`, `hgnc_id` `HGNC:1` and `legacy_gene_id` `GENE:11`. An old database has only
+    /// `legacy_gene_id` `HGNC:1`.
+    pub(crate) fn one_gene_db(new: bool) -> TxSeqDatabase {
+        let tx = if new {
+            Transcript {
+                gene_id: "11".into(),
+                hgnc_id: Some("HGNC:1".into()),
+                legacy_gene_id: "GENE:11".into(),
+                ..transcript("NM_000001.1", 1000)
+            }
+        } else {
+            Transcript {
+                legacy_gene_id: "HGNC:1".into(),
+                ..transcript("NM_000001.1", 1000)
+            }
+        };
+        tx_seq_db(vec![tx.clone()], vec![gene(&tx)])
+    }
+}
+
 #[cfg(test)]
 mod test {
     #[test]
@@ -1038,6 +1190,58 @@ mod test {
         };
 
         assert_eq!(tx.tx_len(), 250);
+    }
+
+    /// A database with two transcripts of one gene, new or old as in `test_db::one_gene_db`.
+    fn two_transcripts_db(new: bool) -> crate::pbs::txs::TxSeqDatabase {
+        use crate::pbs::txs::Transcript;
+
+        let mut tx_seq_db = super::test_db::one_gene_db(new);
+        if let Some(tx_db) = tx_seq_db.tx_db.as_mut() {
+            let tx = Transcript {
+                id: "NM_000002.1".into(),
+                ..tx_db.transcripts[0].clone()
+            };
+            tx_db.transcripts.push(tx);
+        }
+        tx_seq_db
+    }
+
+    /// A database that predates annotation gene IDs gives one warning, for any number of
+    /// transcripts.
+    #[tracing_test::traced_test]
+    #[test]
+    fn warns_once_about_old_database() {
+        super::Provider::new(
+            two_transcripts_db(false),
+            None::<&str>,
+            true,
+            Default::default(),
+        );
+
+        logs_assert(|lines: &[&str]| {
+            match lines
+                .iter()
+                .filter(|line| line.contains("predates annotation gene IDs"))
+                .count()
+            {
+                1 => Ok(()),
+                count => Err(format!("{count} warnings, expected 1")),
+            }
+        });
+    }
+
+    #[tracing_test::traced_test]
+    #[test]
+    fn no_warning_about_new_database() {
+        super::Provider::new(
+            two_transcripts_db(true),
+            None::<&str>,
+            true,
+            Default::default(),
+        );
+
+        assert!(!logs_contain("predates annotation gene IDs"));
     }
 
     /// Two genes can have the same HGNC ID. The lookup by HGNC ID returns the transcripts of

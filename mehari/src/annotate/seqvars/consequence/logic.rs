@@ -1691,8 +1691,7 @@ impl ConsequencePredictor {
             consequences,
             putative_impact,
             gene_symbol: tx.gene_symbol.clone(),
-            #[allow(deprecated)]
-            gene_id: tx.legacy_gene_id.clone(),
+            gene_id: self.provider.gene_id(tx).to_string(),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -3312,8 +3311,7 @@ impl ConsequencePredictor {
             consequences: consequences_vec,
             putative_impact,
             gene_symbol: tx.gene_symbol.clone(),
-            #[allow(deprecated)]
-            gene_id: tx.legacy_gene_id.clone(),
+            gene_id: self.provider.gene_id(tx).to_string(),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -5699,6 +5697,122 @@ mod test {
             "{:?}",
             ann.consequences
         );
+
+        Ok(())
+    }
+
+    /// `Gene_ID` is the gene ID of the transcript. A database that predates annotation gene IDs
+    /// gives the legacy gene ID.
+    #[rstest::rstest]
+    #[case::new_database("11", Some("HGNC:1"), "GENE:11", "11")]
+    #[case::old_database("", None, "HGNC:1", "HGNC:1")]
+    fn ann_gene_id(
+        #[case] gene_id: &str,
+        #[case] hgnc_id: Option<&str>,
+        #[case] legacy_gene_id: &str,
+        #[case] expected: &str,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGT", "ATGGCCTAA", "CAGT");
+        let tx = Transcript {
+            gene_id: gene_id.into(),
+            hgnc_id: hgnc_id.map(String::from),
+            #[allow(deprecated)]
+            legacy_gene_id: legacy_gene_id.into(),
+            ..tx
+        };
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1008,
+                reference: "G".into(),
+                alternative: "A".into(),
+            })?
+            .unwrap_or_default();
+
+        let gene_ids: Vec<_> = anns.iter().map(|ann| ann.gene_id.as_str()).collect();
+        assert_eq!(gene_ids, [expected]);
+
+        Ok(())
+    }
+
+    /// Picking groups the transcripts by HGNC ID, else by gene entry. Then a database with a
+    /// RefSeq and an Ensembl gene of one HGNC ID picks one transcript. So does a database with
+    /// two versions of a gene without HGNC ID.
+    #[rstest::rstest]
+    #[case::refseq_and_ensembl_gene(true)]
+    #[case::two_versions_of_a_gene(false)]
+    fn picks_one_transcript_per_gene(#[case] merged: bool) -> Result<(), anyhow::Error> {
+        use crate::annotate::seqvars::provider::test_db;
+        use crate::pbs::txs::GeneToTxId;
+
+        let tx =
+            |id: &str, gene_id: &str, hgnc_id: Option<&str>, legacy_gene_id: &str| Transcript {
+                gene_id: gene_id.into(),
+                hgnc_id: hgnc_id.map(String::from),
+                #[allow(deprecated)]
+                legacy_gene_id: legacy_gene_id.into(),
+                ..test_db::transcript(id, 1000)
+            };
+        let (transcripts, genes) = if merged {
+            let refseq = tx("NM_000001.1", "672", Some("HGNC:1100"), "HGNC:1100");
+            let ensembl = tx(
+                "ENST00000000001.1",
+                "ENSG00000012048.1",
+                Some("HGNC:1100"),
+                "HGNC:1100",
+            );
+            let genes = vec![
+                test_db::gene(&refseq),
+                GeneToTxId {
+                    gene_id: "ENSG00000012048".into(),
+                    ..test_db::gene(&ensembl)
+                },
+            ];
+            (vec![refseq, ensembl], genes)
+        } else {
+            let old = tx(
+                "ENST00000000001.1",
+                "ENSG00000000001.9",
+                None,
+                "GENE:ENSG00000000001.9",
+            );
+            let new = tx(
+                "ENST00000000001.2",
+                "ENSG00000000001.10",
+                None,
+                "GENE:ENSG00000000001.10",
+            );
+            let gene = GeneToTxId {
+                gene_id: "ENSG00000000001".into(),
+                tx_ids: vec![old.id.clone(), new.id.clone()],
+                ..test_db::gene(&new)
+            };
+            (vec![old, new], vec![gene])
+        };
+        let txs = transcripts
+            .iter()
+            .map(|tx| TxForRegionRecord {
+                tx_ac: tx.id.clone(),
+                alt_ac: "NC_000001.11".into(),
+                alt_strand: 1,
+                alt_aln_method: ALT_ALN_METHOD.into(),
+                start_i: 1000,
+                end_i: 1100,
+            })
+            .collect();
+        let provider = MehariProvider::new(
+            test_db::tx_seq_db(transcripts, genes),
+            None::<PathBuf>,
+            true,
+            MehariProviderConfigBuilder::default()
+                .pick_transcript(vec![TranscriptPickType::Length])
+                .pick_transcript_mode(TranscriptPickMode::First)
+                .build()?,
+        );
+        let predictor =
+            ConsequencePredictor::new(Arc::new(provider), ConfigBuilder::default().build()?);
+
+        assert_eq!(predictor.filter_picked_sourced_txs(txs).len(), 1);
 
         Ok(())
     }
