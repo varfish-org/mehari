@@ -1574,47 +1574,42 @@ NC_000001.11\tBestRefSeq\tCDS\t1011\t1100\t.\t+\t0\tID=cds-NP_000020.1;Parent=rn
     }
 
     /// The database names the gene of a transcript by the gene ID of the annotation without
-    /// version, and by its HGNC ID. As `legacy_gene_id`, the transcript keeps `GENE:` and the
-    /// gene ID with version, and its gene keeps the HGNC ID if it has one.
+    /// version, and by its HGNC ID. As `legacy_gene_id`, the transcript and its gene keep
+    /// `GENE:` and the gene ID with version, also if the gene has an HGNC ID.
     #[rstest::rstest]
-    #[case::refseq(GFF3_REFSEQ, "NM_000001.1", "11", Some("HGNC:1"), "GENE:11", "HGNC:1")]
-    #[case::refseq_without_hgnc(GFF3_REFSEQ, "NM_000003.1", "33", None, "GENE:33", "GENE:33")]
+    #[case::refseq(GFF3_REFSEQ, "NM_000001.1", "11", Some("HGNC:1"), "GENE:11")]
+    #[case::refseq_without_hgnc(GFF3_REFSEQ, "NM_000003.1", "33", None, "GENE:33")]
     #[case::gencode(
         GFF3_GENCODE_ENSEMBL,
         "ENST00000399012.6",
         "ENSG00000182378",
         Some("HGNC:37102"),
-        "GENE:ENSG00000182378.15",
-        "HGNC:37102"
+        "GENE:ENSG00000182378.15"
     )]
     #[case::ensembl(
         GFF3_GENCODE_ENSEMBL,
         "ENST00000100001.2",
         "ENSG00000100001",
         Some("HGNC:8907"),
-        "GENE:ENSG00000100001.3",
-        "HGNC:8907"
+        "GENE:ENSG00000100001.3"
     )]
     fn gene_fields_reach_the_database(
         #[case] gff3: &str,
         #[case] tx_id: &str,
         #[case] gene_id: &str,
         #[case] hgnc_id: Option<&str>,
-        #[case] tx_legacy_gene_id: &str,
-        #[case] gene_legacy_gene_id: &str,
+        #[case] legacy_gene_id: &str,
     ) -> Result<(), anyhow::Error> {
         let mut loader = load(gff3)?;
-        let [tx, gene] = gene_fields(&mut loader, tx_id)?;
-
-        let expected = |legacy_gene_id: &str| {
-            (
-                gene_id.to_string(),
-                hgnc_id.map(String::from),
-                legacy_gene_id.to_string(),
-            )
-        };
-        assert_eq!(tx, expected(tx_legacy_gene_id));
-        assert_eq!(gene, expected(gene_legacy_gene_id));
+        let expected = (
+            gene_id.to_string(),
+            hgnc_id.map(String::from),
+            legacy_gene_id.to_string(),
+        );
+        assert_eq!(
+            gene_fields(&mut loader, tx_id)?,
+            [expected.clone(), expected]
+        );
 
         Ok(())
     }

@@ -147,19 +147,29 @@ fn hgnc_id(gene: &Gene) -> Option<String> {
     gene.hgnc.as_ref().map(|hgnc| format!("HGNC:{hgnc}"))
 }
 
-/// The deprecated `legacy_gene_id` of a gene: its HGNC ID, else the greatest value of its
-/// transcripts with the highest gene version, else `GENE:` and the gene ID.
+/// The deprecated `legacy_gene_id` of a gene. It is the HGNC ID of the gene if a transcript
+/// of the gene has an HGNC ID as `legacy_gene_id`, as cdot transcripts do. Otherwise it is the
+/// greatest value of the transcripts with the highest gene version, so GFF3 genes keep `GENE:`
+/// and the gene ID with version. A gene without transcripts gets its HGNC ID, else `GENE:` and
+/// the gene ID.
 fn legacy_gene_id(
     loader: &TranscriptLoader,
     gene_id: &GeneId,
     tx_ids: &[TranscriptId],
     hgnc_id: Option<&str>,
 ) -> String {
-    match hgnc_id {
-        Some(hgnc_id) => hgnc_id.to_string(),
-        None => tx_ids
+    let tx_legacy_gene_ids = tx_ids
+        .iter()
+        .filter_map(|tx_id| loader.legacy_gene_ids.get(tx_id))
+        .collect_vec();
+    let named_by_hgnc_id = tx_legacy_gene_ids.is_empty()
+        || tx_legacy_gene_ids
             .iter()
-            .filter_map(|tx_id| loader.legacy_gene_ids.get(tx_id))
+            .any(|(_, legacy_gene_id)| legacy_gene_id.starts_with("HGNC:"));
+    match hgnc_id {
+        Some(hgnc_id) if named_by_hgnc_id => hgnc_id.to_string(),
+        _ => tx_legacy_gene_ids
+            .into_iter()
             .max()
             .map(|(_, legacy_gene_id)| legacy_gene_id.clone())
             .unwrap_or_else(|| format!("GENE:{gene_id}")),
