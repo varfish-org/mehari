@@ -330,7 +330,9 @@ impl HgvsVariantExt for HgvsVariant {
         let in_cds = (1..=cds_len).contains(&start) && (1..=cds_len).contains(&end);
         let peptides = if in_cds {
             let alt_len = index(3 * (last - first + 1) + len_change)?;
-            let ref_codons = cds_and_utr.get(from..index(3 * last)?)?;
+            // VEP takes the reference codons from the CDS alone, so a partial last codon stays
+            // partial.
+            let ref_codons = cds_and_utr.get(from..index((3 * last).min(cds_len))?)?;
             let alt_seq = alt_seq.as_ref()?;
             let alt_codons = alt_seq.get(from..(from + alt_len).min(alt_seq.len()))?;
             Some((
@@ -4127,6 +4129,69 @@ mod test {
             "spdi = {}, hgvs_p = {:?}",
             spdi.join(":"),
             ann.hgvs_p
+        );
+
+        Ok(())
+    }
+
+    /// Insertions at the end of a CDS without a stop codon (`cds_end_NF`). The transcripts come
+    /// from `db create` with the GENCODE 42 chr22 GFF3, so their CDS runs to the transcript end,
+    /// as in VEP. With VEP terms, the expected stop terms are those of VEP 116.3 with
+    /// `--shift_3prime 1`. Inside a partial last codon, VEP reports `coding_sequence_variant`
+    /// instead of `frameshift_variant` or `inframe_insertion`, and mehari keeps those.
+    #[rstest::rstest]
+    // ENST00000452294 (minus strand) ends with the partial codon `tg`. `X/*` (`tg/tAg`)
+    #[case("22:38750888:C:CT", "ENST00000452294", true, "c.433_434insA", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::IncompleteTerminalCodonVariant])]
+    // `X/*` (`tg/tAATg`)
+    #[case("22:38750888:C:CATT", "ENST00000452294", true, "c.433_434insAAT", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::IncompleteTerminalCodonVariant])]
+    // `X/*L` (`tg/tAACTg`)
+    #[case("22:38750888:C:CAGTT", "ENST00000452294", true, "c.433_434insAACT", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::IncompleteTerminalCodonVariant])]
+    #[case("22:38750888:C:CT", "ENST00000452294", false, "c.433_434insA", vec![Consequence::FrameshiftVariant, Consequence::IncompleteTerminalCodonVariant])]
+    // ENST00000578984 (minus strand) ends with the partial codon `a`. `-/*` (`-/TAG`): the
+    // insertion lies between the last complete codon and the partial codon.
+    #[case("22:17819036:T:TCTA", "ENST00000578984", true, "c.567_568insTAG", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::IncompleteTerminalCodonVariant])]
+    fn annotate_incomplete_cds_end_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] vep_consequence_terms: bool,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let spdi = spdi.split(':').collect::<Vec<_>>();
+
+        let tx_db = load_tx_db(
+            "tests/data/annotate/db/grch38/GRCh38-gencode42.incomplete-codon.txs.bin.zst",
+        )?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .vep_consequence_terms(vep_consequence_terms)
+                .build()?,
+        );
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].to_string(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].to_string(),
+                alternative: spdi[3].to_string(),
+            })?
+            .unwrap_or_default();
+        let ann = res
+            .iter()
+            .find(|ann| ann.feature_id.starts_with(tx_id))
+            .ok_or_else(|| anyhow::anyhow!("no annotation on {}", tx_id))?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some(expected_hgvs_c), &expected_csqs),
+            "spdi = {}",
+            spdi.join(":")
         );
 
         Ok(())
