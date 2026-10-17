@@ -276,7 +276,11 @@ fn protobuf_transcript(
             .not()
             .then(|| combined_reason.bits()),
         translation_exceptions: translation_exceptions(tx),
-        gene_id: gene_id.to_string(),
+        gene_id: loader
+            .transcript_gene_ids
+            .get(tx_id)
+            .cloned()
+            .unwrap_or_else(|| gene_id.to_string()),
         hgnc_id,
     }
 }

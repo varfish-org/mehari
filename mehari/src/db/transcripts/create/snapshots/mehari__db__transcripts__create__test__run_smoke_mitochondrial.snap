@@ -27,7 +27,7 @@ txDb:
         cigar: 525M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000198695
+    geneId: ENSG00000198695.2
     hgncId: HGNC:7462
   - id: ENST00000361739.1
     geneSymbol: MT-CO2
@@ -51,7 +51,7 @@ txDb:
         cigar: 684M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000198712
+    geneId: ENSG00000198712.1
     hgncId: HGNC:7421
   - id: ENST00000361789.2
     geneSymbol: MT-CYB
@@ -75,7 +75,7 @@ txDb:
         cigar: 1141M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000198727
+    geneId: ENSG00000198727.2
     hgncId: HGNC:7427
   - id: ENST00000361453.3
     geneSymbol: MT-ND2
@@ -99,7 +99,7 @@ txDb:
         cigar: 1042M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000198763
+    geneId: ENSG00000198763.3
     hgncId: HGNC:7456
   - id: ENST00000361567.2
     geneSymbol: MT-ND5
@@ -123,7 +123,7 @@ txDb:
         cigar: 1812M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000198786
+    geneId: ENSG00000198786.2
     hgncId: HGNC:7461
   - id: ENST00000361624.2
     geneSymbol: MT-CO1
@@ -147,7 +147,7 @@ txDb:
         cigar: 1542M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000198804
+    geneId: ENSG00000198804.2
     hgncId: HGNC:7419
   - id: ENST00000361227.2
     geneSymbol: MT-ND3
@@ -171,7 +171,7 @@ txDb:
         cigar: 346M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000198840
+    geneId: ENSG00000198840.2
     hgncId: HGNC:7458
   - id: ENST00000361381.2
     geneSymbol: MT-ND4
@@ -195,7 +195,7 @@ txDb:
         cigar: 1378M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000198886
+    geneId: ENSG00000198886.2
     hgncId: HGNC:7459
   - id: ENST00000361390.2
     geneSymbol: MT-ND1
@@ -219,7 +219,7 @@ txDb:
         cigar: 956M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000198888
+    geneId: ENSG00000198888.2
     hgncId: HGNC:7455
   - id: ENST00000361899.2
     geneSymbol: MT-ATP6
@@ -243,7 +243,7 @@ txDb:
         cigar: 681M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000198899
+    geneId: ENSG00000198899.2
     hgncId: HGNC:7414
   - id: ENST00000362079.2
     geneSymbol: MT-CO3
@@ -267,7 +267,7 @@ txDb:
         cigar: 784M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000198938
+    geneId: ENSG00000198938.2
     hgncId: HGNC:7422
   - id: ENST00000386347.1
     geneSymbol: <MISSING>
@@ -347,7 +347,7 @@ txDb:
         cigar: 1559M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000210082
+    geneId: ENSG00000210082.2
     hgncId: HGNC:7471
   - id: ENST00000387365.1
     geneSymbol: <MISSING>
@@ -747,7 +747,7 @@ txDb:
         cigar: 954M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000211459
+    geneId: ENSG00000211459.2
     hgncId: HGNC:7470
   - id: ENST00000361335.1
     geneSymbol: MT-ND4L
@@ -771,7 +771,7 @@ txDb:
         cigar: 297M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000212907
+    geneId: ENSG00000212907.2
     hgncId: HGNC:7460
   - id: ENST00000361851.1
     geneSymbol: MT-ATP8
@@ -795,7 +795,7 @@ txDb:
         cigar: 207M
       genomeBuild: grch37
     filtered: false
-    geneId: ENSG00000228253
+    geneId: ENSG00000228253.1
     hgncId: HGNC:7415
   geneToTx:
   - legacyGeneId: HGNC:7462

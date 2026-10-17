@@ -272,6 +272,9 @@ pub struct TranscriptLoader {
     /// The version of the gene ID of each transcript, and its deprecated `legacy_gene_id`:
     /// the HGNC ID or the gene ID with version, as mehari named genes before.
     pub(crate) legacy_gene_ids: HashMap<TranscriptId, (u32, String)>,
+    /// The gene ID with version of the gene record that each transcript comes from, e.g.
+    /// `ENSG00000121410.11` for a transcript that cdot lists under this gene version.
+    pub(crate) transcript_gene_ids: HashMap<TranscriptId, String>,
     /// The deprecated `legacy_gene_id` of each gene record, as mehari named genes before:
     /// `HGNC:` and the HGNC ID for cdot, `GENE:` and the gene ID with version for GFF3. Only
     /// genes without transcripts use it.
@@ -329,6 +332,8 @@ impl TranscriptLoader {
             ids.dedup();
         }
         self.legacy_gene_ids.extend(other.legacy_gene_ids.drain());
+        self.transcript_gene_ids
+            .extend(other.transcript_gene_ids.drain());
         self.gene_legacy_gene_ids
             .extend(other.gene_legacy_gene_ids.drain());
 
@@ -812,6 +817,25 @@ mod tests {
         assert_eq!(exons[1].alt_cds_start_i, exons[0].alt_cds_end_i + 1);
         assert_eq!(is_changed, changed);
 
+        Ok(())
+    }
+
+    #[test]
+    fn merge_keeps_the_gene_ids_of_both_loaders() -> Result<(), Error> {
+        let mut first = TranscriptLoader::new("GRCh38".to_string(), false);
+        let mut other = first.clone();
+        first
+            .transcript_gene_ids
+            .insert(TranscriptId::try_new("NM_000001.1")?, "G1.2".to_string());
+        other
+            .transcript_gene_ids
+            .insert(TranscriptId::try_new("NM_000002.1")?, "G1.3".to_string());
+
+        first.merge(&mut other);
+
+        let mut gene_ids: Vec<_> = first.transcript_gene_ids.values().cloned().collect();
+        gene_ids.sort();
+        assert_eq!(gene_ids, ["G1.2", "G1.3"]);
         Ok(())
     }
 

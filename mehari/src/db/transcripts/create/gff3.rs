@@ -230,7 +230,7 @@ pub fn load_gff3(
     let mut sec_rows: Vec<(String, i32, i32)> = Vec::new();
     // Keyed by the transcript accession in `Target`, with the contig of each row.
     let mut cdna_matches: HashMap<String, Vec<(String, AlignedExon)>> = HashMap::new();
-    // The `GeneId` of each gene row, and its gene ID with version for `legacy_gene_id`.
+    // The `GeneId` of each gene row, and its gene ID with version for the transcripts.
     let mut raw_id_to_gene_id: HashMap<String, (GeneId, String)> = HashMap::new();
     let mut gene_symbols: HashMap<GeneId, String> = HashMap::new();
 
@@ -284,9 +284,10 @@ pub fn load_gff3(
             // As cdot does, read only rows without `Parent` as genes. A RefSeq gene segment
             // below its gene names the same NCBI Gene ID and would replace the gene.
             f if f.contains("gene") && raw_parent.is_none() => {
-                // Genes keep the ID of the annotation without version. GFF3 has no shared
-                // attribute for it: GENCODE and Ensembl write `gene_id`, RefSeq writes the
-                // NCBI Gene ID into `Dbxref`, and `ID` is only unique within the file.
+                // Genes keep the ID of the annotation without version, and their transcripts
+                // keep it with version. GFF3 has no shared attribute for it: GENCODE writes
+                // `gene_id` with version, Ensembl writes `gene_id` and `version`, RefSeq writes
+                // the NCBI Gene ID into `Dbxref`, and `ID` is only unique within the file.
                 let dbxrefs = get_values("Dbxref");
                 let ncbi_gene_id = dbxrefs
                     .iter()
@@ -736,6 +737,9 @@ pub fn load_gff3(
         };
 
         let t_id = TranscriptId::try_new(tx_id)?;
+        loader
+            .transcript_gene_ids
+            .insert(t_id.clone(), versioned_gene_id.clone());
         loader.legacy_gene_ids.insert(
             t_id.clone(),
             (
@@ -1596,22 +1600,33 @@ NC_000001.11\tBestRefSeq\tCDS\t1011\t1100\t.\t+\t0\tID=cds-NP_000020.1;Parent=rn
         Ok(())
     }
 
-    /// The database names the gene of a transcript by the gene ID of the annotation without
-    /// version, and by its HGNC ID. As `legacy_gene_id`, the transcript and its gene keep
-    /// `GENE:` and the gene ID with version, also if the gene has an HGNC ID.
+    /// A transcript names its gene by the gene ID of the gene row with version: GENCODE writes
+    /// it into `gene_id`, Ensembl into `gene_id` and `version`. The gene drops the version.
+    /// Both have the HGNC ID of the gene. As `legacy_gene_id`, the transcript and its gene
+    /// keep `GENE:` and the gene ID with version, also if the gene has an HGNC ID.
     #[rstest::rstest]
-    #[case::refseq(GFF3_REFSEQ, "NM_000001.1", "11", Some("HGNC:1"), "GENE:11")]
-    #[case::refseq_without_hgnc(GFF3_REFSEQ, "NM_000003.1", "33", None, "GENE:33")]
+    #[case::refseq(GFF3_REFSEQ, "NM_000001.1", "11", "11", Some("HGNC:1"), "GENE:11")]
+    #[case::refseq_without_hgnc(GFF3_REFSEQ, "NM_000003.1", "33", "33", None, "GENE:33")]
     #[case::gencode(
         GFF3_GENCODE_ENSEMBL,
         "ENST00000399012.6",
+        "ENSG00000182378.15",
         "ENSG00000182378",
         Some("HGNC:37102"),
         "GENE:ENSG00000182378.15"
     )]
+    #[case::gencode_par_y(
+        GFF3_GENCODE_PAR_Y_SUFFIX,
+        "ENST00000399012.5_PAR_Y",
+        "ENSG00000182378.14_PAR_Y",
+        "ENSG00000182378_PAR_Y",
+        None,
+        "GENE:ENSG00000182378.14_PAR_Y"
+    )]
     #[case::ensembl(
         GFF3_GENCODE_ENSEMBL,
         "ENST00000100001.2",
+        "ENSG00000100001.3",
         "ENSG00000100001",
         Some("HGNC:8907"),
         "GENE:ENSG00000100001.3"
@@ -1619,19 +1634,22 @@ NC_000001.11\tBestRefSeq\tCDS\t1011\t1100\t.\t+\t0\tID=cds-NP_000020.1;Parent=rn
     fn gene_fields_reach_the_database(
         #[case] gff3: &str,
         #[case] tx_id: &str,
+        #[case] tx_gene_id: &str,
         #[case] gene_id: &str,
         #[case] hgnc_id: Option<&str>,
         #[case] legacy_gene_id: &str,
     ) -> Result<(), anyhow::Error> {
         let mut loader = load(gff3)?;
-        let expected = (
-            gene_id.to_string(),
-            hgnc_id.map(String::from),
-            legacy_gene_id.to_string(),
-        );
+        let fields = |gene_id: &str| {
+            (
+                gene_id.to_string(),
+                hgnc_id.map(String::from),
+                legacy_gene_id.to_string(),
+            )
+        };
         assert_eq!(
             gene_fields(&mut loader, tx_id)?,
-            [expected.clone(), expected]
+            [fields(tx_gene_id), fields(gene_id)]
         );
 
         Ok(())

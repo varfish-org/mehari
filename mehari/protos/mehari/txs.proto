@@ -84,9 +84,10 @@ message GeneToTxId {
   optional bool filtered = 3;
   // Reason for filtering.
   optional uint32 filter_reason = 4;
-  // Gene ID of the annotation: the NCBI Gene ID for RefSeq, e.g., `"672"` for BRCA1,
-  // and `gene_id` without version for Ensembl and GENCODE, e.g., `"ENSG00000182378"`
-  // for PLCXD1.
+  // Gene ID of the annotation without version: the NCBI Gene ID for RefSeq, e.g., `"672"`
+  // for BRCA1, and `gene_id` without version for Ensembl and GENCODE, e.g.,
+  // `"ENSG00000182378"` for PLCXD1. It has no version, because one entry groups the
+  // transcripts of all versions of a gene. `Transcript.gene_id` keeps the version.
   string gene_id = 5;
   // HGNC ID of the gene, e.g., `"HGNC:1100"` for BRCA1. Unset for genes without HGNC ID.
   optional string hgnc_id = 6;
@@ -194,7 +195,10 @@ message Transcript {
   // selenocysteine here, a transcript tagged as selenoprotein reads every UGA as
   // selenocysteine.
   repeated TranslationException translation_exceptions = 12;
-  // Gene ID of the annotation, same value as `GeneToTxId.gene_id`, e.g., `"672"` for BRCA1.
+  // Gene ID of the gene record that this transcript comes from, with version, e.g.,
+  // `"ENSG00000121410.14"` for A1BG in Ensembl. Transcripts from different releases of a
+  // gene can name different versions. RefSeq gene IDs have no version, e.g., `"672"` for
+  // BRCA1. `GeneToTxId.gene_id` holds the gene ID without version.
   string gene_id = 13;
   // HGNC ID of the gene, e.g., `"HGNC:1100"` for BRCA1. Unset for genes without HGNC ID.
   optional string hgnc_id = 14;

@@ -81,6 +81,9 @@ pub fn load_cdot(
             None => format!("GENE:{key}"),
         };
         loader
+            .transcript_gene_ids
+            .insert(tx_id.clone(), key.to_string());
+        loader
             .legacy_gene_ids
             .insert(tx_id.clone(), (version, legacy_gene_id));
         tx.gene_version = gene_id.to_string();
@@ -129,8 +132,9 @@ pub fn load_cdot(
 }
 
 /// The gene of a cdot transcript: its `GeneId`, the version of its gene ID, and the key that
-/// `legacy_gene_id` keeps. The key is `gene_version`, e.g. `ENSG00000121410.14`, else the
-/// gene name, else the transcript ID. Only `gene_version` loses its version in the `GeneId`.
+/// `gene_id` and `legacy_gene_id` keep. The key is `gene_version`, e.g. `ENSG00000121410.14`,
+/// else the gene name, else the transcript ID. Only `gene_version` loses its version in the
+/// `GeneId`.
 fn gene_key(tx: &Transcript) -> (GeneId, u32, &str) {
     if tx.gene_version.is_empty() {
         let key = tx.gene_name.as_deref().unwrap_or(tx.id.as_str());
@@ -294,8 +298,9 @@ mod tests {
     }
 
     /// A file with several releases names one gene with several versions. They form one gene
-    /// with the record of the highest version. Each transcript keeps its gene version in
-    /// `legacy_gene_id`, and the gene keeps the highest one.
+    /// with the record of the highest version and the gene ID without version. Each
+    /// transcript keeps its own gene version in `gene_id` and `legacy_gene_id`, and the gene
+    /// keeps the highest one in `legacy_gene_id`.
     #[test]
     #[allow(deprecated)]
     fn gene_versions_form_one_gene() -> Result<(), Error> {
@@ -351,13 +356,13 @@ mod tests {
             [
                 (
                     "ENST00000000001.1",
-                    "ENSG00000000001",
+                    "ENSG00000000001.9",
                     "NEW",
                     "GENE:ENSG00000000001.9"
                 ),
                 (
                     "ENST00000000002.1",
-                    "ENSG00000000001",
+                    "ENSG00000000001.10",
                     "NEW",
                     "GENE:ENSG00000000001.10"
                 ),
