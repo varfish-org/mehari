@@ -39,6 +39,7 @@ fn hgnc_id_or_legacy<'a>(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::{GeneToTxId, Transcript};
 
@@ -49,7 +50,6 @@ mod tests {
     #[case::old_database("", None, "HGNC:1100", Some("HGNC:1100"))]
     #[case::old_database_without_hgnc_id("", None, "GENE:672", None)]
     #[case::gene_without_hgnc_id("2", None, "HGNC:7", None)]
-    #[allow(deprecated)]
     fn hgnc_id_or_legacy(
         #[case] gene_id: &str,
         #[case] hgnc_id: Option<&str>,
