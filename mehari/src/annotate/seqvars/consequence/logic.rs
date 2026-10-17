@@ -5737,11 +5737,13 @@ mod test {
 
     /// Picking groups the transcripts by HGNC ID, else by gene entry. Then a database with a
     /// RefSeq and an Ensembl gene of one HGNC ID picks one transcript. So does a database with
-    /// two versions of a gene without HGNC ID.
+    /// two versions of a gene without HGNC ID. A database that predates annotation gene IDs
+    /// groups by legacy gene ID, so the two versions give two picks, as before.
     #[rstest::rstest]
-    #[case::refseq_and_ensembl_gene(true)]
-    #[case::two_versions_of_a_gene(false)]
-    fn picks_one_transcript_per_gene(#[case] merged: bool) -> Result<(), anyhow::Error> {
+    #[case::refseq_and_ensembl_gene("merged", 1)]
+    #[case::two_versions_of_a_gene("versions", 1)]
+    #[case::old_database("old", 2)]
+    fn picks_per_gene(#[case] db: &str, #[case] picked: usize) -> Result<(), anyhow::Error> {
         use crate::annotate::seqvars::provider::test_db;
         use crate::pbs::txs::GeneToTxId;
 
@@ -5753,7 +5755,7 @@ mod test {
                 legacy_gene_id: legacy_gene_id.into(),
                 ..test_db::transcript(id, 1000)
             };
-        let (transcripts, genes) = if merged {
+        let (transcripts, genes) = if db == "merged" {
             let refseq = tx("NM_000001.1", "672", Some("HGNC:1100"), "HGNC:1100");
             let ensembl = tx(
                 "ENST00000000001.1",
@@ -5770,20 +5772,22 @@ mod test {
             ];
             (vec![refseq, ensembl], genes)
         } else {
+            // An old database has no gene IDs.
+            let gene_id = |gene_id| if db == "old" { "" } else { gene_id };
             let old = tx(
                 "ENST00000000001.1",
-                "ENSG00000000001.9",
+                gene_id("ENSG00000000001.9"),
                 None,
                 "GENE:ENSG00000000001.9",
             );
             let new = tx(
                 "ENST00000000001.2",
-                "ENSG00000000001.10",
+                gene_id("ENSG00000000001.10"),
                 None,
                 "GENE:ENSG00000000001.10",
             );
             let gene = GeneToTxId {
-                gene_id: "ENSG00000000001".into(),
+                gene_id: gene_id("ENSG00000000001").into(),
                 tx_ids: vec![old.id.clone(), new.id.clone()],
                 ..test_db::gene(&new)
             };
@@ -5812,7 +5816,7 @@ mod test {
         let predictor =
             ConsequencePredictor::new(Arc::new(provider), ConfigBuilder::default().build()?);
 
-        assert_eq!(predictor.filter_picked_sourced_txs(txs).len(), 1);
+        assert_eq!(predictor.filter_picked_sourced_txs(txs).len(), picked);
 
         Ok(())
     }
