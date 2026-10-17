@@ -2335,10 +2335,11 @@ impl ConsequencePredictor {
                 consequences |= Consequence::StopLost;
             }
 
-            // The last codon starts at the last codon boundary. It is partial if the CDS
-            // length is not a multiple of 3.
+            // As in VEP, only a partial last codon counts. It is partial if the CDS length is
+            // not a multiple of 3, and it starts at the last codon boundary.
             if incomplete_3p
                 && let Some(cds_len) = available_cds_len
+                && cds_len % 3 != 0
                 && start_base <= cds_len
                 && end_base >= cds_len - (cds_len - 1) % 3
             {
@@ -4115,14 +4116,16 @@ mod test {
     // `synonymous_variant`.
     #[case("22:45600442:T:TTTAGCA", "ENST00000327858", false, vec![Consequence::SynonymousVariant])]
     #[case("22:45600442:T:TTTAGCA", "ENST00000327858", true, vec![Consequence::InframeInsertion, Consequence::StopRetainedVariant])]
+    // The CDS of ENST00000430886 ends with a complete codon, so none of its cases gets
+    // `incomplete_terminal_codon_variant`.
     // `p.?`: in-frame insertion that creates a stop codon in a CDS without one (`cds_end_NF`).
     // VEP's changed codons keep the last amino acid and continue with the stop codon.
-    #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::DisruptiveInframeInsertion, Consequence::IncompleteTerminalCodonVariant])]
-    #[case("22:38140065:C:CTAA", "ENST00000430886", true, vec![Consequence::InframeInsertion, Consequence::IncompleteTerminalCodonVariant, Consequence::StopRetainedVariant])]
+    #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::DisruptiveInframeInsertion])]
+    #[case("22:38140065:C:CTAA", "ENST00000430886", true, vec![Consequence::InframeInsertion, Consequence::StopRetainedVariant])]
     // `p.?`: frameshift in a CDS without a stop codon (`cds_end_NF`)
-    #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::FrameshiftVariant, Consequence::IncompleteTerminalCodonVariant])]
+    #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
     // `c.498dup` (`p.?`): a dup of the last CDS base, but without a stop codon the CDS goes on
-    #[case("22:38140065:C:CC", "ENST00000430886", false, vec![Consequence::FrameshiftVariant, Consequence::IncompleteTerminalCodonVariant])]
+    #[case("22:38140065:C:CC", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
     // `c.932_933dup` (`p.?`): the copy lands behind the stop codon
     #[case("22:21469819:T:TAA", "ENST00000432134", false, vec![Consequence::ThreePrimeUtrExonVariant])]
     #[case("22:21469819:T:TAA", "ENST00000432134", true, vec![Consequence::ThreePrimeUtrVariant])]
