@@ -2512,7 +2512,15 @@ impl ConsequencePredictor {
                     let loc = loc.inner();
                     match edit.inner() {
                         ProteinEdit::Fs { .. } => {
-                            consequences |= Consequence::FrameshiftVariant;
+                            // An indel from the CDS through the stop codon leaves only CDS bases
+                            // in front of it, so no CDS codon reads in a new frame. Its length is
+                            // not well-defined either: past the transcript end, it changes more
+                            // genomic than transcript bases. So its terms come from the new stop
+                            // codon.
+                            let over_stop = !incomplete_3p && crosses_cds_end(var_c);
+                            if !over_stop {
+                                consequences |= Consequence::FrameshiftVariant;
+                            }
 
                             // in the case of frameshifts, we will get the altered protein sequence
                             // in order to compare it with the unaltered one
@@ -2524,7 +2532,10 @@ impl ConsequencePredictor {
                                     None,
                                 )
                             {
-                                let original_sequence_len = reference_data.aa_sequence.len();
+                                // Count the residues before the stops. `Xaa` counts as a
+                                // residue. A CDS with an incomplete end has no stop codon.
+                                let original_amino_acids =
+                                    reference_data.aa_sequence.trim_end_matches('*').len();
                                 if let Ok(alt_data) =
                                     self.alt_seq_builder(var_c, &reference_data).build_altseq()
                                     && let Some(alt_data) = alt_data.first()
@@ -2533,9 +2544,10 @@ impl ConsequencePredictor {
 
                                     // Compare the lengths up to the first stop of the new frame.
                                     // A new frame without a stop (`fsTer?`) runs to the
-                                    // transcript end. It is an elongation only if it reads past
-                                    // the reference stop codon. Without a reference stop codon,
-                                    // hgvs cuts it to the reference length.
+                                    // transcript end. It is an elongation only if it has more
+                                    // residues than the reference, e.g., `Xaa` in place of the
+                                    // reference stop codon. Without a reference stop codon, hgvs
+                                    // cuts it to the reference length.
                                     //
                                     // do not use the 'X' fallback here,
                                     // as that is _usually_ only added
@@ -2544,15 +2556,18 @@ impl ConsequencePredictor {
                                     // stop codon is encountered
                                     // .or_else(|| altered_sequence.find('X'))
                                     if let Some(pos) = altered_sequence.find('*') {
-                                        // Count the amino acids before the stops. A CDS with an
-                                        // incomplete end has no stop codon.
-                                        let original_amino_acids =
-                                            reference_data.aa_sequence.trim_end_matches('*').len();
                                         match pos.cmp(&original_amino_acids) {
+                                            Ordering::Less if over_stop => {
+                                                consequences |= Consequence::StopGained;
+                                            }
                                             Ordering::Less => {
                                                 consequences |= Consequence::FrameshiftTruncation;
                                             }
                                             Ordering::Equal => {
+                                                if over_stop {
+                                                    consequences |=
+                                                        Consequence::StopRetainedVariant;
+                                                }
                                                 if !self.config.vep_consequence_terms {
                                                     consequences |= Consequence::MissenseVariant;
                                                     // TODO: discuss stop_retained
@@ -2560,14 +2575,24 @@ impl ConsequencePredictor {
                                                     consequences &= !Consequence::FrameshiftVariant;
                                                 }
                                             }
+                                            Ordering::Greater if over_stop => {
+                                                consequences |= Consequence::StopLost
+                                                    | Consequence::FeatureElongation;
+                                            }
                                             Ordering::Greater => {
                                                 consequences |= Consequence::FrameshiftElongation;
                                             }
                                         }
                                     } else if reference_data.aa_sequence.ends_with('*')
-                                        && altered_sequence.len() > original_sequence_len
+                                        && altered_sequence.len() > original_amino_acids
                                     {
-                                        consequences |= Consequence::FrameshiftElongation;
+                                        consequences |= if over_stop {
+                                            Consequence::StopLost | Consequence::FeatureElongation
+                                        } else {
+                                            Consequence::FrameshiftElongation.into()
+                                        };
+                                    } else if over_stop {
+                                        consequences |= Consequence::StopLost;
                                     }
                                 }
                             }
@@ -3485,6 +3510,15 @@ fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
         }
         _ => panic!("Expected CdsVariant, got {:#?}", var_c),
     }
+}
+
+/// Whether `var_c` starts in the CDS and ends behind the stop codon (`c.*N`).
+fn crosses_cds_end(var_c: &HgvsVariant) -> bool {
+    let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
+        return false;
+    };
+    let loc = loc_edit.loc.inner();
+    loc.start.cds_from == CdsFrom::Start && loc.start.base >= 1 && loc.end.cds_from == CdsFrom::End
 }
 
 /// Whether deleting `tx_seq[del]` leaves the CDS that starts at `cds_start` intact.
@@ -6122,6 +6156,185 @@ mod test {
                 &ann.consequences
             ),
             (Some("c.699del"), Some("p.Ter233XaaextTer?"), &expected_csqs)
+        );
+        Ok(())
+    }
+
+    /// An indel from the CDS through the stop codon leaves only CDS bases in front of it, so no
+    /// CDS codon reads in a new frame. hgvs-rs still gives `fs` if the transcript part of the
+    /// indel changes the length by a number that is not a multiple of 3. The protein terms come
+    /// from the new stop codon instead.
+    ///
+    /// GLA `ENST00000218516.4` ends 6 bases behind its stop codon. `c.1286_*7del` deletes 12
+    /// bases, 11 of them in the transcript, and the new frame has no stop codon. IRF7
+    /// `c.1507_*40del` forms a new stop codon at the position of the old one.
+    #[rstest::rstest]
+    #[case::gla(
+        "X",
+        101397801,
+        "TAAACATTTTAAA",
+        "ENST00000218516.4",
+        false,
+        ("c.1286_*7del", "p.Leu429XaafsTer?"),
+        vec![Consequence::StopLost, Consequence::ThreePrimeUtrExonVariant]
+    )]
+    // VEP 116.3 gives the same terms
+    #[case::gla_vep(
+        "X",
+        101397801,
+        "TAAACATTTTAAA",
+        "ENST00000218516.4",
+        true,
+        ("c.1286_*7del", "p.Leu429XaafsTer?"),
+        vec![Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant]
+    )]
+    #[case::irf7(
+        "11",
+        612604,
+        "TGGGCTGCTCCAGCTTTCTGGAGTTCTCATTAGACTGGGTTCTAGGC",
+        "ENST00000525445.6",
+        false,
+        ("c.1507_*40del", "p.Ala503ThrfsTer2"),
+        vec![
+            Consequence::MissenseVariant,
+            Consequence::StopRetainedVariant,
+            Consequence::ThreePrimeUtrExonVariant
+        ]
+    )]
+    // VEP 116.3 gives the same terms
+    #[case::irf7_vep(
+        "11",
+        612604,
+        "TGGGCTGCTCCAGCTTTCTGGAGTTCTCATTAGACTGGGTTCTAGGC",
+        "ENST00000525445.6",
+        true,
+        ("c.1507_*40del", "p.Ala503ThrfsTer2"),
+        vec![Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant]
+    )]
+    fn deletion_over_stop_codon_without_frameshift(
+        #[case] chromosome: &str,
+        #[case] position: i32,
+        #[case] reference: &str,
+        #[case] tx_id: &str,
+        #[case] vep_consequence_terms: bool,
+        #[case] expected_hgvs: (&str, &str),
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db(
+            "tests/data/annotate/db/grch38/GRCh38-ensembl.disagreement-subset.txs.bin.zst",
+        )?;
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .vep_consequence_terms(vep_consequence_terms)
+                .build()?,
+        );
+
+        let anns = predictor
+            .predict(&VcfVariant {
+                chromosome: chromosome.into(),
+                position,
+                reference: reference.into(),
+                alternative: reference[..1].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == tx_id)
+            .ok_or_else(|| anyhow::anyhow!("no annotation for {tx_id}: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_hgvs.0), Some(expected_hgvs.1), &expected_csqs)
+        );
+        Ok(())
+    }
+
+    /// As above, on a test transcript. Its 3' UTR decides where the new frame reads a stop codon.
+    #[rstest::rstest]
+    // `c.14_*7delinsCCC` replaces 12 bases by 3, 11 of them in the transcript. The new frame
+    // reads `Xaa` in place of the old stop codon.
+    #[case::delins(
+        "CGCATC",
+        (1033, "TGGTAACGCATCA", "TCCC"),
+        ("c.14_*7delinsCCC", "p.Trp5SerfsTer?"),
+        vec![
+            Consequence::StopLost,
+            Consequence::FeatureElongation,
+            Consequence::ThreePrimeUtrExonVariant
+        ]
+    )]
+    // `c.14_*7delinsCC` replaces 12 bases by 2. In the transcript, it replaces 11 bases by 2, so
+    // hgvs-rs gives no `fs`.
+    #[case::delins_in_frame_in_transcript(
+        "CGCATC",
+        (1033, "TGGTAACGCATCA", "TCC"),
+        ("c.14_*7delinsCC", "p.Trp5_Ter6delinsSer"),
+        vec![
+            Consequence::StopLost,
+            Consequence::ProteinAlteringVariant,
+            Consequence::ThreePrimeUtrExonVariant
+        ]
+    )]
+    #[case::new_stop_in_front(
+        "ACAGTAAGCAT",
+        (1030, "CTGTGGTAAAC", "C"),
+        ("c.11_*2del", "p.Leu4GlnfsTer2"),
+        vec![Consequence::StopGained, Consequence::ThreePrimeUtrExonVariant]
+    )]
+    #[case::new_stop_behind(
+        "ACCGCATTAAGC",
+        (1033, "TGGTAAAC", "T"),
+        ("c.14_*2del", "p.Trp5SerfsTer3"),
+        vec![
+            Consequence::StopLost,
+            Consequence::FeatureElongation,
+            Consequence::ThreePrimeUtrExonVariant
+        ]
+    )]
+    // No new stop codon, but the new frame reads past the old one to the transcript end
+    #[case::no_new_stop_reading_past_old_one(
+        "ACCGCATCAGCGCC",
+        (1033, "TGGTAAAC", "T"),
+        ("c.14_*2del", "p.Trp5SerfsTer?"),
+        vec![
+            Consequence::StopLost,
+            Consequence::FeatureElongation,
+            Consequence::ThreePrimeUtrExonVariant
+        ]
+    )]
+    fn indel_over_stop_codon_without_frameshift(
+        #[case] utr3: &str,
+        #[case] variant: (i32, &str, &str),
+        #[case] expected_hgvs: (&str, &str),
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", utr3);
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: variant.0,
+                reference: variant.1.into(),
+                alternative: variant.2.into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_hgvs.0), Some(expected_hgvs.1), &expected_csqs)
         );
         Ok(())
     }
