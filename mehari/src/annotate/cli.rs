@@ -122,6 +122,17 @@ pub struct ReportingSettings {
     /// Whether to report protein sequence.
     #[arg(long, value_enum, default_value_t = SequenceReporting::None)]
     pub report_protein_sequence: SequenceReporting,
+
+    /// Built-in plugins to run, each adding ANN columns.
+    #[arg(long = "plugin", value_enum)]
+    pub plugins: Vec<Plugin>,
+}
+
+/// Built-in annotation plugins.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum)]
+pub enum Plugin {
+    /// Flag premature stop codons escaping nonsense-mediated decay (`nmd` column).
+    Nmd,
 }
 
 #[derive(Debug, ClapArgs, Default, Clone)]

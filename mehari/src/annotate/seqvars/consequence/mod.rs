@@ -2,7 +2,7 @@ pub mod logic;
 pub mod plugin;
 pub mod terms;
 
-use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
+use crate::annotate::cli::{ConsequenceBy, Plugin, PredictorSettings};
 use crate::annotate::seqvars;
 use crate::annotate::seqvars::consequence::terms::Consequence;
 use crate::annotate::seqvars::provider::{
@@ -16,7 +16,7 @@ use hgvs::data::interface::Provider;
 use hgvs::parser::{HgvsVariant, NoRef};
 use itertools::Itertools;
 pub(crate) use logic::ConsequencePredictor;
-use plugin::{CompoundPlugin, SequencePlugin, TranscriptPlugin};
+use plugin::{CompoundPlugin, NmdPlugin, SequencePlugin, TranscriptPlugin};
 use prost::Message;
 use std::fmt;
 use std::fmt::Display;
@@ -139,6 +139,11 @@ impl ConsequenceAnnotator {
         }
         if args.compound_settings.enable_compound_variants {
             plugins.push(Arc::new(CompoundPlugin::default()));
+        }
+        for plugin in &s.plugins {
+            plugins.push(match plugin {
+                Plugin::Nmd => Arc::new(NmdPlugin),
+            });
         }
 
         let provider = Arc::new(MehariProvider::new(

@@ -26,6 +26,7 @@ pub const ANN_AA_SEQ_REF: &str = "aa_sequence_ref";
 pub const ANN_AA_SEQ_ALT: &str = "aa_sequence_alt";
 pub const ANN_COMPOUND_IDS: &str = "compound_ids";
 pub const ANN_COMPOUND_VARIANTS: &str = "compound_variants";
+pub const ANN_NMD: &str = "nmd";
 
 /// Putative impact level.
 #[derive(
