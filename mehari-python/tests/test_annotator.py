@@ -165,3 +165,28 @@ def test_annotate_reports_protein_sequences(sample_variants):
     custom_fields = nm_007294["custom_fields"]
     assert list(custom_fields) == ["aa_sequence_ref", "aa_sequence_alt"]
     assert custom_fields["aa_sequence_ref"] != custom_fields["aa_sequence_alt"]
+
+
+def test_annotate_with_nmd_plugin():
+    """
+    The NMD plugin predicts NMD for a stop-gained variant in BRCA1 exon 10 (c.3020).
+    """
+    annotator = SeqvarsAnnotator(
+        transcript_db_paths=os.path.join(DB_DIR, "txs.bin.zst"),
+        plugins=["nmd"],
+    )
+    result = annotator.annotate("17:41244528:G:T")
+
+    nm_007294 = next(
+        c for c in result["annotation"] if c.get("feature_id") == "NM_007294.4"
+    )
+    assert "stop_gained" in nm_007294["consequences"]
+    assert nm_007294["custom_fields"] == {"nmd": "triggering"}
+
+
+def test_unknown_plugin_is_rejected():
+    with pytest.raises(ValueError, match="Invalid plugin"):
+        SeqvarsAnnotator(
+            transcript_db_paths=os.path.join(DB_DIR, "txs.bin.zst"),
+            plugins=["no-such-plugin"],
+        )

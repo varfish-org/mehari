@@ -1628,9 +1628,10 @@ impl<'a> VariantProcessor<'a> {
 mod test {
     use super::binning::bin_from_range;
     use super::{Args, OutputFormat, run};
-    use crate::annotate::cli::{ConsequenceBy, Plugin, PredictorSettings};
+    use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
     use crate::annotate::seqvars::consequence::SequenceReporting;
+    use crate::annotate::seqvars::consequence::plugin::BuiltinPlugin;
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
     use clap_verbosity_flag::Verbosity;
     use futures::TryStreamExt;
@@ -1715,7 +1716,7 @@ mod test {
         let reporting = &mut predictor_settings.reporting_settings;
         reporting.report_cdna_sequence = SequenceReporting::Both;
         reporting.report_protein_sequence = SequenceReporting::Both;
-        reporting.plugins = vec![Plugin::Nmd];
+        reporting.plugins = vec![BuiltinPlugin::Nmd];
         predictor_settings
             .compound_settings
             .enable_compound_variants = true;

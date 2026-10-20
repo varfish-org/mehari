@@ -20,8 +20,34 @@ mod nmd;
 mod sequence;
 
 pub use compound::CompoundPlugin;
-pub use nmd::NmdPlugin;
+pub use nmd::{NmdPlugin, NmdPrediction};
 pub use sequence::SequencePlugin;
+
+/// Plugins to select by name, e.g. with `--plugin`.
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    clap::ValueEnum,
+    parse_display::FromStr,
+    parse_display::Display,
+)]
+#[display(style = "kebab-case")]
+pub enum BuiltinPlugin {
+    /// Predict whether premature stop codons trigger nonsense-mediated decay (`nmd` column).
+    Nmd,
+}
+
+impl BuiltinPlugin {
+    /// `vep_compatible` makes the plugin mimic its VEP counterpart.
+    pub fn build(self, vep_compatible: bool) -> Arc<dyn TranscriptPlugin> {
+        match self {
+            Self::Nmd => Arc::new(NmdPlugin { vep_compatible }),
+        }
+    }
+}
 
 /// Fills custom ANN columns for the transcripts of a variant.
 pub trait TranscriptPlugin: Debug + Send + Sync {

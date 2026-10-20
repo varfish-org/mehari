@@ -75,6 +75,7 @@ class SeqvarsAnnotator:
         report_protein_sequence: typing.Literal[
             "none", "reference", "alternative", "both"
         ] = "none",
+        plugins: typing.Sequence[typing.Literal["nmd"]] = (),
     ):
         if isinstance(transcript_db_paths, str):
             transcript_db_paths = [transcript_db_paths]
@@ -84,6 +85,7 @@ class SeqvarsAnnotator:
             reference_path,
             report_cdna_sequence,
             report_protein_sequence,
+            list(plugins),
         )
 
     def _process_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
