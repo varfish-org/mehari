@@ -32,7 +32,7 @@ To annotate variant consequences, gnomAD frequencies and clinVar information for
 ```
 The corresponding database builds can be obtained from:
  - transcripts: [github.com/varfish-org/mehari-data-tx/releases](https://github.com/varfish-org/mehari-data-tx/releases)
- - gnomAD frequencies: TODO
+ - gnomAD frequencies: not available for download because of its size, build it as described in [Building the Frequency Database](docs/db_build.md#building-the-frequency-database)
  - clinVar: [github.com/varfish-org/annonars-data-clinvar/releases](https://github.com/varfish-org/annonars-data-clinvar/releases)
 
 See [Getting Started](docs/getting_started.md) for more information on usage, and [Development Setup](docs/development.md) for more information on how to build mehari and its databases from scratch.
