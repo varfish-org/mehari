@@ -53,7 +53,7 @@ impl TranscriptPlugin for NmdPlugin {
     fn annotate(
         &self,
         variants: &[VcfVariant],
-        txs: &mut [TxAnnotation<'_>],
+        txs: &mut [TxAnnotation],
     ) -> Result<(), SeqvarsError> {
         for TxAnnotation { context, ann } in txs {
             let value = if self.vep_compatible {
@@ -80,8 +80,8 @@ impl TranscriptPlugin for NmdPlugin {
 }
 
 /// `None` if the PTC or the exon structure is unknown.
-fn predict(context: &TxContext<'_>, ann: &AnnField) -> Option<NmdPrediction> {
-    let exons = &context.tx?.genome_alignments.first()?.exons;
+fn predict(context: &TxContext, ann: &AnnField) -> Option<NmdPrediction> {
+    let exons = &context.tx()?.genome_alignments.first()?.exons;
     let ref_data = context.ref_data()?;
     let alt_data = context.alt_data()?;
     let Some(stop) = alt_data.aa_sequence.find('*') else {
@@ -114,7 +114,7 @@ fn classify(ptc_c: i32, before_junction: i32) -> NmdPrediction {
 }
 
 /// VEP's NMD plugin, which applies its rules to the variant: `Some(true)` if it escapes NMD.
-fn vep_escapes(context: &TxContext<'_>, ann: &AnnField, variants: &[VcfVariant]) -> Option<bool> {
+fn vep_escapes(context: &TxContext, ann: &AnnField, variants: &[VcfVariant]) -> Option<bool> {
     // VEP neither knows compound variants nor annotates variants without CDS coordinates.
     let [variant] = variants else {
         return None;
@@ -139,7 +139,7 @@ fn vep_escapes(context: &TxContext<'_>, ann: &AnnField, variants: &[VcfVariant])
         loc.end.base
     };
 
-    let alignment = context.tx?.genome_alignments.first()?;
+    let alignment = context.tx()?.genome_alignments.first()?;
     let exons = alignment
         .exons
         .iter()

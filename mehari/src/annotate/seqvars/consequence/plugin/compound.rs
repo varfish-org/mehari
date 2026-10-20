@@ -23,7 +23,7 @@ impl TranscriptPlugin for CompoundPlugin {
     fn annotate(
         &self,
         variants: &[VcfVariant],
-        txs: &mut [TxAnnotation<'_>],
+        txs: &mut [TxAnnotation],
     ) -> Result<(), SeqvarsError> {
         // Only groups with annotations get a number.
         if txs.is_empty() {

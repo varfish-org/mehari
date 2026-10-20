@@ -1630,7 +1630,6 @@ mod test {
     use super::{Args, OutputFormat, run};
     use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
-    use crate::annotate::seqvars::consequence::SequenceReporting;
     use crate::annotate::seqvars::consequence::plugin::BuiltinPlugin;
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
     use clap_verbosity_flag::Verbosity;
@@ -1713,10 +1712,13 @@ mod test {
             verbose: Verbosity::new(0, 1),
         };
         let mut predictor_settings = PredictorSettings::default();
-        let reporting = &mut predictor_settings.reporting_settings;
-        reporting.report_cdna_sequence = SequenceReporting::Both;
-        reporting.report_protein_sequence = SequenceReporting::Both;
-        reporting.plugins = vec![BuiltinPlugin::Nmd];
+        predictor_settings.reporting_settings.plugins = vec![
+            BuiltinPlugin::TxSequenceRef,
+            BuiltinPlugin::TxSequenceAlt,
+            BuiltinPlugin::AaSequenceRef,
+            BuiltinPlugin::AaSequenceAlt,
+            BuiltinPlugin::Nmd,
+        ];
         predictor_settings
             .compound_settings
             .enable_compound_variants = true;
@@ -1746,7 +1748,7 @@ mod test {
         assert!(
             ann_header.contains(
                 "| tx_sequence_ref | tx_sequence_alt | aa_sequence_ref | aa_sequence_alt \
-                 | compound_ids | compound_variants | nmd'"
+                 | nmd | compound_ids | compound_variants'"
             ),
             "{ann_header}"
         );

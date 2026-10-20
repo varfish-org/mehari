@@ -153,7 +153,7 @@ def test_annotate_reports_protein_sequences(sample_variants):
     """
     annotator = SeqvarsAnnotator(
         transcript_db_paths=os.path.join(DB_DIR, "txs.bin.zst"),
-        report_protein_sequence="both",
+        plugins=["aa-sequence-ref", "aa-sequence-alt"],
     )
     result_df = annotator.annotate(sample_variants)
 

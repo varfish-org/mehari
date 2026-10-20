@@ -160,7 +160,7 @@ impl ConsequencePredictor {
     fn run_plugins(
         &self,
         variants: &[VcfVariant],
-        mut txs: Vec<TxAnnotation<'_>>,
+        mut txs: Vec<TxAnnotation>,
     ) -> Result<Vec<AnnField>, SeqvarsError> {
         for plugin in &self.config.plugins {
             plugin.annotate(variants, &mut txs)?;
@@ -290,7 +290,7 @@ impl ConsequencePredictor {
                 custom_fields: BTreeMap::new(),
             };
             let intergenic = TxAnnotation {
-                context: TxContext::new(&self.provider, None, None),
+                context: TxContext::new(self.provider.clone(), None, None),
                 ann,
             };
             return Ok(Some(self.run_plugins(
@@ -493,10 +493,7 @@ impl ConsequencePredictor {
     ///
     /// If all transcripts are to be reported then return `ann_fields` as is, otherwise
     /// select one worst consequence per gene.
-    fn filter_ann_fields<'a>(
-        &self,
-        mut ann_fields: Vec<TxAnnotation<'a>>,
-    ) -> Vec<TxAnnotation<'a>> {
+    fn filter_ann_fields(&self, mut ann_fields: Vec<TxAnnotation>) -> Vec<TxAnnotation> {
         if !self.config.keep_intergenic {
             ann_fields.retain(|field| field.ann.consequences != [Consequence::IntergenicVariant]);
         }
@@ -873,7 +870,7 @@ impl ConsequencePredictor {
         tx_record: TxForRegionRecord,
         var_start: i32,
         var_end: i32,
-    ) -> Result<Option<TxAnnotation<'_>>, SeqvarsError> {
+    ) -> Result<Option<TxAnnotation>, SeqvarsError> {
         let tx = match self.provider.get_tx(&tx_record.tx_ac) {
             Some(tx) => {
                 if TranscriptBiotype::try_from(tx.biotype).expect("invalid tx biotype")
@@ -1054,7 +1051,7 @@ impl ConsequencePredictor {
         let var_c = projection.and_then(|p| p.c);
 
         Ok(Some(TxAnnotation {
-            context: TxContext::new(&self.provider, Some(tx), var_c),
+            context: TxContext::new(self.provider.clone(), Some(tx), var_c),
             ann,
         }))
     }
@@ -2318,7 +2315,7 @@ impl ConsequencePredictor {
         tx_record: &TxForRegionRecord,
         chrom_acc: &str,
         hgvs_g: Option<String>,
-    ) -> Result<Option<TxAnnotation<'_>>, SeqvarsError> {
+    ) -> Result<Option<TxAnnotation>, SeqvarsError> {
         let tx = match self.provider.get_tx(&tx_record.tx_ac) {
             Some(t) => t,
             None => return Ok(None),
@@ -2648,7 +2645,7 @@ impl ConsequencePredictor {
         };
 
         Ok(Some(TxAnnotation {
-            context: TxContext::new(&self.provider, Some(tx), Some(compound_var_c))
+            context: TxContext::new(self.provider.clone(), Some(tx), Some(compound_var_c))
                 .with_ref_data(ref_data),
             ann,
         }))
@@ -2739,7 +2736,6 @@ mod test {
     use crate::annotate::cli::TranscriptPickMode;
     use crate::annotate::cli::{PredictorSettings, TranscriptPickType, TranscriptSettings};
     use crate::annotate::seqvars::consequence::ConfigBuilder;
-    use crate::annotate::seqvars::consequence::SequenceReporting;
     use crate::annotate::seqvars::consequence::load_tx_db;
     use crate::annotate::seqvars::consequence::plugin::{SequencePlugin, TranscriptPlugin};
     use crate::annotate::seqvars::consequence::terms::ANN_AA_SEQ_ALT;
@@ -3721,13 +3717,15 @@ mod test {
             true,
             Default::default(),
         ));
-        let plugin =
-            SequencePlugin::from_settings(SequenceReporting::Both, SequenceReporting::Both)
-                .unwrap();
         Ok(ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
-                .plugins(vec![Arc::new(plugin)])
+                .plugins(vec![
+                    Arc::new(SequencePlugin::TxRef),
+                    Arc::new(SequencePlugin::TxAlt),
+                    Arc::new(SequencePlugin::AaRef),
+                    Arc::new(SequencePlugin::AaAlt),
+                ])
                 .build()?,
         ))
     }
@@ -3811,7 +3809,7 @@ mod test {
         fn annotate(
             &self,
             _variants: &[VcfVariant],
-            txs: &mut [TxAnnotation<'_>],
+            txs: &mut [TxAnnotation],
         ) -> Result<(), SeqvarsError> {
             self.calls.lock().unwrap().push(txs.len());
             let count = txs.len().to_string();
@@ -3833,15 +3831,12 @@ mod test {
             true,
             Default::default(),
         ));
-        let sequences =
-            SequencePlugin::from_settings(SequenceReporting::None, SequenceReporting::Alternative)
-                .unwrap();
         let plugin = Arc::new(CountingPlugin::default());
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
                 .report_most_severe_consequence_by(Some(ConsequenceBy::Gene))
-                .plugins(vec![Arc::new(sequences), plugin.clone()])
+                .plugins(vec![Arc::new(SequencePlugin::AaAlt), plugin.clone()])
                 .build()?,
         );
 

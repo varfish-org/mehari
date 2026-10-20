@@ -4,13 +4,11 @@ use arrow::datatypes::{DataType, Field, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use mehari::annotate::seqvars::consequence::load_tx_db;
 use mehari::annotate::seqvars::consequence::logic::ConsequencePredictor;
-use mehari::annotate::seqvars::consequence::plugin::{
-    BuiltinPlugin, SequencePlugin, TranscriptPlugin,
-};
+use mehari::annotate::seqvars::consequence::plugin::BuiltinPlugin;
 use mehari::annotate::seqvars::consequence::terms::{
     AnnField, Consequence, FeatureBiotype, Pos, PutativeImpact, Rank,
 };
-use mehari::annotate::seqvars::consequence::{ConfigBuilder, SequenceReporting, VcfVariant};
+use mehari::annotate::seqvars::consequence::{ConfigBuilder, VcfVariant};
 use mehari::annotate::seqvars::provider::{
     ConfigBuilder as ProviderConfigBuilder, Provider as MehariProvider,
 };
@@ -162,12 +160,10 @@ pub struct PySeqvarsAnnotator {
 #[pymethods]
 impl PySeqvarsAnnotator {
     #[new]
-    #[pyo3(signature = (transcript_db_paths, reference_path=None, report_cdna_sequence="none", report_protein_sequence="none", plugins=Vec::new()))]
+    #[pyo3(signature = (transcript_db_paths, reference_path=None, plugins=Vec::new()))]
     fn new(
         transcript_db_paths: Vec<String>,
         reference_path: Option<String>,
-        report_cdna_sequence: &str,
-        report_protein_sequence: &str,
         plugins: Vec<String>,
     ) -> PyResult<Self> {
         reread_log_levels();
@@ -199,32 +195,16 @@ impl PySeqvarsAnnotator {
             provider_config,
         ));
 
-        let report_cdna = SequenceReporting::from_str(report_cdna_sequence).map_err(|_| {
-            pyo3::exceptions::PyValueError::new_err("Invalid cdna sequence reporting option")
-        })?;
-        let report_protein =
-            SequenceReporting::from_str(report_protein_sequence).map_err(|_| {
-                pyo3::exceptions::PyValueError::new_err("Invalid protein sequence reporting option")
-            })?;
-
-        let builtin_plugins = plugins
+        let plugins = plugins
             .iter()
             .map(|name| {
-                BuiltinPlugin::from_str(name).map_err(|_| {
-                    pyo3::exceptions::PyValueError::new_err(format!("Invalid plugin {name:?}"))
-                })
+                BuiltinPlugin::from_str(name)
+                    .map(|plugin| plugin.build(false))
+                    .map_err(|_| {
+                        pyo3::exceptions::PyValueError::new_err(format!("Invalid plugin {name:?}"))
+                    })
             })
             .collect::<PyResult<Vec<_>>>()?;
-
-        let mut plugins: Vec<Arc<dyn TranscriptPlugin>> = Vec::new();
-        if let Some(plugin) = SequencePlugin::from_settings(report_cdna, report_protein) {
-            plugins.push(Arc::new(plugin));
-        }
-        plugins.extend(
-            builtin_plugins
-                .into_iter()
-                .map(|plugin| plugin.build(false)),
-        );
 
         let config = ConfigBuilder::default()
             .plugins(plugins)

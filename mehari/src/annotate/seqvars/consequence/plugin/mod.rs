@@ -36,6 +36,14 @@ pub use sequence::SequencePlugin;
 )]
 #[display(style = "kebab-case")]
 pub enum BuiltinPlugin {
+    /// Reference transcript sequence (`tx_sequence_ref` column).
+    TxSequenceRef,
+    /// Transcript sequence with the variant applied (`tx_sequence_alt` column).
+    TxSequenceAlt,
+    /// Reference protein sequence (`aa_sequence_ref` column).
+    AaSequenceRef,
+    /// Protein sequence with the variant applied (`aa_sequence_alt` column).
+    AaSequenceAlt,
     /// Predict whether premature stop codons trigger nonsense-mediated decay (`nmd` column).
     Nmd,
 }
@@ -44,6 +52,10 @@ impl BuiltinPlugin {
     /// `vep_compatible` makes the plugin mimic its VEP counterpart.
     pub fn build(self, vep_compatible: bool) -> Arc<dyn TranscriptPlugin> {
         match self {
+            Self::TxSequenceRef => Arc::new(SequencePlugin::TxRef),
+            Self::TxSequenceAlt => Arc::new(SequencePlugin::TxAlt),
+            Self::AaSequenceRef => Arc::new(SequencePlugin::AaRef),
+            Self::AaSequenceAlt => Arc::new(SequencePlugin::AaAlt),
             Self::Nmd => Arc::new(NmdPlugin { vep_compatible }),
         }
     }
@@ -61,23 +73,23 @@ pub trait TranscriptPlugin: Debug + Send + Sync {
     fn annotate(
         &self,
         variants: &[VcfVariant],
-        txs: &mut [TxAnnotation<'_>],
+        txs: &mut [TxAnnotation],
     ) -> Result<(), SeqvarsError>;
 }
 
 /// The annotation of one transcript and the inputs it was derived from.
-pub struct TxAnnotation<'a> {
-    pub context: TxContext<'a>,
+pub struct TxAnnotation {
+    pub context: TxContext,
     pub ann: AnnField,
 }
 
 /// Inputs for annotating one transcript.
 ///
-/// Sequence data is computed on first use and then shared between plugins.
-pub struct TxContext<'a> {
-    provider: &'a Arc<MehariProvider>,
-    /// `None` for intergenic variants.
-    pub tx: Option<&'a Transcript>,
+/// Sequence data is computed on first use and then shared between plugins. The context owns
+/// its data, so a wasm host can hand it to plugins as a resource.
+pub struct TxContext {
+    provider: Arc<MehariProvider>,
+    tx_id: Option<String>,
     /// The variant on the transcript: `c.` for coding, `n.` for non-coding transcripts,
     /// `None` if the variant lies up- or downstream.
     pub var_c: Option<HgvsVariant>,
@@ -85,15 +97,15 @@ pub struct TxContext<'a> {
     alt_data: OnceCell<Option<AltTranscriptData>>,
 }
 
-impl<'a> TxContext<'a> {
+impl TxContext {
     pub(crate) fn new(
-        provider: &'a Arc<MehariProvider>,
-        tx: Option<&'a Transcript>,
+        provider: Arc<MehariProvider>,
+        tx: Option<&Transcript>,
         var_c: Option<HgvsVariant>,
     ) -> Self {
         Self {
             provider,
-            tx,
+            tx_id: tx.map(|tx| tx.id.clone()),
             var_c,
             ref_data: OnceCell::new(),
             alt_data: OnceCell::new(),
@@ -106,12 +118,17 @@ impl<'a> TxContext<'a> {
         self
     }
 
+    /// The transcript; `None` for intergenic variants.
+    pub fn tx(&self) -> Option<&Transcript> {
+        self.provider.get_tx(self.tx_id.as_deref()?)
+    }
+
     /// Reference transcript and protein sequence.
     pub fn ref_data(&self) -> Option<&RefTranscriptData> {
         self.ref_data
             .get_or_init(|| {
-                let tx = self.tx?;
-                ref_transcript_data_cached(self.provider.clone(), &tx.id, None).ok()
+                let tx_id = self.tx_id.as_deref()?;
+                ref_transcript_data_cached(self.provider.clone(), tx_id, None).ok()
             })
             .as_ref()
     }

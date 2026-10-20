@@ -16,7 +16,7 @@ use hgvs::data::interface::Provider;
 use hgvs::parser::{HgvsVariant, NoRef};
 use itertools::Itertools;
 pub(crate) use logic::ConsequencePredictor;
-use plugin::{CompoundPlugin, SequencePlugin, TranscriptPlugin};
+use plugin::{CompoundPlugin, TranscriptPlugin};
 use prost::Message;
 use std::fmt;
 use std::fmt::Display;
@@ -131,20 +131,14 @@ impl ConsequenceAnnotator {
         let args = predictor_settings;
         let s = &args.reporting_settings;
 
-        let mut plugins: Vec<Arc<dyn TranscriptPlugin>> = Vec::new();
-        if let Some(plugin) =
-            SequencePlugin::from_settings(s.report_cdna_sequence, s.report_protein_sequence)
-        {
-            plugins.push(Arc::new(plugin));
-        }
+        let mut plugins: Vec<Arc<dyn TranscriptPlugin>> = s
+            .plugins
+            .iter()
+            .map(|plugin| plugin.build(args.vep_compatibility_mode))
+            .collect();
         if args.compound_settings.enable_compound_variants {
             plugins.push(Arc::new(CompoundPlugin::default()));
         }
-        plugins.extend(
-            s.plugins
-                .iter()
-                .map(|plugin| plugin.build(args.vep_compatibility_mode)),
-        );
 
         let provider = Arc::new(MehariProvider::new(
             tx_db,
@@ -311,34 +305,5 @@ impl<'a> fmt::Display for FormattedLoc<'a> {
             HgvsVariant::ProtVariant { loc_edit, .. } => write!(f, "p.{}", NoRef(loc_edit)),
             HgvsVariant::RnaVariant { loc_edit, .. } => write!(f, "r.{}", NoRef(loc_edit)),
         }
-    }
-}
-
-#[derive(
-    Debug,
-    Default,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    clap::ValueEnum,
-    parse_display::FromStr,
-    parse_display::Display,
-)]
-#[display(style = "kebab-case")]
-pub enum SequenceReporting {
-    #[default]
-    None,
-    Reference,
-    Alternative,
-    Both,
-}
-
-impl SequenceReporting {
-    pub fn includes_ref(&self) -> bool {
-        matches!(self, Self::Reference | Self::Both)
-    }
-    pub fn includes_alt(&self) -> bool {
-        matches!(self, Self::Alternative | Self::Both)
     }
 }
