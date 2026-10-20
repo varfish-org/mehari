@@ -3,14 +3,19 @@
 use std::cell::OnceCell;
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hgvs::mapper::altseq::{
     AltSeqBuilder, AltTranscriptData, RefTranscriptData, ref_transcript_data_cached,
 };
 use hgvs::parser::HgvsVariant;
+use itertools::Itertools;
 
-use super::SequenceReporting;
-use super::terms::{ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, AnnField};
+use super::terms::{
+    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, ANN_TX_SEQ_ALT,
+    ANN_TX_SEQ_REF, AnnField,
+};
+use super::{SequenceReporting, VcfVariant};
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::errors::SeqvarsError;
 use crate::pbs::txs::Transcript;
@@ -20,10 +25,15 @@ pub trait TranscriptPlugin: Debug + Send + Sync {
     /// The columns this plugin fills, in output order.
     fn columns(&self) -> Vec<String>;
 
-    /// Called once per variant with all of its reported transcripts.
+    /// Called once per prediction with all of its reported annotations.
     ///
+    /// `variants` holds the input variant, or the variants of a compound group.
     /// Writes into `ann.custom_fields`; keys not listed in `columns` are not output.
-    fn annotate(&self, txs: &mut [TxAnnotation<'_>]) -> Result<(), SeqvarsError>;
+    fn annotate(
+        &self,
+        variants: &[VcfVariant],
+        txs: &mut [TxAnnotation<'_>],
+    ) -> Result<(), SeqvarsError>;
 }
 
 /// The annotation of one transcript and the inputs it was derived from.
@@ -32,18 +42,13 @@ pub struct TxAnnotation<'a> {
     pub ann: AnnField,
 }
 
-impl AsRef<AnnField> for TxAnnotation<'_> {
-    fn as_ref(&self) -> &AnnField {
-        &self.ann
-    }
-}
-
 /// Inputs for annotating one transcript.
 ///
 /// Sequence data is computed on first use and then shared between plugins.
 pub struct TxContext<'a> {
     provider: &'a Arc<MehariProvider>,
-    pub tx: &'a Transcript,
+    /// `None` for intergenic variants.
+    pub tx: Option<&'a Transcript>,
     /// The variant on the transcript: `c.` for coding, `n.` for non-coding transcripts,
     /// `None` if the variant lies up- or downstream.
     pub var_c: Option<HgvsVariant>,
@@ -54,7 +59,7 @@ pub struct TxContext<'a> {
 impl<'a> TxContext<'a> {
     pub(crate) fn new(
         provider: &'a Arc<MehariProvider>,
-        tx: &'a Transcript,
+        tx: Option<&'a Transcript>,
         var_c: Option<HgvsVariant>,
     ) -> Self {
         Self {
@@ -76,7 +81,8 @@ impl<'a> TxContext<'a> {
     pub fn ref_data(&self) -> Option<&RefTranscriptData> {
         self.ref_data
             .get_or_init(|| {
-                ref_transcript_data_cached(self.provider.clone(), &self.tx.id, None).ok()
+                let tx = self.tx?;
+                ref_transcript_data_cached(self.provider.clone(), &tx.id, None).ok()
             })
             .as_ref()
     }
@@ -101,9 +107,17 @@ impl<'a> TxContext<'a> {
 
 /// Reports reference and/or alternative transcript and protein sequences.
 #[derive(Debug)]
-pub(crate) struct SequencePlugin {
-    pub(crate) cdna: SequenceReporting,
-    pub(crate) protein: SequenceReporting,
+pub struct SequencePlugin {
+    cdna: SequenceReporting,
+    protein: SequenceReporting,
+}
+
+impl SequencePlugin {
+    /// `None` if no sequence is to be reported.
+    pub fn from_settings(cdna: SequenceReporting, protein: SequenceReporting) -> Option<Self> {
+        (cdna != SequenceReporting::None || protein != SequenceReporting::None)
+            .then_some(Self { cdna, protein })
+    }
 }
 
 impl TranscriptPlugin for SequencePlugin {
@@ -120,7 +134,11 @@ impl TranscriptPlugin for SequencePlugin {
         .collect()
     }
 
-    fn annotate(&self, txs: &mut [TxAnnotation<'_>]) -> Result<(), SeqvarsError> {
+    fn annotate(
+        &self,
+        _variants: &[VcfVariant],
+        txs: &mut [TxAnnotation<'_>],
+    ) -> Result<(), SeqvarsError> {
         for TxAnnotation { context, ann } in txs {
             if context.var_c.is_none() {
                 continue;
@@ -157,6 +175,52 @@ impl TranscriptPlugin for SequencePlugin {
                     );
                 }
             }
+        }
+        Ok(())
+    }
+}
+
+/// Labels single variants `Single` and compound groups `comp_<n>`, plus the input variants.
+///
+/// Groups are numbered in prediction order.
+#[derive(Debug, Default)]
+pub struct CompoundPlugin {
+    groups: AtomicUsize,
+}
+
+impl TranscriptPlugin for CompoundPlugin {
+    fn columns(&self) -> Vec<String> {
+        vec![ANN_COMPOUND_IDS.into(), ANN_COMPOUND_VARIANTS.into()]
+    }
+
+    fn annotate(
+        &self,
+        variants: &[VcfVariant],
+        txs: &mut [TxAnnotation<'_>],
+    ) -> Result<(), SeqvarsError> {
+        // Only groups with annotations get a number.
+        if txs.is_empty() {
+            return Ok(());
+        }
+        let id = if variants.len() > 1 {
+            format!("comp_{}", self.groups.fetch_add(1, Ordering::Relaxed) + 1)
+        } else {
+            "Single".to_string()
+        };
+        let variants = variants
+            .iter()
+            .map(|var| {
+                format!(
+                    "{}:{}:{}:{}",
+                    var.chromosome, var.position, var.reference, var.alternative
+                )
+            })
+            .join(",");
+        for TxAnnotation { ann, .. } in txs {
+            ann.custom_fields
+                .insert(ANN_COMPOUND_IDS.into(), Some(id.clone()));
+            ann.custom_fields
+                .insert(ANN_COMPOUND_VARIANTS.into(), Some(variants.clone()));
         }
         Ok(())
     }

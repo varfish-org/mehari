@@ -4,6 +4,7 @@ use arrow::datatypes::{DataType, Field, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use mehari::annotate::seqvars::consequence::load_tx_db;
 use mehari::annotate::seqvars::consequence::logic::ConsequencePredictor;
+use mehari::annotate::seqvars::consequence::plugin::{SequencePlugin, TranscriptPlugin};
 use mehari::annotate::seqvars::consequence::terms::{
     AnnField, Consequence, FeatureBiotype, Pos, PutativeImpact, Rank,
 };
@@ -203,9 +204,13 @@ impl PySeqvarsAnnotator {
                 pyo3::exceptions::PyValueError::new_err("Invalid protein sequence reporting option")
             })?;
 
+        let mut plugins: Vec<Arc<dyn TranscriptPlugin>> = Vec::new();
+        if let Some(plugin) = SequencePlugin::from_settings(report_cdna, report_protein) {
+            plugins.push(Arc::new(plugin));
+        }
+
         let config = ConfigBuilder::default()
-            .report_cdna_sequence(report_cdna)
-            .report_protein_sequence(report_protein)
+            .plugins(plugins)
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 

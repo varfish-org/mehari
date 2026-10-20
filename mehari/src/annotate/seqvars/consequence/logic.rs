@@ -1,13 +1,11 @@
 //! Compute molecular consequence of variants.
-use super::plugin::{SequencePlugin, TranscriptPlugin, TxAnnotation, TxContext};
+use super::plugin::{TxAnnotation, TxContext};
 use super::terms::{
     Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature,
 };
 use super::terms::{FeatureTag, GroupedAlleles};
 use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
-use crate::annotate::seqvars::consequence::{
-    Config, Consequences, FormattedLoc, SequenceReporting, VcfVariant,
-};
+use crate::annotate::seqvars::consequence::{Config, Consequences, FormattedLoc, VcfVariant};
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::errors::{GroupValidationError, SeqvarsError};
@@ -43,9 +41,8 @@ pub struct ConsequencePredictor {
     #[derivative(Debug = "ignore")]
     pub(crate) config: Config,
 
-    /// Built-in plugins followed by `config.plugins`.
-    #[derivative(Debug = "ignore")]
-    plugins: Vec<Arc<dyn TranscriptPlugin>>,
+    /// The columns of `config.plugins`, in order.
+    custom_columns: Vec<String>,
 }
 
 /// Padding to look for genes upstream/downstream.
@@ -122,24 +119,11 @@ struct ConsequenceContext {
 }
 
 impl ConsequencePredictor {
-    pub fn new(provider: Arc<MehariProvider>, mut config: Config) -> Self {
-        let mut plugins: Vec<Arc<dyn TranscriptPlugin>> = Vec::new();
-        if config.report_cdna_sequence != SequenceReporting::None
-            || config.report_protein_sequence != SequenceReporting::None
-        {
-            plugins.push(Arc::new(SequencePlugin {
-                cdna: config.report_cdna_sequence,
-                protein: config.report_protein_sequence,
-            }));
-        }
-        plugins.extend(config.plugins.iter().cloned());
-
-        // Single source of the column order for header, records, and Python schema.
-        config.custom_columns = plugins
+    pub fn new(provider: Arc<MehariProvider>, config: Config) -> Self {
+        let custom_columns = config
+            .plugins
             .iter()
             .flat_map(|plugin| plugin.columns())
-            .chain(std::mem::take(&mut config.custom_columns))
-            .unique()
             .collect();
 
         tracing::info!("Building transcript interval trees ...");
@@ -163,19 +147,23 @@ impl ConsequencePredictor {
             provider,
             mapper,
             config,
-            plugins,
+            custom_columns,
         }
     }
 
     /// The custom ANN columns, in output order.
     pub fn custom_columns(&self) -> &[String] {
-        &self.config.custom_columns
+        &self.custom_columns
     }
 
-    /// Run the plugins on the reported transcripts of one variant.
-    fn run_plugins(&self, mut txs: Vec<TxAnnotation<'_>>) -> Result<Vec<AnnField>, SeqvarsError> {
-        for plugin in &self.plugins {
-            plugin.annotate(&mut txs)?;
+    /// Run the plugins on the reported annotations of one prediction.
+    fn run_plugins(
+        &self,
+        variants: &[VcfVariant],
+        mut txs: Vec<TxAnnotation<'_>>,
+    ) -> Result<Vec<AnnField>, SeqvarsError> {
+        for plugin in &self.config.plugins {
+            plugin.annotate(variants, &mut txs)?;
         }
         Ok(txs.into_iter().map(|tx| tx.ann).collect())
     }
@@ -273,7 +261,7 @@ impl ConsequencePredictor {
         if txs.is_empty() {
             let hgvs_g = Some(self.format_hgvs_g(&var_g));
 
-            return Ok(Some(self.filter_ann_fields(vec![AnnField {
+            let ann = AnnField {
                 allele: Allele::Alt {
                     alternative: var.alternative.clone(),
                 },
@@ -300,7 +288,15 @@ impl ConsequencePredictor {
                 gene_symbol: "".to_string(),
                 messages: None,
                 custom_fields: BTreeMap::new(),
-            }])));
+            };
+            let intergenic = TxAnnotation {
+                context: TxContext::new(&self.provider, None, None),
+                ann,
+            };
+            return Ok(Some(self.run_plugins(
+                std::slice::from_ref(var),
+                self.filter_ann_fields(vec![intergenic]),
+            )?));
         }
 
         // Compute annotations for all (picked) transcripts first, skipping `None`` results.
@@ -319,9 +315,10 @@ impl ConsequencePredictor {
         }
 
         // Return all or worst annotation only.
-        Ok(Some(
-            self.run_plugins(self.filter_ann_fields(anns_all_txs))?,
-        ))
+        Ok(Some(self.run_plugins(
+            std::slice::from_ref(var),
+            self.filter_ann_fields(anns_all_txs),
+        )?))
     }
 
     fn get_var_start_end(var_g: &HgvsVariant) -> (i32, i32) {
@@ -496,10 +493,12 @@ impl ConsequencePredictor {
     ///
     /// If all transcripts are to be reported then return `ann_fields` as is, otherwise
     /// select one worst consequence per gene.
-    fn filter_ann_fields<T: AsRef<AnnField>>(&self, mut ann_fields: Vec<T>) -> Vec<T> {
+    fn filter_ann_fields<'a>(
+        &self,
+        mut ann_fields: Vec<TxAnnotation<'a>>,
+    ) -> Vec<TxAnnotation<'a>> {
         if !self.config.keep_intergenic {
-            ann_fields
-                .retain(|field| field.as_ref().consequences != [Consequence::IntergenicVariant]);
+            ann_fields.retain(|field| field.ann.consequences != [Consequence::IntergenicVariant]);
         }
 
         /// Return sort order for ANN biotype, gives priority to ManeSelect and ManePlusClinical.
@@ -520,7 +519,7 @@ impl ConsequencePredictor {
         if let Some(group) = &self.config.report_most_severe_consequence_by {
             // Sort primarily by the grouping key, and secondarily by consequence severity.
             ann_fields.sort_unstable_by(|a, b| {
-                let (a, b) = (a.as_ref(), b.as_ref());
+                let (a, b) = (&a.ann, &b.ann);
                 let key_cmp = match group {
                     ConsequenceBy::Gene => a.gene_id.cmp(&b.gene_id),
                     ConsequenceBy::Transcript => a.feature_id.cmp(&b.feature_id),
@@ -552,7 +551,7 @@ impl ConsequencePredictor {
             // Since we sorted the most severe consequence to the front of each group,
             // this safely retains only the most severe annotation per group.
             ann_fields.dedup_by(|a, b| {
-                let (a, b) = (a.as_ref(), b.as_ref());
+                let (a, b) = (&a.ann, &b.ann);
                 match group {
                     ConsequenceBy::Gene => a.gene_id == b.gene_id,
                     ConsequenceBy::Transcript => a.feature_id == b.feature_id,
@@ -1055,7 +1054,7 @@ impl ConsequencePredictor {
         let var_c = projection.and_then(|p| p.c);
 
         Ok(Some(TxAnnotation {
-            context: TxContext::new(&self.provider, tx, var_c),
+            context: TxContext::new(&self.provider, Some(tx), var_c),
             ann,
         }))
     }
@@ -2183,7 +2182,10 @@ impl ConsequencePredictor {
             }
         }
 
-        Ok(Some(self.run_plugins(self.filter_ann_fields(multi_anns))?))
+        Ok(Some(self.run_plugins(
+            variants,
+            self.filter_ann_fields(multi_anns),
+        )?))
     }
 
     /// Ensures variants don't overlap and are in the correct order.
@@ -2646,7 +2648,7 @@ impl ConsequencePredictor {
         };
 
         Ok(Some(TxAnnotation {
-            context: TxContext::new(&self.provider, tx, Some(compound_var_c))
+            context: TxContext::new(&self.provider, Some(tx), Some(compound_var_c))
                 .with_ref_data(ref_data),
             ann,
         }))
@@ -2737,8 +2739,10 @@ mod test {
     use crate::annotate::cli::TranscriptPickMode;
     use crate::annotate::cli::{PredictorSettings, TranscriptPickType, TranscriptSettings};
     use crate::annotate::seqvars::consequence::ConfigBuilder;
+    use crate::annotate::seqvars::consequence::SequenceReporting;
     use crate::annotate::seqvars::consequence::load_tx_db;
-    use crate::annotate::seqvars::consequence::terms::{ANN_AA_SEQ_ALT, ANN_COMPOUND_IDS};
+    use crate::annotate::seqvars::consequence::plugin::{SequencePlugin, TranscriptPlugin};
+    use crate::annotate::seqvars::consequence::terms::ANN_AA_SEQ_ALT;
     use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
         Args, AsyncAnnotatedVariantWriter, OutputFormat, run_with_writer,
@@ -3717,11 +3721,13 @@ mod test {
             true,
             Default::default(),
         ));
+        let plugin =
+            SequencePlugin::from_settings(SequenceReporting::Both, SequenceReporting::Both)
+                .unwrap();
         Ok(ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
-                .report_cdna_sequence(SequenceReporting::Both)
-                .report_protein_sequence(SequenceReporting::Both)
+                .plugins(vec![Arc::new(plugin)])
                 .build()?,
         ))
     }
@@ -3802,7 +3808,11 @@ mod test {
             vec!["tx_count".into()]
         }
 
-        fn annotate(&self, txs: &mut [TxAnnotation<'_>]) -> Result<(), SeqvarsError> {
+        fn annotate(
+            &self,
+            _variants: &[VcfVariant],
+            txs: &mut [TxAnnotation<'_>],
+        ) -> Result<(), SeqvarsError> {
             self.calls.lock().unwrap().push(txs.len());
             let count = txs.len().to_string();
             for tx in txs {
@@ -3823,21 +3833,19 @@ mod test {
             true,
             Default::default(),
         ));
+        let sequences =
+            SequencePlugin::from_settings(SequenceReporting::None, SequenceReporting::Alternative)
+                .unwrap();
         let plugin = Arc::new(CountingPlugin::default());
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
                 .report_most_severe_consequence_by(Some(ConsequenceBy::Gene))
-                .report_protein_sequence(SequenceReporting::Alternative)
-                .custom_columns(vec![ANN_COMPOUND_IDS.into(), ANN_AA_SEQ_ALT.into()])
-                .plugins(vec![plugin.clone() as Arc<dyn TranscriptPlugin>])
+                .plugins(vec![Arc::new(sequences), plugin.clone()])
                 .build()?,
         );
 
-        assert_eq!(
-            predictor.custom_columns(),
-            [ANN_AA_SEQ_ALT, "tx_count", ANN_COMPOUND_IDS]
-        );
+        assert_eq!(predictor.custom_columns(), [ANN_AA_SEQ_ALT, "tx_count"]);
 
         let res = predictor.predict(&vcf_variant("17:41215920:G:T"))?.unwrap();
 
@@ -3846,5 +3854,17 @@ mod test {
         assert_eq!(res[0].custom_fields["tx_count"].as_deref(), Some("1"));
 
         Ok(())
+    }
+
+    #[test]
+    fn plugins_must_fill_distinct_columns() {
+        let config = ConfigBuilder::default()
+            .plugins(vec![
+                Arc::new(CountingPlugin::default()),
+                Arc::new(CountingPlugin::default()),
+            ])
+            .build();
+
+        assert!(config.is_err());
     }
 }
