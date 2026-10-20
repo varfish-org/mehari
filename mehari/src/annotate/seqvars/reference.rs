@@ -16,6 +16,30 @@ pub trait ReferenceReader {
     ) -> anyhow::Result<Option<Vec<u8>>>;
 }
 
+/// Read `[start, end)` of a circular sequence of length `len`, wrapping around the origin as
+/// often as needed.  `read_linear` reads `[sub_start, sub_end)` with `sub_end <= len`.
+fn read_circular(
+    start: u64,
+    end: u64,
+    len: u64,
+    read_linear: impl Fn(u64, u64) -> anyhow::Result<Vec<u8>>,
+) -> anyhow::Result<Vec<u8>> {
+    let mut remaining = end
+        .checked_sub(start)
+        .ok_or_else(|| anyhow!("Requested sequence part {start}-{end} is invalid (start > end)"))?;
+    let mut pos = start
+        .checked_rem(len)
+        .ok_or_else(|| anyhow!("Circular sequence is empty"))?;
+    let mut result = Vec::with_capacity(remaining as usize);
+    while remaining > 0 {
+        let sub_end = len.min(pos + remaining);
+        result.extend(read_linear(pos, sub_end)?);
+        remaining -= sub_end - pos;
+        pos = 0;
+    }
+    Ok(result)
+}
+
 /// In-memory reference sequence access.
 pub struct InMemoryFastaAccess {
     /// Maps any valid alias (accession, chr-prefixed, etc.) to the raw FASTA ID
@@ -102,9 +126,11 @@ impl ReferenceReader for InMemoryFastaAccess {
 
         if let Some(seq) = self.sequences.get(raw_id) {
             let seq_len = seq.len() as u64;
+            let is_circular = self.circular_contigs.contains(ac);
 
             if let Some(s) = start
                 && s >= seq_len
+                && !is_circular
             {
                 return Err(anyhow!(
                     "Requested start ({}) is out of bounds for sequence {} of length {}",
@@ -121,15 +147,12 @@ impl ReferenceReader for InMemoryFastaAccess {
                 (None, None) => (0, seq_len),
             };
 
-            // Safely wrap around if the contig is circular
-            if self.circular_contigs.contains(ac) && end > seq_len {
-                let mut result_seq = seq[start as usize..].to_vec();
-                let wrap_around_end = (end - seq_len).min(seq_len);
-                if wrap_around_end > 0 {
-                    let wrapped_part = &seq[..wrap_around_end as usize];
-                    result_seq.extend_from_slice(wrapped_part);
-                }
-                Ok(Some(result_seq))
+            // Wrap around the origin if the contig is circular
+            if is_circular {
+                read_circular(start, end, seq_len, |s, e| {
+                    Ok(seq[s as usize..e as usize].to_vec())
+                })
+                .map(Some)
             } else {
                 let clamped_end = end.min(seq_len);
                 if clamped_end != end {
@@ -254,8 +277,11 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
         end: Option<u64>,
     ) -> anyhow::Result<Option<Vec<u8>>> {
         if let Some(index_record) = self.alias_to_index.get(ac) {
+            let is_circular = self.circular_contigs.contains(ac);
+
             if let Some(s) = start
                 && s >= index_record.length
+                && !is_circular
             {
                 return Err(anyhow!(
                     "Requested start ({}) is out of bounds for sequence {} of length {}",
@@ -317,15 +343,8 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
                     .collect())
             };
 
-            if self.circular_contigs.contains(ac) && end > index_record.length {
-                let mut sequence = get_linear_slice(start, index_record.length)?;
-                let wrap_around_end = (end - index_record.length).min(index_record.length);
-                if wrap_around_end > 0 {
-                    let wrapped_part = get_linear_slice(0, wrap_around_end)?;
-                    sequence.extend(wrapped_part);
-                }
-
-                return Ok(Some(sequence));
+            if is_circular {
+                return read_circular(start, end, index_record.length, get_linear_slice).map(Some);
             }
 
             // Clamp end to sequence length (end may be larger than sequence length because of padding).
@@ -346,5 +365,47 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
         } else {
             Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use temp_testdir::TempDir;
+
+    #[test]
+    fn mt_reads_wrap_around_origin() -> anyhow::Result<()> {
+        let temp = TempDir::default();
+        let path = temp.join("mt.fa");
+        let seq = "GATCACAGGTCACGATG";
+        let len = seq.len();
+        std::fs::write(&path, format!(">MT\n{seq}\n"))?;
+        std::fs::write(
+            path.with_added_extension("fai"),
+            format!("MT\t{len}\t4\t{len}\t{}\n", len + 1),
+        )?;
+
+        let contig_manager = Arc::new(ContigManager::new("grch38"));
+        let readers: [Box<dyn ReferenceReader>; 2] = [
+            Box::new(InMemoryFastaAccess::from_path(
+                &path,
+                contig_manager.clone(),
+            )?),
+            Box::new(UnbufferedIndexedFastaAccess::from_path(
+                &path,
+                contig_manager,
+            )?),
+        ];
+        let len = len as u64;
+        for reader in readers {
+            // across the origin, starting before it and one lap later
+            for start in [len - 2, 2 * len - 2] {
+                assert_eq!(
+                    reader.get("NC_012920.1", Some(start), Some(start + 5))?,
+                    Some(b"TGGAT".to_vec())
+                );
+            }
+        }
+        Ok(())
     }
 }

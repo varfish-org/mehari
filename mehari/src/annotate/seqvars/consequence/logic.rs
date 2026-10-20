@@ -17,7 +17,8 @@ use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
     mapper::{Error, assembly},
     parser::{
-        Accession, CdsFrom, GenomeInterval, GenomeLocEdit, HgvsVariant, Mu, NaEdit, ProtLocEdit,
+        Accession, CdsFrom, GenomeInterval, GenomeLocEdit, HgvsVariant, MtInterval, MtLocEdit, Mu,
+        NaEdit, ProtLocEdit,
     },
 };
 use itertools::Itertools;
@@ -190,17 +191,24 @@ impl ConsequencePredictor {
         // We follow hgvs conventions and therefore normalize input variants
         let var_g = Self::get_var_g(&norm_var, chrom_acc);
         let (var_g_fwd, var_g_rev) = if self.mapper.config.renormalize_g {
+            // On circular contigs, normalize one lap further so that shifting 5' can cross the
+            // origin, then shift back.  Positions may then lie just beyond either contig end.
+            let lap = self.circular_length(chrom_acc).unwrap_or(0);
+            let var_g_lap = Self::shift_var_g(&var_g, lap);
             let right = self
                 .mapper
                 .variant_mapper()
                 .right_normalizer()?
-                .normalize(&var_g)?;
+                .normalize(&var_g_lap)?;
             let left = self
                 .mapper
                 .variant_mapper()
                 .left_normalizer()?
-                .normalize(&var_g)?;
-            (right, left)
+                .normalize(&var_g_lap)?;
+            (
+                Self::shift_var_g(&right, -lap),
+                Self::shift_var_g(&left, -lap),
+            )
         } else {
             (var_g.clone(), var_g.clone())
         };
@@ -225,8 +233,7 @@ impl ConsequencePredictor {
 
         // Handle case of no overlapping transcripts -> intergenic.
         if txs.is_empty() {
-            let hgvs_g = format!("{}", &NoRef(&var_g));
-            let hgvs_g = Some(hgvs_g.split(':').nth(1).unwrap().to_owned());
+            let hgvs_g = Some(self.format_hgvs_g(&var_g));
 
             return Ok(Some(self.filter_ann_fields(vec![AnnField {
                 allele: Allele::Alt {
@@ -961,7 +968,7 @@ impl ConsequencePredictor {
             }
         }
 
-        let hgvs_g = Some(FormattedLoc(var_g).to_string());
+        let hgvs_g = Some(self.format_hgvs_g(var_g));
         let hgvs_n = projection
             .as_ref()
             .and_then(|p| p.n.as_ref())
@@ -1910,6 +1917,57 @@ impl ConsequencePredictor {
         consequences
     }
 
+    /// Length of `chrom_acc` if it is a circular contig.
+    fn circular_length(&self, chrom_acc: &str) -> Option<i32> {
+        self.provider
+            .contig_manager
+            .get_circular_length(chrom_acc)
+            .and_then(|len| i32::try_from(len).ok())
+    }
+
+    /// Shift the positions of the genome variant `var_g` by `offset`.
+    fn shift_var_g(var_g: &HgvsVariant, offset: i32) -> HgvsVariant {
+        let mut var_g = var_g.clone();
+        if let HgvsVariant::GenomeVariant { loc_edit, .. } = &mut var_g {
+            let loc = loc_edit.loc.inner_mut();
+            loc.start = loc.start.map(|pos| pos + offset);
+            loc.end = loc.end.map(|pos| pos + offset);
+        }
+        var_g
+    }
+
+    /// Format `var_g` for the `hgvs_g` field.  On circular contigs, this uses the `m.` prefix
+    /// and folds positions into `1..=len`, so a start after the end spans the origin.
+    fn format_hgvs_g(&self, var_g: &HgvsVariant) -> String {
+        if let HgvsVariant::GenomeVariant {
+            accession,
+            gene_symbol,
+            loc_edit,
+        } = var_g
+            && let Some(len) = self.circular_length(&accession.value)
+        {
+            let fold = |pos: Option<i32>| pos.map(|pos| (pos - 1).rem_euclid(len) + 1);
+            let loc = loc_edit.loc.inner();
+            let var_m = HgvsVariant::MtVariant {
+                accession: accession.clone(),
+                gene_symbol: gene_symbol.clone(),
+                loc_edit: MtLocEdit {
+                    loc: Mu::from(
+                        MtInterval {
+                            start: fold(loc.start),
+                            end: fold(loc.end),
+                        },
+                        loc_edit.loc.is_certain(),
+                    ),
+                    edit: loc_edit.edit.clone(),
+                },
+            };
+            FormattedLoc(&var_m).to_string()
+        } else {
+            FormattedLoc(var_g).to_string()
+        }
+    }
+
     fn get_var_g(var: &VcfVariant, chrom_acc: &str) -> HgvsVariant {
         let chrom_acc = chrom_acc.to_string();
         HgvsVariant::GenomeVariant {
@@ -2101,13 +2159,7 @@ impl ConsequencePredictor {
                     }),
                 },
             };
-            hgvs_g = Some(
-                format!("{}", &NoRef(&compound_var_g))
-                    .split(':')
-                    .nth(1)
-                    .unwrap()
-                    .to_owned(),
-            );
+            hgvs_g = Some(self.format_hgvs_g(&compound_var_g));
         }
 
         let txs = self.get_transcripts_for_variant_group(&sorted_vars, chrom_acc)?;

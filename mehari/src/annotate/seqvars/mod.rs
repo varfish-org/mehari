@@ -1907,6 +1907,58 @@ mod test {
         Ok(())
     }
 
+    /// Variants at the origin of the circular chrM shift across it during normalization.
+    #[tokio::test]
+    async fn test_mitochondrial_origin() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_out = temp.join("output.vcf");
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let prefix = "tests/data/annotate/db/grch38";
+        let args = Args {
+            threads: 1,
+            reference: Some(format!("{prefix}/chrM.fasta").into()),
+            in_memory_reference: true,
+            assembly: Some("grch38".into()),
+            predictor_settings: Default::default(),
+            input: String::from("tests/data/annotate/seqvars/mt_origin_variants.vcf"),
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
+            max_var_count: None,
+            sources: Sources {
+                transcripts: Some(vec![format!("{prefix}/mt-origin.txs.bin.zst")]),
+                ..Default::default()
+            },
+        };
+
+        run(&args_common, &args).await?;
+
+        let mut snapshot_data = std::collections::BTreeMap::new();
+        for record in read_vcf(&args.output).await? {
+            let key = format!(
+                "{}:{}:{}",
+                record
+                    .variant_start()
+                    .map_or_else(|| "0".into(), |s| s.to_string()),
+                record.reference_bases(),
+                record.alternate_bases().as_ref().join(",")
+            );
+            let ann_field = match record.info().get("ANN").flatten() {
+                Some(Value::Array(Array::String(inner))) => {
+                    inner.iter().flatten().cloned().collect::<Vec<_>>()
+                }
+                _ => Vec::new(),
+            };
+            snapshot_data.insert(key, ann_field);
+        }
+
+        insta::assert_yaml_snapshot!("mitochondrial_origin_output", snapshot_data);
+
+        Ok(())
+    }
+
     /// Test some variants originating from Clair3 on ONT data merged via GLNexus.
     ///
     /// Note that we currently re-use the GRCh37 databases in
