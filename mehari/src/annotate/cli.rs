@@ -1,6 +1,6 @@
 use crate::annotate::seqvars::consequence::plugin::PluginSpec;
 use clap::Args as ClapArgs;
-use strum::{Display, VariantArray};
+use strum::Display;
 
 #[derive(Debug, Clone, Default, ClapArgs)]
 #[group(required = true, multiple = true)]
@@ -76,29 +76,64 @@ impl PredictorSettings {
     }
 }
 
-#[derive(Debug, ClapArgs, Default, Clone)]
+#[derive(Debug, ClapArgs, Clone)]
 pub struct TranscriptSettings {
-    /// Whether to report only the most severe consequence, grouped by gene, transcript, or allele.
-    #[arg(long)]
-    pub report_most_severe_consequence_by: Option<ConsequenceBy>,
+    /// Report only transcripts that have one of these tags, comma-separated.
+    ///
+    /// A gene without such a transcript gets no annotation, unless `--restrict-fallback`
+    /// is given.
+    #[arg(long, value_delimiter = ',')]
+    pub restrict_transcripts: Vec<TagCriterion>,
 
-    /// Which kind of transcript to pick / restrict to. Default is not to pick at all.
-    ///
-    /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
-    /// either the first one is kept or all are kept.
-    ///
-    /// Transcripts are evaluated in the order these options are provided.
-    /// To prevent variants from being completely dropped, if none of the overlapping
-    /// transcripts match the requested criteria, the longest transcript is the implicit fallback.
-    #[arg(long)]
-    pub pick_transcript: Vec<TranscriptPickType>,
+    /// Report the top-ranked transcript (see `--pick-order`) of a gene that has none of the
+    /// `--restrict-transcripts` tags, marked with the message `INFO_RESTRICT_FALLBACK`.
+    #[arg(long, requires = "restrict_transcripts")]
+    pub restrict_fallback: bool,
 
-    /// Determines how to handle multiple transcripts. Default is to keep all.
+    /// Report only one annotation per gene, transcript or allele, chosen by `--pick-order`.
+    #[arg(long, value_enum)]
+    pub pick: Option<PickUnit>,
+
+    /// How to rank transcripts for `--pick` and `--restrict-fallback`, comma-separated.
     ///
-    /// When transcript picking is enabled via `--pick-transcript`,
-    /// either keep the first one found or keep all that match.
-    #[arg(long, default_value = "all")]
-    pub pick_transcript_mode: TranscriptPickMode,
+    /// Each criterion only breaks the ties left by the ones before it, and the lowest
+    /// accession breaks any remaining tie. A tag also matches its backport, a `-backport`
+    /// tag only the backport.
+    #[arg(long, value_delimiter = ',', default_values_t = DEFAULT_PICK_ORDER.to_vec())]
+    pub pick_order: Vec<PickCriterion>,
+
+    /// Report all annotations and mark the picked ones in the `pick` column, instead of
+    /// dropping the others.
+    #[arg(long, requires = "pick")]
+    pub flag_pick: bool,
+}
+
+impl Default for TranscriptSettings {
+    fn default() -> Self {
+        Self {
+            restrict_transcripts: Vec::new(),
+            restrict_fallback: false,
+            pick: None,
+            pick_order: DEFAULT_PICK_ORDER.to_vec(),
+            flag_pick: false,
+        }
+    }
+}
+
+#[cfg(test)]
+impl TranscriptSettings {
+    /// Most severe consequence per `unit`, MANE breaking ties.
+    pub(crate) fn most_severe(unit: PickUnit) -> Self {
+        Self {
+            pick: Some(unit),
+            pick_order: vec![
+                PickCriterion::Severity,
+                PickCriterion::ManeSelect,
+                PickCriterion::ManePlusClinical,
+            ],
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Debug, ClapArgs, Default, Clone)]
@@ -137,61 +172,73 @@ pub struct NormalizationSettings {
     do_not_renormalize_g: bool,
 }
 
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Display,
-    clap::ValueEnum,
-    VariantArray,
-    parse_display::FromStr,
-)]
-pub enum ConsequenceBy {
+/// Unit for `--pick`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum)]
+pub enum PickUnit {
+    /// One annotation per gene.
     Gene,
+    /// One annotation per transcript, for transcripts with several annotations.
     Transcript,
-    // or "Variant"?
+    /// One annotation per allele.
     Allele,
 }
 
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Display,
-    clap::ValueEnum,
-    VariantArray,
-    parse_display::FromStr,
-)]
-pub enum TranscriptPickType {
+/// Transcript tag for `--restrict-transcripts`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum)]
+pub enum TagCriterion {
     ManeSelect,
     ManeSelectBackport,
     ManePlusClinical,
     ManePlusClinicalBackport,
-    Length,
+    RefseqSelect,
+    RefseqSelectBackport,
     EnsemblCanonical,
     EnsemblCanonicalBackport,
-    RefSeqSelect,
-    RefSeqSelectBackport,
     GencodePrimary,
     GencodePrimaryBackport,
     Basic,
     BasicBackport,
 }
 
-#[derive(Debug, Copy, Clone, Display, clap::ValueEnum, Default)]
-pub enum TranscriptPickMode {
-    First,
-    #[default]
-    All,
+/// Criterion for `--pick-order`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Display, clap::ValueEnum)]
+#[strum(serialize_all = "kebab-case")]
+pub enum PickCriterion {
+    ManeSelect,
+    ManeSelectBackport,
+    ManePlusClinical,
+    ManePlusClinicalBackport,
+    RefseqSelect,
+    RefseqSelectBackport,
+    EnsemblCanonical,
+    EnsemblCanonicalBackport,
+    GencodePrimary,
+    GencodePrimaryBackport,
+    Basic,
+    BasicBackport,
+    /// Protein-coding transcript.
+    Coding,
+    /// No soft-filter reason from the database build, e.g. no missing stop codon.
+    Unflagged,
+    /// Most severe consequence.
+    Severity,
+    /// Longest transcript.
+    Length,
 }
+
+/// Default for `--pick-order`.
+pub const DEFAULT_PICK_ORDER: &[PickCriterion] = &[
+    PickCriterion::ManeSelect,
+    PickCriterion::ManePlusClinical,
+    PickCriterion::RefseqSelect,
+    PickCriterion::EnsemblCanonical,
+    PickCriterion::GencodePrimary,
+    PickCriterion::Basic,
+    PickCriterion::Coding,
+    PickCriterion::Unflagged,
+    PickCriterion::Severity,
+    PickCriterion::Length,
+];
 
 #[derive(Debug, clap::Args, Default, Clone)]
 pub struct CompoundSettings {

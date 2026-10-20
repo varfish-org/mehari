@@ -404,11 +404,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                     &args.predictor_settings,
                 )?;
                 let config = ConfigBuilder::default()
-                    .report_most_severe_consequence_by(
-                        args.predictor_settings
-                            .transcript_settings
-                            .report_most_severe_consequence_by,
-                    )
+                    .transcript_settings(args.predictor_settings.transcript_settings.clone())
                     // As loaded by `from_db_and_settings`.
                     .plugins(annotator.predictor.config.plugins.clone())
                     .build()?;

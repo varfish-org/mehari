@@ -1,13 +1,12 @@
 pub mod logic;
+mod pick;
 pub mod plugin;
 pub mod terms;
 
-use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
+use crate::annotate::cli::{PredictorSettings, TranscriptSettings};
 use crate::annotate::seqvars;
 use crate::annotate::seqvars::consequence::terms::Consequence;
-use crate::annotate::seqvars::provider::{
-    ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
-};
+use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::db::keys::Var;
 use crate::pbs::txs::TxSeqDatabase;
 use anyhow::{Error, anyhow};
@@ -24,7 +23,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Cursor, Read};
 use std::path::Path;
 use std::sync::Arc;
-use terms::AnnField;
+use terms::{ANN_PICK, AnnField};
 
 /// Load protobuf transcripts.
 pub fn load_tx_db(tx_path: impl AsRef<Path> + Display) -> anyhow::Result<TxSeqDatabase> {
@@ -160,21 +159,11 @@ impl ConsequenceAnnotator {
             plugins.push(Arc::new(CompoundPlugin::default()));
         }
 
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            reference,
-            in_memory_reference,
-            MehariProviderConfigBuilder::default()
-                .pick_transcript(args.transcript_settings.pick_transcript.clone())
-                .pick_transcript_mode(args.transcript_settings.pick_transcript_mode)
-                .build()?,
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, reference, in_memory_reference));
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
-                .report_most_severe_consequence_by(
-                    args.transcript_settings.report_most_severe_consequence_by,
-                )
+                .transcript_settings(args.transcript_settings.clone())
                 .keep_intergenic(args.reporting_settings.keep_intergenic)
                 .discard_utr_splice_variants(args.reporting_settings.discard_utr_splice_variants)
                 .normalize(!args.do_not_normalize_variants())
@@ -288,9 +277,9 @@ impl std::str::FromStr for VcfVariant {
 #[derive(Debug, Clone, derive_builder::Builder)]
 #[builder(pattern = "immutable", build_fn(validate = "Self::validate"))]
 pub struct Config {
-    /// Whether to report only the worst consequence for each picked transcript.
+    /// Which transcripts to report.
     #[builder(default)]
-    pub report_most_severe_consequence_by: Option<ConsequenceBy>,
+    pub transcript_settings: TranscriptSettings,
 
     /// Whether to keep intergenic variants.
     #[builder(default = "false")]
@@ -319,14 +308,20 @@ pub struct Config {
 
 impl ConfigBuilder {
     fn validate(&self) -> Result<(), String> {
+        let flag_pick = self
+            .transcript_settings
+            .as_ref()
+            .is_some_and(|settings| settings.flag_pick);
         let columns = self
             .plugins
             .iter()
             .flatten()
-            .flat_map(|plugin| plugin.columns());
+            .flat_map(|plugin| plugin.columns())
+            .chain(flag_pick.then(|| ANN_PICK.to_string()));
         match columns.duplicates().next() {
             Some(column) => Err(format!(
-                "column {column:?} is filled by more than one plugin"
+                "column {column:?} is filled by more than one plugin, or by a plugin and \
+                 --flag-pick"
             )),
             None => Ok(()),
         }

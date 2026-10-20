@@ -181,6 +181,7 @@ struct Annotate {
 
 /// Enum supporting the parsing of "annotate *" sub commands.
 #[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum AnnotateCommands {
     Seqvars(annotate::seqvars::Args),
     Strucvars(annotate::strucvars::Args),
@@ -199,6 +200,7 @@ struct Server {
 #[cfg(feature = "server")]
 /// Enum supporting the parsing of "server *" sub commands.
 #[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum ServerCommands {
     Run(server::run::Args),
     Schema(server::schema::Args),

@@ -9,9 +9,7 @@ use mehari::annotate::seqvars::consequence::terms::{
     AnnField, Consequence, FeatureBiotype, Pos, PutativeImpact, Rank,
 };
 use mehari::annotate::seqvars::consequence::{ConfigBuilder, VcfVariant};
-use mehari::annotate::seqvars::provider::{
-    ConfigBuilder as ProviderConfigBuilder, Provider as MehariProvider,
-};
+use mehari::annotate::seqvars::provider::Provider as MehariProvider;
 use mehari::common::progress::{Progress, ProgressBar, Unit, hidden_bar};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -184,15 +182,10 @@ impl PySeqvarsAnnotator {
                 pyo3::exceptions::PyValueError::new_err(format!("Failed to merge databases: {}", e))
             })?;
 
-        let provider_config = ProviderConfigBuilder::default()
-            .build()
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-
         let provider = Arc::new(MehariProvider::new(
             merged_tx_db,
             reference_path.map(PathBuf::from),
             false,
-            provider_config,
         ));
 
         let plugins = plugins

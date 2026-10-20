@@ -942,12 +942,7 @@ mod test {
         plugins: Vec<Arc<dyn TranscriptPlugin>>,
     ) -> Result<ConsequencePredictor, anyhow::Error> {
         let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
         Ok(ConsequencePredictor::new(
             provider,
             ConfigBuilder::default().plugins(plugins).build()?,
