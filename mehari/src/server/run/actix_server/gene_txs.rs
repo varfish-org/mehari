@@ -358,6 +358,39 @@ impl TryFrom<pbs::txs::Transcript> for Transcript {
     }
 }
 
+/// Severity of a `GenesTranscriptsMessage`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+// `Info` and `Error` are part of the API schema but not emitted yet.
+#[allow(dead_code)]
+pub(crate) enum MessageLevel {
+    /// Informational message.
+    Info,
+    /// Warning, the result may be incomplete.
+    Warning,
+    /// Error.
+    Error,
+}
+
+/// Machine-readable code of a `GenesTranscriptsMessage`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MessageCode {
+    /// No transcripts were found for the gene.
+    NoTranscripts,
+}
+
+/// Message attached to a `GenesTranscriptsListResponse`.
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct GenesTranscriptsMessage {
+    /// Severity of the message.
+    pub level: MessageLevel,
+    /// Machine-readable code.
+    pub code: MessageCode,
+    /// Human-readable message.
+    pub message: String,
+}
+
 /// Response of the `/api/v1/genes/transcripts` endpoint.
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub(crate) struct GenesTranscriptsListResponse {
@@ -365,6 +398,8 @@ pub(crate) struct GenesTranscriptsListResponse {
     pub transcripts: Vec<Transcript>,
     /// The token to continue from a previous query.
     pub next_page_token: Option<String>,
+    /// Optional list of warnings and error messages.
+    pub messages: Option<Vec<GenesTranscriptsMessage>>,
 }
 
 impl TryFrom<pbs::server::GeneTranscriptsResponse> for GenesTranscriptsListResponse {
@@ -378,6 +413,7 @@ impl TryFrom<pbs::server::GeneTranscriptsResponse> for GenesTranscriptsListRespo
                 .map(TryInto::try_into)
                 .collect::<Result<_, _>>()?,
             next_page_token: value.next_page_token,
+            messages: None,
         })
     }
 }
@@ -399,8 +435,19 @@ async fn handle_with_openapi(
     _path: Path<()>,
     query: web::Query<GenesTranscriptsListQuery>,
 ) -> actix_web::Result<Json<GenesTranscriptsListResponse>, CustomError> {
-    let result = genes_tx_impl(data, query.into_inner().into())?;
-    Ok(Json(result.try_into().map_err(|e| {
-        CustomError::new(anyhow::anyhow!("Conversion error: {}", e))
-    })?))
+    let query: GeneTranscriptsQuery = query.into_inner().into();
+    let hgnc_id = query.hgnc_id.clone().unwrap_or_default();
+    let assembly = query.genome_build.clone().unwrap_or_default();
+    let result = genes_tx_impl(data, query)?;
+    let mut response: GenesTranscriptsListResponse = result
+        .try_into()
+        .map_err(|e| CustomError::new(anyhow::anyhow!("Conversion error: {}", e)))?;
+    if response.transcripts.is_empty() {
+        response.messages = Some(vec![GenesTranscriptsMessage {
+            level: MessageLevel::Warning,
+            code: MessageCode::NoTranscripts,
+            message: format!("no transcripts found for gene {hgnc_id} in assembly {assembly}"),
+        }]);
+    }
+    Ok(Json(response))
 }

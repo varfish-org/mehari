@@ -1016,6 +1016,30 @@ components:
           - string
           - 'null'
           description: The token to continue from a previous query.
+        messages:
+          type:
+          - array
+          - 'null'
+          items:
+            $ref: '#/components/schemas/GenesTranscriptsMessage'
+          description: Optional list of warnings and error messages.
+    GenesTranscriptsMessage:
+      type: object
+      description: Message attached to a `GenesTranscriptsListResponse`.
+      required:
+      - level
+      - code
+      - message
+      properties:
+        level:
+          $ref: '#/components/schemas/MessageLevel'
+          description: Severity of the message.
+        code:
+          $ref: '#/components/schemas/MessageCode'
+          description: Machine-readable code.
+        message:
+          type: string
+          description: Human-readable message.
     GenomeAlignment:
       type: object
       description: Store information about a transcript aligning to a genome.
@@ -1109,6 +1133,18 @@ components:
       - info_realign_three_prime
       - info_compound_annotation
       - info_non_reference_annotation
+    MessageCode:
+      type: string
+      description: Machine-readable code of a `GenesTranscriptsMessage`.
+      enum:
+      - no_transcripts
+    MessageLevel:
+      type: string
+      description: Severity of a `GenesTranscriptsMessage`.
+      enum:
+      - info
+      - warning
+      - error
     MitochondrialResultEntry:
       type: object
       required:
