@@ -8,12 +8,8 @@ use std::time::Instant;
 
 use self::consequence::terms::AnnField;
 use crate::annotate::cli::{PredictorSettings, Sources};
-use crate::annotate::seqvars::consequence::ConfigBuilder;
 use crate::annotate::seqvars::consequence::logic::ConsequencePredictor;
-use crate::annotate::seqvars::consequence::terms::{
-    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, ANN_TX_SEQ_ALT,
-    ANN_TX_SEQ_REF,
-};
+use crate::annotate::seqvars::consequence::terms::{ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS};
 use crate::common::contig::ContigManager;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
 use crate::db::keys::Var;
@@ -997,38 +993,15 @@ async fn run_with_writer(
         .is_some_and(|v| !v.is_empty());
     let with_clinvar = args.sources.clinvar.as_ref().is_some_and(|v| !v.is_empty());
 
-    let mut custom_columns = Vec::new();
-    let c = &args.predictor_settings.reporting_settings;
-    if c.report_cdna_sequence.includes_ref() {
-        custom_columns.push(ANN_TX_SEQ_REF.to_string());
-    }
-    if c.report_cdna_sequence.includes_alt() {
-        custom_columns.push(ANN_TX_SEQ_ALT.to_string());
-    }
-    if c.report_protein_sequence.includes_ref() {
-        custom_columns.push(ANN_AA_SEQ_REF.to_string());
-    }
-    if c.report_protein_sequence.includes_alt() {
-        custom_columns.push(ANN_AA_SEQ_ALT.to_string());
-    }
-
     let enable_compound = args
         .predictor_settings
         .compound_settings
         .enable_compound_variants;
 
-    if enable_compound {
-        custom_columns.push(ANN_COMPOUND_IDS.to_string());
-        custom_columns.push(ANN_COMPOUND_VARIANTS.to_string());
-    }
-
-    // TODO: manually rebuilding Config here so we can automatically build the VCF ANN header
-    //   is not the best way of doing things.
-    let csq_config = ConfigBuilder::default()
-        .report_cdna_sequence(c.report_cdna_sequence)
-        .report_protein_sequence(c.report_protein_sequence)
-        .custom_columns(custom_columns)
-        .build()?;
+    let csq_config = annotator
+        .consequence_predictor()
+        .map(|predictor| predictor.config.clone())
+        .unwrap_or_default();
 
     writer.set_csq_config(csq_config.clone());
 
@@ -1686,6 +1659,7 @@ mod test {
     use super::{Args, OutputFormat, run};
     use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
+    use crate::annotate::seqvars::consequence::SequenceReporting;
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
     use clap_verbosity_flag::Verbosity;
     use futures::TryStreamExt;
@@ -1753,6 +1727,56 @@ mod test {
             .collect::<Vec<_>>()
             .join("\n");
         insta::assert_snapshot!(actual);
+
+        Ok(())
+    }
+
+    /// The ANN header lists the custom columns of all enabled features, in order.
+    #[tokio::test]
+    async fn custom_columns_in_ann_header() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_out = temp.join("output.vcf");
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let mut predictor_settings = PredictorSettings::default();
+        let reporting = &mut predictor_settings.reporting_settings;
+        reporting.report_cdna_sequence = SequenceReporting::Both;
+        reporting.report_protein_sequence = SequenceReporting::Both;
+        predictor_settings
+            .compound_settings
+            .enable_compound_variants = true;
+        let args = Args {
+            threads: 1,
+            reference: None,
+            in_memory_reference: true,
+            assembly: Some("grch37".into()),
+            predictor_settings,
+            input: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
+            max_var_count: None,
+            sources: Sources {
+                transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
+                ..Default::default()
+            },
+        };
+
+        run(&args_common, &args).await?;
+
+        let output = std::fs::read_to_string(&args.output)?;
+        let ann_header = output
+            .lines()
+            .find(|line| line.starts_with("##INFO=<ID=ANN,"))
+            .unwrap();
+        assert!(
+            ann_header.contains(
+                "| tx_sequence_ref | tx_sequence_alt | aa_sequence_ref | aa_sequence_alt \
+                 | compound_ids | compound_variants'"
+            ),
+            "{ann_header}"
+        );
 
         Ok(())
     }

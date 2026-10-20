@@ -5,8 +5,7 @@ use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use mehari::annotate::seqvars::consequence::load_tx_db;
 use mehari::annotate::seqvars::consequence::logic::ConsequencePredictor;
 use mehari::annotate::seqvars::consequence::terms::{
-    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, AnnField, Consequence,
-    FeatureBiotype, Pos, PutativeImpact, Rank,
+    AnnField, Consequence, FeatureBiotype, Pos, PutativeImpact, Rank,
 };
 use mehari::annotate::seqvars::consequence::{ConfigBuilder, SequenceReporting, VcfVariant};
 use mehari::annotate::seqvars::provider::{
@@ -204,26 +203,14 @@ impl PySeqvarsAnnotator {
                 pyo3::exceptions::PyValueError::new_err("Invalid protein sequence reporting option")
             })?;
 
-        let mut custom_columns = Vec::new();
-        if report_cdna.includes_ref() {
-            custom_columns.push(ANN_TX_SEQ_REF.to_string());
-        }
-        if report_cdna.includes_alt() {
-            custom_columns.push(ANN_TX_SEQ_ALT.to_string());
-        }
-        if report_protein.includes_ref() {
-            custom_columns.push(ANN_AA_SEQ_REF.to_string());
-        }
-        if report_protein.includes_alt() {
-            custom_columns.push(ANN_AA_SEQ_ALT.to_string());
-        }
-
         let config = ConfigBuilder::default()
             .report_cdna_sequence(report_cdna)
             .report_protein_sequence(report_protein)
-            .custom_columns(custom_columns.clone())
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let predictor = ConsequencePredictor::new(provider, config);
+        let custom_columns = predictor.custom_columns().to_vec();
 
         let options = TracingOptions::default().allow_null_fields(true);
         let mut ann_field_inner_fields = Vec::<FieldRef>::from_type::<_TraceAnnField>(options)
@@ -250,8 +237,6 @@ impl PySeqvarsAnnotator {
             DataType::List(Arc::new(annotation_list_field)),
             true,
         ))];
-
-        let predictor = ConsequencePredictor::new(provider, config);
 
         Ok(Self {
             predictor,

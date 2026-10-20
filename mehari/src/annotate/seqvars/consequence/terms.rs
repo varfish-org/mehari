@@ -1046,6 +1046,12 @@ impl AnnField {
     }
 }
 
+impl AsRef<AnnField> for AnnField {
+    fn as_ref(&self) -> &AnnField {
+        self
+    }
+}
+
 impl Default for AnnField {
     fn default() -> Self {
         Self {

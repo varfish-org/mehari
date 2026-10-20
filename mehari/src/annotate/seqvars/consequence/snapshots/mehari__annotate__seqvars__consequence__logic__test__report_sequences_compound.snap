@@ -1,0 +1,28 @@
+---
+source: mehari/src/annotate/seqvars/consequence/logic.rs
+expression: summarize_custom_fields(&res)
+---
+- - NM_007294.4
+  - - missense_variant
+  - aa_sequence_alt: len=1864 fnv1a=9f33160a1cdc415d
+    aa_sequence_ref: len=1864 fnv1a=ae18f86d024d3d7a
+    tx_sequence_alt: len=7091 fnv1a=5aef887d0d1e95bd
+    tx_sequence_ref: len=7091 fnv1a=0aaebb917c6565c7
+- - NM_007297.4
+  - - missense_variant
+  - aa_sequence_alt: len=1817 fnv1a=6635034b70d8a536
+    aa_sequence_ref: len=1817 fnv1a=81ecfd73f1efa179
+    tx_sequence_alt: len=7031 fnv1a=6b6c7dac2ca0b7e9
+    tx_sequence_ref: len=7031 fnv1a=d80a75b5b6c93bcb
+- - NM_007298.3
+  - - missense_variant
+  - aa_sequence_alt: len=760 fnv1a=de79e652238435e0
+    aa_sequence_ref: len=760 fnv1a=d618933df245e6eb
+    tx_sequence_alt: len=3702 fnv1a=87a0b60ca04cbd49
+    tx_sequence_ref: len=3702 fnv1a=cdf09384d4a5b3fb
+- - NM_007300.4
+  - - missense_variant
+  - aa_sequence_alt: len=1885 fnv1a=bae7fa37440087ff
+    aa_sequence_ref: len=1885 fnv1a=4fd034489b3a5014
+    tx_sequence_alt: len=7154 fnv1a=24f19a028ffabbbe
+    tx_sequence_ref: len=7154 fnv1a=ebedf1e0eb94f40c

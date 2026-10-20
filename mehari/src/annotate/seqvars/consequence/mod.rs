@@ -1,4 +1,5 @@
 pub mod logic;
+pub mod plugin;
 pub mod terms;
 
 use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
@@ -14,6 +15,7 @@ use enumflags2::BitFlags;
 use hgvs::data::interface::Provider;
 use hgvs::parser::{HgvsVariant, NoRef};
 pub(crate) use logic::ConsequencePredictor;
+use plugin::TranscriptPlugin;
 use prost::Message;
 use std::fmt;
 use std::fmt::Display;
@@ -21,10 +23,7 @@ use std::fs::File;
 use std::io::{Cursor, Read};
 use std::path::Path;
 use std::sync::Arc;
-use terms::{
-    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, ANN_TX_SEQ_ALT,
-    ANN_TX_SEQ_REF, AnnField,
-};
+use terms::{ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, AnnField};
 
 /// Load protobuf transcripts.
 pub fn load_tx_db(tx_path: impl AsRef<Path> + Display) -> anyhow::Result<TxSeqDatabase> {
@@ -132,18 +131,6 @@ impl ConsequenceAnnotator {
         let s = &args.reporting_settings;
 
         let mut custom_columns = Vec::new();
-        if s.report_cdna_sequence.includes_ref() {
-            custom_columns.push(ANN_TX_SEQ_REF.to_string());
-        }
-        if s.report_cdna_sequence.includes_alt() {
-            custom_columns.push(ANN_TX_SEQ_ALT.to_string());
-        }
-        if s.report_protein_sequence.includes_ref() {
-            custom_columns.push(ANN_AA_SEQ_REF.to_string());
-        }
-        if s.report_protein_sequence.includes_alt() {
-            custom_columns.push(ANN_AA_SEQ_ALT.to_string());
-        }
         if args.compound_settings.enable_compound_variants {
             custom_columns.push(ANN_COMPOUND_IDS.to_string());
             custom_columns.push(ANN_COMPOUND_VARIANTS.to_string());
@@ -310,9 +297,16 @@ pub struct Config {
     #[builder(default)]
     pub report_protein_sequence: SequenceReporting,
 
-    /// Ordered list of extra columns registered by plugins/features.
+    /// Ordered list of custom ANN columns.
+    ///
+    /// Set the columns the caller fills itself; `ConsequencePredictor::new` puts the columns of
+    /// its plugins in front.
     #[builder(default)]
     pub custom_columns: Vec<String>,
+
+    /// Plugins to run after the built-in ones.
+    #[builder(default)]
+    pub plugins: Vec<Arc<dyn TranscriptPlugin>>,
 }
 
 impl Default for Config {

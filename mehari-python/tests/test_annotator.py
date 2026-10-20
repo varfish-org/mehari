@@ -145,3 +145,23 @@ def test_annotate_batch_forwards_rust_warnings(annotator, sample_variants, caplo
 
     assert result_df.get_column("annotation").to_list() == [[], []]
     assert "Could not determine chromosome accession" in caplog.text
+
+
+def test_annotate_reports_protein_sequences(sample_variants):
+    """
+    Sequence reporting fills the custom_fields struct, in column order.
+    """
+    annotator = SeqvarsAnnotator(
+        transcript_db_paths=os.path.join(DB_DIR, "txs.bin.zst"),
+        report_protein_sequence="both",
+    )
+    result_df = annotator.annotate(sample_variants)
+
+    nm_007294 = next(
+        c
+        for c in result_df.row(0, named=True)["annotation"]
+        if c.get("feature_id") == "NM_007294.4"
+    )
+    custom_fields = nm_007294["custom_fields"]
+    assert list(custom_fields) == ["aa_sequence_ref", "aa_sequence_alt"]
+    assert custom_fields["aa_sequence_ref"] != custom_fields["aa_sequence_alt"]
