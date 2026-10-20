@@ -25,7 +25,7 @@ Docker images of mehari are available from ghcr.io, see [ghcr.io/varfish-org/meh
 # Downloading Prebuilt Databases
 
 - transcript database releases: https://github.com/varfish-org/mehari-data-tx/releases
-- gnomAD frequency database releases: TODO
+- gnomAD frequency database: not available for download because of its size, build it as described in [Building the Frequency Database](db_build.md#building-the-frequency-database)
 - clinVar database releases: https://github.com/varfish-org/annonars-data-clinvar/releases
 
 # Annotating Example VCF Files
