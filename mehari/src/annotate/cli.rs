@@ -14,7 +14,7 @@ pub struct Sources {
     /// Frequency database.
     ///
     /// The frequency database contains gnomAD frequencies for the variants.
-    /// Pre-built databases are available at TODO
+    /// There is no pre-built release because of its size, see https://github.com/varfish-org/mehari/blob/main/docs/db_build.md#building-the-frequency-database
     #[arg(long)]
     pub frequencies: Option<Vec<String>>,
 
