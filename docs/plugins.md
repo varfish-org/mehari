@@ -13,7 +13,7 @@ Plugins run sandboxed and see every transcript annotation of a variant, with its
 
 A plugin implements the `transcript-plugin` interface of [`mehari/wit/plugin.wit`](https://github.com/varfish-org/mehari/blob/main/mehari/wit/plugin.wit), which has two functions:
 
-- `init(setup)` reads the options with `setup.options()` and declares the columns the plugin fills, each with the type of its values: `add-string-column`, `add-integer-column`, `add-float-column` or `add-boolean-column`, or `add-string-list-column` and so on for a list of such values. Columns appear in the order declared. mehari runs one instance of the plugin per thread and calls `init` once in each.
+- `init(setup)` reads the options with `setup.options()` and declares the columns the plugin fills, each with the type of its values: `add-string-column`, `add-integer-column`, `add-float-column` or `add-boolean-column`, or `add-string-list-column` and so on for a list of such values. Columns appear in the order declared; their names may contain letters, digits, `_`, `-` and `.`, and must differ from the fields of `ANN`, such as `Allele` or `HGVS.c`. mehari runs one instance of the plugin per thread and calls `init` once in each.
 - `annotate(prediction)` is called once per variant. `prediction.variants()` gives the variant as written in the VCF, before normalization, or the variants of a compound group (`--enable-compound-variants`). `prediction.annotations()` gives one annotation per reported transcript; fill its columns with `set-string`, `set-integer`, `set-float` or `set-boolean`, or `set-string-list` and so on. Fields left unset stay empty.
 
 Both can return an error, which stops mehari with the plugin's message.

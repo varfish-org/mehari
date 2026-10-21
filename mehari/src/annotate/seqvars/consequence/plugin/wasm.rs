@@ -369,6 +369,11 @@ impl HostState {
             !name.is_empty() && name.chars().all(valid),
             "column name {name:?} has characters other than letters, digits, `_`, `-` and `.`"
         );
+        let builtin = AnnField::ann_field_names(&[]);
+        ensure!(
+            !builtin.iter().any(|field| field.eq_ignore_ascii_case(&name)),
+            "column name {name:?} is taken by a field of ANN"
+        );
         let columns = &mut self.table.get_mut(setup)?.columns;
         ensure!(
             columns.iter().all(|(other, _)| *other != name),
@@ -1199,6 +1204,8 @@ mod test {
     #[case(&[("mehari-limit", "1")], "reserved for mehari")]
     #[case(&[("column", "a|b")], "characters other than")]
     #[case(&[("column", "probe")], "declared twice")]
+    #[case(&[("column", "HGVS.c")], "taken by a field of ANN")]
+    #[case(&[("column", "allele")], "taken by a field of ANN")]
     fn load_fails(#[case] options: &[(&str, &str)], #[case] message: &str) {
         let error = load(PROBE_WASM, options).unwrap_err().to_string();
         assert!(error.contains(message), "{error}");

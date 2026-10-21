@@ -63,7 +63,8 @@ interface types {
         options: func() -> list<tuple<string, string>>;
 
         /// Declare a column, in output order, with the type of its values. Names may contain
-        /// letters, digits, `_`, `-` and `.`.
+        /// letters, digits, `_`, `-` and `.`, and must differ from the fields of `ANN`, such as
+        /// `Allele` or `HGVS.c`, also in case.
         add-string-column: func(name: string);
         add-integer-column: func(name: string);
         add-float-column: func(name: string);
