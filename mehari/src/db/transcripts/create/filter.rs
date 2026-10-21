@@ -385,11 +385,6 @@ pub(crate) fn filter_transcripts_with_sequence(
 
             if let Ok(seq) = seq {
                 let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
-                let is_seleno = tx
-                    .biotype
-                    .as_ref()
-                    .map(|bt| bt.contains(&BioType::Selenoprotein))
-                    .unwrap_or(false);
                 if seq.is_empty() {
                     return Either::Left((
                         Identifier::Transcript(tx_id.clone()),
@@ -415,40 +410,25 @@ pub(crate) fn filter_transcripts_with_sequence(
                     let delta = tx_end.max(cds_end).saturating_sub(seq.len());
                     let seq = append_poly_a(seq, delta);
 
-                    let safe_end = cds_end.min(seq.len());
-                    let safe_start = cds_start.min(safe_end);
-                    // An incomplete CDS end can leave a partial last codon. It is no stop codon.
-                    let safe_end = safe_end - (safe_end - safe_start) % 3;
-
-                    let tx_seq_to_translate = &seq[safe_start..safe_end];
-
-                    let aa_sequence_result = translate_cds(
-                        tx_seq_to_translate,
-                        true,
-                        "*",
-                        if is_mt {
-                            TranslationTable::VertebrateMitochondrial
-                        } else if is_seleno {
-                            TranslationTable::Selenocysteine
-                        } else {
-                            TranslationTable::Standard
-                        },
-                    );
+                    // The last 3 bases of the CDS are its stop codon, also if the CDS changes
+                    // its frame, e.g., by ribosomal slippage in OAZ1. A selenoprotein reads UGA
+                    // as selenocysteine only inside its CDS.
+                    let has_stop_codon = cds_end
+                        .checked_sub(3)
+                        .filter(|&last_codon| last_codon >= cds_start)
+                        .and_then(|last_codon| seq.get(last_codon..cds_end))
+                        .is_some_and(|codon| is_stop_codon(codon, is_mt));
 
                     let mut reason = Reason::empty();
-
-                    if let Ok(aa_sequence) = aa_sequence_result {
-                        let has_missing_stop_codon = (!is_mt && !aa_sequence.ends_with('*'))
-                            || (is_mt && !aa_sequence.contains('*'));
-                        // Annotation reads this flag, so set it also without filters.
-                        if has_missing_stop_codon {
-                            reason |= Reason::MissingStopCodon;
-                        }
-                        if has_missing_stop_codon && !loader.disable_filters {
-                            if three_prime_truncated(tx) {
-                                reason |= Reason::ThreePrimeEndTruncated;
-                            }
-                        }
+                    // Annotation reads this flag, so set it also without filters.
+                    if !has_stop_codon {
+                        reason |= Reason::MissingStopCodon;
+                    }
+                    if (!has_stop_codon || has_invalid_cds_length)
+                        && !loader.disable_filters
+                        && three_prime_truncated(tx)
+                    {
+                        reason |= Reason::ThreePrimeEndTruncated;
                     }
 
                     // A CDS that reaches the 5' end of the transcript without a start codon is
@@ -606,6 +586,17 @@ fn truncated_ends(alignment: &GenomeAlignment) -> Option<(bool, bool)> {
         Strand::Plus => (low_end, high_end),
         Strand::Minus => (high_end, low_end),
     })
+}
+
+/// Whether `codon` is a stop codon in the standard code, or in the vertebrate mitochondrial
+/// code if `is_mt`.
+fn is_stop_codon(codon: &str, is_mt: bool) -> bool {
+    let table = if is_mt {
+        TranslationTable::VertebrateMitochondrial
+    } else {
+        TranslationTable::Standard
+    };
+    translate_cds(codon, true, "*", table).is_ok_and(|aa| aa == "*")
 }
 
 fn append_poly_a(seq: String, length: usize) -> String {
@@ -859,6 +850,40 @@ mod tests {
         assert_eq!(seq, "ATGAAAT");
         assert_eq!(stop_codon, Some(7));
         assert!(reason.contains(Reason::MissingStopCodon), "{reason:?}");
+        Ok(())
+    }
+
+    /// The last 3 bases of the CDS are its stop codon, in the standard code or the vertebrate
+    /// mitochondrial code. A selenoprotein reads UGA as selenocysteine only inside its CDS. A
+    /// CDS that changes its frame, e.g., by ribosomal slippage, keeps its stop codon in the new
+    /// frame, but its length is not a multiple of 3.
+    #[rstest::rstest]
+    #[case::selenoprotein_uga("NC_000001.11", true, "ATGTGAAAATGACC", 12, false, false)]
+    #[case::selenoprotein_without_stop("NC_000001.11", true, "ATGTGAAAAAAACC", 12, true, false)]
+    #[case::chr_mt_aga("NC_012920.1", false, "ATGAAAAGACC", 9, false, false)]
+    #[case::nuclear_aga("NC_000001.11", false, "ATGAAAAGACC", 9, true, false)]
+    #[case::frameshift("NC_000001.11", false, "ATGCCCCTAAGG", 10, false, true)]
+    fn cds_ends_with_its_stop_codon(
+        #[case] contig: &str,
+        #[case] selenoprotein: bool,
+        #[case] seq: &str,
+        #[case] stop_codon: i32,
+        #[case] missing_stop_codon: bool,
+        #[case] invalid_cds_length: bool,
+    ) -> Result<(), Error> {
+        let mut tx = one_exon_tx(contig, seq.len(), stop_codon)?;
+        if selenoprotein {
+            tx.biotype = Some(vec![BioType::MRna, BioType::Selenoprotein]);
+        }
+        let (_, reason, _) = stored_sequence(tx, seq)?;
+        assert_eq!(
+            (
+                reason.contains(Reason::MissingStopCodon),
+                reason.contains(Reason::InvalidCdsLength)
+            ),
+            (missing_stop_codon, invalid_cds_length),
+            "{reason:?}"
+        );
         Ok(())
     }
 
