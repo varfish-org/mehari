@@ -2788,7 +2788,7 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!("{}", spdi.replace(':', "-"));
 
-        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+        let variant: VcfVariant = spdi.parse()?;
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
@@ -2802,12 +2802,7 @@ mod test {
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let res = predictor
-            .predict(&VcfVariant {
-                chromosome: spdi[0].clone(),
-                position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
-            })?
+            .predict(&variant)?
             .unwrap();
 
         assert_eq!(res.len(), 6);
@@ -2816,7 +2811,7 @@ mod test {
             res[0].distance,
             Some(expected_dist),
             "spdi = {}",
-            spdi.join(":")
+            spdi
         );
 
         Ok(())
@@ -2872,7 +2867,7 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!("{}", spdi.replace(':', "-"));
 
-        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+        let variant: VcfVariant = spdi.parse()?;
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
@@ -2897,12 +2892,7 @@ mod test {
         );
 
         let res = predictor
-            .predict(&VcfVariant {
-                chromosome: spdi[0].clone(),
-                position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
-            })?
+            .predict(&variant)?
             .unwrap();
 
         assert_eq!(res.len(), 1);
@@ -2911,13 +2901,13 @@ mod test {
             res[0].distance,
             Some(expected_dist),
             "spdi = {}",
-            spdi.join(":")
+            spdi
         );
         assert_eq!(
             res[0].consequences,
             expected_csqs,
             "spdi = {}",
-            spdi.join(":")
+            spdi
         );
         insta::assert_yaml_snapshot!(res);
 
@@ -2976,7 +2966,7 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!("{}", spdi.replace(':', "-"));
 
-        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+        let variant: VcfVariant = spdi.parse()?;
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
@@ -2996,12 +2986,7 @@ mod test {
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let res = predictor
-            .predict(&VcfVariant {
-                chromosome: spdi[0].clone(),
-                position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
-            })?
+            .predict(&variant)?
             .unwrap();
 
         assert_eq!(res.len(), 1);
@@ -3010,13 +2995,13 @@ mod test {
             res[0].distance,
             Some(expected_dist),
             "spdi = {}",
-            spdi.join(":")
+            spdi
         );
         assert_eq!(
             res[0].consequences,
             expected_csqs,
             "spdi = {}",
-            spdi.join(":")
+            spdi
         );
         insta::assert_yaml_snapshot!(res);
 
@@ -3039,7 +3024,7 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         crate::common::set_snapshot_suffix!("{}", spdi.replace(':', "-"));
 
-        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+        let variant: VcfVariant = spdi.parse()?;
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
@@ -3059,12 +3044,7 @@ mod test {
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let res = predictor
-            .predict(&VcfVariant {
-                chromosome: spdi[0].clone(),
-                position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
-            })?
+            .predict(&variant)?
             .unwrap();
 
         assert_eq!(res.len(), 1);
@@ -3073,7 +3053,7 @@ mod test {
             res[0].consequences,
             expected_csqs,
             "spdi = {}",
-            spdi.join(":")
+            spdi
         );
         insta::assert_yaml_snapshot!(res);
 
@@ -3098,7 +3078,7 @@ mod test {
             !report_most_severe_consequence_only
         );
 
-        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+        let variant: VcfVariant = spdi.parse()?;
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
@@ -3136,12 +3116,7 @@ mod test {
         );
 
         let res = predictor
-            .predict(&VcfVariant {
-                chromosome: spdi[0].clone(),
-                position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
-            })?
+            .predict(&variant)?
             .unwrap();
 
         insta::assert_yaml_snapshot!(res);
@@ -3169,7 +3144,7 @@ mod test {
             !report_most_severe_consequence_only
         );
 
-        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+        let variant: VcfVariant = spdi.parse()?;
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
@@ -3210,12 +3185,7 @@ mod test {
         );
 
         let res = predictor
-            .predict(&VcfVariant {
-                chromosome: spdi[0].clone(),
-                position: spdi[1].parse()?,
-                reference: spdi[2].clone(),
-                alternative: spdi[3].clone(),
-            })?
+            .predict(&variant)?
             .unwrap();
 
         insta::assert_yaml_snapshot!(res);
@@ -3731,13 +3701,7 @@ mod test {
     }
 
     fn vcf_variant(spdi: &str) -> VcfVariant {
-        let parts = spdi.split(':').collect::<Vec<_>>();
-        VcfVariant {
-            chromosome: parts[0].into(),
-            position: parts[1].parse().unwrap(),
-            reference: parts[2].into(),
-            alternative: parts[3].into(),
-        }
+        spdi.parse().unwrap()
     }
 
     /// Length and FNV-1a hash per custom field, to keep full sequences out of snapshots.

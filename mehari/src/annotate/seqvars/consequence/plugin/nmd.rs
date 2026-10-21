@@ -272,17 +272,7 @@ mod test {
         #[case] expected: Option<&str>,
         #[case] expected_vep: Option<&str>,
     ) -> Result<(), anyhow::Error> {
-        let [chromosome, position, reference, alternative] =
-            spdi.split(':').collect::<Vec<_>>()[..]
-        else {
-            unreachable!()
-        };
-        let variant = VcfVariant {
-            chromosome: chromosome.into(),
-            position: position.parse()?,
-            reference: reference.into(),
-            alternative: alternative.into(),
-        };
+        let variant: VcfVariant = spdi.parse()?;
 
         for (vep_compatible, expected) in [(false, expected), (true, expected_vep)] {
             let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;

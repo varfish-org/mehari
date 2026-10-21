@@ -34,15 +34,7 @@ impl TranscriptPlugin for CompoundPlugin {
         } else {
             "Single".to_string()
         };
-        let variants = variants
-            .iter()
-            .map(|var| {
-                format!(
-                    "{}:{}:{}:{}",
-                    var.chromosome, var.position, var.reference, var.alternative
-                )
-            })
-            .join(",");
+        let variants = variants.iter().join(",");
         for TxAnnotation { ann, .. } in txs {
             ann.custom_fields
                 .insert(ANN_COMPOUND_IDS.into(), Some(id.clone()));

@@ -241,6 +241,34 @@ pub struct VcfVariant {
     pub alternative: String,
 }
 
+/// `chromosome:position:reference:alternative`, e.g. `17:41215920:G:T`.
+impl Display for VcfVariant {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}:{}:{}:{}",
+            self.chromosome, self.position, self.reference, self.alternative
+        )
+    }
+}
+
+impl std::str::FromStr for VcfVariant {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let [chromosome, position, reference, alternative] = s.split(':').collect::<Vec<_>>()[..]
+        else {
+            anyhow::bail!("expected chromosome:position:reference:alternative, got {s:?}");
+        };
+        Ok(Self {
+            chromosome: chromosome.into(),
+            position: position.parse()?,
+            reference: reference.into(),
+            alternative: alternative.into(),
+        })
+    }
+}
+
 /// Configuration for consequence prediction.
 #[derive(Debug, Clone, derive_builder::Builder)]
 #[builder(pattern = "immutable", build_fn(validate = "Self::validate"))]

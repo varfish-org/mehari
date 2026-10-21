@@ -919,17 +919,7 @@ mod test {
     }
 
     fn variant(spdi: &str) -> VcfVariant {
-        let [chromosome, position, reference, alternative] =
-            spdi.split(':').collect::<Vec<_>>()[..]
-        else {
-            unreachable!()
-        };
-        VcfVariant {
-            chromosome: chromosome.into(),
-            position: position.parse().unwrap(),
-            reference: reference.into(),
-            alternative: alternative.into(),
-        }
+        spdi.parse().unwrap()
     }
 
     /// The probe's report for BRCA1 NM_007294.4 and the annotation it was made for; the built-in
