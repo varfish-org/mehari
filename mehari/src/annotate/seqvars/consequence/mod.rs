@@ -18,7 +18,7 @@ use prost::Message;
 use std::fmt;
 use std::fmt::Display;
 use std::fs::File;
-use std::io::{Cursor, Read};
+use std::io::{BufRead, BufReader, Cursor, Read};
 use std::path::Path;
 use std::sync::Arc;
 use terms::{
@@ -31,17 +31,33 @@ pub fn load_tx_db(tx_path: impl AsRef<Path> + Display) -> anyhow::Result<TxSeqDa
     // Open file and if necessary, wrap in a decompressor.
     let file = File::open(tx_path.as_ref())
         .map_err(|e| anyhow!("failed to open file {}: {}", tx_path, e))?;
+    // The decompressed size, if the zstd frame header records it.
+    let mut content_size = None;
     let mut reader: Box<dyn Read> = match tx_path.as_ref().extension().and_then(|s| s.to_str()) {
         Some("gz") => Box::new(flate2::read::MultiGzDecoder::new(file)),
-        Some("zst") => Box::new(
-            zstd::Decoder::new(file)
-                .map_err(|e| anyhow!("failed to open zstd decoder for {}: {}", tx_path, e))?,
-        ),
+        Some("zst") => {
+            let mut file = BufReader::with_capacity(zstd::zstd_safe::DCtx::in_size(), file);
+            let header = file
+                .fill_buf()
+                .map_err(|e| anyhow!("failed to read file {}: {}", tx_path, e))?;
+            content_size = zstd::zstd_safe::get_frame_content_size(header)
+                .ok()
+                .flatten();
+            Box::new(
+                zstd::Decoder::with_buffer(file)
+                    .map_err(|e| anyhow!("failed to open zstd decoder for {}: {}", tx_path, e))?,
+            )
+        }
         _ => Box::new(file),
     };
 
-    // Now read the whole file into a byte buffer.
+    // Now read the whole file into a byte buffer.  Reserving the decompressed size up front
+    // avoids growing, and thus copying, the buffer while reading.
     let mut buffer = Vec::new();
+    if let Some(size) = content_size.and_then(|size| usize::try_from(size).ok()) {
+        // If this fails, e.g., for a corrupt header, the buffer grows while reading instead.
+        let _ = buffer.try_reserve_exact(size);
+    }
     reader
         .read_to_end(&mut buffer)
         .map_err(|e| anyhow!("failed to read file {}: {}", tx_path, e))?;
