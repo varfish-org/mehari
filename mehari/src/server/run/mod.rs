@@ -25,46 +25,11 @@ pub mod actix_server;
 
 /// Module with OpenAPI documentation.
 pub mod openapi {
-    use crate::annotate::seqvars::consequence::terms::{
-        Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank, SoFeature,
-    };
-    use crate::annotate::strucvars::csq::interface::StrucvarsSvType;
-    use crate::annotate::strucvars::csq::{
-        StrucvarsGeneTranscriptEffects, StrucvarsTranscriptEffect,
-    };
-    use crate::server::run::actix_server::gene_txs::{
-        ExonAlignment, GenesTranscriptsListQuery, GenesTranscriptsListResponse, GenomeAlignment,
-        Strand, Transcript, TranscriptBiotype, TranscriptTag,
-    };
-    use crate::server::run::actix_server::seqvars_cadd::{
-        CaddQuery, CaddResponse, CaddResultEntry,
-    };
-    use crate::server::run::actix_server::seqvars_clinvar::{
-        ClinvarQuery, ClinvarResponse, ClinvarResultEntry,
-    };
-    use crate::server::run::actix_server::seqvars_csq::{
-        SeqvarsCsqQuery, SeqvarsCsqResponse, SeqvarsCsqResultEntry,
-    };
-    use crate::server::run::actix_server::seqvars_dbsnp::{
-        DbsnpQuery, DbsnpResponse, DbsnpResultEntry,
-    };
-    use crate::server::run::actix_server::seqvars_frequencies::{
-        AutosomalResultEntry, FrequencyQuery, FrequencyResponse, FrequencyResultEntry,
-        GonosomalResultEntry, MitochondrialResultEntry,
-    };
-    use crate::server::run::actix_server::seqvars_spliceai::{
-        SpliceAiPredictionEntry, SpliceAiQuery, SpliceAiResponse,
-    };
-    use crate::server::run::actix_server::strucvars_csq::{
-        StrucvarsCsqQuery, StrucvarsCsqResponse,
-    };
-    use crate::server::run::actix_server::versions::{
-        Assembly, DataVersionEntry, SoftwareVersions, VersionsInfoResponse,
-    };
+    use crate::server::run::actix_server::gene_txs::GenesTranscriptsListQuery;
 
     use super::actix_server::{
-        CustomError, gene_txs, seqvars_cadd, seqvars_clinvar, seqvars_csq, seqvars_dbsnp,
-        seqvars_frequencies, seqvars_spliceai, strucvars_csq, versions,
+        gene_txs, seqvars_cadd, seqvars_clinvar, seqvars_csq, seqvars_dbsnp, seqvars_frequencies,
+        seqvars_spliceai, strucvars_csq, versions,
     };
 
     /// Utoipa-based `OpenAPI` generation helper.
@@ -81,55 +46,7 @@ pub mod openapi {
             seqvars_spliceai::handle_with_openapi,
             seqvars_dbsnp::handle_with_openapi,
         ),
-        components(schemas(
-            Assembly,
-            CustomError,
-            VersionsInfoResponse,
-            SoftwareVersions,
-            DataVersionEntry,
-            StrucvarsCsqResponse,
-            StrucvarsCsqQuery,
-            StrucvarsGeneTranscriptEffects,
-            StrucvarsSvType,
-            StrucvarsTranscriptEffect,
-            SeqvarsCsqQuery,
-            SeqvarsCsqResponse,
-            SeqvarsCsqResultEntry,
-            Consequence,
-            PutativeImpact,
-            FeatureType,
-            FeatureBiotype,
-            Rank,
-            Pos,
-            Message,
-            SoFeature,
-            ExonAlignment,
-            GenesTranscriptsListQuery,
-            GenesTranscriptsListResponse,
-            GenomeAlignment,
-            Strand,
-            Transcript,
-            TranscriptBiotype,
-            TranscriptTag,
-            FrequencyQuery,
-            FrequencyResponse,
-            FrequencyResultEntry,
-            AutosomalResultEntry,
-            GonosomalResultEntry,
-            MitochondrialResultEntry,
-            ClinvarQuery,
-            ClinvarResponse,
-            ClinvarResultEntry,
-            CaddQuery,
-            CaddResponse,
-            CaddResultEntry,
-            SpliceAiQuery,
-            SpliceAiResponse,
-            SpliceAiPredictionEntry,
-            DbsnpQuery,
-            DbsnpResponse,
-            DbsnpResultEntry,
-        ))
+        components(schemas(GenesTranscriptsListQuery))
     )]
     pub struct ApiDoc;
 }

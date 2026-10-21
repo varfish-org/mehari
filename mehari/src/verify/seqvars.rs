@@ -106,7 +106,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
 
     // Read the serialized transcripts.
     tracing::info!("Opening transcript database");
-    let tx_db = load_tx_db(format!("{}/{}/txs.bin.zst", &args.path_db, &args.assembly))?;
+    let tx_db = load_tx_db(format!("{}/{}/txs.bin.zst", args.path_db, args.assembly))?;
 
     // let reference = noodles::fasta::io::indexed_reader::Builder::default()
     //     .build_from_path(&args.path_reference_fasta)?;
@@ -283,7 +283,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         let alt_allele = if is_del {
             reference_allele.chars().next().unwrap().to_string()
         } else if is_ins {
-            format!("{}{}", &reference_allele, &record.allele)
+            format!("{}{}", reference_allele, record.allele)
         } else {
             record.allele.clone()
         };
@@ -323,11 +323,11 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
                         &mut output_tsv,
                         "{}\t{}\t{}\t{}\t{}\t{}",
                         result,
-                        &record.location,
-                        &record.feature,
-                        &record.consequence,
-                        &ann.feature_id,
-                        &ann_consequences
+                        record.location,
+                        record.feature,
+                        record.consequence,
+                        ann.feature_id,
+                        ann_consequences
                     )?;
 
                     found_any = true;
@@ -339,7 +339,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
                 writeln!(
                     &mut output_tsv,
                     "mehari_no_match\t{}\t{}\t{}\t.\t.",
-                    &record.location, &record.feature, &record.consequence
+                    record.location, record.feature, record.consequence
                 )?;
             }
         } else {
@@ -347,7 +347,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
             writeln!(
                 &mut output_tsv,
                 "mehari_no_tx\t{}\t{}\t{}\t.\t.",
-                &record.location, &record.feature, &record.consequence
+                record.location, record.feature, record.consequence
             )?;
         }
 

@@ -217,7 +217,7 @@ impl UnbufferedIndexedFastaAccess {
             .has_headers(false)
             .delimiter(b'\t')
             .from_path(&index_path)
-            .map_err(|e| anyhow!("Failed to read index file from {:?}: {}", &index_path, e))?
+            .map_err(|e| anyhow!("Failed to read index file from {:?}: {}", index_path, e))?
             .deserialize()
             .collect::<Result<Vec<_>, _>>()?;
 

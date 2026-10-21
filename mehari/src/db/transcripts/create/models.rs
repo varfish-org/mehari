@@ -438,7 +438,7 @@ impl TranscriptLoader {
             .filter(|tx| tx.protein_coding())
             .filter_map(|tx| {
                 tx.start_codon
-                    .and_then(|start| tx.stop_codon.map(|stop| (start, stop)))
+                    .zip(tx.stop_codon)
                     .and_then(|(cds_start, cds_end)| {
                         let cds_len = cds_end - cds_start;
                         (cds_len % 3 != 0).then_some((tx, cds_start, cds_end, cds_len))

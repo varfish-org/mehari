@@ -100,7 +100,7 @@ pub struct Args {
 
     /// Number of threads to use for annotation.
     ///
-    /// A sweet spot regarding trade-off between I/O and CPU-bound tasks is around 5.
+    /// A good value is around 16.
     #[arg(long, default_value_t = 1)]
     pub threads: usize,
 }
@@ -292,6 +292,16 @@ pub trait AsyncAnnotatedVariantWriter {
     }
 
     fn set_custom_columns(&mut self, _custom_columns: Vec<String>) {}
+
+    /// Returns the conversion that `write_annotated_record` applies to a record before writing.
+    ///
+    /// Callers may apply it beforehand, e.g., on worker threads; writing a converted record
+    /// gives the same output.
+    fn record_preparer(
+        &self,
+    ) -> impl Fn(AnnotatedVariant) -> AnnotatedVariant + Send + Sync + 'static {
+        |record| record
+    }
 }
 
 pub(crate) fn prepare_vcf_record(
@@ -465,6 +475,21 @@ impl SeqvarsVcfWriter {
             custom_columns: Vec::new(),
         }
     }
+
+    /// Moves the annotation into the VCF record; preparing the result again changes nothing.
+    fn prepare(record: AnnotatedVariant, custom_columns: &[String]) -> AnnotatedVariant {
+        AnnotatedVariant {
+            vcf: prepare_vcf_record(record, custom_columns),
+            annotation: VariantAnnotation {
+                consequences: vec![],
+                frequencies: None,
+                clinvar: None,
+                cadd: None,
+                spliceai: None,
+                dbsnp: None,
+            },
+        }
+    }
 }
 
 impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
@@ -477,23 +502,8 @@ impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
         header: &VcfHeader,
         record: AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
-        let out_record = prepare_vcf_record(record, &self.custom_columns);
-
         self.inner
-            .write_annotated_record(
-                header,
-                AnnotatedVariant {
-                    vcf: out_record,
-                    annotation: VariantAnnotation {
-                        consequences: vec![],
-                        frequencies: None,
-                        clinvar: None,
-                        cadd: None,
-                        spliceai: None,
-                        dbsnp: None,
-                    },
-                },
-            )
+            .write_annotated_record(header, Self::prepare(record, &self.custom_columns))
             .await
     }
 
@@ -503,6 +513,13 @@ impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
 
     fn set_custom_columns(&mut self, custom_columns: Vec<String>) {
         self.custom_columns = custom_columns;
+    }
+
+    fn record_preparer(
+        &self,
+    ) -> impl Fn(AnnotatedVariant) -> AnnotatedVariant + Send + Sync + 'static {
+        let custom_columns = self.custom_columns.clone();
+        move |record| Self::prepare(record, &custom_columns)
     }
 }
 
@@ -910,6 +927,7 @@ async fn run_with_writer(
             for db in &tx_dbs {
                 for sv in &db.source_version {
                     let mut final_assembly = sv.assembly.clone();
+                    #[allow(deprecated)]
                     if final_assembly.is_empty() {
                         final_assembly = _assembly_from_assembly_enum(sv.assembly_enum);
                     }
@@ -1037,8 +1055,16 @@ async fn run_with_writer(
     let worker_threads = rayon::current_num_threads();
     let batch_size = worker_threads * 1024;
 
+    // Preparing records for output is costly, so do it on the worker threads, unless there is
+    // only one: then the writer has time to spare.  Compound variant detection still needs the
+    // annotations, so the writer prepares those records itself.
+    let preparer =
+        (!enable_compound && worker_threads > 1).then(|| Arc::new(writer.record_preparer()));
+
     let mut next_batch = Vec::with_capacity(batch_size);
-    let mut processing_handle: Option<tokio::task::JoinHandle<BatchResult>> = None;
+    let mut processing_handle: Option<
+        tokio::task::JoinHandle<anyhow::Result<Vec<AnnotatedVariant>>>,
+    > = None;
 
     loop {
         // fill the `next_batch` buffer asynchronously (happens concurrently while the previous batch is being processed)
@@ -1066,10 +1092,59 @@ async fn run_with_writer(
             }
         }
 
+        // start processing `next_batch` before writing the previous batch, so that writing
+        // overlaps with processing
+        let previous_handle = processing_handle.take();
+        if !next_batch.is_empty() {
+            let batch_to_process =
+                std::mem::replace(&mut next_batch, Vec::with_capacity(batch_size));
+            let annotator_clone = annotator.clone();
+            let preparer = preparer.clone();
+
+            processing_handle = Some(tokio::task::spawn_blocking(move || {
+                use rayon::prelude::*;
+
+                batch_to_process
+                    .into_par_iter()
+                    .map(|record| {
+                        let annotation = annotator_clone.annotate(&record)?;
+                        let annotated = AnnotatedVariant {
+                            vcf: record,
+                            annotation,
+                        };
+                        Ok(match &preparer {
+                            Some(prepare) => prepare(annotated),
+                            None => annotated,
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()
+            }));
+        }
+
         // await the previous batch's results and write them out sequentially
-        if let Some(handle) = processing_handle.take() {
-            let (ready_records, returned_processor) = handle.await??;
-            processor = returned_processor;
+        if let Some(handle) = previous_handle {
+            let processed_batch = handle.await??;
+            // Compound predictions run on the blocking pool too, while the next batch is
+            // being annotated.
+            let ready_records = match processor.take() {
+                Some(mut batch_processor) => {
+                    let (ready_records, batch_processor) =
+                        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+                            let mut ready_records = Vec::new();
+                            for annotated_record in processed_batch {
+                                ready_records.extend(batch_processor.process_annotated_record(
+                                    annotated_record.vcf,
+                                    annotated_record.annotation,
+                                )?);
+                            }
+                            Ok((ready_records, batch_processor))
+                        })
+                        .await??;
+                    processor = Some(batch_processor);
+                    ready_records
+                }
+                None => processed_batch,
+            };
 
             for annotated_record in ready_records {
                 if prev.elapsed().as_secs() >= 60 {
@@ -1084,43 +1159,9 @@ async fn run_with_writer(
         }
 
         // if there are no more records to process, stop.
-        if next_batch.is_empty() {
+        if processing_handle.is_none() {
             break;
         }
-
-        // process `next_batch` in parallel
-        let batch_to_process = std::mem::replace(&mut next_batch, Vec::with_capacity(batch_size));
-        let annotator_clone = annotator.clone();
-        let mut batch_processor = processor.take();
-
-        processing_handle = Some(tokio::task::spawn_blocking(move || {
-            use rayon::prelude::*;
-
-            let annotated = batch_to_process
-                .into_par_iter()
-                .map(|record| {
-                    let annotation = annotator_clone.annotate(&record)?;
-                    Ok(AnnotatedVariant {
-                        vcf: record,
-                        annotation,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            let ready_records = match batch_processor.as_mut() {
-                Some(processor) => {
-                    let mut ready_records = Vec::new();
-                    for annotated_record in annotated {
-                        ready_records.extend(processor.process_annotated_record(
-                            annotated_record.vcf,
-                            annotated_record.annotation,
-                        )?);
-                    }
-                    ready_records
-                }
-                None => annotated,
-            };
-            Ok((ready_records, batch_processor))
-        }));
     }
 
     if let Some(mut processor) = processor {
@@ -1496,9 +1537,6 @@ impl AnnotatedVariant {
         self.vcf.variant_start().map(usize::from).unwrap_or(0)
     }
 }
-
-/// The records a batch made ready to write, and the compound processor handed back.
-type BatchResult = anyhow::Result<(Vec<AnnotatedVariant>, Option<VariantProcessor>)>;
 
 struct VariantProcessor {
     annotator: Arc<Annotator>,

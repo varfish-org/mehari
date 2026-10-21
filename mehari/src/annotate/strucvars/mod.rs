@@ -732,32 +732,32 @@ impl VarFishStrucvarTsvWriter {
         writeln!(
             self.inner,
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{{}}\t{}\t{}\t{}\t{}\t{}\t{}",
-            &tsv_record.release,
-            &tsv_record.chromosome,
-            &tsv_record.chromosome_no,
-            &tsv_record.bin,
-            &tsv_record.chromosome2,
-            &tsv_record.chromosome_no2,
-            &tsv_record.bin2,
-            &tsv_record.pe_orientation,
-            &tsv_record.start,
-            &tsv_record.end,
-            &tsv_record.start_ci_left,
-            &tsv_record.start_ci_right,
-            &tsv_record.end_ci_left,
-            &tsv_record.end_ci_right,
-            &tsv_record.case_id,
-            &tsv_record.set_id,
-            &tsv_record.sv_uuid,
+            tsv_record.release,
+            tsv_record.chromosome,
+            tsv_record.chromosome_no,
+            tsv_record.bin,
+            tsv_record.chromosome2,
+            tsv_record.chromosome_no2,
+            tsv_record.bin2,
+            tsv_record.pe_orientation,
+            tsv_record.start,
+            tsv_record.end,
+            tsv_record.start_ci_left,
+            tsv_record.start_ci_right,
+            tsv_record.end_ci_left,
+            tsv_record.end_ci_right,
+            tsv_record.case_id,
+            tsv_record.set_id,
+            tsv_record.sv_uuid,
             tsv_record.callers.join(";"),
-            &tsv_record.sv_type,
-            &tsv_record.sv_sub_type,
+            tsv_record.sv_type,
+            tsv_record.sv_sub_type,
             tsv_record.num_hom_alt,
             tsv_record.num_hom_ref,
             tsv_record.num_het,
             tsv_record.num_hemi_alt,
             tsv_record.num_hemi_ref,
-            &tsv_record.genotype.for_tsv(),
+            tsv_record.genotype.for_tsv(),
         ).map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
     }
 
@@ -1618,15 +1618,23 @@ pub trait VcfRecordConverter {
         vcf_record: &VcfRecord,
         tsv_record: &mut VarFishStrucvarTsvRecord,
     ) -> Result<(), anyhow::Error> {
-        let sv_type = vcf_record
-            .info()
-            .get(SV_TYPE)
-            .ok_or_else(|| anyhow::anyhow!("SVTYPE not found"))?
-            .ok_or_else(|| anyhow::anyhow!("SVTYPE empty"))?;
-        if let field::Value::String(value) = sv_type {
-            tsv_record.sv_sub_type = SvSubType::from_str(value)?;
+        if let Some(sv_type) = vcf_record.info().get(SV_TYPE) {
+            let sv_type = sv_type.ok_or_else(|| anyhow::anyhow!("SVTYPE empty"))?;
+            if let field::Value::String(value) = sv_type {
+                tsv_record.sv_sub_type = SvSubType::from_str(value)?;
+            } else {
+                anyhow::bail!("SVTYPE is not a string");
+            }
         } else {
-            anyhow::bail!("SVTYPE is not a string");
+            // INFO/SVTYPE is deprecated since VCF 4.4, derive from the (single) ALT allele.
+            let alleles = vcf_record.alternate_bases().as_ref();
+            tsv_record.sv_sub_type = match alleles {
+                [alt] if alt.contains('[') || alt.contains(']') => SvSubType::Bnd,
+                [alt] if alt.starts_with('<') && alt.ends_with('>') => {
+                    SvSubType::from_str(&alt[1..alt.len() - 1])?
+                }
+                _ => anyhow::bail!("SVTYPE not found and cannot be derived from ALT {alleles:?}"),
+            };
         }
         tsv_record.sv_type = tsv_record.sv_sub_type.into();
 
@@ -2785,7 +2793,7 @@ mod conv {
         let sex = pedigree
             .individuals
             .get(&entries[sample_no].name)
-            .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", &entries[sample_no].name))
+            .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", entries[sample_no].name))
             .sex;
         let is_chr_x = ContigManager::is_chr_x(tsv_record.chromosome_no);
         let is_chr_y = ContigManager::is_chr_y(tsv_record.chromosome_no);
@@ -2849,7 +2857,7 @@ mod conv {
                 let sex = pedigree
                     .individuals
                     .get(&entry.name)
-                    .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", &entry.name))
+                    .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", entry.name))
                     .sex;
                 let expected_cn = match (sex, is_chr_x, is_chr_y) {
                     (_, false, false) => Some(2.),
@@ -3155,7 +3163,7 @@ fn annotate_cov_mq(
                     .map_err(|e| {
                         anyhow::anyhow!(
                             "problem querying {}:{}-{} for {}: {}",
-                            &record.chromosome,
+                            record.chromosome,
                             record.start,
                             record.end,
                             entry.name,
@@ -4381,6 +4389,116 @@ mod test {
         let actual = std::fs::read_to_string(&out_path)?;
         assert_eq!(actual, expected);
 
+        Ok(())
+    }
+
+    /// Build a minimal record with the given ALT alleles and optional `INFO/SVTYPE`.
+    fn sv_type_record(alts: &[&str], sv_type: Option<&str>) -> VcfRecord {
+        let mut info = noodles::vcf::variant::record_buf::Info::default();
+        if let Some(sv_type) = sv_type {
+            info.insert(
+                "SVTYPE".into(),
+                Some(noodles::vcf::variant::record_buf::info::field::Value::String(sv_type.into())),
+            );
+        }
+        VcfRecord::builder()
+            .set_reference_sequence_name("1")
+            .set_variant_start(noodles::core::Position::MIN)
+            .set_reference_bases("N")
+            .set_alternate_bases(noodles::vcf::variant::record_buf::AlternateBases::from(
+                alts.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+            ))
+            .set_info(info)
+            .build()
+    }
+
+    /// `INFO/SVTYPE` is optional since VCF 4.4; fall back to the ALT allele (#557).
+    #[rstest]
+    #[case(&["<DEL>"], None, SvSubType::Del)]
+    #[case(&["<DUP:TANDEM>"], None, SvSubType::DupTandem)]
+    #[case(&["<INV>"], None, SvSubType::Inv)]
+    #[case(&["N]2:321681]"], None, SvSubType::Bnd)]
+    // `INFO/SVTYPE` wins over ALT.
+    #[case(&["<DEL>"], Some("CNV"), SvSubType::Cnv)]
+    fn fill_sv_type_from_alt(
+        #[case] alts: &[&str],
+        #[case] sv_type: Option<&str>,
+        #[case] expected: SvSubType,
+    ) -> Result<(), anyhow::Error> {
+        let converter =
+            DragenCnvVcfRecordConverter::new("1.0.0", &["S"], "GRCh37", TsvContigStyle::Auto);
+        let mut tsv_record = VarFishStrucvarTsvRecord::default();
+
+        converter.fill_sv_type(&sv_type_record(alts, sv_type), &mut tsv_record)?;
+
+        assert_eq!(tsv_record.sv_sub_type, expected);
+        assert_eq!(tsv_record.sv_type, SvType::from(expected));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(&["."])]
+    #[case(&["A"])]
+    #[case(&["<DEL>", "<DUP>"])]
+    fn fill_sv_type_no_svtype_underivable(#[case] alts: &[&str]) {
+        let converter =
+            DragenCnvVcfRecordConverter::new("1.0.0", &["S"], "GRCh37", TsvContigStyle::Auto);
+        let mut tsv_record = VarFishStrucvarTsvRecord::default();
+
+        let res = converter.fill_sv_type(&sv_type_record(alts, None), &mut tsv_record);
+
+        assert!(res.is_err());
+    }
+
+    /// Reference-only records (ALT ".") are skipped instead of failing on the missing SVTYPE
+    /// (#557).
+    #[tokio::test]
+    async fn skip_ref_only_record() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_in = "tests/data/annotate/strucvars/dragen-cnv-min.vcf";
+        let path_ref_only = temp.join("ref-only.vcf");
+        std::fs::write(
+            &path_ref_only,
+            format!(
+                "{}1\t2000000\t.\tN\t.\t.\tcnvLength\tEND=2001000\tGT:CN\t0/0:2\n",
+                std::fs::read_to_string(path_in)?
+            ),
+        )?;
+
+        let mut outputs = Vec::new();
+        for (name, path_vcf) in [
+            ("plain", path_in.to_string()),
+            ("ref-only", path_ref_only.display().to_string()),
+        ] {
+            let out_path = temp.join(format!("{name}.tsv"));
+            let args = Args {
+                assembly: "GRCh37".into(),
+                path_input_ped: String::from(
+                    "tests/data/annotate/strucvars/maelstrom/delly2-min.ped",
+                ),
+                path_input_vcf: vec![path_vcf],
+                output: out_path.display().to_string(),
+                output_format: OutputFormat::Tsv,
+                max_var_count: None,
+                path_cov_vcf: vec![],
+                file_date: Some(String::from("20230421")),
+                min_overlap: 0.8,
+                slack_bnd: 50,
+                slack_ins: 50,
+                rng_seed: Some(42),
+                tsv_contig_style: TsvContigStyle::Auto,
+            };
+            run(
+                &crate::common::Args {
+                    verbose: Verbosity::new(0, 1),
+                },
+                &args,
+            )
+            .await?;
+            outputs.push(std::fs::read_to_string(out_path)?);
+        }
+
+        assert_eq!(outputs[0], outputs[1]);
         Ok(())
     }
 }

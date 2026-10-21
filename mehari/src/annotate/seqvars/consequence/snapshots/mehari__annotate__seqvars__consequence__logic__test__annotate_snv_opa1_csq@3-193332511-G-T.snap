@@ -1,5 +1,5 @@
 ---
-source: mehari/src/annotate/seqvars/csq.rs
+source: mehari/src/annotate/seqvars/consequence/logic.rs
 expression: res
 ---
 - allele:
@@ -21,7 +21,7 @@ expression: res
     - ref_seq_select
     - mane_select_backport
   rank:
-    ord: 2
+    ord: 1
     total: 30
   hgvs_g: g.193332511G>T
   hgvs_n: n.203-1G>T

@@ -126,6 +126,8 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
     tracing::info!("Filtering transcripts …");
 
     /// Params used as args for filter functions defined below
+    // derive-new spells out the field names.
+    #[allow(clippy::redundant_field_names)]
     #[derive(new)]
     struct Params<'a> {
         tx: &'a Transcript,
@@ -236,6 +238,8 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
         (cds_start_end_nf, Reason::CdsStartOrEndNotConfirmed),
     ];
 
+    // derive-new spells out the field names.
+    #[allow(clippy::redundant_field_names)]
     #[derive(new)]
     struct GroupParams<'a> {
         idx: usize,
@@ -637,7 +641,7 @@ fn append_poly_a(seq: String, length: usize) -> String {
 /// (to avoid erroneously discarding gene id entries for a non-important reason).
 pub(crate) fn propagate_discard_reasons(loader: &mut TranscriptLoader) -> Result<(), Error> {
     // First check whether all transcripts of a gene have been marked as discarded.
-    for (gene_id, _) in loader.gene_id_to_gene.iter() {
+    for gene_id in loader.gene_id_to_gene.keys() {
         let tx_ids = loader
             .gene_id_to_transcript_ids
             .get(gene_id)

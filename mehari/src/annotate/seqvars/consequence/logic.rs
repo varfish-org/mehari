@@ -632,8 +632,14 @@ impl ConsequencePredictor {
                 && var_end <= exon_end
                 && !is_exonic
             {
+                // The intron takes the number of the exon before it in transcript order, which
+                // is this exon only on the minus strand.
                 rank = Rank {
-                    ord: exon_alignment.ord + 1,
+                    ord: if strand == Strand::Minus {
+                        exon_alignment.ord + 1
+                    } else {
+                        exon_alignment.ord
+                    },
                     total: alignment.exons.len() as i32 - 1,
                 };
                 is_intronic = true;
@@ -819,13 +825,18 @@ impl ConsequencePredictor {
             // If there's no stop codon, we can't compute the cds_len.
             // We can, however, still analyze any consequences before the (missing) stop codon.
             let cds_len = tx.stop_codon.map(|stop| stop - tx.start_codon.unwrap());
-            context.cds_pos = transcript_location.is_exonic.then_some(match var_c {
-                HgvsVariant::CdsVariant { loc_edit, .. } => Pos {
-                    ord: loc_edit.loc.inner().start.base,
-                    total: cds_len,
-                },
+            let cds_pos = match var_c {
+                HgvsVariant::CdsVariant { loc_edit, .. } => {
+                    let start = &loc_edit.loc.inner().start;
+                    // c.-N (5' UTR) and c.*N (3' UTR) are not positions in the CDS.
+                    (start.cds_from == CdsFrom::Start && start.base >= 1).then_some(Pos {
+                        ord: start.base,
+                        total: cds_len,
+                    })
+                }
                 _ => panic!("Invalid CDS position: {:?}", var_c),
-            });
+            };
+            context.cds_pos = cds_pos.filter(|_| transcript_location.is_exonic);
 
             let conservative = is_conservative_cds_variant(var_c);
             let incomplete_3p = tx.is_incomplete_3p();
@@ -1736,7 +1747,7 @@ impl ConsequencePredictor {
                 }
             }
         } else {
-            panic!("Must be CDS variant: {}", &var_c)
+            panic!("Must be CDS variant: {}", var_c)
         };
         consequences
     }
@@ -1924,7 +1935,7 @@ impl ConsequencePredictor {
                 ProtLocEdit::NoProtein | ProtLocEdit::NoProteinUncertain | ProtLocEdit::Unknown => {
                 }
             },
-            _ => panic!("Must be protein variant: {}", &var_p),
+            _ => panic!("Must be protein variant: {}", var_p),
         }
         consequences
     }
@@ -2152,7 +2163,7 @@ impl ConsequencePredictor {
                 })
                 .collect();
 
-            g_edits.sort_by(|a, b| b.0.cmp(&a.0));
+            g_edits.sort_by_key(|a| std::cmp::Reverse(a.0));
             for (start, end, alt) in g_edits {
                 alt_seq_g.replace_range(start..end, &alt);
             }
@@ -2388,31 +2399,27 @@ impl ConsequencePredictor {
                     return Ok(None);
                 }
 
-                let replace_start;
-                let replace_end;
-                let alt;
-
-                match edit {
-                    NaEdit::RefAlt { alternative, .. } | NaEdit::NumAlt { alternative, .. } => {
-                        replace_start = (n_loc_start - 1) as usize;
-                        replace_end = n_loc_end as usize;
-                        alt = alternative.clone();
-                    }
-                    NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => {
-                        replace_start = (n_loc_start - 1) as usize;
-                        replace_end = n_loc_end as usize;
-                        alt = "".to_string();
-                    }
-                    NaEdit::Dup { reference } => {
-                        replace_start = (n_loc_start - 1) as usize;
-                        replace_end = n_loc_end as usize;
-                        alt = format!("{}{}", reference, reference);
-                    }
-                    NaEdit::Ins { alternative } => {
-                        replace_start = n_loc_start as usize;
-                        replace_end = n_loc_start as usize;
-                        alt = alternative.clone();
-                    }
+                let (replace_start, replace_end, alt) = match edit {
+                    NaEdit::RefAlt { alternative, .. } | NaEdit::NumAlt { alternative, .. } => (
+                        (n_loc_start - 1) as usize,
+                        n_loc_end as usize,
+                        alternative.clone(),
+                    ),
+                    NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => (
+                        (n_loc_start - 1) as usize,
+                        n_loc_end as usize,
+                        "".to_string(),
+                    ),
+                    NaEdit::Dup { reference } => (
+                        (n_loc_start - 1) as usize,
+                        n_loc_end as usize,
+                        format!("{}{}", reference, reference),
+                    ),
+                    NaEdit::Ins { alternative } => (
+                        n_loc_start as usize,
+                        n_loc_start as usize,
+                        alternative.clone(),
+                    ),
                     _ => {
                         tracing::warn!(
                             "Unsupported NaEdit type {:?} in multi-assembly. Skipping.",
@@ -2420,7 +2427,7 @@ impl ConsequencePredictor {
                         );
                         return Ok(None);
                     }
-                }
+                };
 
                 n_edits.push(NEdit {
                     n_loc_start,
@@ -2432,7 +2439,7 @@ impl ConsequencePredictor {
             }
         }
 
-        n_edits.sort_by(|a, b| b.replace_start.cmp(&a.replace_start));
+        n_edits.sort_by_key(|a| std::cmp::Reverse(a.replace_start));
 
         let tx_len = ref_data.transcript_sequence.len() as i32;
         let mut alt_seq = ref_data.transcript_sequence.to_string();
@@ -2582,14 +2589,14 @@ impl ConsequencePredictor {
         let putative_impact = (*consequences_vec.first().unwrap()).into();
 
         let hgvs_n = compound_proj.n.as_ref().map(|n| {
-            format!("{}", &NoRef(n))
+            format!("{}", NoRef(n))
                 .split(':')
                 .nth(1)
                 .unwrap()
                 .to_owned()
         });
         let hgvs_c = Some(
-            format!("{}", &NoRef(compound_proj.c.as_ref().unwrap()))
+            format!("{}", NoRef(compound_proj.c.as_ref().unwrap()))
                 .split(':')
                 .nth(1)
                 .unwrap()
@@ -2825,6 +2832,55 @@ mod test {
         Ok(())
     }
 
+    /// `CDS.pos` must only be set for variants within the CDS, not for UTR variants.
+    /// GRCh37, BRCA1, NM_007294.4 (MANE, reverse).
+    #[rstest::rstest]
+    #[case("17:41276119:T:C", "c.-", false)] // exonic, 5' UTR
+    #[case("17:41196312:G:C", "c.*", false)] // exonic, 3' UTR
+    #[case("17:41276049:A:T", "c.65", true)] // exonic, CDS
+    fn annotate_brca1_cds_pos_only_in_cds(
+        #[case] spdi: &str,
+        #[case] expected_hgvs_c_prefix: &str,
+        #[case] expect_cds_pos: bool,
+    ) -> Result<(), anyhow::Error> {
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+
+        let ann = res
+            .iter()
+            .find(|ann| ann.feature_id == "NM_007294.4")
+            .ok_or_else(|| anyhow::anyhow!("NM_007294.4 not annotated"))?;
+        let hgvs_c = ann
+            .hgvs_c
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("no hgvs_c"))?
+            .to_string();
+        assert!(
+            hgvs_c.starts_with(expected_hgvs_c_prefix),
+            "unexpected hgvs_c: {hgvs_c}"
+        );
+        assert_eq!(ann.cds_pos.is_some(), expect_cds_pos, "hgvs_c = {hgvs_c}");
+
+        Ok(())
+    }
+
     /// Test some intron specific variants, via the annotated consequences.
     /// GRCh37, BRCA1, NM_007294.4 (MANE, reverse).
     /// The order of the consequences is important: ordered by severity, descending.
@@ -2988,6 +3044,44 @@ mod test {
         assert_eq!(res[0].distance, Some(expected_dist), "spdi = {}", spdi);
         assert_eq!(res[0].consequences, expected_csqs, "spdi = {}", spdi);
         insta::assert_yaml_snapshot!(res);
+
+        Ok(())
+    }
+
+    /// Introns are numbered in transcript order on both strands.
+    #[rstest::rstest]
+    #[case("3:193332511:G:T", "NM_130837.3", 1, 30)] // c.33-1, plus strand
+    #[case("3:193332831:G:T", "NM_130837.3", 2, 30)] // c.351+1
+    #[case("17:41197820:G:T", "NM_007294.4", 22, 22)] // c.5468-1, minus strand
+    #[case("17:41199659:G:T", "NM_007294.4", 22, 22)] // c.5467+1
+    fn annotate_intron_rank(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] ord: i32,
+        #[case] total: i32,
+    ) -> Result<(), anyhow::Error> {
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+        let ann = res.iter().find(|ann| ann.feature_id == tx_id).unwrap();
+
+        assert_eq!(ann.rank, Some(Rank { ord, total }));
 
         Ok(())
     }
@@ -3607,9 +3701,9 @@ mod test {
                         record.tx,
                         ann.hgvs_c.as_ref(),
                         ann.hgvs_p.as_ref(),
-                        &record_csqs,
-                        &expected_one_of,
-                        &ann.consequences,
+                        record_csqs,
+                        expected_one_of,
+                        ann.consequences,
                     );
                 }
             }

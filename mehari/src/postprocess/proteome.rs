@@ -188,7 +188,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
         for (_, mut events) in transcript_buffer {
             match args.deduplicate {
                 DedupMode::Transcript => {
-                    events.sort_by(|a, b| b.var_ids.len().cmp(&a.var_ids.len()));
+                    events.sort_by_key(|a| std::cmp::Reverse(a.var_ids.len()));
 
                     if let Some(best_event) = events.into_iter().next()
                         && seen_headers.insert(best_event.header_string)
