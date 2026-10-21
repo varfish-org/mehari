@@ -17,7 +17,8 @@ use super::VcfVariant;
 use super::terms::AnnField;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::errors::SeqvarsError;
-use crate::pbs::txs::Transcript;
+use crate::db::TranscriptDatabase;
+use crate::pbs::txs::{Transcript, TxSeqDatabase};
 
 mod compound;
 mod nmd;
@@ -95,10 +96,20 @@ impl PluginSpec {
 /// What plugins learn about the run.
 #[derive(Debug, Clone, Default)]
 pub struct RunInfo {
-    /// Genome assembly of the transcript database, e.g. `grch38`.
+    /// Genome assembly of the transcript database, lowercase, e.g. `grch38`.
     pub assembly: String,
     /// Mimic VEP, see `--vep-compatibility-mode`.
     pub vep_compatible: bool,
+}
+
+impl RunInfo {
+    pub fn new(tx_db: &TxSeqDatabase, vep_compatible: bool) -> Self {
+        Self {
+            // Older databases spell it `GRCh38`.
+            assembly: tx_db.assembly().to_ascii_lowercase(),
+            vep_compatible,
+        }
+    }
 }
 
 /// Plugins to select by name.
@@ -250,5 +261,17 @@ mod test {
         assert!("nmdd".parse::<PluginSpec>().is_err());
         assert!("nmd,a=b".parse::<PluginSpec>().is_err());
         assert!("x.wasm,flag".parse::<PluginSpec>().is_err());
+    }
+
+    #[test]
+    fn run_info_assembly_is_lowercase() {
+        let tx_db = TxSeqDatabase {
+            source_version: vec![crate::pbs::txs::SourceVersion {
+                assembly: "GRCh38".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(RunInfo::new(&tx_db, false).assembly, "grch38");
     }
 }

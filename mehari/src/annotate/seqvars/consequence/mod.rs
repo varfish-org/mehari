@@ -8,7 +8,6 @@ use crate::annotate::seqvars::consequence::terms::Consequence;
 use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
-use crate::db::TranscriptDatabase;
 use crate::db::keys::Var;
 use crate::pbs::txs::TxSeqDatabase;
 use anyhow::{Error, anyhow};
@@ -132,10 +131,7 @@ impl ConsequenceAnnotator {
         let args = predictor_settings;
         let s = &args.reporting_settings;
 
-        let run = RunInfo {
-            assembly: tx_db.assembly(),
-            vep_compatible: args.vep_compatibility_mode,
-        };
+        let run = RunInfo::new(&tx_db, args.vep_compatibility_mode);
         let mut plugins = s
             .plugins
             .iter()
