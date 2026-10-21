@@ -43,7 +43,7 @@ pub fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), anyhow:
     let mut output = args
         .get_output()
         .map_err(|e| anyhow::anyhow!("Failed to open output file: {}", e))?;
-    write!(output, "{}", &schema_yaml)
+    write!(output, "{}", schema_yaml)
         .map_err(|e| anyhow::anyhow!("Failed to write output: {}", e))?;
 
     tracing::info!("All done. Have a nice day!");

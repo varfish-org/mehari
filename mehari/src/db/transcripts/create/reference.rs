@@ -70,15 +70,15 @@ pub fn open_seqrepo(path: impl AsRef<Path>) -> Result<SeqRepo, Error> {
     let p = path.as_ref();
     let path = seqrepo
         .parent()
-        .ok_or(anyhow::anyhow!("Could not get parent from {:?}", &p))?
+        .ok_or(anyhow::anyhow!("Could not get parent from {:?}", p))?
         .to_str()
-        .ok_or_else(|| anyhow!("Could not convert parent path to UTF-8 from {:?}", &p))?
+        .ok_or_else(|| anyhow!("Could not convert parent path to UTF-8 from {:?}", p))?
         .to_string();
     let instance = seqrepo
         .file_name()
-        .ok_or(anyhow::anyhow!("Could not get basename from {:?}", &p))?
+        .ok_or(anyhow::anyhow!("Could not get basename from {:?}", p))?
         .to_str()
-        .ok_or_else(|| anyhow!("Could not convert basename to UTF-8 from {:?}", &p))?
+        .ok_or_else(|| anyhow!("Could not convert basename to UTF-8 from {:?}", p))?
         .to_string();
     let seqrepo = SeqRepo::new(path, &instance)?;
     tracing::info!("… seqrepo opened in {:?}", start.elapsed());

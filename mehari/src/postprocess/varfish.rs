@@ -67,7 +67,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
         _ => {
             warn!(
                 "Unrecognized assembly '{}', using as-is in TSV output",
-                &args.assembly
+                args.assembly
             );
             args.assembly.as_ref()
         }
@@ -731,7 +731,7 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.ensembl_effect = Some(
                             ann.consequences
                                 .iter()
-                                .map(|c| format!("\"{}\"", &c))
+                                .map(|c| format!("\"{}\"", c))
                                 .collect(),
                         );
                     }
@@ -749,7 +749,7 @@ impl VarFishSeqvarTsvWriter {
                         tsv_record.refseq_effect = Some(
                             ann.consequences
                                 .iter()
-                                .map(|c| format!("\"{}\"", &c))
+                                .map(|c| format!("\"{}\"", c))
                                 .collect(),
                         );
                     }

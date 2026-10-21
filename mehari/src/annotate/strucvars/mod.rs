@@ -732,32 +732,32 @@ impl VarFishStrucvarTsvWriter {
         writeln!(
             self.inner,
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{{}}\t{}\t{}\t{}\t{}\t{}\t{}",
-            &tsv_record.release,
-            &tsv_record.chromosome,
-            &tsv_record.chromosome_no,
-            &tsv_record.bin,
-            &tsv_record.chromosome2,
-            &tsv_record.chromosome_no2,
-            &tsv_record.bin2,
-            &tsv_record.pe_orientation,
-            &tsv_record.start,
-            &tsv_record.end,
-            &tsv_record.start_ci_left,
-            &tsv_record.start_ci_right,
-            &tsv_record.end_ci_left,
-            &tsv_record.end_ci_right,
-            &tsv_record.case_id,
-            &tsv_record.set_id,
-            &tsv_record.sv_uuid,
+            tsv_record.release,
+            tsv_record.chromosome,
+            tsv_record.chromosome_no,
+            tsv_record.bin,
+            tsv_record.chromosome2,
+            tsv_record.chromosome_no2,
+            tsv_record.bin2,
+            tsv_record.pe_orientation,
+            tsv_record.start,
+            tsv_record.end,
+            tsv_record.start_ci_left,
+            tsv_record.start_ci_right,
+            tsv_record.end_ci_left,
+            tsv_record.end_ci_right,
+            tsv_record.case_id,
+            tsv_record.set_id,
+            tsv_record.sv_uuid,
             tsv_record.callers.join(";"),
-            &tsv_record.sv_type,
-            &tsv_record.sv_sub_type,
+            tsv_record.sv_type,
+            tsv_record.sv_sub_type,
             tsv_record.num_hom_alt,
             tsv_record.num_hom_ref,
             tsv_record.num_het,
             tsv_record.num_hemi_alt,
             tsv_record.num_hemi_ref,
-            &tsv_record.genotype.for_tsv(),
+            tsv_record.genotype.for_tsv(),
         ).map_err(|e| anyhow::anyhow!("Error writing VarFish TSV record: {}", e))
     }
 
@@ -2793,7 +2793,7 @@ mod conv {
         let sex = pedigree
             .individuals
             .get(&entries[sample_no].name)
-            .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", &entries[sample_no].name))
+            .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", entries[sample_no].name))
             .sex;
         let is_chr_x = ContigManager::is_chr_x(tsv_record.chromosome_no);
         let is_chr_y = ContigManager::is_chr_y(tsv_record.chromosome_no);
@@ -2857,7 +2857,7 @@ mod conv {
                 let sex = pedigree
                     .individuals
                     .get(&entry.name)
-                    .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", &entry.name))
+                    .unwrap_or_else(|| panic!("sample must be in pedigree: {:?}", entry.name))
                     .sex;
                 let expected_cn = match (sex, is_chr_x, is_chr_y) {
                     (_, false, false) => Some(2.),
@@ -3163,7 +3163,7 @@ fn annotate_cov_mq(
                     .map_err(|e| {
                         anyhow::anyhow!(
                             "problem querying {}:{}-{} for {}: {}",
-                            &record.chromosome,
+                            record.chromosome,
                             record.start,
                             record.end,
                             entry.name,

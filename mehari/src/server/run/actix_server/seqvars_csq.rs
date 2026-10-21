@@ -108,7 +108,7 @@ async fn handle_impl(
         .ok_or_else(|| {
             super::CustomError::new(anyhow::anyhow!(
                 "genome release not supported: {:?}",
-                &query.assembly
+                query.assembly
             ))
         })?;
 
@@ -121,7 +121,7 @@ async fn handle_impl(
     };
     let ann_fields = predictor
         .predict(&g_var)
-        .map_err(|e| super::CustomError::new(anyhow::anyhow!("prediction failed: {}", &e)))?;
+        .map_err(|e| super::CustomError::new(anyhow::anyhow!("prediction failed: {}", e)))?;
     if let Some(ann_fields) = ann_fields {
         for ann_field in ann_fields {
             if let Some(hgnc_id) = &hgnc_id {
