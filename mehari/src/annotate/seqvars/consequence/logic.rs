@@ -2267,6 +2267,19 @@ impl ConsequencePredictor {
                                 consequences |= Consequence::StopGained;
                             }
                         }
+                        // Inserted bases that encode a stop codon give an insertion up to the
+                        // stop, e.g., `p.Lys168_Ile169insThrValSerTer`, also if their number is
+                        // not a multiple of 3, as HGVS prescribes. The frame still shifts then.
+                        ProteinEdit::Ins { alternative } if has_stop(alternative) => {
+                            consequences |= Consequence::StopGained;
+                            consequences |= if inserts_frameshift(var_c) {
+                                Consequence::FrameshiftVariant
+                            } else if conservative {
+                                Consequence::ConservativeInframeInsertion
+                            } else {
+                                Consequence::DisruptiveInframeInsertion
+                            };
+                        }
                         ProteinEdit::Ins { .. } | ProteinEdit::Dup => {
                             if conservative {
                                 consequences |= Consequence::ConservativeInframeInsertion;
@@ -3018,6 +3031,27 @@ impl ConsequencePredictor {
                 |v| Ok(Some(v)),
             )
     }
+}
+
+/// Whether the insertion or dup `var_c` inserts a number of bases that is not a multiple of 3.
+fn inserts_frameshift(var_c: &HgvsVariant) -> bool {
+    let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
+        return false;
+    };
+    let loc = loc_edit.loc.inner();
+    let len = match loc_edit.edit.inner() {
+        NaEdit::Ins { alternative } => alternative.len(),
+        NaEdit::Dup { reference } if !reference.is_empty() => reference.len(),
+        NaEdit::Dup { .. }
+            if loc.start.cds_from == loc.end.cds_from
+                && loc.start.offset.unwrap_or_default() == 0
+                && loc.end.offset.unwrap_or_default() == 0 =>
+        {
+            loc.start.base.abs_diff(loc.end.base) as usize + 1
+        }
+        _ => return false,
+    };
+    len % 3 != 0
 }
 
 fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
@@ -5085,5 +5119,21 @@ mod test {
         #[case] expected: bool,
     ) {
         assert_eq!(deletion_keeps_cds(tx_seq, cds_start, del), expected);
+    }
+
+    /// An insertion or dup shifts the frame if it inserts a number of bases that is not a
+    /// multiple of 3.
+    #[rstest::rstest]
+    #[case("c.10_11insTAA", false)]
+    #[case("c.10_11insTA", true)]
+    #[case("c.10_12dup", false)]
+    #[case("c.10_23dup", true)]
+    fn insertion_shifts_frame(
+        #[case] var_c: &str,
+        #[case] expected: bool,
+    ) -> Result<(), anyhow::Error> {
+        let var_c = HgvsVariant::from_str(&format!("NM_000001.1:{var_c}"))?;
+        assert_eq!(inserts_frameshift(&var_c), expected);
+        Ok(())
     }
 }
