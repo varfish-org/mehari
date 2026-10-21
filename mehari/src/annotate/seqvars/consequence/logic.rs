@@ -764,13 +764,18 @@ impl ConsequencePredictor {
             // If there's no stop codon, we can't compute the cds_len.
             // We can, however, still analyze any consequences before the (missing) stop codon.
             let cds_len = tx.stop_codon.map(|stop| stop - tx.start_codon.unwrap());
-            context.cds_pos = transcript_location.is_exonic.then_some(match var_c {
-                HgvsVariant::CdsVariant { loc_edit, .. } => Pos {
-                    ord: loc_edit.loc.inner().start.base,
-                    total: cds_len,
-                },
+            let cds_pos = match var_c {
+                HgvsVariant::CdsVariant { loc_edit, .. } => {
+                    let start = &loc_edit.loc.inner().start;
+                    // c.-N (5' UTR) and c.*N (3' UTR) are not positions in the CDS.
+                    (start.cds_from == CdsFrom::Start && start.base >= 1).then_some(Pos {
+                        ord: start.base,
+                        total: cds_len,
+                    })
+                }
                 _ => panic!("Invalid CDS position: {:?}", var_c),
-            });
+            };
+            context.cds_pos = cds_pos.filter(|_| transcript_location.is_exonic);
 
             let conservative = is_conservative_cds_variant(var_c);
             let incomplete_3p = tx.is_incomplete_3p();
@@ -2848,6 +2853,55 @@ mod test {
             "spdi = {}",
             spdi.join(":")
         );
+
+        Ok(())
+    }
+
+    /// `CDS.pos` must only be set for variants within the CDS, not for UTR variants.
+    /// GRCh37, BRCA1, NM_007294.4 (MANE, reverse).
+    #[rstest::rstest]
+    #[case("17:41276119:T:C", "c.-", false)] // exonic, 5' UTR
+    #[case("17:41196312:G:C", "c.*", false)] // exonic, 3' UTR
+    #[case("17:41276049:A:T", "c.65", true)] // exonic, CDS
+    fn annotate_brca1_cds_pos_only_in_cds(
+        #[case] spdi: &str,
+        #[case] expected_hgvs_c_prefix: &str,
+        #[case] expect_cds_pos: bool,
+    ) -> Result<(), anyhow::Error> {
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+
+        let ann = res
+            .iter()
+            .find(|ann| ann.feature_id == "NM_007294.4")
+            .ok_or_else(|| anyhow::anyhow!("NM_007294.4 not annotated"))?;
+        let hgvs_c = ann
+            .hgvs_c
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("no hgvs_c"))?
+            .to_string();
+        assert!(
+            hgvs_c.starts_with(expected_hgvs_c_prefix),
+            "unexpected hgvs_c: {hgvs_c}"
+        );
+        assert_eq!(ann.cds_pos.is_some(), expect_cds_pos, "hgvs_c = {hgvs_c}");
 
         Ok(())
     }
