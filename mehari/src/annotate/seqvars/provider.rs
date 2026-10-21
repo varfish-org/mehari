@@ -480,6 +480,30 @@ impl Provider {
     pub fn reference_available(&self) -> bool {
         self.reference_reader.is_some()
     }
+
+    /// The genetic code of `tx`. A selenoprotein without the positions of its selenocysteine
+    /// codons reads every UGA as selenocysteine, except at the CDS end, see
+    /// `get_tx_translation_exceptions`.
+    fn translation_table(&self, tx: &Transcript) -> TranslationTable {
+        let is_selenoprotein = tx.tags.contains(&(TranscriptTag::Selenoprotein as i32));
+        let has_selenocysteine = tx
+            .translation_exceptions
+            .iter()
+            .any(|exception| exception.amino_acid == "U");
+        let is_mitochondrial = tx.genome_alignments.first().is_some_and(|alignment| {
+            self.contig_manager
+                .is_mitochondrial_alias(alignment.contig.as_str())
+        });
+        if is_mitochondrial {
+            TranslationTable::VertebrateMitochondrial
+        } else if is_selenoprotein && !has_selenocysteine {
+            // With selenocysteine in the translation exceptions, UGA reads as
+            // selenocysteine only there.
+            TranslationTable::Selenocysteine
+        } else {
+            TranslationTable::Standard
+        }
+    }
 }
 
 impl ProviderInterface for Provider {
@@ -829,12 +853,6 @@ impl ProviderInterface for Provider {
             .as_ref()
             .expect("no tx_db?")
             .transcripts[tx_idx];
-        let is_selenoprotein = tx.tags.contains(&(TranscriptTag::Selenoprotein as i32));
-        let has_selenocysteine = tx
-            .translation_exceptions
-            .iter()
-            .any(|exception| exception.amino_acid == "U");
-
         let hgnc = tx.gene_id.clone();
 
         let mut tmp = tx
@@ -854,10 +872,6 @@ impl ProviderInterface for Provider {
             .collect::<Vec<(i32, i32)>>();
         tmp.sort();
 
-        let is_mitochondrial = self
-            .contig_manager
-            .is_mitochondrial_alias(tx.genome_alignments.first().unwrap().contig.as_str());
-
         let lengths = tmp.into_iter().map(|(_, length)| length).collect();
         Ok(TxIdentityInfo {
             tx_ac: tx_ac.to_string(),
@@ -867,15 +881,7 @@ impl ProviderInterface for Provider {
             cds_end_i: tx.stop_codon,
             lengths,
             hgnc,
-            translation_table: if is_mitochondrial {
-                TranslationTable::VertebrateMitochondrial
-            } else if is_selenoprotein && !has_selenocysteine {
-                // With selenocysteine in the translation exceptions, UGA reads as
-                // selenocysteine only there.
-                TranslationTable::Selenocysteine
-            } else {
-                TranslationTable::Standard
-            },
+            translation_table: self.translation_table(tx),
         })
     }
 
@@ -886,7 +892,8 @@ impl ProviderInterface for Provider {
         let tx = self
             .get_tx(tx_ac)
             .ok_or_else(|| Error::NoTranscriptFound(tx_ac.to_string()))?;
-        tx.translation_exceptions
+        let mut exceptions = tx
+            .translation_exceptions
             .iter()
             .map(|exception| {
                 let amino_acid = exception.amino_acid.parse().map_err(|_| {
@@ -900,7 +907,24 @@ impl ProviderInterface for Provider {
                     amino_acid,
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>, Error>>()?;
+        // A UGA at the CDS end is the stop codon, also where the code reads UGA as
+        // selenocysteine, e.g., in SEPHS2.
+        if self.translation_table(tx) == TranslationTable::Selenocysteine
+            && let (Some(start), Some(stop)) = (tx.start_codon, tx.stop_codon)
+            && let (Ok(cds_len), Ok(stop)) = (u32::try_from(stop - start), usize::try_from(stop))
+            && cds_len >= 3
+            && cds_len % 3 == 0
+            && self
+                .get_seq_part(tx_ac, Some(stop - 3), Some(stop))?
+                .eq_ignore_ascii_case("TGA")
+        {
+            exceptions.push(TranslationException {
+                position: cds_len / 3,
+                amino_acid: '*',
+            });
+        }
+        Ok(exceptions)
     }
 
     fn get_tx_info(

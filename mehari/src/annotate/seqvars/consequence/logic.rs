@@ -4705,6 +4705,75 @@ mod test {
         Ok(())
     }
 
+    /// A selenoprotein without Sec positions reads UGA as selenocysteine inside its CDS, but a
+    /// UGA at the CDS end is its stop codon, as in SEPHS2.
+    ///
+    /// The transcript is the one of `selenoprotein_predictor`, but its CDS
+    /// `ATG GCC AAG CTG TGG GAA CCA TGA CGC GTT TGA` (`MAKLWEPURV*`) ends with UGA.
+    #[rstest::rstest]
+    #[case::stop_codon("1051:T:C", "p.Ter11ArgextTer?", Consequence::StopLost)]
+    #[case::sec_codon("1044:A:G", "p.Sec8Trp", Consequence::MissenseVariant)]
+    fn last_uga_is_the_stop_codon(
+        #[case] var: &str,
+        #[case] hgvs_p: &str,
+        #[case] consequence: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let utr = "CAGTCAGTCAGTCAGTCAGT";
+        let (tx, seq) = one_exon_tx(utr, "ATGGCCAAGCTGTGGGAACCATGACGCGTTTGA", utr);
+        let tx = Transcript {
+            tags: vec![TranscriptTag::Selenoprotein.into()],
+            ..tx
+        };
+        let var = var.split(':').collect::<Vec<_>>();
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: var[0].parse()?,
+                reference: var[1].into(),
+                alternative: var[2].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(ann.hgvs_p.as_deref(), Some(hgvs_p));
+        assert!(
+            ann.consequences.contains(&consequence),
+            "{:?}",
+            ann.consequences
+        );
+
+        Ok(())
+    }
+
+    /// A mitochondrial transcript reads UGA as Trp, as the vertebrate mitochondrial code does.
+    /// `c.15G>A` turns TGG into TGA.
+    #[test]
+    fn mitochondrial_code_reads_uga_as_trp() -> Result<(), anyhow::Error> {
+        let (mut tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CGCATCA");
+        tx.genome_alignments[0].contig = "NC_012920.1".into();
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "MT".into(),
+                position: 1035,
+                reference: "G".into(),
+                alternative: "A".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some("c.15G>A"), &vec![Consequence::SynonymousVariant])
+        );
+        Ok(())
+    }
+
     /// Without a stop codon, a change of the last amino acid is an ordinary change of it, not an
     /// extension. A frameshift that leaves no complete codon there gives `p.?`.
     ///
