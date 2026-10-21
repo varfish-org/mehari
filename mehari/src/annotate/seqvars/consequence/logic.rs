@@ -4364,9 +4364,9 @@ mod test {
     #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", false, "c.-21_2dup", "p.?", vec![Consequence::FivePrimeUtrExonVariant])]
     #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", true, "c.-21_2dup", "p.?", vec![Consequence::FrameshiftVariant])]
     // the copy lands in the last three exon bases
-    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", false, "c.491_504dup", "p.Ile169ThrfsTer4", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", false, "c.491_504dup", "p.Lys168_Ile169insThrValSerTer", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
     // VEP's changed codons at the 3'-shifted position hold the new stop codon
-    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", true, "c.491_504dup", "p.Ile169ThrfsTer4", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", true, "c.491_504dup", "p.Lys168_Ile169insThrValSerTer", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
     fn annotate_dup_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
