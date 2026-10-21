@@ -1,6 +1,5 @@
 //! Implementation of `hgvs` Provider interface based on protobuf.
 
-use crate::annotate::cli::{TranscriptPickMode, TranscriptPickType};
 use crate::annotate::seqvars::reference::{
     InMemoryFastaAccess, ReferenceReader, UnbufferedIndexedFastaAccess,
 };
@@ -170,29 +169,6 @@ impl PbsTranscriptExt for Transcript {
     }
 }
 
-/// Configuration for constructing the `Provider`.
-#[derive(Debug, Clone, Default, derive_builder::Builder)]
-#[builder(pattern = "immutable")]
-pub struct Config {
-    /// Which kind of transcript to pick / restrict to. Default is not to pick at all.
-    ///
-    /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
-    /// either the first one is kept or all are kept.
-    ///
-    /// Transcripts are evaluated in the order these options are provided.
-    /// To prevent variants from being completely dropped, if none of the overlapping
-    /// transcripts match the requested criteria, the longest transcript is the implicit fallback.
-    #[builder(default)]
-    pub pick_transcript: Vec<TranscriptPickType>,
-
-    /// Determines how to handle multiple transcripts. Default is to keep all.
-    ///
-    /// When transcript picking is enabled via `--pick-transcript`,
-    /// either keep the first one found or keep all that match.
-    #[builder(default)]
-    pub pick_transcript_mode: TranscriptPickMode,
-}
-
 /// Provider based on the protobuf `TxSeqDatabase`.
 pub struct Provider {
     /// Database of transcripts and sequences as deserialized from protobuf.
@@ -228,12 +204,6 @@ pub struct Provider {
 
     /// The schema version.
     schema_version: String,
-
-    /// The transcript(-feature)s to pick, if any
-    pub pick_transcript: Vec<TranscriptPickType>,
-
-    /// How to handle multiple transcripts. Default is to keep all.
-    pub pick_transcript_mode: TranscriptPickMode,
 }
 
 enum ReferenceReaderImpl {
@@ -271,31 +241,6 @@ pub(crate) fn transcript_length(tx: &Transcript) -> i32 {
     max_tx_length
 }
 
-pub(crate) fn tag_to_picktype(tag: &i32) -> Option<TranscriptPickType> {
-    match TranscriptTag::try_from(*tag).unwrap() {
-        TranscriptTag::Unknown | TranscriptTag::Other | TranscriptTag::OtherBackport => None,
-        TranscriptTag::Basic => Some(TranscriptPickType::Basic),
-        TranscriptTag::EnsemblCanonical => Some(TranscriptPickType::EnsemblCanonical),
-        TranscriptTag::ManeSelect => Some(TranscriptPickType::ManeSelect),
-        TranscriptTag::ManePlusClinical => Some(TranscriptPickType::ManePlusClinical),
-        TranscriptTag::RefSeqSelect => Some(TranscriptPickType::RefSeqSelect),
-        TranscriptTag::Selenoprotein => None,
-        TranscriptTag::GencodePrimary => Some(TranscriptPickType::GencodePrimary),
-        TranscriptTag::EnsemblGraft => None,
-        TranscriptTag::BasicBackport => Some(TranscriptPickType::BasicBackport),
-        TranscriptTag::EnsemblCanonicalBackport => {
-            Some(TranscriptPickType::EnsemblCanonicalBackport)
-        }
-        TranscriptTag::ManeSelectBackport => Some(TranscriptPickType::ManeSelectBackport),
-        TranscriptTag::ManePlusClinicalBackport => {
-            Some(TranscriptPickType::ManePlusClinicalBackport)
-        }
-        TranscriptTag::RefSeqSelectBackport => Some(TranscriptPickType::RefSeqSelectBackport),
-        TranscriptTag::SelenoproteinBackport => None,
-        TranscriptTag::GencodePrimaryBackport => Some(TranscriptPickType::GencodePrimaryBackport),
-    }
-}
-
 impl Provider {
     /// Create a new `MehariProvider` from a `TxSeqDatabase`.
     ///
@@ -306,7 +251,6 @@ impl Provider {
         tx_seq_db: TxSeqDatabase,
         reference: Option<impl AsRef<Path>>,
         in_memory_reference: bool,
-        config: Config,
     ) -> Self {
         let assembly_name = tx_seq_db.assembly().clone();
 
@@ -401,14 +345,13 @@ impl Provider {
         // unique, such that `data_version` and `schema_version` can be used as keys for
         // caching.
         let data_version = format!(
-            "{}{}{:?}",
+            "{}{}",
             tx_seq_db.version.as_ref().unwrap_or(&"".to_string()),
             tx_seq_db
                 .source_version
                 .iter()
                 .map(|v| format!("{:#?}", v))
                 .join(","),
-            config
         );
         let schema_version = data_version.clone();
 
@@ -436,8 +379,6 @@ impl Provider {
             reference_reader,
             data_version,
             schema_version,
-            pick_transcript: config.pick_transcript,
-            pick_transcript_mode: config.pick_transcript_mode,
         }
     }
 
@@ -448,11 +389,6 @@ impl Provider {
     /// The assembly of the provider.
     pub fn assembly(&self) -> String {
         self.tx_seq_db.assembly().clone()
-    }
-
-    /// Return whether transcript picking is enabled.
-    pub fn transcript_picking(&self) -> bool {
-        !self.pick_transcript.is_empty()
     }
 
     /// Return the picked transcript IDs for a gene.

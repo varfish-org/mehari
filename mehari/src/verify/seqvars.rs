@@ -1,12 +1,12 @@
 //! Verification of the sequence variant consequence prediction.
 
-use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
+use crate::annotate::cli::TranscriptSettings;
 use crate::annotate::seqvars::consequence::load_tx_db;
 use crate::annotate::seqvars::{
     consequence::{
         ConfigBuilder as ConsequencePredictorConfigBuilder, ConsequencePredictor, VcfVariant,
     },
-    provider::{ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider},
+    provider::Provider as MehariProvider,
 };
 use clap::Parser;
 use noodles::core::{Position, Region};
@@ -41,27 +41,8 @@ pub struct Args {
     #[arg(long, required = true)]
     pub assembly: String,
 
-    /// Whether to report only the worst consequence for each picked transcript.
-    #[arg(long)]
-    pub report_most_severe_consequence_by: Option<ConsequenceBy>,
-
-    /// Which kind of transcript to pick / restrict to. Default is not to pick at all.
-    ///
-    /// Depending on `--pick-transcript-mode`, if multiple transcripts match the selection,
-    /// either the first one is kept or all are kept.
-    ///
-    /// Transcripts are evaluated in the order these options are provided.
-    /// To prevent variants from being completely dropped, if none of the overlapping
-    /// transcripts match the requested criteria, the longest transcript is the implicit fallback.
-    #[arg(long)]
-    pub pick_transcript: Vec<TranscriptPickType>,
-
-    /// Determines how to handle multiple transcripts. Default is to keep all.
-    ///
-    /// When transcript picking is enabled via `--pick-transcript`,
-    /// either keep the first one found or keep all that match.
-    #[arg(long, default_value = "all")]
-    pub pick_transcript_mode: TranscriptPickMode,
+    #[clap(flatten)]
+    pub transcript_settings: TranscriptSettings,
 
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
@@ -115,16 +96,12 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Err
         tx_db,
         Some(&args.path_reference_fasta),
         args.in_memory_reference,
-        MehariProviderConfigBuilder::default()
-            .pick_transcript(args.pick_transcript.clone())
-            .pick_transcript_mode(args.pick_transcript_mode)
-            .build()?,
     ));
 
     let predictor = ConsequencePredictor::new(
         provider,
         ConsequencePredictorConfigBuilder::default()
-            .report_most_severe_consequence_by(args.report_most_severe_consequence_by)
+            .transcript_settings(args.transcript_settings.clone())
             .build()?,
     );
 

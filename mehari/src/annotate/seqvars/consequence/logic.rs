@@ -1,10 +1,10 @@
 //! Compute molecular consequence of variants.
+use super::pick::{self, Candidate};
 use super::plugin::{TxAnnotation, TxContext};
+use super::terms::{ANN_PICK, FeatureTag, GroupedAlleles};
 use super::terms::{
     Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature,
 };
-use super::terms::{FeatureTag, GroupedAlleles};
-use crate::annotate::cli::{ConsequenceBy, TranscriptPickMode, TranscriptPickType};
 use crate::annotate::seqvars::consequence::{Config, Consequences, FormattedLoc, VcfVariant};
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
@@ -24,6 +24,7 @@ use itertools::Itertools;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
 /// Wrap mapper, provider, and map for consequence prediction.
 #[derive(derivative::Derivative)]
@@ -41,8 +42,13 @@ pub struct ConsequencePredictor {
     #[derivative(Debug = "ignore")]
     pub(crate) config: Config,
 
-    /// The columns of `config.plugins`, in order.
+    /// The columns of `config.plugins`, in order, then `pick` for `--flag-pick`.
     custom_columns: Vec<String>,
+    /// Gene annotations dropped by `--restrict-transcripts`, for the summary at the end.
+    restrict_dropped_genes: AtomicUsize,
+
+    /// Variants with gene annotations dropped by `--restrict-transcripts`.
+    restrict_dropped_variants: AtomicUsize,
 }
 
 /// Padding to look for genes upstream/downstream.
@@ -120,11 +126,14 @@ struct ConsequenceContext {
 
 impl ConsequencePredictor {
     pub fn new(provider: Arc<MehariProvider>, config: Config) -> Self {
-        let custom_columns = config
+        let mut custom_columns: Vec<_> = config
             .plugins
             .iter()
             .flat_map(|plugin| plugin.columns())
             .collect();
+        if config.transcript_settings.flag_pick {
+            custom_columns.push(ANN_PICK.to_string());
+        }
 
         tracing::info!("Building transcript interval trees ...");
 
@@ -148,6 +157,8 @@ impl ConsequencePredictor {
             mapper,
             config,
             custom_columns,
+            restrict_dropped_genes: AtomicUsize::new(0),
+            restrict_dropped_variants: AtomicUsize::new(0),
         }
     }
 
@@ -260,19 +271,20 @@ impl ConsequencePredictor {
         let qry_start = var_start_fwd.min(var_start_rev) - PADDING;
         let qry_end = var_end_fwd.max(var_end_rev) + PADDING;
 
-        let txs = {
-            let mut txs = self
-                .provider
-                .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)
-                .map_err(|e| SeqvarsError::Provider(e.to_string()))?;
-            txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
-            // Filter transcripts to the picked ones from the selected
-            // transcript source.
-            self.filter_picked_sourced_txs(txs)
-        };
+        let mut txs = self
+            .provider
+            .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)
+            .map_err(|e| SeqvarsError::Provider(e.to_string()))?;
+        txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
 
         // Handle case of no overlapping transcripts -> intergenic.
         if txs.is_empty() {
+            if !self.config.keep_intergenic {
+                // Plugins may want predictions without annotations, too.
+                return Ok(Some(
+                    self.run_plugins(std::slice::from_ref(var), Vec::new())?,
+                ));
+            }
             let hgvs_g = Some(self.format_hgvs_g(&var_g));
 
             let ann = AnnField {
@@ -307,32 +319,61 @@ impl ConsequencePredictor {
                 context: self.tx_context(None, None, None),
                 ann,
             };
-            return Ok(Some(self.run_plugins(
-                std::slice::from_ref(var),
-                self.filter_ann_fields(vec![intergenic]),
-            )?));
+            return Ok(Some(
+                self.run_plugins(std::slice::from_ref(var), vec![intergenic])?,
+            ));
         }
 
-        // Compute annotations for all (picked) transcripts first, skipping `None`` results.
-        let mut anns_all_txs = Vec::with_capacity(txs.len());
-
-        for tx in txs {
-            let ann_opt = if tx.alt_strand == -1 {
-                self.build_ann_field(var, &var_g_rev, tx, var_start_rev, var_end_rev)?
+        let anns = self.select_annotations(txs, |tx| {
+            if tx.alt_strand == -1 {
+                self.build_ann_field(var, &var_g_rev, tx.clone(), var_start_rev, var_end_rev)
             } else {
-                self.build_ann_field(var, &var_g_fwd, tx, var_start_fwd, var_end_fwd)?
-            };
-
-            if let Some(ann) = ann_opt {
-                anns_all_txs.push(ann);
+                self.build_ann_field(var, &var_g_fwd, tx.clone(), var_start_fwd, var_end_fwd)
             }
-        }
+        })?;
+        Ok(Some(self.run_plugins(std::slice::from_ref(var), anns)?))
+    }
 
-        // Return all or worst annotation only.
-        Ok(Some(self.run_plugins(
-            std::slice::from_ref(var),
-            self.filter_ann_fields(anns_all_txs),
-        )?))
+    /// Annotate the transcripts near the variant that `Config::transcript_settings` selects.
+    fn select_annotations(
+        &self,
+        txs: Vec<TxForRegionRecord>,
+        annotate: impl FnMut(&TxForRegionRecord) -> Result<Option<TxAnnotation>, SeqvarsError>,
+    ) -> Result<Vec<TxAnnotation>, SeqvarsError> {
+        let cands = txs
+            .into_iter()
+            .filter_map(|record| match self.provider.get_tx(&record.tx_ac) {
+                Some(tx) => Some(Candidate::new(record, tx)),
+                None => {
+                    tracing::warn!(
+                        "Requested transcript accession {}, got None (potentially filtered)",
+                        &record.tx_ac
+                    );
+                    None
+                }
+            })
+            .collect();
+        let selection = pick::select(&self.config.transcript_settings, cands, annotate)?;
+        if selection.dropped_genes > 0 {
+            self.restrict_dropped_genes
+                .fetch_add(selection.dropped_genes, AtomicOrdering::Relaxed);
+            self.restrict_dropped_variants
+                .fetch_add(1, AtomicOrdering::Relaxed);
+        }
+        Ok(selection.anns)
+    }
+
+    /// Log how many gene annotations `--restrict-transcripts` dropped so far.
+    pub(crate) fn log_restrict_summary(&self) {
+        let genes = self.restrict_dropped_genes.load(AtomicOrdering::Relaxed);
+        if genes > 0 {
+            tracing::warn!(
+                "--restrict-transcripts: no annotation for {} gene(s) on {} variant(s), as none \
+                 of their transcripts has the requested tags",
+                genes,
+                self.restrict_dropped_variants.load(AtomicOrdering::Relaxed)
+            );
+        }
     }
 
     fn get_var_start_end(var_g: &HgvsVariant) -> (i32, i32) {
@@ -356,222 +397,6 @@ impl ConsequencePredictor {
             }
             _ => unreachable!(),
         }
-    }
-
-    fn filter_picked_sourced_txs(&self, txs: Vec<TxForRegionRecord>) -> Vec<TxForRegionRecord> {
-        // If no picking is requested, return all overlapping transcripts
-        if !self.provider.transcript_picking() {
-            return txs;
-        }
-
-        // Group the physically OVERLAPPING transcripts by gene
-        let mut by_gene: std::collections::HashMap<String, Vec<TxForRegionRecord>> =
-            std::collections::HashMap::new();
-        for tx in &txs {
-            if let Some(t) = self.provider.get_tx(&tx.tx_ac) {
-                by_gene
-                    .entry(t.gene_id.clone())
-                    .or_default()
-                    .push(tx.clone());
-            }
-        }
-
-        let mut dynamic_picked = Vec::new();
-
-        for (_, gene_txs) in by_gene {
-            if gene_txs.is_empty() {
-                continue;
-            }
-
-            // If only one transcript overlaps, it wins by default
-            if gene_txs.len() == 1 {
-                dynamic_picked.push(gene_txs[0].clone());
-                continue;
-            }
-
-            // Helper to find the "smart longest" among a subset of transcripts
-            let find_longest = |subset: &[TxForRegionRecord]| -> TxForRegionRecord {
-                subset
-                    .iter()
-                    .max_by_key(|tx| {
-                        self.provider
-                            .get_tx(&tx.tx_ac)
-                            .map(|t| {
-                                let is_coding = TranscriptBiotype::try_from(t.biotype)
-                                    .unwrap_or(TranscriptBiotype::Unknown)
-                                    == TranscriptBiotype::Coding;
-                                let is_clean = t.is_clean();
-                                let length =
-                                    crate::annotate::seqvars::provider::transcript_length(t);
-                                (is_coding, is_clean, length)
-                            })
-                            .unwrap_or((false, false, 0))
-                    })
-                    .cloned()
-                    .unwrap()
-            };
-
-            match self.provider.pick_transcript_mode {
-                TranscriptPickMode::First => {
-                    let mut resolved = None;
-
-                    // Evaluate criteria in strict CLI order against the OVERLAPPING transcripts
-                    for pick in &self.provider.pick_transcript {
-                        if *pick == TranscriptPickType::Length {
-                            resolved = Some(find_longest(&gene_txs));
-                            break;
-                        } else {
-                            let matched: Vec<_> = gene_txs
-                                .iter()
-                                .filter(|tx| {
-                                    if let Some(t) = self.provider.get_tx(&tx.tx_ac) {
-                                        let tags = t
-                                            .tags
-                                            .iter()
-                                            .filter_map(
-                                                crate::annotate::seqvars::provider::tag_to_picktype,
-                                            )
-                                            .collect::<Vec<_>>();
-                                        tags.contains(pick)
-                                    } else {
-                                        false
-                                    }
-                                })
-                                .cloned()
-                                .collect();
-
-                            if !matched.is_empty() {
-                                // If multiple overlapping transcripts share the tag, break tie with length
-                                resolved = Some(find_longest(&matched));
-                                break;
-                            }
-                        }
-                    }
-
-                    // If none of the CLI criteria matched (e.g. no ManeSelect overlaps, and Length wasn't specified),
-                    // fallback to the longest overlapping transcript to ensure we don't drop the variant.
-                    if let Some(tx) = resolved {
-                        dynamic_picked.push(tx);
-                    } else {
-                        dynamic_picked.push(find_longest(&gene_txs));
-                    }
-                }
-                TranscriptPickMode::All => {
-                    let mut kept_for_gene = Vec::new();
-
-                    for pick in &self.provider.pick_transcript {
-                        if *pick == TranscriptPickType::Length {
-                            let longest = find_longest(&gene_txs);
-                            if !kept_for_gene
-                                .iter()
-                                .any(|tx: &TxForRegionRecord| tx.tx_ac == longest.tx_ac)
-                            {
-                                kept_for_gene.push(longest);
-                            }
-                        } else {
-                            for tx in &gene_txs {
-                                if let Some(t) = self.provider.get_tx(&tx.tx_ac) {
-                                    let tags = t
-                                        .tags
-                                        .iter()
-                                        .filter_map(
-                                            crate::annotate::seqvars::provider::tag_to_picktype,
-                                        )
-                                        .collect::<Vec<_>>();
-                                    if tags.contains(pick)
-                                        && !kept_for_gene
-                                            .iter()
-                                            .any(|kept: &TxForRegionRecord| kept.tx_ac == tx.tx_ac)
-                                    {
-                                        kept_for_gene.push(tx.clone());
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if kept_for_gene.is_empty() {
-                        kept_for_gene.push(find_longest(&gene_txs));
-                    }
-
-                    dynamic_picked.extend(kept_for_gene);
-                }
-            }
-        }
-
-        dynamic_picked.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
-        dynamic_picked
-    }
-
-    /// Filter the ANN fields depending on the configuration.
-    ///
-    /// If all transcripts are to be reported then return `ann_fields` as is, otherwise
-    /// select one worst consequence per gene.
-    fn filter_ann_fields(&self, mut ann_fields: Vec<TxAnnotation>) -> Vec<TxAnnotation> {
-        if !self.config.keep_intergenic {
-            ann_fields.retain(|field| field.ann.consequences != [Consequence::IntergenicVariant]);
-        }
-
-        /// Return sort order for ANN biotype, gives priority to ManeSelect and ManePlusClinical.
-        fn tag_order(tags: &[FeatureTag]) -> i32 {
-            if tags.contains(&FeatureTag::ManeSelect)
-                || tags.contains(&FeatureTag::ManeSelectBackport)
-            {
-                0
-            } else if tags.contains(&FeatureTag::ManePlusClinical)
-                || tags.contains(&FeatureTag::ManePlusClinicalBackport)
-            {
-                1
-            } else {
-                2
-            }
-        }
-
-        if let Some(group) = &self.config.report_most_severe_consequence_by {
-            // Sort primarily by the grouping key, and secondarily by consequence severity.
-            ann_fields.sort_unstable_by(|a, b| {
-                let (a, b) = (&a.ann, &b.ann);
-                let key_cmp = match group {
-                    ConsequenceBy::Gene => a.gene_id.cmp(&b.gene_id),
-                    ConsequenceBy::Transcript => a.feature_id.cmp(&b.feature_id),
-                    ConsequenceBy::Allele => a.allele.cmp(&b.allele),
-                };
-
-                if key_cmp == std::cmp::Ordering::Equal {
-                    let a_severity = (
-                        a.consequences
-                            .first()
-                            .copied()
-                            .unwrap_or(Consequence::GeneVariant),
-                        tag_order(&a.feature_tags),
-                    );
-                    let b_severity = (
-                        b.consequences
-                            .first()
-                            .copied()
-                            .unwrap_or(Consequence::GeneVariant),
-                        tag_order(&b.feature_tags),
-                    );
-                    a_severity.cmp(&b_severity)
-                } else {
-                    key_cmp
-                }
-            });
-
-            // dedup_by keeps the FIRST element of a consecutive sequence.
-            // Since we sorted the most severe consequence to the front of each group,
-            // this safely retains only the most severe annotation per group.
-            ann_fields.dedup_by(|a, b| {
-                let (a, b) = (&a.ann, &b.ann);
-                match group {
-                    ConsequenceBy::Gene => a.gene_id == b.gene_id,
-                    ConsequenceBy::Transcript => a.feature_id == b.feature_id,
-                    ConsequenceBy::Allele => a.allele == b.allele,
-                }
-            });
-        }
-
-        ann_fields
     }
 
     fn determine_transcript_context(
@@ -2190,24 +2015,17 @@ impl ConsequencePredictor {
             return Ok(None);
         }
 
-        let mut multi_anns = Vec::new();
-
-        for tx_record in txs {
-            if let Some(ann) = self.predict_multiple_for_transcript(
+        let multi_anns = self.select_annotations(txs, |tx_record| {
+            self.predict_multiple_for_transcript(
                 &sorted_vars,
                 &sorted_originals,
-                &tx_record,
+                tx_record,
                 chrom_acc,
                 hgvs_g.clone(),
-            )? {
-                multi_anns.push(ann);
-            }
-        }
+            )
+        })?;
 
-        Ok(Some(self.run_plugins(
-            variants,
-            self.filter_ann_fields(multi_anns),
-        )?))
+        Ok(Some(self.run_plugins(variants, multi_anns)?))
     }
 
     /// Ensures variants don't overlap and are in the correct order.
@@ -2264,7 +2082,7 @@ impl ConsequencePredictor {
             )
             .map_err(|e| SeqvarsError::Provider(e.to_string()))?;
         txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
-        Ok(self.filter_picked_sourced_txs(txs))
+        Ok(txs)
     }
 
     /// Evaluates a group of variants for a specific transcript.
@@ -2755,13 +2573,13 @@ impl ConsequencePredictor {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::annotate::cli::TranscriptPickMode;
-    use crate::annotate::cli::{PredictorSettings, TranscriptPickType, TranscriptSettings};
+    use crate::annotate::cli::{
+        PickCriterion, PickUnit, PredictorSettings, TagCriterion, TranscriptSettings,
+    };
     use crate::annotate::seqvars::consequence::ConfigBuilder;
     use crate::annotate::seqvars::consequence::load_tx_db;
     use crate::annotate::seqvars::consequence::plugin::{SequencePlugin, TranscriptPlugin};
     use crate::annotate::seqvars::consequence::terms::ANN_AA_SEQ_ALT;
-    use crate::annotate::seqvars::provider::ConfigBuilder as MehariProviderConfigBuilder;
     use crate::annotate::seqvars::{
         Args, AsyncAnnotatedVariantWriter, OutputFormat, run_with_writer,
     };
@@ -2783,6 +2601,19 @@ mod test {
     fn test_sync() {
         fn is_sync<T: Sync>() {}
         is_sync::<super::ConsequencePredictor>();
+    }
+
+    /// One transcript per gene, MANE Plus Clinical first, then MANE Select, then the longest.
+    fn pick_mane_by_gene() -> TranscriptSettings {
+        TranscriptSettings {
+            pick: Some(PickUnit::Gene),
+            pick_order: vec![
+                PickCriterion::ManePlusClinicalBackport,
+                PickCriterion::ManeSelectBackport,
+                PickCriterion::Length,
+            ],
+            ..Default::default()
+        }
     }
 
     #[rstest::rstest]
@@ -2814,12 +2645,7 @@ mod test {
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
 
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
@@ -2846,12 +2672,7 @@ mod test {
         let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
 
         let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let res = predictor
@@ -2935,23 +2756,12 @@ mod test {
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            MehariProviderConfigBuilder::default()
-                .pick_transcript(vec![
-                    TranscriptPickType::ManePlusClinicalBackport,
-                    TranscriptPickType::ManeSelectBackport,
-                    TranscriptPickType::Length,
-                ])
-                .build()?,
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
 
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
-                .report_most_severe_consequence_by(Some(ConsequenceBy::Gene))
+                .transcript_settings(pick_mane_by_gene())
                 .build()?,
         );
 
@@ -3022,20 +2832,14 @@ mod test {
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            MehariProviderConfigBuilder::default()
-                .pick_transcript(vec![
-                    TranscriptPickType::ManePlusClinicalBackport,
-                    TranscriptPickType::ManeSelectBackport,
-                    TranscriptPickType::Length,
-                ])
-                .build()?,
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
 
-        let predictor = ConsequencePredictor::new(provider, Default::default());
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .transcript_settings(pick_mane_by_gene())
+                .build()?,
+        );
 
         let res = predictor.predict(&variant)?.unwrap();
 
@@ -3063,12 +2867,7 @@ mod test {
         let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
 
         let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let res = predictor
@@ -3106,20 +2905,14 @@ mod test {
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            MehariProviderConfigBuilder::default()
-                .pick_transcript(vec![
-                    TranscriptPickType::ManePlusClinicalBackport,
-                    TranscriptPickType::ManeSelectBackport,
-                    TranscriptPickType::Length,
-                ])
-                .build()?,
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
 
-        let predictor = ConsequencePredictor::new(provider, Default::default());
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .transcript_settings(pick_mane_by_gene())
+                .build()?,
+        );
 
         let res = predictor.predict(&variant)?.unwrap();
 
@@ -3153,35 +2946,18 @@ mod test {
 
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
-        let picks = if pick_transcripts {
-            vec![
-                TranscriptPickType::ManePlusClinicalBackport,
-                TranscriptPickType::ManeSelectBackport,
-                TranscriptPickType::Length,
-            ]
-        } else {
-            vec![]
+        // After picking one transcript per gene, the most severe consequence has no choice left.
+        let transcript_settings = match (pick_transcripts, report_most_severe_consequence_only) {
+            (true, _) => pick_mane_by_gene(),
+            (false, true) => TranscriptSettings::most_severe(PickUnit::Gene),
+            (false, false) => TranscriptSettings::default(),
         };
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            MehariProviderConfigBuilder::default()
-                .pick_transcript(picks)
-                .pick_transcript_mode(TranscriptPickMode::First)
-                .build()
-                .unwrap(),
-        ));
-        let report_most_severe_consequence_by = if report_most_severe_consequence_only {
-            Some(ConsequenceBy::Gene)
-        } else {
-            None
-        };
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
 
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
-                .report_most_severe_consequence_by(report_most_severe_consequence_by)
+                .transcript_settings(transcript_settings)
                 .build()
                 .unwrap(),
         );
@@ -3218,37 +2994,18 @@ mod test {
         let tx_path = "tests/data/annotate/db/grch37/txs.bin.zst";
         let tx_db = load_tx_db(tx_path)?;
 
-        let picks = if pick_transcripts {
-            vec![
-                TranscriptPickType::ManePlusClinicalBackport,
-                TranscriptPickType::ManeSelectBackport,
-                TranscriptPickType::Length,
-            ]
-        } else {
-            vec![]
+        // After picking one transcript per gene, the most severe consequence has no choice left.
+        let transcript_settings = match (pick_transcripts, report_most_severe_consequence_only) {
+            (true, _) => pick_mane_by_gene(),
+            (false, true) => TranscriptSettings::most_severe(PickUnit::Gene),
+            (false, false) => TranscriptSettings::default(),
         };
-
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            MehariProviderConfigBuilder::default()
-                .pick_transcript(picks)
-                .pick_transcript_mode(TranscriptPickMode::First)
-                .build()
-                .unwrap(),
-        ));
-
-        let report_most_severe_consequence_by = if report_most_severe_consequence_only {
-            Some(ConsequenceBy::Gene)
-        } else {
-            None
-        };
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
 
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
-                .report_most_severe_consequence_by(report_most_severe_consequence_by)
+                .transcript_settings(transcript_settings)
                 .build()
                 .unwrap(),
         );
@@ -3285,9 +3042,9 @@ mod test {
                 output_format: OutputFormat::Vcf,
                 predictor_settings: PredictorSettings {
                     transcript_settings: TranscriptSettings {
-                        report_most_severe_consequence_by: Some(ConsequenceBy::Allele),
-                        pick_transcript: vec![TranscriptPickType::ManeSelect],
-                        ..Default::default()
+                        restrict_transcripts: vec![TagCriterion::ManeSelect],
+                        restrict_fallback: true,
+                        ..TranscriptSettings::most_severe(PickUnit::Allele)
                     },
                     ..Default::default()
                 },
@@ -3452,19 +3209,18 @@ mod test {
             tx_db,
             with_reference.then_some(reference_path),
             true,
-            Default::default(),
         ));
 
-        let report_most_severe_consequence_by = if report_most_severe_consequence_only {
-            Some(ConsequenceBy::Gene)
+        let transcript_settings = if report_most_severe_consequence_only {
+            TranscriptSettings::most_severe(PickUnit::Gene)
         } else {
-            None
+            TranscriptSettings::default()
         };
 
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
-                .report_most_severe_consequence_by(report_most_severe_consequence_by)
+                .transcript_settings(transcript_settings)
                 .build()
                 .unwrap(),
         );
@@ -3748,12 +3504,7 @@ mod test {
 
     fn brca1_sequence_predictor() -> Result<ConsequencePredictor, anyhow::Error> {
         let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
         Ok(ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
@@ -3856,17 +3607,12 @@ mod test {
     #[test]
     fn plugin_runs_once_per_variant_on_reported_transcripts() -> Result<(), anyhow::Error> {
         let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
         let plugin = Arc::new(CountingPlugin::default());
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
-                .report_most_severe_consequence_by(Some(ConsequenceBy::Gene))
+                .transcript_settings(TranscriptSettings::most_severe(PickUnit::Gene))
                 .plugins(vec![Arc::new(SequencePlugin::AaAlt), plugin.clone()])
                 .build()?,
         );
@@ -3892,5 +3638,71 @@ mod test {
             .build();
 
         assert!(config.is_err());
+    }
+
+    #[test]
+    fn flag_pick_column_follows_the_plugin_columns() -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
+        let plugin = Arc::new(CountingPlugin::default());
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .transcript_settings(TranscriptSettings {
+                    flag_pick: true,
+                    ..TranscriptSettings::most_severe(PickUnit::Gene)
+                })
+                .plugins(vec![plugin.clone()])
+                .build()?,
+        );
+
+        assert_eq!(predictor.custom_columns(), ["tx_count", ANN_PICK]);
+
+        let res = predictor.predict(&vcf_variant("17:41215920:G:T"))?.unwrap();
+        let picked = res
+            .iter()
+            .filter(|ann| ann.custom_fields.get(ANN_PICK) == Some(&Some("1".into())))
+            .count();
+
+        assert_eq!(picked, 1);
+        assert_eq!(*plugin.calls.lock().unwrap(), [res.len()]);
+
+        Ok(())
+    }
+
+    /// Fills the column of `--flag-pick`.
+    #[derive(Debug)]
+    struct PickPlugin;
+
+    impl TranscriptPlugin for PickPlugin {
+        fn columns(&self) -> Vec<String> {
+            vec![ANN_PICK.into()]
+        }
+
+        fn annotate(
+            &self,
+            _variants: &[VcfVariant],
+            _txs: &mut Vec<TxAnnotation>,
+        ) -> Result<(), SeqvarsError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn flag_pick_and_plugins_must_fill_distinct_columns() {
+        let settings = TranscriptSettings {
+            flag_pick: true,
+            ..TranscriptSettings::most_severe(PickUnit::Gene)
+        };
+        let with_flag = ConfigBuilder::default()
+            .transcript_settings(settings)
+            .plugins(vec![Arc::new(PickPlugin)])
+            .build();
+        let without_flag = ConfigBuilder::default()
+            .plugins(vec![Arc::new(PickPlugin)])
+            .build();
+
+        assert!(with_flag.is_err());
+        assert!(without_flag.is_ok());
     }
 }

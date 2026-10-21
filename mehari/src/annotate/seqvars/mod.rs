@@ -1177,6 +1177,9 @@ async fn run_with_writer(
         total_written.separate_with_commas(),
         start.elapsed()
     );
+    if let Some(predictor) = annotator.consequence_predictor() {
+        predictor.log_restrict_summary();
+    }
     writer.shutdown().await?;
     Ok(())
 }
@@ -1678,7 +1681,7 @@ impl VariantProcessor {
 mod test {
     use super::binning::bin_from_range;
     use super::{Args, OutputFormat, run};
-    use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
+    use crate::annotate::cli::{PickUnit, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
     use crate::annotate::seqvars::consequence::plugin::{BuiltinPlugin, PluginSpec};
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
@@ -1720,10 +1723,7 @@ mod test {
             in_memory_reference: true,
             assembly: Some(assembly.into()),
             predictor_settings: PredictorSettings {
-                transcript_settings: TranscriptSettings {
-                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-                    ..Default::default()
-                },
+                transcript_settings: TranscriptSettings::most_severe(PickUnit::Gene),
                 ..Default::default()
             },
             input: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
@@ -1965,10 +1965,7 @@ mod test {
             in_memory_reference: true,
             assembly: Some(assembly.into()),
             predictor_settings: PredictorSettings {
-                transcript_settings: TranscriptSettings {
-                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-                    ..Default::default()
-                },
+                transcript_settings: TranscriptSettings::most_severe(PickUnit::Gene),
                 ..Default::default()
             },
             input: String::from("tests/data/annotate/seqvars/badly_formed_vcf_entry.vcf"),
@@ -2036,10 +2033,7 @@ mod test {
             in_memory_reference: true,
             assembly: Some(assembly.into()),
             predictor_settings: PredictorSettings {
-                transcript_settings: TranscriptSettings {
-                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-                    ..Default::default()
-                },
+                transcript_settings: TranscriptSettings::most_severe(PickUnit::Gene),
                 ..Default::default()
             },
             input: String::from("tests/data/annotate/seqvars/mitochondrial_variants.vcf"), // <-- Corrected
@@ -2161,10 +2155,7 @@ mod test {
             in_memory_reference: true,
             assembly: Some(assembly.into()),
             predictor_settings: PredictorSettings {
-                transcript_settings: TranscriptSettings {
-                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-                    ..Default::default()
-                },
+                transcript_settings: TranscriptSettings::most_severe(PickUnit::Gene),
                 ..Default::default()
             },
             input: String::from("tests/data/annotate/seqvars/clair3-glnexus-min.vcf"), // <-- Corrected
@@ -2234,10 +2225,7 @@ mod test {
             in_memory_reference: true,
             assembly: Some(assembly.into()),
             predictor_settings: PredictorSettings {
-                transcript_settings: TranscriptSettings {
-                    report_most_severe_consequence_by: Some(ConsequenceBy::Gene),
-                    ..Default::default()
-                },
+                transcript_settings: TranscriptSettings::most_severe(PickUnit::Gene),
                 ..Default::default()
             },
             input: String::from("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.vcf"),

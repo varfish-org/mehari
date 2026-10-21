@@ -167,5 +167,5 @@ These have not been tested with mehari.
 
 - Plugins have no access to the network or environment variables, and no file access beyond `data`. Their stderr is shown, their stdout is discarded.
 - mehari stops with an error naming the plugin if the plugin returns an error or fails, sets a column it did not declare or with a value of another type, or uses an annotation after the `annotate` call it came from.
-- Two plugins cannot fill the same column.
+- Two plugins cannot fill the same column, and with `--flag-pick` no plugin can fill `pick`.
 - The interface has a version (`package mehari:plugin@0.1.0` in `plugin.wit`). Later 0.1.x versions only add functions, so plugins built for an earlier one keep working; a plugin that uses newer functions needs a mehari that has them. A plugin built for another version, e.g. 0.2, fails to load; rebuild it with the `plugin.wit` of your mehari version.

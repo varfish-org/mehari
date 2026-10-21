@@ -46,6 +46,33 @@ Plugins add columns to the `ANN` field; enable each with `--plugin`, in the orde
 Built-in plugins are `tx-sequence-ref`, `tx-sequence-alt`, `aa-sequence-ref` and `aa-sequence-alt` (transcript and protein sequences without and with the variant), and `nmd` (whether stop-gained and frameshift variants trigger nonsense-mediated decay).
 `--plugin` also takes the path of a WebAssembly component, for which you can write your own plugins in Python, Rust and other languages; see [Plugins](`self::plugins`).
 
+### Transcript Selection
+
+By default, Mehari reports one annotation per transcript near the variant, including transcripts up to 5 kbp upstream or downstream.
+Four options narrow this down:
+
+- `--restrict-transcripts mane-select,mane-plus-clinical` reports only transcripts with one of these tags.
+  A gene without such a transcript gets no annotation, and Mehari logs at the end how many genes this affected.
+  With `--restrict-fallback`, such a gene keeps its top-ranked transcript instead, marked with the message `INFO_RESTRICT_FALLBACK`.
+- `--pick gene`, `--pick transcript` or `--pick allele` reports one annotation per gene, per transcript or per allele.
+  `transcript` only matters when a transcript appears more than once near the variant.
+- `--pick-order` ranks the candidates for `--pick` and `--restrict-fallback`.
+  Each criterion only breaks the ties left by the ones before it, and the lowest accession breaks any remaining tie.
+  The default is `mane-select,mane-plus-clinical,refseq-select,ensembl-canonical,gencode-primary,basic,coding,unflagged,severity,length`.
+  A tag also matches its backport to GRCh37, while `mane-select-backport` and the other `-backport` values match only the backport.
+  Criteria before `severity` need no annotation, so `--pick gene --pick-order mane-select` annotates only the picked transcripts.
+- `--flag-pick` keeps all annotations and marks the picked ones with `1` in an extra ANN column, `pick`, after the columns of the plugins.
+
+These options replace `--pick-transcript`, `--pick-transcript-mode` and `--report-most-severe-consequence-by`:
+
+| Before | Now |
+|---|---|
+| `--pick-transcript mane-select --pick-transcript-mode all` | `--restrict-transcripts mane-select --restrict-fallback` |
+| `--pick-transcript mane-select --pick-transcript length --pick-transcript-mode first` | `--pick gene --pick-order mane-select,length` |
+| `--report-most-severe-consequence-by gene` | `--pick gene --pick-order severity,mane-select,mane-plus-clinical` |
+| `--report-most-severe-consequence-by transcript` | `--pick transcript --pick-order severity` |
+| `--report-most-severe-consequence-by allele` | `--pick allele --pick-order severity,mane-select,mane-plus-clinical` |
+
 ### Experimental: Compound Variants
 
 Mehari includes an experimental feature that allows you to evaluate the compound effect of multiple variants on the same transcript.

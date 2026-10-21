@@ -27,6 +27,8 @@ pub const ANN_AA_SEQ_ALT: &str = "aa_sequence_alt";
 pub const ANN_COMPOUND_IDS: &str = "compound_ids";
 pub const ANN_COMPOUND_VARIANTS: &str = "compound_variants";
 pub const ANN_NMD: &str = "nmd";
+/// Marks the picked annotation with `1` under `--flag-pick`.
+pub const ANN_PICK: &str = "pick";
 
 /// Putative impact level.
 #[derive(
@@ -937,6 +939,8 @@ pub enum Message {
     InfoRealignThreePrime,
     InfoCompoundAnnotation,
     InfoNonReferenceAnnotation,
+    /// The transcript lacks the `--restrict-transcripts` tags and was kept by `--restrict-fallback`.
+    InfoRestrictFallback,
 }
 
 /// Representation of an `ANN` field.

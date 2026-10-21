@@ -1133,6 +1133,7 @@ components:
       - info_realign_three_prime
       - info_compound_annotation
       - info_non_reference_annotation
+      - info_restrict_fallback
     MessageCode:
       type: string
       description: Machine-readable code of a `GenesTranscriptsMessage`.
