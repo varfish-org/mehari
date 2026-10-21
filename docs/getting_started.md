@@ -40,6 +40,7 @@ Now, annotate it using Mehari:
 
 ```sh
 mehari annotate seqvars \
+    --reference path/to/reference.fa \
     --transcripts path/to/mehari-transcript-db \
     --frequencies path/to/mehari-frequency-db \
     --clinvar path/to/mehari-clinvar-db \

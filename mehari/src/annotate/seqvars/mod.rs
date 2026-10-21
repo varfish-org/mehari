@@ -66,7 +66,7 @@ pub struct Args {
     #[arg(long)]
     pub assembly: Option<String>,
 
-    /// Reference genome FASTA file (with accompanying index).
+    /// Reference genome FASTA file (with accompanying index), strongly recommended.
     #[arg(long)]
     pub reference: Option<PathBuf>,
 

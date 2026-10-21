@@ -24,6 +24,7 @@ Further, it is written in the Rust programming language and can be used as a lib
 To annotate variant consequences, gnomAD frequencies and clinVar information for sequence variants:
 ```sh
     mehari annotate seqvars \
+      --reference resources/reference.fa \
       --transcripts resources/transcript_db \
       --frequencies resources/gnomad_db \
       --clinvar resources/clinvar_db \
