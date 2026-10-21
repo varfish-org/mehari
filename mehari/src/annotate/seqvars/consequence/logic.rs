@@ -577,8 +577,14 @@ impl ConsequencePredictor {
                 && var_end <= exon_end
                 && !is_exonic
             {
+                // The intron takes the number of the exon before it in transcript order, which
+                // is this exon only on the minus strand.
                 rank = Rank {
-                    ord: exon_alignment.ord + 1,
+                    ord: if strand == Strand::Minus {
+                        exon_alignment.ord + 1
+                    } else {
+                        exon_alignment.ord
+                    },
                     total: alignment.exons.len() as i32 - 1,
                 };
                 is_intronic = true;
@@ -3049,6 +3055,44 @@ mod test {
             spdi.join(":")
         );
         insta::assert_yaml_snapshot!(res);
+
+        Ok(())
+    }
+
+    /// Introns are numbered in transcript order on both strands.
+    #[rstest::rstest]
+    #[case("3:193332511:G:T", "NM_130837.3", 1, 30)] // c.33-1, plus strand
+    #[case("3:193332831:G:T", "NM_130837.3", 2, 30)] // c.351+1
+    #[case("17:41197820:G:T", "NM_007294.4", 22, 22)] // c.5468-1, minus strand
+    #[case("17:41199659:G:T", "NM_007294.4", 22, 22)] // c.5467+1
+    fn annotate_intron_rank(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] ord: i32,
+        #[case] total: i32,
+    ) -> Result<(), anyhow::Error> {
+        let spdi = spdi.split(':').map(|s| s.to_string()).collect::<Vec<_>>();
+
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].clone(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].clone(),
+                alternative: spdi[3].clone(),
+            })?
+            .unwrap();
+        let ann = res.iter().find(|ann| ann.feature_id == tx_id).unwrap();
+
+        assert_eq!(ann.rank, Some(Rank { ord, total }));
 
         Ok(())
     }
