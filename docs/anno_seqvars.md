@@ -38,7 +38,7 @@ $ mehari annotate seqvars \
 Note that the input and output files can optionally be gzip/bgzip compressed VCF files with suffixes (`.gz` or `.bgz`) or BCF files with suffix `.bcf`.
 The database assembly should match the one in the input VCF file (e.g., both should either be GRCh37/hg19 or GRCh38/hg38).
 You can optionally define the assembly via `--assembly`.
-Output formats can be toggled using `--output-format` (e.g., `vcf` or `jsonl`), and you can control the number of threads used for parallel processing by using the `--threads` flag (annotation speeds up to around 16 threads, given enough CPU cores).
+Output formats can be toggled using `--output-format` (e.g., `vcf` or `jsonl`), and you can control the number of threads used for parallel processing by using the `--threads` flag (we recommend a value of around 16).
 
 ### Experimental: Compound Variants
 
