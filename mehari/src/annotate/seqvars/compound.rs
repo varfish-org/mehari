@@ -37,16 +37,18 @@ pub struct VariantBuffer {
     pub max_tx_end: i32,
     pub buffer: Vec<BufferedVariant>,
     strategy: PhasingStrategy,
+    window_size: Option<u32>,
 }
 
 impl VariantBuffer {
-    pub fn new(strategy: PhasingStrategy) -> Self {
+    pub fn new(strategy: PhasingStrategy, window_size: Option<u32>) -> Self {
         Self {
             current_chrom: String::new(),
             min_tx_start: i32::MAX,
             max_tx_end: -1,
             buffer: Vec::new(),
             strategy,
+            window_size,
         }
     }
 
@@ -150,14 +152,20 @@ impl VariantBuffer {
                     grouped_indices.sort_unstable();
                     grouped_indices.dedup();
 
-                    let signature = grouped_indices
-                        .iter()
-                        .map(|i| i.to_string())
-                        .collect::<Vec<_>>()
-                        .join("|");
+                    for run in self.split_by_window(&all_variants, grouped_indices) {
+                        if run.len() <= 1 {
+                            continue;
+                        }
 
-                    if unique_signatures.insert(signature) {
-                        compound_groups.push(grouped_indices);
+                        let signature = run
+                            .iter()
+                            .map(|i| i.to_string())
+                            .collect::<Vec<_>>()
+                            .join("|");
+
+                        if unique_signatures.insert(signature) {
+                            compound_groups.push(run);
+                        }
                     }
                 }
             }
@@ -167,6 +175,38 @@ impl VariantBuffer {
         self.max_tx_end = -1;
 
         (all_variants, compound_groups)
+    }
+
+    /// Split position-sorted indices into runs where each variant starts at most
+    /// `window_size` bp after the end of the run so far. Without a window size, all
+    /// indices form one run.
+    fn split_by_window(
+        &self,
+        variants: &[BufferedVariant],
+        indices: Vec<usize>,
+    ) -> Vec<Vec<usize>> {
+        let mut runs: Vec<Vec<usize>> = Vec::new();
+        let mut run_end = 0;
+        for idx in indices {
+            let var = &variants[idx].vcf_var;
+            let start = i64::from(var.position);
+            let end = start + var.reference.len() as i64 - 1;
+            match runs.last_mut() {
+                Some(run)
+                    if self
+                        .window_size
+                        .is_none_or(|w| start - run_end <= i64::from(w)) =>
+                {
+                    run.push(idx);
+                    run_end = run_end.max(end);
+                }
+                _ => {
+                    runs.push(vec![idx]);
+                    run_end = end;
+                }
+            }
+        }
+        runs
     }
 
     /// Extract Genotype and Phase Set to determine phasing of an allele.
@@ -271,11 +311,12 @@ mod test {
     use super::VariantBuffer;
     use crate::annotate::cli::PhasingStrategy;
     use crate::annotate::seqvars::consequence::VcfVariant;
+    use rstest::rstest;
 
     /// Groups come out in transcript order, not in hash map order.
     #[test]
     fn flush_orders_compound_groups() {
-        let mut buffer = VariantBuffer::new(PhasingStrategy::Ignore);
+        let mut buffer = VariantBuffer::new(PhasingStrategy::Ignore, None);
         // Variant `i` lies on transcripts `tx{i-1}` and `tx{i}`, so neighbours form a group.
         for i in 0..8 {
             let vcf_var = VcfVariant {
@@ -291,6 +332,48 @@ mod test {
         let (_, compound_groups) = buffer.flush();
 
         let expected = (0..7).map(|i| vec![i, i + 1]).collect::<Vec<_>>();
+        assert_eq!(compound_groups, expected);
+    }
+
+    /// A gap larger than the window between neighbours starts a new group.
+    #[rstest]
+    #[case(Some(10), vec![vec![0, 1, 2, 3], vec![5, 6]])]
+    #[case(None, vec![(0..7).collect()])]
+    fn flush_splits_groups_by_window(
+        #[case] window_size: Option<u32>,
+        #[case] expected: Vec<Vec<usize>>,
+    ) {
+        let mut buffer = VariantBuffer::new(PhasingStrategy::Ignore, window_size);
+        // The deletion at 1009 ends at 1012, so 1022 is still within the window.
+        let variants = [
+            (1000, "A", "C"),
+            (1005, "A", "C"),
+            (1009, "AAAA", "A"),
+            (1022, "A", "C"),
+            (1040, "A", "C"),
+            (1060, "A", "C"),
+            (1065, "A", "C"),
+        ];
+        for (position, reference, alternative) in variants {
+            let vcf_var = VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: reference.into(),
+                alternative: alternative.into(),
+            };
+            buffer.push(
+                vcf_var,
+                Default::default(),
+                ["tx".into()].into(),
+                0,
+                2000,
+                0,
+                1,
+            );
+        }
+
+        let (_, compound_groups) = buffer.flush();
+
         assert_eq!(compound_groups, expected);
     }
 }
