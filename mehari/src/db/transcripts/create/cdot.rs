@@ -57,35 +57,22 @@ pub fn load_cdot(
             continue;
         }
         gene_versions.insert(gene_id.clone(), version);
-        match &gene.hgnc {
-            Some(hgnc) => loader
-                .gene_legacy_gene_ids
-                .insert(gene_id.clone(), format!("HGNC:{hgnc}")),
-            None => loader.gene_legacy_gene_ids.remove(&gene_id),
-        };
         loader.gene_id_to_gene.insert(gene_id.clone(), gene);
         loader.gene_id_to_transcript_ids.entry(gene_id).or_default();
     }
 
     for (tx_id, mut tx) in cdot_transcripts {
         shift_codons_past_unaligned_bases(&mut tx, &loader.genome_release);
-        let (gene_id, version, key) = gene_key(&tx);
+        let (gene_id, key) = gene_key(&tx);
         if let Some(hgnc) = &tx.hgnc {
             hgnc_ids
                 .entry(gene_id.clone())
                 .or_default()
                 .insert(hgnc.clone());
         }
-        let legacy_gene_id = match &tx.hgnc {
-            Some(hgnc) => format!("HGNC:{hgnc}"),
-            None => format!("GENE:{key}"),
-        };
         loader
             .transcript_gene_ids
             .insert(tx_id.clone(), key.to_string());
-        loader
-            .legacy_gene_ids
-            .insert(tx_id.clone(), (version, legacy_gene_id));
         tx.gene_version = gene_id.to_string();
 
         // only insert the dummy gene if we haven't seen this gene ID before
@@ -131,17 +118,16 @@ pub fn load_cdot(
     Ok(())
 }
 
-/// The gene of a cdot transcript: its `GeneId`, the version of its gene ID, and the key that
-/// `gene_id` and `legacy_gene_id` keep. The key is `gene_version`, e.g. `ENSG00000121410.14`,
-/// else the gene name, else the transcript ID. Only `gene_version` loses its version in the
-/// `GeneId`.
-fn gene_key(tx: &Transcript) -> (GeneId, u32, &str) {
+/// The gene of a cdot transcript: its `GeneId`, and the key that `Transcript.gene_id` keeps. The
+/// key is `gene_version`, e.g. `ENSG00000121410.14`, else the gene name, else the transcript ID.
+/// Only `gene_version` loses its version in the `GeneId`.
+fn gene_key(tx: &Transcript) -> (GeneId, &str) {
     if tx.gene_version.is_empty() {
         let key = tx.gene_name.as_deref().unwrap_or(tx.id.as_str());
-        (GeneId(key.to_string()), 0, key)
+        (GeneId(key.to_string()), key)
     } else {
-        let (gene_id, version) = split_version(&tx.gene_version);
-        (GeneId(gene_id.to_string()), version, &tx.gene_version)
+        let (gene_id, _) = split_version(&tx.gene_version);
+        (GeneId(gene_id.to_string()), &tx.gene_version)
     }
 }
 
@@ -261,35 +247,28 @@ mod tests {
     }
 
     /// The database names the gene of a transcript by `gene_version` without version, and by
-    /// its HGNC ID. `legacy_gene_id` keeps the HGNC ID, else `GENE:` and `gene_version`.
+    /// its HGNC ID.
     #[rstest::rstest]
     #[case::refseq(
         "tests/data/db/create/txs/cdot-0.2.22.refseq.grch37.brca1_opa1.json",
         "NM_007294.4",
         "672",
-        Some("HGNC:1100"),
-        "HGNC:1100"
+        Some("HGNC:1100")
     )]
     #[case::ensembl_without_hgnc(
         "tests/data/db/create/mitochondrial/cdot-0.2.23.ensembl.chrMT.grch37.gff3.json",
         "ENST00000387314.1",
         "ENSG00000210049",
-        None,
-        "GENE:ENSG00000210049"
+        None
     )]
     fn gene_fields_reach_the_database(
         #[case] path: &str,
         #[case] tx_id: &str,
         #[case] gene_id: &str,
         #[case] hgnc_id: Option<&str>,
-        #[case] legacy_gene_id: &str,
     ) -> Result<(), Error> {
         let mut loader = load(path)?;
-        let expected = (
-            gene_id.to_string(),
-            hgnc_id.map(String::from),
-            legacy_gene_id.to_string(),
-        );
+        let expected = (gene_id.to_string(), hgnc_id.map(String::from));
         assert_eq!(
             gene_fields(&mut loader, tx_id)?,
             [expected.clone(), expected]
@@ -299,10 +278,8 @@ mod tests {
 
     /// A file with several releases names one gene with several versions. They form one gene
     /// with the record of the highest version and the gene ID without version. Each
-    /// transcript keeps its own gene version in `gene_id` and `legacy_gene_id`, and the gene
-    /// keeps the highest one in `legacy_gene_id`.
+    /// transcript keeps its own gene version in `gene_id`.
     #[test]
-    #[allow(deprecated)]
     fn gene_versions_form_one_gene() -> Result<(), Error> {
         let mut loader = load_json(
             json!({
@@ -320,19 +297,12 @@ mod tests {
         let genes: Vec<_> = tx_db
             .gene_to_tx
             .iter()
-            .map(|gene| {
-                (
-                    gene.gene_id.as_str(),
-                    gene.legacy_gene_id.as_str(),
-                    gene.tx_ids.clone(),
-                )
-            })
+            .map(|gene| (gene.gene_id.as_str(), gene.tx_ids.clone()))
             .collect();
         assert_eq!(
             genes,
             [(
                 "ENSG00000000001",
-                "GENE:ENSG00000000001.10",
                 vec![
                     "ENST00000000001.1".to_string(),
                     "ENST00000000002.1".to_string()
@@ -342,30 +312,13 @@ mod tests {
         let txs: Vec<_> = tx_db
             .transcripts
             .iter()
-            .map(|tx| {
-                (
-                    tx.id.as_str(),
-                    tx.gene_id.as_str(),
-                    tx.gene_symbol.as_str(),
-                    tx.legacy_gene_id.as_str(),
-                )
-            })
+            .map(|tx| (tx.id.as_str(), tx.gene_id.as_str(), tx.gene_symbol.as_str()))
             .collect();
         assert_eq!(
             txs,
             [
-                (
-                    "ENST00000000001.1",
-                    "ENSG00000000001.9",
-                    "NEW",
-                    "GENE:ENSG00000000001.9"
-                ),
-                (
-                    "ENST00000000002.1",
-                    "ENSG00000000001.10",
-                    "NEW",
-                    "GENE:ENSG00000000001.10"
-                ),
+                ("ENST00000000001.1", "ENSG00000000001.9", "NEW"),
+                ("ENST00000000002.1", "ENSG00000000001.10", "NEW"),
             ]
         );
 
@@ -386,18 +339,9 @@ mod tests {
             }),
         )?;
 
-        for (tx_id, legacy_gene_id) in [
-            ("NM_000001.1", "HGNC:7"),
-            ("NM_000002.1", "HGNC:8"),
-            ("NM_000003.1", "GENE:2"),
-        ] {
-            let gene = (
-                "2".to_string(),
-                Some("HGNC:7".to_string()),
-                "HGNC:7".to_string(),
-            );
-            let tx = (gene.0.clone(), gene.1.clone(), legacy_gene_id.to_string());
-            assert_eq!(gene_fields(&mut loader, tx_id)?, [tx, gene]);
+        for tx_id in ["NM_000001.1", "NM_000002.1", "NM_000003.1"] {
+            let gene = ("2".to_string(), Some("HGNC:7".to_string()));
+            assert_eq!(gene_fields(&mut loader, tx_id)?, [gene.clone(), gene]);
         }
         assert!(logs_contain(
             "gene 2 has HGNC ID HGNC:7, but its transcripts or other versions name HGNC:8"
@@ -406,15 +350,13 @@ mod tests {
         Ok(())
     }
 
-    /// A gene without transcripts keeps its HGNC ID as `legacy_gene_id`, else it gets `GENE:`
-    /// and its gene ID.
+    /// A gene without transcripts keeps its gene ID and HGNC ID.
     #[rstest::rstest]
-    #[case::hgnc("2", Some("HGNC:7"), "HGNC:7")]
-    #[case::without_hgnc("3", None, "GENE:3")]
-    fn gene_without_transcripts_keeps_its_legacy_gene_id(
+    #[case::hgnc("2", Some("HGNC:7"))]
+    #[case::without_hgnc("3", None)]
+    fn gene_without_transcripts_keeps_its_gene_fields(
         #[case] gene_id: &str,
         #[case] hgnc_id: Option<&str>,
-        #[case] legacy_gene_id: &str,
     ) -> Result<(), Error> {
         let mut loader = load_json(
             json!({
@@ -425,11 +367,7 @@ mod tests {
         )?;
         assert_eq!(
             gene_to_tx_fields(&mut loader, gene_id)?,
-            (
-                gene_id.to_string(),
-                hgnc_id.map(String::from),
-                legacy_gene_id.to_string()
-            )
+            (gene_id.to_string(), hgnc_id.map(String::from))
         );
 
         Ok(())
@@ -456,12 +394,6 @@ mod tests {
 
         Ok(())
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
 
     #[test]
     fn highest_gene_version_wins_in_any_order() -> Result<(), Error> {
@@ -492,6 +424,24 @@ mod tests {
         let gene = &loader.gene_id_to_gene[&GeneId("ENSG00000000001".to_string())];
         assert_eq!(gene.gene_symbol.as_deref(), Some("GX"));
         assert_eq!(gene.hgnc.as_deref(), Some("7"));
+        Ok(())
+    }
+
+    /// Without `gene_version`, the gene is the gene name, else the transcript ID.
+    #[rstest::rstest]
+    #[case::gene_name(Some("GX"), "GX")]
+    #[case::transcript_id(None, "NM_000001.1")]
+    fn gene_key_falls_back(
+        #[case] gene_name: Option<&str>,
+        #[case] expected: &str,
+    ) -> Result<(), Error> {
+        let tx: cdot_models::Transcript = serde_json::from_value(json!({
+            "id": "NM_000001.1",
+            "gene_version": "",
+            "gene_name": gene_name,
+            "genome_builds": {},
+        }))?;
+        assert_eq!(gene_key(&tx), (GeneId(expected.to_string()), expected));
         Ok(())
     }
 

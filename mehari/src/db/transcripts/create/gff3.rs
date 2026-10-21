@@ -2,7 +2,7 @@ use crate::common::progress::{Progress, open_with_progress};
 use crate::db::transcripts::create::cdot_models;
 use crate::db::transcripts::create::filter::MITOCHONDRIAL_ACCESSIONS;
 use crate::db::transcripts::create::models::{
-    GeneId, TranscriptId, TranscriptLoader, gene_id_without_version, split_version,
+    GeneId, TranscriptId, TranscriptLoader, gene_id_without_version,
 };
 use anyhow::{Context, Error, anyhow};
 use hgvs::data::cdot::json::models::{
@@ -329,9 +329,6 @@ pub fn load_gff3(
                     .filter(|hgnc| !hgnc.is_empty());
 
                 if !gene_id.0.is_empty() {
-                    loader
-                        .gene_legacy_gene_ids
-                        .insert(gene_id.clone(), format!("GENE:{versioned_gene_id}"));
                     loader.gene_id_to_gene.insert(
                         gene_id.clone(),
                         Gene {
@@ -740,13 +737,6 @@ pub fn load_gff3(
         loader
             .transcript_gene_ids
             .insert(t_id.clone(), versioned_gene_id.clone());
-        loader.legacy_gene_ids.insert(
-            t_id.clone(),
-            (
-                split_version(&versioned_gene_id).1,
-                format!("GENE:{versioned_gene_id}"),
-            ),
-        );
         loader
             .transcript_id_to_transcript
             .insert(t_id.clone(), transcript);
@@ -1602,34 +1592,30 @@ NC_000001.11\tBestRefSeq\tCDS\t1011\t1100\t.\t+\t0\tID=cds-NP_000020.1;Parent=rn
 
     /// A transcript names its gene by the gene ID of the gene row with version: GENCODE writes
     /// it into `gene_id`, Ensembl into `gene_id` and `version`. The gene drops the version.
-    /// Both have the HGNC ID of the gene. As `legacy_gene_id`, the transcript and its gene
-    /// keep `GENE:` and the gene ID with version, also if the gene has an HGNC ID.
+    /// Both have the HGNC ID of the gene.
     #[rstest::rstest]
-    #[case::refseq(GFF3_REFSEQ, "NM_000001.1", "11", "11", Some("HGNC:1"), "GENE:11")]
-    #[case::refseq_without_hgnc(GFF3_REFSEQ, "NM_000003.1", "33", "33", None, "GENE:33")]
+    #[case::refseq(GFF3_REFSEQ, "NM_000001.1", "11", "11", Some("HGNC:1"))]
+    #[case::refseq_without_hgnc(GFF3_REFSEQ, "NM_000003.1", "33", "33", None)]
     #[case::gencode(
         GFF3_GENCODE_ENSEMBL,
         "ENST00000399012.6",
         "ENSG00000182378.15",
         "ENSG00000182378",
-        Some("HGNC:37102"),
-        "GENE:ENSG00000182378.15"
+        Some("HGNC:37102")
     )]
     #[case::gencode_par_y(
         GFF3_GENCODE_PAR_Y_SUFFIX,
         "ENST00000399012.5_PAR_Y",
         "ENSG00000182378.14_PAR_Y",
         "ENSG00000182378_PAR_Y",
-        None,
-        "GENE:ENSG00000182378.14_PAR_Y"
+        None
     )]
     #[case::ensembl(
         GFF3_GENCODE_ENSEMBL,
         "ENST00000100001.2",
         "ENSG00000100001.3",
         "ENSG00000100001",
-        Some("HGNC:8907"),
-        "GENE:ENSG00000100001.3"
+        Some("HGNC:8907")
     )]
     fn gene_fields_reach_the_database(
         #[case] gff3: &str,
@@ -1637,16 +1623,9 @@ NC_000001.11\tBestRefSeq\tCDS\t1011\t1100\t.\t+\t0\tID=cds-NP_000020.1;Parent=rn
         #[case] tx_gene_id: &str,
         #[case] gene_id: &str,
         #[case] hgnc_id: Option<&str>,
-        #[case] legacy_gene_id: &str,
     ) -> Result<(), anyhow::Error> {
         let mut loader = load(gff3)?;
-        let fields = |gene_id: &str| {
-            (
-                gene_id.to_string(),
-                hgnc_id.map(String::from),
-                legacy_gene_id.to_string(),
-            )
-        };
+        let fields = |gene_id: &str| (gene_id.to_string(), hgnc_id.map(String::from));
         assert_eq!(
             gene_fields(&mut loader, tx_id)?,
             [fields(tx_gene_id), fields(gene_id)]
@@ -1655,24 +1634,18 @@ NC_000001.11\tBestRefSeq\tCDS\t1011\t1100\t.\t+\t0\tID=cds-NP_000020.1;Parent=rn
         Ok(())
     }
 
-    /// A gene without transcripts keeps `GENE:` and the gene ID with version as
-    /// `legacy_gene_id`, also if it has an HGNC ID.
+    /// A gene without transcripts keeps its gene ID and HGNC ID.
     #[rstest::rstest]
-    #[case::refseq("77", "HGNC:77", "GENE:77")]
-    #[case::ensembl("ENSG00000100010", "HGNC:78", "GENE:ENSG00000100010.5")]
-    fn gene_without_transcripts_keeps_its_legacy_gene_id(
+    #[case::refseq("77", "HGNC:77")]
+    #[case::ensembl("ENSG00000100010", "HGNC:78")]
+    fn gene_without_transcripts_keeps_its_gene_fields(
         #[case] gene_id: &str,
         #[case] hgnc_id: &str,
-        #[case] legacy_gene_id: &str,
     ) -> Result<(), anyhow::Error> {
         let mut loader = load(GFF3_GENES_WITHOUT_TRANSCRIPTS)?;
         assert_eq!(
             gene_to_tx_fields(&mut loader, gene_id)?,
-            (
-                gene_id.to_string(),
-                Some(hgnc_id.to_string()),
-                legacy_gene_id.to_string()
-            )
+            (gene_id.to_string(), Some(hgnc_id.to_string()))
         );
 
         Ok(())

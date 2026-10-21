@@ -155,16 +155,15 @@ mod tests {
     use super::merge_transcript_databases;
     use crate::pbs::txs::{GeneToTxId, SequenceDb, SourceVersion, TranscriptDb, TxSeqDatabase};
 
-    /// A database with one `GeneToTxId` for each `(gene_id, legacy_gene_id, tx_id)`.
-    #[allow(deprecated)]
+    /// A database with one `GeneToTxId` for each `(gene_id, hgnc_id, tx_id)`.
     fn db(genes: &[(&str, &str, &str)]) -> TxSeqDatabase {
         TxSeqDatabase {
             tx_db: Some(TranscriptDb {
                 gene_to_tx: genes
                     .iter()
-                    .map(|&(gene_id, legacy_gene_id, tx_id)| GeneToTxId {
+                    .map(|&(gene_id, hgnc_id, tx_id)| GeneToTxId {
                         gene_id: gene_id.into(),
-                        legacy_gene_id: legacy_gene_id.into(),
+                        hgnc_id: Some(hgnc_id.into()),
                         tx_ids: vec![tx_id.into()],
                         ..Default::default()
                     })
@@ -184,25 +183,28 @@ mod tests {
         }
     }
 
-    /// The `(gene_id, legacy_gene_id, tx_ids)` of the merged database, sorted.
-    #[allow(deprecated)]
-    fn merged_genes(databases: Vec<TxSeqDatabase>) -> Vec<(String, String, Vec<String>)> {
+    /// The `(gene_id, hgnc_id, tx_ids)` of the merged database, sorted.
+    fn merged_genes(databases: Vec<TxSeqDatabase>) -> Vec<(String, Option<String>, Vec<String>)> {
         let mut genes: Vec<_> = merge_transcript_databases(databases)
             .unwrap()
             .tx_db
             .unwrap()
             .gene_to_tx
             .into_iter()
-            .map(|gene| (gene.gene_id, gene.legacy_gene_id, gene.tx_ids))
+            .map(|gene| (gene.gene_id, gene.hgnc_id, gene.tx_ids))
             .collect();
         genes.sort();
         genes
     }
 
-    fn gene(gene_id: &str, legacy_gene_id: &str, tx_ids: &[&str]) -> (String, String, Vec<String>) {
+    fn gene(
+        gene_id: &str,
+        hgnc_id: &str,
+        tx_ids: &[&str],
+    ) -> (String, Option<String>, Vec<String>) {
         (
             gene_id.into(),
-            legacy_gene_id.into(),
+            Some(hgnc_id.into()),
             tx_ids.iter().map(|&tx_id| tx_id.into()).collect(),
         )
     }
@@ -260,9 +262,9 @@ mod tests {
         assert!(!logs_contain("HGNC ID"));
     }
 
-    /// Two genes can share one `legacy_gene_id`. The merge keeps them apart by `gene_id`.
+    /// Two genes can share one HGNC ID. The merge keeps them apart by `gene_id`.
     #[test]
-    fn genes_that_share_a_legacy_gene_id_stay_distinct() {
+    fn genes_that_share_an_hgnc_id_stay_distinct() {
         let first = db(&[("11", "HGNC:1", "NM_000001.1")]);
         let other = db(&[
             ("11", "HGNC:1", "NM_000002.1"),

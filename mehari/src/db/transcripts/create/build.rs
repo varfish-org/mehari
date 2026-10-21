@@ -106,8 +106,6 @@ pub(crate) fn build_protobuf(
             let filtered = gene_id_reason.is_some_and(|reason| reason.intersects(Reason::hard()));
             let hgnc_id = loader.gene_id_to_gene.get(gene_id).and_then(hgnc_id);
             crate::pbs::txs::GeneToTxId {
-                #[allow(deprecated)]
-                legacy_gene_id: legacy_gene_id(loader, gene_id, tx_ids, hgnc_id.as_deref()),
                 tx_ids: tx_ids
                     .iter()
                     .sorted_unstable()
@@ -145,36 +143,6 @@ pub(crate) fn build_protobuf(
 /// The HGNC ID of `gene`, e.g. `HGNC:1100`.
 fn hgnc_id(gene: &Gene) -> Option<String> {
     gene.hgnc.as_ref().map(|hgnc| format!("HGNC:{hgnc}"))
-}
-
-/// The deprecated `legacy_gene_id` of a gene. It is the HGNC ID of the gene if a transcript
-/// of the gene has an HGNC ID as `legacy_gene_id`, as cdot transcripts do. Otherwise it is the
-/// greatest value of the transcripts with the highest gene version, so GFF3 genes keep `GENE:`
-/// and the gene ID with version. A gene without transcripts gets the value that its loader
-/// records, else `GENE:` and the gene ID.
-fn legacy_gene_id(
-    loader: &TranscriptLoader,
-    gene_id: &GeneId,
-    tx_ids: &[TranscriptId],
-    hgnc_id: Option<&str>,
-) -> String {
-    let tx_legacy_gene_ids = tx_ids
-        .iter()
-        .filter_map(|tx_id| loader.legacy_gene_ids.get(tx_id))
-        .collect_vec();
-    let named_by_hgnc_id = tx_legacy_gene_ids
-        .iter()
-        .any(|(_, legacy_gene_id)| legacy_gene_id.starts_with("HGNC:"));
-    match hgnc_id {
-        Some(hgnc_id) if named_by_hgnc_id => hgnc_id.to_string(),
-        _ => tx_legacy_gene_ids
-            .into_iter()
-            .max()
-            .map(|(_, legacy_gene_id)| legacy_gene_id)
-            .or_else(|| loader.gene_legacy_gene_ids.get(gene_id))
-            .cloned()
-            .unwrap_or_else(|| format!("GENE:{gene_id}")),
-    }
 }
 
 fn protobuf_transcript(
@@ -258,12 +226,6 @@ fn protobuf_transcript(
     crate::pbs::txs::Transcript {
         id: (*tx_id).to_string(),
         gene_symbol: gene.gene_symbol.unwrap_or("<MISSING>".to_string()),
-        #[allow(deprecated)]
-        legacy_gene_id: loader
-            .legacy_gene_ids
-            .get(tx_id)
-            .map(|(_, legacy_gene_id)| legacy_gene_id.clone())
-            .unwrap_or_else(|| format!("GENE:{gene_id}")),
         biotype,
         tags,
         protein,
@@ -442,11 +404,10 @@ pub(crate) mod tests {
     use super::*;
     use anyhow::Context;
 
-    /// `gene_id`, `hgnc_id` and `legacy_gene_id` of a transcript or a gene in the database.
-    pub(crate) type GeneFields = (String, Option<String>, String);
+    /// `gene_id` and `hgnc_id` of a transcript or a gene in the database.
+    pub(crate) type GeneFields = (String, Option<String>);
 
     /// The gene fields of transcript `tx_id` and of its gene, as the database holds them.
-    #[allow(deprecated)]
     pub(crate) fn gene_fields(
         loader: &mut TranscriptLoader,
         tx_id: &str,
@@ -464,21 +425,12 @@ pub(crate) mod tests {
             .find(|gene| gene.tx_ids.contains(&tx.id))
             .with_context(|| format!("no gene of {tx_id} in the database"))?;
         Ok([
-            (
-                tx.gene_id.clone(),
-                tx.hgnc_id.clone(),
-                tx.legacy_gene_id.clone(),
-            ),
-            (
-                gene.gene_id.clone(),
-                gene.hgnc_id.clone(),
-                gene.legacy_gene_id.clone(),
-            ),
+            (tx.gene_id.clone(), tx.hgnc_id.clone()),
+            (gene.gene_id.clone(), gene.hgnc_id.clone()),
         ])
     }
 
     /// The gene fields of the gene `gene_id`, as the database holds them.
-    #[allow(deprecated)]
     pub(crate) fn gene_to_tx_fields(
         loader: &mut TranscriptLoader,
         gene_id: &str,
@@ -491,7 +443,7 @@ pub(crate) mod tests {
             .into_iter()
             .find(|gene| gene.gene_id == gene_id)
             .with_context(|| format!("{gene_id} not in the database"))?;
-        Ok((gene.gene_id, gene.hgnc_id, gene.legacy_gene_id))
+        Ok((gene.gene_id, gene.hgnc_id))
     }
 
     /// A transcript whose gene has no record gets the symbol `<MISSING>` and no HGNC ID.

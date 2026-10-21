@@ -580,13 +580,11 @@ mod tests {
     }
 
     /// A database with transcript `NM_007294.4` of BRCA1.
-    #[allow(deprecated)]
     fn brca1_tx_db() -> TranscriptDb {
         TranscriptDb {
             transcripts: vec![Transcript {
                 id: "NM_007294.4".into(),
                 gene_symbol: "BRCA1".into(),
-                legacy_gene_id: "GENE:672".into(),
                 gene_id: "672".into(),
                 hgnc_id: Some("HGNC:1100".into()),
                 ..Default::default()
@@ -606,23 +604,19 @@ mod tests {
         Ok(())
     }
 
-    /// A gene keeps its entry if it holds a selected transcript, also if its
-    /// `legacy_gene_id` differs from that of the transcript.
+    /// A gene keeps its entry if it holds a selected transcript.
     #[test]
-    #[allow(deprecated)]
     fn gene_with_selected_transcript_is_kept() -> Result<(), anyhow::Error> {
         let container = TxSeqDatabase {
             tx_db: Some(TranscriptDb {
                 transcripts: vec![Transcript {
                     id: "NM_000014.6".into(),
                     gene_symbol: "A2M".into(),
-                    legacy_gene_id: "GENE:2".into(),
                     gene_id: "2".into(),
                     hgnc_id: Some("HGNC:7".into()),
                     ..Default::default()
                 }],
                 gene_to_tx: vec![GeneToTxId {
-                    legacy_gene_id: "HGNC:7".into(),
                     tx_ids: vec!["NM_000014.6".into()],
                     gene_id: "2".into(),
                     hgnc_id: Some("HGNC:7".into()),

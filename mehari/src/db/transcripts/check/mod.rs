@@ -930,7 +930,6 @@ mod tests {
     use crate::pbs::txs::{Transcript, TxSeqDatabase};
 
     /// A gene with one transcript. `gene_reason` and `tx_reason` hard-filter them.
-    #[allow(deprecated)]
     fn gene(
         gene_id: &str,
         hgnc_id: Option<&str>,
@@ -938,10 +937,8 @@ mod tests {
         gene_reason: Option<FilterReason>,
         tx_reason: Option<FilterReason>,
     ) -> (GeneToTxId, Transcript) {
-        let legacy_gene_id = format!("GENE:{gene_id}");
         (
             GeneToTxId {
-                legacy_gene_id: legacy_gene_id.clone(),
                 tx_ids: vec![tx_id.into()],
                 filtered: Some(gene_reason.is_some()),
                 filter_reason: gene_reason.map(|reason| reason as u32),
@@ -950,7 +947,6 @@ mod tests {
             },
             Transcript {
                 id: tx_id.into(),
-                legacy_gene_id,
                 filtered: Some(tx_reason.is_some()),
                 filter_reason: tx_reason.map(|reason| reason as u32),
                 gene_id: gene_id.into(),
@@ -994,6 +990,32 @@ mod tests {
             Some(&(FilterReason::Pseudogene | FilterReason::MissingStopCodon))
         );
         assert!(tx_db_data.hard_filter_reasons.is_empty());
+
+        Ok(())
+    }
+
+    /// The checks skip a gene that has neither an HGNC ID nor a gene ID.
+    #[test]
+    fn gene_without_any_id_is_skipped() -> Result<(), anyhow::Error> {
+        let mut unnamed = gene(
+            "",
+            None,
+            "NM_000001.1",
+            Some(FilterReason::NoTranscriptLeft),
+            None,
+        );
+        unnamed.1.gene_id = "".into();
+        let named = gene("1", None, "NM_000002.1", None, None);
+        let tx_db_data = tx_db_data([unnamed, named])?;
+
+        assert!(tx_db_data.hard_filter_reasons.is_empty());
+        let gene_ids: HashSet<_> = tx_db_data
+            .all_ids
+            .iter()
+            .filter(|id| matches!(id, Id::Hgnc(_) | Id::GeneVersion(_)))
+            .cloned()
+            .collect();
+        assert_eq!(gene_ids, HashSet::from([Id::GeneVersion("1".into())]));
 
         Ok(())
     }

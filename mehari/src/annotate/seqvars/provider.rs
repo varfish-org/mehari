@@ -518,13 +518,12 @@ impl Provider {
             .get(gene_idx as usize)
     }
 
-    /// Return the key that groups `tx` by gene: the HGNC ID if the gene has one, else the gene ID
-    /// of its gene entry, else the gene ID of `tx`. Then the RefSeq and Ensembl genes of one HGNC
-    /// ID form one group, and so do the versions of a gene.
+    /// Return the key that groups `tx` by gene: the gene ID of its gene entry, else the gene ID of
+    /// `tx`. The versions of a gene share the entry. A RefSeq and an Ensembl gene stay apart, also
+    /// if they have the same HGNC ID.
     pub fn gene_key<'a>(&'a self, tx: &'a Transcript) -> &'a str {
-        tx.hgnc_id
-            .as_deref()
-            .or_else(|| self.gene_of(&tx.id).map(|gene| gene.gene_id.as_str()))
+        self.gene_of(&tx.id)
+            .map(|gene| gene.gene_id.as_str())
             .unwrap_or(&tx.gene_id)
     }
 
@@ -1048,7 +1047,6 @@ impl ProviderInterface for Provider {
 
 /// Small transcript databases on chr1 (GRCh38) for tests.
 #[cfg(test)]
-#[allow(deprecated)]
 pub(crate) mod test_db {
     use crate::pbs::txs::{
         ExonAlignment, GeneToTxId, GenomeAlignment, SequenceDb, SourceVersion, Strand, Transcript,
@@ -1083,7 +1081,6 @@ pub(crate) mod test_db {
     /// The gene entry of `tx` with the gene fields of `tx`.
     pub(crate) fn gene(tx: &Transcript) -> GeneToTxId {
         GeneToTxId {
-            legacy_gene_id: tx.legacy_gene_id.clone(),
             tx_ids: vec![tx.id.clone()],
             filtered: Some(false),
             gene_id: tx.gene_id.clone(),
@@ -1112,13 +1109,12 @@ pub(crate) mod test_db {
     }
 
     /// A database with the transcript `NM_000001.1` of the gene `11` (`HGNC:1`) and its gene
-    /// entry. They have the gene fields that `db create` writes for GFF3: `gene_id` `11`,
-    /// `hgnc_id` `HGNC:1` and `legacy_gene_id` `GENE:11`.
+    /// entry. They have the gene fields that `db create` writes for GFF3: `gene_id` `11` and
+    /// `hgnc_id` `HGNC:1`.
     pub(crate) fn one_gene_db() -> TxSeqDatabase {
         let tx = Transcript {
             gene_id: "11".into(),
             hgnc_id: Some("HGNC:1".into()),
-            legacy_gene_id: "GENE:11".into(),
             ..transcript("NM_000001.1", 1000)
         };
         tx_seq_db(vec![tx.clone()], vec![gene(&tx)])
@@ -1156,20 +1152,15 @@ mod test {
         assert_eq!(tx.tx_len(), 250);
     }
 
-    /// The lookup by HGNC ID uses `hgnc_id`, not `legacy_gene_id`.
+    /// The lookup by HGNC ID uses `hgnc_id`, not `gene_id`.
     #[rstest::rstest]
     #[case::hgnc_id("HGNC:1", true)]
-    #[case::legacy_gene_id("GENE:11", false)]
+    #[case::gene_id("11", false)]
     fn lookup_by_hgnc_id(#[case] hgnc_id: &str, #[case] found: bool) -> Result<(), anyhow::Error> {
         use super::{Provider, test_db};
         use hgvs::data::interface::Provider as _;
 
-        let provider = Provider::new(
-            test_db::one_gene_db(),
-            None::<&str>,
-            true,
-            Default::default(),
-        );
+        let provider = Provider::new(test_db::one_gene_db(), None::<&str>, true);
 
         let txs: Vec<_> = provider
             .get_tx_for_gene(hgnc_id)?
@@ -1189,7 +1180,6 @@ mod test {
     /// Two genes can have the same HGNC ID. The lookup by HGNC ID returns the transcripts of
     /// both.
     #[test]
-    #[allow(deprecated)]
     fn transcripts_of_all_genes_with_the_hgnc_id() -> Result<(), anyhow::Error> {
         use super::Provider;
         use crate::pbs::txs::{
@@ -1201,7 +1191,6 @@ mod test {
         let tx = |id: &str, gene_id: &str| Transcript {
             id: id.into(),
             gene_symbol: "GENE1".into(),
-            legacy_gene_id: "HGNC:1".into(),
             gene_id: gene_id.into(),
             hgnc_id: Some("HGNC:1".into()),
             genome_alignments: vec![GenomeAlignment {
@@ -1220,7 +1209,6 @@ mod test {
             ..Default::default()
         };
         let gene = |tx_id: &str, gene_id: &str| GeneToTxId {
-            legacy_gene_id: "HGNC:1".into(),
             tx_ids: vec![tx_id.into()],
             filtered: Some(false),
             gene_id: gene_id.into(),
@@ -1239,7 +1227,7 @@ mod test {
                 ..Default::default()
             }],
         };
-        let provider = Provider::new(tx_seq_db, None::<&str>, true, Default::default());
+        let provider = Provider::new(tx_seq_db, None::<&str>, true);
 
         let tx_acs: Vec<_> = provider
             .get_tx_for_gene("HGNC:1")?

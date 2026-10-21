@@ -308,6 +308,8 @@ pub(crate) struct Transcript {
     pub gene_symbol: String,
     /// Gene ID of the annotation, e.g., `"672"` for BRCA1 in RefSeq.
     pub gene_id: String,
+    /// HGNC ID of the gene, e.g., `"HGNC:1100"` for BRCA1; unset for a gene without one.
+    pub hgnc_id: Option<String>,
     /// Transcript biotype.
     pub biotype: TranscriptBiotype,
     /// Transcript flags.
@@ -334,6 +336,7 @@ impl TryFrom<pbs::txs::Transcript> for Transcript {
             id: value.id.clone(),
             gene_symbol: value.gene_symbol.clone(),
             gene_id: value.gene_id.clone(),
+            hgnc_id: value.hgnc_id.clone(),
             biotype: TranscriptBiotype::try_from(pbs::txs::TranscriptBiotype::try_from(
                 value.biotype,
             )?)?,
@@ -454,7 +457,7 @@ async fn handle_with_openapi(
 
 #[cfg(test)]
 mod test {
-    /// The transcripts of a gene report the gene ID of the annotation.
+    /// The transcripts of a gene report the gene ID of the annotation and the HGNC ID.
     #[test]
     fn gene_id_of_transcripts() -> Result<(), anyhow::Error> {
         use crate::annotate::seqvars::provider::{Provider, test_db};
@@ -462,12 +465,7 @@ mod test {
         use crate::server::run::actix_server::WebServerData;
         use std::sync::Arc;
 
-        let provider = Provider::new(
-            test_db::one_gene_db(),
-            None::<&str>,
-            true,
-            Default::default(),
-        );
+        let provider = Provider::new(test_db::one_gene_db(), None::<&str>, true);
         let data = WebServerData {
             provider: [("grch38".to_string(), Arc::new(provider))].into(),
             ..Default::default()
@@ -491,9 +489,9 @@ mod test {
         let gene_ids: Vec<_> = response
             .transcripts
             .iter()
-            .map(|tx| tx.gene_id.clone())
+            .map(|tx| (tx.gene_id.clone(), tx.hgnc_id.clone()))
             .collect();
-        assert_eq!(gene_ids, ["11"]);
+        assert_eq!(gene_ids, [("11".to_string(), Some("HGNC:1".to_string()))]);
 
         Ok(())
     }

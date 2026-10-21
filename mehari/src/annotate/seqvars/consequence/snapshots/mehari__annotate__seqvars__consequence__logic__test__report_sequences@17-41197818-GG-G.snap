@@ -1,6 +1,6 @@
 ---
 source: mehari/src/annotate/seqvars/consequence/logic.rs
-assertion_line: 5772
+assertion_line: 6063
 expression: summarize_custom_fields(&res)
 ---
 - - NM_007294.4
@@ -9,40 +9,40 @@ expression: summarize_custom_fields(&res)
     - exonic_splice_region_variant
   - aa_sequence_alt: len=1854 fnv1a=7c43f63228410ecd
     aa_sequence_ref: len=1864 fnv1a=ae18f86d024d3d7a
-    tx_sequence_alt: len=7090 fnv1a=af4030322c755dfe
-    tx_sequence_ref: len=7091 fnv1a=0aaebb917c6565c7
+    tx_sequence_alt: len=7087 fnv1a=467c3772d02d7ad9
+    tx_sequence_ref: len=7088 fnv1a=d84d182cff3756f6
 - - NM_007297.4
   - - frameshift_variant
     - frameshift_truncation
     - exonic_splice_region_variant
   - aa_sequence_alt: len=1807 fnv1a=23ef930f2f95fcde
     aa_sequence_ref: len=1817 fnv1a=81ecfd73f1efa179
-    tx_sequence_alt: len=7030 fnv1a=01026c3fa47be97a
-    tx_sequence_ref: len=7031 fnv1a=d80a75b5b6c93bcb
+    tx_sequence_alt: len=7027 fnv1a=370a283892aaed4d
+    tx_sequence_ref: len=7028 fnv1a=5e83482a5c8b0882
 - - NM_007298.3
   - - frameshift_variant
     - frameshift_truncation
     - exonic_splice_region_variant
   - aa_sequence_alt: len=750 fnv1a=e3bb3080df23a094
     aa_sequence_ref: len=760 fnv1a=d618933df245e6eb
-    tx_sequence_alt: len=3701 fnv1a=c0ff8a3957c5839a
-    tx_sequence_ref: len=3702 fnv1a=cdf09384d4a5b3fb
+    tx_sequence_alt: len=3698 fnv1a=3b54af8f9f41f12d
+    tx_sequence_ref: len=3699 fnv1a=25ecb34991f7f392
 - - NM_007299.4
   - - stop_gained
     - frameshift_variant
     - exonic_splice_region_variant
   - aa_sequence_alt: len=694 fnv1a=2bb2306b969909ca
     aa_sequence_ref: len=700 fnv1a=5ffd0bb51b97cafb
-    tx_sequence_alt: len=3698 fnv1a=2c20ded84f8aa9ff
-    tx_sequence_ref: len=3699 fnv1a=d43b0136d23c9418
+    tx_sequence_alt: len=3695 fnv1a=d9163c3bb999c31e
+    tx_sequence_ref: len=3696 fnv1a=174ffce650dc54a7
 - - NM_007300.4
   - - frameshift_variant
     - frameshift_truncation
     - exonic_splice_region_variant
   - aa_sequence_alt: len=1875 fnv1a=0fca7ff87f592693
     aa_sequence_ref: len=1885 fnv1a=4fd034489b3a5014
-    tx_sequence_alt: len=7153 fnv1a=c31da7d26a8b7abb
-    tx_sequence_ref: len=7154 fnv1a=ebedf1e0eb94f40c
+    tx_sequence_alt: len=7150 fnv1a=23c076d174107952
+    tx_sequence_ref: len=7151 fnv1a=95325a22ff859a83
 - - NR_027676.2
   - - exonic_splice_region_variant
     - non_coding_transcript_exon_variant

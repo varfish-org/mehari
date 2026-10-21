@@ -269,16 +269,9 @@ pub struct TranscriptLoader {
     pub(crate) transcript_id_to_transcript: HashMap<TranscriptId, Transcript>,
     pub(crate) gene_id_to_gene: HashMap<GeneId, Gene>,
     pub(crate) gene_id_to_transcript_ids: HashMap<GeneId, Vec<TranscriptId>>,
-    /// The version of the gene ID of each transcript, and its deprecated `legacy_gene_id`:
-    /// the HGNC ID or the gene ID with version, as mehari named genes before.
-    pub(crate) legacy_gene_ids: HashMap<TranscriptId, (u32, String)>,
     /// The gene ID with version of the gene record that each transcript comes from, e.g.
     /// `ENSG00000121410.11` for a transcript that cdot lists under this gene version.
     pub(crate) transcript_gene_ids: HashMap<TranscriptId, String>,
-    /// The deprecated `legacy_gene_id` of each gene record, as mehari named genes before:
-    /// `HGNC:` and the HGNC ID for cdot, `GENE:` and the gene ID with version for GFF3. Only
-    /// genes without transcripts use it.
-    pub(crate) gene_legacy_gene_ids: HashMap<GeneId, String>,
     pub(crate) discards: HashMap<Identifier, BitFlags<Reason>>,
     pub(crate) fixes: HashMap<Identifier, BitFlags<Fix>>,
     pub(crate) disable_filters: bool,
@@ -331,11 +324,8 @@ impl TranscriptLoader {
             ids.sort_unstable();
             ids.dedup();
         }
-        self.legacy_gene_ids.extend(other.legacy_gene_ids.drain());
         self.transcript_gene_ids
             .extend(other.transcript_gene_ids.drain());
-        self.gene_legacy_gene_ids
-            .extend(other.gene_legacy_gene_ids.drain());
 
         for (id, reason) in other.discards.drain() {
             *self.discards.entry(id).or_default() |= reason;

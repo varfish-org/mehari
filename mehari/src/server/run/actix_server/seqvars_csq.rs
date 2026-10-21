@@ -47,8 +47,10 @@ pub(crate) struct SeqvarsCsqResultEntry {
     pub putative_impact: PutativeImpact,
     /// The gene symbol.
     pub gene_symbol: String,
-    /// The gene identifier.
+    /// The gene ID of the annotation, e.g., `"672"` for BRCA1 in RefSeq.
     pub gene_id: String,
+    /// The HGNC ID of the gene, e.g., `"HGNC:1100"` for BRCA1; unset for a gene without one.
+    pub hgnc_id: Option<String>,
     /// The feature type.
     pub feature_type: FeatureType,
     /// The feature identifier.
@@ -136,6 +138,7 @@ async fn handle_impl(
                     continue;
                 }
             }
+            let gene_hgnc_id = predictor.hgnc_id(&ann_field.feature_id).map(String::from);
             let AnnField {
                 consequences,
                 putative_impact,
@@ -163,6 +166,7 @@ async fn handle_impl(
                 putative_impact,
                 gene_symbol,
                 gene_id,
+                hgnc_id: gene_hgnc_id,
                 feature_type,
                 feature_id,
                 feature_biotype: if feature_biotype.contains(&FeatureBiotype::Coding) {
@@ -242,19 +246,14 @@ async fn handle_with_openapi(
 
 #[cfg(test)]
 mod test {
-    /// The filter by HGNC ID uses `hgnc_id`, not `legacy_gene_id`.
+    /// The filter by HGNC ID uses `hgnc_id`, not `gene_id`.
     #[rstest::rstest]
     #[case::hgnc_id("HGNC:1", true)]
-    #[case::legacy_gene_id("GENE:11", false)]
+    #[case::gene_id("11", false)]
     fn has_hgnc_id(#[case] hgnc_id: &str, #[case] expected: bool) {
         use crate::annotate::seqvars::provider::{Provider, test_db};
 
-        let provider = Provider::new(
-            test_db::one_gene_db(),
-            None::<&str>,
-            true,
-            Default::default(),
-        );
+        let provider = Provider::new(test_db::one_gene_db(), None::<&str>, true);
 
         assert_eq!(
             super::has_hgnc_id(&provider, "NM_000001.1", hgnc_id),

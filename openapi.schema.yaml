@@ -1294,7 +1294,12 @@ components:
           description: The gene symbol.
         gene_id:
           type: string
-          description: The gene identifier.
+          description: The gene ID of the annotation, e.g., `"672"` for BRCA1 in RefSeq.
+        hgnc_id:
+          type:
+          - string
+          - 'null'
+          description: The HGNC ID of the gene, e.g., `"HGNC:1100"` for BRCA1; unset for a gene without one.
         feature_type:
           $ref: '#/components/schemas/FeatureType'
           description: The feature type.
@@ -1592,6 +1597,11 @@ components:
         gene_id:
           type: string
           description: Gene ID of the annotation, e.g., `"672"` for BRCA1 in RefSeq.
+        hgnc_id:
+          type:
+          - string
+          - 'null'
+          description: HGNC ID of the gene, e.g., `"HGNC:1100"` for BRCA1; unset for a gene without one.
         biotype:
           $ref: '#/components/schemas/TranscriptBiotype'
           description: Transcript biotype.

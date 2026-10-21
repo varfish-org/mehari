@@ -1,12 +1,12 @@
 ---
 source: mehari/src/db/transcripts/subset/mod.rs
+assertion_line: 484
 expression: "String::from_utf8(buf)?"
 ---
 txDb:
   transcripts:
   - id: NM_001256850.1
     geneSymbol: TTN
-    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_001243779.1
     startCodon: 225
@@ -1901,7 +1901,6 @@ txDb:
     hgncId: HGNC:12403
   - id: NM_001267550.2
     geneSymbol: TTN
-    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_REF_SEQ_SELECT
@@ -4099,7 +4098,6 @@ txDb:
     hgncId: HGNC:12403
   - id: NM_003319.4
     geneSymbol: TTN
-    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_003310.4
     startCodon: 225
@@ -5262,7 +5260,6 @@ txDb:
     hgncId: HGNC:12403
   - id: NM_133378.4
     geneSymbol: TTN
-    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_596869.4
     startCodon: 225
@@ -7151,7 +7148,6 @@ txDb:
     hgncId: HGNC:12403
   - id: NM_133379.5
     geneSymbol: TTN
-    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_596870.2
     startCodon: 225
@@ -7444,7 +7440,6 @@ txDb:
     hgncId: HGNC:12403
   - id: NM_133432.3
     geneSymbol: TTN
-    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_597676.3
     startCodon: 225
@@ -8613,7 +8608,6 @@ txDb:
     hgncId: HGNC:12403
   - id: NM_133437.4
     geneSymbol: TTN
-    legacyGeneId: HGNC:12403
     biotype: TRANSCRIPT_BIOTYPE_CODING
     protein: NP_597681.4
     startCodon: 225
@@ -9781,8 +9775,7 @@ txDb:
     geneId: '7273'
     hgncId: HGNC:12403
   geneToTx:
-  - legacyGeneId: HGNC:12403
-    txIds:
+  - txIds:
     - NM_001256850.1
     - NM_001267550.2
     - NM_003319.4

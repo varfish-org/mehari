@@ -158,6 +158,7 @@ fn report(prediction: &Prediction, a: &Annotation) -> String {
         ("distance", show(a.distance())),
         ("warnings", a.warnings().join("+")),
         ("protein-id", show(a.protein_id())),
+        ("hgnc-id", show(a.hgnc_id())),
         ("contig", show(a.contig())),
         ("genome-build", show(a.genome_build())),
         (

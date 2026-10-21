@@ -664,6 +664,11 @@ impl ConsequencePredictor {
         &self.custom_columns
     }
 
+    /// The HGNC ID of the gene of transcript `tx_id`, if it has one.
+    pub fn hgnc_id(&self, tx_id: &str) -> Option<&str> {
+        self.provider.get_tx(tx_id)?.hgnc_id.as_deref()
+    }
+
     /// The context of a transcript annotation; empty if no plugin reads it.
     fn tx_context(
         &self,
@@ -859,7 +864,7 @@ impl ConsequencePredictor {
         let cands = txs
             .into_iter()
             .filter_map(|record| match self.provider.get_tx(&record.tx_ac) {
-                Some(tx) => Some(Candidate::new(record, tx)),
+                Some(tx) => Some(Candidate::new(record, tx, self.provider.gene_key(tx))),
                 None => {
                     tracing::warn!(
                         "Requested transcript accession {}, got None (potentially filtered)",
@@ -3596,8 +3601,6 @@ mod test {
                 transcripts: vec![Transcript {
                     id: "NM_000000.1".into(),
                     gene_symbol: "TEST".into(),
-                    #[allow(deprecated)]
-                    legacy_gene_id: "HGNC:0".into(),
                     biotype: TranscriptBiotype::Coding.into(),
                     protein: Some("NP_000000.1".into()),
                     start_codon: Some(2),
@@ -3617,8 +3620,6 @@ mod test {
                     ..Default::default()
                 }],
                 gene_to_tx: vec![GeneToTxId {
-                    #[allow(deprecated)]
-                    legacy_gene_id: "HGNC:0".into(),
                     tx_ids: vec!["NM_000000.1".into()],
                     ..Default::default()
                 }],
@@ -5543,8 +5544,6 @@ mod test {
         let tx_seq_db = TxSeqDatabase {
             tx_db: Some(TranscriptDb {
                 gene_to_tx: vec![GeneToTxId {
-                    #[allow(deprecated)]
-                    legacy_gene_id: tx.legacy_gene_id.clone(),
                     tx_ids: vec![tx.id.clone()],
                     filtered: Some(false),
                     filter_reason: None,
@@ -5587,8 +5586,6 @@ mod test {
         let tx = Transcript {
             id: "NM_000001.1".into(),
             gene_symbol: "GENE1".into(),
-            #[allow(deprecated)]
-            legacy_gene_id: "1".into(),
             biotype: TranscriptBiotype::Coding.into(),
             protein: Some("NP_000001.1".into()),
             start_codon: Some(start),
@@ -5708,8 +5705,6 @@ mod test {
         let tx = Transcript {
             gene_id: "11".into(),
             hgnc_id: Some("HGNC:1".into()),
-            #[allow(deprecated)]
-            legacy_gene_id: "GENE:11".into(),
             ..tx
         };
         let anns = predictor_for(tx, seq)
@@ -5733,22 +5728,14 @@ mod test {
         use crate::annotate::seqvars::provider::test_db;
         use crate::pbs::txs::GeneToTxId;
 
-        let tx =
-            |id: &str, gene_id: &str, hgnc_id: Option<&str>, legacy_gene_id: &str| Transcript {
-                gene_id: gene_id.into(),
-                hgnc_id: hgnc_id.map(String::from),
-                #[allow(deprecated)]
-                legacy_gene_id: legacy_gene_id.into(),
-                ..test_db::transcript(id, 1000)
-            };
+        let tx = |id: &str, gene_id: &str, hgnc_id: Option<&str>| Transcript {
+            gene_id: gene_id.into(),
+            hgnc_id: hgnc_id.map(String::from),
+            ..test_db::transcript(id, 1000)
+        };
         if db == "merged" {
-            let refseq = tx("NM_000001.1", "672", Some("HGNC:1100"), "HGNC:1100");
-            let ensembl = tx(
-                "ENST00000000001.1",
-                "ENSG00000012048.1",
-                Some("HGNC:1100"),
-                "HGNC:1100",
-            );
+            let refseq = tx("NM_000001.1", "672", Some("HGNC:1100"));
+            let ensembl = tx("ENST00000000001.1", "ENSG00000012048.1", Some("HGNC:1100"));
             let genes = vec![
                 test_db::gene(&refseq),
                 GeneToTxId {
@@ -5758,18 +5745,8 @@ mod test {
             ];
             (vec![refseq, ensembl], genes)
         } else {
-            let old = tx(
-                "ENST00000000001.1",
-                "ENSG00000000001.9",
-                None,
-                "GENE:ENSG00000000001.9",
-            );
-            let new = tx(
-                "ENST00000000001.2",
-                "ENSG00000000001.10",
-                None,
-                "GENE:ENSG00000000001.10",
-            );
+            let old = tx("ENST00000000001.1", "ENSG00000000001.9", None);
+            let new = tx("ENST00000000001.2", "ENSG00000000001.10", None);
             let gene = GeneToTxId {
                 gene_id: "ENSG00000000001".into(),
                 tx_ids: vec![old.id.clone(), new.id.clone()],
@@ -5779,17 +5756,17 @@ mod test {
         }
     }
 
-    /// Picking groups the transcripts by HGNC ID, else by gene entry. Then a database with a
-    /// RefSeq and an Ensembl gene of one HGNC ID picks one transcript. So does a database with
-    /// two versions of a gene without HGNC ID.
+    /// Picking groups the transcripts by gene entry, by length and by severity. A database with a
+    /// RefSeq and an Ensembl gene of one HGNC ID thus picks one transcript of each gene, and a
+    /// database with two versions of a gene picks one.
     #[rstest::rstest]
-    #[case::refseq_and_ensembl_gene("merged", 1)]
-    #[case::two_versions_of_a_gene("versions", 1)]
-    fn picks_per_gene(#[case] db: &str, #[case] picked: usize) -> Result<(), anyhow::Error> {
+    #[case::refseq_and_ensembl_gene("merged", &["NM_000001.1", "ENST00000000001.1"])]
+    #[case::two_versions_of_a_gene("versions", &["ENST00000000001.1"])]
+    fn picks_per_gene(#[case] db: &str, #[case] expected: &[&str]) -> Result<(), anyhow::Error> {
         use crate::annotate::seqvars::provider::test_db;
 
         let (transcripts, genes) = two_transcripts_db(db);
-        let txs = transcripts
+        let txs: Vec<_> = transcripts
             .iter()
             .map(|tx| TxForRegionRecord {
                 tx_ac: tx.id.clone(),
@@ -5800,67 +5777,48 @@ mod test {
                 end_i: 1100,
             })
             .collect();
-        let provider = MehariProvider::new(
-            test_db::tx_seq_db(transcripts, genes),
-            None::<PathBuf>,
-            true,
-            MehariProviderConfigBuilder::default()
-                .pick_transcript(vec![TranscriptPickType::Length])
-                .pick_transcript_mode(TranscriptPickMode::First)
-                .build()?,
-        );
-        let predictor =
-            ConsequencePredictor::new(Arc::new(provider), ConfigBuilder::default().build()?);
-
-        assert_eq!(predictor.filter_picked_sourced_txs(txs).len(), picked);
-
-        Ok(())
-    }
-
-    /// The most severe consequence per gene groups the transcripts as picking does. Then a
-    /// database with a RefSeq and an Ensembl gene of one HGNC ID reports one consequence. So
-    /// does a database with two versions of a gene without HGNC ID.
-    #[rstest::rstest]
-    #[case::refseq_and_ensembl_gene("merged", &["NM_000001.1"])]
-    #[case::two_versions_of_a_gene("versions", &["ENST00000000001.1"])]
-    fn most_severe_consequence_per_gene(
-        #[case] db: &str,
-        #[case] expected: &[&str],
-    ) -> Result<(), anyhow::Error> {
-        use crate::annotate::seqvars::provider::test_db;
-
-        let (transcripts, genes) = two_transcripts_db(db);
-        let provider = MehariProvider::new(
-            test_db::tx_seq_db(transcripts.clone(), genes),
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        );
         // The first transcript has the more severe consequence.
-        let anns = transcripts
+        let consequences = transcripts
             .iter()
+            .map(|tx| tx.id.clone())
             .zip([Consequence::MissenseVariant, Consequence::SynonymousVariant])
-            .map(|(tx, consequence)| AnnField {
-                gene_id: tx.gene_id.clone(),
-                feature_id: tx.id.clone(),
-                consequences: vec![consequence],
+            .collect::<BTreeMap<_, _>>();
+        for settings in [
+            TranscriptSettings {
+                pick: Some(PickUnit::Gene),
+                pick_order: vec![PickCriterion::Length],
                 ..Default::default()
-            })
-            .collect();
-        let predictor = ConsequencePredictor::new(
-            Arc::new(provider),
-            ConfigBuilder::default()
-                .report_most_severe_consequence_by(Some(ConsequenceBy::Gene))
-                .build()?,
-        );
+            },
+            TranscriptSettings::most_severe(PickUnit::Gene),
+        ] {
+            let provider = MehariProvider::new(
+                test_db::tx_seq_db(transcripts.clone(), genes.clone()),
+                None::<PathBuf>,
+                true,
+            );
+            let predictor = ConsequencePredictor::new(
+                Arc::new(provider),
+                ConfigBuilder::default()
+                    .transcript_settings(settings)
+                    .build()?,
+            );
 
-        let mut reported: Vec<_> = predictor
-            .filter_ann_fields(anns)
-            .into_iter()
-            .map(|ann| ann.feature_id)
-            .collect();
-        reported.sort();
-        assert_eq!(reported, expected);
+            let reported: Vec<_> = predictor
+                .select_annotations(txs.clone(), |record| {
+                    Ok(Some(TxAnnotation {
+                        context: TxContext::empty(),
+                        ann: AnnField {
+                            feature_id: record.tx_ac.clone(),
+                            consequences: vec![consequences[&record.tx_ac]],
+                            ..Default::default()
+                        },
+                    }))
+                })?
+                .into_iter()
+                .map(|tx| tx.ann.feature_id)
+                .collect();
+            assert_eq!(reported, expected);
+        }
 
         Ok(())
     }
@@ -6912,8 +6870,6 @@ mod test {
         let tx = Transcript {
             id: "NM_000001.1".into(),
             gene_symbol: "GENE1".into(),
-            #[allow(deprecated)]
-            legacy_gene_id: "1".into(),
             biotype: TranscriptBiotype::Coding.into(),
             protein: Some("NP_000001.1".into()),
             start_codon: Some(start),

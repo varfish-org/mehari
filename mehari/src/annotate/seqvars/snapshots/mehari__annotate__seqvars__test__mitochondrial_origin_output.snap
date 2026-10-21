@@ -1,14 +1,14 @@
 ---
 source: mehari/src/annotate/seqvars/mod.rs
-assertion_line: 1957
+assertion_line: 2156
 expression: snapshot_data
 ---
 "16568:T:TG":
-  - "TG|downstream_gene_variant|MODIFIER|MT-CYB|HGNC:7427|transcript|ENST00000361789.2|Coding|EnsemblCanonical||m.1dup|||||||683|1|"
-  - "TG|upstream_gene_variant|MODIFIER|MT-TP|HGNC:7494|transcript|ENST00000387461.2|Noncoding|EnsemblCanonical||m.16569dup|||||||546|-1|"
+  - TG|downstream_gene_variant|MODIFIER|MT-CYB|ENSG00000198727.2|transcript|ENST00000361789.2|Coding|EnsemblCanonical||m.1dup|||||||683|1|
+  - TG|upstream_gene_variant|MODIFIER|MT-TP|ENSG00000210196.2|transcript|ENST00000387461.2|Noncoding|EnsemblCanonical||m.16569dup|||||||546|-1|
 "16568:T:TGG":
-  - "TGG|downstream_gene_variant|MODIFIER|MT-CYB|HGNC:7427|transcript|ENST00000361789.2|Coding|EnsemblCanonical||m.16569_1dup|||||||682|1|"
-  - "TGG|upstream_gene_variant|MODIFIER|MT-TP|HGNC:7494|transcript|ENST00000387461.2|Noncoding|EnsemblCanonical||m.16569_1dup|||||||546|-1|"
+  - TGG|downstream_gene_variant|MODIFIER|MT-CYB|ENSG00000198727.2|transcript|ENST00000361789.2|Coding|EnsemblCanonical||m.16569_1dup|||||||682|1|
+  - TGG|upstream_gene_variant|MODIFIER|MT-TP|ENSG00000210196.2|transcript|ENST00000387461.2|Noncoding|EnsemblCanonical||m.16569_1dup|||||||546|-1|
 "1:GA:A":
-  - "A|upstream_gene_variant|MODIFIER|MT-TF|HGNC:7481|transcript|ENST00000387314.1|Noncoding|EnsemblCanonical||m.1del|||||||-576|1|"
-  - "A|downstream_gene_variant|MODIFIER|MT-TQ|HGNC:7495|transcript|ENST00000387372.1|Noncoding|EnsemblCanonical||m.16569del|||||||-4329|-1|"
+  - A|upstream_gene_variant|MODIFIER|MT-TF|ENSG00000210049.1|transcript|ENST00000387314.1|Noncoding|EnsemblCanonical||m.1del|||||||-576|1|
+  - A|downstream_gene_variant|MODIFIER|MT-TQ|ENSG00000210107.1|transcript|ENST00000387372.1|Noncoding|EnsemblCanonical||m.16569del|||||||-4329|-1|

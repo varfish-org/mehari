@@ -655,6 +655,11 @@ impl types::HostAnnotation for HostState {
         Ok(tx.and_then(|tx| tx.protein.clone()))
     }
 
+    fn hgnc_id(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
+        let tx = self.context(&a)?.tx();
+        Ok(tx.and_then(|tx| tx.hgnc_id.clone()))
+    }
+
     fn contig(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
         Ok(self.alignment(&a)?.map(|aln| aln.contig.clone()))
     }
@@ -1106,6 +1111,7 @@ mod test {
             ("distance", show(ann.distance.map(|d| d.to_string()))),
             ("warnings", String::new()),
             ("protein-id", "NP_009225.1".into()),
+            ("hgnc-id", "HGNC:1100".into()),
             ("contig", "NC_000017.10".into()),
             ("genome-build", "grch37".into()),
             ("strand", "Strand::Minus".into()),
@@ -1113,10 +1119,10 @@ mod test {
             ("first-exon", "1-94:41277288-41277381:94M".into()),
             // c.1 is n.114 and chr17:41276113, the stop codon ends at c.5592.
             ("genome-cds", "41197695-41276113".into()),
-            ("reference-transcript", "7091".into()),
+            ("reference-transcript", "7088".into()),
             ("reference-protein", "1864".into()),
             ("reference-cds", "114-5705".into()),
-            ("alternative-transcript", "7091".into()),
+            ("alternative-transcript", "7088".into()),
             ("alternative-protein", "1864".into()),
             ("alternative-cds-start", "114".into()),
             ("translation-table", "standard".into()),

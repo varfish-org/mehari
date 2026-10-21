@@ -460,7 +460,6 @@ impl ConsequencePredictor {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod test {
     use super::interface::{StrandOrientation, StrucVar, StrucvarsSvType};
 
@@ -505,29 +504,17 @@ mod test {
         use std::sync::Arc;
 
         let txs = [
-            (
-                "ENST00000000001.1",
-                "ENSG00000000001.9",
-                Some("HGNC:1"),
-                "HGNC:1",
-            ),
-            (
-                "ENST00000000001.2",
-                "ENSG00000000001.10",
-                None,
-                "GENE:ENSG00000000001.10",
-            ),
+            ("ENST00000000001.1", "ENSG00000000001.9", Some("HGNC:1")),
+            ("ENST00000000001.2", "ENSG00000000001.10", None),
         ]
-        .map(|(id, gene_id, hgnc_id, legacy_gene_id)| Transcript {
+        .map(|(id, gene_id, hgnc_id)| Transcript {
             gene_id: gene_id.into(),
             hgnc_id: hgnc_id.map(String::from),
-            legacy_gene_id: legacy_gene_id.into(),
             ..test_db::transcript(id, 1000)
         });
         let gene = GeneToTxId {
             gene_id: "ENSG00000000001".into(),
             hgnc_id: Some("HGNC:1".into()),
-            legacy_gene_id: "HGNC:1".into(),
             tx_ids: txs.iter().map(|tx| tx.id.clone()).collect(),
             filtered: Some(false),
             ..Default::default()
@@ -536,7 +523,6 @@ mod test {
             test_db::tx_seq_db(txs.to_vec(), vec![gene]),
             None::<&str>,
             true,
-            Default::default(),
         );
 
         let effects =

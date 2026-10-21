@@ -72,12 +72,9 @@ message SourceVersion {
 
 // Mapping from gene to transcript ID.
 message GeneToTxId {
-  // DEPRECATED: Use `gene_id` (tag 5) and `hgnc_id` (tag 6) instead. Mixed gene
-  // identifier, kept for older readers. Databases built from cdot hold `HGNC:` and
-  // the HGNC ID, e.g., `"HGNC:1100"` for BRCA1. Genes without HGNC ID and genes from
-  // GFF3 hold `GENE:` and the gene ID of the annotation, e.g., `"GENE:672"`. An
-  // Ensembl or GENCODE gene ID keeps its version, e.g., `"GENE:ENSG00000182378.15"`.
-  string legacy_gene_id = 1 [deprecated = true];
+  // The mixed `HGNC:` or `GENE:` identifier of mehari before 0.47.
+  reserved 1;
+  reserved "legacy_gene_id";
   // Vector of all transcript IDs.
   repeated string tx_ids = 2;
   // Whether this gene has been filtered out because of missing transcripts.
@@ -171,10 +168,9 @@ message Transcript {
   string id = 1;
   // HGNC symbol, e.g., `"BRCA1"`
   string gene_symbol = 2;
-  // DEPRECATED: Use `gene_id` (tag 13) and `hgnc_id` (tag 14) instead. Mixed gene
-  // identifier, kept for older readers. It holds the old value of this transcript,
-  // which can differ from `GeneToTxId.legacy_gene_id`, e.g., `"HGNC:1100"` for BRCA1.
-  string legacy_gene_id = 3 [deprecated = true];
+  // The mixed `HGNC:` or `GENE:` identifier of mehari before 0.47.
+  reserved 3;
+  reserved "legacy_gene_id";
   // Transcript biotype.
   TranscriptBiotype biotype = 4;
   // Transcript flags.

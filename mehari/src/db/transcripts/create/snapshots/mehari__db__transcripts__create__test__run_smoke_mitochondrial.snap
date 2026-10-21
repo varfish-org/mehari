@@ -1,13 +1,12 @@
 ---
 source: mehari/src/db/transcripts/create/mod.rs
-assertion_line: 591
+assertion_line: 621
 expression: "String::from_utf8(buf)?"
 ---
 txDb:
   transcripts:
   - id: ENST00000361681.2
     geneSymbol: MT-ND6
-    legacyGeneId: HGNC:7462
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -31,7 +30,6 @@ txDb:
     hgncId: HGNC:7462
   - id: ENST00000361739.1
     geneSymbol: MT-CO2
-    legacyGeneId: HGNC:7421
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -55,7 +53,6 @@ txDb:
     hgncId: HGNC:7421
   - id: ENST00000361789.2
     geneSymbol: MT-CYB
-    legacyGeneId: HGNC:7427
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -79,7 +76,6 @@ txDb:
     hgncId: HGNC:7427
   - id: ENST00000361453.3
     geneSymbol: MT-ND2
-    legacyGeneId: HGNC:7456
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -103,7 +99,6 @@ txDb:
     hgncId: HGNC:7456
   - id: ENST00000361567.2
     geneSymbol: MT-ND5
-    legacyGeneId: HGNC:7461
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -127,7 +122,6 @@ txDb:
     hgncId: HGNC:7461
   - id: ENST00000361624.2
     geneSymbol: MT-CO1
-    legacyGeneId: HGNC:7419
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -151,7 +145,6 @@ txDb:
     hgncId: HGNC:7419
   - id: ENST00000361227.2
     geneSymbol: MT-ND3
-    legacyGeneId: HGNC:7458
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -175,7 +168,6 @@ txDb:
     hgncId: HGNC:7458
   - id: ENST00000361381.2
     geneSymbol: MT-ND4
-    legacyGeneId: HGNC:7459
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -199,7 +191,6 @@ txDb:
     hgncId: HGNC:7459
   - id: ENST00000361390.2
     geneSymbol: MT-ND1
-    legacyGeneId: HGNC:7455
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -223,7 +214,6 @@ txDb:
     hgncId: HGNC:7455
   - id: ENST00000361899.2
     geneSymbol: MT-ATP6
-    legacyGeneId: HGNC:7414
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -247,7 +237,6 @@ txDb:
     hgncId: HGNC:7414
   - id: ENST00000362079.2
     geneSymbol: MT-CO3
-    legacyGeneId: HGNC:7422
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -271,7 +260,6 @@ txDb:
     hgncId: HGNC:7422
   - id: ENST00000386347.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000209082
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -291,7 +279,6 @@ txDb:
     geneId: ENSG00000209082
   - id: ENST00000387314.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210049
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -311,7 +298,6 @@ txDb:
     geneId: ENSG00000210049
   - id: ENST00000387342.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210077
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -331,7 +317,6 @@ txDb:
     geneId: ENSG00000210077
   - id: ENST00000387347.2
     geneSymbol: MT-RNR2
-    legacyGeneId: HGNC:7471
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -351,7 +336,6 @@ txDb:
     hgncId: HGNC:7471
   - id: ENST00000387365.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210100
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -371,7 +355,6 @@ txDb:
     geneId: ENSG00000210100
   - id: ENST00000387372.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210107
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -391,7 +374,6 @@ txDb:
     geneId: ENSG00000210107
   - id: ENST00000387377.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210112
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -411,7 +393,6 @@ txDb:
     geneId: ENSG00000210112
   - id: ENST00000387382.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210117
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -431,7 +412,6 @@ txDb:
     geneId: ENSG00000210117
   - id: ENST00000387392.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210127
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -451,7 +431,6 @@ txDb:
     geneId: ENSG00000210127
   - id: ENST00000387400.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210135
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -471,7 +450,6 @@ txDb:
     geneId: ENSG00000210135
   - id: ENST00000387405.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210140
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -491,7 +469,6 @@ txDb:
     geneId: ENSG00000210140
   - id: ENST00000387409.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210144
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -511,7 +488,6 @@ txDb:
     geneId: ENSG00000210144
   - id: ENST00000387416.2
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210151
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -531,7 +507,6 @@ txDb:
     geneId: ENSG00000210151
   - id: ENST00000387419.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210154
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -551,7 +526,6 @@ txDb:
     geneId: ENSG00000210154
   - id: ENST00000387421.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210156
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -571,7 +545,6 @@ txDb:
     geneId: ENSG00000210156
   - id: ENST00000387429.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210164
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -591,7 +564,6 @@ txDb:
     geneId: ENSG00000210164
   - id: ENST00000387439.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210174
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -611,7 +583,6 @@ txDb:
     geneId: ENSG00000210174
   - id: ENST00000387441.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210176
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -631,7 +602,6 @@ txDb:
     geneId: ENSG00000210176
   - id: ENST00000387449.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210184
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -651,7 +621,6 @@ txDb:
     geneId: ENSG00000210184
   - id: ENST00000387456.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210191
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -671,7 +640,6 @@ txDb:
     geneId: ENSG00000210191
   - id: ENST00000387459.1
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210194
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -691,7 +659,6 @@ txDb:
     geneId: ENSG00000210194
   - id: ENST00000387460.2
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210195
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -711,7 +678,6 @@ txDb:
     geneId: ENSG00000210195
   - id: ENST00000387461.2
     geneSymbol: <MISSING>
-    legacyGeneId: GENE:ENSG00000210196
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -731,7 +697,6 @@ txDb:
     geneId: ENSG00000210196
   - id: ENST00000389680.2
     geneSymbol: MT-RNR1
-    legacyGeneId: HGNC:7470
     biotype: TRANSCRIPT_BIOTYPE_NON_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -751,7 +716,6 @@ txDb:
     hgncId: HGNC:7470
   - id: ENST00000361335.1
     geneSymbol: MT-ND4L
-    legacyGeneId: HGNC:7460
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -775,7 +739,6 @@ txDb:
     hgncId: HGNC:7460
   - id: ENST00000361851.1
     geneSymbol: MT-ATP8
-    legacyGeneId: HGNC:7415
     biotype: TRANSCRIPT_BIOTYPE_CODING
     tags:
     - TRANSCRIPT_TAG_BASIC
@@ -798,224 +761,187 @@ txDb:
     geneId: ENSG00000228253.1
     hgncId: HGNC:7415
   geneToTx:
-  - legacyGeneId: HGNC:7462
-    txIds:
+  - txIds:
     - ENST00000361681.2
     filtered: false
     geneId: ENSG00000198695
     hgncId: HGNC:7462
-  - legacyGeneId: HGNC:7421
-    txIds:
+  - txIds:
     - ENST00000361739.1
     filtered: false
     geneId: ENSG00000198712
     hgncId: HGNC:7421
-  - legacyGeneId: HGNC:7427
-    txIds:
+  - txIds:
     - ENST00000361789.2
     filtered: false
     geneId: ENSG00000198727
     hgncId: HGNC:7427
-  - legacyGeneId: HGNC:7456
-    txIds:
+  - txIds:
     - ENST00000361453.3
     filtered: false
     geneId: ENSG00000198763
     hgncId: HGNC:7456
-  - legacyGeneId: HGNC:7461
-    txIds:
+  - txIds:
     - ENST00000361567.2
     filtered: false
     geneId: ENSG00000198786
     hgncId: HGNC:7461
-  - legacyGeneId: HGNC:7419
-    txIds:
+  - txIds:
     - ENST00000361624.2
     filtered: false
     geneId: ENSG00000198804
     hgncId: HGNC:7419
-  - legacyGeneId: HGNC:7458
-    txIds:
+  - txIds:
     - ENST00000361227.2
     filtered: false
     geneId: ENSG00000198840
     hgncId: HGNC:7458
-  - legacyGeneId: HGNC:7459
-    txIds:
+  - txIds:
     - ENST00000361381.2
     filtered: false
     geneId: ENSG00000198886
     hgncId: HGNC:7459
-  - legacyGeneId: HGNC:7455
-    txIds:
+  - txIds:
     - ENST00000361390.2
     filtered: false
     geneId: ENSG00000198888
     hgncId: HGNC:7455
-  - legacyGeneId: HGNC:7414
-    txIds:
+  - txIds:
     - ENST00000361899.2
     filtered: false
     geneId: ENSG00000198899
     hgncId: HGNC:7414
-  - legacyGeneId: HGNC:7422
-    txIds:
+  - txIds:
     - ENST00000362079.2
     filtered: false
     geneId: ENSG00000198938
     hgncId: HGNC:7422
-  - legacyGeneId: GENE:ENSG00000209082
-    txIds:
+  - txIds:
     - ENST00000386347.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000209082
-  - legacyGeneId: GENE:ENSG00000210049
-    txIds:
+  - txIds:
     - ENST00000387314.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210049
-  - legacyGeneId: GENE:ENSG00000210077
-    txIds:
+  - txIds:
     - ENST00000387342.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210077
-  - legacyGeneId: HGNC:7471
-    txIds:
+  - txIds:
     - ENST00000387347.2
     filtered: false
     geneId: ENSG00000210082
     hgncId: HGNC:7471
-  - legacyGeneId: GENE:ENSG00000210100
-    txIds:
+  - txIds:
     - ENST00000387365.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210100
-  - legacyGeneId: GENE:ENSG00000210107
-    txIds:
+  - txIds:
     - ENST00000387372.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210107
-  - legacyGeneId: GENE:ENSG00000210112
-    txIds:
+  - txIds:
     - ENST00000387377.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210112
-  - legacyGeneId: GENE:ENSG00000210117
-    txIds:
+  - txIds:
     - ENST00000387382.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210117
-  - legacyGeneId: GENE:ENSG00000210127
-    txIds:
+  - txIds:
     - ENST00000387392.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210127
-  - legacyGeneId: GENE:ENSG00000210135
-    txIds:
+  - txIds:
     - ENST00000387400.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210135
-  - legacyGeneId: GENE:ENSG00000210140
-    txIds:
+  - txIds:
     - ENST00000387405.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210140
-  - legacyGeneId: GENE:ENSG00000210144
-    txIds:
+  - txIds:
     - ENST00000387409.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210144
-  - legacyGeneId: GENE:ENSG00000210151
-    txIds:
+  - txIds:
     - ENST00000387416.2
     filtered: false
     filterReason: 128
     geneId: ENSG00000210151
-  - legacyGeneId: GENE:ENSG00000210154
-    txIds:
+  - txIds:
     - ENST00000387419.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210154
-  - legacyGeneId: GENE:ENSG00000210156
-    txIds:
+  - txIds:
     - ENST00000387421.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210156
-  - legacyGeneId: GENE:ENSG00000210164
-    txIds:
+  - txIds:
     - ENST00000387429.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210164
-  - legacyGeneId: GENE:ENSG00000210174
-    txIds:
+  - txIds:
     - ENST00000387439.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210174
-  - legacyGeneId: GENE:ENSG00000210176
-    txIds:
+  - txIds:
     - ENST00000387441.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210176
-  - legacyGeneId: GENE:ENSG00000210184
-    txIds:
+  - txIds:
     - ENST00000387449.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210184
-  - legacyGeneId: GENE:ENSG00000210191
-    txIds:
+  - txIds:
     - ENST00000387456.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210191
-  - legacyGeneId: GENE:ENSG00000210194
-    txIds:
+  - txIds:
     - ENST00000387459.1
     filtered: false
     filterReason: 128
     geneId: ENSG00000210194
-  - legacyGeneId: GENE:ENSG00000210195
-    txIds:
+  - txIds:
     - ENST00000387460.2
     filtered: false
     filterReason: 128
     geneId: ENSG00000210195
-  - legacyGeneId: GENE:ENSG00000210196
-    txIds:
+  - txIds:
     - ENST00000387461.2
     filtered: false
     filterReason: 128
     geneId: ENSG00000210196
-  - legacyGeneId: HGNC:7470
-    txIds:
+  - txIds:
     - ENST00000389680.2
     filtered: false
     geneId: ENSG00000211459
     hgncId: HGNC:7470
-  - legacyGeneId: HGNC:7460
-    txIds:
+  - txIds:
     - ENST00000361335.1
     filtered: false
     geneId: ENSG00000212907
     hgncId: HGNC:7460
-  - legacyGeneId: HGNC:7415
-    txIds:
+  - txIds:
     - ENST00000361851.1
     filtered: false
     geneId: ENSG00000228253

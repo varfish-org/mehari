@@ -22,7 +22,7 @@ Each annotation offers:
 
 - what mehari writes to `ANN`: `feature-id` (transcript accession, empty for intergenic variants), `consequences` (Sequence Ontology terms), `impact`, `gene-symbol`, `gene-id`, `biotypes`, `tags`, `rank` (exon or intron), `hgvs-g`, `hgvs-n`, `hgvs-c`, `hgvs-p`, `cdna-pos`, `cds-pos`, `protein-pos`, `distance` and `warnings`, and `cdna-end` for the last variant base. HGVS normalization shifts the variant towards the transcript's 3' end, so its position depends on the transcript's strand;
 - `field(column)`: the value of a column, e.g. one an earlier plugin filled;
-- the transcript: `strand`, `exons` with their transcript and genome positions, `contig`, `genome-build`, `protein-id` and `genome-cds-start`/`genome-cds-end`;
+- the transcript: `strand`, `exons` with their transcript and genome positions, `contig`, `genome-build`, `protein-id`, `hgnc-id` and `genome-cds-start`/`genome-cds-end`;
 - the sequences: `reference-transcript`, `reference-protein`, `reference-cds-start` and `reference-cds-end`, the same as `alternative-*` with the variant applied, and `translation-table`, `translation-exceptions` (e.g. selenocysteine), `frameshift` and `first-changed-codon`.
 
 mehari computes the transcript data when a plugin first asks for it and shares it with the other plugins, so ask only for what you need.
@@ -168,4 +168,4 @@ These have not been tested with mehari.
 - Plugins have no access to the network or environment variables, and no file access beyond `data`. Their stderr is shown, their stdout is discarded.
 - mehari stops with an error naming the plugin if the plugin returns an error or fails, sets a column it did not declare or with a value of another type, or uses an annotation after the `annotate` call it came from.
 - Two plugins cannot fill the same column, and with `--flag-pick` no plugin can fill `pick`.
-- The interface has a version (`package mehari:plugin@0.1.0` in `plugin.wit`). Later 0.1.x versions only add functions, so plugins built for an earlier one keep working; a plugin that uses newer functions needs a mehari that has them. A plugin built for another version, e.g. 0.2, fails to load; rebuild it with the `plugin.wit` of your mehari version.
+- The interface has a version (`package mehari:plugin@0.1.1` in `plugin.wit`). Later 0.1.x versions only add functions, so plugins built for an earlier one keep working; a plugin that uses newer functions needs a mehari that has them. A plugin built for another version, e.g. 0.2, fails to load; rebuild it with the `plugin.wit` of your mehari version.
