@@ -128,6 +128,10 @@ pub(crate) trait HgvsVariantExt {
     /// have no reference bases, so they never cover an intron.
     fn alt_depends_on_splicing(&self, alignment: &GenomeAlignment) -> bool;
 
+    /// Check if the variant is an insertion between an exon's edge base and the intron base next
+    /// to it, e.g. `c.80_80+1insA` or `c.81-1_81insA`.
+    fn is_exon_edge_insertion(&self) -> bool;
+
     /// VEP's `stop_gained`, `stop_lost`, `stop_retained_variant` and `synonymous_variant` for an
     /// indel in the CDS, as in VEP 116.3.
     ///
@@ -174,6 +178,21 @@ impl HgvsVariantExt for HgvsVariant {
         exon_ends
             .filter(|end| Some(*end) != last_exon_end)
             .any(|end| (loc.start.base..loc.end.base).contains(&end))
+    }
+
+    fn is_exon_edge_insertion(&self) -> bool {
+        let (start, end, edit) = match self {
+            HgvsVariant::CdsVariant { loc_edit, .. } => {
+                let loc = loc_edit.loc.inner();
+                (loc.start.offset, loc.end.offset, loc_edit.edit.inner())
+            }
+            HgvsVariant::TxVariant { loc_edit, .. } => {
+                let loc = loc_edit.loc.inner();
+                (loc.start.offset, loc.end.offset, loc_edit.edit.inner())
+            }
+            _ => return false,
+        };
+        edit.is_ins() && matches!((start.unwrap_or(0), end.unwrap_or(0)), (0, 1) | (-1, 0))
     }
 
     fn vep_indel_stop_terms(
@@ -1618,17 +1637,27 @@ impl ConsequencePredictor {
             messages: None,
             custom_fields: BTreeMap::new(),
         };
-        let region = projection.as_ref().and_then(|p| p.region);
-        let alt_depends_on_splicing = projection
-            .as_ref()
-            .and_then(|p| p.n.as_ref())
-            .is_some_and(|var_n| var_n.alt_depends_on_splicing(alignment));
-        let (var_c, var_n) = projection.map_or((None, None), |p| (p.c, p.n));
+        // The alternative sequences come from the placement that the terms and `p.` come from.
+        let region = terms_projection.and_then(|p| p.region);
+        let ins_at_boundary_is_intronic = self.mapper.config.ins_at_boundary_is_intronic;
+        let alt_depends_on_splicing =
+            terms_projection
+                .and_then(|p| p.n.as_ref())
+                .is_some_and(|var_n| {
+                    // Unless such insertions count as intronic, an insertion at an exon edge joins
+                    // the exon and leaves the splice site intact.
+                    var_n.alt_depends_on_splicing(alignment)
+                        && (ins_at_boundary_is_intronic || !var_n.is_exon_edge_insertion())
+                });
+        let var_c = terms_projection.and_then(|p| p.c.clone());
+        let var_n = terms_projection.and_then(|p| p.n.clone());
 
         Ok(Some(TxAnnotation {
-            context: self
-                .tx_context(Some(tx), var_c, var_n)
-                .with_alt_inputs(region, alt_depends_on_splicing),
+            context: self.tx_context(Some(tx), var_c, var_n).with_alt_inputs(
+                region,
+                alt_depends_on_splicing,
+                ins_at_boundary_is_intronic,
+            ),
             ann,
         }))
     }
@@ -3282,10 +3311,13 @@ impl ConsequencePredictor {
             custom_fields: BTreeMap::new(),
         };
 
+        // As for single variants, the alternative sequences come from the placement.
+        let (alt_var_c, alt_var_n) = (terms_proj.c.clone(), terms_proj.n.clone());
         Ok(Some(TxAnnotation {
             context: self
-                .tx_context(Some(tx), Some(compound_var_c), Some(compound_var_n))
-                .with_ref_data(ref_data),
+                .tx_context(Some(tx), alt_var_c, alt_var_n)
+                .with_ref_data(ref_data)
+                .with_alt_inputs(None, false, self.mapper.config.ins_at_boundary_is_intronic),
             ann,
         }))
     }
@@ -4227,12 +4259,7 @@ mod test {
             dir.path(),
         )?;
         let tx_db = load_tx_db(tx_path)?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            Some(reference),
-            false,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, Some(reference), false));
         let predictor = ConsequencePredictor::new(provider, config);
 
         let res = predictor
@@ -4500,8 +4527,12 @@ mod test {
     #[test]
     fn alt_sequences_placement() -> Result<(), anyhow::Error> {
         let config = ConfigBuilder::default()
-            .report_cdna_sequence(SequenceReporting::Both)
-            .report_protein_sequence(SequenceReporting::Both)
+            .plugins(vec![
+                Arc::new(SequencePlugin::TxRef),
+                Arc::new(SequencePlugin::TxAlt),
+                Arc::new(SequencePlugin::AaRef),
+                Arc::new(SequencePlugin::AaAlt),
+            ])
             .build()?;
         let ann = annotate_chr22_window_with_config(
             "22:23772977:CG:C",

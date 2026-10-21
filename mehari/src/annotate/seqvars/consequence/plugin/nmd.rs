@@ -262,17 +262,18 @@ mod test {
     )] // given as c.5415del
     // c.80_80+1del reaches into the intron, so VEP has no CDS end for it.
     #[case("17:41276032:ACC:A", Consequence::SpliceDonorVariant, None, None)]
-    // VEP places insertions next to an exon into it, see `vep_escapes`.
+    // An insertion next to an exon joins it, as the splice site stays intact; VEP places it
+    // into the exon as well, see `vep_escapes`. Both give p.Cys27Ter.
     #[case(
         "17:41276033:C:CT",
-        Consequence::SpliceDonorVariant,
-        None,
+        Consequence::StopGained,
+        Some("escaping"),
         Some(VEP_ESCAPING)
     )] // c.80_80+1insA
     #[case(
         "17:41267796:C:CT",
-        Consequence::SpliceAcceptorVariant,
-        None,
+        Consequence::StopGained,
+        Some("escaping"),
         Some(VEP_ESCAPING)
     )] // c.81-1_81insA
     fn brca1(

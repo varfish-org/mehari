@@ -1,5 +1,6 @@
 ---
 source: mehari/src/annotate/seqvars/consequence/logic.rs
+assertion_line: 5772
 expression: summarize_custom_fields(&res)
 ---
 - - NM_007294.4
@@ -28,6 +29,7 @@ expression: summarize_custom_fields(&res)
     tx_sequence_ref: len=3702 fnv1a=cdf09384d4a5b3fb
 - - NM_007299.4
   - - stop_gained
+    - frameshift_variant
     - exonic_splice_region_variant
   - aa_sequence_alt: len=694 fnv1a=2bb2306b969909ca
     aa_sequence_ref: len=700 fnv1a=5ffd0bb51b97cafb

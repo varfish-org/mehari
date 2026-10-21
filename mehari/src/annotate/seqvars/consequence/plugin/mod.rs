@@ -18,7 +18,7 @@ use itertools::Itertools;
 use strum::VariantArray;
 
 use super::VcfVariant;
-use super::logic::apply_n_edits;
+use super::logic::{HgvsVariantExt, apply_n_edits};
 use super::terms::AnnField;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::db::TranscriptDatabase;
@@ -167,8 +167,9 @@ pub trait TranscriptPlugin: Debug + Send + Sync {
     /// Called once per prediction with all of its reported annotations.
     ///
     /// `variants` holds the input variant as given in the VCF, or the variants of a compound
-    /// group. The HGVS descriptions in `ann` and `context.var_c` follow HGVS normalization, which
-    /// shifts towards the transcript's 3' end and so depends on its strand.
+    /// group. The HGVS descriptions in `ann` follow HGVS normalization, which shifts towards the
+    /// transcript's 3' end and so depends on its strand; `context.var_c` can differ at an exon
+    /// edge, see [`TxContext::var_c`].
     /// Writes into `ann.custom_fields`; keys not listed in `columns` are not output. `txs` is a
     /// `Vec` so that a plugin can move the annotations, e.g. to lend them to a WebAssembly
     /// component.
@@ -198,14 +199,18 @@ pub struct TxContext {
     provider: Option<Arc<MehariProvider>>,
     tx_id: Option<String>,
     /// The variant on the transcript: `c.` for coding, `n.` for non-coding transcripts,
-    /// `None` if the variant lies up- or downstream.
+    /// `None` if the variant lies up- or downstream. At an exon edge, this is the placement that
+    /// the consequence terms and `p.` come from, which can differ from the 3'-shifted HGVS
+    /// description in the annotation.
     pub var_c: Option<HgvsVariant>,
-    /// The variant on the transcript in `n.` coordinates.
+    /// The variant on the transcript in `n.` coordinates, placed as `var_c`.
     pub var_n: Option<HgvsVariant>,
     /// The region of the transcript that `var_c` changes, as hgvs-rs uses it for `p.`.
     region: Option<VariantLocation>,
     /// Whether the alternative transcript depends on how the variant changes splicing.
     alt_depends_on_splicing: bool,
+    /// The `AltSeqBuilder` setting that `c_to_p` uses.
+    ins_at_boundary_is_intronic: bool,
     ref_data: OnceCell<Option<RefTranscriptData>>,
     alt_data: OnceCell<Option<AltTranscriptData>>,
 }
@@ -224,6 +229,7 @@ impl TxContext {
             var_n,
             region: None,
             alt_depends_on_splicing: false,
+            ins_at_boundary_is_intronic: true,
             ref_data: OnceCell::new(),
             alt_data: OnceCell::new(),
         }
@@ -239,6 +245,7 @@ impl TxContext {
             var_n: None,
             region: None,
             alt_depends_on_splicing: false,
+            ins_at_boundary_is_intronic: true,
             ref_data: OnceCell::new(),
             alt_data: OnceCell::new(),
         }
@@ -249,9 +256,11 @@ impl TxContext {
         mut self,
         region: Option<VariantLocation>,
         alt_depends_on_splicing: bool,
+        ins_at_boundary_is_intronic: bool,
     ) -> Self {
         self.region = region;
         self.alt_depends_on_splicing = alt_depends_on_splicing;
+        self.ins_at_boundary_is_intronic = ins_at_boundary_is_intronic;
         self
     }
 
@@ -268,9 +277,21 @@ impl TxContext {
             return None;
         };
         let loc = loc_edit.loc.inner();
-        let exonic = |offset: Option<i32>| offset.unwrap_or(0) == 0;
-        (exonic(loc.start.offset) && exonic(loc.end.offset))
-            .then_some((loc.start.base, loc.end.base))
+        if loc.start.offset.unwrap_or(0) == 0 && loc.end.offset.unwrap_or(0) == 0 {
+            return Some((loc.start.base, loc.end.base));
+        }
+        // Unless such insertions count as intronic, an insertion at an exon edge joins the exon,
+        // so it lies between the exon's last base and the next exon's first one.
+        let var_n = self.var_n.as_ref()?;
+        if self.ins_at_boundary_is_intronic || !var_n.is_exon_edge_insertion() {
+            return None;
+        }
+        let before = if loc.start.offset.unwrap_or(0) == 0 {
+            loc.start.base
+        } else {
+            loc.end.base - 1
+        };
+        Some((before, before + 1))
     }
 
     /// The transcript; `None` for intergenic variants.
@@ -332,11 +353,14 @@ impl TxContext {
                             .var_c
                             .as_ref()
                             .filter(|var| matches!(var, HgvsVariant::CdsVariant { .. }))?;
-                        AltSeqBuilder::new(var_c.clone(), ref_data)
-                            .build_altseq()
-                            .ok()?
-                            .into_iter()
-                            .next()
+                        AltSeqBuilder {
+                            ins_at_boundary_is_intronic: self.ins_at_boundary_is_intronic,
+                            ..AltSeqBuilder::new(var_c.clone(), ref_data)
+                        }
+                        .build_altseq()
+                        .ok()?
+                        .into_iter()
+                        .next()
                     }
                 }
             })
