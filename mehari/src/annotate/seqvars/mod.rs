@@ -8,12 +8,7 @@ use std::time::Instant;
 
 use self::consequence::terms::AnnField;
 use crate::annotate::cli::{PredictorSettings, Sources};
-use crate::annotate::seqvars::consequence::ConfigBuilder;
 use crate::annotate::seqvars::consequence::logic::ConsequencePredictor;
-use crate::annotate::seqvars::consequence::terms::{
-    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, ANN_TX_SEQ_ALT,
-    ANN_TX_SEQ_REF,
-};
 use crate::common::contig::ContigManager;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
 use crate::db::keys::Var;
@@ -24,7 +19,7 @@ use anyhow::Error;
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use clinvar::{ClinvarAnnotator, ClinvarResult};
-use consequence::{Config, ConsequenceAnnotator, VcfVariant};
+use consequence::{ConsequenceAnnotator, VcfVariant};
 use frequency::{FreqResult, FrequencyAnnotator};
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -124,7 +119,7 @@ fn build_header(
     with_clinvar: bool,
     annotators: &[AnnotatorEnum],
     additional_records: &[(String, String)],
-    csq_config: &Config,
+    custom_columns: &[String],
 ) -> VcfHeader {
     let mut header_out = header_in.clone();
     *header_out.file_format_mut() = FileFormat::default();
@@ -223,7 +218,7 @@ fn build_header(
     }
 
     if with_annotations {
-        let fields = AnnField::ann_field_names(csq_config).join(" | ");
+        let fields = AnnField::ann_field_names(custom_columns).join(" | ");
         header_out.infos_mut().insert(
             "ANN".into(),
             Map::<Info>::new(
@@ -296,7 +291,7 @@ pub trait AsyncAnnotatedVariantWriter {
         // nop
     }
 
-    fn set_csq_config(&mut self, _config: Config) {}
+    fn set_custom_columns(&mut self, _custom_columns: Vec<String>) {}
 
     /// Returns the conversion that `write_annotated_record` applies to a record before writing.
     ///
@@ -311,7 +306,7 @@ pub trait AsyncAnnotatedVariantWriter {
 
 pub(crate) fn prepare_vcf_record(
     record: AnnotatedVariant,
-    csq_config: &Config,
+    custom_columns: &[String],
 ) -> noodles::vcf::variant::RecordBuf {
     let mut out_record = record.vcf;
 
@@ -386,7 +381,7 @@ pub(crate) fn prepare_vcf_record(
             .annotation
             .consequences
             .iter()
-            .map(|ann| ann.format(csq_config));
+            .map(|ann| ann.format(custom_columns));
         insert_field!("ANN", array String, formatted_anns);
     }
 
@@ -470,21 +465,21 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
 
 pub struct SeqvarsVcfWriter {
     pub inner: crate::common::noodles::VariantWriter,
-    pub csq_config: Config,
+    pub custom_columns: Vec<String>,
 }
 
 impl SeqvarsVcfWriter {
     pub fn new(inner: crate::common::noodles::VariantWriter) -> Self {
         Self {
             inner,
-            csq_config: Config::default(),
+            custom_columns: Vec::new(),
         }
     }
 
     /// Moves the annotation into the VCF record; preparing the result again changes nothing.
-    fn prepare(record: AnnotatedVariant, csq_config: &Config) -> AnnotatedVariant {
+    fn prepare(record: AnnotatedVariant, custom_columns: &[String]) -> AnnotatedVariant {
         AnnotatedVariant {
-            vcf: prepare_vcf_record(record, csq_config),
+            vcf: prepare_vcf_record(record, custom_columns),
             annotation: VariantAnnotation {
                 consequences: vec![],
                 frequencies: None,
@@ -508,7 +503,7 @@ impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
         record: AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
         self.inner
-            .write_annotated_record(header, Self::prepare(record, &self.csq_config))
+            .write_annotated_record(header, Self::prepare(record, &self.custom_columns))
             .await
     }
 
@@ -516,28 +511,28 @@ impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
         self.inner.shutdown().await
     }
 
-    fn set_csq_config(&mut self, config: Config) {
-        self.csq_config = config;
+    fn set_custom_columns(&mut self, custom_columns: Vec<String>) {
+        self.custom_columns = custom_columns;
     }
 
     fn record_preparer(
         &self,
     ) -> impl Fn(AnnotatedVariant) -> AnnotatedVariant + Send + Sync + 'static {
-        let csq_config = self.csq_config.clone();
-        move |record| Self::prepare(record, &csq_config)
+        let custom_columns = self.custom_columns.clone();
+        move |record| Self::prepare(record, &custom_columns)
     }
 }
 
 pub struct SeqvarJsonlWriter {
     inner: Pin<Box<dyn AsyncWrite>>,
-    csq_config: Config,
+    custom_columns: Vec<String>,
 }
 
 impl SeqvarJsonlWriter {
     pub fn new(inner: Pin<Box<dyn AsyncWrite>>) -> Self {
         Self {
             inner,
-            csq_config: Config::default(),
+            custom_columns: Vec::new(),
         }
     }
 }
@@ -614,8 +609,8 @@ impl AsyncAnnotatedVariantWriter for SeqvarJsonlWriter {
     async fn shutdown(&mut self) -> Result<(), Error> {
         Ok(self.inner.flush().await?)
     }
-    fn set_csq_config(&mut self, config: Config) {
-        self.csq_config = config;
+    fn set_custom_columns(&mut self, custom_columns: Vec<String>) {
+        self.custom_columns = custom_columns;
     }
 }
 
@@ -1015,40 +1010,17 @@ async fn run_with_writer(
         .is_some_and(|v| !v.is_empty());
     let with_clinvar = args.sources.clinvar.as_ref().is_some_and(|v| !v.is_empty());
 
-    let mut custom_columns = Vec::new();
-    let c = &args.predictor_settings.reporting_settings;
-    if c.report_cdna_sequence.includes_ref() {
-        custom_columns.push(ANN_TX_SEQ_REF.to_string());
-    }
-    if c.report_cdna_sequence.includes_alt() {
-        custom_columns.push(ANN_TX_SEQ_ALT.to_string());
-    }
-    if c.report_protein_sequence.includes_ref() {
-        custom_columns.push(ANN_AA_SEQ_REF.to_string());
-    }
-    if c.report_protein_sequence.includes_alt() {
-        custom_columns.push(ANN_AA_SEQ_ALT.to_string());
-    }
-
     let enable_compound = args
         .predictor_settings
         .compound_settings
         .enable_compound_variants;
 
-    if enable_compound {
-        custom_columns.push(ANN_COMPOUND_IDS.to_string());
-        custom_columns.push(ANN_COMPOUND_VARIANTS.to_string());
-    }
+    let custom_columns = annotator
+        .consequence_predictor()
+        .map(|predictor| predictor.custom_columns().to_vec())
+        .unwrap_or_default();
 
-    // TODO: manually rebuilding Config here so we can automatically build the VCF ANN header
-    //   is not the best way of doing things.
-    let csq_config = ConfigBuilder::default()
-        .report_cdna_sequence(c.report_cdna_sequence)
-        .report_protein_sequence(c.report_protein_sequence)
-        .custom_columns(custom_columns)
-        .build()?;
-
-    writer.set_csq_config(csq_config.clone());
+    writer.set_custom_columns(custom_columns.clone());
 
     let header_out = build_header(
         &header_in,
@@ -1057,7 +1029,7 @@ async fn run_with_writer(
         with_clinvar,
         &annotator.annotators,
         &additional_header_info,
-        &csq_config,
+        &custom_columns,
     );
 
     // Perform the VCF annotation.
@@ -1553,7 +1525,6 @@ impl AnnotatedVariant {
 struct VariantProcessor<'a> {
     annotator: &'a Annotator,
     buffer: crate::annotate::seqvars::compound::VariantBuffer,
-    next_group_id: usize,
     annotations: std::collections::HashMap<String, VariantAnnotation>,
 }
 
@@ -1568,7 +1539,6 @@ impl<'a> VariantProcessor<'a> {
                 compound_settings.phasing_strategy,
                 compound_settings.compound_window_size,
             ),
-            next_group_id: 0,
             annotations: Default::default(),
         }
     }
@@ -1670,33 +1640,7 @@ impl<'a> VariantProcessor<'a> {
                     .map(|&i| variants[i].vcf_var.clone())
                     .collect();
 
-                if let Ok(Some(mut ann_fields)) = predictor.predict_multiple(&vcf_vars) {
-                    if ann_fields.is_empty() {
-                        continue;
-                    }
-
-                    self.next_group_id += 1;
-                    let group_id_str = format!("comp_{}", self.next_group_id);
-                    let constituent_vars_str = vcf_vars
-                        .iter()
-                        .map(|v| {
-                            format!(
-                                "{}:{}:{}:{}",
-                                v.chromosome, v.position, v.reference, v.alternative
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(",");
-
-                    for ann in &mut ann_fields {
-                        ann.custom_fields
-                            .insert(ANN_COMPOUND_IDS.to_string(), Some(group_id_str.clone()));
-                        ann.custom_fields.insert(
-                            ANN_COMPOUND_VARIANTS.to_string(),
-                            Some(constituent_vars_str.clone()),
-                        );
-                    }
-
+                if let Ok(Some(ann_fields)) = predictor.predict_multiple(&vcf_vars) {
                     for &i in &group_indices {
                         result_annotations[i]
                             .consequences
@@ -1723,6 +1667,7 @@ mod test {
     use super::{Args, OutputFormat, run};
     use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
+    use crate::annotate::seqvars::consequence::plugin::BuiltinPlugin;
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
     use clap_verbosity_flag::Verbosity;
     use futures::TryStreamExt;
@@ -1790,6 +1735,130 @@ mod test {
             .collect::<Vec<_>>()
             .join("\n");
         insta::assert_snapshot!(actual);
+
+        Ok(())
+    }
+
+    /// The ANN header lists the custom columns of all enabled features, in order.
+    #[tokio::test]
+    async fn custom_columns_in_ann_header() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_out = temp.join("output.vcf");
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let mut predictor_settings = PredictorSettings::default();
+        predictor_settings.reporting_settings.plugins = vec![
+            BuiltinPlugin::TxSequenceRef,
+            BuiltinPlugin::TxSequenceAlt,
+            BuiltinPlugin::AaSequenceRef,
+            BuiltinPlugin::AaSequenceAlt,
+            BuiltinPlugin::Nmd,
+        ];
+        predictor_settings
+            .compound_settings
+            .enable_compound_variants = true;
+        let args = Args {
+            threads: 1,
+            reference: None,
+            in_memory_reference: true,
+            assembly: Some("grch37".into()),
+            predictor_settings,
+            input: String::from("tests/data/annotate/seqvars/brca1.examples.vcf"),
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
+            max_var_count: None,
+            sources: Sources {
+                transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
+                ..Default::default()
+            },
+        };
+
+        run(&args_common, &args).await?;
+
+        let output = std::fs::read_to_string(&args.output)?;
+        let ann_header = output
+            .lines()
+            .find(|line| line.starts_with("##INFO=<ID=ANN,"))
+            .unwrap();
+        assert!(
+            ann_header.contains(
+                "| tx_sequence_ref | tx_sequence_alt | aa_sequence_ref | aa_sequence_alt \
+                 | nmd | compound_ids | compound_variants'"
+            ),
+            "{ann_header}"
+        );
+
+        Ok(())
+    }
+
+    /// Single variants are labelled `Single`, compound groups `comp_N` with their variants.
+    #[tokio::test]
+    async fn compound_columns() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_in = temp.join("input.vcf");
+        let path_out = temp.join("output.vcf");
+
+        // Two homozygous variants on the same transcripts form one compound group.
+        let header = std::fs::read_to_string("tests/data/annotate/seqvars/brca1.examples.vcf")?
+            .lines()
+            .filter(|line| line.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(
+            &path_in,
+            format!(
+                "{header}\n\
+                 17\t41197701\t.\tG\tC\t.\t.\t.\tGT\t1/1\n\
+                 17\t41215920\t.\tG\tT\t.\t.\t.\tGT\t1/1\n"
+            ),
+        )?;
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let mut predictor_settings = PredictorSettings::default();
+        predictor_settings
+            .compound_settings
+            .enable_compound_variants = true;
+        let args = Args {
+            threads: 1,
+            reference: None,
+            in_memory_reference: true,
+            assembly: Some("grch37".into()),
+            predictor_settings,
+            input: path_in.into_os_string().into_string().unwrap(),
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
+            max_var_count: None,
+            sources: Sources {
+                transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
+                ..Default::default()
+            },
+        };
+
+        run(&args_common, &args).await?;
+
+        let compound_columns = read_vcf(&args.output)
+            .await?
+            .iter()
+            .flat_map(|record| match record.info().get("ANN").flatten() {
+                Some(Value::Array(Array::String(anns))) => anns.clone(),
+                _ => vec![],
+            })
+            .flatten()
+            .map(|ann| {
+                let fields = ann.split('|').collect::<Vec<_>>();
+                format!(
+                    "{} {} {}",
+                    fields[6],
+                    fields[fields.len() - 2],
+                    fields[fields.len() - 1]
+                )
+            })
+            .collect::<Vec<_>>();
+        insta::assert_yaml_snapshot!(compound_columns);
 
         Ok(())
     }

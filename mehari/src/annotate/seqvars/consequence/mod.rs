@@ -1,4 +1,5 @@
 pub mod logic;
+pub mod plugin;
 pub mod terms;
 
 use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
@@ -13,7 +14,9 @@ use anyhow::{Error, anyhow};
 use enumflags2::BitFlags;
 use hgvs::data::interface::Provider;
 use hgvs::parser::{HgvsVariant, NoRef};
+use itertools::Itertools;
 pub(crate) use logic::ConsequencePredictor;
+use plugin::{CompoundPlugin, TranscriptPlugin};
 use prost::Message;
 use std::fmt;
 use std::fmt::Display;
@@ -21,10 +24,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Cursor, Read};
 use std::path::Path;
 use std::sync::Arc;
-use terms::{
-    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, ANN_TX_SEQ_ALT,
-    ANN_TX_SEQ_REF, AnnField,
-};
+use terms::AnnField;
 
 /// Load protobuf transcripts.
 pub fn load_tx_db(tx_path: impl AsRef<Path> + Display) -> anyhow::Result<TxSeqDatabase> {
@@ -150,22 +150,13 @@ impl ConsequenceAnnotator {
         let args = predictor_settings;
         let s = &args.reporting_settings;
 
-        let mut custom_columns = Vec::new();
-        if s.report_cdna_sequence.includes_ref() {
-            custom_columns.push(ANN_TX_SEQ_REF.to_string());
-        }
-        if s.report_cdna_sequence.includes_alt() {
-            custom_columns.push(ANN_TX_SEQ_ALT.to_string());
-        }
-        if s.report_protein_sequence.includes_ref() {
-            custom_columns.push(ANN_AA_SEQ_REF.to_string());
-        }
-        if s.report_protein_sequence.includes_alt() {
-            custom_columns.push(ANN_AA_SEQ_ALT.to_string());
-        }
+        let mut plugins: Vec<Arc<dyn TranscriptPlugin>> = s
+            .plugins
+            .iter()
+            .map(|plugin| plugin.build(args.vep_compatibility_mode))
+            .collect();
         if args.compound_settings.enable_compound_variants {
-            custom_columns.push(ANN_COMPOUND_IDS.to_string());
-            custom_columns.push(ANN_COMPOUND_VARIANTS.to_string());
+            plugins.push(Arc::new(CompoundPlugin::default()));
         }
 
         let provider = Arc::new(MehariProvider::new(
@@ -188,9 +179,7 @@ impl ConsequenceAnnotator {
                 .normalize(!args.do_not_normalize_variants())
                 .renormalize_g(!args.do_not_renormalize_g())
                 .vep_consequence_terms(args.vep_consequence_terms())
-                .report_cdna_sequence(s.report_cdna_sequence)
-                .report_protein_sequence(s.report_protein_sequence)
-                .custom_columns(custom_columns)
+                .plugins(plugins)
                 .build()?,
         );
         Ok(Self::new(predictor))
@@ -205,42 +194,15 @@ impl ConsequenceAnnotator {
         } = vcf_var.clone();
 
         // Annotate with variant effect.
-        if let Some(mut ann_fields) = self.predictor.predict(&VcfVariant {
-            chromosome: chrom.clone(),
-            position: pos,
-            reference: reference.clone(),
-            alternative: alternative.clone(),
-        })? && !ann_fields.is_empty()
-        {
-            let has_group_id = self
-                .predictor
-                .config
-                .custom_columns
-                .contains(&ANN_COMPOUND_IDS.to_string());
-            let has_group_vars = self
-                .predictor
-                .config
-                .custom_columns
-                .contains(&ANN_COMPOUND_VARIANTS.to_string());
-
-            if has_group_id || has_group_vars {
-                let var_id = format!("{}:{}:{}:{}", chrom, pos, reference, alternative);
-                for ann in &mut ann_fields {
-                    if has_group_id {
-                        ann.custom_fields
-                            .insert(ANN_COMPOUND_IDS.to_string(), Some("Single".to_string()));
-                    }
-                    if has_group_vars {
-                        ann.custom_fields
-                            .insert(ANN_COMPOUND_VARIANTS.to_string(), Some(var_id.clone()));
-                    }
-                }
-            }
-
-            return Ok(ann_fields);
-        }
-
-        Ok(vec![])
+        Ok(self
+            .predictor
+            .predict(&VcfVariant {
+                chromosome: chrom,
+                position: pos,
+                reference,
+                alternative,
+            })?
+            .unwrap_or_default())
     }
 }
 
@@ -295,7 +257,7 @@ pub struct VcfVariant {
 
 /// Configuration for consequence prediction.
 #[derive(Debug, Clone, derive_builder::Builder)]
-#[builder(pattern = "immutable")]
+#[builder(pattern = "immutable", build_fn(validate = "Self::validate"))]
 pub struct Config {
     /// Whether to report only the worst consequence for each picked transcript.
     #[builder(default)]
@@ -321,17 +283,25 @@ pub struct Config {
     #[builder(default = "false")]
     pub vep_consequence_terms: bool,
 
-    /// Whether to report cDNA sequence.
+    /// Plugins filling the custom ANN columns, in column order.
     #[builder(default)]
-    pub report_cdna_sequence: SequenceReporting,
+    pub plugins: Vec<Arc<dyn TranscriptPlugin>>,
+}
 
-    /// Whether to report protein sequence.
-    #[builder(default)]
-    pub report_protein_sequence: SequenceReporting,
-
-    /// Ordered list of extra columns registered by plugins/features.
-    #[builder(default)]
-    pub custom_columns: Vec<String>,
+impl ConfigBuilder {
+    fn validate(&self) -> Result<(), String> {
+        let columns = self
+            .plugins
+            .iter()
+            .flatten()
+            .flat_map(|plugin| plugin.columns());
+        match columns.duplicates().next() {
+            Some(column) => Err(format!(
+                "column {column:?} is filled by more than one plugin"
+            )),
+            None => Ok(()),
+        }
+    }
 }
 
 impl Default for Config {
@@ -354,34 +324,5 @@ impl<'a> fmt::Display for FormattedLoc<'a> {
             HgvsVariant::ProtVariant { loc_edit, .. } => write!(f, "p.{}", NoRef(loc_edit)),
             HgvsVariant::RnaVariant { loc_edit, .. } => write!(f, "r.{}", NoRef(loc_edit)),
         }
-    }
-}
-
-#[derive(
-    Debug,
-    Default,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    clap::ValueEnum,
-    parse_display::FromStr,
-    parse_display::Display,
-)]
-#[display(style = "kebab-case")]
-pub enum SequenceReporting {
-    #[default]
-    None,
-    Reference,
-    Alternative,
-    Both,
-}
-
-impl SequenceReporting {
-    pub fn includes_ref(&self) -> bool {
-        matches!(self, Self::Reference | Self::Both)
-    }
-    pub fn includes_alt(&self) -> bool {
-        matches!(self, Self::Alternative | Self::Both)
     }
 }

@@ -1,6 +1,5 @@
 //! Code for annotating variants based on molecular consequence.
 
-use crate::annotate::seqvars::consequence::Config;
 use crate::pbs::txs::TranscriptTag;
 use enumflags2::bitflags;
 use hgvs::data::cdot::json::models::Tag;
@@ -27,6 +26,7 @@ pub const ANN_AA_SEQ_REF: &str = "aa_sequence_ref";
 pub const ANN_AA_SEQ_ALT: &str = "aa_sequence_alt";
 pub const ANN_COMPOUND_IDS: &str = "compound_ids";
 pub const ANN_COMPOUND_VARIANTS: &str = "compound_variants";
+pub const ANN_NMD: &str = "nmd";
 
 /// Putative impact level.
 #[derive(
@@ -1030,7 +1030,7 @@ pub struct AnnField {
 impl AnnField {
     /// Return vector of all field names in the `ANN` field,
     /// as they appear in the VCF INFO ANN header description.
-    pub fn ann_field_names(config: &Config) -> Vec<String> {
+    pub fn ann_field_names(custom_columns: &[String]) -> Vec<String> {
         // FIXME: serde_introspect returns all aliases and the original name,
         //   we rely on the order being consistent.
         let names = serde_aux::serde_introspection::serde_introspect::<Self>();
@@ -1040,9 +1040,15 @@ impl AnnField {
             .filter(|&x| *x != "custom_fields")
             .map(|s| s.to_string())
             .collect();
-        result.extend(config.custom_columns.clone());
+        result.extend_from_slice(custom_columns);
 
         result
+    }
+}
+
+impl AsRef<AnnField> for AnnField {
+    fn as_ref(&self) -> &AnnField {
+        self
     }
 }
 
@@ -1143,7 +1149,7 @@ fn parse_opt_list<T: FromStr>(i: &str) -> IResult<&str, Option<Vec<T>>> {
 }
 
 impl AnnField {
-    fn parse_nom<'a>(i: &'a str, config: &Config) -> IResult<&'a str, Self> {
+    fn parse_nom<'a>(i: &'a str, custom_columns: &[String]) -> IResult<&'a str, Self> {
         let (i, allele) = parse_parsed(i)?;
         let (i, consequences) = parse_item_list(i)?;
         let (i, putative_impact) = parse_parsed(i)?;
@@ -1168,7 +1174,7 @@ impl AnnField {
         let mut custom_fields = BTreeMap::new();
         let mut current_i = i;
 
-        for col_name in &config.custom_columns {
+        for col_name in custom_columns {
             let (next_i, val) = parse_opt_string(current_i)?;
             current_i = next_i;
             custom_fields.insert(col_name.clone(), val);
@@ -1202,8 +1208,8 @@ impl AnnField {
         ))
     }
 
-    pub fn parse(s: &str, config: &Config) -> Result<Self, anyhow::Error> {
-        match Self::parse_nom(s, config) {
+    pub fn parse(s: &str, custom_columns: &[String]) -> Result<Self, anyhow::Error> {
+        match Self::parse_nom(s, custom_columns) {
             Ok((_, ann)) => Ok(ann),
             Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
                 Err(anyhow::anyhow!("nom parsing error: {:?}", e.code))
@@ -1214,7 +1220,7 @@ impl AnnField {
         }
     }
 
-    pub fn format(&self, config: &Config) -> String {
+    pub fn format(&self, custom_columns: &[String]) -> String {
         use std::fmt::Write;
 
         let mut buf = String::with_capacity(256);
@@ -1310,7 +1316,7 @@ impl AnnField {
             }
         }
 
-        for col_name in &config.custom_columns {
+        for col_name in custom_columns {
             buf.push('|');
             if let Some(Some(val)) = self.custom_fields.get(col_name) {
                 buf.push_str(val);
@@ -1325,13 +1331,13 @@ impl FromStr for AnnField {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::parse(s, &Config::default())
+        Self::parse(s, &[])
     }
 }
 
 impl std::fmt::Display for AnnField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.format(&Config::default()))
+        write!(f, "{}", self.format(&[]))
     }
 }
 
@@ -1713,24 +1719,21 @@ mod test {
          Coding|Other|1/2|HGVS.g|HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
     }
 
-    fn full_sequence_config() -> Config {
-        Config {
-            custom_columns: vec![
-                ANN_TX_SEQ_REF.to_string(),
-                ANN_TX_SEQ_ALT.to_string(),
-                ANN_AA_SEQ_REF.to_string(),
-                ANN_AA_SEQ_ALT.to_string(),
-            ],
-            ..Default::default()
-        }
+    fn full_sequence_columns() -> Vec<String> {
+        vec![
+            ANN_TX_SEQ_REF.to_string(),
+            ANN_TX_SEQ_ALT.to_string(),
+            ANN_AA_SEQ_REF.to_string(),
+            ANN_AA_SEQ_ALT.to_string(),
+        ]
     }
 
     #[test]
     fn parse_and_format_with_all_sequences_present() -> Result<(), anyhow::Error> {
-        let config = full_sequence_config();
+        let columns = full_sequence_columns();
 
         let value = format!("{}|ACG|TCG|T|S", dummy_ann_string());
-        let field = AnnField::parse(&value, &config)?;
+        let field = AnnField::parse(&value, &columns)?;
         assert_eq!(
             field.custom_fields.get(ANN_TX_SEQ_REF),
             Some(&Some("ACG".to_string()))
@@ -1748,51 +1751,48 @@ mod test {
             Some(&Some("S".to_string()))
         );
 
-        assert_eq!(field.format(&config), value);
+        assert_eq!(field.format(&columns), value);
 
         Ok(())
     }
 
     #[test]
     fn parse_fallback_to_empty_when_expected_columns_are_missing() -> Result<(), anyhow::Error> {
-        let config = full_sequence_config();
+        let columns = full_sequence_columns();
 
         let value = dummy_ann_string();
-        let field = AnnField::parse(value, &config)?;
+        let field = AnnField::parse(value, &columns)?;
 
         assert_eq!(field.custom_fields.get(ANN_TX_SEQ_REF), Some(&None));
         assert_eq!(field.custom_fields.get(ANN_TX_SEQ_ALT), Some(&None));
         assert_eq!(field.custom_fields.get(ANN_AA_SEQ_REF), Some(&None));
         assert_eq!(field.custom_fields.get(ANN_AA_SEQ_ALT), Some(&None));
         let expected_output = format!("{}||||", dummy_ann_string());
-        assert_eq!(field.format(&config), expected_output);
+        assert_eq!(field.format(&columns), expected_output);
 
         Ok(())
     }
 
     #[test]
     fn parse_and_format_with_empty_trailing_pipes() -> Result<(), anyhow::Error> {
-        let config = full_sequence_config();
+        let columns = full_sequence_columns();
 
         let value = format!("{}||||", dummy_ann_string());
-        let field = AnnField::parse(&value, &config)?;
+        let field = AnnField::parse(&value, &columns)?;
         assert_eq!(field.custom_fields.get(ANN_TX_SEQ_REF), Some(&None));
         assert_eq!(field.custom_fields.get(ANN_TX_SEQ_ALT), Some(&None));
         assert_eq!(field.custom_fields.get(ANN_AA_SEQ_REF), Some(&None));
         assert_eq!(field.custom_fields.get(ANN_AA_SEQ_ALT), Some(&None));
-        assert_eq!(field.format(&config), value);
+        assert_eq!(field.format(&columns), value);
 
         Ok(())
     }
 
     #[test]
     fn format_follows_config_schema() -> Result<(), anyhow::Error> {
-        let config = Config {
-            custom_columns: vec![ANN_TX_SEQ_REF.to_string()],
-            ..Default::default()
-        };
+        let columns = vec![ANN_TX_SEQ_REF.to_string()];
 
-        let mut field = AnnField::parse(dummy_ann_string(), &config)?;
+        let mut field = AnnField::parse(dummy_ann_string(), &columns)?;
 
         field
             .custom_fields
@@ -1804,8 +1804,8 @@ mod test {
             .custom_fields
             .insert("CustomScore".into(), Some("99".to_string()));
 
-        let formatted = field.format(&config);
-        let names = AnnField::ann_field_names(&config);
+        let formatted = field.format(&columns);
+        let names = AnnField::ann_field_names(&columns);
         let parts: Vec<&str> = formatted.split('|').collect();
 
         assert_eq!(
@@ -1820,16 +1820,13 @@ mod test {
 
     #[test]
     fn dynamic_header_names_match_config() {
-        let config = Config {
-            custom_columns: vec![
-                ANN_TX_SEQ_ALT.to_string(),
-                ANN_AA_SEQ_REF.to_string(),
-                ANN_AA_SEQ_ALT.to_string(),
-            ],
-            ..Default::default()
-        };
+        let columns = vec![
+            ANN_TX_SEQ_ALT.to_string(),
+            ANN_AA_SEQ_REF.to_string(),
+            ANN_AA_SEQ_ALT.to_string(),
+        ];
 
-        let names = AnnField::ann_field_names(&config);
+        let names = AnnField::ann_field_names(&columns);
 
         assert!(!names.contains(&ANN_TX_SEQ_REF.to_string()));
         assert!(names.contains(&ANN_TX_SEQ_ALT.to_string()));
@@ -1840,7 +1837,7 @@ mod test {
 
     #[test]
     fn automatic_ann_header_names() -> Result<(), anyhow::Error> {
-        let ann_names = AnnField::ann_field_names(&Config::default());
+        let ann_names = AnnField::ann_field_names(&[]);
         assert_eq!(
             ann_names,
             [

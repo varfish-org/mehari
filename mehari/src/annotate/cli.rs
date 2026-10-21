@@ -1,4 +1,4 @@
-use crate::annotate::seqvars::consequence::SequenceReporting;
+use crate::annotate::seqvars::consequence::plugin::BuiltinPlugin;
 use clap::Args as ClapArgs;
 use strum::{Display, VariantArray};
 
@@ -115,13 +115,9 @@ pub struct ReportingSettings {
     #[arg(long, default_value_t = false, hide = true)]
     use_vep_consequence_terms: bool,
 
-    /// Whether to report cDNA sequence.
-    #[arg(long, value_enum, default_value_t = SequenceReporting::None)]
-    pub report_cdna_sequence: SequenceReporting,
-
-    /// Whether to report protein sequence.
-    #[arg(long, value_enum, default_value_t = SequenceReporting::None)]
-    pub report_protein_sequence: SequenceReporting,
+    /// Built-in plugins to run, each adding ANN columns.
+    #[arg(long = "plugin", value_enum)]
+    pub plugins: Vec<BuiltinPlugin>,
 }
 
 #[derive(Debug, ClapArgs, Default, Clone)]

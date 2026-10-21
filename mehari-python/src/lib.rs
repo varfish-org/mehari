@@ -4,11 +4,11 @@ use arrow::datatypes::{DataType, Field, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use mehari::annotate::seqvars::consequence::load_tx_db;
 use mehari::annotate::seqvars::consequence::logic::ConsequencePredictor;
+use mehari::annotate::seqvars::consequence::plugin::BuiltinPlugin;
 use mehari::annotate::seqvars::consequence::terms::{
-    ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF, AnnField, Consequence,
-    FeatureBiotype, Pos, PutativeImpact, Rank,
+    AnnField, Consequence, FeatureBiotype, Pos, PutativeImpact, Rank,
 };
-use mehari::annotate::seqvars::consequence::{ConfigBuilder, SequenceReporting, VcfVariant};
+use mehari::annotate::seqvars::consequence::{ConfigBuilder, VcfVariant};
 use mehari::annotate::seqvars::provider::{
     ConfigBuilder as ProviderConfigBuilder, Provider as MehariProvider,
 };
@@ -160,12 +160,11 @@ pub struct PySeqvarsAnnotator {
 #[pymethods]
 impl PySeqvarsAnnotator {
     #[new]
-    #[pyo3(signature = (transcript_db_paths, reference_path=None, report_cdna_sequence="none", report_protein_sequence="none"))]
+    #[pyo3(signature = (transcript_db_paths, reference_path=None, plugins=Vec::new()))]
     fn new(
         transcript_db_paths: Vec<String>,
         reference_path: Option<String>,
-        report_cdna_sequence: &str,
-        report_protein_sequence: &str,
+        plugins: Vec<String>,
     ) -> PyResult<Self> {
         reread_log_levels();
 
@@ -196,34 +195,24 @@ impl PySeqvarsAnnotator {
             provider_config,
         ));
 
-        let report_cdna = SequenceReporting::from_str(report_cdna_sequence).map_err(|_| {
-            pyo3::exceptions::PyValueError::new_err("Invalid cdna sequence reporting option")
-        })?;
-        let report_protein =
-            SequenceReporting::from_str(report_protein_sequence).map_err(|_| {
-                pyo3::exceptions::PyValueError::new_err("Invalid protein sequence reporting option")
-            })?;
-
-        let mut custom_columns = Vec::new();
-        if report_cdna.includes_ref() {
-            custom_columns.push(ANN_TX_SEQ_REF.to_string());
-        }
-        if report_cdna.includes_alt() {
-            custom_columns.push(ANN_TX_SEQ_ALT.to_string());
-        }
-        if report_protein.includes_ref() {
-            custom_columns.push(ANN_AA_SEQ_REF.to_string());
-        }
-        if report_protein.includes_alt() {
-            custom_columns.push(ANN_AA_SEQ_ALT.to_string());
-        }
+        let plugins = plugins
+            .iter()
+            .map(|name| {
+                BuiltinPlugin::from_str(name)
+                    .map(|plugin| plugin.build(false))
+                    .map_err(|_| {
+                        pyo3::exceptions::PyValueError::new_err(format!("Invalid plugin {name:?}"))
+                    })
+            })
+            .collect::<PyResult<Vec<_>>>()?;
 
         let config = ConfigBuilder::default()
-            .report_cdna_sequence(report_cdna)
-            .report_protein_sequence(report_protein)
-            .custom_columns(custom_columns.clone())
+            .plugins(plugins)
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+        let predictor = ConsequencePredictor::new(provider, config);
+        let custom_columns = predictor.custom_columns().to_vec();
 
         let options = TracingOptions::default().allow_null_fields(true);
         let mut ann_field_inner_fields = Vec::<FieldRef>::from_type::<_TraceAnnField>(options)
@@ -250,8 +239,6 @@ impl PySeqvarsAnnotator {
             DataType::List(Arc::new(annotation_list_field)),
             true,
         ))];
-
-        let predictor = ConsequencePredictor::new(provider, config);
 
         Ok(Self {
             predictor,

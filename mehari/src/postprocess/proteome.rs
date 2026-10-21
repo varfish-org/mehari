@@ -67,7 +67,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
     let columns: Vec<&str> = format_string.split(" | ").map(|s| s.trim()).collect();
 
     let aa_seq_idx = columns.iter().position(|&c| c == ANN_AA_SEQ_ALT)
-        .context(format!("VCF was not annotated with {ANN_AA_SEQ_ALT}. Please run 'annotate seqvars' with '--report-protein-sequence alternative' (or both) first."))?;
+        .context(format!("VCF was not annotated with {ANN_AA_SEQ_ALT}. Please run 'annotate seqvars' with '--plugin aa-sequence-alt' first."))?;
     let feature_id_idx = columns
         .iter()
         .position(|&c| c == "Feature_ID")

@@ -69,12 +69,15 @@ class SeqvarsAnnotator:
         transcript_db_paths: str | list[str],
         reference_path: str | None = None,
         *,
-        report_cdna_sequence: typing.Literal[
-            "none", "reference", "alternative", "both"
-        ] = "none",
-        report_protein_sequence: typing.Literal[
-            "none", "reference", "alternative", "both"
-        ] = "none",
+        plugins: typing.Sequence[
+            typing.Literal[
+                "tx-sequence-ref",
+                "tx-sequence-alt",
+                "aa-sequence-ref",
+                "aa-sequence-alt",
+                "nmd",
+            ]
+        ] = (),
     ):
         if isinstance(transcript_db_paths, str):
             transcript_db_paths = [transcript_db_paths]
@@ -82,8 +85,7 @@ class SeqvarsAnnotator:
         self._annotator = _SeqvarsAnnotator(
             transcript_db_paths,
             reference_path,
-            report_cdna_sequence,
-            report_protein_sequence,
+            list(plugins),
         )
 
     def _process_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
