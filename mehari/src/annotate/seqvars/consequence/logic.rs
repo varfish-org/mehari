@@ -2801,18 +2801,11 @@ mod test {
 
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
-        let res = predictor
-            .predict(&variant)?
-            .unwrap();
+        let res = predictor.predict(&variant)?.unwrap();
 
         assert_eq!(res.len(), 6);
         insta::assert_yaml_snapshot!(res);
-        assert_eq!(
-            res[0].distance,
-            Some(expected_dist),
-            "spdi = {}",
-            spdi
-        );
+        assert_eq!(res[0].distance, Some(expected_dist), "spdi = {}", spdi);
 
         Ok(())
     }
@@ -2891,24 +2884,12 @@ mod test {
                 .build()?,
         );
 
-        let res = predictor
-            .predict(&variant)?
-            .unwrap();
+        let res = predictor.predict(&variant)?.unwrap();
 
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].feature_id, "NM_007294.4");
-        assert_eq!(
-            res[0].distance,
-            Some(expected_dist),
-            "spdi = {}",
-            spdi
-        );
-        assert_eq!(
-            res[0].consequences,
-            expected_csqs,
-            "spdi = {}",
-            spdi
-        );
+        assert_eq!(res[0].distance, Some(expected_dist), "spdi = {}", spdi);
+        assert_eq!(res[0].consequences, expected_csqs, "spdi = {}", spdi);
         insta::assert_yaml_snapshot!(res);
 
         Ok(())
@@ -2985,24 +2966,12 @@ mod test {
 
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
-        let res = predictor
-            .predict(&variant)?
-            .unwrap();
+        let res = predictor.predict(&variant)?.unwrap();
 
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].feature_id, "NM_130837.3");
-        assert_eq!(
-            res[0].distance,
-            Some(expected_dist),
-            "spdi = {}",
-            spdi
-        );
-        assert_eq!(
-            res[0].consequences,
-            expected_csqs,
-            "spdi = {}",
-            spdi
-        );
+        assert_eq!(res[0].distance, Some(expected_dist), "spdi = {}", spdi);
+        assert_eq!(res[0].consequences, expected_csqs, "spdi = {}", spdi);
         insta::assert_yaml_snapshot!(res);
 
         Ok(())
@@ -3043,18 +3012,11 @@ mod test {
 
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
-        let res = predictor
-            .predict(&variant)?
-            .unwrap();
+        let res = predictor.predict(&variant)?.unwrap();
 
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].feature_id, "NM_130837.3");
-        assert_eq!(
-            res[0].consequences,
-            expected_csqs,
-            "spdi = {}",
-            spdi
-        );
+        assert_eq!(res[0].consequences, expected_csqs, "spdi = {}", spdi);
         insta::assert_yaml_snapshot!(res);
 
         Ok(())
@@ -3115,9 +3077,7 @@ mod test {
                 .unwrap(),
         );
 
-        let res = predictor
-            .predict(&variant)?
-            .unwrap();
+        let res = predictor.predict(&variant)?.unwrap();
 
         insta::assert_yaml_snapshot!(res);
 
@@ -3184,9 +3144,7 @@ mod test {
                 .unwrap(),
         );
 
-        let res = predictor
-            .predict(&variant)?
-            .unwrap();
+        let res = predictor.predict(&variant)?.unwrap();
 
         insta::assert_yaml_snapshot!(res);
 

@@ -7,6 +7,7 @@
 //! - `init-read=<file>`: `init` reads the file in the data directory, or fails.
 //! - `column=<name>`: `init` also declares a string column with that name.
 //! - `fail=<message>`: `annotate` fails with the message.
+//! - `fail-compound=<message>`: `annotate` fails with the message for compound groups.
 //! - `stale`: keeps the first annotation and reads it again in the next call.
 //! - `set=<case>`: sets a value that does not fit: `separator`, `ampersand`, `list-element`,
 //!   `undeclared`, `wrong-type`, `list-as-single`, `nan` or `nan-list`.
@@ -68,6 +69,11 @@ impl Guest for Probe {
 
     fn annotate(prediction: &Prediction) -> Result<(), String> {
         if let Some(message) = option("fail") {
+            return Err(message);
+        }
+        if let Some(message) = option("fail-compound")
+            && prediction.variants().len() > 1
+        {
             return Err(message);
         }
         let annotations = prediction.annotations();
