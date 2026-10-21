@@ -1817,7 +1817,10 @@ mod test {
         };
 
         let error = run(&args_common, &args).await.unwrap_err();
-        assert!(format!("{error:#}").contains("group went wrong"), "{error:#}");
+        assert!(
+            format!("{error:#}").contains("group went wrong"),
+            "{error:#}"
+        );
 
         Ok(())
     }

@@ -492,6 +492,8 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                             .transcript_settings
                             .report_most_severe_consequence_by,
                     )
+                    // As loaded by `from_db_and_settings`.
+                    .plugins(annotator.predictor.config.plugins.clone())
                     .build()?;
 
                 let provider = annotator.predictor.provider.clone();
