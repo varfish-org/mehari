@@ -1091,8 +1091,32 @@ async fn run_with_writer(
             }
         }
 
+        // start processing `next_batch` before writing the previous batch, so that writing
+        // overlaps with processing
+        let previous_handle = processing_handle.take();
+        if !next_batch.is_empty() {
+            let batch_to_process =
+                std::mem::replace(&mut next_batch, Vec::with_capacity(batch_size));
+            let annotator_clone = annotator.clone();
+
+            processing_handle = Some(tokio::task::spawn_blocking(move || {
+                use rayon::prelude::*;
+
+                batch_to_process
+                    .into_par_iter()
+                    .map(|record| {
+                        let annotation = annotator_clone.annotate(&record)?;
+                        Ok(AnnotatedVariant {
+                            vcf: record,
+                            annotation,
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()
+            }));
+        }
+
         // await the previous batch's results and write them out sequentially
-        if let Some(handle) = processing_handle.take() {
+        if let Some(handle) = previous_handle {
             let processed_batch = handle.await??;
 
             for annotated_record in processed_batch {
@@ -1119,28 +1143,9 @@ async fn run_with_writer(
         }
 
         // if there are no more records to process, stop.
-        if next_batch.is_empty() {
+        if processing_handle.is_none() {
             break;
         }
-
-        // process `next_batch` in parallel
-        let batch_to_process = std::mem::replace(&mut next_batch, Vec::with_capacity(batch_size));
-        let annotator_clone = annotator.clone();
-
-        processing_handle = Some(tokio::task::spawn_blocking(move || {
-            use rayon::prelude::*;
-
-            batch_to_process
-                .into_par_iter()
-                .map(|record| {
-                    let annotation = annotator_clone.annotate(&record)?;
-                    Ok(AnnotatedVariant {
-                        vcf: record,
-                        annotation,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()
-        }));
     }
 
     if enable_compound {
