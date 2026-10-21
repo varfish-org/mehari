@@ -1711,6 +1711,7 @@ mod test {
     use pretty_assertions::assert_eq;
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
     use temp_testdir::TempDir;
 
     use noodles::core::Position;
@@ -2300,14 +2301,15 @@ mod test {
     /// Push `(chrom, pos, ref, alt)` variants without genotypes on one transcript
     /// into the compound buffer and flush it. `PhasingStrategy::Ignore` makes them one group.
     fn compound_processor_flush(
-        annotator: &Annotator,
+        annotator: &Arc<Annotator>,
         variants: &[(&str, i32, &str, &str)],
     ) -> Result<Vec<AnnotatedVariant>, anyhow::Error> {
         let compound_settings = CompoundSettings {
             enable_compound_variants: true,
             phasing_strategy: PhasingStrategy::Ignore,
+            ..Default::default()
         };
-        let mut processor = VariantProcessor::new(annotator, &compound_settings);
+        let mut processor = VariantProcessor::new(annotator.clone(), &compound_settings);
         for &(chrom, pos, reference, alternative) in variants {
             let record = VcfRecord::builder()
                 .set_reference_sequence_name(chrom)
@@ -2329,7 +2331,7 @@ mod test {
         processor.flush()
     }
 
-    fn compound_annotator() -> Result<Annotator, anyhow::Error> {
+    fn compound_annotator() -> Result<Arc<Annotator>, anyhow::Error> {
         let predictor_settings = PredictorSettings {
             compound_settings: CompoundSettings {
                 enable_compound_variants: true,
@@ -2344,9 +2346,9 @@ mod test {
             false,
             &predictor_settings,
         )?;
-        Ok(Annotator::new(vec![AnnotatorEnum::Consequence(
+        Ok(Arc::new(Annotator::new(vec![AnnotatorEnum::Consequence(
             consequence,
-        )]))
+        )])))
     }
 
     #[test]

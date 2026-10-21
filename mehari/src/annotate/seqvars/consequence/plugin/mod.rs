@@ -10,13 +10,15 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use hgvs::mapper::altseq::{
-    AltSeqBuilder, AltTranscriptData, RefTranscriptData, ref_transcript_data_cached,
+    AltSeqBuilder, AltTranscriptData, RefTranscriptData, VariantLocation,
+    ref_transcript_data_cached,
 };
 use hgvs::parser::HgvsVariant;
 use itertools::Itertools;
 use strum::VariantArray;
 
 use super::VcfVariant;
+use super::logic::apply_n_edits;
 use super::terms::AnnField;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::db::TranscriptDatabase;
@@ -200,6 +202,10 @@ pub struct TxContext {
     pub var_c: Option<HgvsVariant>,
     /// The variant on the transcript in `n.` coordinates.
     pub var_n: Option<HgvsVariant>,
+    /// The region of the transcript that `var_c` changes, as hgvs-rs uses it for `p.`.
+    region: Option<VariantLocation>,
+    /// Whether the alternative transcript depends on how the variant changes splicing.
+    alt_depends_on_splicing: bool,
     ref_data: OnceCell<Option<RefTranscriptData>>,
     alt_data: OnceCell<Option<AltTranscriptData>>,
 }
@@ -216,6 +222,8 @@ impl TxContext {
             tx_id: tx.map(|tx| tx.id.clone()),
             var_c,
             var_n,
+            region: None,
+            alt_depends_on_splicing: false,
             ref_data: OnceCell::new(),
             alt_data: OnceCell::new(),
         }
@@ -229,9 +237,22 @@ impl TxContext {
             tx_id: None,
             var_c: None,
             var_n: None,
+            region: None,
+            alt_depends_on_splicing: false,
             ref_data: OnceCell::new(),
             alt_data: OnceCell::new(),
         }
+    }
+
+    /// Set the inputs that decide the alternative transcript, see [`Self::alt_data`].
+    pub(crate) fn with_alt_inputs(
+        mut self,
+        region: Option<VariantLocation>,
+        alt_depends_on_splicing: bool,
+    ) -> Self {
+        self.region = region;
+        self.alt_depends_on_splicing = alt_depends_on_splicing;
+        self
     }
 
     /// Reuse reference data the caller has computed already.
@@ -267,19 +288,57 @@ impl TxContext {
             .as_ref()
     }
 
-    /// Transcript and protein sequence with the variant applied; coding variants only.
+    /// Transcript and protein sequence with the variant applied; `None` if the variant changes
+    /// splicing, as the alternative transcript is unknown then.
     pub fn alt_data(&self) -> Option<&AltTranscriptData> {
         self.alt_data
             .get_or_init(|| {
-                let var_c = self
-                    .var_c
-                    .as_ref()
-                    .filter(|var| matches!(var, HgvsVariant::CdsVariant { .. }))?;
-                AltSeqBuilder::new(var_c.clone(), self.ref_data()?)
-                    .build_altseq()
-                    .ok()?
-                    .into_iter()
-                    .next()
+                if self.alt_depends_on_splicing {
+                    return None;
+                }
+                let ref_data = self.ref_data()?;
+                match self.region {
+                    // `AltSeqBuilder` returns the reference for a UTR variant, so apply the n.
+                    // edit here. The CDS and thus the protein stay unchanged.
+                    Some(
+                        region @ (VariantLocation::FivePrimeUtr | VariantLocation::ThreePrimeUtr),
+                    ) => {
+                        let var_n = self.var_n.as_ref()?;
+                        let transcript_sequence =
+                            apply_n_edits(&ref_data.transcript_sequence, &[var_n])?;
+                        // A change of the 5' UTR length moves the CDS.
+                        let shift = match region {
+                            VariantLocation::FivePrimeUtr => {
+                                transcript_sequence.len() as i32
+                                    - ref_data.transcript_sequence.len() as i32
+                            }
+                            _ => 0,
+                        };
+                        Some(AltTranscriptData {
+                            transcript_sequence,
+                            aa_sequence: ref_data.aa_sequence.to_string(),
+                            cds_start: ref_data.cds_start + shift,
+                            cds_stop: ref_data.cds_stop + shift,
+                            protein_accession: ref_data.protein_accession.to_string(),
+                            is_frameshift: false,
+                            variant_start_aa: None,
+                            frameshift_start: None,
+                            is_substitution: false,
+                            is_ambiguous: false,
+                        })
+                    }
+                    _ => {
+                        let var_c = self
+                            .var_c
+                            .as_ref()
+                            .filter(|var| matches!(var, HgvsVariant::CdsVariant { .. }))?;
+                        AltSeqBuilder::new(var_c.clone(), ref_data)
+                            .build_altseq()
+                            .ok()?
+                            .into_iter()
+                            .next()
+                    }
+                }
             })
             .as_ref()
     }

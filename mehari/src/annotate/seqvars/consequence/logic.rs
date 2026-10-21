@@ -1400,10 +1400,17 @@ impl ConsequencePredictor {
             messages: None,
             custom_fields: BTreeMap::new(),
         };
+        let region = projection.as_ref().and_then(|p| p.region);
+        let alt_depends_on_splicing = projection
+            .as_ref()
+            .and_then(|p| p.n.as_ref())
+            .is_some_and(|var_n| var_n.alt_depends_on_splicing(alignment));
         let (var_c, var_n) = projection.map_or((None, None), |p| (p.c, p.n));
 
         Ok(Some(TxAnnotation {
-            context: self.tx_context(Some(tx), var_c, var_n),
+            context: self
+                .tx_context(Some(tx), var_c, var_n)
+                .with_alt_inputs(region, alt_depends_on_splicing),
             ann,
         }))
     }
@@ -3064,10 +3071,11 @@ mod test {
         PickCriterion, PickUnit, PredictorSettings, TagCriterion, TranscriptSettings,
     };
     use crate::annotate::seqvars::consequence::ConfigBuilder;
-    use crate::annotate::seqvars::consequence::SequenceReporting;
     use crate::annotate::seqvars::consequence::load_tx_db;
     use crate::annotate::seqvars::consequence::plugin::{SequencePlugin, TranscriptPlugin};
-    use crate::annotate::seqvars::consequence::terms::ANN_AA_SEQ_ALT;
+    use crate::annotate::seqvars::consequence::terms::{
+        ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
+    };
     use crate::annotate::seqvars::{
         Args, AsyncAnnotatedVariantWriter, OutputFormat, run_with_writer,
     };
@@ -3822,12 +3830,7 @@ mod test {
         let spdi = spdi.split(':').collect::<Vec<_>>();
 
         let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
@@ -3878,12 +3881,7 @@ mod test {
         let spdi = spdi.split(':').collect::<Vec<_>>();
 
         let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
@@ -4707,12 +4705,7 @@ mod test {
         .concat();
         let mut reference = NamedTempFile::new()?;
         std::io::Write::write_all(&mut reference, format!(">1\n{genome}\n").as_bytes())?;
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            Some(reference.path()),
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, Some(reference.path()), true));
         let predictor = ConsequencePredictor::new(provider, Default::default());
 
         let var = |position, reference: &str, alternative: &str| VcfVariant {
@@ -4857,8 +4850,12 @@ mod test {
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
-                .report_cdna_sequence(SequenceReporting::Both)
-                .report_protein_sequence(SequenceReporting::Both)
+                .plugins(vec![
+                    Arc::new(SequencePlugin::TxRef),
+                    Arc::new(SequencePlugin::TxAlt),
+                    Arc::new(SequencePlugin::AaRef),
+                    Arc::new(SequencePlugin::AaAlt),
+                ])
                 .build()?,
         );
 
