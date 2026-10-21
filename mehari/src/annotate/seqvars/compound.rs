@@ -1,7 +1,7 @@
 use crate::annotate::cli::PhasingStrategy;
 use noodles::vcf::variant::RecordBuf;
 use noodles::vcf::variant::record_buf::samples::sample::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
 /// Phasing profile for a variant allele.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -95,7 +95,7 @@ impl VariantBuffer {
     /// Flush the buffer, return ordered variants and a list of grouped indices
     pub fn flush(&mut self) -> (Vec<BufferedVariant>, Vec<Vec<usize>>) {
         let all_variants = std::mem::take(&mut self.buffer);
-        let mut transcript_buckets: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut transcript_buckets: BTreeMap<String, Vec<usize>> = BTreeMap::new();
 
         for (idx, b_var) in all_variants.iter().enumerate() {
             tracing::trace!(
@@ -118,7 +118,7 @@ impl VariantBuffer {
                 continue;
             }
 
-            let mut phase_buckets: HashMap<PhaseGroup, Vec<usize>> = HashMap::new();
+            let mut phase_buckets: BTreeMap<PhaseGroup, Vec<usize>> = BTreeMap::new();
             let mut homozygous_indices = Vec::new();
 
             for &idx in &indices {
@@ -263,5 +263,34 @@ impl VariantBuffer {
         }
 
         groups
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::VariantBuffer;
+    use crate::annotate::cli::PhasingStrategy;
+    use crate::annotate::seqvars::consequence::VcfVariant;
+
+    /// Groups come out in transcript order, not in hash map order.
+    #[test]
+    fn flush_orders_compound_groups() {
+        let mut buffer = VariantBuffer::new(PhasingStrategy::Ignore);
+        // Variant `i` lies on transcripts `tx{i-1}` and `tx{i}`, so neighbours form a group.
+        for i in 0..8 {
+            let vcf_var = VcfVariant {
+                chromosome: "1".into(),
+                position: 1000 + i,
+                reference: "A".into(),
+                alternative: "C".into(),
+            };
+            let tx_accessions = [format!("tx{}", i - 1), format!("tx{i}")].into();
+            buffer.push(vcf_var, Default::default(), tx_accessions, 0, 2000, 0, 1);
+        }
+
+        let (_, compound_groups) = buffer.flush();
+
+        let expected = (0..7).map(|i| vec![i, i + 1]).collect::<Vec<_>>();
+        assert_eq!(compound_groups, expected);
     }
 }
