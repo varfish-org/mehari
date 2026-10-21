@@ -118,7 +118,7 @@ async fn handle_impl(
         .ok_or_else(|| {
             super::CustomError::new(anyhow::anyhow!(
                 "genome release not supported: {:?}",
-                &query.assembly
+                query.assembly
             ))
         })?;
 
@@ -131,7 +131,7 @@ async fn handle_impl(
     };
     let frequencies = annotator
         .annotate_variant(&g_var)
-        .map_err(|e| super::CustomError::new(anyhow::anyhow!("annotation failed: {}", &e)))?;
+        .map_err(|e| super::CustomError::new(anyhow::anyhow!("annotation failed: {}", e)))?;
     if let Some(frequencies) = frequencies {
         result.push(frequencies);
     }

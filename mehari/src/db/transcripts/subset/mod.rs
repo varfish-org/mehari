@@ -100,7 +100,7 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error> {
                 .unwrap_or_default(),
         ))
     } else if ext == Some(Some("zst")) {
-        Box::new(
+        let mut encoder =
             zstd::Encoder::new(file, args.compression_level.map(|l| l as i32).unwrap_or(0))
                 .map_err(|e| {
                     anyhow::anyhow!(
@@ -108,9 +108,18 @@ pub fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error> {
                         args.path_out.display(),
                         e
                     )
-                })?
-                .auto_finish(),
-        )
+                })?;
+        // Record the decompressed size in the frame header, so `load_tx_db` can allocate it up front.
+        encoder
+            .set_pledged_src_size(Some(buf.len() as u64))
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to set zstd content size for {}: {}",
+                    args.path_out.display(),
+                    e
+                )
+            })?;
+        Box::new(encoder.auto_finish())
     } else {
         Box::new(file)
     };
@@ -429,7 +438,9 @@ fn __extract_transcripts_from_db(
 
 #[cfg(test)]
 mod tests {
+    use crate::annotate::seqvars::consequence::load_tx_db;
     use crate::db::transcripts::subset::Selection;
+    use prost::Message;
     use temp_testdir::TempDir;
 
     #[tracing_test::traced_test]
@@ -452,6 +463,15 @@ mod tests {
                 exclude_transcripts: None,
             },
         )?;
+
+        let tx_db = load_tx_db(format!("{}", path_out.display()))?;
+        let compressed = std::fs::read(&path_out)?;
+        assert_eq!(
+            zstd::zstd_safe::get_frame_content_size(&compressed)
+                .ok()
+                .flatten(),
+            Some(tx_db.encoded_len() as u64)
+        );
 
         let mut buf = Vec::new();
         super::super::dump::run_with_write(

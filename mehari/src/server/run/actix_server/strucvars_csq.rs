@@ -98,7 +98,7 @@ async fn handle(
         .ok_or_else(|| {
             super::CustomError::new(anyhow::anyhow!(
                 "genome release not supported: {:?}",
-                &query.assembly
+                query.assembly
             ))
         })?;
 
@@ -198,7 +198,7 @@ async fn handle_with_openapi(
         .ok_or_else(|| {
             super::CustomError::new(anyhow::anyhow!(
                 "genome release not supported: {:?}",
-                &query.assembly
+                query.assembly
             ))
         })?;
 

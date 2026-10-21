@@ -350,11 +350,19 @@ pub(crate) fn write_tx_db(
         .map_err(|e| anyhow!("failed to create file {}: {}", path.display(), e))?;
     let ext = path.extension().map(|s| s.to_str());
     let writer: Box<dyn Write> = if ext == Some(Some("zst")) {
-        Box::new(
-            zstd::Encoder::new(file, compression_level)
-                .map_err(|e| anyhow!("failed to open zstd encoder for {}: {}", path.display(), e))?
-                .auto_finish(),
-        )
+        let mut encoder = zstd::Encoder::new(file, compression_level)
+            .map_err(|e| anyhow!("failed to open zstd encoder for {}: {}", path.display(), e))?;
+        // Record the decompressed size in the frame header, so `load_tx_db` can allocate it up front.
+        encoder
+            .set_pledged_src_size(Some(buf.len() as u64))
+            .map_err(|e| {
+                anyhow!(
+                    "failed to set zstd content size for {}: {}",
+                    path.display(),
+                    e
+                )
+            })?;
+        Box::new(encoder.auto_finish())
     } else {
         Box::new(file)
     };
@@ -376,9 +384,11 @@ pub mod test {
 
     use clap_verbosity_flag::Verbosity;
     use itertools::Itertools;
+    use prost::Message;
     use rstest::rstest;
     use temp_testdir::TempDir;
 
+    use crate::annotate::seqvars::consequence::load_tx_db;
     use crate::annotate::seqvars::consequence::terms::FeatureTag;
     use crate::common::Args as CommonArgs;
     use crate::common::progress::NoProgress;
@@ -393,6 +403,26 @@ pub mod test {
     use super::run;
 
     #[test]
+    fn write_tx_db_records_content_size() -> Result<(), anyhow::Error> {
+        let tmp_dir = TempDir::default();
+        let path = tmp_dir.join("out.bin.zst");
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let encoded_len = tx_db.encoded_len() as u64;
+
+        super::write_tx_db(tx_db, &path, 3, &NoProgress)?;
+
+        let compressed = std::fs::read(&path)?;
+        assert_eq!(
+            zstd::zstd_safe::get_frame_content_size(&compressed)
+                .ok()
+                .flatten(),
+            Some(encoded_len)
+        );
+
+        Ok(())
+    }
+
+    #[test]
     fn filter_transcripts_brca1() -> Result<(), anyhow::Error> {
         let path_tsv = Path::new("tests/data/db/create/txs/txs_main.tsv");
         let mut tx_data = TranscriptLoader::new("GRCh37".to_string(), false);
@@ -404,7 +434,7 @@ pub mod test {
         )?;
         tx_data.apply_fixes(&Some(labels));
 
-        eprintln!("{:#?}", &tx_data.gene_id_to_transcript_ids);
+        eprintln!("{:#?}", tx_data.gene_id_to_transcript_ids);
         insta::assert_yaml_snapshot!(
             tx_data
                 .gene_id_to_transcript_ids
