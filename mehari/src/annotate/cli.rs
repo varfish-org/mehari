@@ -203,6 +203,11 @@ pub struct CompoundSettings {
     /// Experimental: The strategy used to evaluate grouped variants for compound effects.
     #[arg(long, value_enum, default_value_t = PhasingStrategy::Strict)]
     pub phasing_strategy: PhasingStrategy,
+
+    /// Experimental: Maximum distance in bp between neighbouring variants of a compound group.
+    /// Unlimited if not set; a good value for peptide analyses is 33.
+    #[arg(long)]
+    pub compound_window_size: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]

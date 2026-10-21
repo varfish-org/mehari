@@ -51,6 +51,7 @@ Built-in plugins are `tx-sequence-ref`, `tx-sequence-alt`, `aa-sequence-ref` and
 Mehari includes an experimental feature that allows you to evaluate the compound effect of multiple variants on the same transcript.
 You can enable this behavior by passing the `--enable-compound-variants` flag.
 The evaluation strategy can be managed via `--phasing-strategy` (options include `strict` [default], `relaxed`, or `ignore`).
+`--compound-window-size` sets the maximum distance in bp between neighbouring variants of a group (unlimited if not set; a good value for peptide analyses is 33).
 
 ## Interpreting Annotation Output
 
