@@ -46,6 +46,11 @@ struct TranscriptChildren {
     /// Translation exceptions: the genomic interval of each codon, 0-based and half-open, and
     /// its amino acid as `transl_except` names it, e.g. `Sec`.
     transl_except: Vec<(i32, i32, String)>,
+    /// The genomic starts of the CDS rows that RefSeq marks as open with `start_range`, and the
+    /// genomic ends of those it marks with `end_range`. Besides an incomplete CDS end, a hole in
+    /// the alignment opens them.
+    cds_open_starts: Vec<i32>,
+    cds_open_ends: Vec<i32>,
 }
 
 /// An exon and its alignment to the genome, as cdot stores it.
@@ -233,6 +238,8 @@ pub fn load_gff3(
                 .and_then(|v| v.as_string())
                 .map(|s| s.to_string())
         };
+        // An attribute with a list value, e.g. `start_range=.,1001`, has no string value.
+        let has_attr = |key: &str| attrs.get(key.as_bytes()).is_some();
         // All values of an attribute, e.g. `Dbxref=GeneID:4535,HGNC:HGNC:7455`.
         let get_values = |key: &str| -> Vec<String> {
             attrs
@@ -379,6 +386,12 @@ pub fn load_gff3(
                     for parent_id in p.split(',') {
                         let children = raw_children.entry(parent_id.to_string()).or_default();
                         children.cds.push((start, end, phase));
+                        if has_attr("start_range") {
+                            children.cds_open_starts.push(start);
+                        }
+                        if has_attr("end_range") {
+                            children.cds_open_ends.push(end);
+                        }
                         children.protein = protein.clone().or(children.protein.take());
                         children.note = get_attr("Note").or(children.note.take());
                         children.transl_except.extend(transl_except.iter().cloned());
@@ -537,6 +550,19 @@ pub fn load_gff3(
         let cds_start_genomic = cds_fragments.iter().map(|c| c.0).min();
         let cds_end_genomic = cds_fragments.iter().map(|c| c.1).max();
 
+        // RefSeq marks an incomplete CDS end with `end_range` on `+` and with `start_range` on
+        // `-`. `cds_end_incomplete` reads it as the `cds_end_NF` tag of GENCODE.
+        let open_3p_end = if is_reverse {
+            cds_start_genomic.is_some_and(|start| children.cds_open_starts.contains(&start))
+        } else {
+            cds_end_genomic.is_some_and(|end| children.cds_open_ends.contains(&end))
+        };
+        let mut tags = row.tags;
+        let cds_end_nf = Tag::Other("cds_end_NF".into());
+        if open_3p_end && !tags.contains(&cds_end_nf) {
+            tags.push(cds_end_nf);
+        }
+
         // Map the first and last CDS base in transcript direction to transcript positions.
         let tx_position = |pos| {
             exons
@@ -609,7 +635,7 @@ pub fn load_gff3(
             cds_start: cds_start_genomic,
             cds_end: cds_end_genomic,
             exons: final_exons,
-            tag: (!row.tags.is_empty()).then_some(row.tags),
+            tag: (!tags.is_empty()).then_some(tags),
             note: children.note,
         };
 
@@ -763,6 +789,28 @@ chr1\ttest\texon\t2001\t2100\t.\t-\t.\tID=exon:T3M.2;Parent=transcript:T3M
 chr1\ttest\texon\t2301\t2400\t.\t-\t.\tID=exon:T3M.1;Parent=transcript:T3M
 chr1\ttest\tCDS\t2001\t2100\t.\t-\t0\tID=cds:T3M.2;Parent=transcript:T3M
 chr1\ttest\tCDS\t2301\t2390\t.\t-\t0\tID=cds:T3M.1;Parent=transcript:T3M
+";
+
+    /// RefSeq transcripts whose CDS rows are open at one end: NM_000010.1 (`+`) at its 3' end
+    /// with `end_range`, NM_000011.1 (`-`) at its 3' end with `start_range`, NM_000012.1 (`+`)
+    /// at its 5' end with `start_range`, and NM_000013.1 (`+`) at both sides of a hole in the
+    /// alignment.
+    const GFF3_OPEN_ENDS: &str = "\
+##gff-version 3
+NC_000001.11\tBestRefSeq\tmRNA\t1001\t1300\t.\t+\t.\tID=rna-NM_000010.1;transcript_id=NM_000010.1;partial=true;end_range=1300,.
+NC_000001.11\tBestRefSeq\texon\t1001\t1300\t.\t+\t.\tParent=rna-NM_000010.1
+NC_000001.11\tBestRefSeq\tCDS\t1011\t1300\t.\t+\t0\tParent=rna-NM_000010.1;protein_id=NP_000010.1;partial=true;end_range=1300,.
+NC_000001.11\tBestRefSeq\tmRNA\t2001\t2300\t.\t-\t.\tID=rna-NM_000011.1;transcript_id=NM_000011.1;partial=true;start_range=.,2001
+NC_000001.11\tBestRefSeq\texon\t2001\t2300\t.\t-\t.\tParent=rna-NM_000011.1
+NC_000001.11\tBestRefSeq\tCDS\t2001\t2290\t.\t-\t0\tParent=rna-NM_000011.1;protein_id=NP_000011.1;partial=true;start_range=.,2001
+NC_000001.11\tBestRefSeq\tmRNA\t3001\t3300\t.\t+\t.\tID=rna-NM_000012.1;transcript_id=NM_000012.1;partial=true;start_range=.,3001
+NC_000001.11\tBestRefSeq\texon\t3001\t3300\t.\t+\t.\tParent=rna-NM_000012.1
+NC_000001.11\tBestRefSeq\tCDS\t3001\t3290\t.\t+\t0\tParent=rna-NM_000012.1;protein_id=NP_000012.1;partial=true;start_range=.,3001
+NC_000001.11\tBestRefSeq\tmRNA\t4001\t4300\t.\t+\t.\tID=rna-NM_000013.1;transcript_id=NM_000013.1;partial=true
+NC_000001.11\tBestRefSeq\texon\t4001\t4150\t.\t+\t.\tParent=rna-NM_000013.1;partial=true;end_range=4150,.
+NC_000001.11\tBestRefSeq\texon\t4152\t4300\t.\t+\t.\tParent=rna-NM_000013.1;partial=true;start_range=.,4152
+NC_000001.11\tBestRefSeq\tCDS\t4011\t4150\t.\t+\t0\tParent=rna-NM_000013.1;protein_id=NP_000013.1;partial=true;end_range=4150,.
+NC_000001.11\tBestRefSeq\tCDS\t4152\t4290\t.\t+\t1\tParent=rna-NM_000013.1;protein_id=NP_000013.1;partial=true;start_range=.,4152
 ";
 
     /// RefSeq-style transcripts. Their `cDNA_match` rows hold the alignment to the genome:
@@ -1004,6 +1052,27 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
         let loader = load(&gff3)?;
 
         assert_eq!(loader.partial_codons_without_end_tags(), expected);
+        Ok(())
+    }
+
+    /// A RefSeq CDS row that is open at the 3' end of the CDS marks the CDS end as incomplete,
+    /// as `cds_end_NF` does. An open 5' end or a hole in the alignment does not.
+    #[rstest::rstest]
+    #[case::plus_3p_end("NM_000010.1", true)]
+    #[case::minus_3p_end("NM_000011.1", true)]
+    #[case::plus_5p_end("NM_000012.1", false)]
+    #[case::hole("NM_000013.1", false)]
+    fn open_3p_end_marks_an_incomplete_cds_end(
+        #[case] tx_id: &str,
+        #[case] incomplete: bool,
+    ) -> Result<(), anyhow::Error> {
+        let loader = load(GFF3_OPEN_ENDS)?;
+        let tx = loader
+            .transcript_id_to_transcript
+            .get(&TranscriptId::try_new(tx_id)?)
+            .context("transcript not loaded")?;
+        assert_eq!(tx.partial, Some(1));
+        assert_eq!(tx.cds_end_incomplete(), incomplete);
         Ok(())
     }
 

@@ -195,8 +195,10 @@ pub trait TranscriptExt {
 
     fn is_on_contig(&self, contig: &str) -> bool;
 
-    /// Whether the annotation marks the CDS end as incomplete: GENCODE tag `cds_end_NF` or
-    /// RefSeq `partial`.
+    /// Whether the annotation marks the CDS end as incomplete with the tag `cds_end_NF`, as
+    /// GENCODE does. `load_gff3` sets it for a RefSeq CDS that is open at its 3' end. RefSeq
+    /// `partial` alone does not count: it also marks transcripts that are incomplete at the 5'
+    /// end or that the genome does not align completely.
     fn cds_end_incomplete(&self) -> bool;
 }
 
@@ -219,12 +221,11 @@ impl TranscriptExt for Transcript {
     }
 
     fn cds_end_incomplete(&self) -> bool {
-        self.partial == Some(1)
-            || self.genome_builds.values().any(|gb| {
-                gb.tag
-                    .as_ref()
-                    .is_some_and(|tags| tags.contains(&Tag::Other("cds_end_NF".into())))
-            })
+        self.genome_builds.values().any(|gb| {
+            gb.tag
+                .as_ref()
+                .is_some_and(|tags| tags.contains(&Tag::Other("cds_end_NF".into())))
+        })
     }
 }
 

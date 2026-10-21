@@ -831,14 +831,16 @@ mod tests {
         Ok(())
     }
 
-    /// A CDS whose end the annotation marks as incomplete keeps its partial last codon. It has
-    /// no stop codon.
+    /// `cds_end_NF` marks the CDS end as incomplete, so `A` bases do not complete its partial
+    /// last codon. RefSeq `partial` alone does not: it also marks a transcript that is
+    /// incomplete at the 5' end.
     #[rstest::rstest]
-    #[case::cds_end_nf(Some(Tag::Other("cds_end_NF".into())), None)]
-    #[case::partial(None, Some(1))]
+    #[case::cds_end_nf(Some(Tag::Other("cds_end_NF".into())), None, 7)]
+    #[case::partial(None, Some(1), 9)]
     fn incomplete_cds_end_is_not_padded(
         #[case] tag: Option<Tag>,
         #[case] partial: Option<u8>,
+        #[case] expected_stop_codon: i32,
     ) -> Result<(), Error> {
         let mut tx = one_exon_tx("NC_000001.11", 7, 7)?;
         for alignment in tx.genome_builds.values_mut() {
@@ -846,10 +848,13 @@ mod tests {
         }
         tx.partial = partial;
 
-        let (seq, reason, stop_codon) = stored_sequence(tx, "ATGAAAT")?;
-        assert_eq!(seq, "ATGAAAT");
-        assert_eq!(stop_codon, Some(7));
-        assert!(reason.contains(Reason::MissingStopCodon), "{reason:?}");
+        let (_, reason, stop_codon) = stored_sequence(tx, "ATGAAAT")?;
+        assert_eq!(stop_codon, Some(expected_stop_codon));
+        assert_eq!(
+            reason.contains(Reason::MissingStopCodon),
+            expected_stop_codon == 7,
+            "{reason:?}"
+        );
         Ok(())
     }
 
