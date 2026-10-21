@@ -59,7 +59,7 @@ interface types {
     /// Setting up a plugin instance, see `init`.
     resource setup {
         /// The options given after the plugin's path, in order, without mehari's own (`data`
-        /// and names starting with `mehari-`).
+        /// and names starting with `mehari-`). A key may repeat.
         options: func() -> list<tuple<string, string>>;
 
         /// Declare a column, in output order, with the type of its values. Names may contain
@@ -117,6 +117,9 @@ interface types {
         hgvs-p: func() -> option<string>;
         /// Position of the first variant base in the transcript; exonic variants only.
         cdna-pos: func() -> option<position>;
+        /// Position of the last variant base in the transcript, or for an insertion of the base
+        /// after it; exonic variants only.
+        cdna-end: func() -> option<position>;
         /// Position of the first variant base in the coding sequence.
         cds-pos: func() -> option<position>;
         /// Position of the first changed amino acid.

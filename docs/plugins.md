@@ -20,7 +20,7 @@ Both can return an error, which stops mehari with the plugin's message.
 
 Each annotation offers:
 
-- what mehari writes to `ANN`: `feature-id` (transcript accession, empty for intergenic variants), `consequences` (Sequence Ontology terms), `impact`, `gene-symbol`, `gene-id`, `biotypes`, `tags`, `rank` (exon or intron), `hgvs-g`, `hgvs-n`, `hgvs-c`, `hgvs-p`, `cdna-pos`, `cds-pos`, `protein-pos`, `distance` and `warnings`. HGVS normalization shifts the variant towards the transcript's 3' end, so its position depends on the transcript's strand;
+- what mehari writes to `ANN`: `feature-id` (transcript accession, empty for intergenic variants), `consequences` (Sequence Ontology terms), `impact`, `gene-symbol`, `gene-id`, `biotypes`, `tags`, `rank` (exon or intron), `hgvs-g`, `hgvs-n`, `hgvs-c`, `hgvs-p`, `cdna-pos`, `cds-pos`, `protein-pos`, `distance` and `warnings`, and `cdna-end` for the last variant base. HGVS normalization shifts the variant towards the transcript's 3' end, so its position depends on the transcript's strand;
 - `field(column)`: the value of a column, e.g. one an earlier plugin filled;
 - the transcript: `strand`, `exons` with their transcript and genome positions, `contig`, `genome-build`, `protein-id` and `genome-cds-start`/`genome-cds-end`;
 - the sequences: `reference-transcript`, `reference-protein`, `reference-cds-start` and `reference-cds-end`, the same as `alternative-*` with the variant applied, and `translation-table`, `translation-exceptions` (e.g. selenocysteine), `frameshift` and `first-changed-codon`.

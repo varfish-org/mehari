@@ -44,16 +44,21 @@ def classify(annotation: Annotation) -> str | None:
     if stop == -1:
         return "no_stop_codon"
     cdna_pos = annotation.cdna_pos()
-    if not exons or cdna_pos is None:
+    cdna_end = annotation.cdna_end()
+    if not exons or cdna_pos is None or cdna_end is None:
         return None
 
     # 1-based positions on the mutant transcript.
     ptc = cds_start + 3 * stop
     last_exon_start = exons[-1].tx_start
-    # Insertions and deletions before the last junction move it.
-    last_junction = last_exon_start
-    if cdna_pos.ord < last_exon_start:
-        last_junction += len(alternative) - len(reference)
+    # Insertions and deletions before the last junction move it; for a compound group reaching
+    # across it, how far is unknown.
+    if cdna_end.ord < last_exon_start:
+        last_junction = last_exon_start + len(alternative) - len(reference)
+    elif cdna_pos.ord >= last_exon_start:
+        last_junction = last_exon_start
+    else:
+        return None
 
     ptc_c = ptc - cds_start + 1
     if last_junction - ptc <= LAST_JUNCTION_BASES or ptc_c <= START_PROXIMAL_BASES:

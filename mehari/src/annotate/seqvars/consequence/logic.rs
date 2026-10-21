@@ -290,7 +290,7 @@ impl ConsequencePredictor {
                 custom_fields: BTreeMap::new(),
             };
             let intergenic = TxAnnotation {
-                context: TxContext::new(self.provider.clone(), None, None),
+                context: TxContext::new(self.provider.clone(), None, None, None),
                 ann,
             };
             return Ok(Some(self.run_plugins(
@@ -1048,10 +1048,10 @@ impl ConsequencePredictor {
             messages: None,
             custom_fields: BTreeMap::new(),
         };
-        let var_c = projection.and_then(|p| p.c);
+        let (var_c, var_n) = projection.map_or((None, None), |p| (p.c, p.n));
 
         Ok(Some(TxAnnotation {
-            context: TxContext::new(self.provider.clone(), Some(tx), var_c),
+            context: TxContext::new(self.provider.clone(), Some(tx), var_c, var_n),
             ann,
         }))
     }
@@ -2525,7 +2525,7 @@ impl ConsequencePredictor {
         let compound_var_p = self.safe_project_c_to_p(&compound_var_c)?;
 
         let compound_proj = HgvsProjectionContext {
-            n: Some(compound_var_n),
+            n: Some(compound_var_n.clone()),
             c: Some(compound_var_c.clone()),
             p: compound_var_p,
         };
@@ -2645,8 +2645,13 @@ impl ConsequencePredictor {
         };
 
         Ok(Some(TxAnnotation {
-            context: TxContext::new(self.provider.clone(), Some(tx), Some(compound_var_c))
-                .with_ref_data(ref_data),
+            context: TxContext::new(
+                self.provider.clone(),
+                Some(tx),
+                Some(compound_var_c),
+                Some(compound_var_n),
+            )
+            .with_ref_data(ref_data),
             ann,
         }))
     }

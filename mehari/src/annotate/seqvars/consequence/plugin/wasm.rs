@@ -608,6 +608,17 @@ impl types::HostAnnotation for HostState {
         Ok(self.ann(&a)?.cdna_pos.as_ref().map(position))
     }
 
+    fn cdna_end(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<types::Position>> {
+        let tx = self.tx(&a)?;
+        Ok(tx.ann.cdna_pos.as_ref().and_then(|start| {
+            let (_, end) = tx.context.tx_span()?;
+            Some(types::Position {
+                ord: end,
+                total: start.total,
+            })
+        }))
+    }
+
     fn cds_pos(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<types::Position>> {
         Ok(self.ann(&a)?.cds_pos.as_ref().map(position))
     }
@@ -1022,6 +1033,8 @@ mod test {
             "17:41197701:G:C",
         ]
         .map(variant);
+        // Indels on both sides of the last exon-exon junction.
+        let group = ["17:41199711:GG:G", "17:41197803:A:ATT"].map(variant);
 
         let nmd = |predictor: &ConsequencePredictor, variant: &VcfVariant| {
             predictor
@@ -1040,6 +1053,17 @@ mod test {
 
         assert_eq!(actual, expected);
         assert!(expected.iter().flatten().any(|(_, value)| value.is_some()));
+
+        let nmd_group = |predictor: &ConsequencePredictor| {
+            predictor
+                .predict_multiple(&group)
+                .unwrap()
+                .unwrap()
+                .into_iter()
+                .map(|ann| (ann.feature_id, ann.custom_fields.get(ANN_NMD).cloned()))
+                .collect_vec()
+        };
+        assert_eq!(nmd_group(&wasm), nmd_group(&builtin));
         Ok(())
     }
 
@@ -1073,6 +1097,7 @@ mod test {
                 "cdna-pos",
                 show(ann.cdna_pos.as_ref().map(ToString::to_string)),
             ),
+            ("cdna-end", "5236/7088".into()),
             (
                 "cds-pos",
                 show(ann.cds_pos.as_ref().map(ToString::to_string)),

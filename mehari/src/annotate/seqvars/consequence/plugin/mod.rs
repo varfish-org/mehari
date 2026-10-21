@@ -184,6 +184,8 @@ pub struct TxContext {
     /// The variant on the transcript: `c.` for coding, `n.` for non-coding transcripts,
     /// `None` if the variant lies up- or downstream.
     pub var_c: Option<HgvsVariant>,
+    /// The variant on the transcript in `n.` coordinates.
+    pub var_n: Option<HgvsVariant>,
     ref_data: OnceCell<Option<RefTranscriptData>>,
     alt_data: OnceCell<Option<AltTranscriptData>>,
 }
@@ -193,11 +195,13 @@ impl TxContext {
         provider: Arc<MehariProvider>,
         tx: Option<&Transcript>,
         var_c: Option<HgvsVariant>,
+        var_n: Option<HgvsVariant>,
     ) -> Self {
         Self {
             provider,
             tx_id: tx.map(|tx| tx.id.clone()),
             var_c,
+            var_n,
             ref_data: OnceCell::new(),
             alt_data: OnceCell::new(),
         }
@@ -207,6 +211,18 @@ impl TxContext {
     pub(crate) fn with_ref_data(mut self, ref_data: RefTranscriptData) -> Self {
         self.ref_data = OnceCell::from(Some(ref_data));
         self
+    }
+
+    /// 1-based transcript positions of the first and the last variant base, if both lie in
+    /// exons. Insertions span the two bases they lie between.
+    pub fn tx_span(&self) -> Option<(i32, i32)> {
+        let HgvsVariant::TxVariant { loc_edit, .. } = self.var_n.as_ref()? else {
+            return None;
+        };
+        let loc = loc_edit.loc.inner();
+        let exonic = |offset: Option<i32>| offset.unwrap_or(0) == 0;
+        (exonic(loc.start.offset) && exonic(loc.end.offset))
+            .then_some((loc.start.base, loc.end.base))
     }
 
     /// The transcript; `None` for intergenic variants.

@@ -152,6 +152,7 @@ fn report(prediction: &Prediction, a: &Annotation) -> String {
         ("hgvs-c", show(a.hgvs_c())),
         ("hgvs-p", show(a.hgvs_p())),
         ("cdna-pos", show(a.cdna_pos().map(position))),
+        ("cdna-end", show(a.cdna_end().map(position))),
         ("cds-pos", show(a.cds_pos().map(position))),
         ("protein-pos", show(a.protein_pos().map(position))),
         ("distance", show(a.distance())),

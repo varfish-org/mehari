@@ -58,11 +58,15 @@ fn classify(annotation: &Annotation) -> Option<&'static str> {
     // 1-based positions on the mutant transcript.
     let ptc = cds_start + 3 * stop as i32;
     let last_exon_start = exons.last()?.tx_start;
-    // Insertions and deletions before the last junction move it.
-    let last_junction = if annotation.cdna_pos()?.ord < last_exon_start {
+    // Insertions and deletions before the last junction move it; for a compound group reaching
+    // across it, how far is unknown.
+    let (start, end) = (annotation.cdna_pos()?.ord, annotation.cdna_end()?.ord);
+    let last_junction = if end < last_exon_start {
         last_exon_start + alternative_len - reference_len
-    } else {
+    } else if start >= last_exon_start {
         last_exon_start
+    } else {
+        return None;
     };
 
     let ptc_c = ptc - cds_start + 1;

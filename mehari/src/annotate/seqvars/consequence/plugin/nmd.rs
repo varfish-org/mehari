@@ -66,7 +66,7 @@ impl TranscriptPlugin for NmdPlugin {
                     )
                 });
                 truncating.then(|| {
-                    predict(context, ann)
+                    predict(context)
                         .unwrap_or(NmdPrediction::Unknown)
                         .to_string()
                 })
@@ -80,7 +80,7 @@ impl TranscriptPlugin for NmdPlugin {
 }
 
 /// `None` if the PTC or the exon structure is unknown.
-fn predict(context: &TxContext, ann: &AnnField) -> Option<NmdPrediction> {
+fn predict(context: &TxContext) -> Option<NmdPrediction> {
     let exons = &context.tx()?.genome_alignments.first()?.exons;
     let ref_data = context.ref_data()?;
     let alt_data = context.alt_data()?;
@@ -90,14 +90,23 @@ fn predict(context: &TxContext, ann: &AnnField) -> Option<NmdPrediction> {
 
     // 1-based positions on the mutant transcript.
     let ptc = ref_data.cds_start + 3 * stop as i32;
-    // Despite its name, `alt_cds_start_i` is the exon's 1-based transcript start.
-    let last_exon_start = exons.iter().filter_map(|exon| exon.alt_cds_start_i).max()?;
-    // Insertions and deletions before the last junction move it.
-    let last_junction = if ann.cdna_pos.as_ref()?.ord < last_exon_start {
+    // Despite their names, `alt_cds_*_i` are the exon's 1-based transcript positions. An exon
+    // without them leaves the structure unknown, as in the plugin interface.
+    let starts = exons
+        .iter()
+        .map(|exon| exon.alt_cds_end_i.and(exon.alt_cds_start_i))
+        .collect::<Option<Vec<_>>>()?;
+    let last_exon_start = starts.into_iter().max()?;
+    // Insertions and deletions before the last junction move it; for a compound group reaching
+    // across it, how far is unknown.
+    let (start, end) = context.tx_span()?;
+    let last_junction = if end < last_exon_start {
         last_exon_start + alt_data.transcript_sequence.len() as i32
             - ref_data.transcript_sequence.len() as i32
-    } else {
+    } else if start >= last_exon_start {
         last_exon_start
+    } else {
+        return None;
     };
 
     Some(classify(ptc - ref_data.cds_start + 1, last_junction - ptc))
@@ -303,6 +312,45 @@ mod test {
             );
         }
 
+        Ok(())
+    }
+
+    /// A compound group whose indels lie on both sides of the last exon-exon junction leaves the
+    /// junction on the mutant transcript, and so the prediction, unknown.
+    #[test]
+    fn compound_across_last_junction() -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .plugins(vec![Arc::new(NmdPlugin::default())])
+                .build()?,
+        );
+        // c.5417del in the penultimate exon, and an insertion after c.5484 in the last one.
+        let variants = ["17:41199711:GG:G", "17:41197803:A:ATT"]
+            .map(|spdi| spdi.parse::<VcfVariant>())
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+        let anns = predictor.predict_multiple(&variants)?.unwrap();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_007294.4")
+            .unwrap();
+
+        assert!(
+            ann.consequences.contains(&Consequence::FrameshiftVariant),
+            "{ann:?}"
+        );
+        assert_eq!(
+            ann.custom_fields.get(ANN_NMD).cloned().flatten().as_deref(),
+            Some("unknown")
+        );
         Ok(())
     }
 }
