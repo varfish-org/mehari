@@ -105,7 +105,7 @@ pub struct Args {
 
     /// Number of threads to use for annotation.
     ///
-    /// A sweet spot regarding trade-off between I/O and CPU-bound tasks is around 5.
+    /// A good value is around 16.
     #[arg(long, default_value_t = 1)]
     pub threads: usize,
 }
