@@ -147,6 +147,64 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
 
+  Plugins:
+    needs: Formatting
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          lfs: 'true'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: wasm32-wasip2
+          components: rustfmt, clippy
+
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            plugins/nmd -> target
+            plugins/probe -> target
+          cache-directories: |
+            ~/.cargo/registry/src/**/librocksdb-sys-*
+
+      # Replaces the committed builds, so that the tests below check the plugins' sources.
+      - name: Check and build the Rust plugins
+        run: |
+          for plugin in nmd probe; do
+            (cd plugins/$plugin \
+              && cargo fmt -- --check \
+              && cargo clippy --release --target wasm32-wasip2 \
+              && cargo build --release --target wasm32-wasip2)
+            cp plugins/$plugin/target/wasm32-wasip2/release/mehari_plugin_$plugin.wasm \
+              mehari/tests/data/plugins/$plugin.wasm
+          done
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Build the Python plugin
+        working-directory: plugins/nmd-python
+        run: uvx componentize-py@0.25.1 -d ../../mehari/wit -w plugin componentize app -o nmd.wasm
+
+      - name: Test the plugin host with these builds
+        run: cargo test -p mehari --lib 'plugin::' -- --include-ignored
+
   Schema:
     needs: Formatting
     runs-on: ubuntu-24.04
