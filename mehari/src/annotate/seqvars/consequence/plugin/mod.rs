@@ -2,12 +2,16 @@
 
 use std::cell::OnceCell;
 use std::fmt::Debug;
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use hgvs::mapper::altseq::{
     AltSeqBuilder, AltTranscriptData, RefTranscriptData, ref_transcript_data_cached,
 };
 use hgvs::parser::HgvsVariant;
+use itertools::Itertools;
+use strum::VariantArray;
 
 use super::VcfVariant;
 use super::terms::AnnField;
@@ -18,21 +22,58 @@ use crate::pbs::txs::Transcript;
 mod compound;
 mod nmd;
 mod sequence;
+#[cfg(feature = "wasm")]
+mod wasm;
 
 pub use compound::CompoundPlugin;
 pub use nmd::{NmdPlugin, NmdPrediction};
 pub use sequence::SequencePlugin;
+#[cfg(feature = "wasm")]
+pub use wasm::WasmPlugin;
 
-/// Plugins to select by name, e.g. with `--plugin`.
+/// A plugin to run: a built-in by name, or a WebAssembly component by its path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginSpec {
+    Builtin(BuiltinPlugin),
+    Wasm(PathBuf),
+}
+
+impl FromStr for PluginSpec {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(plugin) = s.parse() {
+            Ok(Self::Builtin(plugin))
+        } else if s.ends_with(".wasm") {
+            Ok(Self::Wasm(s.into()))
+        } else {
+            Err(format!(
+                "unknown plugin {s:?}, expected one of {} or a path ending in .wasm",
+                BuiltinPlugin::VARIANTS.iter().join(", ")
+            ))
+        }
+    }
+}
+
+impl PluginSpec {
+    /// `vep_compatible` makes built-in plugins mimic their VEP counterparts.
+    pub fn build(&self, vep_compatible: bool) -> Result<Arc<dyn TranscriptPlugin>, SeqvarsError> {
+        match self {
+            Self::Builtin(plugin) => Ok(plugin.build(vep_compatible)),
+            #[cfg(feature = "wasm")]
+            Self::Wasm(path) => Ok(Arc::new(WasmPlugin::load(path)?)),
+            #[cfg(not(feature = "wasm"))]
+            Self::Wasm(path) => Err(SeqvarsError::Plugin(format!(
+                "{}: mehari was built without the `wasm` feature",
+                path.display()
+            ))),
+        }
+    }
+}
+
+/// Plugins to select by name.
 #[derive(
-    Debug,
-    Copy,
-    Clone,
-    PartialEq,
-    Eq,
-    clap::ValueEnum,
-    parse_display::FromStr,
-    parse_display::Display,
+    Debug, Copy, Clone, PartialEq, Eq, VariantArray, parse_display::FromStr, parse_display::Display,
 )]
 #[display(style = "kebab-case")]
 pub enum BuiltinPlugin {
@@ -68,7 +109,9 @@ pub trait TranscriptPlugin: Debug + Send + Sync {
 
     /// Called once per prediction with all of its reported annotations.
     ///
-    /// `variants` holds the input variant, or the variants of a compound group.
+    /// `variants` holds the input variant as given in the VCF, or the variants of a compound
+    /// group. The HGVS descriptions in `ann` and `context.var_c` follow HGVS normalization, which
+    /// shifts towards the transcript's 3' end and so depends on its strand.
     /// Writes into `ann.custom_fields`; keys not listed in `columns` are not output.
     fn annotate(
         &self,
@@ -148,5 +191,20 @@ impl TxContext {
                     .next()
             })
             .as_ref()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parse_plugin_spec() {
+        assert_eq!("nmd".parse(), Ok(PluginSpec::Builtin(BuiltinPlugin::Nmd)));
+        assert_eq!(
+            "plugins/nmd.wasm".parse(),
+            Ok(PluginSpec::Wasm("plugins/nmd.wasm".into()))
+        );
+        assert!("nmdd".parse::<PluginSpec>().is_err());
     }
 }

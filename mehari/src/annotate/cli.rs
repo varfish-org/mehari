@@ -1,4 +1,4 @@
-use crate::annotate::seqvars::consequence::plugin::BuiltinPlugin;
+use crate::annotate::seqvars::consequence::plugin::PluginSpec;
 use clap::Args as ClapArgs;
 use strum::{Display, VariantArray};
 
@@ -115,9 +115,10 @@ pub struct ReportingSettings {
     #[arg(long, default_value_t = false, hide = true)]
     use_vep_consequence_terms: bool,
 
-    /// Built-in plugins to run, each adding ANN columns.
-    #[arg(long = "plugin", value_enum)]
-    pub plugins: Vec<BuiltinPlugin>,
+    /// Plugin to run, adding ANN columns: tx-sequence-ref, tx-sequence-alt, aa-sequence-ref,
+    /// aa-sequence-alt, nmd, or the path of a WebAssembly component (`.wasm`).
+    #[arg(long = "plugin")]
+    pub plugins: Vec<PluginSpec>,
 }
 
 #[derive(Debug, ClapArgs, Default, Clone)]

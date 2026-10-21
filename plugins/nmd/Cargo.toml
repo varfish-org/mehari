@@ -1,0 +1,22 @@
+[package]
+name = "mehari-plugin-nmd"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Reference WebAssembly plugin for mehari: NMD prediction"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.63"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+# Built for wasm32-wasip2, so not part of the mehari workspace.
+[workspace]

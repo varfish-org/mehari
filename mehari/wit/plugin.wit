@@ -1,0 +1,87 @@
+package mehari:plugin@0.1.0;
+
+/// Data passed to plugins, and the host functions computing it on request.
+interface types {
+    /// A variant as given in the VCF, before normalization.
+    record vcf-variant {
+        chromosome: string,
+        /// 1-based position of the first reference base.
+        position: s32,
+        reference: string,
+        alternative: string,
+    }
+
+    /// The annotation of one transcript, as computed by mehari.
+    record annotation {
+        /// Transcript accession; empty for intergenic variants.
+        feature-id: string,
+        /// Sequence Ontology terms, most severe first.
+        consequences: list<string>,
+        /// HGVS descriptions as in mehari's output. Normalization shifts the variant towards
+        /// the transcript's 3' end, so the genomic position depends on the strand.
+        hgvs-g: option<string>,
+        hgvs-n: option<string>,
+        hgvs-c: option<string>,
+        hgvs-p: option<string>,
+        /// 1-based transcript position of the first variant base; exonic variants only.
+        cdna-pos: option<s32>,
+    }
+
+    enum strand {
+        plus,
+        minus,
+    }
+
+    /// An exon; positions are 1-based and inclusive.
+    record exon {
+        tx-start: s32,
+        tx-end: s32,
+        genome-start: s32,
+        genome-end: s32,
+    }
+
+    record transcript {
+        id: string,
+        strand: strand,
+        /// In transcript order.
+        exons: list<exon>,
+    }
+
+    /// Transcript and protein sequence, without or with the variant.
+    record sequences {
+        /// Including the UTRs.
+        transcript: string,
+        /// From the start codon on. With the variant applied, translation may continue past the
+        /// first stop codon (`*`).
+        protein: string,
+        /// 1-based transcript position of the start codon.
+        cds-start: s32,
+    }
+
+    /// The inputs for the transcripts of one `annotate` call, by their index in `annotations`.
+    /// Results are computed on the first request and shared with other plugins.
+    // One resource for all transcripts, as wit-bindgen cannot lift lists of borrowed handles.
+    resource contexts {
+        /// `none` for intergenic variants.
+        transcript: func(index: u32) -> option<transcript>;
+        reference: func(index: u32) -> option<sequences>;
+        /// Coding variants only.
+        alternative: func(index: u32) -> option<sequences>;
+    }
+}
+
+world plugin {
+    use types.{vcf-variant, annotation, contexts};
+
+    /// The columns this plugin fills, in output order.
+    export columns: func() -> list<string>;
+
+    /// Called once per prediction with all of its reported transcripts. `variants` holds the
+    /// input variant, or the variants of a compound group. Returns one list per annotation,
+    /// holding one value per column.
+    export annotate: func(
+        variants: list<vcf-variant>,
+        annotations: list<annotation>,
+        contexts: borrow<contexts>,
+    ) -> list<list<option<string>>>;
+}

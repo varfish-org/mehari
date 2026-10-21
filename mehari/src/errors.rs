@@ -34,6 +34,9 @@ pub enum SeqvarsError {
 
     #[error("Provider error: {0}")]
     Provider(String),
+
+    #[error("Plugin error: {0}")]
+    Plugin(String),
 }
 
 #[derive(Debug, Error)]

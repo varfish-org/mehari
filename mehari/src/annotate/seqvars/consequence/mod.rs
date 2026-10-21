@@ -131,11 +131,11 @@ impl ConsequenceAnnotator {
         let args = predictor_settings;
         let s = &args.reporting_settings;
 
-        let mut plugins: Vec<Arc<dyn TranscriptPlugin>> = s
+        let mut plugins = s
             .plugins
             .iter()
             .map(|plugin| plugin.build(args.vep_compatibility_mode))
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         if args.compound_settings.enable_compound_variants {
             plugins.push(Arc::new(CompoundPlugin::default()));
         }

@@ -1630,7 +1630,7 @@ mod test {
     use super::{Args, OutputFormat, run};
     use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
-    use crate::annotate::seqvars::consequence::plugin::BuiltinPlugin;
+    use crate::annotate::seqvars::consequence::plugin::{BuiltinPlugin, PluginSpec};
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
     use clap_verbosity_flag::Verbosity;
     use futures::TryStreamExt;
@@ -1712,13 +1712,16 @@ mod test {
             verbose: Verbosity::new(0, 1),
         };
         let mut predictor_settings = PredictorSettings::default();
-        predictor_settings.reporting_settings.plugins = vec![
+        predictor_settings.reporting_settings.plugins = [
             BuiltinPlugin::TxSequenceRef,
             BuiltinPlugin::TxSequenceAlt,
             BuiltinPlugin::AaSequenceRef,
             BuiltinPlugin::AaSequenceAlt,
             BuiltinPlugin::Nmd,
-        ];
+        ]
+        .into_iter()
+        .map(PluginSpec::Builtin)
+        .collect();
         predictor_settings
             .compound_settings
             .enable_compound_variants = true;
