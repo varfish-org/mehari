@@ -423,31 +423,27 @@ pub(crate) fn apply_n_edits(tx_seq: &str, vars_n: &[&HgvsVariant]) -> Option<Str
             return None;
         }
 
-        let replace_start;
-        let replace_end;
-        let alt;
-
-        match edit {
-            NaEdit::RefAlt { alternative, .. } | NaEdit::NumAlt { alternative, .. } => {
-                replace_start = (n_loc_start - 1) as usize;
-                replace_end = n_loc_end as usize;
-                alt = alternative.clone();
-            }
-            NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => {
-                replace_start = (n_loc_start - 1) as usize;
-                replace_end = n_loc_end as usize;
-                alt = "".to_string();
-            }
-            NaEdit::Dup { reference } => {
-                replace_start = (n_loc_start - 1) as usize;
-                replace_end = n_loc_end as usize;
-                alt = format!("{}{}", reference, reference);
-            }
-            NaEdit::Ins { alternative } => {
-                replace_start = n_loc_start as usize;
-                replace_end = n_loc_start as usize;
-                alt = alternative.clone();
-            }
+        let (replace_start, replace_end, alt) = match edit {
+            NaEdit::RefAlt { alternative, .. } | NaEdit::NumAlt { alternative, .. } => (
+                (n_loc_start - 1) as usize,
+                n_loc_end as usize,
+                alternative.clone(),
+            ),
+            NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => (
+                (n_loc_start - 1) as usize,
+                n_loc_end as usize,
+                "".to_string(),
+            ),
+            NaEdit::Dup { reference } => (
+                (n_loc_start - 1) as usize,
+                n_loc_end as usize,
+                format!("{}{}", reference, reference),
+            ),
+            NaEdit::Ins { alternative } => (
+                n_loc_start as usize,
+                n_loc_start as usize,
+                alternative.clone(),
+            ),
             _ => {
                 tracing::warn!(
                     "Unsupported NaEdit type {:?} for transcript sequence assembly. Skipping.",
