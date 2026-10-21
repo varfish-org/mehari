@@ -1564,7 +1564,10 @@ impl<'a> VariantProcessor<'a> {
     ) -> Self {
         Self {
             annotator,
-            buffer: compound::VariantBuffer::new(compound_settings.phasing_strategy),
+            buffer: compound::VariantBuffer::new(
+                compound_settings.phasing_strategy,
+                compound_settings.compound_window_size,
+            ),
             next_group_id: 0,
             annotations: Default::default(),
         }
