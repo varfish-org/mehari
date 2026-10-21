@@ -49,8 +49,10 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # PRs restore main's caches but don't save their own, which would evict main's.
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-directories: |
             ~/.cargo/registry/src/**/librocksdb-sys-*
 
@@ -106,6 +108,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: |
             . -> target
             mehari-python -> target
@@ -172,6 +175,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: |
             . -> target
             plugins/nmd -> target
@@ -226,6 +230,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-directories: |
             ~/.cargo/registry/src/**/librocksdb-sys-*
 
