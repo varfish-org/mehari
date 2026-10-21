@@ -148,6 +148,9 @@ pub trait PbsTranscriptExt {
     /// Returns true if the transcript is incomplete (e.g. missing stop codon).
     fn is_incomplete_3p(&self) -> bool;
 
+    /// Returns true if the CDS is incomplete at its 5' end, i.e. lacks its start codon.
+    fn is_incomplete_5p(&self) -> bool;
+
     /// Returns the transcript length: the last transcript position that an exon covers.
     ///
     /// The sum of the genomic exon lengths would count genome-only bases (CIGAR `I`) and miss
@@ -169,6 +172,11 @@ impl PbsTranscriptExt for Transcript {
     fn is_incomplete_3p(&self) -> bool {
         let flags = BitFlags::<Reason>::from_bits_truncate(self.filter_reason.unwrap_or(0));
         flags.intersects(Reason::MissingStopCodon | Reason::ThreePrimeEndTruncated)
+    }
+
+    fn is_incomplete_5p(&self) -> bool {
+        let flags = BitFlags::<Reason>::from_bits_truncate(self.filter_reason.unwrap_or(0));
+        flags.contains(Reason::FivePrimeEndTruncated)
     }
 
     fn tx_len(&self) -> i32 {

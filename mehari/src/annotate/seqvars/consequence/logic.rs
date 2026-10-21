@@ -451,7 +451,7 @@ pub(crate) fn apply_n_edits(tx_seq: &str, vars_n: &[&HgvsVariant]) -> Option<Str
                 );
                 return None;
             }
-        }
+        };
 
         n_edits.push(NEdit {
             replace_start,
@@ -1295,6 +1295,7 @@ impl ConsequencePredictor {
                 consequence_ctx.cds_consequences,
                 consequence_ctx.protein_consequences,
                 &projection,
+                tx.is_incomplete_5p(),
             );
 
             (
@@ -1542,6 +1543,7 @@ impl ConsequencePredictor {
         consequences_cds: Consequences,
         consequences_protein: Consequences,
         projection: &HgvsProjectionContext,
+        incomplete_5p: bool,
     ) {
         // If we have a transcript_ablation, we can remove all other consequences
         if consequences.contains(Consequence::TranscriptAblation) {
@@ -1734,6 +1736,16 @@ impl ConsequencePredictor {
             && projection.is_within_coding_sequence()
         {
             *consequences |= Consequence::CodingSequenceVariant;
+        }
+
+        // A CDS that is incomplete at its 5' end, e.g. `cds_start_NF`, has no start codon, so a
+        // change of its first codon is just a change of the CDS. VEP gives no start terms there
+        // either.
+        if incomplete_5p {
+            *consequences &= !(Consequence::StartLost | Consequence::StartRetainedVariant);
+            if consequences.is_empty() {
+                *consequences |= Consequence::CodingSequenceVariant;
+            }
         }
     }
 
@@ -2843,6 +2855,7 @@ impl ConsequencePredictor {
             c_ctx.cds_consequences,
             c_ctx.protein_consequences,
             &compound_proj,
+            tx.is_incomplete_5p(),
         );
 
         if self.config.vep_consequence_terms {
@@ -3178,6 +3191,44 @@ mod test {
             }],
             ..Default::default()
         }
+    }
+
+    /// A change of the first codon gives no start terms if the CDS lacks its start codon. c.2T>A
+    /// changes the ATG at n.3_5.
+    #[rstest::rstest]
+    #[case::complete(false, Consequence::StartLost)]
+    #[case::incomplete_5p(true, Consequence::CodingSequenceVariant)]
+    fn first_codon_of_cds_without_start_codon(
+        #[case] incomplete_5p: bool,
+        #[case] expected: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        use crate::db::transcripts::create::models::Reason;
+
+        let mut tx_db = tx_db_with_indels_in_exon_cigars();
+        if incomplete_5p {
+            let tx = &mut tx_db.tx_db.as_mut().unwrap().transcripts[0];
+            tx.filter_reason =
+                Some(enumflags2::BitFlags::from(Reason::FivePrimeEndTruncated).bits());
+        }
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+
+        let anns = predictor
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1004,
+                reference: "T".into(),
+                alternative: "A".into(),
+            })?
+            .unwrap();
+
+        assert_eq!(anns[0].hgvs_c.as_deref(), Some("c.2T>A"));
+        assert!(anns[0].consequences.contains(&expected), "{:?}", anns[0]);
+        assert_eq!(
+            anns[0].consequences.contains(&Consequence::StartLost),
+            !incomplete_5p
+        );
+        Ok(())
     }
 
     /// The cDNA total is the transcript length, both for single and for phased variants.
