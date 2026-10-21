@@ -2126,8 +2126,10 @@ impl ConsequencePredictor {
             s == "X" || s == "Ter" || s == "*"
         }
 
+        // hgvs-rs gives `X` (`Xaa`) for an incomplete codon at the transcript end, not for a
+        // stop codon.
         fn has_stop(s: &str) -> bool {
-            s.contains('*') || s.contains('X') || s.contains("Ter")
+            s.contains('*') || s.contains("Ter")
         }
 
         match var_p {
