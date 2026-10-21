@@ -60,7 +60,6 @@ interface types {
 
     /// The inputs for the transcripts of one `annotate` call, by their index in `annotations`.
     /// Results are computed on the first request and shared with other plugins.
-    // One resource for all transcripts, as wit-bindgen cannot lift lists of borrowed handles.
     resource contexts {
         /// `none` for intergenic variants.
         transcript: func(index: u32) -> option<transcript>;

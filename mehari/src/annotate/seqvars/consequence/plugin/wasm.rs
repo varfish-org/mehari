@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use itertools::Itertools;
 use wasmtime::component::{Component, HasSelf, Linker, Resource, ResourceTable};
-use wasmtime::{Engine, Store};
+use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use super::{TranscriptPlugin, TxAnnotation, TxContext};
@@ -48,7 +48,8 @@ pub struct WasmPlugin {
 
 type Instance = (Store<HostState>, Plugin);
 
-/// The contexts of one call, lent to the plugin.
+/// The contexts of one call, lent to the plugin. One resource for all transcripts rather than one
+/// per transcript, as wit-bindgen cannot lift lists of borrowed handles.
 pub struct TxContexts(Vec<TxContext>);
 
 struct HostState {
@@ -69,7 +70,8 @@ impl WasmPlugin {
     /// Compile the component at `path` and query its columns.
     pub fn load(path: &Path) -> Result<Self, SeqvarsError> {
         let error = |e: wasmtime::Error| plugin_error(path, e);
-        let engine = Engine::default();
+        // Plugins print their errors to stderr; wasm backtraces would bury them.
+        let engine = Engine::new(Config::new().wasm_backtrace_max_frames(None)).map_err(error)?;
         let component = Component::from_file(&engine, path).map_err(error)?;
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker).map_err(error)?;
@@ -301,6 +303,8 @@ mod test {
 
     /// Built from `plugins/nmd`, see its README.
     const NMD_WASM: &str = "tests/data/plugins/nmd.wasm";
+    /// Built from `plugins/nmd-python`, see its README; too large to commit.
+    const NMD_PYTHON_WASM: &str = "../plugins/nmd-python/nmd.wasm";
 
     #[test]
     fn load_reports_columns() -> Result<(), anyhow::Error> {
@@ -314,10 +318,20 @@ mod test {
         assert!(WasmPlugin::load(Path::new("tests/data/plugins/missing.wasm")).is_err());
     }
 
-    /// The reference plugin predicts the same as the built-in one, also when called from
-    /// several threads.
     #[test]
     fn nmd_plugin_matches_builtin() -> Result<(), anyhow::Error> {
+        assert_matches_builtin(NMD_WASM)
+    }
+
+    #[test]
+    #[ignore = "needs plugins/nmd-python/nmd.wasm, see its README"]
+    fn nmd_python_plugin_matches_builtin() -> Result<(), anyhow::Error> {
+        assert_matches_builtin(NMD_PYTHON_WASM)
+    }
+
+    /// The NMD plugin at `path` predicts the same as the built-in one, also when called from
+    /// several threads.
+    fn assert_matches_builtin(path: &str) -> Result<(), anyhow::Error> {
         let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
         let provider = Arc::new(MehariProvider::new(
             tx_db,
@@ -332,7 +346,7 @@ mod test {
             ))
         };
         let builtin = predictor(Arc::new(NmdPlugin::default()))?;
-        let wasm = predictor(Arc::new(WasmPlugin::load(Path::new(NMD_WASM))?))?;
+        let wasm = predictor(Arc::new(WasmPlugin::load(Path::new(path))?))?;
 
         // BRCA1 stops and frameshifts at the rule boundaries, and a missense variant.
         let variants = [

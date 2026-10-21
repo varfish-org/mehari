@@ -21,6 +21,7 @@ We recommend to read the Mehari end-user documentation in the following order:
 - [Overview](`self::user_doc::getting_started`)
 - [Annotating Sequence Variants](`self::user_doc::anno_seqvars`)
 - [Annotating Structural Variants](`self::user_doc::anno_strucvars`)
+- [Plugins](`self::user_doc::plugins`)
 - [Building Databases](`self::user_doc::db_build`)
 - [Implementation Notes](`self::user_doc::implementation_notes`)
 

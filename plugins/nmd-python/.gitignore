@@ -1,0 +1,6 @@
+# The built component and the generated bindings.
+*.wasm
+__pycache__/
+wit_world/
+componentize_py_*
+poll_loop.py

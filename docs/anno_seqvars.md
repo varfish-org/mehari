@@ -44,8 +44,7 @@ Output formats can be toggled using `--output-format` (e.g., `vcf` or `jsonl`), 
 
 Plugins add columns to the `ANN` field; enable each with `--plugin`, in the order the columns should appear.
 Built-in plugins are `tx-sequence-ref`, `tx-sequence-alt`, `aa-sequence-ref` and `aa-sequence-alt` (transcript and protein sequences without and with the variant), and `nmd` (whether stop-gained and frameshift variants trigger nonsense-mediated decay).
-`--plugin` also takes the path of a WebAssembly component implementing `mehari/wit/plugin.wit`; `plugins/nmd` holds an example.
-Such plugins have no access to files, the network or the environment.
+`--plugin` also takes the path of a WebAssembly component, for which you can write your own plugins in Python, Rust and other languages; see [Plugins](`self::plugins`).
 
 ### Experimental: Compound Variants
 
