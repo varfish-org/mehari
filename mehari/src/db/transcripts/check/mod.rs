@@ -244,10 +244,14 @@ impl TxDbData {
         }
 
         // Process Genes
+        let mut kept_genes = HashSet::new();
         for g in &tx_db.gene_to_tx {
             let Some(id) = gene_id(g) else {
                 continue;
             };
+            if !g.filtered.unwrap_or(false) {
+                kept_genes.insert(id.clone());
+            }
             if let Some(bits) = g.filter_reason
                 && bits != 0
             {
@@ -260,6 +264,10 @@ impl TxDbData {
                 }
             }
         }
+
+        // An HGNC ID is hard-filtered only if all its genes are, e.g., not if cdot's placeholder
+        // gene for a mitochondrial gene has no transcript left, but the Ensembl gene has.
+        hard_filter_reasons.retain(|id, _| !kept_genes.contains(id));
 
         Ok(TxDbData {
             tx_db,
@@ -1112,6 +1120,36 @@ mod tests {
                 .hard_filter_reasons
                 .get(&Id::Hgnc("HGNC:1100".into())),
             Some(&(FilterReason::NoTranscriptLeft | FilterReason::Pseudogene))
+        );
+
+        Ok(())
+    }
+
+    /// An HGNC ID with one hard-filtered and one kept gene is not hard-filtered.
+    #[test]
+    fn hgnc_id_with_a_kept_gene_is_not_hard_filtered() -> Result<(), anyhow::Error> {
+        let tx_db_data = tx_db_data([
+            gene(
+                "4535",
+                Some("HGNC:7455"),
+                "fake-rna-ND1.0",
+                Some(FilterReason::NoTranscriptLeft),
+                Some(FilterReason::MissingSequence),
+            ),
+            gene(
+                "ENSG00000198888",
+                Some("HGNC:7455"),
+                "ENST00000361390.2",
+                None,
+                None,
+            ),
+        ])?;
+
+        assert_eq!(
+            tx_db_data
+                .hard_filter_reasons
+                .get(&Id::Hgnc("HGNC:7455".into())),
+            None
         );
 
         Ok(())
