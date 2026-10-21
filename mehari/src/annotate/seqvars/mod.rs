@@ -105,7 +105,8 @@ pub struct Args {
 
     /// Number of threads to use for annotation.
     ///
-    /// A sweet spot regarding trade-off between I/O and CPU-bound tasks is around 5.
+    /// More threads speed up annotation until reading and writing the VCF, which run on a
+    /// single thread, become the limit, at around 16 threads in our benchmarks.
     #[arg(long, default_value_t = 1)]
     pub threads: usize,
 }
