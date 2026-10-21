@@ -1664,11 +1664,7 @@ impl ConsequencePredictor {
 
             // If edit occurs within the first 3 bases of the CDS,
             let (start, end) = (c_loc.start.base, c_loc.end.base);
-            if start >= 1
-                && end <= 3
-                && c_loc.start.cds_from == CdsFrom::Start
-                && c_loc.end.cds_from == CdsFrom::Start
-            {
+            if within_first_codon(c_loc.start.clone(), c_loc.end.clone()) {
                 // … then we need to check whether this is a start lost or a start retained.
                 // To that end, check the deletion against the transcript sequence (0-based).
                 let start_retained = match c_edit {
@@ -3031,6 +3027,16 @@ impl ConsequencePredictor {
                 |v| Ok(Some(v)),
             )
     }
+}
+
+/// Whether the positions from `start` to `end` lie within c.1 to c.3. An intronic position such as
+/// `c.1+50` is not in the start codon, also if the codon is split by that intron.
+fn within_first_codon(start: CdsPos, end: CdsPos) -> bool {
+    [&start, &end]
+        .iter()
+        .all(|pos| pos.cds_from == CdsFrom::Start && pos.offset.unwrap_or_default() == 0)
+        && start.base >= 1
+        && end.base <= 3
 }
 
 /// Whether the insertion or dup `var_c` inserts a number of bases that is not a multiple of 3.
@@ -5134,6 +5140,31 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let var_c = HgvsVariant::from_str(&format!("NM_000001.1:{var_c}"))?;
         assert_eq!(inserts_frameshift(&var_c), expected);
+        Ok(())
+    }
+
+    /// Positions in the start codon are c.1 to c.3 without intron offsets.
+    #[rstest::rstest]
+    #[case("c.1_3del", true)]
+    #[case("c.2del", true)]
+    #[case("c.-1_1del", false)]
+    #[case("c.3_4del", false)]
+    #[case("c.1+50del", false)]
+    #[case("c.1+4_1+7del", false)]
+    fn deletion_within_first_codon(
+        #[case] var_c: &str,
+        #[case] expected: bool,
+    ) -> Result<(), anyhow::Error> {
+        let HgvsVariant::CdsVariant { loc_edit, .. } =
+            HgvsVariant::from_str(&format!("NM_000001.1:{var_c}"))?
+        else {
+            anyhow::bail!("not a c. variant: {var_c}");
+        };
+        let loc = loc_edit.loc.inner();
+        assert_eq!(
+            within_first_codon(loc.start.clone(), loc.end.clone()),
+            expected
+        );
         Ok(())
     }
 }
