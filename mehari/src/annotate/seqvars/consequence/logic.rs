@@ -1735,7 +1735,7 @@ impl ConsequencePredictor {
                 }
             }
         } else {
-            panic!("Must be CDS variant: {}", &var_c)
+            panic!("Must be CDS variant: {}", var_c)
         };
         consequences
     }
@@ -1923,7 +1923,7 @@ impl ConsequencePredictor {
                 ProtLocEdit::NoProtein | ProtLocEdit::NoProteinUncertain | ProtLocEdit::Unknown => {
                 }
             },
-            _ => panic!("Must be protein variant: {}", &var_p),
+            _ => panic!("Must be protein variant: {}", var_p),
         }
         consequences
     }
@@ -2151,7 +2151,7 @@ impl ConsequencePredictor {
                 })
                 .collect();
 
-            g_edits.sort_by(|a, b| b.0.cmp(&a.0));
+            g_edits.sort_by_key(|a| std::cmp::Reverse(a.0));
             for (start, end, alt) in g_edits {
                 alt_seq_g.replace_range(start..end, &alt);
             }
@@ -2384,31 +2384,27 @@ impl ConsequencePredictor {
                     return Ok(None);
                 }
 
-                let replace_start;
-                let replace_end;
-                let alt;
-
-                match edit {
-                    NaEdit::RefAlt { alternative, .. } | NaEdit::NumAlt { alternative, .. } => {
-                        replace_start = (n_loc_start - 1) as usize;
-                        replace_end = n_loc_end as usize;
-                        alt = alternative.clone();
-                    }
-                    NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => {
-                        replace_start = (n_loc_start - 1) as usize;
-                        replace_end = n_loc_end as usize;
-                        alt = "".to_string();
-                    }
-                    NaEdit::Dup { reference } => {
-                        replace_start = (n_loc_start - 1) as usize;
-                        replace_end = n_loc_end as usize;
-                        alt = format!("{}{}", reference, reference);
-                    }
-                    NaEdit::Ins { alternative } => {
-                        replace_start = n_loc_start as usize;
-                        replace_end = n_loc_start as usize;
-                        alt = alternative.clone();
-                    }
+                let (replace_start, replace_end, alt) = match edit {
+                    NaEdit::RefAlt { alternative, .. } | NaEdit::NumAlt { alternative, .. } => (
+                        (n_loc_start - 1) as usize,
+                        n_loc_end as usize,
+                        alternative.clone(),
+                    ),
+                    NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => (
+                        (n_loc_start - 1) as usize,
+                        n_loc_end as usize,
+                        "".to_string(),
+                    ),
+                    NaEdit::Dup { reference } => (
+                        (n_loc_start - 1) as usize,
+                        n_loc_end as usize,
+                        format!("{}{}", reference, reference),
+                    ),
+                    NaEdit::Ins { alternative } => (
+                        n_loc_start as usize,
+                        n_loc_start as usize,
+                        alternative.clone(),
+                    ),
                     _ => {
                         tracing::warn!(
                             "Unsupported NaEdit type {:?} in multi-assembly. Skipping.",
@@ -2416,7 +2412,7 @@ impl ConsequencePredictor {
                         );
                         return Ok(None);
                     }
-                }
+                };
 
                 n_edits.push(NEdit {
                     n_loc_start,
@@ -2428,7 +2424,7 @@ impl ConsequencePredictor {
             }
         }
 
-        n_edits.sort_by(|a, b| b.replace_start.cmp(&a.replace_start));
+        n_edits.sort_by_key(|a| std::cmp::Reverse(a.replace_start));
 
         let tx_len = ref_data.transcript_sequence.len() as i32;
         let mut alt_seq = ref_data.transcript_sequence.to_string();
@@ -2617,14 +2613,14 @@ impl ConsequencePredictor {
         let putative_impact = (*consequences_vec.first().unwrap()).into();
 
         let hgvs_n = compound_proj.n.as_ref().map(|n| {
-            format!("{}", &NoRef(n))
+            format!("{}", NoRef(n))
                 .split(':')
                 .nth(1)
                 .unwrap()
                 .to_owned()
         });
         let hgvs_c = Some(
-            format!("{}", &NoRef(compound_proj.c.as_ref().unwrap()))
+            format!("{}", NoRef(compound_proj.c.as_ref().unwrap()))
                 .split(':')
                 .nth(1)
                 .unwrap()
@@ -3792,9 +3788,9 @@ mod test {
                         record.tx,
                         ann.hgvs_c.as_ref(),
                         ann.hgvs_p.as_ref(),
-                        &record_csqs,
-                        &expected_one_of,
-                        &ann.consequences,
+                        record_csqs,
+                        expected_one_of,
+                        ann.consequences,
                     );
                 }
             }

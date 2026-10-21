@@ -62,7 +62,7 @@ async fn handle_impl(
     let annotator = data.cadd_annotators.get(&assembly).ok_or_else(|| {
         CustomError::new(anyhow::anyhow!(
             "genome assembly not supported: {:?}",
-            &query.assembly
+            query.assembly
         ))
     })?;
 
@@ -75,7 +75,7 @@ async fn handle_impl(
 
     let annotation = annotator
         .annotate(&var)
-        .map_err(|e| super::CustomError::new(anyhow::anyhow!("annotation failed: {}", &e)))?;
+        .map_err(|e| super::CustomError::new(anyhow::anyhow!("annotation failed: {}", e)))?;
 
     let result = annotation.map(|res| CaddResultEntry {
         raw_score: res.raw_score,

@@ -932,6 +932,7 @@ async fn run_with_writer(
             for db in &tx_dbs {
                 for sv in &db.source_version {
                     let mut final_assembly = sv.assembly.clone();
+                    #[allow(deprecated)]
                     if final_assembly.is_empty() {
                         final_assembly = _assembly_from_assembly_enum(sv.assembly_enum);
                     }

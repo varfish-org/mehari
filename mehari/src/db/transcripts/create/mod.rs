@@ -434,7 +434,7 @@ pub mod test {
         )?;
         tx_data.apply_fixes(&Some(labels));
 
-        eprintln!("{:#?}", &tx_data.gene_id_to_transcript_ids);
+        eprintln!("{:#?}", tx_data.gene_id_to_transcript_ids);
         insta::assert_yaml_snapshot!(
             tx_data
                 .gene_id_to_transcript_ids

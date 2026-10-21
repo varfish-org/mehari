@@ -142,6 +142,8 @@ where
 
 type IdentifierMap = HashMap<Id, HashSet<Id>>;
 
+// derive-new spells out the field names.
+#[allow(clippy::redundant_field_names)]
 #[derive(Debug, new)]
 struct ComparisonDataContainer {
     tx_db_data: TxDbData,
@@ -505,6 +507,8 @@ enum Status {
     Err,
 }
 
+// derive-new spells out the field names.
+#[allow(clippy::redundant_field_names)]
 #[serde_as]
 #[derive(Debug, Serialize, new)]
 #[serde(rename_all = "snake_case")]
@@ -741,7 +745,7 @@ impl DatabaseChecker {
             if !matches!(disease_gene_id, Id::Hgnc(_)) {
                 panic!(
                     "disease_gene_id should be an hgnc id, but is {}",
-                    &disease_gene_id
+                    disease_gene_id
                 );
             }
 

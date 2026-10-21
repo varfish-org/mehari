@@ -69,9 +69,11 @@ pub fn load_tx_db(tx_path: impl AsRef<Path> + Display) -> anyhow::Result<TxSeqDa
     // back-fill deprecated fields into new fields
     if let Ok(ref mut db) = db {
         for sv in &mut db.source_version {
+            #[allow(deprecated)]
             if sv.assembly.is_empty() {
                 sv.assembly = seqvars::_assembly_from_assembly_enum(sv.assembly_enum);
             }
+            #[allow(deprecated)]
             if sv.source_name.is_empty() {
                 sv.source_name = seqvars::_source_from_source_enum(sv.source_name_enum);
             }
@@ -80,6 +82,7 @@ pub fn load_tx_db(tx_path: impl AsRef<Path> + Display) -> anyhow::Result<TxSeqDa
         if let Some(tx_db) = &mut db.tx_db {
             for tx in &mut tx_db.transcripts {
                 for aln in &mut tx.genome_alignments {
+                    #[allow(deprecated)]
                     if aln.genome_build.is_empty() {
                         aln.genome_build = seqvars::_genome_build_from_enum(aln.genome_build_enum);
                     }

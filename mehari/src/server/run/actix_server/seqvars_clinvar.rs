@@ -67,7 +67,7 @@ async fn handle_impl(
     let annotator = data.clinvar_annotators.get(&assembly).ok_or_else(|| {
         CustomError::new(anyhow::anyhow!(
             "genome assembly not supported: {:?}",
-            &query.assembly
+            query.assembly
         ))
     })?;
 
@@ -80,7 +80,7 @@ async fn handle_impl(
     };
     let annotations = annotator
         .annotate_variant(&g_var)
-        .map_err(|e| super::CustomError::new(anyhow::anyhow!("annotation failed: {}", &e)))?;
+        .map_err(|e| super::CustomError::new(anyhow::anyhow!("annotation failed: {}", e)))?;
     if let Some(annotations) = annotations {
         result.push(annotations);
     }
