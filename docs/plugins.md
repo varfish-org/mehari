@@ -11,30 +11,34 @@ Plugins run sandboxed and see every transcript annotation of a variant, with its
 
 ## How a plugin works
 
-A plugin implements the `plugin` world of [`mehari/wit/plugin.wit`](https://github.com/varfish-org/mehari/blob/main/mehari/wit/plugin.wit), which defines two functions:
+A plugin implements the `transcript-plugin` interface of [`mehari/wit/plugin.wit`](https://github.com/varfish-org/mehari/blob/main/mehari/wit/plugin.wit), which has two functions:
 
-- `init(options)` gets the options from the command line as key-value pairs and returns the names of the columns the plugin fills, or an error. mehari runs a separate instance of the plugin per thread and calls `init` once in each.
-- `annotate(variants, annotations)` is called once per variant and returns one list per annotation, holding one value per column, or an error. An empty value (`None` in Python) leaves the field empty.
+- `init(setup)` reads the options with `setup.options()` and declares the columns the plugin fills, each with the type of its values: `add-string-column`, `add-integer-column`, `add-float-column` or `add-boolean-column`. Columns appear in the order declared. mehari runs one instance of the plugin per thread and calls `init` once in each.
+- `annotate(prediction)` is called once per variant. `prediction.variants()` gives the variant as written in the VCF, before normalization, or the variants of a compound group (`--enable-compound-variants`). `prediction.annotations()` gives one annotation per reported transcript; fill its columns with `set-string`, `set-integer`, `set-float` or `set-boolean`. Fields left unset stay empty.
 
-`variants` holds the variant as written in the VCF, before normalization, or the variants of a compound group (`--enable-compound-variants`).
-`annotations` has one entry per reported transcript; `annotations.len()` says how many.
-For each index, it offers:
+Both can return an error, which stops mehari with the plugin's message.
+
+Each annotation offers:
 
 - what mehari writes to `ANN`: `feature-id` (transcript accession, empty for intergenic variants), `consequences` (Sequence Ontology terms), `impact`, `gene-symbol`, `gene-id`, `biotypes`, `tags`, `rank` (exon or intron), `hgvs-g`, `hgvs-n`, `hgvs-c`, `hgvs-p`, `cdna-pos`, `cds-pos`, `protein-pos`, `distance` and `warnings`. HGVS normalization shifts the variant towards the transcript's 3' end, so its position depends on the transcript's strand;
-- `field(index, column)`: what an earlier plugin wrote into a column;
-- `transcript`: strand, exons with transcript and genome positions, contig, genome build, protein accession and the genomic range of the coding sequence;
-- `reference` and `alternative`: transcript sequence, protein sequence and start codon, without and with the variant; `cds-end`, `translation` (translation table and exceptions such as selenocysteine), `frameshift` and `first-changed-codon`.
+- `field(column)`: the value of a column, e.g. one an earlier plugin filled;
+- the transcript: `strand`, `exons` with their transcript and genome positions, `contig`, `genome-build`, `protein-id` and `genome-cds-start`/`genome-cds-end`;
+- the sequences: `reference-transcript`, `reference-protein`, `reference-cds-start` and `reference-cds-end`, the same as `alternative-*` with the variant applied, and `translation-table`, `translation-exceptions` (e.g. selenocysteine), `frameshift` and `first-changed-codon`.
 
 mehari computes the transcript data when a plugin first asks for it and shares it with the other plugins, so ask only for what you need.
 The `host` interface tells the genome assembly, the mehari version and whether `--vep-compatibility-mode` is on.
 `plugin.wit` documents every function.
 
+Values go into `ANN` as text: integers and floats as numbers, booleans as `true` or `false`.
+Strings must not contain whitespace, `|`, `,`, `;` or `=`, which separate values in VCF, and floats must be finite.
+
 ## Options and data files
 
 Options follow the plugin's path as `,key=value`; the plugin decides what they mean.
-One option is mehari's: `data=<directory>` lets the plugin read that directory as `/data`, e.g. to look up a table there.
+`data=<directory>` is mehari's: it lets the plugin read that directory as `/data`, e.g. to look up a table there.
 Plugins cannot write it, nor read anything else.
 `init` runs once per thread, so load small tables there, and look up large ones on demand.
+Option names starting with `mehari-` are reserved for mehari too.
 
 ## Writing a plugin in Python
 
@@ -49,12 +53,12 @@ They were tested with componentize-py 0.25.1.
    uvx componentize-py -d wit -w plugin bindings .
    ```
 
-3. Write `app.py`. The class must be called `WitWorld`; raise `Err` to report an error. This example adds a `lof` column for loss-of-function consequences and an `in_panel` column for genes listed in a file:
+3. Write `app.py` with a class `TranscriptPlugin`; raise `Err` to report an error. This example adds a `lof` column for loss-of-function consequences and an `in_panel` column for genes listed in a file:
 
    ```python
-   import wit_world
    from componentize_py_types import Err
-   from wit_world.imports.types import Annotations, VcfVariant
+   from wit_world import exports
+   from wit_world.imports.types import Prediction, Setup
 
    LOSS_OF_FUNCTION = {
        "stop_gained",
@@ -66,26 +70,22 @@ They were tested with componentize-py 0.25.1.
    PANEL: set[str] = set()
 
 
-   class WitWorld(wit_world.WitWorld):
-       def init(self, options: list[tuple[str, str]]) -> list[str]:
-           for key, value in options:
+   class TranscriptPlugin(exports.TranscriptPlugin):
+       def init(self, setup: Setup) -> None:
+           for key, value in setup.options():
                if key != "panel":
                    raise Err(f"unknown option {key!r}")
                # One gene symbol per line, in the directory given with `data`.
                with open(f"/data/{value}") as panel:
                    PANEL.update(line.strip() for line in panel)
-           return ["lof", "in_panel"]
+           setup.add_boolean_column("lof")
+           setup.add_boolean_column("in_panel")
 
-       def annotate(
-           self, variants: list[VcfVariant], annotations: Annotations
-       ) -> list[list[str | None]]:
-           rows = []
-           for index in range(annotations.len()):
-               consequences = set(annotations.consequences(index))
-               lof = "yes" if LOSS_OF_FUNCTION & consequences else None
-               in_panel = "yes" if annotations.gene_symbol(index) in PANEL else None
-               rows.append([lof, in_panel])
-           return rows
+       def annotate(self, prediction: Prediction) -> None:
+           for annotation in prediction.annotations():
+               consequences = set(annotation.consequences())
+               annotation.set_boolean("lof", bool(LOSS_OF_FUNCTION & consequences))
+               annotation.set_boolean("in_panel", annotation.gene_symbol() in PANEL)
    ```
 
 4. Build the component and use it:
@@ -119,26 +119,28 @@ wit-bindgen = "0.63"
 ```rust,ignore
 wit_bindgen::generate!({ path: "wit", world: "plugin" });
 
+use exports::mehari::plugin::transcript_plugin::Guest;
+use mehari::plugin::types::{Prediction, Setup};
+
 struct MyPlugin;
 
 impl Guest for MyPlugin {
-    fn init(options: Vec<(String, String)>) -> Result<Vec<String>, String> {
-        match options.first() {
-            Some((key, _)) => Err(format!("unknown option {key:?}")),
-            None => Ok(vec!["exon_count".into()]),
+    fn init(setup: &Setup) -> Result<(), String> {
+        if let Some((key, _)) = setup.options().first() {
+            return Err(format!("unknown option {key:?}"));
         }
+        setup.add_integer_column("exon_count");
+        Ok(())
     }
 
-    fn annotate(
-        _variants: Vec<VcfVariant>,
-        annotations: &Annotations,
-    ) -> Result<Vec<Vec<Option<String>>>, String> {
-        Ok((0..annotations.len())
-            .map(|index| {
-                let transcript = annotations.transcript(index);
-                vec![transcript.map(|tx| tx.exons.len().to_string())]
-            })
-            .collect())
+    fn annotate(prediction: &Prediction) -> Result<(), String> {
+        for annotation in prediction.annotations() {
+            let exons = annotation.exons();
+            if !exons.is_empty() {
+                annotation.set_integer("exon_count", exons.len() as i64);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -162,6 +164,6 @@ These have not been tested with mehari.
 ## Sandbox, errors and versions
 
 - Plugins have no access to the network or environment variables, and no file access beyond `data`. Their stderr is shown, their stdout is discarded.
-- If a plugin fails, asks for an annotation past the last one, or returns a different number of rows or values than expected, mehari stops with an error naming the plugin.
+- mehari stops with an error naming the plugin if the plugin returns an error or fails, sets a column it did not declare or with a value of another type, or uses an annotation after the `annotate` call it came from.
 - Two plugins cannot fill the same column.
 - The interface has a version (`package mehari:plugin@0.1.0` in `plugin.wit`). Later 0.1.x versions only add functions, so plugins built for 0.1.0 keep working. A plugin built for another version fails to load; rebuild it with the `plugin.wit` of your mehari version.

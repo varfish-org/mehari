@@ -1,12 +1,16 @@
-//! Test plugin: reports what every function of `mehari/wit/plugin.wit` returns, as `key=value`
-//! pairs separated by `;` in its single column `probe`.
+//! Test plugin: reports what every function of `mehari/wit/plugin.wit` returns, as `key^value`
+//! pairs separated by `~` in its column `probe`, and fills `probe_int`, `probe_float` and
+//! `probe_bool`.
 //!
 //! Options:
 //! - `fail-init=<message>`: `init` fails with the message.
 //! - `init-read=<file>`: `init` reads the file in the data directory, or fails.
+//! - `column=<name>`: `init` also declares a string column with that name.
 //! - `fail=<message>`: `annotate` fails with the message.
-//! - `bad-index`: asks for an annotation past the last one.
-//! - `field=<column>`: reports what an earlier plugin wrote into the column.
+//! - `stale`: keeps the first annotation and reads it again in the next call.
+//! - `set=<case>`: sets a value that does not fit: `separator`, `undeclared`, `wrong-type`
+//!   or `nan`.
+//! - `field=<column>`: reports the value of the column, e.g. from an earlier plugin.
 //! - `read=<file>`: reports the content of the file in the data directory.
 //! - `write=<file>`: reports whether the file in the data directory could be written.
 
@@ -18,135 +22,175 @@ wit_bindgen::generate!({
     world: "plugin",
 });
 
+use exports::mehari::plugin::transcript_plugin::Guest;
 use mehari::plugin::host;
-use mehari::plugin::types::{Position, Rank};
+use mehari::plugin::types::{Annotation, Position, Prediction, Rank, Setup};
 
 thread_local! {
     static OPTIONS: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
+    static KEPT: RefCell<Option<Annotation>> = const { RefCell::new(None) };
+}
+
+fn option(key: &str) -> Option<String> {
+    OPTIONS.with_borrow(|options| {
+        options
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, value)| value.clone())
+    })
 }
 
 struct Probe;
 
 impl Guest for Probe {
-    fn init(options: Vec<(String, String)>) -> Result<Vec<String>, String> {
-        if let Some((_, message)) = options.iter().find(|(key, _)| key == "fail-init") {
-            return Err(message.clone());
+    fn init(setup: &Setup) -> Result<(), String> {
+        OPTIONS.set(setup.options());
+        if let Some(message) = option("fail-init") {
+            return Err(message);
         }
-        if let Some((_, file)) = options.iter().find(|(key, _)| key == "init-read") {
+        if let Some(file) = option("init-read") {
             std::fs::read(format!("/data/{file}")).map_err(|e| e.to_string())?;
         }
-        OPTIONS.set(options);
-        Ok(vec!["probe".into()])
+        setup.add_string_column("probe");
+        setup.add_integer_column("probe_int");
+        setup.add_float_column("probe_float");
+        setup.add_boolean_column("probe_bool");
+        if let Some(name) = option("column") {
+            setup.add_string_column(&name);
+        }
+        Ok(())
     }
 
-    fn annotate(
-        variants: Vec<VcfVariant>,
-        annotations: &Annotations,
-    ) -> Result<Vec<Vec<Option<String>>>, String> {
-        let options = OPTIONS.with_borrow(Clone::clone);
-        let option = |key: &str| {
-            options
-                .iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, value)| value.clone())
-        };
+    fn annotate(prediction: &Prediction) -> Result<(), String> {
         if let Some(message) = option("fail") {
             return Err(message);
         }
-        if option("bad-index").is_some() {
-            annotations.feature_id(annotations.len());
+        let annotations = prediction.annotations();
+        if option("stale").is_some() {
+            // Read the annotation kept from the previous call, then keep this call's first.
+            KEPT.with_borrow(|kept| kept.as_ref().map(Annotation::feature_id));
+            KEPT.set(prediction.annotations().into_iter().next());
         }
-
-        let rows = (0..annotations.len()).map(|index| {
-            let a = annotations;
-            let mut pairs = vec![
-                ("assembly", host::assembly()),
-                ("version", host::version()),
-                ("vep", host::vep_compatible().to_string()),
-                ("variants", variants.len().to_string()),
-                ("feature-id", a.feature_id(index)),
-                ("feature-type", a.feature_type(index)),
-                ("consequences", a.consequences(index).join("&")),
-                ("impact", a.impact(index)),
-                ("gene-symbol", a.gene_symbol(index)),
-                ("gene-id", a.gene_id(index)),
-                ("biotypes", a.biotypes(index).join("&")),
-                ("tags", a.tags(index).join("&")),
-                ("rank", show(a.rank(index).map(rank))),
-                ("hgvs-g", show(a.hgvs_g(index))),
-                ("hgvs-n", show(a.hgvs_n(index))),
-                ("hgvs-c", show(a.hgvs_c(index))),
-                ("hgvs-p", show(a.hgvs_p(index))),
-                ("cdna-pos", show(a.cdna_pos(index).map(position))),
-                ("cds-pos", show(a.cds_pos(index).map(position))),
-                ("protein-pos", show(a.protein_pos(index).map(position))),
-                ("distance", show(a.distance(index))),
-                ("warnings", a.warnings(index).join("&")),
-                ("cds-end", show(a.cds_end(index))),
-                ("frameshift", show(a.frameshift(index))),
-                ("first-changed-codon", show(a.first_changed_codon(index))),
-            ];
-            if let Some(column) = option("field") {
-                pairs.push(("field", show(a.field(index, &column))));
+        for (index, a) in (0..).zip(&annotations) {
+            match option("set").as_deref() {
+                Some("separator") => a.set_string("probe", "a|b"),
+                Some("undeclared") => a.set_string("undeclared", "x"),
+                Some("wrong-type") => a.set_integer("probe", 1),
+                Some("nan") => a.set_float("probe_float", f64::NAN),
+                _ => {}
             }
-            if let Some(tx) = a.transcript(index) {
-                let exon = tx.exons.first().map(|exon| {
-                    format!(
-                        "{}-{}:{}-{}:{}",
-                        exon.tx_start, exon.tx_end, exon.genome_start, exon.genome_end, exon.cigar
-                    )
-                });
-                pairs.extend([
-                    ("tx-id", tx.id),
-                    ("tx-protein", show(tx.protein)),
-                    ("tx-contig", tx.contig),
-                    ("tx-build", tx.genome_build),
-                    ("tx-strand", format!("{:?}", tx.strand)),
-                    (
-                        "tx-genome-cds",
-                        format!("{}-{}", show(tx.genome_cds_start), show(tx.genome_cds_end)),
-                    ),
-                    ("tx-exons", tx.exons.len().to_string()),
-                    ("tx-first-exon", show(exon)),
-                ]);
-            }
-            for (key, sequences) in [("ref", a.reference(index)), ("alt", a.alternative(index))] {
-                if let Some(seq) = sequences {
-                    let value = format!(
-                        "{}/{}/{}",
-                        seq.transcript.len(),
-                        seq.protein.len(),
-                        seq.cds_start
-                    );
-                    pairs.push((key, value));
-                }
-            }
-            if let Some(translation) = a.translation(index) {
-                let exceptions = translation
-                    .exceptions
-                    .iter()
-                    .map(|exception| format!("{}{}", exception.position, exception.amino_acid))
-                    .collect::<Vec<_>>();
-                let value = format!("{}/{}", translation.table, exceptions.join("&"));
-                pairs.push(("translation", value));
-            }
-            if let Some(file) = option("read") {
-                let content = std::fs::read_to_string(format!("/data/{file}"));
-                pairs.push(("read", content.unwrap_or_else(|e| format!("error {e}"))));
-            }
-            if let Some(file) = option("write") {
-                let written = std::fs::write(format!("/data/{file}"), "x").is_ok();
-                pairs.push(("write", written.to_string()));
-            }
-            let probe = pairs
-                .iter()
-                .map(|(key, value)| format!("{key}={value}"))
-                .collect::<Vec<_>>()
-                .join(";");
-            vec![Some(probe)]
-        });
-        Ok(rows.collect())
+            a.set_string("probe", &report(prediction, a));
+            a.set_integer("probe_int", -index - 1);
+            a.set_float("probe_float", 0.25);
+            a.set_boolean("probe_bool", index == 0);
+        }
+        Ok(())
     }
+}
+
+fn report(prediction: &Prediction, a: &Annotation) -> String {
+    let exon = a.exons().first().map(|exon| {
+        format!(
+            "{}-{}:{}-{}:{}",
+            exon.tx_start, exon.tx_end, exon.genome_start, exon.genome_end, exon.cigar
+        )
+    });
+    let variants = prediction.variants();
+    let len = |sequence: Option<String>| sequence.map(|s| s.len());
+    let exceptions = a
+        .translation_exceptions()
+        .iter()
+        .map(|exception| format!("{}{}", exception.position, exception.amino_acid))
+        .collect::<Vec<_>>();
+    let mut pairs = vec![
+        ("assembly", host::assembly()),
+        ("version", host::version()),
+        ("vep", host::vep_compatible().to_string()),
+        ("variants", variants.len().to_string()),
+        (
+            "variant-position",
+            show(variants.first().map(|var| var.position)),
+        ),
+        ("feature-id", a.feature_id()),
+        ("feature-type", a.feature_type()),
+        ("consequences", a.consequences().join("&")),
+        ("impact", a.impact()),
+        ("gene-symbol", a.gene_symbol()),
+        ("gene-id", a.gene_id()),
+        ("biotypes", a.biotypes().join("&")),
+        ("tags", a.tags().join("&")),
+        ("rank", show(a.rank().map(rank))),
+        ("hgvs-g", show(a.hgvs_g())),
+        ("hgvs-n", show(a.hgvs_n())),
+        ("hgvs-c", show(a.hgvs_c())),
+        ("hgvs-p", show(a.hgvs_p())),
+        ("cdna-pos", show(a.cdna_pos().map(position))),
+        ("cds-pos", show(a.cds_pos().map(position))),
+        ("protein-pos", show(a.protein_pos().map(position))),
+        ("distance", show(a.distance())),
+        ("warnings", a.warnings().join("&")),
+        ("protein-id", show(a.protein_id())),
+        ("contig", show(a.contig())),
+        ("genome-build", show(a.genome_build())),
+        (
+            "strand",
+            show(a.strand().map(|strand| format!("{strand:?}"))),
+        ),
+        ("exons", a.exons().len().to_string()),
+        ("first-exon", show(exon)),
+        (
+            "genome-cds",
+            format!(
+                "{}-{}",
+                show(a.genome_cds_start()),
+                show(a.genome_cds_end())
+            ),
+        ),
+        ("reference-transcript", show(len(a.reference_transcript()))),
+        ("reference-protein", show(len(a.reference_protein()))),
+        (
+            "reference-cds",
+            format!(
+                "{}-{}",
+                show(a.reference_cds_start()),
+                show(a.reference_cds_end())
+            ),
+        ),
+        (
+            "alternative-transcript",
+            show(len(a.alternative_transcript())),
+        ),
+        ("alternative-protein", show(len(a.alternative_protein()))),
+        ("alternative-cds-start", show(a.alternative_cds_start())),
+        ("translation-table", show(a.translation_table())),
+        ("translation-exceptions", exceptions.join("&")),
+        ("frameshift", show(a.frameshift())),
+        ("first-changed-codon", show(a.first_changed_codon())),
+    ];
+    if let Some(column) = option("field") {
+        pairs.push(("field", show(a.field(&column))));
+    }
+    if let Some(file) = option("read") {
+        let content = std::fs::read_to_string(format!("/data/{file}"));
+        pairs.push(("read", content.unwrap_or_else(|e| format!("error {e}"))));
+    }
+    if let Some(file) = option("write") {
+        let written = std::fs::write(format!("/data/{file}"), "x").is_ok();
+        pairs.push(("write", written.to_string()));
+    }
+    pairs
+        .iter()
+        .map(|(key, value)| format!("{key}^{}", clean(value)))
+        .collect::<Vec<_>>()
+        .join("~")
+}
+
+/// Replace what VCF uses as separators.
+fn clean(value: &str) -> String {
+    value.replace(
+        |c: char| c.is_whitespace() || matches!(c, '|' | ',' | ';' | '='),
+        "_",
+    )
 }
 
 fn show(value: Option<impl Display>) -> String {

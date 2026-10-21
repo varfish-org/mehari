@@ -7,14 +7,14 @@ use std::sync::Mutex;
 use hgvs::sequences::TranslationTable;
 use itertools::Itertools;
 use wasmtime::component::{Component, HasSelf, Linker, Resource, ResourceTable};
-use wasmtime::{Config, Engine, Store};
+use wasmtime::{Config, Engine, Store, bail, ensure, format_err};
 use wasmtime_wasi::{FsPerms, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use super::{RunInfo, TranscriptPlugin, TxAnnotation, TxContext};
 use crate::annotate::seqvars::consequence::VcfVariant;
 use crate::annotate::seqvars::consequence::terms::{AnnField, Pos};
 use crate::errors::SeqvarsError;
-use crate::pbs::txs::{Strand, Transcript};
+use crate::pbs::txs::{GenomeAlignment, Strand};
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -22,7 +22,9 @@ mod bindings {
         world: "plugin",
         imports: { default: trappable },
         with: {
-            "mehari:plugin/types.annotations": super::Annotations,
+            "mehari:plugin/types.setup": super::Setup,
+            "mehari:plugin/types.prediction": super::Prediction,
+            "mehari:plugin/types.annotation": super::Annotation,
         },
     });
 }
@@ -34,6 +36,8 @@ use bindings::mehari::plugin::{host, types};
 pub const DATA_OPTION: &str = "data";
 /// Where plugins find the directory given with [`DATA_OPTION`].
 pub const DATA_DIR: &str = "/data";
+/// Option names starting with this are reserved for mehari.
+pub const RESERVED_OPTION_PREFIX: &str = "mehari-";
 
 /// A plugin loaded from a WebAssembly component.
 ///
@@ -51,7 +55,7 @@ pub struct WasmPlugin {
     engine: Engine,
     #[derivative(Debug = "ignore")]
     pre: bindings::PluginPre<HostState>,
-    columns: Vec<String>,
+    columns: Vec<Column>,
     /// Instances not in use; a call takes one or creates it, so there is one per thread.
     #[derivative(Debug = "ignore")]
     instances: Mutex<Vec<Instance>>,
@@ -59,14 +63,51 @@ pub struct WasmPlugin {
 
 type Instance = (Store<HostState>, Plugin);
 
-/// The annotations of one call, lent to the plugin. One resource for all annotations rather
-/// than one each, as wit-bindgen cannot lift lists of borrowed handles.
-pub struct Annotations(Vec<TxAnnotation>);
+/// A column a plugin declared, and the type of its values.
+type Column = (String, ColumnType);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display)]
+#[strum(serialize_all = "lowercase")]
+enum ColumnType {
+    String,
+    Integer,
+    Float,
+    Boolean,
+}
+
+/// The options and the declared columns of one `init` call.
+pub struct Setup {
+    options: Vec<(String, String)>,
+    columns: Vec<Column>,
+}
+
+/// The prediction of an `annotate` call, by the number of the call.
+pub struct Prediction {
+    call: u64,
+}
+
+/// An annotation of an `annotate` call, by the number of the call and its index.
+pub struct Annotation {
+    call: u64,
+    index: usize,
+}
+
+/// The input and output of the current `annotate` call, lent to the plugin.
+struct Batch {
+    call: u64,
+    variants: Vec<VcfVariant>,
+    txs: Vec<TxAnnotation>,
+}
 
 struct HostState {
     table: ResourceTable,
     wasi: WasiCtx,
     run: RunInfo,
+    /// As declared by `init`.
+    columns: Vec<Column>,
+    /// Number of `annotate` calls so far.
+    calls: u64,
+    batch: Option<Batch>,
 }
 
 impl WasiView for HostState {
@@ -86,15 +127,22 @@ impl WasmPlugin {
         run: RunInfo,
     ) -> Result<Self, SeqvarsError> {
         let error = |e: wasmtime::Error| plugin_error(path, e);
-        let (data, options): (Vec<_>, Vec<_>) = options
-            .iter()
-            .cloned()
-            .partition(|(key, _)| key == DATA_OPTION);
-        let data = match &data[..] {
-            [] => None,
-            [(_, dir)] => Some(dir.into()),
-            _ => return Err(plugin_message(path, "option `data` given more than once")),
-        };
+        let mut data = None;
+        let mut plugin_options = Vec::new();
+        for (key, value) in options {
+            if key == DATA_OPTION {
+                if data.replace(PathBuf::from(value)).is_some() {
+                    return Err(plugin_message(path, "option `data` given more than once"));
+                }
+            } else if key.starts_with(RESERVED_OPTION_PREFIX) {
+                return Err(plugin_message(
+                    path,
+                    &format!("option `{key}` is reserved for mehari"),
+                ));
+            } else {
+                plugin_options.push((key.clone(), value.clone()));
+            }
+        }
 
         // Plugins print their errors to stderr; wasm backtraces would bury them.
         let engine = Engine::new(Config::new().wasm_backtrace_max_frames(None)).map_err(error)?;
@@ -107,7 +155,7 @@ impl WasmPlugin {
 
         let mut plugin = Self {
             path: path.into(),
-            options,
+            options: plugin_options,
             data,
             run,
             engine,
@@ -121,8 +169,8 @@ impl WasmPlugin {
         Ok(plugin)
     }
 
-    /// A new instance and the columns its `init` returned.
-    fn instantiate(&self) -> Result<(Instance, Vec<String>), SeqvarsError> {
+    /// A new instance and the columns its `init` declared.
+    fn instantiate(&self) -> Result<(Instance, Vec<Column>), SeqvarsError> {
         let error = |e: wasmtime::Error| plugin_error(&self.path, e);
         let mut wasi = WasiCtxBuilder::new();
         wasi.inherit_stderr();
@@ -139,13 +187,35 @@ impl WasmPlugin {
             table: ResourceTable::new(),
             wasi: wasi.build(),
             run: self.run.clone(),
+            columns: Vec::new(),
+            calls: 0,
+            batch: None,
         };
         let mut store = Store::new(&self.engine, state);
         let plugin = self.pre.instantiate(&mut store).map_err(error)?;
-        let columns = plugin
-            .call_init(&mut store, &self.options)
+
+        let setup = Setup {
+            options: self.options.clone(),
+            columns: Vec::new(),
+        };
+        let handle = store
+            .data_mut()
+            .table
+            .push(setup)
+            .map_err(|e| error(e.into()))?;
+        let result = plugin
+            .mehari_plugin_transcript_plugin()
+            .call_init(&mut store, Resource::new_borrow(handle.rep()));
+        let Setup { columns, .. } = store
+            .data_mut()
+            .table
+            .delete(handle)
+            .map_err(|e| error(e.into()))?;
+        result
             .map_err(error)?
             .map_err(|message| plugin_message(&self.path, &message))?;
+
+        store.data_mut().columns = columns.clone();
         Ok(((store, plugin), columns))
     }
 
@@ -160,7 +230,7 @@ impl WasmPlugin {
         }
         let (instance, columns) = outside_runtime(&self.path, || self.instantiate())?;
         if columns != self.columns {
-            return Err(plugin_message(&self.path, "init returned other columns"));
+            return Err(plugin_message(&self.path, "init declared other columns"));
         }
         Ok(instance)
     }
@@ -171,31 +241,28 @@ impl WasmPlugin {
         (store, plugin): &mut Instance,
         variants: &[VcfVariant],
         txs: &mut Vec<TxAnnotation>,
-    ) -> Result<Vec<Vec<Option<String>>>, SeqvarsError> {
+    ) -> Result<(), SeqvarsError> {
         let error = |e: wasmtime::Error| plugin_error(&self.path, e);
-        let variants = variants
-            .iter()
-            .map(|var| types::VcfVariant {
-                chromosome: var.chromosome.clone(),
-                position: var.position,
-                reference: var.reference.clone(),
-                alternative: var.alternative.clone(),
-            })
-            .collect_vec();
-
-        let handle = store
-            .data_mut()
+        let state = store.data_mut();
+        state.calls += 1;
+        let call = state.calls;
+        let handle = state
             .table
-            .push(Annotations(std::mem::take(txs)))
+            .push(Prediction { call })
             .map_err(|e| error(e.into()))?;
-        let result =
-            plugin.call_annotate(&mut *store, &variants, Resource::new_borrow(handle.rep()));
-        let Annotations(lent) = store
-            .data_mut()
-            .table
-            .delete(handle)
-            .map_err(|e| error(e.into()))?;
-        *txs = lent;
+        state.batch = Some(Batch {
+            call,
+            variants: variants.to_vec(),
+            txs: std::mem::take(txs),
+        });
+        let result = plugin
+            .mehari_plugin_transcript_plugin()
+            .call_annotate(&mut *store, Resource::new_borrow(handle.rep()));
+        let state = store.data_mut();
+        if let Some(batch) = state.batch.take() {
+            *txs = batch.txs;
+        }
+        state.table.delete(handle).map_err(|e| error(e.into()))?;
 
         result
             .map_err(error)?
@@ -205,7 +272,7 @@ impl WasmPlugin {
 
 impl TranscriptPlugin for WasmPlugin {
     fn columns(&self) -> Vec<String> {
-        self.columns.clone()
+        self.columns.iter().map(|(name, _)| name.clone()).collect()
     }
 
     fn annotate(
@@ -215,27 +282,9 @@ impl TranscriptPlugin for WasmPlugin {
     ) -> Result<(), SeqvarsError> {
         let mut instance = self.checkout()?;
         // An instance that trapped is not reused.
-        let rows = outside_runtime(&self.path, || self.call(&mut instance, variants, txs))?;
+        outside_runtime(&self.path, || self.call(&mut instance, variants, txs))?;
         if let Ok(mut instances) = self.instances.lock() {
             instances.push(instance);
-        }
-
-        if rows.len() != txs.len() || rows.iter().any(|row| row.len() != self.columns.len()) {
-            return Err(plugin_message(
-                &self.path,
-                &format!(
-                    "expected {} rows of {} values",
-                    txs.len(),
-                    self.columns.len()
-                ),
-            ));
-        }
-        for (tx, row) in txs.iter_mut().zip(rows) {
-            for (column, value) in self.columns.iter().zip(row) {
-                if value.is_some() {
-                    tx.ann.custom_fields.insert(column.clone(), value);
-                }
-            }
         }
         Ok(())
     }
@@ -282,229 +331,406 @@ impl host::Host for HostState {
 impl types::Host for HostState {}
 
 impl HostState {
-    fn tx(
-        &self,
-        annotations: &Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<&TxAnnotation> {
-        let Annotations(txs) = self.table.get(annotations)?;
-        txs.get(index as usize).ok_or_else(|| {
-            wasmtime::format_err!(
-                "annotation index {index} out of range, there are {}",
-                txs.len()
-            )
-        })
+    fn add_column(
+        &mut self,
+        setup: &Resource<Setup>,
+        name: String,
+        kind: ColumnType,
+    ) -> wasmtime::Result<()> {
+        let valid = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.');
+        ensure!(
+            !name.is_empty() && name.chars().all(valid),
+            "column name {name:?} has characters other than letters, digits, `_`, `-` and `.`"
+        );
+        let columns = &mut self.table.get_mut(setup)?.columns;
+        ensure!(
+            columns.iter().all(|(other, _)| *other != name),
+            "column {name:?} declared twice"
+        );
+        columns.push((name, kind));
+        Ok(())
     }
 
-    fn ann(&self, annotations: &Resource<Annotations>, index: u32) -> wasmtime::Result<&AnnField> {
-        Ok(&self.tx(annotations, index)?.ann)
+    fn batch(&self, call: u64) -> wasmtime::Result<&Batch> {
+        let batch = self.batch.as_ref().filter(|batch| batch.call == call);
+        batch.ok_or_else(|| format_err!("annotation used outside the annotate call it came from"))
     }
 
-    fn context(
+    fn tx(&self, annotation: &Resource<Annotation>) -> wasmtime::Result<&TxAnnotation> {
+        let &Annotation { call, index } = self.table.get(annotation)?;
+        let txs = &self.batch(call)?.txs;
+        txs.get(index)
+            .ok_or_else(|| format_err!("annotation {index} out of range"))
+    }
+
+    fn ann(&self, annotation: &Resource<Annotation>) -> wasmtime::Result<&AnnField> {
+        Ok(&self.tx(annotation)?.ann)
+    }
+
+    fn context(&self, annotation: &Resource<Annotation>) -> wasmtime::Result<&TxContext> {
+        Ok(&self.tx(annotation)?.context)
+    }
+
+    fn alignment(
         &self,
-        annotations: &Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<&TxContext> {
-        Ok(&self.tx(annotations, index)?.context)
+        annotation: &Resource<Annotation>,
+    ) -> wasmtime::Result<Option<&GenomeAlignment>> {
+        let tx = self.context(annotation)?.tx();
+        Ok(tx.and_then(|tx| tx.genome_alignments.first()))
+    }
+
+    fn set(
+        &mut self,
+        annotation: &Resource<Annotation>,
+        column: String,
+        kind: ColumnType,
+        value: String,
+    ) -> wasmtime::Result<()> {
+        match self.columns.iter().find(|(name, _)| *name == column) {
+            None => bail!("column {column:?} was not declared in init"),
+            Some((_, declared)) if *declared != kind => {
+                bail!("column {column:?} holds {declared} values, not {kind} values")
+            }
+            Some(_) => {}
+        }
+        let &Annotation { call, index } = self.table.get(annotation)?;
+        let batch = self.batch.as_mut().filter(|batch| batch.call == call);
+        let batch = batch
+            .ok_or_else(|| format_err!("annotation used outside the annotate call it came from"))?;
+        let tx = batch
+            .txs
+            .get_mut(index)
+            .ok_or_else(|| format_err!("annotation {index} out of range"))?;
+        tx.ann.custom_fields.insert(column, Some(value));
+        Ok(())
     }
 }
 
-impl types::HostAnnotations for HostState {
-    fn len(&mut self, annotations: Resource<Annotations>) -> wasmtime::Result<u32> {
-        Ok(u32::try_from(self.table.get(&annotations)?.0.len())?)
+impl types::HostSetup for HostState {
+    fn options(&mut self, setup: Resource<Setup>) -> wasmtime::Result<Vec<(String, String)>> {
+        Ok(self.table.get(&setup)?.options.clone())
     }
 
-    fn feature_id(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<String> {
-        Ok(self.ann(&a, index)?.feature_id.clone())
+    fn add_string_column(&mut self, setup: Resource<Setup>, name: String) -> wasmtime::Result<()> {
+        self.add_column(&setup, name, ColumnType::String)
     }
 
-    fn feature_type(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<String> {
-        Ok(self.ann(&a, index)?.feature_type.to_string())
+    fn add_integer_column(&mut self, setup: Resource<Setup>, name: String) -> wasmtime::Result<()> {
+        self.add_column(&setup, name, ColumnType::Integer)
     }
 
-    fn consequences(
+    fn add_float_column(&mut self, setup: Resource<Setup>, name: String) -> wasmtime::Result<()> {
+        self.add_column(&setup, name, ColumnType::Float)
+    }
+
+    fn add_boolean_column(&mut self, setup: Resource<Setup>, name: String) -> wasmtime::Result<()> {
+        self.add_column(&setup, name, ColumnType::Boolean)
+    }
+
+    fn drop(&mut self, setup: Resource<Setup>) -> wasmtime::Result<()> {
+        self.table.delete(setup)?;
+        Ok(())
+    }
+}
+
+impl types::HostPrediction for HostState {
+    fn variants(&mut self, p: Resource<Prediction>) -> wasmtime::Result<Vec<types::VcfVariant>> {
+        let call = self.table.get(&p)?.call;
+        Ok(self
+            .batch(call)?
+            .variants
+            .iter()
+            .map(|var| types::VcfVariant {
+                chromosome: var.chromosome.clone(),
+                position: var.position,
+                reference: var.reference.clone(),
+                alternative: var.alternative.clone(),
+            })
+            .collect())
+    }
+
+    fn annotations(
         &mut self,
-        a: Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<Vec<String>> {
-        Ok(strings(&self.ann(&a, index)?.consequences))
+        p: Resource<Prediction>,
+    ) -> wasmtime::Result<Vec<Resource<Annotation>>> {
+        let call = self.table.get(&p)?.call;
+        let count = self.batch(call)?.txs.len();
+        (0..count)
+            .map(|index| Ok(self.table.push(Annotation { call, index })?))
+            .collect()
     }
 
-    fn impact(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<String> {
-        Ok(self.ann(&a, index)?.putative_impact.to_string())
+    fn drop(&mut self, prediction: Resource<Prediction>) -> wasmtime::Result<()> {
+        self.table.delete(prediction)?;
+        Ok(())
+    }
+}
+
+impl types::HostAnnotation for HostState {
+    fn feature_id(&mut self, a: Resource<Annotation>) -> wasmtime::Result<String> {
+        Ok(self.ann(&a)?.feature_id.clone())
     }
 
-    fn gene_symbol(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<String> {
-        Ok(self.ann(&a, index)?.gene_symbol.clone())
+    fn feature_type(&mut self, a: Resource<Annotation>) -> wasmtime::Result<String> {
+        Ok(self.ann(&a)?.feature_type.to_string())
     }
 
-    fn gene_id(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<String> {
-        Ok(self.ann(&a, index)?.gene_id.clone())
+    fn consequences(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Vec<String>> {
+        Ok(strings(&self.ann(&a)?.consequences))
     }
 
-    fn biotypes(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<Vec<String>> {
-        Ok(strings(&self.ann(&a, index)?.feature_biotype))
+    fn impact(&mut self, a: Resource<Annotation>) -> wasmtime::Result<String> {
+        Ok(self.ann(&a)?.putative_impact.to_string())
     }
 
-    fn tags(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<Vec<String>> {
-        Ok(strings(&self.ann(&a, index)?.feature_tags))
+    fn gene_symbol(&mut self, a: Resource<Annotation>) -> wasmtime::Result<String> {
+        Ok(self.ann(&a)?.gene_symbol.clone())
     }
 
-    fn rank(
-        &mut self,
-        a: Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<Option<types::Rank>> {
-        Ok(self.ann(&a, index)?.rank.as_ref().map(|rank| types::Rank {
+    fn gene_id(&mut self, a: Resource<Annotation>) -> wasmtime::Result<String> {
+        Ok(self.ann(&a)?.gene_id.clone())
+    }
+
+    fn biotypes(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Vec<String>> {
+        Ok(strings(&self.ann(&a)?.feature_biotype))
+    }
+
+    fn tags(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Vec<String>> {
+        Ok(strings(&self.ann(&a)?.feature_tags))
+    }
+
+    fn rank(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<types::Rank>> {
+        Ok(self.ann(&a)?.rank.as_ref().map(|rank| types::Rank {
             ord: rank.ord,
             total: rank.total,
         }))
     }
 
-    fn hgvs_g(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<Option<String>> {
-        Ok(self.ann(&a, index)?.hgvs_g.clone())
+    fn hgvs_g(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
+        Ok(self.ann(&a)?.hgvs_g.clone())
     }
 
-    fn hgvs_n(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<Option<String>> {
-        Ok(self.ann(&a, index)?.hgvs_n.clone())
+    fn hgvs_n(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
+        Ok(self.ann(&a)?.hgvs_n.clone())
     }
 
-    fn hgvs_c(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<Option<String>> {
-        Ok(self.ann(&a, index)?.hgvs_c.clone())
+    fn hgvs_c(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
+        Ok(self.ann(&a)?.hgvs_c.clone())
     }
 
-    fn hgvs_p(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<Option<String>> {
-        Ok(self.ann(&a, index)?.hgvs_p.clone())
+    fn hgvs_p(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
+        Ok(self.ann(&a)?.hgvs_p.clone())
     }
 
-    fn cdna_pos(
-        &mut self,
-        a: Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<Option<types::Position>> {
-        Ok(self.ann(&a, index)?.cdna_pos.as_ref().map(position))
+    fn cdna_pos(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<types::Position>> {
+        Ok(self.ann(&a)?.cdna_pos.as_ref().map(position))
     }
 
-    fn cds_pos(
-        &mut self,
-        a: Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<Option<types::Position>> {
-        Ok(self.ann(&a, index)?.cds_pos.as_ref().map(position))
+    fn cds_pos(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<types::Position>> {
+        Ok(self.ann(&a)?.cds_pos.as_ref().map(position))
     }
 
     fn protein_pos(
         &mut self,
-        a: Resource<Annotations>,
-        index: u32,
+        a: Resource<Annotation>,
     ) -> wasmtime::Result<Option<types::Position>> {
-        Ok(self.ann(&a, index)?.protein_pos.as_ref().map(position))
+        Ok(self.ann(&a)?.protein_pos.as_ref().map(position))
     }
 
-    fn distance(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<Option<i32>> {
-        Ok(self.ann(&a, index)?.distance)
+    fn distance(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<i32>> {
+        Ok(self.ann(&a)?.distance)
     }
 
-    fn warnings(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<Vec<String>> {
-        let messages = &self.ann(&a, index)?.messages;
+    fn warnings(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Vec<String>> {
+        let messages = &self.ann(&a)?.messages;
         Ok(messages.iter().flatten().map(ToString::to_string).collect())
     }
 
     fn field(
         &mut self,
-        a: Resource<Annotations>,
-        index: u32,
+        a: Resource<Annotation>,
         column: String,
     ) -> wasmtime::Result<Option<String>> {
-        let fields = &self.ann(&a, index)?.custom_fields;
+        let fields = &self.ann(&a)?.custom_fields;
         Ok(fields.get(&column).cloned().flatten())
     }
 
-    fn transcript(
-        &mut self,
-        a: Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<Option<types::Transcript>> {
-        Ok(self.context(&a, index)?.tx().and_then(transcript))
+    fn protein_id(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
+        let tx = self.context(&a)?.tx();
+        Ok(tx.and_then(|tx| tx.protein.clone()))
     }
 
-    fn reference(
-        &mut self,
-        a: Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<Option<types::Sequences>> {
-        let data = self.context(&a, index)?.ref_data();
-        Ok(data.map(|data| types::Sequences {
-            transcript: data.transcript_sequence.to_string(),
-            protein: data.aa_sequence.to_string(),
-            cds_start: data.cds_start,
+    fn contig(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
+        Ok(self.alignment(&a)?.map(|aln| aln.contig.clone()))
+    }
+
+    fn genome_build(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
+        Ok(self.alignment(&a)?.map(|aln| aln.genome_build.clone()))
+    }
+
+    fn strand(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<types::Strand>> {
+        Ok(self.alignment(&a)?.map(|aln| {
+            if aln.strand == Strand::Minus as i32 {
+                types::Strand::Minus
+            } else {
+                types::Strand::Plus
+            }
         }))
     }
 
-    fn alternative(
-        &mut self,
-        a: Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<Option<types::Sequences>> {
-        let data = self.context(&a, index)?.alt_data();
-        Ok(data.map(|data| types::Sequences {
-            transcript: data.transcript_sequence.clone(),
-            protein: data.aa_sequence.clone(),
-            cds_start: data.cds_start,
-        }))
+    fn exons(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Vec<types::Exon>> {
+        let Some(aln) = self.alignment(&a)? else {
+            return Ok(Vec::new());
+        };
+        let exons = aln
+            .exons
+            .iter()
+            .sorted_by_key(|exon| exon.alt_cds_start_i)
+            .map(|exon| {
+                // Despite their names, `alt_cds_*_i` are the exon's 1-based transcript positions.
+                Some(types::Exon {
+                    tx_start: exon.alt_cds_start_i?,
+                    tx_end: exon.alt_cds_end_i?,
+                    genome_start: exon.alt_start_i + 1,
+                    genome_end: exon.alt_end_i,
+                    cigar: exon.cigar.clone(),
+                })
+            })
+            .collect::<Option<Vec<_>>>();
+        Ok(exons.unwrap_or_default())
     }
 
-    fn cds_end(&mut self, a: Resource<Annotations>, index: u32) -> wasmtime::Result<Option<i32>> {
-        Ok(self
-            .context(&a, index)?
-            .ref_data()
-            .map(|data| data.cds_stop))
+    fn genome_cds_start(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<i32>> {
+        let aln = self.alignment(&a)?;
+        Ok(aln.and_then(|aln| aln.cds_start).map(|start| start + 1))
     }
 
-    fn translation(
+    fn genome_cds_end(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<i32>> {
+        Ok(self.alignment(&a)?.and_then(|aln| aln.cds_end))
+    }
+
+    fn reference_transcript(
         &mut self,
-        a: Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<Option<types::Translation>> {
-        let data = self.context(&a, index)?.ref_data();
-        Ok(data.map(|data| types::Translation {
-            table: match data.translation_table {
+        a: Resource<Annotation>,
+    ) -> wasmtime::Result<Option<String>> {
+        let data = self.context(&a)?.ref_data();
+        Ok(data.map(|data| data.transcript_sequence.to_string()))
+    }
+
+    fn reference_protein(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
+        let data = self.context(&a)?.ref_data();
+        Ok(data.map(|data| data.aa_sequence.to_string()))
+    }
+
+    fn reference_cds_start(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<i32>> {
+        Ok(self.context(&a)?.ref_data().map(|data| data.cds_start))
+    }
+
+    fn reference_cds_end(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<i32>> {
+        Ok(self.context(&a)?.ref_data().map(|data| data.cds_stop))
+    }
+
+    fn alternative_transcript(
+        &mut self,
+        a: Resource<Annotation>,
+    ) -> wasmtime::Result<Option<String>> {
+        let data = self.context(&a)?.alt_data();
+        Ok(data.map(|data| data.transcript_sequence.clone()))
+    }
+
+    fn alternative_protein(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
+        let data = self.context(&a)?.alt_data();
+        Ok(data.map(|data| data.aa_sequence.clone()))
+    }
+
+    fn alternative_cds_start(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<i32>> {
+        Ok(self.context(&a)?.alt_data().map(|data| data.cds_start))
+    }
+
+    fn translation_table(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<String>> {
+        let data = self.context(&a)?.ref_data();
+        Ok(data.map(|data| {
+            match data.translation_table {
                 TranslationTable::Standard => "standard",
                 TranslationTable::Selenocysteine => "selenocysteine",
                 TranslationTable::VertebrateMitochondrial => "vertebrate-mitochondrial",
             }
-            .into(),
-            exceptions: data
-                .translation_exceptions
-                .iter()
-                .map(|exception| types::TranslationException {
-                    position: exception.position,
-                    amino_acid: exception.amino_acid.to_string(),
-                })
-                .collect(),
+            .into()
         }))
     }
 
-    fn frameshift(
+    fn translation_exceptions(
         &mut self,
-        a: Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<Option<bool>> {
-        let data = self.context(&a, index)?.alt_data();
+        a: Resource<Annotation>,
+    ) -> wasmtime::Result<Vec<types::TranslationException>> {
+        let data = self.context(&a)?.ref_data();
+        let exceptions = data.iter().flat_map(|data| &data.translation_exceptions);
+        Ok(exceptions
+            .map(|exception| types::TranslationException {
+                position: exception.position,
+                amino_acid: exception.amino_acid.to_string(),
+            })
+            .collect())
+    }
+
+    fn frameshift(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<bool>> {
+        let data = self.context(&a)?.alt_data();
         Ok(data.map(|data| data.is_frameshift))
     }
 
-    fn first_changed_codon(
-        &mut self,
-        a: Resource<Annotations>,
-        index: u32,
-    ) -> wasmtime::Result<Option<i32>> {
-        let data = self.context(&a, index)?.alt_data();
+    fn first_changed_codon(&mut self, a: Resource<Annotation>) -> wasmtime::Result<Option<i32>> {
+        let data = self.context(&a)?.alt_data();
         Ok(data.and_then(|data| data.variant_start_aa))
     }
 
-    fn drop(&mut self, annotations: Resource<Annotations>) -> wasmtime::Result<()> {
-        self.table.delete(annotations)?;
+    fn set_string(
+        &mut self,
+        a: Resource<Annotation>,
+        column: String,
+        value: String,
+    ) -> wasmtime::Result<()> {
+        let separator = |c: char| c.is_whitespace() || matches!(c, '|' | ',' | ';' | '=');
+        if let Some(c) = value.chars().find(|c| separator(*c)) {
+            bail!(
+                "value {value:?} of column {column:?} contains {c:?}, which separates values in VCF"
+            );
+        }
+        self.set(&a, column, ColumnType::String, value)
+    }
+
+    fn set_integer(
+        &mut self,
+        a: Resource<Annotation>,
+        column: String,
+        value: i64,
+    ) -> wasmtime::Result<()> {
+        self.set(&a, column, ColumnType::Integer, value.to_string())
+    }
+
+    fn set_float(
+        &mut self,
+        a: Resource<Annotation>,
+        column: String,
+        value: f64,
+    ) -> wasmtime::Result<()> {
+        ensure!(
+            value.is_finite(),
+            "value {value} of column {column:?} is not finite"
+        );
+        self.set(&a, column, ColumnType::Float, value.to_string())
+    }
+
+    fn set_boolean(
+        &mut self,
+        a: Resource<Annotation>,
+        column: String,
+        value: bool,
+    ) -> wasmtime::Result<()> {
+        self.set(&a, column, ColumnType::Boolean, value.to_string())
+    }
+
+    fn drop(&mut self, annotation: Resource<Annotation>) -> wasmtime::Result<()> {
+        self.table.delete(annotation)?;
         Ok(())
     }
 }
@@ -518,39 +744,6 @@ fn position(pos: &Pos) -> types::Position {
         ord: pos.ord,
         total: pos.total,
     }
-}
-
-fn transcript(tx: &Transcript) -> Option<types::Transcript> {
-    let alignment = tx.genome_alignments.first()?;
-    let exons = alignment
-        .exons
-        .iter()
-        .sorted_by_key(|exon| exon.alt_cds_start_i)
-        .map(|exon| {
-            // Despite their names, `alt_cds_*_i` are the exon's 1-based transcript positions.
-            Some(types::Exon {
-                tx_start: exon.alt_cds_start_i?,
-                tx_end: exon.alt_cds_end_i?,
-                genome_start: exon.alt_start_i + 1,
-                genome_end: exon.alt_end_i,
-                cigar: exon.cigar.clone(),
-            })
-        })
-        .collect::<Option<Vec<_>>>()?;
-    Some(types::Transcript {
-        id: tx.id.clone(),
-        protein: tx.protein.clone(),
-        contig: alignment.contig.clone(),
-        genome_build: alignment.genome_build.clone(),
-        strand: if alignment.strand == Strand::Minus as i32 {
-            types::Strand::Minus
-        } else {
-            types::Strand::Plus
-        },
-        genome_cds_start: alignment.cds_start.map(|start| start + 1),
-        genome_cds_end: alignment.cds_end,
-        exons,
-    })
 }
 
 #[cfg(test)]
@@ -635,9 +828,9 @@ mod test {
         let report = ann.custom_fields["probe"]
             .as_deref()
             .unwrap()
-            .split(';')
+            .split('~')
             .map(|pair| {
-                let (key, value) = pair.split_once('=').unwrap();
+                let (key, value) = pair.split_once('^').unwrap();
                 (key.to_string(), value.to_string())
             })
             .collect();
@@ -725,6 +918,7 @@ mod test {
             ("version", crate::built_info::PKG_VERSION.to_string()),
             ("vep", "true".into()),
             ("variants", "1".into()),
+            ("variant-position", "41215920".into()),
             // As mehari reports them.
             ("feature-id", ann.feature_id.clone()),
             ("feature-type", ann.feature_type.to_string()),
@@ -753,21 +947,24 @@ mod test {
             ),
             ("distance", show(ann.distance.map(|d| d.to_string()))),
             ("warnings", String::new()),
+            ("protein-id", "NP_009225.1".into()),
+            ("contig", "NC_000017.10".into()),
+            ("genome-build", "grch37".into()),
+            ("strand", "Strand::Minus".into()),
+            ("exons", "23".into()),
+            ("first-exon", "1-94:41277288-41277381:94M".into()),
             // c.1 is n.114 and chr17:41276113, the stop codon ends at c.5592.
-            ("cds-end", "5705".into()),
+            ("genome-cds", "41197695-41276113".into()),
+            ("reference-transcript", "7091".into()),
+            ("reference-protein", "1864".into()),
+            ("reference-cds", "114-5705".into()),
+            ("alternative-transcript", "7091".into()),
+            ("alternative-protein", "1864".into()),
+            ("alternative-cds-start", "114".into()),
+            ("translation-table", "standard".into()),
+            ("translation-exceptions", String::new()),
             ("frameshift", "false".into()),
             ("first-changed-codon", "1708".into()),
-            ("tx-id", "NM_007294.4".into()),
-            ("tx-protein", "NP_009225.1".into()),
-            ("tx-contig", "NC_000017.10".into()),
-            ("tx-build", "grch37".into()),
-            ("tx-strand", "Strand::Minus".into()),
-            ("tx-genome-cds", "41197695-41276113".into()),
-            ("tx-exons", "23".into()),
-            ("tx-first-exon", "1-94:41277288-41277381:94M".into()),
-            ("ref", "7091/1864/114".into()),
-            ("alt", "7091/1864/114".into()),
-            ("translation", "standard/".into()),
         ]
         .map(|(key, value)| (key.to_string(), value))
         .into_iter()
@@ -775,6 +972,20 @@ mod test {
 
         assert_eq!(report, expected);
         assert_eq!(report["hgvs-p"], "p.Ala1708Glu");
+        Ok(())
+    }
+
+    /// Values of each column type, as written into `ANN`.
+    #[test]
+    fn probe_fills_typed_columns() -> Result<(), anyhow::Error> {
+        let (_, ann) = probe("17:41215920:G:T", &[])?;
+        let value = |column: &str| ann.custom_fields[column].clone();
+        let columns = load(PROBE_WASM, &[])?.columns();
+        assert_eq!(columns, ["probe", "probe_int", "probe_float", "probe_bool"]);
+        // NM_007294.4 sorts first among the BRCA1 transcripts.
+        assert_eq!(value("probe_int").as_deref(), Some("-1"));
+        assert_eq!(value("probe_float").as_deref(), Some("0.25"));
+        assert_eq!(value("probe_bool").as_deref(), Some("true"));
         Ok(())
     }
 
@@ -849,14 +1060,33 @@ mod test {
     #[case(&[("fail-init", "init went wrong")], "init went wrong")]
     #[case(&[("data", "tests/data/plugins/missing")], "data directory")]
     #[case(&[("data", "a"), ("data", "b")], "more than once")]
+    #[case(&[("mehari-limit", "1")], "reserved for mehari")]
+    #[case(&[("column", "a|b")], "characters other than")]
+    #[case(&[("column", "probe")], "declared twice")]
     fn load_fails(#[case] options: &[(&str, &str)], #[case] message: &str) {
         let error = load(PROBE_WASM, options).unwrap_err().to_string();
         assert!(error.contains(message), "{error}");
     }
 
+    /// An annotation kept from one call cannot be used in the next.
+    #[test]
+    fn stale_annotation_fails() -> Result<(), anyhow::Error> {
+        let predictor = predictor(vec![Arc::new(load(PROBE_WASM, &[("stale", "")])?)])?;
+        predictor.predict(&variant("17:41215920:G:T"))?;
+        let error = predictor
+            .predict(&variant("17:41276049:A:T"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("outside the annotate call"), "{error}");
+        Ok(())
+    }
+
     #[rstest::rstest]
     #[case(&[("fail", "annotate went wrong")], "annotate went wrong")]
-    #[case(&[("bad-index", "")], "out of range")]
+    #[case(&[("set", "separator")], "separates values")]
+    #[case(&[("set", "undeclared")], "not declared")]
+    #[case(&[("set", "wrong-type")], "holds string values")]
+    #[case(&[("set", "nan")], "not finite")]
     fn annotate_fails(#[case] options: &[(&str, &str)], #[case] message: &str) {
         let error = probe("17:41215920:G:T", options).unwrap_err().to_string();
         assert!(error.contains(message), "{error}");
