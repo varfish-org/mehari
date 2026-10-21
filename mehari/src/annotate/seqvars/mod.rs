@@ -1038,9 +1038,7 @@ async fn run_with_writer(
     let batch_size = worker_threads * 1024;
 
     let mut next_batch = Vec::with_capacity(batch_size);
-    let mut processing_handle: Option<
-        tokio::task::JoinHandle<anyhow::Result<(Vec<AnnotatedVariant>, Option<VariantProcessor>)>>,
-    > = None;
+    let mut processing_handle: Option<tokio::task::JoinHandle<BatchResult>> = None;
 
     loop {
         // fill the `next_batch` buffer asynchronously (happens concurrently while the previous batch is being processed)
@@ -1498,6 +1496,9 @@ impl AnnotatedVariant {
         self.vcf.variant_start().map(usize::from).unwrap_or(0)
     }
 }
+
+/// The records a batch made ready to write, and the compound processor handed back.
+type BatchResult = anyhow::Result<(Vec<AnnotatedVariant>, Option<VariantProcessor>)>;
 
 struct VariantProcessor {
     annotator: Arc<Annotator>,
