@@ -12,6 +12,9 @@ pub mod user_doc {
     #[doc = include_str!("../../docs/anno_strucvars.md")]
     pub mod anno_strucvars {}
 
+    #[doc = include_str!("../../docs/plugins.md")]
+    pub mod plugins {}
+
     #[doc = include_str!("../../docs/db_build.md")]
     pub mod db_build {}
 

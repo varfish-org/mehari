@@ -16,7 +16,7 @@ use hgvs::data::interface::Provider;
 use hgvs::parser::{HgvsVariant, NoRef};
 use itertools::Itertools;
 pub(crate) use logic::ConsequencePredictor;
-use plugin::{CompoundPlugin, TranscriptPlugin};
+use plugin::{CompoundPlugin, RunInfo, TranscriptPlugin};
 use prost::Message;
 use std::fmt;
 use std::fmt::Display;
@@ -150,11 +150,12 @@ impl ConsequenceAnnotator {
         let args = predictor_settings;
         let s = &args.reporting_settings;
 
-        let mut plugins: Vec<Arc<dyn TranscriptPlugin>> = s
+        let run = RunInfo::new(&tx_db, args.vep_compatibility_mode);
+        let mut plugins = s
             .plugins
             .iter()
-            .map(|plugin| plugin.build(args.vep_compatibility_mode))
-            .collect();
+            .map(|plugin| plugin.build(&run))
+            .collect::<Result<Vec<_>, _>>()?;
         if args.compound_settings.enable_compound_variants {
             plugins.push(Arc::new(CompoundPlugin::default()));
         }
@@ -253,6 +254,34 @@ pub struct VcfVariant {
     pub reference: String,
     /// Alternative bases.
     pub alternative: String,
+}
+
+/// `chromosome:position:reference:alternative`, e.g. `17:41215920:G:T`.
+impl Display for VcfVariant {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}:{}:{}:{}",
+            self.chromosome, self.position, self.reference, self.alternative
+        )
+    }
+}
+
+impl std::str::FromStr for VcfVariant {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let [chromosome, position, reference, alternative] = s.split(':').collect::<Vec<_>>()[..]
+        else {
+            anyhow::bail!("expected chromosome:position:reference:alternative, got {s:?}");
+        };
+        Ok(Self {
+            chromosome: chromosome.into(),
+            position: position.parse()?,
+            reference: reference.into(),
+            alternative: alternative.into(),
+        })
+    }
 }
 
 /// Configuration for consequence prediction.

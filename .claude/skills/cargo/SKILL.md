@@ -14,7 +14,7 @@ description: Apply for build/test/lint, dependency or feature changes, and editi
 - Requires `protoc` + system `librocksdb-dev libsnappy-dev libsqlite3-dev`.
 
 ## Features
-- `default = ["jemalloc", "server"]`. `server` gates actix/utoipa (+ `annonars/server`); `jemalloc` the allocator; `dhat-heap` heap profiling; `documentation` doc includes.
+- `default = ["jemalloc", "server", "wasm"]`. `server` gates actix/utoipa (+ `annonars/server`); `jemalloc` the allocator; `wasm` WebAssembly plugins (wasmtime 48 LTS); `dhat-heap` heap profiling; `documentation` doc includes.
 
 ## Manifest (TOML) conventions
 - Keep `[dependencies]` alphabetically ordered (match existing).

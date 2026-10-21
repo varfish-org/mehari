@@ -1032,9 +1032,14 @@ async fn run_with_writer(
         &custom_columns,
     );
 
-    // Perform the VCF annotation.
-    let mut processor =
-        VariantProcessor::new(&annotator, &args.predictor_settings.compound_settings);
+    // Perform the VCF annotation. The compound processor moves into each batch's blocking task
+    // and back, so that compound predictions do not run on the async runtime.
+    let mut processor = enable_compound.then(|| {
+        VariantProcessor::new(
+            annotator.clone(),
+            &args.predictor_settings.compound_settings,
+        )
+    });
 
     tracing::info!("Annotating VCF ...");
     let start = Instant::now();
@@ -1119,26 +1124,36 @@ async fn run_with_writer(
         // await the previous batch's results and write them out sequentially
         if let Some(handle) = previous_handle {
             let processed_batch = handle.await??;
+            // Compound predictions run on the blocking pool too, while the next batch is
+            // being annotated.
+            let ready_records = match processor.take() {
+                Some(mut batch_processor) => {
+                    let (ready_records, batch_processor) =
+                        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+                            let mut ready_records = Vec::new();
+                            for annotated_record in processed_batch {
+                                ready_records.extend(batch_processor.process_annotated_record(
+                                    annotated_record.vcf,
+                                    annotated_record.annotation,
+                                )?);
+                            }
+                            Ok((ready_records, batch_processor))
+                        })
+                        .await??;
+                    processor = Some(batch_processor);
+                    ready_records
+                }
+                None => processed_batch,
+            };
 
-            for annotated_record in processed_batch {
+            for annotated_record in ready_records {
                 if prev.elapsed().as_secs() >= 60 {
                     tracing::info!("at {:?}", from_vcf_allele(&annotated_record.vcf, 0));
                     prev = Instant::now();
                 }
-
-                if enable_compound {
-                    let ready_records = processor.process_annotated_record(
-                        annotated_record.vcf,
-                        annotated_record.annotation,
-                    )?;
-                    for rec in ready_records {
-                        writer.write_annotated_record(&header_out, rec).await?;
-                    }
-                } else {
-                    writer
-                        .write_annotated_record(&header_out, annotated_record)
-                        .await?;
-                }
+                writer
+                    .write_annotated_record(&header_out, annotated_record)
+                    .await?;
                 total_written += 1;
             }
         }
@@ -1149,10 +1164,11 @@ async fn run_with_writer(
         }
     }
 
-    if enable_compound {
-        let final_records = processor.flush()?;
+    if let Some(mut processor) = processor {
+        let final_records = tokio::task::spawn_blocking(move || processor.flush()).await??;
         for rec in final_records {
             writer.write_annotated_record(&header_out, rec).await?;
+            total_written += 1;
         }
     }
 
@@ -1522,15 +1538,15 @@ impl AnnotatedVariant {
     }
 }
 
-struct VariantProcessor<'a> {
-    annotator: &'a Annotator,
+struct VariantProcessor {
+    annotator: Arc<Annotator>,
     buffer: crate::annotate::seqvars::compound::VariantBuffer,
     annotations: std::collections::HashMap<String, VariantAnnotation>,
 }
 
-impl<'a> VariantProcessor<'a> {
+impl VariantProcessor {
     pub fn new(
-        annotator: &'a Annotator,
+        annotator: Arc<Annotator>,
         compound_settings: &crate::annotate::cli::CompoundSettings,
     ) -> Self {
         Self {
@@ -1555,10 +1571,13 @@ impl<'a> VariantProcessor<'a> {
         if self.buffer.should_flush(&vcf_var.chrom, vcf_var.pos) {
             ready_records.extend(self.process_buffer_flush()?);
         }
-        let key = format!(
-            "{}:{}:{}:{}",
-            vcf_var.chrom, vcf_var.pos, vcf_var.reference, vcf_var.alternative
-        );
+        let csq_var = VcfVariant {
+            chromosome: vcf_var.chrom,
+            position: vcf_var.pos,
+            reference: vcf_var.reference,
+            alternative: vcf_var.alternative,
+        };
+        let key = csq_var.to_string();
         if self.annotations.insert(key.clone(), annotation).is_some() {
             tracing::warn!(
                 "Duplicate SPDI detected in annotation buffer: {}; \
@@ -1571,20 +1590,13 @@ impl<'a> VariantProcessor<'a> {
             if let Some(predictor) = self.annotator.consequence_predictor() {
                 consequence::get_transcript_boundaries(
                     predictor,
-                    &vcf_var.chrom,
-                    vcf_var.pos,
-                    vcf_var.reference.len(),
+                    &csq_var.chromosome,
+                    csq_var.position,
+                    csq_var.reference.len(),
                 )
             } else {
                 (std::collections::HashSet::new(), i32::MAX, -1)
             };
-
-        let csq_var = VcfVariant {
-            chromosome: vcf_var.chrom,
-            position: vcf_var.pos,
-            reference: vcf_var.reference,
-            alternative: vcf_var.alternative,
-        };
 
         // Note: We don't support multi allelic records at the moment, so this is a constant 1.
         let alt_allele_idx = 1;
@@ -1615,13 +1627,8 @@ impl<'a> VariantProcessor<'a> {
         let mut result_annotations: Vec<VariantAnnotation> = variants
             .iter()
             .map(|b| {
-                let vcf_var = from_vcf_allele(&b.record, 0);
-                let key = format!(
-                    "{}:{}:{}:{}",
-                    vcf_var.chrom, vcf_var.pos, vcf_var.reference, vcf_var.alternative
-                );
                 self.annotations
-                    .remove(&key)
+                    .remove(&b.vcf_var.to_string())
                     .unwrap_or_else(|| VariantAnnotation {
                         consequences: vec![],
                         frequencies: None,
@@ -1640,12 +1647,18 @@ impl<'a> VariantProcessor<'a> {
                     .map(|&i| variants[i].vcf_var.clone())
                     .collect();
 
-                if let Ok(Some(ann_fields)) = predictor.predict_multiple(&vcf_vars) {
-                    for &i in &group_indices {
-                        result_annotations[i]
-                            .consequences
-                            .extend(ann_fields.clone());
+                match predictor.predict_multiple(&vcf_vars) {
+                    Ok(Some(ann_fields)) => {
+                        for &i in &group_indices {
+                            result_annotations[i]
+                                .consequences
+                                .extend(ann_fields.clone());
+                        }
                     }
+                    // A failing plugin stops the run, as for single variants.
+                    Err(error @ crate::errors::SeqvarsError::Plugin(_)) => return Err(error.into()),
+                    // Groups mehari cannot evaluate keep their single-variant annotations.
+                    Ok(None) | Err(_) => {}
                 }
             }
         }
@@ -1667,7 +1680,7 @@ mod test {
     use super::{Args, OutputFormat, run};
     use crate::annotate::cli::{ConsequenceBy, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
-    use crate::annotate::seqvars::consequence::plugin::BuiltinPlugin;
+    use crate::annotate::seqvars::consequence::plugin::{BuiltinPlugin, PluginSpec};
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
     use clap_verbosity_flag::Verbosity;
     use futures::TryStreamExt;
@@ -1749,13 +1762,16 @@ mod test {
             verbose: Verbosity::new(0, 1),
         };
         let mut predictor_settings = PredictorSettings::default();
-        predictor_settings.reporting_settings.plugins = vec![
+        predictor_settings.reporting_settings.plugins = [
             BuiltinPlugin::TxSequenceRef,
             BuiltinPlugin::TxSequenceAlt,
             BuiltinPlugin::AaSequenceRef,
             BuiltinPlugin::AaSequenceAlt,
             BuiltinPlugin::Nmd,
-        ];
+        ]
+        .into_iter()
+        .map(PluginSpec::Builtin)
+        .collect();
         predictor_settings
             .compound_settings
             .enable_compound_variants = true;
@@ -1788,6 +1804,64 @@ mod test {
                  | nmd | compound_ids | compound_variants'"
             ),
             "{ann_header}"
+        );
+
+        Ok(())
+    }
+
+    /// A plugin that fails for a compound group stops the run.
+    #[cfg(feature = "wasm")]
+    #[tokio::test]
+    async fn compound_plugin_error_stops_the_run() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_in = temp.join("input.vcf");
+        let path_out = temp.join("output.vcf");
+
+        let header = std::fs::read_to_string("tests/data/annotate/seqvars/brca1.examples.vcf")?
+            .lines()
+            .filter(|line| line.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(
+            &path_in,
+            format!(
+                "{header}\n\
+                 17\t41197701\t.\tG\tC\t.\t.\t.\tGT\t1/1\n\
+                 17\t41215920\t.\tG\tT\t.\t.\t.\tGT\t1/1\n"
+            ),
+        )?;
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let mut predictor_settings = PredictorSettings::default();
+        predictor_settings.reporting_settings.plugins = vec![PluginSpec::Wasm {
+            path: "tests/data/plugins/probe.wasm".into(),
+            options: vec![("fail-compound".into(), "group went wrong".into())],
+        }];
+        predictor_settings
+            .compound_settings
+            .enable_compound_variants = true;
+        let args = Args {
+            threads: 1,
+            reference: None,
+            in_memory_reference: true,
+            assembly: Some("grch37".into()),
+            predictor_settings,
+            input: path_in.into_os_string().into_string().unwrap(),
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
+            max_var_count: None,
+            sources: Sources {
+                transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
+                ..Default::default()
+            },
+        };
+
+        let error = run(&args_common, &args).await.unwrap_err();
+        assert!(
+            format!("{error:#}").contains("group went wrong"),
+            "{error:#}"
         );
 
         Ok(())

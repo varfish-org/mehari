@@ -8,7 +8,7 @@ info:
   license:
     name: MIT
     identifier: MIT
-  version: 0.44.1
+  version: 0.46.0
 paths:
   /api/v1/genes/transcripts:
     get:
@@ -1359,6 +1359,13 @@ components:
           items:
             $ref: '#/components/schemas/Message'
           description: Optional list of warnings and error messages.
+        custom_fields:
+          type: object
+          description: Values of the custom `ANN` columns, e.g. from plugins, by column, as written into `ANN`.
+          additionalProperties:
+            type: string
+          propertyNames:
+            type: string
     SoFeature:
       type: string
       description: Sequence ontology feature.

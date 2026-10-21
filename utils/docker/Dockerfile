@@ -33,6 +33,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY mehari/Cargo.toml mehari/build.rs ./mehari/
 COPY mehari/src ./mehari/src/
 COPY mehari/protos ./mehari/protos/
+COPY mehari/wit ./mehari/wit/
 COPY mehari-python/Cargo.toml ./mehari-python/
 COPY utils/alpine-linker-script.sh ./utils/
 RUN chmod a+rx ./utils/alpine-linker-script.sh

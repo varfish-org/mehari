@@ -2,7 +2,7 @@
 name = "mehari"
 version = "0.46.0"
 edition = "2024"
-rust-version = "1.92"
+rust-version = "1.95"
 authors = ["Manuel Holtgrewe <manuel.holtgrewe@bih-charite.de>"]
 description = "Variant effect prediction all in Rust"
 license = "MIT"
@@ -10,8 +10,9 @@ repository = "https://github.com/varfish-org/mehari"
 readme = "../README.md"
 
 [features]
-default = ["jemalloc", "server"]
+default = ["jemalloc", "server", "wasm"]
 server = ["dep:actix-web", "dep:utoipa", "dep:utoipa-swagger-ui", "annonars/server"]
+wasm = ["dep:thread_local", "dep:wasmtime", "dep:wasmtime-wasi"]  # WebAssembly plugins
 jemalloc = ["dep:tikv-jemallocator", "rocksdb/jemalloc", "annonars/jemalloc"]
 dhat-heap = ["dep:dhat"]  # for heap profiling with dhats
 documentation = []
@@ -73,10 +74,14 @@ serde_yaml = "0.9"
 strum = { version = "0.28", features = ["derive"] }
 tempfile = "3"
 thousands = "0.2"
+thread_local = { version = "1.1", optional = true }
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "io-std"] }
 tracing-subscriber = "0.3"
 tracing = { version = "0.1", features = ["log"] }
 uuid = { version = "1.23", features = ["fast-rng", "serde"] }
+# 48 is a long-term support release.
+wasmtime = { version = "48.0.7", default-features = false, features = ["component-model", "cranelift", "parallel-compilation", "runtime", "std"], optional = true }
+wasmtime-wasi = { version = "48.0.7", default-features = false, optional = true }
 zstd = "0.14"
 utoipa = { version = "6.0.0", features = ["actix_extras", "chrono", "indexmap", "openapi_extensions", "preserve_order", "yaml"], optional = true }
 utoipa-swagger-ui = { version = "10.0.1", features = ["actix-web"], optional = true }

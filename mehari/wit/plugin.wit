@@ -1,0 +1,206 @@
+package mehari:plugin@0.1.0;
+
+/// The mehari run.
+interface host {
+    /// The genome assembly of the transcript database, e.g. `grch38`.
+    assembly: func() -> string;
+    /// The version of mehari.
+    version: func() -> string;
+    /// Whether mehari runs with `--vep-compatibility-mode`.
+    vep-compatible: func() -> bool;
+}
+
+/// The data exchanged with plugins.
+interface types {
+    /// A variant as given in the VCF, before normalization.
+    record vcf-variant {
+        chromosome: string,
+        /// 1-based position of the first reference base.
+        position: s32,
+        reference: string,
+        alternative: string,
+    }
+
+    /// A 1-based number out of a total, e.g. exon 3 of 12.
+    record rank {
+        ord: s32,
+        total: s32,
+    }
+
+    /// A 1-based position and the length it counts within, if known.
+    record position {
+        ord: s32,
+        total: option<s32>,
+    }
+
+    enum strand {
+        plus,
+        minus,
+    }
+
+    /// An exon; positions are 1-based and inclusive.
+    record exon {
+        tx-start: s32,
+        tx-end: s32,
+        genome-start: s32,
+        genome-end: s32,
+        /// Alignment of the exon to the genome, e.g. `120M`.
+        cigar: string,
+    }
+
+    /// An amino acid that the transcript annotation assigns to a codon, whatever the
+    /// translation table says, e.g. selenocysteine (`U`).
+    record translation-exception {
+        /// 1-based position in the protein.
+        position: u32,
+        amino-acid: string,
+    }
+
+    /// Setting up a plugin instance, see `init`.
+    resource setup {
+        /// The options given after the plugin's path, in order, without mehari's own (`data`
+        /// and names starting with `mehari-`). A key may repeat.
+        options: func() -> list<tuple<string, string>>;
+
+        /// Declare a column, in output order, with the type of its values. Names may contain
+        /// letters, digits, `_`, `-` and `.`, and must differ from the fields of `ANN`, such as
+        /// `Allele` or `HGVS.c`, also in case.
+        add-string-column: func(name: string);
+        add-integer-column: func(name: string);
+        add-float-column: func(name: string);
+        add-boolean-column: func(name: string);
+        /// Declare a column holding a list of values of a type, written joined by `&`.
+        add-string-list-column: func(name: string);
+        add-integer-list-column: func(name: string);
+        add-float-list-column: func(name: string);
+        add-boolean-list-column: func(name: string);
+
+        /// Also call `annotate` for predictions without annotations, e.g. intergenic variants
+        /// unless `--keep-intergenic` is given. mehari skips those by default.
+        annotate-empty-predictions: func();
+    }
+
+    /// One prediction: a variant, or a compound group, with its reported annotations.
+    resource prediction {
+        /// The variant as given in the VCF, or the variants of a compound group.
+        variants: func() -> list<vcf-variant>;
+        /// One annotation per reported transcript.
+        annotations: func() -> list<annotation>;
+    }
+
+    /// The annotation of one transcript. Values are computed when first requested and shared
+    /// with other plugins. Using an annotation outside the `annotate` call it came from, or
+    /// setting a value that does not fit its column, stops mehari with an error.
+    resource annotation {
+        /// Transcript accession; empty for intergenic variants.
+        feature-id: func() -> string;
+        /// As in `ANN`: `transcript`, or `Intergenic` for intergenic variants.
+        feature-type: func() -> string;
+        /// Sequence Ontology terms, most severe first.
+        consequences: func() -> list<string>;
+        /// `HIGH`, `MODERATE`, `LOW` or `MODIFIER`.
+        impact: func() -> string;
+        gene-symbol: func() -> string;
+        /// The HGNC ID, e.g. `HGNC:1100`.
+        gene-id: func() -> string;
+        /// E.g. `Coding`.
+        biotypes: func() -> list<string>;
+        /// E.g. `ManeSelect`.
+        tags: func() -> list<string>;
+        /// The exon, or for intronic variants the intron, as in `ANN`.
+        rank: func() -> option<rank>;
+        /// HGVS descriptions as in mehari's output. Normalization shifts the variant towards the
+        /// transcript's 3' end, so the genomic position depends on the strand.
+        hgvs-g: func() -> option<string>;
+        hgvs-n: func() -> option<string>;
+        hgvs-c: func() -> option<string>;
+        hgvs-p: func() -> option<string>;
+        /// Position of the first variant base in the transcript; exonic variants only.
+        cdna-pos: func() -> option<position>;
+        /// Position of the last variant base in the transcript, or for an insertion of the base
+        /// after it; exonic variants only.
+        cdna-end: func() -> option<position>;
+        /// Position of the first variant base in the coding sequence.
+        cds-pos: func() -> option<position>;
+        /// Position of the first changed amino acid.
+        protein-pos: func() -> option<position>;
+        /// As in `ANN`: distance to the transcript for up- and downstream variants, or to the
+        /// nearest exon for intronic ones.
+        distance: func() -> option<s32>;
+        /// Warnings, e.g. about an incomplete transcript.
+        warnings: func() -> list<string>;
+        /// The value of a column, e.g. one filled by an earlier plugin.
+        field: func(column: string) -> option<string>;
+
+        /// Accession of the protein; coding transcripts only.
+        protein-id: func() -> option<string>;
+        /// Accession of the chromosome, e.g. `NC_000017.11`; `none` for intergenic variants.
+        contig: func() -> option<string>;
+        /// Genome build of the alignment, as in the transcript database, e.g. `grch38`.
+        genome-build: func() -> option<string>;
+        strand: func() -> option<strand>;
+        /// In transcript order; empty for intergenic variants.
+        exons: func() -> list<exon>;
+        /// Lowest and highest genome position of the coding sequence, 1-based.
+        genome-cds-start: func() -> option<s32>;
+        genome-cds-end: func() -> option<s32>;
+
+        /// Transcript sequence including the UTRs.
+        reference-transcript: func() -> option<string>;
+        /// Protein sequence from the start codon on, ending with `*` if the coding sequence
+        /// has a stop codon.
+        reference-protein: func() -> option<string>;
+        /// 1-based transcript positions of the first and the last base of the coding sequence,
+        /// which includes the stop codon.
+        reference-cds-start: func() -> option<s32>;
+        reference-cds-end: func() -> option<s32>;
+        /// The same with the variant applied, on coding transcripts only; intronic variants leave
+        /// them unchanged. Translation may continue past the first stop codon (`*`).
+        alternative-transcript: func() -> option<string>;
+        alternative-protein: func() -> option<string>;
+        alternative-cds-start: func() -> option<s32>;
+        /// `standard`, `selenocysteine` or `vertebrate-mitochondrial`.
+        translation-table: func() -> option<string>;
+        translation-exceptions: func() -> list<translation-exception>;
+        /// Whether the variant shifts the reading frame; coding transcripts only.
+        frameshift: func() -> option<bool>;
+        /// 1-based position of the first codon the variant changes; exonic variants on coding
+        /// transcripts only.
+        first-changed-codon: func() -> option<s32>;
+
+        /// Fill a column declared in `init` with a value of its type. Strings must not contain
+        /// whitespace, `|`, `,`, `;`, `=` or `&`, which separate values in VCF and `ANN`;
+        /// floats must be finite. Booleans are written as `true` or `false`.
+        set-string: func(column: string, value: string);
+        set-integer: func(column: string, value: s64);
+        set-float: func(column: string, value: f64);
+        set-boolean: func(column: string, value: bool);
+        /// Fill a list column declared in `init`; the values are checked as above, and an empty
+        /// list leaves the field empty.
+        set-string-list: func(column: string, values: list<string>);
+        set-integer-list: func(column: string, values: list<s64>);
+        set-float-list: func(column: string, values: list<f64>);
+        set-boolean-list: func(column: string, values: list<bool>);
+    }
+}
+
+/// A plugin that fills columns of the `ANN` field, one value per transcript.
+interface transcript-plugin {
+    use types.{setup, prediction};
+
+    /// Called once per plugin instance, before any `annotate`: read the options and declare the
+    /// columns. mehari runs one instance per thread.
+    init: func(setup: borrow<setup>) -> result<_, string>;
+
+    /// Called once per prediction; fills the columns of its annotations with the `set-*`
+    /// functions. Unset fields stay empty.
+    annotate: func(prediction: borrow<prediction>) -> result<_, string>;
+}
+
+world plugin {
+    import host;
+    export transcript-plugin;
+}
+
+// Later 0.1.x versions may add functions; plugins built against an earlier version keep working.
+// Records cannot change once released, so new data comes as new functions.

@@ -1,4 +1,4 @@
-use hgvs::parser::HgvsVariant;
+use hgvs::parser::{CdsFrom, CdsPos, HgvsVariant};
 use itertools::Itertools;
 
 use super::{TranscriptPlugin, TxAnnotation, TxContext};
@@ -53,7 +53,7 @@ impl TranscriptPlugin for NmdPlugin {
     fn annotate(
         &self,
         variants: &[VcfVariant],
-        txs: &mut [TxAnnotation],
+        txs: &mut Vec<TxAnnotation>,
     ) -> Result<(), SeqvarsError> {
         for TxAnnotation { context, ann } in txs {
             let value = if self.vep_compatible {
@@ -66,7 +66,7 @@ impl TranscriptPlugin for NmdPlugin {
                     )
                 });
                 truncating.then(|| {
-                    predict(context, ann)
+                    predict(context)
                         .unwrap_or(NmdPrediction::Unknown)
                         .to_string()
                 })
@@ -80,7 +80,7 @@ impl TranscriptPlugin for NmdPlugin {
 }
 
 /// `None` if the PTC or the exon structure is unknown.
-fn predict(context: &TxContext, ann: &AnnField) -> Option<NmdPrediction> {
+fn predict(context: &TxContext) -> Option<NmdPrediction> {
     let exons = &context.tx()?.genome_alignments.first()?.exons;
     let ref_data = context.ref_data()?;
     let alt_data = context.alt_data()?;
@@ -90,14 +90,23 @@ fn predict(context: &TxContext, ann: &AnnField) -> Option<NmdPrediction> {
 
     // 1-based positions on the mutant transcript.
     let ptc = ref_data.cds_start + 3 * stop as i32;
-    // Despite its name, `alt_cds_start_i` is the exon's 1-based transcript start.
-    let last_exon_start = exons.iter().filter_map(|exon| exon.alt_cds_start_i).max()?;
-    // Insertions and deletions before the last junction move it.
-    let last_junction = if ann.cdna_pos.as_ref()?.ord < last_exon_start {
+    // Despite their names, `alt_cds_*_i` are the exon's 1-based transcript positions. An exon
+    // without them leaves the structure unknown, as in the plugin interface.
+    let starts = exons
+        .iter()
+        .map(|exon| exon.alt_cds_end_i.and(exon.alt_cds_start_i))
+        .collect::<Option<Vec<_>>>()?;
+    let last_exon_start = starts.into_iter().max()?;
+    // Insertions and deletions before the last junction move it; for a compound group reaching
+    // across it, how far is unknown.
+    let (start, end) = context.tx_span()?;
+    let last_junction = if end < last_exon_start {
         last_exon_start + alt_data.transcript_sequence.len() as i32
             - ref_data.transcript_sequence.len() as i32
-    } else {
+    } else if start >= last_exon_start {
         last_exon_start
+    } else {
+        return None;
     };
 
     Some(classify(ptc - ref_data.cds_start + 1, last_junction - ptc))
@@ -115,7 +124,7 @@ fn classify(ptc_c: i32, before_junction: i32) -> NmdPrediction {
 
 /// VEP's NMD plugin, which applies its rules to the variant: `Some(true)` if it escapes NMD.
 fn vep_escapes(context: &TxContext, ann: &AnnField, variants: &[VcfVariant]) -> Option<bool> {
-    // VEP neither knows compound variants nor annotates variants without CDS coordinates.
+    // VEP does not know compound variants.
     let [variant] = variants else {
         return None;
     };
@@ -125,18 +134,25 @@ fn vep_escapes(context: &TxContext, ann: &AnnField, variants: &[VcfVariant]) -> 
         Consequence::SpliceDonorVariant,
         Consequence::SpliceAcceptorVariant,
     ];
-    if !ann.consequences.iter().any(|csq| triggers.contains(csq)) || ann.cds_pos.is_none() {
+    if !ann.consequences.iter().any(|csq| triggers.contains(csq)) {
         return None;
     }
     let HgvsVariant::CdsVariant { loc_edit, .. } = context.var_c.as_ref()? else {
         return None;
     };
     let loc = loc_edit.loc.inner();
-    // VEP ends an insertion at the base before it.
-    let cds_end = if loc_edit.edit.inner().is_ins() {
-        loc.start.base
-    } else {
-        loc.end.base
+    let in_cds = |pos: &CdsPos| {
+        pos.cds_from == CdsFrom::Start && pos.base >= 1 && pos.offset.unwrap_or(0) == 0
+    };
+    // VEP skips variants that reach into an intron or a UTR, as they lack a CDS start or end.
+    // An insertion next to an exon counts as inside it, and VEP ends it at the coding base
+    // before it.
+    let is_ins = loc_edit.edit.inner().is_ins();
+    let cds_end = match (in_cds(&loc.start), in_cds(&loc.end), is_ins) {
+        (true, true, false) => loc.end.base,
+        (true, _, true) => loc.start.base,
+        (false, true, true) => loc.end.base - 1,
+        _ => return None,
     };
 
     let alignment = context.tx()?.genome_alignments.first()?;
@@ -145,7 +161,8 @@ fn vep_escapes(context: &TxContext, ann: &AnnField, variants: &[VcfVariant]) -> 
         .iter()
         .sorted_by_key(|exon| exon.alt_cds_start_i)
         .collect_vec();
-    // 1-based genomic end; trimming the VCF anchor base only moves the start.
+    // 1-based genomic end of the variant as given: even with `--shift_3prime`, VEP only shifts
+    // the CDS position. Trimming the VCF anchor base only moves the start.
     let end = variant.position + variant.reference.len() as i32 - 1;
     let last = exons.last()?;
     let in_last_exon = last.alt_start_i < end && end <= last.alt_end_i;
@@ -215,23 +232,56 @@ mod test {
         Some(VEP_ESCAPING)
     )] // c.5476
     #[case("17:41215920:G:T", Consequence::MissenseVariant, None, None)]
+    // VEP's start rule covers c.1 to c.101, checked against VEP 115.
+    #[case(
+        "17:41267775:AG:A",
+        Consequence::FrameshiftVariant,
+        Some("triggering"),
+        Some(VEP_ESCAPING)
+    )] // c.101del
+    #[case(
+        "17:41267774:CA:C",
+        Consequence::FrameshiftVariant,
+        Some("triggering"),
+        None
+    )]
+    // c.102del
+    // VEP's junction rule covers the last 52 bases of the penultimate exon (c.5416 to c.5467),
+    // at the variant's position as given, not as normalized: both are c.5417del.
+    #[case(
+        "17:41199710:GG:G",
+        Consequence::FrameshiftVariant,
+        Some("escaping"),
+        Some(VEP_ESCAPING)
+    )] // given as c.5416del
+    #[case(
+        "17:41199711:GG:G",
+        Consequence::FrameshiftVariant,
+        Some("escaping"),
+        None
+    )] // given as c.5415del
+    // c.80_80+1del reaches into the intron, so VEP has no CDS end for it.
+    #[case("17:41276032:ACC:A", Consequence::SpliceDonorVariant, None, None)]
+    // VEP places insertions next to an exon into it, see `vep_escapes`.
+    #[case(
+        "17:41276033:C:CT",
+        Consequence::SpliceDonorVariant,
+        None,
+        Some(VEP_ESCAPING)
+    )] // c.80_80+1insA
+    #[case(
+        "17:41267796:C:CT",
+        Consequence::SpliceAcceptorVariant,
+        None,
+        Some(VEP_ESCAPING)
+    )] // c.81-1_81insA
     fn brca1(
         #[case] spdi: &str,
         #[case] consequence: Consequence,
         #[case] expected: Option<&str>,
         #[case] expected_vep: Option<&str>,
     ) -> Result<(), anyhow::Error> {
-        let [chromosome, position, reference, alternative] =
-            spdi.split(':').collect::<Vec<_>>()[..]
-        else {
-            unreachable!()
-        };
-        let variant = VcfVariant {
-            chromosome: chromosome.into(),
-            position: position.parse()?,
-            reference: reference.into(),
-            alternative: alternative.into(),
-        };
+        let variant: VcfVariant = spdi.parse()?;
 
         for (vep_compatible, expected) in [(false, expected), (true, expected_vep)] {
             let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
@@ -262,6 +312,45 @@ mod test {
             );
         }
 
+        Ok(())
+    }
+
+    /// A compound group whose indels lie on both sides of the last exon-exon junction leaves the
+    /// junction on the mutant transcript, and so the prediction, unknown.
+    #[test]
+    fn compound_across_last_junction() -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(
+            tx_db,
+            None::<PathBuf>,
+            true,
+            Default::default(),
+        ));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .plugins(vec![Arc::new(NmdPlugin::default())])
+                .build()?,
+        );
+        // c.5417del in the penultimate exon, and an insertion after c.5484 in the last one.
+        let variants = ["17:41199711:GG:G", "17:41197803:A:ATT"]
+            .map(|spdi| spdi.parse::<VcfVariant>())
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+        let anns = predictor.predict_multiple(&variants)?.unwrap();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_007294.4")
+            .unwrap();
+
+        assert!(
+            ann.consequences.contains(&Consequence::FrameshiftVariant),
+            "{ann:?}"
+        );
+        assert_eq!(
+            ann.custom_fields.get(ANN_NMD).cloned().flatten().as_deref(),
+            Some("unknown")
+        );
         Ok(())
     }
 }

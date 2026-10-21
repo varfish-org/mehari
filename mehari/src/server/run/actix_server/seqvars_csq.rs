@@ -2,6 +2,8 @@
 //!
 //! Also includes the implementation of the `/seqvars/csq` endpoint (deprecated).
 
+use std::collections::BTreeMap;
+
 use actix_web::{
     get,
     web::{self, Data, Json, Path},
@@ -74,6 +76,9 @@ pub(crate) struct SeqvarsCsqResultEntry {
     pub strand: i32,
     /// Optional list of warnings and error messages.
     pub messages: Option<Vec<Message>>,
+    /// Values of the custom `ANN` columns, e.g. from plugins, by column, as written into `ANN`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub custom_fields: BTreeMap<String, String>,
 }
 
 /// Response of the `/api/v1/seqvars/csq` endpoint.
@@ -149,6 +154,7 @@ async fn handle_impl(
                 distance,
                 strand,
                 messages,
+                custom_fields,
                 ..
             } = ann_field;
             let entry = SeqvarsCsqResultEntry {
@@ -174,6 +180,10 @@ async fn handle_impl(
                 distance,
                 strand,
                 messages,
+                custom_fields: custom_fields
+                    .into_iter()
+                    .filter_map(|(column, value)| Some((column, value?)))
+                    .collect(),
             };
             result.push(entry);
         }

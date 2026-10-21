@@ -40,6 +40,12 @@ The database assembly should match the one in the input VCF file (e.g., both sho
 You can optionally define the assembly via `--assembly`.
 Output formats can be toggled using `--output-format` (e.g., `vcf` or `jsonl`), and you can control the number of threads used for parallel processing by using the `--threads` flag (we recommend a value of around 16).
 
+### Plugins
+
+Plugins add columns to the `ANN` field; enable each with `--plugin`, in the order the columns should appear.
+Built-in plugins are `tx-sequence-ref`, `tx-sequence-alt`, `aa-sequence-ref` and `aa-sequence-alt` (transcript and protein sequences without and with the variant), and `nmd` (whether stop-gained and frameshift variants trigger nonsense-mediated decay).
+`--plugin` also takes the path of a WebAssembly component, for which you can write your own plugins in Python, Rust and other languages; see [Plugins](`self::plugins`).
+
 ### Experimental: Compound Variants
 
 Mehari includes an experimental feature that allows you to evaluate the compound effect of multiple variants on the same transcript.
