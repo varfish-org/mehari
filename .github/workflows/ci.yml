@@ -106,6 +106,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          workspaces: |
+            . -> target
+            mehari-python -> target
           cache-directories: |
             ~/.cargo/registry/src/**/librocksdb-sys-*
 
@@ -114,29 +117,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: cargo build
-        run: cargo build --verbose
-
-      - name: cargo test
-        run: cargo test --verbose
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: "mehari-python/uv.lock"
-
-      - name: Test Python Bindings
-        working-directory: mehari-python
-        run: |
-          uv sync
-          uv run pytest tests/ -v
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-directories: |
-            ~/.cargo/registry/src/**/librocksdb-sys-*
-
+      # This is the only run of the Rust tests: a failing test fails it.
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
@@ -146,6 +127,21 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "mehari-python/uv.lock"
+
+      - name: Test Python Bindings
+        working-directory: mehari-python
+        env:
+          # The tests need no optimized build.
+          MATURIN_PEP517_ARGS: --profile dev
+        run: |
+          uv sync
+          uv run pytest tests/ -v
 
   Plugins:
     needs: Formatting
@@ -227,6 +223,11 @@ jobs:
         uses: arduino/setup-protoc@v3.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-directories: |
+            ~/.cargo/registry/src/**/librocksdb-sys-*
 
       - name: Write schema
         run: cargo run -p mehari --bin mehari -- server schema --output-file /tmp/openapi.schema.yaml-gen
