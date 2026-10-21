@@ -202,6 +202,7 @@ impl ConsequenceAnnotator {
                 .normalize(!args.do_not_normalize_variants())
                 .renormalize_g(!args.do_not_renormalize_g())
                 .vep_consequence_terms(args.vep_consequence_terms())
+                .vep_compatibility_mode(args.vep_compatibility_mode)
                 .plugins(plugins)
                 .build()?,
         );
@@ -333,6 +334,11 @@ pub struct Config {
     /// Whether to report VEP consequence terms.
     #[builder(default = "false")]
     pub vep_consequence_terms: bool,
+
+    /// Whether to reproduce VEP's behaviour where it differs from HGVS or SO, e.g. its stop terms
+    /// of indels. `--vep-compatibility-mode` also sets `vep_consequence_terms`.
+    #[builder(default = "false")]
+    pub vep_compatibility_mode: bool,
 
     /// Plugins filling the custom ANN columns, in column order.
     #[builder(default)]

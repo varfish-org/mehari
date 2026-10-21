@@ -64,8 +64,8 @@ struct HgvsProjectionContext {
     p: Option<HgvsVariant>,
     /// The region of the transcript that `c` changes, as hgvs-rs uses it to build `p`.
     region: Option<VariantLocation>,
-    /// With VEP terms, the c. variant at the input position, before the 3' shift. VEP checks
-    /// with it whether an indel overlaps the stop codon.
+    /// In VEP compatibility mode, the c. variant at the input position, before the 3' shift. VEP
+    /// checks with it whether an indel overlaps the stop codon.
     unshifted_c: Option<HgvsVariant>,
 }
 
@@ -974,14 +974,14 @@ impl ConsequencePredictor {
         let mut distance: Option<i32> = None;
 
         // The range of an insertion is the base in front of it. An insertion at the start of
-        // an exon adds its bases to the exon, so its range is the first exon base instead. With
-        // VEP terms, an insertion behind the last exon on the genome lies outside the transcript,
-        // as in VEP 116.3, so its range is the base behind the exon. Without a reference, mehari
-        // does not shift an insertion on the genome, so an insertion that VEP shifts behind the
-        // last exon stays inside.
+        // an exon adds its bases to the exon, so its range is the first exon base instead. In
+        // VEP compatibility mode, an insertion behind the last exon on the genome lies outside
+        // the transcript, as in VEP 116.3, so its range is the base behind the exon. Without a
+        // reference, mehari does not shift an insertion on the genome, so an insertion that VEP
+        // shifts behind the last exon stays inside.
         let at_exon_start =
             (alignment.exons.iter().skip(1)).any(|exon| exon.alt_start_i == var_end);
-        let behind_last_exon = self.config.vep_consequence_terms
+        let behind_last_exon = self.config.vep_compatibility_mode
             && alignment.exons.iter().map(|exon| exon.alt_end_i).max() == Some(var_end);
         let (var_start, var_end) = match var_g {
             HgvsVariant::GenomeVariant { loc_edit, .. }
@@ -1072,7 +1072,7 @@ impl ConsequencePredictor {
                     intron_start,
                     exon_start,
                     is_utr,
-                    self.config.vep_consequence_terms,
+                    self.config.vep_compatibility_mode,
                 );
             }
 
@@ -1131,7 +1131,7 @@ impl ConsequencePredictor {
     /// before the 3' shift.
     ///
     /// `ins_c` is the c. insertion of the copy of a dup, if `var_g` is one, see `dup_as_ins`.
-    /// With VEP terms, `p.` comes from it.
+    /// In VEP compatibility mode, `p.` comes from it.
     fn project_hgvs(
         &self,
         var_g: &HgvsVariant,
@@ -1175,10 +1175,10 @@ impl ConsequencePredictor {
             if let Some(var_c) = &projection.c
                 && transcript_biotype == TranscriptBiotype::Coding
             {
-                // With VEP terms, `p.` comes from the 3'-shifted variant, as in VEP 116.3. VEP puts
-                // the copy of a dup behind the dup, also next to an exon, while hgvs-rs puts it in
-                // front of the dup.
-                let vep = self.config.vep_consequence_terms;
+                // In VEP compatibility mode, `p.` of a dup comes from the insertion of its copy, as
+                // in VEP 116.3. VEP puts the copy behind the dup, also next to an exon, while
+                // hgvs-rs puts it in front of the dup.
+                let vep = self.config.vep_compatibility_mode;
                 let var_c = if vep { ins_c.unwrap_or(var_c) } else { var_c };
                 if let Some(var_p) = self.safe_project_c_to_p(var_c)? {
                     projection.p = Some(var_p);
@@ -1187,7 +1187,7 @@ impl ConsequencePredictor {
             }
         }
 
-        if self.config.vep_consequence_terms && transcript_biotype == TranscriptBiotype::Coding {
+        if self.config.vep_compatibility_mode && transcript_biotype == TranscriptBiotype::Coding {
             projection.unshifted_c = self
                 .mapper
                 .variant_mapper()
@@ -1255,10 +1255,10 @@ impl ConsequencePredictor {
             let incomplete_3p = tx.is_incomplete_3p();
             let available_cds_len = tx.available_cds_len(tx_len);
             // VEP reports CDS terms for an indel that starts in the CDS, also if the indel can go
-            // before c.1, e.g., `c.1del` or `c.1_3dup`. With VEP terms, the position of such an
-            // indel counts, not its 5' UTR region.
+            // before c.1, e.g., `c.1del` or `c.1_3dup`. In VEP compatibility mode, the position of
+            // such an indel counts, not its 5' UTR region.
             let region = projection.region.filter(|&region| {
-                !(self.config.vep_consequence_terms && region == VariantLocation::FivePrimeUtr)
+                !(self.config.vep_compatibility_mode && region == VariantLocation::FivePrimeUtr)
             });
             context.cds_consequences = Self::analyze_cds_variant(
                 ins_c.unwrap_or(var_c),
@@ -1331,7 +1331,7 @@ impl ConsequencePredictor {
                     );
                     if indel_in_cds
                         && (protein_unchanged || silent)
-                        && !self.config.vep_consequence_terms
+                        && !self.config.vep_compatibility_mode
                     {
                         // An indel that keeps the protein (`p.=`) is synonymous. An indel with a
                         // silent change keeps only the term of that change. VEP reports the indel
@@ -1359,7 +1359,7 @@ impl ConsequencePredictor {
             // VEP takes the stop terms and `synonymous_variant` of an indel from the changed
             // codons, whatever `p.` says. For a dup, these are the codons that the insertion of
             // its copy changes.
-            if self.config.vep_consequence_terms
+            if self.config.vep_compatibility_mode
                 && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
                     self.provider.clone(),
                     &tx_record.tx_ac,
@@ -1455,7 +1455,7 @@ impl ConsequencePredictor {
 
             // VEP 116.3 puts an insertion between an exon and an intron outside the exon, also
             // the copy of a dup.
-            if self.config.vep_consequence_terms
+            if self.config.vep_compatibility_mode
                 && transcript_biotype == TranscriptBiotype::NonCoding
             {
                 let ins_n = match &ins_g {
@@ -1483,12 +1483,12 @@ impl ConsequencePredictor {
                 transcript_biotype,
             )?;
 
-            // With VEP terms, the copy of a dup of the last transcript base lies outside the
-            // transcript, so the dup gets no CDS or protein terms.
+            // In VEP compatibility mode, the copy of a dup of the last transcript base lies
+            // outside the transcript, so the dup gets no CDS or protein terms.
             let copy_outside = copy_location
                 .as_ref()
                 .is_some_and(|location| location.is_upstream || location.is_downstream);
-            if !(self.config.vep_consequence_terms && copy_outside) {
+            if !(self.config.vep_compatibility_mode && copy_outside) {
                 consequences |=
                     consequence_ctx.cds_consequences | consequence_ctx.protein_consequences;
             }
@@ -1966,8 +1966,8 @@ impl ConsequencePredictor {
         }
 
         // VEP reports `start_retained_variant` for a deletion in the start codon that leaves the
-        // CDS intact. With default terms, hgvs-rs puts such a deletion in the 5' UTR.
-        if self.config.vep_consequence_terms
+        // CDS intact. Outside VEP compatibility mode, hgvs-rs puts such a deletion in the 5' UTR.
+        if self.config.vep_compatibility_mode
             && let (
                 Some(HgvsVariant::TxVariant {
                     loc_edit: n_loc_edit,
@@ -3538,7 +3538,7 @@ fn crosses_cds_end(var_c: &HgvsVariant, cds_len: Option<i32>) -> bool {
 /// `del.len()` bases earlier, i.e. if the same bases could be deleted from the 5' UTR.
 /// VEP's `_ins_del_start_altered` checks the same.
 ///
-/// Only VEP terms use this check. With default terms, the region from hgvs-rs decides.
+/// Only VEP compatibility mode uses this check. Outside it, the region from hgvs-rs decides.
 fn deletion_keeps_cds(tx_seq: &str, cds_start: usize, del: std::ops::Range<usize>) -> bool {
     let Some(new_cds_start) = cds_start.checked_sub(del.len()) else {
         return false;
@@ -4203,6 +4203,7 @@ mod test {
             provider,
             ConfigBuilder::default()
                 .vep_consequence_terms(vep_consequence_terms)
+                .vep_compatibility_mode(vep_consequence_terms)
                 .build()?,
         );
 
@@ -4260,6 +4261,7 @@ mod test {
             provider,
             ConfigBuilder::default()
                 .vep_consequence_terms(vep_consequence_terms)
+                .vep_compatibility_mode(vep_consequence_terms)
                 .build()?,
         );
 
@@ -4340,6 +4342,7 @@ mod test {
     ) -> Result<AnnField, anyhow::Error> {
         let config = ConfigBuilder::default()
             .vep_consequence_terms(vep_consequence_terms)
+            .vep_compatibility_mode(vep_consequence_terms)
             .build()?;
         annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_ENSEMBL108_TXS)
     }
@@ -4503,6 +4506,7 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let config = ConfigBuilder::default()
             .vep_consequence_terms(vep_consequence_terms)
+            .vep_compatibility_mode(vep_consequence_terms)
             .build()?;
         let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
         assert_eq!(
@@ -4574,6 +4578,7 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let config = ConfigBuilder::default()
             .vep_consequence_terms(vep_consequence_terms)
+            .vep_compatibility_mode(vep_consequence_terms)
             .build()?;
         let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
         assert_eq!(
@@ -4585,6 +4590,25 @@ mod test {
             (Some(expected_hgvs_c), Some(expected_hgvs_p), &expected_csqs),
             "spdi = {spdi}"
         );
+
+        Ok(())
+    }
+
+    /// `vep_consequence_terms` alone renames the terms but keeps mehari's rules; only
+    /// `vep_compatibility_mode` follows VEP. The dup can go in front of c.1, so mehari puts it in
+    /// the 5' UTR, while VEP counts its position in the CDS, see `annotate_dup_csqs`.
+    #[test]
+    fn vep_terms_without_compatibility_mode() -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .build()?;
+        let ann = annotate_chr22_window_with_config(
+            "22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG",
+            "ENST00000413051",
+            config,
+            CHR22_GENCODE42_TXS,
+        )?;
+        assert_eq!(ann.consequences, [Consequence::FivePrimeUtrVariant]);
 
         Ok(())
     }
@@ -4627,6 +4651,7 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let config = ConfigBuilder::default()
             .vep_consequence_terms(true)
+            .vep_compatibility_mode(true)
             .build()?;
         let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
         assert_eq!(
@@ -4664,6 +4689,7 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let config = ConfigBuilder::default()
             .vep_consequence_terms(true)
+            .vep_compatibility_mode(true)
             .build()?;
         let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
         assert_eq!(
@@ -4700,6 +4726,7 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let config = ConfigBuilder::default()
             .vep_consequence_terms(true)
+            .vep_compatibility_mode(true)
             .build()?;
         let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_CDS_END_TXS)?;
         assert_eq!(
@@ -4962,6 +4989,7 @@ mod test {
             provider,
             ConfigBuilder::default()
                 .vep_consequence_terms(true)
+                .vep_compatibility_mode(true)
                 .build()?,
         );
 
@@ -5013,6 +5041,7 @@ mod test {
             provider,
             ConfigBuilder::default()
                 .vep_consequence_terms(vep_consequence_terms)
+                .vep_compatibility_mode(vep_consequence_terms)
                 .build()?,
         );
 
@@ -6144,6 +6173,7 @@ mod test {
             provider,
             ConfigBuilder::default()
                 .vep_consequence_terms(vep_consequence_terms)
+                .vep_compatibility_mode(vep_consequence_terms)
                 .build()?,
         );
 
@@ -6256,6 +6286,7 @@ mod test {
             provider,
             ConfigBuilder::default()
                 .vep_consequence_terms(vep_consequence_terms)
+                .vep_compatibility_mode(vep_consequence_terms)
                 .build()?,
         );
 
