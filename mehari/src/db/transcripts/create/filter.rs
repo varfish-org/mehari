@@ -431,13 +431,19 @@ pub(crate) fn filter_transcripts_with_sequence(
                             || (is_mt && !aa_sequence.contains('*'));
                         if has_missing_stop_codon && !loader.disable_filters {
                             reason |= Reason::MissingStopCodon;
-                            if five_prime_truncated(tx) {
-                                reason |= Reason::FivePrimeEndTruncated;
-                            }
                             if three_prime_truncated(tx) {
                                 reason |= Reason::ThreePrimeEndTruncated;
                             }
                         }
+                    }
+
+                    // A CDS that reaches the 5' end of the transcript without a start codon is
+                    // incomplete there, e.g. if the annotation clips it at the alignment.
+                    if !loader.disable_filters
+                        && five_prime_truncated(tx)
+                        && seq.get(cds_start..cds_start + 3) != Some("ATG")
+                    {
+                        reason |= Reason::FivePrimeEndTruncated;
                     }
 
                     if has_invalid_cds_length
