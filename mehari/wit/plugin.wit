@@ -1,6 +1,16 @@
 package mehari:plugin@0.1.0;
 
-/// Data passed to plugins, and the host functions computing it on request.
+/// The mehari run.
+interface host {
+    /// The genome assembly of the transcript database, e.g. `grch38`.
+    assembly: func() -> string;
+    /// The version of mehari.
+    version: func() -> string;
+    /// Whether mehari runs with `--vep-compatibility-mode`.
+    vep-compatible: func() -> bool;
+}
+
+/// The data passed to plugins.
 interface types {
     /// A variant as given in the VCF, before normalization.
     record vcf-variant {
@@ -11,20 +21,16 @@ interface types {
         alternative: string,
     }
 
-    /// The annotation of one transcript, as computed by mehari.
-    record annotation {
-        /// Transcript accession; empty for intergenic variants.
-        feature-id: string,
-        /// Sequence Ontology terms, most severe first.
-        consequences: list<string>,
-        /// HGVS descriptions as in mehari's output. Normalization shifts the variant towards
-        /// the transcript's 3' end, so the genomic position depends on the strand.
-        hgvs-g: option<string>,
-        hgvs-n: option<string>,
-        hgvs-c: option<string>,
-        hgvs-p: option<string>,
-        /// 1-based transcript position of the first variant base; exonic variants only.
-        cdna-pos: option<s32>,
+    /// A 1-based number out of a total, e.g. exon 3 of 12.
+    record rank {
+        ord: s32,
+        total: s32,
+    }
+
+    /// A 1-based position and the length it counts within, if known.
+    record position {
+        ord: s32,
+        total: option<s32>,
     }
 
     enum strand {
@@ -38,11 +44,23 @@ interface types {
         tx-end: s32,
         genome-start: s32,
         genome-end: s32,
+        /// Alignment of the exon to the genome, e.g. `120M`.
+        cigar: string,
     }
 
     record transcript {
         id: string,
+        /// Accession of the protein; coding transcripts only.
+        protein: option<string>,
+        /// Accession of the chromosome, e.g. `NC_000017.11`.
+        contig: string,
+        /// Genome build of the alignment, as in the transcript database, e.g. `grch38`.
+        genome-build: string,
         strand: strand,
+        /// Lowest and highest genome position of the coding sequence, 1-based; coding
+        /// transcripts only.
+        genome-cds-start: option<s32>,
+        genome-cds-end: option<s32>,
         /// In transcript order.
         exons: list<exon>,
     }
@@ -58,29 +76,98 @@ interface types {
         cds-start: s32,
     }
 
-    /// The inputs for the transcripts of one `annotate` call, by their index in `annotations`.
-    /// Results are computed on the first request and shared with other plugins.
-    resource contexts {
-        /// `none` for intergenic variants.
+    /// An amino acid that the transcript annotation assigns to a codon, whatever the
+    /// translation table says, e.g. selenocysteine (`U`).
+    record translation-exception {
+        /// 1-based position in the protein.
+        position: u32,
+        amino-acid: string,
+    }
+
+    /// How the coding sequence is translated.
+    record translation {
+        /// `standard`, `selenocysteine` or `vertebrate-mitochondrial`.
+        table: string,
+        exceptions: list<translation-exception>,
+    }
+
+    /// The annotations of one `annotate` call, one per transcript, by their 0-based index.
+    /// Values are computed when first requested and shared with other plugins.
+    /// An index out of range stops mehari with an error.
+    resource annotations {
+        /// The number of annotations.
+        len: func() -> u32;
+
+        /// Transcript accession; empty for intergenic variants.
+        feature-id: func(index: u32) -> string;
+        /// As in `ANN`: `transcript`, or `Intergenic` for intergenic variants.
+        feature-type: func(index: u32) -> string;
+        /// Sequence Ontology terms, most severe first.
+        consequences: func(index: u32) -> list<string>;
+        /// `HIGH`, `MODERATE`, `LOW` or `MODIFIER`.
+        impact: func(index: u32) -> string;
+        gene-symbol: func(index: u32) -> string;
+        /// The HGNC ID, e.g. `HGNC:1100`.
+        gene-id: func(index: u32) -> string;
+        /// E.g. `Coding`.
+        biotypes: func(index: u32) -> list<string>;
+        /// E.g. `ManeSelect`.
+        tags: func(index: u32) -> list<string>;
+        /// The exon, or for intronic variants the intron, as in the `ANN` field.
+        rank: func(index: u32) -> option<rank>;
+        /// HGVS descriptions as in mehari's output. Normalization shifts the variant towards the
+        /// transcript's 3' end, so the genomic position depends on the strand.
+        hgvs-g: func(index: u32) -> option<string>;
+        hgvs-n: func(index: u32) -> option<string>;
+        hgvs-c: func(index: u32) -> option<string>;
+        hgvs-p: func(index: u32) -> option<string>;
+        /// Position of the first variant base in the transcript; exonic variants only.
+        cdna-pos: func(index: u32) -> option<position>;
+        /// Position of the first variant base in the coding sequence.
+        cds-pos: func(index: u32) -> option<position>;
+        /// Position of the first changed amino acid.
+        protein-pos: func(index: u32) -> option<position>;
+        /// As in `ANN`: distance to the transcript for up- and downstream variants, or to the
+        /// nearest exon for intronic ones.
+        distance: func(index: u32) -> option<s32>;
+        /// Warnings, e.g. about an incomplete transcript.
+        warnings: func(index: u32) -> list<string>;
+        /// The value an earlier plugin wrote into `column`.
+        field: func(index: u32, column: string) -> option<string>;
+
+        /// Strand, exons and coding sequence; `none` for intergenic variants.
         transcript: func(index: u32) -> option<transcript>;
         reference: func(index: u32) -> option<sequences>;
-        /// Coding variants only.
+        /// Coding transcripts only; intronic variants leave the sequences unchanged.
         alternative: func(index: u32) -> option<sequences>;
+        /// 1-based transcript position of the last base of the coding sequence, which includes
+        /// the stop codon.
+        cds-end: func(index: u32) -> option<s32>;
+        translation: func(index: u32) -> option<translation>;
+        /// Whether the variant shifts the reading frame; coding transcripts only.
+        frameshift: func(index: u32) -> option<bool>;
+        /// 1-based position of the first codon the variant changes; exonic variants on coding
+        /// transcripts only.
+        first-changed-codon: func(index: u32) -> option<s32>;
     }
 }
 
 world plugin {
-    use types.{vcf-variant, annotation, contexts};
+    import host;
+    use types.{vcf-variant, annotations};
 
-    /// The columns this plugin fills, in output order.
-    export columns: func() -> list<string>;
+    /// Called once per plugin instance, before any `annotate`, with the options given on the
+    /// command line. Returns the columns this plugin fills, in output order, or an error.
+    export init: func(options: list<tuple<string, string>>) -> result<list<string>, string>;
 
-    /// Called once per prediction with all of its reported transcripts. `variants` holds the
-    /// input variant, or the variants of a compound group. Returns one list per annotation,
-    /// holding one value per column.
+    /// Called once per prediction with the annotations of all its reported transcripts.
+    /// `variants` holds the input variant, or the variants of a compound group. Returns one list
+    /// per annotation, holding one value per column, or an error.
     export annotate: func(
         variants: list<vcf-variant>,
-        annotations: list<annotation>,
-        contexts: borrow<contexts>,
-    ) -> list<list<option<string>>>;
+        annotations: borrow<annotations>,
+    ) -> result<list<list<option<string>>>, string>;
 }
+
+// Later 0.1.x versions may add functions; plugins built against an earlier version keep working.
+// Records cannot change once released, so new data comes as new functions.

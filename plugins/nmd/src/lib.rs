@@ -15,36 +15,37 @@ const LAST_JUNCTION_BASES: i32 = 50;
 struct Nmd;
 
 impl Guest for Nmd {
-    fn columns() -> Vec<String> {
-        vec!["nmd".into()]
+    fn init(options: Vec<(String, String)>) -> Result<Vec<String>, String> {
+        match options.first() {
+            Some((key, _)) => Err(format!("unknown option {key:?}")),
+            None => Ok(vec!["nmd".into()]),
+        }
     }
 
     fn annotate(
         _variants: Vec<VcfVariant>,
-        annotations: Vec<Annotation>,
-        contexts: &Contexts,
-    ) -> Vec<Vec<Option<String>>> {
-        (0..)
-            .zip(&annotations)
-            .map(|(index, ann)| vec![predict(contexts, index, ann)])
-            .collect()
+        annotations: &Annotations,
+    ) -> Result<Vec<Vec<Option<String>>>, String> {
+        Ok((0..annotations.len())
+            .map(|index| vec![predict(annotations, index)])
+            .collect())
     }
 }
 
 /// One value for every stop-gained or frameshift annotation, see `NmdPrediction` in mehari.
-fn predict(contexts: &Contexts, index: u32, ann: &Annotation) -> Option<String> {
-    let truncating = ann
-        .consequences
+fn predict(annotations: &Annotations, index: u32) -> Option<String> {
+    let truncating = annotations
+        .consequences(index)
         .iter()
         .any(|csq| csq == "stop_gained" || csq == "frameshift_variant");
-    truncating.then(|| classify(contexts, index, ann).unwrap_or("unknown").into())
+    truncating.then(|| classify(annotations, index).unwrap_or("unknown").into())
 }
 
 /// `None` if the premature stop codon (PTC) or the exon structure is unknown.
-fn classify(contexts: &Contexts, index: u32, ann: &Annotation) -> Option<&'static str> {
-    let transcript = contexts.transcript(index)?;
-    let reference = contexts.reference(index)?;
-    let alternative = contexts.alternative(index)?;
+fn classify(annotations: &Annotations, index: u32) -> Option<&'static str> {
+    let transcript = annotations.transcript(index)?;
+    let reference = annotations.reference(index)?;
+    let alternative = annotations.alternative(index)?;
     let Some(stop) = alternative.protein.find('*') else {
         return Some("no_stop_codon");
     };
@@ -53,7 +54,7 @@ fn classify(contexts: &Contexts, index: u32, ann: &Annotation) -> Option<&'stati
     let ptc = reference.cds_start + 3 * stop as i32;
     let last_exon_start = transcript.exons.last()?.tx_start;
     // Insertions and deletions before the last junction move it.
-    let last_junction = if ann.cdna_pos? < last_exon_start {
+    let last_junction = if annotations.cdna_pos(index)?.ord < last_exon_start {
         last_exon_start + alternative.transcript.len() as i32 - reference.transcript.len() as i32
     } else {
         last_exon_start

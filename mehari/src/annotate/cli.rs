@@ -116,7 +116,8 @@ pub struct ReportingSettings {
     use_vep_consequence_terms: bool,
 
     /// Plugin to run, adding ANN columns: tx-sequence-ref, tx-sequence-alt, aa-sequence-ref,
-    /// aa-sequence-alt, nmd, or the path of a WebAssembly component (`.wasm`).
+    /// aa-sequence-alt, nmd, or the path of a WebAssembly component (`.wasm`) followed by its
+    /// options as `,key=value`; `data=<dir>` lets the component read that directory.
     #[arg(long = "plugin")]
     pub plugins: Vec<PluginSpec>,
 }

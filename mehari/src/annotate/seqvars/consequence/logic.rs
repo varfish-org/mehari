@@ -3809,7 +3809,7 @@ mod test {
         fn annotate(
             &self,
             _variants: &[VcfVariant],
-            txs: &mut [TxAnnotation],
+            txs: &mut Vec<TxAnnotation>,
         ) -> Result<(), SeqvarsError> {
             self.calls.lock().unwrap().push(txs.len());
             let count = txs.len().to_string();

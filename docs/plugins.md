@@ -1,29 +1,40 @@
 Plugins add your own columns to the `ANN` field of `mehari annotate seqvars`.
 
-A plugin is a WebAssembly component: write it in Python, Rust or another language with WebAssembly component tooling, build it into a `.wasm` file, and pass that to `--plugin`.
-Plugins run sandboxed and get the annotation of every transcript plus, on request, its exon structure and its transcript and protein sequences with and without the variant.
+A plugin is a WebAssembly component: write it in Python, Rust or another language with WebAssembly component tooling, build it into a `.wasm` file, and pass that to `--plugin`, followed by its options:
 
 ```sh
-mehari annotate seqvars --plugin my_plugin.wasm ...
+mehari annotate seqvars --plugin my_plugin.wasm,data=/path/to/tables,threshold=0.5 ...
 ```
 
+Plugins run sandboxed and see every transcript annotation of a variant, with its exon structure, its transcript and protein sequences and everything else mehari knows about it.
 `--plugin` also takes the names of the built-in plugins (see [Annotating Sequence Variants](`self::anno_seqvars`)) and may be given several times; the columns appear in that order.
 
 ## How a plugin works
 
 A plugin implements the `plugin` world of [`mehari/wit/plugin.wit`](https://github.com/varfish-org/mehari/blob/main/mehari/wit/plugin.wit), which defines two functions:
 
-- `columns()` returns the names of the columns the plugin fills. mehari calls it once, when loading the plugin.
-- `annotate(variants, annotations, contexts)` is called once per variant with the annotations of all its reported transcripts. It returns one list per annotation, holding one value per column; an empty value (`None` in Python) leaves the field empty.
+- `init(options)` gets the options from the command line as key-value pairs and returns the names of the columns the plugin fills, or an error. mehari runs a separate instance of the plugin per thread and calls `init` once in each.
+- `annotate(variants, annotations)` is called once per variant and returns one list per annotation, holding one value per column, or an error. An empty value (`None` in Python) leaves the field empty.
 
-The arguments:
+`variants` holds the variant as written in the VCF, before normalization, or the variants of a compound group (`--enable-compound-variants`).
+`annotations` has one entry per reported transcript; `annotations.len()` says how many.
+For each index, it offers:
 
-- `variants` holds the variant as written in the VCF, before normalization, or the variants of a compound group (`--enable-compound-variants`).
-- Each annotation has the transcript accession (`feature-id`, empty for intergenic variants), the Sequence Ontology terms (`consequences`), the HGVS descriptions (`hgvs-g`, `hgvs-n`, `hgvs-c`, `hgvs-p`) and the transcript position (`cdna-pos`). These are the values mehari writes to `ANN`: HGVS normalization shifts the variant towards the transcript's 3' end, so its position depends on the transcript's strand.
-- `contexts` gives more data for the annotation at a given index, computed when the plugin first asks for it and shared with the other plugins:
-  - `transcript(index)`: strand and exons (transcript and genome positions, 1-based), or none for intergenic variants;
-  - `reference(index)`: transcript sequence, protein sequence and the position of the start codon;
-  - `alternative(index)`: the same with the variant applied, for coding variants only.
+- what mehari writes to `ANN`: `feature-id` (transcript accession, empty for intergenic variants), `consequences` (Sequence Ontology terms), `impact`, `gene-symbol`, `gene-id`, `biotypes`, `tags`, `rank` (exon or intron), `hgvs-g`, `hgvs-n`, `hgvs-c`, `hgvs-p`, `cdna-pos`, `cds-pos`, `protein-pos`, `distance` and `warnings`. HGVS normalization shifts the variant towards the transcript's 3' end, so its position depends on the transcript's strand;
+- `field(index, column)`: what an earlier plugin wrote into a column;
+- `transcript`: strand, exons with transcript and genome positions, contig, genome build, protein accession and the genomic range of the coding sequence;
+- `reference` and `alternative`: transcript sequence, protein sequence and start codon, without and with the variant; `cds-end`, `translation` (translation table and exceptions such as selenocysteine), `frameshift` and `first-changed-codon`.
+
+mehari computes the transcript data when a plugin first asks for it and shares it with the other plugins, so ask only for what you need.
+The `host` interface tells the genome assembly, the mehari version and whether `--vep-compatibility-mode` is on.
+`plugin.wit` documents every function.
+
+## Options and data files
+
+Options follow the plugin's path as `,key=value`; the plugin decides what they mean.
+One option is mehari's: `data=<directory>` lets the plugin read that directory as `/data`, e.g. to look up a table there.
+Plugins cannot write it, nor read anything else.
+`init` runs once per thread, so load small tables there, and look up large ones on demand.
 
 ## Writing a plugin in Python
 
@@ -38,11 +49,12 @@ They were tested with componentize-py 0.25.1.
    uvx componentize-py -d wit -w plugin bindings .
    ```
 
-3. Write `app.py`. The class must be called `WitWorld`. This example adds a `lof` column for loss-of-function consequences and an `exon_count` column:
+3. Write `app.py`. The class must be called `WitWorld`; raise `Err` to report an error. This example adds a `lof` column for loss-of-function consequences and an `in_panel` column for genes listed in a file:
 
    ```python
    import wit_world
-   from wit_world.imports.types import Annotation, Contexts, VcfVariant
+   from componentize_py_types import Err
+   from wit_world.imports.types import Annotations, VcfVariant
 
    LOSS_OF_FUNCTION = {
        "stop_gained",
@@ -51,25 +63,28 @@ They were tested with componentize-py 0.25.1.
        "splice_donor_variant",
        "start_lost",
    }
+   PANEL: set[str] = set()
 
 
    class WitWorld(wit_world.WitWorld):
-       def columns(self) -> list[str]:
-           return ["lof", "exon_count"]
+       def init(self, options: list[tuple[str, str]]) -> list[str]:
+           for key, value in options:
+               if key != "panel":
+                   raise Err(f"unknown option {key!r}")
+               # One gene symbol per line, in the directory given with `data`.
+               with open(f"/data/{value}") as panel:
+                   PANEL.update(line.strip() for line in panel)
+           return ["lof", "in_panel"]
 
        def annotate(
-           self,
-           variants: list[VcfVariant],
-           annotations: list[Annotation],
-           contexts: Contexts,
+           self, variants: list[VcfVariant], annotations: Annotations
        ) -> list[list[str | None]]:
            rows = []
-           for index, ann in enumerate(annotations):
-               lof = "yes" if LOSS_OF_FUNCTION & set(ann.consequences) else None
-               # Computed on request; None for intergenic variants.
-               transcript = contexts.transcript(index)
-               exon_count = str(len(transcript.exons)) if transcript else None
-               rows.append([lof, exon_count])
+           for index in range(annotations.len()):
+               consequences = set(annotations.consequences(index))
+               lof = "yes" if LOSS_OF_FUNCTION & consequences else None
+               in_panel = "yes" if annotations.gene_symbol(index) in PANEL else None
+               rows.append([lof, in_panel])
            return rows
    ```
 
@@ -77,7 +92,7 @@ They were tested with componentize-py 0.25.1.
 
    ```sh
    uvx componentize-py -d wit -w plugin componentize app -o lof.wasm
-   mehari annotate seqvars --plugin lof.wasm ...
+   mehari annotate seqvars --plugin lof.wasm,data=panels,panel=cardio.txt ...
    ```
 
 `plugins/nmd-python` in the mehari repository is a larger example: the built-in `nmd` plugin, written in Python.
@@ -86,7 +101,7 @@ Things to know about Python plugins:
 
 - componentize-py bundles the modules that `app.py` imports when it is loaded, so import everything at the top of the file. A module imported inside a function is missing at run time.
 - Pure-Python packages can be bundled: install them into a virtual environment that is active while building, or into a directory (`pip install --target deps ...`) that you add with `-p . -p deps`. `-p` replaces the default `.`, so keep it in the list. Packages with compiled extensions need builds for WebAssembly.
-- `print` output to stdout is discarded; print to `sys.stderr` instead. An exception stops mehari and shows the Python traceback.
+- `print` output to stdout is discarded; print to `sys.stderr` instead. An exception other than `Err` stops mehari and shows the Python traceback.
 - The component contains the Python interpreter (about 18 MB). mehari compiles it when starting, which takes a few seconds on one thread and less with more `--threads`. Each thread then holds its own instance, about 25 MB each.
 
 ## Writing a plugin in Rust
@@ -107,19 +122,23 @@ wit_bindgen::generate!({ path: "wit", world: "plugin" });
 struct MyPlugin;
 
 impl Guest for MyPlugin {
-    fn columns() -> Vec<String> {
-        vec!["exon_count".into()]
+    fn init(options: Vec<(String, String)>) -> Result<Vec<String>, String> {
+        match options.first() {
+            Some((key, _)) => Err(format!("unknown option {key:?}")),
+            None => Ok(vec!["exon_count".into()]),
+        }
     }
 
     fn annotate(
         _variants: Vec<VcfVariant>,
-        annotations: Vec<Annotation>,
-        contexts: &Contexts,
-    ) -> Vec<Vec<Option<String>>> {
-        (0..)
-            .zip(&annotations)
-            .map(|(index, _)| vec![contexts.transcript(index).map(|tx| tx.exons.len().to_string())])
-            .collect()
+        annotations: &Annotations,
+    ) -> Result<Vec<Vec<Option<String>>>, String> {
+        Ok((0..annotations.len())
+            .map(|index| {
+                let transcript = annotations.transcript(index);
+                vec![transcript.map(|tx| tx.exons.len().to_string())]
+            })
+            .collect())
     }
 }
 
@@ -142,7 +161,7 @@ These have not been tested with mehari.
 
 ## Sandbox, errors and versions
 
-- Plugins have no access to files, the network or environment variables. Their stderr is shown, their stdout is discarded.
-- If a plugin fails, or returns a different number of rows or values than expected, mehari stops with an error naming the plugin.
+- Plugins have no access to the network or environment variables, and no file access beyond `data`. Their stderr is shown, their stdout is discarded.
+- If a plugin fails, asks for an annotation past the last one, or returns a different number of rows or values than expected, mehari stops with an error naming the plugin.
 - Two plugins cannot fill the same column.
-- The interface has a version (`package mehari:plugin@0.1.0` in `plugin.wit`). A component built for another version fails to load; rebuild it with the `plugin.wit` of your mehari version.
+- The interface has a version (`package mehari:plugin@0.1.0` in `plugin.wit`). Later 0.1.x versions only add functions, so plugins built for 0.1.0 keep working. A plugin built for another version fails to load; rebuild it with the `plugin.wit` of your mehari version.

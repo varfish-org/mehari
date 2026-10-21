@@ -53,7 +53,7 @@ impl TranscriptPlugin for NmdPlugin {
     fn annotate(
         &self,
         variants: &[VcfVariant],
-        txs: &mut [TxAnnotation],
+        txs: &mut Vec<TxAnnotation>,
     ) -> Result<(), SeqvarsError> {
         for TxAnnotation { context, ann } in txs {
             let value = if self.vep_compatible {

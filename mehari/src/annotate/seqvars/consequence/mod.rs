@@ -8,6 +8,7 @@ use crate::annotate::seqvars::consequence::terms::Consequence;
 use crate::annotate::seqvars::provider::{
     ConfigBuilder as MehariProviderConfigBuilder, Provider as MehariProvider,
 };
+use crate::db::TranscriptDatabase;
 use crate::db::keys::Var;
 use crate::pbs::txs::TxSeqDatabase;
 use anyhow::{Error, anyhow};
@@ -16,7 +17,7 @@ use hgvs::data::interface::Provider;
 use hgvs::parser::{HgvsVariant, NoRef};
 use itertools::Itertools;
 pub(crate) use logic::ConsequencePredictor;
-use plugin::{CompoundPlugin, TranscriptPlugin};
+use plugin::{CompoundPlugin, RunInfo, TranscriptPlugin};
 use prost::Message;
 use std::fmt;
 use std::fmt::Display;
@@ -131,10 +132,14 @@ impl ConsequenceAnnotator {
         let args = predictor_settings;
         let s = &args.reporting_settings;
 
+        let run = RunInfo {
+            assembly: tx_db.assembly(),
+            vep_compatible: args.vep_compatibility_mode,
+        };
         let mut plugins = s
             .plugins
             .iter()
-            .map(|plugin| plugin.build(args.vep_compatibility_mode))
+            .map(|plugin| plugin.build(&run))
             .collect::<Result<Vec<_>, _>>()?;
         if args.compound_settings.enable_compound_variants {
             plugins.push(Arc::new(CompoundPlugin::default()));

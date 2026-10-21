@@ -35,7 +35,7 @@ impl TranscriptPlugin for SequencePlugin {
     fn annotate(
         &self,
         _variants: &[VcfVariant],
-        txs: &mut [TxAnnotation],
+        txs: &mut Vec<TxAnnotation>,
     ) -> Result<(), SeqvarsError> {
         for TxAnnotation { context, ann } in txs {
             if context.var_c.is_none() {

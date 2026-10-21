@@ -31,24 +31,44 @@ pub use sequence::SequencePlugin;
 #[cfg(feature = "wasm")]
 pub use wasm::WasmPlugin;
 
-/// A plugin to run: a built-in by name, or a WebAssembly component by its path.
+/// A plugin to run: a built-in by name, or a WebAssembly component by its path, followed by its
+/// options as `,key=value`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluginSpec {
     Builtin(BuiltinPlugin),
-    Wasm(PathBuf),
+    Wasm {
+        path: PathBuf,
+        options: Vec<(String, String)>,
+    },
 }
 
 impl FromStr for PluginSpec {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Ok(plugin) = s.parse() {
+        let mut parts = s.split(',');
+        let name = parts.next().unwrap_or_default();
+        let options = parts
+            .map(|option| {
+                option
+                    .split_once('=')
+                    .map(|(key, value)| (key.to_string(), value.to_string()))
+                    .ok_or_else(|| format!("plugin option {option:?} is not key=value"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if let Ok(plugin) = name.parse() {
+            if !options.is_empty() {
+                return Err(format!("built-in plugin {name} takes no options"));
+            }
             Ok(Self::Builtin(plugin))
-        } else if s.ends_with(".wasm") {
-            Ok(Self::Wasm(s.into()))
+        } else if name.ends_with(".wasm") {
+            Ok(Self::Wasm {
+                path: name.into(),
+                options,
+            })
         } else {
             Err(format!(
-                "unknown plugin {s:?}, expected one of {} or a path ending in .wasm",
+                "unknown plugin {name:?}, expected one of {} or a path ending in .wasm",
                 BuiltinPlugin::VARIANTS.iter().join(", ")
             ))
         }
@@ -56,19 +76,29 @@ impl FromStr for PluginSpec {
 }
 
 impl PluginSpec {
-    /// `vep_compatible` makes built-in plugins mimic their VEP counterparts.
-    pub fn build(&self, vep_compatible: bool) -> Result<Arc<dyn TranscriptPlugin>, SeqvarsError> {
+    pub fn build(&self, run: &RunInfo) -> Result<Arc<dyn TranscriptPlugin>, SeqvarsError> {
         match self {
-            Self::Builtin(plugin) => Ok(plugin.build(vep_compatible)),
+            Self::Builtin(plugin) => Ok(plugin.build(run.vep_compatible)),
             #[cfg(feature = "wasm")]
-            Self::Wasm(path) => Ok(Arc::new(WasmPlugin::load(path)?)),
+            Self::Wasm { path, options } => {
+                Ok(Arc::new(WasmPlugin::load(path, options, run.clone())?))
+            }
             #[cfg(not(feature = "wasm"))]
-            Self::Wasm(path) => Err(SeqvarsError::Plugin(format!(
+            Self::Wasm { path, .. } => Err(SeqvarsError::Plugin(format!(
                 "{}: mehari was built without the `wasm` feature",
                 path.display()
             ))),
         }
     }
+}
+
+/// What plugins learn about the run.
+#[derive(Debug, Clone, Default)]
+pub struct RunInfo {
+    /// Genome assembly of the transcript database, e.g. `grch38`.
+    pub assembly: String,
+    /// Mimic VEP, see `--vep-compatibility-mode`.
+    pub vep_compatible: bool,
 }
 
 /// Plugins to select by name.
@@ -112,11 +142,13 @@ pub trait TranscriptPlugin: Debug + Send + Sync {
     /// `variants` holds the input variant as given in the VCF, or the variants of a compound
     /// group. The HGVS descriptions in `ann` and `context.var_c` follow HGVS normalization, which
     /// shifts towards the transcript's 3' end and so depends on its strand.
-    /// Writes into `ann.custom_fields`; keys not listed in `columns` are not output.
+    /// Writes into `ann.custom_fields`; keys not listed in `columns` are not output. `txs` is a
+    /// `Vec` so that a plugin can move the annotations, e.g. to lend them to a WebAssembly
+    /// component.
     fn annotate(
         &self,
         variants: &[VcfVariant],
-        txs: &mut [TxAnnotation],
+        txs: &mut Vec<TxAnnotation>,
     ) -> Result<(), SeqvarsError>;
 }
 
@@ -203,8 +235,20 @@ mod test {
         assert_eq!("nmd".parse(), Ok(PluginSpec::Builtin(BuiltinPlugin::Nmd)));
         assert_eq!(
             "plugins/nmd.wasm".parse(),
-            Ok(PluginSpec::Wasm("plugins/nmd.wasm".into()))
+            Ok(PluginSpec::Wasm {
+                path: "plugins/nmd.wasm".into(),
+                options: vec![],
+            })
+        );
+        assert_eq!(
+            "x.wasm,data=/d,panel=a=b".parse(),
+            Ok(PluginSpec::Wasm {
+                path: "x.wasm".into(),
+                options: vec![("data".into(), "/d".into()), ("panel".into(), "a=b".into())],
+            })
         );
         assert!("nmdd".parse::<PluginSpec>().is_err());
+        assert!("nmd,a=b".parse::<PluginSpec>().is_err());
+        assert!("x.wasm,flag".parse::<PluginSpec>().is_err());
     }
 }
