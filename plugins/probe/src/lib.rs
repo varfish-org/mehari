@@ -6,6 +6,7 @@
 //! - `fail-init=<message>`: `init` fails with the message.
 //! - `init-read=<file>`: `init` reads the file in the data directory, or fails.
 //! - `column=<name>`: `init` also declares a string column with that name.
+//! - `annotate-empty`: asks for predictions without annotations, too.
 //! - `fail=<message>`: `annotate` fails with the message.
 //! - `fail-compound=<message>`: `annotate` fails with the message for compound groups.
 //! - `stale`: keeps the first annotation and reads it again in the next call.
@@ -63,6 +64,9 @@ impl Guest for Probe {
         setup.add_boolean_list_column("probe_bools");
         if let Some(name) = option("column") {
             setup.add_string_column(&name);
+        }
+        if option("annotate-empty").is_some() {
+            setup.annotate_empty_predictions();
         }
         Ok(())
     }

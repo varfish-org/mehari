@@ -12,7 +12,7 @@ readme = "../README.md"
 [features]
 default = ["jemalloc", "server", "wasm"]
 server = ["dep:actix-web", "dep:utoipa", "dep:utoipa-swagger-ui", "annonars/server"]
-wasm = ["dep:wasmtime", "dep:wasmtime-wasi"]  # WebAssembly plugins
+wasm = ["dep:thread_local", "dep:wasmtime", "dep:wasmtime-wasi"]  # WebAssembly plugins
 jemalloc = ["dep:tikv-jemallocator", "rocksdb/jemalloc", "annonars/jemalloc"]
 dhat-heap = ["dep:dhat"]  # for heap profiling with dhats
 documentation = []
@@ -74,6 +74,7 @@ serde_yaml = "0.9"
 strum = { version = "0.28", features = ["derive"] }
 tempfile = "3"
 thousands = "0.2"
+thread_local = { version = "1.1", optional = true }
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "io-std"] }
 tracing-subscriber = "0.3"
 tracing = { version = "0.1", features = ["log"] }

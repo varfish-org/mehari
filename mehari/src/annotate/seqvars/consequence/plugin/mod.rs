@@ -16,8 +16,8 @@ use strum::VariantArray;
 use super::VcfVariant;
 use super::terms::AnnField;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
-use crate::errors::SeqvarsError;
 use crate::db::TranscriptDatabase;
+use crate::errors::SeqvarsError;
 use crate::pbs::txs::{Transcript, TxSeqDatabase};
 
 mod compound;

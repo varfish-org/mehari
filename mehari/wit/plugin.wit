@@ -74,6 +74,10 @@ interface types {
         add-integer-list-column: func(name: string);
         add-float-list-column: func(name: string);
         add-boolean-list-column: func(name: string);
+
+        /// Also call `annotate` for predictions without annotations, e.g. intergenic variants
+        /// unless `--keep-intergenic` is given. mehari skips those by default.
+        annotate-empty-predictions: func();
     }
 
     /// One prediction: a variant, or a compound group, with its reported annotations.

@@ -1,11 +1,12 @@
 //! Plugins compiled to WebAssembly components, implementing the `plugin` world of
 //! `wit/plugin.wit`.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use hgvs::sequences::TranslationTable;
 use itertools::Itertools;
+use thread_local::ThreadLocal;
 use wasmtime::component::{Component, HasSelf, Linker, Resource, ResourceTable};
 use wasmtime::{Config, Engine, Store, bail, ensure, format_err};
 use wasmtime_wasi::{FsPerms, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
@@ -55,10 +56,10 @@ pub struct WasmPlugin {
     engine: Engine,
     #[derivative(Debug = "ignore")]
     pre: bindings::PluginPre<HostState>,
-    columns: Vec<Column>,
-    /// Instances not in use; a call takes one or creates it, so there is one per thread.
+    declaration: Declaration,
+    /// One instance per thread, created by its first call; `None` after an instance trapped.
     #[derivative(Debug = "ignore")]
-    instances: Mutex<Vec<Instance>>,
+    instances: ThreadLocal<RefCell<Option<Instance>>>,
 }
 
 type Instance = (Store<HostState>, Plugin);
@@ -102,10 +103,18 @@ impl std::fmt::Display for ColumnType {
     }
 }
 
-/// The options and the declared columns of one `init` call.
+/// What `init` declared; every instance must declare the same.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Declaration {
+    columns: Vec<Column>,
+    /// Call `annotate` also for predictions without annotations.
+    annotate_empty: bool,
+}
+
+/// The options and the declaration of one `init` call.
 pub struct Setup {
     options: Vec<(String, String)>,
-    columns: Vec<Column>,
+    declaration: Declaration,
 }
 
 /// The prediction of an `annotate` call, by the number of the call.
@@ -187,17 +196,17 @@ impl WasmPlugin {
             run,
             engine,
             pre,
-            columns: Vec::new(),
-            instances: Mutex::default(),
+            declaration: Declaration::default(),
+            instances: ThreadLocal::new(),
         };
-        let (instance, columns) = outside_runtime(path, || plugin.instantiate())?;
-        plugin.columns = columns;
-        plugin.instances = Mutex::new(vec![instance]);
+        let (instance, declaration) = outside_runtime(path, || plugin.instantiate())?;
+        plugin.declaration = declaration;
+        plugin.instances.get_or_default().replace(Some(instance));
         Ok(plugin)
     }
 
-    /// A new instance and the columns its `init` declared.
-    fn instantiate(&self) -> Result<(Instance, Vec<Column>), SeqvarsError> {
+    /// A new instance and what its `init` declared.
+    fn instantiate(&self) -> Result<(Instance, Declaration), SeqvarsError> {
         let error = |e: wasmtime::Error| plugin_error(&self.path, e);
         let mut wasi = WasiCtxBuilder::new();
         wasi.inherit_stderr();
@@ -223,7 +232,7 @@ impl WasmPlugin {
 
         let setup = Setup {
             options: self.options.clone(),
-            columns: Vec::new(),
+            declaration: Declaration::default(),
         };
         let handle = store
             .data_mut()
@@ -233,7 +242,7 @@ impl WasmPlugin {
         let result = plugin
             .mehari_plugin_transcript_plugin()
             .call_init(&mut store, Resource::new_borrow(handle.rep()));
-        let Setup { columns, .. } = store
+        let Setup { declaration, .. } = store
             .data_mut()
             .table
             .delete(handle)
@@ -242,22 +251,18 @@ impl WasmPlugin {
             .map_err(error)?
             .map_err(|message| plugin_message(&self.path, &message))?;
 
-        store.data_mut().columns = columns.clone();
-        Ok(((store, plugin), columns))
+        store.data_mut().columns = declaration.columns.clone();
+        Ok(((store, plugin), declaration))
     }
 
-    fn checkout(&self) -> Result<Instance, SeqvarsError> {
-        let instance = self
-            .instances
-            .lock()
-            .map_err(|_| plugin_message(&self.path, "poisoned lock"))?
-            .pop();
-        if let Some(instance) = instance {
-            return Ok(instance);
-        }
-        let (instance, columns) = outside_runtime(&self.path, || self.instantiate())?;
-        if columns != self.columns {
-            return Err(plugin_message(&self.path, "init declared other columns"));
+    /// A new instance for the calling thread.
+    fn new_instance(&self) -> Result<Instance, SeqvarsError> {
+        let (instance, declaration) = outside_runtime(&self.path, || self.instantiate())?;
+        if declaration != self.declaration {
+            return Err(plugin_message(
+                &self.path,
+                "init declared something else than before",
+            ));
         }
         Ok(instance)
     }
@@ -299,7 +304,8 @@ impl WasmPlugin {
 
 impl TranscriptPlugin for WasmPlugin {
     fn columns(&self) -> Vec<String> {
-        self.columns.iter().map(|(name, _)| name.clone()).collect()
+        let columns = &self.declaration.columns;
+        columns.iter().map(|(name, _)| name.clone()).collect()
     }
 
     fn annotate(
@@ -307,12 +313,17 @@ impl TranscriptPlugin for WasmPlugin {
         variants: &[VcfVariant],
         txs: &mut Vec<TxAnnotation>,
     ) -> Result<(), SeqvarsError> {
-        let mut instance = self.checkout()?;
-        // An instance that trapped is not reused.
-        outside_runtime(&self.path, || self.call(&mut instance, variants, txs))?;
-        if let Ok(mut instances) = self.instances.lock() {
-            instances.push(instance);
+        if txs.is_empty() && !self.declaration.annotate_empty {
+            return Ok(());
         }
+        let slot = self.instances.get_or_default();
+        let mut instance = match slot.take() {
+            Some(instance) => instance,
+            None => self.new_instance()?,
+        };
+        // An instance that trapped is not put back.
+        outside_runtime(&self.path, || self.call(&mut instance, variants, txs))?;
+        slot.replace(Some(instance));
         Ok(())
     }
 }
@@ -371,10 +382,12 @@ impl HostState {
         );
         let builtin = AnnField::ann_field_names(&[]);
         ensure!(
-            !builtin.iter().any(|field| field.eq_ignore_ascii_case(&name)),
+            !builtin
+                .iter()
+                .any(|field| field.eq_ignore_ascii_case(&name)),
             "column name {name:?} is taken by a field of ANN"
         );
-        let columns = &mut self.table.get_mut(setup)?.columns;
+        let columns = &mut self.table.get_mut(setup)?.declaration.columns;
         ensure!(
             columns.iter().all(|(other, _)| *other != name),
             "column {name:?} declared twice"
@@ -489,6 +502,11 @@ impl types::HostSetup for HostState {
         name: String,
     ) -> wasmtime::Result<()> {
         self.add_column(&setup, name, ColumnType::list(ValueType::Boolean))
+    }
+
+    fn annotate_empty_predictions(&mut self, setup: Resource<Setup>) -> wasmtime::Result<()> {
+        self.table.get_mut(&setup)?.declaration.annotate_empty = true;
+        Ok(())
     }
 
     fn drop(&mut self, setup: Resource<Setup>) -> wasmtime::Result<()> {
@@ -1221,6 +1239,24 @@ mod test {
             .unwrap_err()
             .to_string();
         assert!(error.contains("outside the annotate call"), "{error}");
+        Ok(())
+    }
+
+    /// Predictions without annotations reach a plugin only on request.
+    #[rstest::rstest]
+    #[case(&[("fail", "called")], false)]
+    #[case(&[("fail", "called"), ("annotate-empty", "")], true)]
+    fn empty_predictions(
+        #[case] options: &[(&str, &str)],
+        #[case] called: bool,
+    ) -> Result<(), anyhow::Error> {
+        let predictor = predictor(vec![Arc::new(load(PROBE_WASM, options)?)])?;
+        // Far from the genes of the test database.
+        let result = predictor.predict(&variant("17:1000000:A:T"));
+        assert!(
+            matches!(result, Ok(Some(ref anns)) if anns.is_empty()) != called,
+            "{result:?}"
+        );
         Ok(())
     }
 
