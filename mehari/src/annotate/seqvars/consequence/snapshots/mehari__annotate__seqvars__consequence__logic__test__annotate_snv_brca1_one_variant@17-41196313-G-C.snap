@@ -1,5 +1,5 @@
 ---
-source: mehari/src/annotate/seqvars/csq.rs
+source: mehari/src/annotate/seqvars/consequence/logic.rs
 expression: res
 ---
 - allele:
@@ -29,9 +29,7 @@ expression: res
   cdna_pos:
     ord: 7087
     total: 7088
-  cds_pos:
-    ord: 1382
-    total: 5592
+  cds_pos: ~
   protein_pos: ~
   distance: 0
   strand: -1
@@ -61,9 +59,7 @@ expression: res
   cdna_pos:
     ord: 7027
     total: 7028
-  cds_pos:
-    ord: 1382
-    total: 5451
+  cds_pos: ~
   protein_pos: ~
   distance: 0
   strand: -1
@@ -93,9 +89,7 @@ expression: res
   cdna_pos:
     ord: 3681
     total: 3682
-  cds_pos:
-    ord: 1382
-    total: 2280
+  cds_pos: ~
   protein_pos: ~
   distance: 0
   strand: -1
@@ -125,9 +119,7 @@ expression: res
   cdna_pos:
     ord: 3695
     total: 3696
-  cds_pos:
-    ord: 1488
-    total: 2100
+  cds_pos: ~
   protein_pos: ~
   distance: 0
   strand: -1
@@ -157,9 +149,7 @@ expression: res
   cdna_pos:
     ord: 7150
     total: 7151
-  cds_pos:
-    ord: 1382
-    total: 5655
+  cds_pos: ~
   protein_pos: ~
   distance: 0
   strand: -1
