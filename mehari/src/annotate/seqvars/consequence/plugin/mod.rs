@@ -179,7 +179,8 @@ pub struct TxAnnotation {
 /// Sequence data is computed on first use and then shared between plugins. The context owns
 /// its data, so a wasm host can hand it to plugins as a resource.
 pub struct TxContext {
-    provider: Arc<MehariProvider>,
+    /// `None` in a context without data, see [`TxContext::empty`].
+    provider: Option<Arc<MehariProvider>>,
     tx_id: Option<String>,
     /// The variant on the transcript: `c.` for coding, `n.` for non-coding transcripts,
     /// `None` if the variant lies up- or downstream.
@@ -198,10 +199,23 @@ impl TxContext {
         var_n: Option<HgvsVariant>,
     ) -> Self {
         Self {
-            provider,
+            provider: Some(provider),
             tx_id: tx.map(|tx| tx.id.clone()),
             var_c,
             var_n,
+            ref_data: OnceCell::new(),
+            alt_data: OnceCell::new(),
+        }
+    }
+
+    /// A context without data, for predictions without plugins, which saves copying the
+    /// provider and the transcript ID per transcript.
+    pub(crate) fn empty() -> Self {
+        Self {
+            provider: None,
+            tx_id: None,
+            var_c: None,
+            var_n: None,
             ref_data: OnceCell::new(),
             alt_data: OnceCell::new(),
         }
@@ -227,7 +241,7 @@ impl TxContext {
 
     /// The transcript; `None` for intergenic variants.
     pub fn tx(&self) -> Option<&Transcript> {
-        self.provider.get_tx(self.tx_id.as_deref()?)
+        self.provider.as_ref()?.get_tx(self.tx_id.as_deref()?)
     }
 
     /// Reference transcript and protein sequence.
@@ -235,7 +249,7 @@ impl TxContext {
         self.ref_data
             .get_or_init(|| {
                 let tx_id = self.tx_id.as_deref()?;
-                ref_transcript_data_cached(self.provider.clone(), tx_id, None).ok()
+                ref_transcript_data_cached(self.provider.clone()?, tx_id, None).ok()
             })
             .as_ref()
     }

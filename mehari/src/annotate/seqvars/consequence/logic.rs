@@ -156,6 +156,20 @@ impl ConsequencePredictor {
         &self.custom_columns
     }
 
+    /// The context of a transcript annotation; empty if no plugin reads it.
+    fn tx_context(
+        &self,
+        tx: Option<&Transcript>,
+        var_c: Option<HgvsVariant>,
+        var_n: Option<HgvsVariant>,
+    ) -> TxContext {
+        if self.config.plugins.is_empty() {
+            TxContext::empty()
+        } else {
+            TxContext::new(self.provider.clone(), tx, var_c, var_n)
+        }
+    }
+
     /// Run the plugins on the reported annotations of one prediction.
     fn run_plugins(
         &self,
@@ -290,7 +304,7 @@ impl ConsequencePredictor {
                 custom_fields: BTreeMap::new(),
             };
             let intergenic = TxAnnotation {
-                context: TxContext::new(self.provider.clone(), None, None, None),
+                context: self.tx_context(None, None, None),
                 ann,
             };
             return Ok(Some(self.run_plugins(
@@ -1051,7 +1065,7 @@ impl ConsequencePredictor {
         let (var_c, var_n) = projection.map_or((None, None), |p| (p.c, p.n));
 
         Ok(Some(TxAnnotation {
-            context: TxContext::new(self.provider.clone(), Some(tx), var_c, var_n),
+            context: self.tx_context(Some(tx), var_c, var_n),
             ann,
         }))
     }
@@ -2645,13 +2659,9 @@ impl ConsequencePredictor {
         };
 
         Ok(Some(TxAnnotation {
-            context: TxContext::new(
-                self.provider.clone(),
-                Some(tx),
-                Some(compound_var_c),
-                Some(compound_var_n),
-            )
-            .with_ref_data(ref_data),
+            context: self
+                .tx_context(Some(tx), Some(compound_var_c), Some(compound_var_n))
+                .with_ref_data(ref_data),
             ann,
         }))
     }
