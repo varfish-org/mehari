@@ -4569,14 +4569,12 @@ mod test {
                 ..Default::default()
             }],
         };
-        let provider = Arc::new(MehariProvider::new(
-            tx_seq_db,
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_seq_db, None::<PathBuf>, true));
         let config = ConfigBuilder::default()
-            .report_cdna_sequence(SequenceReporting::Both)
+            .plugins(vec![
+                Arc::new(SequencePlugin::TxRef),
+                Arc::new(SequencePlugin::TxAlt),
+            ])
             .build()
             .unwrap();
         ConsequencePredictor::new(provider, config)
@@ -4906,12 +4904,7 @@ mod test {
         )?;
         // The test needs no reference: a `G` follows the deleted `A`, so the deletion cannot
         // shift.
-        let provider = Arc::new(MehariProvider::new(
-            tx_db,
-            None::<PathBuf>,
-            true,
-            Default::default(),
-        ));
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
         let predictor = ConsequencePredictor::new(
             provider,
             ConfigBuilder::default()
