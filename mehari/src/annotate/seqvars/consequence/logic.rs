@@ -2517,7 +2517,12 @@ impl ConsequencePredictor {
                             // not well-defined either: past the transcript end, it changes more
                             // genomic than transcript bases. So its terms come from the new stop
                             // codon.
-                            let over_stop = !incomplete_3p && crosses_cds_end(var_c);
+                            let cds_len = self
+                                .provider
+                                .get_tx(tx_accession)
+                                .and_then(|tx| tx.start_codon.zip(tx.stop_codon))
+                                .map(|(start, stop)| stop - start);
+                            let over_stop = !incomplete_3p && crosses_cds_end(var_c, cds_len);
                             if !over_stop {
                                 consequences |= Consequence::FrameshiftVariant;
                             }
@@ -3512,13 +3517,16 @@ fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
     }
 }
 
-/// Whether `var_c` starts in the CDS and ends behind the stop codon (`c.*N`).
-fn crosses_cds_end(var_c: &HgvsVariant) -> bool {
+/// Whether `var_c` starts in the CDS and ends at its last base, `c.N` for a CDS of length
+/// `cds_len`, or behind it, e.g. at `c.*N`.
+fn crosses_cds_end(var_c: &HgvsVariant, cds_len: Option<i32>) -> bool {
     let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
         return false;
     };
     let loc = loc_edit.loc.inner();
-    loc.start.cds_from == CdsFrom::Start && loc.start.base >= 1 && loc.end.cds_from == CdsFrom::End
+    let ends_at_cds_end = loc.end.cds_from == CdsFrom::End
+        || (loc.end.cds_from == CdsFrom::Start && cds_len.is_some_and(|len| loc.end.base >= len));
+    loc.start.cds_from == CdsFrom::Start && loc.start.base >= 1 && ends_at_cds_end
 }
 
 /// Whether deleting `tx_seq[del]` leaves the CDS that starts at `cds_start` intact.
@@ -6157,6 +6165,23 @@ mod test {
             ),
             (Some("c.699del"), Some("p.Ter233XaaextTer?"), &expected_csqs)
         );
+        Ok(())
+    }
+
+    /// An indel crosses the end of a CDS of 30 bases if it starts in the CDS and ends at c.30 or
+    /// behind it.
+    #[rstest::rstest]
+    #[case("c.10_30del", true)]
+    #[case("c.10_29del", false)]
+    #[case("c.10_*2del", true)]
+    #[case("c.30_30+5del", true)]
+    #[case("c.-2_30del", false)]
+    fn indel_crosses_cds_end(
+        #[case] var_c: &str,
+        #[case] expected: bool,
+    ) -> Result<(), anyhow::Error> {
+        let var_c = HgvsVariant::from_str(&format!("NM_000001.1:{var_c}"))?;
+        assert_eq!(crosses_cds_end(&var_c, Some(30)), expected);
         Ok(())
     }
 
