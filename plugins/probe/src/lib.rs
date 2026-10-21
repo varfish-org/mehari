@@ -1,6 +1,6 @@
 //! Test plugin: reports what every function of `mehari/wit/plugin.wit` returns, as `key^value`
-//! pairs separated by `~` in its column `probe`, and fills `probe_int`, `probe_float` and
-//! `probe_bool`.
+//! pairs separated by `~`, with lists joined by `+`, in its column `probe`. Also fills a column
+//! of every other type, e.g. `probe_int` and `probe_ints`.
 //!
 //! Options:
 //! - `fail-init=<message>`: `init` fails with the message.
@@ -8,8 +8,9 @@
 //! - `column=<name>`: `init` also declares a string column with that name.
 //! - `fail=<message>`: `annotate` fails with the message.
 //! - `stale`: keeps the first annotation and reads it again in the next call.
-//! - `set=<case>`: sets a value that does not fit: `separator`, `undeclared`, `wrong-type`
-//!   or `nan`.
+//! - `set=<case>`: sets a value that does not fit: `separator`, `ampersand`, `list-element`,
+//!   `undeclared`, `wrong-type`, `list-as-single`, `nan` or `nan-list`.
+//! - `empty-list`: sets `probe_strings` to an empty list.
 //! - `field=<column>`: reports the value of the column, e.g. from an earlier plugin.
 //! - `read=<file>`: reports the content of the file in the data directory.
 //! - `write=<file>`: reports whether the file in the data directory could be written.
@@ -55,6 +56,10 @@ impl Guest for Probe {
         setup.add_integer_column("probe_int");
         setup.add_float_column("probe_float");
         setup.add_boolean_column("probe_bool");
+        setup.add_string_list_column("probe_strings");
+        setup.add_integer_list_column("probe_ints");
+        setup.add_float_list_column("probe_floats");
+        setup.add_boolean_list_column("probe_bools");
         if let Some(name) = option("column") {
             setup.add_string_column(&name);
         }
@@ -74,15 +79,27 @@ impl Guest for Probe {
         for (index, a) in (0..).zip(&annotations) {
             match option("set").as_deref() {
                 Some("separator") => a.set_string("probe", "a|b"),
+                Some("ampersand") => a.set_string("probe", "a&b"),
+                Some("list-element") => a.set_string_list("probe_strings", &["a|b".into()]),
                 Some("undeclared") => a.set_string("undeclared", "x"),
                 Some("wrong-type") => a.set_integer("probe", 1),
+                Some("list-as-single") => a.set_string("probe_strings", "x"),
                 Some("nan") => a.set_float("probe_float", f64::NAN),
+                Some("nan-list") => a.set_float_list("probe_floats", &[0.5, f64::NAN]),
                 _ => {}
             }
             a.set_string("probe", &report(prediction, a));
             a.set_integer("probe_int", -index - 1);
             a.set_float("probe_float", 0.25);
             a.set_boolean("probe_bool", index == 0);
+            if option("empty-list").is_some() {
+                a.set_string_list("probe_strings", &[]);
+            } else {
+                a.set_string_list("probe_strings", &["a".into(), "b".into()]);
+            }
+            a.set_integer_list("probe_ints", &[1, -2, 3]);
+            a.set_float_list("probe_floats", &[0.5, 1.5]);
+            a.set_boolean_list("probe_bools", &[true, false]);
         }
         Ok(())
     }
@@ -113,12 +130,12 @@ fn report(prediction: &Prediction, a: &Annotation) -> String {
         ),
         ("feature-id", a.feature_id()),
         ("feature-type", a.feature_type()),
-        ("consequences", a.consequences().join("&")),
+        ("consequences", a.consequences().join("+")),
         ("impact", a.impact()),
         ("gene-symbol", a.gene_symbol()),
         ("gene-id", a.gene_id()),
-        ("biotypes", a.biotypes().join("&")),
-        ("tags", a.tags().join("&")),
+        ("biotypes", a.biotypes().join("+")),
+        ("tags", a.tags().join("+")),
         ("rank", show(a.rank().map(rank))),
         ("hgvs-g", show(a.hgvs_g())),
         ("hgvs-n", show(a.hgvs_n())),
@@ -128,7 +145,7 @@ fn report(prediction: &Prediction, a: &Annotation) -> String {
         ("cds-pos", show(a.cds_pos().map(position))),
         ("protein-pos", show(a.protein_pos().map(position))),
         ("distance", show(a.distance())),
-        ("warnings", a.warnings().join("&")),
+        ("warnings", a.warnings().join("+")),
         ("protein-id", show(a.protein_id())),
         ("contig", show(a.contig())),
         ("genome-build", show(a.genome_build())),
@@ -163,7 +180,7 @@ fn report(prediction: &Prediction, a: &Annotation) -> String {
         ("alternative-protein", show(len(a.alternative_protein()))),
         ("alternative-cds-start", show(a.alternative_cds_start())),
         ("translation-table", show(a.translation_table())),
-        ("translation-exceptions", exceptions.join("&")),
+        ("translation-exceptions", exceptions.join("+")),
         ("frameshift", show(a.frameshift())),
         ("first-changed-codon", show(a.first_changed_codon())),
     ];
@@ -185,10 +202,10 @@ fn report(prediction: &Prediction, a: &Annotation) -> String {
         .join("~")
 }
 
-/// Replace what VCF uses as separators.
+/// Replace what VCF and `ANN` use as separators.
 fn clean(value: &str) -> String {
     value.replace(
-        |c: char| c.is_whitespace() || matches!(c, '|' | ',' | ';' | '='),
+        |c: char| c.is_whitespace() || matches!(c, '|' | ',' | ';' | '=' | '&'),
         "_",
     )
 }

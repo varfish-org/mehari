@@ -68,6 +68,11 @@ interface types {
         add-integer-column: func(name: string);
         add-float-column: func(name: string);
         add-boolean-column: func(name: string);
+        /// Declare a column holding a list of values of a type, written joined by `&`.
+        add-string-list-column: func(name: string);
+        add-integer-list-column: func(name: string);
+        add-float-list-column: func(name: string);
+        add-boolean-list-column: func(name: string);
     }
 
     /// One prediction: a variant, or a compound group, with its reported annotations.
@@ -156,12 +161,18 @@ interface types {
         first-changed-codon: func() -> option<s32>;
 
         /// Fill a column declared in `init` with a value of its type. Strings must not contain
-        /// whitespace, `|`, `,`, `;` or `=`, which separate values in VCF; floats must be finite.
-        /// Booleans are written as `true` or `false`.
+        /// whitespace, `|`, `,`, `;`, `=` or `&`, which separate values in VCF and `ANN`;
+        /// floats must be finite. Booleans are written as `true` or `false`.
         set-string: func(column: string, value: string);
         set-integer: func(column: string, value: s64);
         set-float: func(column: string, value: f64);
         set-boolean: func(column: string, value: bool);
+        /// Fill a list column declared in `init`; the values are checked as above, and an empty
+        /// list leaves the field empty.
+        set-string-list: func(column: string, values: list<string>);
+        set-integer-list: func(column: string, values: list<s64>);
+        set-float-list: func(column: string, values: list<f64>);
+        set-boolean-list: func(column: string, values: list<bool>);
     }
 }
 
@@ -173,8 +184,8 @@ interface transcript-plugin {
     /// columns. mehari runs one instance per thread.
     init: func(setup: borrow<setup>) -> result<_, string>;
 
-    /// Called once per prediction; fills the columns of its annotations with `set-string`,
-    /// `set-integer`, `set-float` or `set-boolean`. Unset fields stay empty.
+    /// Called once per prediction; fills the columns of its annotations with the `set-*`
+    /// functions. Unset fields stay empty.
     annotate: func(prediction: borrow<prediction>) -> result<_, string>;
 }
 

@@ -7,7 +7,7 @@ Variant effect prediction (HGVS, VEP-compatible consequences) for VCF, in Rust. 
 - `mehari/src/`: `annotate/` (seqvars, strucvars), `db/` (transcript DB builders; CADD/SpliceAI/dbSNP DBs are built by annonars), `pbs/` (generated protobuf), `server/` (actix + utoipa REST).
 - `plugins/nmd/`: reference WebAssembly plugin (`wasm32-wasip2`, own `[workspace]` stub) for the interface in `mehari/wit/plugin.wit`. Its build is committed as `mehari/tests/data/plugins/nmd.wasm`; rebuild that after changing the plugin or the WIT.
 - `plugins/nmd-python/`: the same plugin in Python (componentize-py), not committed as a build (18 MB); checked by an ignored test. User guide: `docs/plugins.md`.
-- `plugins/probe/`: test plugin reporting every interface function, committed as `mehari/tests/data/plugins/probe.wasm`; rebuild like `nmd`. The WIT only grows by functions: never change a released record.
+- `plugins/probe/`: test plugin reporting every interface function, committed as `mehari/tests/data/plugins/probe.wasm`; rebuild like `nmd`. The WIT only grows by functions, with a patch version bump per release that adds some: never change a released record or tighten a released check.
 - Depends on the sibling crate `annonars` (ClinVar/frequency DBs).
 - CLI subcommands: `db` / `annotate` / `server`.
 

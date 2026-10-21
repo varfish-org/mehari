@@ -66,13 +66,40 @@ type Instance = (Store<HostState>, Plugin);
 /// A column a plugin declared, and the type of its values.
 type Column = (String, ColumnType);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ColumnType {
+    value: ValueType,
+    /// Holds a list of values, written joined by `&`.
+    list: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display)]
 #[strum(serialize_all = "lowercase")]
-enum ColumnType {
+enum ValueType {
     String,
     Integer,
     Float,
     Boolean,
+}
+
+impl ColumnType {
+    const fn single(value: ValueType) -> Self {
+        Self { value, list: false }
+    }
+
+    const fn list(value: ValueType) -> Self {
+        Self { value, list: true }
+    }
+}
+
+impl std::fmt::Display for ColumnType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.list {
+            write!(f, "{} list", self.value)
+        } else {
+            write!(f, "{}", self.value)
+        }
+    }
 }
 
 /// The options and the declared columns of one `init` call.
@@ -384,7 +411,7 @@ impl HostState {
         annotation: &Resource<Annotation>,
         column: String,
         kind: ColumnType,
-        value: String,
+        value: Option<String>,
     ) -> wasmtime::Result<()> {
         match self.columns.iter().find(|(name, _)| *name == column) {
             None => bail!("column {column:?} was not declared in init"),
@@ -401,7 +428,7 @@ impl HostState {
             .txs
             .get_mut(index)
             .ok_or_else(|| format_err!("annotation {index} out of range"))?;
-        tx.ann.custom_fields.insert(column, Some(value));
+        tx.ann.custom_fields.insert(column, value);
         Ok(())
     }
 }
@@ -412,19 +439,51 @@ impl types::HostSetup for HostState {
     }
 
     fn add_string_column(&mut self, setup: Resource<Setup>, name: String) -> wasmtime::Result<()> {
-        self.add_column(&setup, name, ColumnType::String)
+        self.add_column(&setup, name, ColumnType::single(ValueType::String))
     }
 
     fn add_integer_column(&mut self, setup: Resource<Setup>, name: String) -> wasmtime::Result<()> {
-        self.add_column(&setup, name, ColumnType::Integer)
+        self.add_column(&setup, name, ColumnType::single(ValueType::Integer))
     }
 
     fn add_float_column(&mut self, setup: Resource<Setup>, name: String) -> wasmtime::Result<()> {
-        self.add_column(&setup, name, ColumnType::Float)
+        self.add_column(&setup, name, ColumnType::single(ValueType::Float))
     }
 
     fn add_boolean_column(&mut self, setup: Resource<Setup>, name: String) -> wasmtime::Result<()> {
-        self.add_column(&setup, name, ColumnType::Boolean)
+        self.add_column(&setup, name, ColumnType::single(ValueType::Boolean))
+    }
+
+    fn add_string_list_column(
+        &mut self,
+        setup: Resource<Setup>,
+        name: String,
+    ) -> wasmtime::Result<()> {
+        self.add_column(&setup, name, ColumnType::list(ValueType::String))
+    }
+
+    fn add_integer_list_column(
+        &mut self,
+        setup: Resource<Setup>,
+        name: String,
+    ) -> wasmtime::Result<()> {
+        self.add_column(&setup, name, ColumnType::list(ValueType::Integer))
+    }
+
+    fn add_float_list_column(
+        &mut self,
+        setup: Resource<Setup>,
+        name: String,
+    ) -> wasmtime::Result<()> {
+        self.add_column(&setup, name, ColumnType::list(ValueType::Float))
+    }
+
+    fn add_boolean_list_column(
+        &mut self,
+        setup: Resource<Setup>,
+        name: String,
+    ) -> wasmtime::Result<()> {
+        self.add_column(&setup, name, ColumnType::list(ValueType::Boolean))
     }
 
     fn drop(&mut self, setup: Resource<Setup>) -> wasmtime::Result<()> {
@@ -689,13 +748,9 @@ impl types::HostAnnotation for HostState {
         column: String,
         value: String,
     ) -> wasmtime::Result<()> {
-        let separator = |c: char| c.is_whitespace() || matches!(c, '|' | ',' | ';' | '=');
-        if let Some(c) = value.chars().find(|c| separator(*c)) {
-            bail!(
-                "value {value:?} of column {column:?} contains {c:?}, which separates values in VCF"
-            );
-        }
-        self.set(&a, column, ColumnType::String, value)
+        check_string(&column, &value)?;
+        let kind = ColumnType::single(ValueType::String);
+        self.set(&a, column, kind, Some(value))
     }
 
     fn set_integer(
@@ -704,7 +759,8 @@ impl types::HostAnnotation for HostState {
         column: String,
         value: i64,
     ) -> wasmtime::Result<()> {
-        self.set(&a, column, ColumnType::Integer, value.to_string())
+        let kind = ColumnType::single(ValueType::Integer);
+        self.set(&a, column, kind, Some(value.to_string()))
     }
 
     fn set_float(
@@ -713,11 +769,9 @@ impl types::HostAnnotation for HostState {
         column: String,
         value: f64,
     ) -> wasmtime::Result<()> {
-        ensure!(
-            value.is_finite(),
-            "value {value} of column {column:?} is not finite"
-        );
-        self.set(&a, column, ColumnType::Float, value.to_string())
+        check_float(&column, value)?;
+        let kind = ColumnType::single(ValueType::Float);
+        self.set(&a, column, kind, Some(value.to_string()))
     }
 
     fn set_boolean(
@@ -726,13 +780,82 @@ impl types::HostAnnotation for HostState {
         column: String,
         value: bool,
     ) -> wasmtime::Result<()> {
-        self.set(&a, column, ColumnType::Boolean, value.to_string())
+        let kind = ColumnType::single(ValueType::Boolean);
+        self.set(&a, column, kind, Some(value.to_string()))
+    }
+
+    fn set_string_list(
+        &mut self,
+        a: Resource<Annotation>,
+        column: String,
+        values: Vec<String>,
+    ) -> wasmtime::Result<()> {
+        for value in &values {
+            check_string(&column, value)?;
+        }
+        let kind = ColumnType::list(ValueType::String);
+        self.set(&a, column, kind, join(values))
+    }
+
+    fn set_integer_list(
+        &mut self,
+        a: Resource<Annotation>,
+        column: String,
+        values: Vec<i64>,
+    ) -> wasmtime::Result<()> {
+        let kind = ColumnType::list(ValueType::Integer);
+        self.set(&a, column, kind, join(values))
+    }
+
+    fn set_float_list(
+        &mut self,
+        a: Resource<Annotation>,
+        column: String,
+        values: Vec<f64>,
+    ) -> wasmtime::Result<()> {
+        for value in &values {
+            check_float(&column, *value)?;
+        }
+        let kind = ColumnType::list(ValueType::Float);
+        self.set(&a, column, kind, join(values))
+    }
+
+    fn set_boolean_list(
+        &mut self,
+        a: Resource<Annotation>,
+        column: String,
+        values: Vec<bool>,
+    ) -> wasmtime::Result<()> {
+        let kind = ColumnType::list(ValueType::Boolean);
+        self.set(&a, column, kind, join(values))
     }
 
     fn drop(&mut self, annotation: Resource<Annotation>) -> wasmtime::Result<()> {
         self.table.delete(annotation)?;
         Ok(())
     }
+}
+
+/// Strings must not contain what separates values in VCF and `ANN`.
+fn check_string(column: &str, value: &str) -> wasmtime::Result<()> {
+    let separator = |c: char| c.is_whitespace() || matches!(c, '|' | ',' | ';' | '=' | '&');
+    if let Some(c) = value.chars().find(|c| separator(*c)) {
+        bail!("value {value:?} of column {column:?} contains {c:?}, which separates values in VCF");
+    }
+    Ok(())
+}
+
+fn check_float(column: &str, value: f64) -> wasmtime::Result<()> {
+    ensure!(
+        value.is_finite(),
+        "value {value} of column {column:?} is not finite"
+    );
+    Ok(())
+}
+
+/// A list as written, joined by `&`; `None` if empty.
+fn join(values: Vec<impl ToString>) -> Option<String> {
+    (!values.is_empty()).then(|| values.iter().map(ToString::to_string).join("&"))
 }
 
 fn strings(items: &[impl ToString]) -> Vec<String> {
@@ -911,7 +1034,7 @@ mod test {
     #[test]
     fn probe_reports_everything() -> Result<(), anyhow::Error> {
         let (report, ann) = probe("17:41215920:G:T", &[])?;
-        let join = |items: Vec<String>| items.join("&");
+        let join = |items: Vec<String>| items.join("+");
         let show = |value: Option<String>| value.unwrap_or_default();
         let expected = [
             ("assembly", "grch37".to_string()),
@@ -981,11 +1104,34 @@ mod test {
         let (_, ann) = probe("17:41215920:G:T", &[])?;
         let value = |column: &str| ann.custom_fields[column].clone();
         let columns = load(PROBE_WASM, &[])?.columns();
-        assert_eq!(columns, ["probe", "probe_int", "probe_float", "probe_bool"]);
+        assert_eq!(
+            columns,
+            [
+                "probe",
+                "probe_int",
+                "probe_float",
+                "probe_bool",
+                "probe_strings",
+                "probe_ints",
+                "probe_floats",
+                "probe_bools"
+            ]
+        );
         // NM_007294.4 sorts first among the BRCA1 transcripts.
         assert_eq!(value("probe_int").as_deref(), Some("-1"));
         assert_eq!(value("probe_float").as_deref(), Some("0.25"));
         assert_eq!(value("probe_bool").as_deref(), Some("true"));
+        assert_eq!(value("probe_strings").as_deref(), Some("a&b"));
+        assert_eq!(value("probe_ints").as_deref(), Some("1&-2&3"));
+        assert_eq!(value("probe_floats").as_deref(), Some("0.5&1.5"));
+        assert_eq!(value("probe_bools").as_deref(), Some("true&false"));
+        Ok(())
+    }
+
+    #[test]
+    fn probe_empty_list_leaves_field_empty() -> Result<(), anyhow::Error> {
+        let (_, ann) = probe("17:41215920:G:T", &[("empty-list", "")])?;
+        assert_eq!(ann.custom_fields["probe_strings"], None);
         Ok(())
     }
 
@@ -1083,7 +1229,11 @@ mod test {
 
     #[rstest::rstest]
     #[case(&[("fail", "annotate went wrong")], "annotate went wrong")]
-    #[case(&[("set", "separator")], "separates values")]
+    #[case(&[("set", "separator")], "contains '|'")]
+    #[case(&[("set", "ampersand")], "contains '&'")]
+    #[case(&[("set", "list-element")], "contains '|'")]
+    #[case(&[("set", "list-as-single")], "holds string list values")]
+    #[case(&[("set", "nan-list")], "not finite")]
     #[case(&[("set", "undeclared")], "not declared")]
     #[case(&[("set", "wrong-type")], "holds string values")]
     #[case(&[("set", "nan")], "not finite")]

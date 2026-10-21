@@ -13,8 +13,8 @@ Plugins run sandboxed and see every transcript annotation of a variant, with its
 
 A plugin implements the `transcript-plugin` interface of [`mehari/wit/plugin.wit`](https://github.com/varfish-org/mehari/blob/main/mehari/wit/plugin.wit), which has two functions:
 
-- `init(setup)` reads the options with `setup.options()` and declares the columns the plugin fills, each with the type of its values: `add-string-column`, `add-integer-column`, `add-float-column` or `add-boolean-column`. Columns appear in the order declared. mehari runs one instance of the plugin per thread and calls `init` once in each.
-- `annotate(prediction)` is called once per variant. `prediction.variants()` gives the variant as written in the VCF, before normalization, or the variants of a compound group (`--enable-compound-variants`). `prediction.annotations()` gives one annotation per reported transcript; fill its columns with `set-string`, `set-integer`, `set-float` or `set-boolean`. Fields left unset stay empty.
+- `init(setup)` reads the options with `setup.options()` and declares the columns the plugin fills, each with the type of its values: `add-string-column`, `add-integer-column`, `add-float-column` or `add-boolean-column`, or `add-string-list-column` and so on for a list of such values. Columns appear in the order declared. mehari runs one instance of the plugin per thread and calls `init` once in each.
+- `annotate(prediction)` is called once per variant. `prediction.variants()` gives the variant as written in the VCF, before normalization, or the variants of a compound group (`--enable-compound-variants`). `prediction.annotations()` gives one annotation per reported transcript; fill its columns with `set-string`, `set-integer`, `set-float` or `set-boolean`, or `set-string-list` and so on. Fields left unset stay empty.
 
 Both can return an error, which stops mehari with the plugin's message.
 
@@ -29,8 +29,9 @@ mehari computes the transcript data when a plugin first asks for it and shares i
 The `host` interface tells the genome assembly, the mehari version and whether `--vep-compatibility-mode` is on.
 `plugin.wit` documents every function.
 
-Values go into `ANN` as text: integers and floats as numbers, booleans as `true` or `false`.
-Strings must not contain whitespace, `|`, `,`, `;` or `=`, which separate values in VCF, and floats must be finite.
+Values go into `ANN` as text: integers and floats as numbers, booleans as `true` or `false`, and lists joined by `&`, as `ANN` does for its own lists such as the consequences.
+Strings must not contain whitespace, `|`, `,`, `;`, `=` or `&`, which separate values in VCF and `ANN`, and floats must be finite.
+An empty list leaves the field empty.
 
 ## Options and data files
 
@@ -166,4 +167,4 @@ These have not been tested with mehari.
 - Plugins have no access to the network or environment variables, and no file access beyond `data`. Their stderr is shown, their stdout is discarded.
 - mehari stops with an error naming the plugin if the plugin returns an error or fails, sets a column it did not declare or with a value of another type, or uses an annotation after the `annotate` call it came from.
 - Two plugins cannot fill the same column.
-- The interface has a version (`package mehari:plugin@0.1.0` in `plugin.wit`). Later 0.1.x versions only add functions, so plugins built for 0.1.0 keep working. A plugin built for another version fails to load; rebuild it with the `plugin.wit` of your mehari version.
+- The interface has a version (`package mehari:plugin@0.1.0` in `plugin.wit`). Later 0.1.x versions only add functions, so plugins built for an earlier one keep working; a plugin that uses newer functions needs a mehari that has them. A plugin built for another version, e.g. 0.2, fails to load; rebuild it with the `plugin.wit` of your mehari version.
