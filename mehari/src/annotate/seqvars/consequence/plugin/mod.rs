@@ -167,9 +167,8 @@ pub trait TranscriptPlugin: Debug + Send + Sync {
     /// Called once per prediction with all of its reported annotations.
     ///
     /// `variants` holds the input variant as given in the VCF, or the variants of a compound
-    /// group. The HGVS descriptions in `ann` follow HGVS normalization, which shifts towards the
-    /// transcript's 3' end and so depends on its strand; `context.var_c` can differ at an exon
-    /// edge, see [`TxContext::var_c`].
+    /// group. The HGVS descriptions in `ann` and `context.var_c` follow HGVS normalization, which
+    /// shifts towards the transcript's 3' end and so depends on its strand.
     /// Writes into `ann.custom_fields`; keys not listed in `columns` are not output. `txs` is a
     /// `Vec` so that a plugin can move the annotations, e.g. to lend them to a WebAssembly
     /// component.
@@ -199,11 +198,9 @@ pub struct TxContext {
     provider: Option<Arc<MehariProvider>>,
     tx_id: Option<String>,
     /// The variant on the transcript: `c.` for coding, `n.` for non-coding transcripts,
-    /// `None` if the variant lies up- or downstream. At an exon edge, this is the placement that
-    /// the consequence terms and `p.` come from, which can differ from the 3'-shifted HGVS
-    /// description in the annotation.
+    /// `None` if the variant lies up- or downstream.
     pub var_c: Option<HgvsVariant>,
-    /// The variant on the transcript in `n.` coordinates, placed as `var_c`.
+    /// The variant on the transcript in `n.` coordinates.
     pub var_n: Option<HgvsVariant>,
     /// The region of the transcript that `var_c` changes, as hgvs-rs uses it for `p.`.
     region: Option<VariantLocation>,

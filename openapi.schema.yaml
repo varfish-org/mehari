@@ -1134,6 +1134,7 @@ components:
       - info_compound_annotation
       - info_non_reference_annotation
       - info_restrict_fallback
+      - info_splice_site_intact_at_equivalent_position
     MessageCode:
       type: string
       description: Machine-readable code of a `GenesTranscriptsMessage`.
