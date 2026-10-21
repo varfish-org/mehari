@@ -1,4 +1,7 @@
 //! Plugins that fill custom ANN columns per transcript.
+//!
+//! **Experimental:** the Rust API of this module may change in any release. Plugins built for
+//! the WebAssembly interface in `wit/plugin.wit` are not affected; it has its own version.
 
 use std::cell::OnceCell;
 use std::fmt::Debug;
@@ -34,6 +37,8 @@ pub use wasm::WasmPlugin;
 
 /// A plugin to run: a built-in by name, or a WebAssembly component by its path, followed by its
 /// options as `,key=value`.
+///
+/// Experimental, see the [module](self) documentation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluginSpec {
     Builtin(BuiltinPlugin),
@@ -99,6 +104,8 @@ impl PluginSpec {
 }
 
 /// What plugins learn about the run.
+///
+/// Experimental, see the [module](self) documentation.
 #[derive(Debug, Clone, Default)]
 pub struct RunInfo {
     /// Genome assembly of the transcript database, lowercase, e.g. `grch38`.
@@ -149,6 +156,8 @@ impl BuiltinPlugin {
 }
 
 /// Fills custom ANN columns for the transcripts of a variant.
+///
+/// Experimental, see the [module](self) documentation.
 pub trait TranscriptPlugin: Debug + Send + Sync {
     /// The columns this plugin fills, in output order.
     fn columns(&self) -> Vec<String>;
@@ -169,6 +178,8 @@ pub trait TranscriptPlugin: Debug + Send + Sync {
 }
 
 /// The annotation of one transcript and the inputs it was derived from.
+///
+/// Experimental, see the [module](self) documentation.
 pub struct TxAnnotation {
     pub context: TxContext,
     pub ann: AnnField,
@@ -178,6 +189,8 @@ pub struct TxAnnotation {
 ///
 /// Sequence data is computed on first use and then shared between plugins. The context owns
 /// its data, so a wasm host can hand it to plugins as a resource.
+///
+/// Experimental, see the [module](self) documentation.
 pub struct TxContext {
     /// `None` in a context without data, see [`TxContext::empty`].
     provider: Option<Arc<MehariProvider>>,

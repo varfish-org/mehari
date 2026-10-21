@@ -43,7 +43,9 @@ pub const RESERVED_OPTION_PREFIX: &str = "mehari-";
 /// A plugin loaded from a WebAssembly component.
 ///
 /// Plugins get no network or environment access, and read access only to the directory given
-/// with [`DATA_OPTION`]; stderr is passed through so their errors show.
+/// with the `data` option; stderr is passed through so their errors show.
+///
+/// Experimental, see the [module](super) documentation.
 #[derive(derivative::Derivative)]
 #[derivative(Debug)]
 pub struct WasmPlugin {
