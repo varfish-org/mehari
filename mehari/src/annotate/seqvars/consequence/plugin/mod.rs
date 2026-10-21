@@ -54,7 +54,12 @@ impl FromStr for PluginSpec {
                 option
                     .split_once('=')
                     .map(|(key, value)| (key.to_string(), value.to_string()))
-                    .ok_or_else(|| format!("plugin option {option:?} is not key=value"))
+                    .ok_or_else(|| {
+                        format!(
+                            "plugin option {option:?} is not key=value; \
+                             repeat the key for several values, e.g. genes=A,genes=B"
+                        )
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
         if let Ok(plugin) = name.parse() {
@@ -261,6 +266,15 @@ mod test {
         assert!("nmdd".parse::<PluginSpec>().is_err());
         assert!("nmd,a=b".parse::<PluginSpec>().is_err());
         assert!("x.wasm,flag".parse::<PluginSpec>().is_err());
+        assert_eq!(
+            "x.wasm,genes=A,genes=B".parse(),
+            Ok(PluginSpec::Wasm {
+                path: "x.wasm".into(),
+                options: vec![("genes".into(), "A".into()), ("genes".into(), "B".into())],
+            })
+        );
+        let error = "x.wasm,genes=A,B".parse::<PluginSpec>().unwrap_err();
+        assert!(error.contains("repeat the key"), "{error}");
     }
 
     #[test]

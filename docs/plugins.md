@@ -36,6 +36,7 @@ An empty list leaves the field empty.
 ## Options and data files
 
 Options follow the plugin's path as `,key=value`; the plugin decides what they mean.
+Values cannot contain commas: repeat a key to give several values, e.g. `--plugin panel.wasm,genes=BRCA1,genes=BRCA2`.
 `data=<directory>` is mehari's: it lets the plugin read that directory as `/data`, e.g. to look up a table there.
 Plugins cannot write it, nor read anything else.
 `init` runs once per thread, so load small tables there, and look up large ones on demand.
