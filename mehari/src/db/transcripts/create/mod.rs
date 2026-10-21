@@ -88,18 +88,6 @@ fn load_annotations(args: &Args, progress: &dyn Progress) -> Result<TranscriptLo
 
             if is_gff3 {
                 load_gff3(&mut loader, path, progress)?;
-                let partial_codons = loader.partial_codons_without_end_tags();
-                if partial_codons > 0 {
-                    tracing::warn!(
-                        "{} marks no CDS end as incomplete (tag `cds_end_NF` or RefSeq `partial`), \
-                         but {} coding transcripts have a CDS length that is not a multiple of 3. \
-                         mehari completes their stop codon with `A` bases if the CDS runs to the \
-                         transcript end, also where the CDS end is incomplete. Prefer GENCODE GFF3 \
-                         or cdot JSON, which carry the `cds_end_NF` tag.",
-                        path.display(),
-                        partial_codons
-                    );
-                }
             } else {
                 load_cdot(&mut loader, path, progress)?;
             }
@@ -177,15 +165,6 @@ pub fn run_with_progress(
         );
 
         let mut tx_data = load_annotations(args, progress)?;
-        for (id, fix) in tx_data.fixes.iter() {
-            report(ReportEntry::Fix(LogFix {
-                source: "annotations".into(),
-                fix: *fix,
-                id: id.clone(),
-                gene_name: tx_data.gene_name(id),
-                tags: tx_data.tags(id),
-            }))?;
-        }
 
         let raw_tx_data = tx_data.clone();
         trace_rss_now();
@@ -212,6 +191,16 @@ pub fn run_with_progress(
         // e.g. checking whether their translation contains a stop codon …
         let mut sequence_map =
             filter_transcripts_with_sequence(tx_data_, &mut seq_provider, progress)?;
+        // The fixes of the annotations, including the stop codons that the sequences complete.
+        for (id, fix) in tx_data_.fixes.iter() {
+            report(ReportEntry::Fix(LogFix {
+                source: "annotations".into(),
+                fix: *fix,
+                id: id.clone(),
+                gene_name: tx_data_.gene_name(id),
+                tags: tx_data_.tags(id),
+            }))?;
+        }
         filter_empty_gene_id_mappings(tx_data_)?;
         // … if there are genes with no transcripts left, check whether they are pseudogenes …
         tx_data_.update_pseudogene_status()?;

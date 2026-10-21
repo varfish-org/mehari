@@ -111,6 +111,7 @@ impl Reason {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Serialize, Hash, PartialEq, Eq)]
 pub enum Fix {
+    /// `A` bases complete the stop codon, as the poly-A tail does. No filter reason marks it.
     Cds,
     GenomeBuild,
     Tags,
@@ -200,6 +201,11 @@ pub trait TranscriptExt {
     /// `partial` alone does not count: it also marks transcripts that are incomplete at the 5'
     /// end or that the genome does not align completely.
     fn cds_end_incomplete(&self) -> bool;
+
+    /// Whether the annotation says that the poly-A tail completes the stop codon: a note such as
+    /// "stop codon completed by the addition of 3' A residues to the mRNA", or a `TERM`
+    /// translation exception at the partial last codon.
+    fn stop_codon_completed_by_poly_a(&self) -> bool;
 }
 
 impl TranscriptExt for Transcript {
@@ -226,6 +232,23 @@ impl TranscriptExt for Transcript {
                 .as_ref()
                 .is_some_and(|tags| tags.contains(&Tag::Other("cds_end_NF".into())))
         })
+    }
+
+    fn stop_codon_completed_by_poly_a(&self) -> bool {
+        let noted = self.genome_builds.values().any(|gb| {
+            gb.note
+                .as_ref()
+                .is_some_and(|note| note.contains("completed by the addition of 3' A"))
+        });
+        // The partial last codon is the codon after the complete ones.
+        let last_codon = self.cds_length().map(|len| len / 3 + 1);
+        let term = self
+            .translation
+            .as_ref()
+            .and_then(|translation| translation.transl_except.as_ref())
+            .and_then(|transl_except| transl_except.get("TERM"))
+            .is_some_and(|positions| last_codon.is_some_and(|codon| positions.contains(&codon)));
+        noted || term
     }
 }
 
@@ -319,7 +342,6 @@ impl TranscriptLoader {
             self.update_transcript_tags(txid_to_label);
         }
         self.fix_unaligned_bases();
-        self.fix_cds();
     }
 
     pub(crate) fn update_pseudogene_status(&mut self) -> Result<(), Error> {
@@ -446,71 +468,6 @@ impl TranscriptLoader {
                         .insert(Fix::GenomeBuild);
                 }
             });
-    }
-
-    /// Complete the stop codon of a CDS whose length is not a multiple of 3 with `A` bases, as
-    /// the poly-A tail does. This applies only if the CDS runs to the transcript end and the
-    /// annotation does not mark the CDS end as incomplete. The CDS then ends after the last
-    /// exon.
-    pub(crate) fn fix_cds(&mut self) {
-        self.transcript_id_to_transcript
-            .values_mut()
-            .filter(|tx| tx.protein_coding() && !tx.cds_end_incomplete())
-            .filter_map(|tx| {
-                tx.start_codon
-                    .zip(tx.stop_codon)
-                    .and_then(|(cds_start, cds_end)| {
-                        let cds_len = cds_end - cds_start;
-                        (cds_len % 3 != 0).then_some((tx, cds_start, cds_end, cds_len))
-                    })
-            })
-            .for_each(|(tx, _cds_start, cds_end, cds_len)| {
-                // Handle multiple genome builds safely
-                if tx.genome_builds.is_empty() {
-                    tracing::warn!(
-                        "Transcript {} has no genome builds, skipping CDS fix",
-                        tx.id
-                    );
-                    return;
-                }
-
-                for gb in tx.genome_builds.values() {
-                    let delta = 3 - (cds_len % 3);
-                    // `alt_cds_end_i` is the last transcript position of an exon.
-                    let tx_end = gb.exons.iter().map(|exon| exon.alt_cds_end_i).max();
-                    if delta == 0 || tx_end != Some(cds_end) {
-                        continue;
-                    };
-                    // The completing bases follow the last exon, so the exons stay as
-                    // annotated. `filter_transcripts_with_sequence` appends them to the
-                    // sequence.
-                    tx.stop_codon = Some(cds_end + delta);
-                    self.fixes
-                        .entry(Identifier::Transcript(
-                            TranscriptId::try_new(&tx.id).unwrap(),
-                        ))
-                        .or_default()
-                        .insert(Fix::Cds);
-                }
-            });
-    }
-
-    /// The number of coding transcripts whose CDS length is not a multiple of 3, or 0 if a
-    /// transcript marks its CDS end as incomplete. A source without such marks, e.g. Ensembl
-    /// GFF3, cannot tell an incomplete CDS end from a stop codon that the poly-A tail
-    /// completes.
-    pub(crate) fn partial_codons_without_end_tags(&self) -> usize {
-        let coding = || {
-            self.transcript_id_to_transcript
-                .values()
-                .filter(|tx| tx.protein_coding())
-        };
-        if coding().any(|tx| tx.cds_end_incomplete()) {
-            return 0;
-        }
-        coding()
-            .filter(|tx| tx.cds_length().is_some_and(|len| len % 3 != 0))
-            .count()
     }
 
     /// Add the transcript bases that no exon aligns to the exons, see `fill_unaligned_bases`,

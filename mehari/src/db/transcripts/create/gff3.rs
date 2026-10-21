@@ -731,8 +731,11 @@ mod tests {
     use super::*;
     use crate::common::progress::NoProgress;
     use crate::db::transcripts::create::build::build_protobuf;
-    use crate::db::transcripts::create::filter::filter_transcripts;
+    use crate::db::transcripts::create::filter::{
+        filter_transcripts, filter_transcripts_with_sequence,
+    };
     use crate::db::transcripts::create::models::{Identifier, Reason, TranscriptExt};
+    use crate::db::transcripts::create::reference::SequenceProvider;
     use anyhow::Context;
     use flate2::Compression;
     use flate2::write::GzEncoder;
@@ -773,22 +776,22 @@ chr1\ttest\texon\t2601\t2700\t.\t-\t.\tID=exon:T2.3;Parent=transcript:T2
 ";
 
     /// A plus-strand and a minus-strand transcript with two exons each. The CDS runs to the
-    /// transcript end and is 190 bases long. No `cds_end_NF` tag marks it as incomplete, so
-    /// `fix_cds` pads it by 2 bases.
-    const GFF3_CDS_END_NF: &str = "\
+    /// transcript end and is 190 bases long. A `TERM` translation exception says that the poly-A
+    /// tail completes its partial last codon.
+    const GFF3_POLY_A_STOP: &str = "\
 ##gff-version 3
 chr1\ttest\tgene\t1\t1000\t.\t+\t.\tID=gene:G3P;Name=G3P
 chr1\ttest\ttranscript\t1\t400\t.\t+\t.\tID=transcript:T3P;Parent=gene:G3P
 chr1\ttest\texon\t1\t100\t.\t+\t.\tID=exon:T3P.1;Parent=transcript:T3P
 chr1\ttest\texon\t301\t400\t.\t+\t.\tID=exon:T3P.2;Parent=transcript:T3P
-chr1\ttest\tCDS\t11\t100\t.\t+\t0\tID=cds:T3P.1;Parent=transcript:T3P
-chr1\ttest\tCDS\t301\t400\t.\t+\t0\tID=cds:T3P.2;Parent=transcript:T3P
+chr1\ttest\tCDS\t11\t100\t.\t+\t0\tID=cds:T3P.1;Parent=transcript:T3P;transl_except=(pos:400..400%2Caa:TERM)
+chr1\ttest\tCDS\t301\t400\t.\t+\t0\tID=cds:T3P.2;Parent=transcript:T3P;transl_except=(pos:400..400%2Caa:TERM)
 chr1\ttest\tgene\t2001\t3000\t.\t-\t.\tID=gene:G3M;Name=G3M
 chr1\ttest\ttranscript\t2001\t2400\t.\t-\t.\tID=transcript:T3M;Parent=gene:G3M
 chr1\ttest\texon\t2001\t2100\t.\t-\t.\tID=exon:T3M.2;Parent=transcript:T3M
 chr1\ttest\texon\t2301\t2400\t.\t-\t.\tID=exon:T3M.1;Parent=transcript:T3M
-chr1\ttest\tCDS\t2001\t2100\t.\t-\t0\tID=cds:T3M.2;Parent=transcript:T3M
-chr1\ttest\tCDS\t2301\t2390\t.\t-\t0\tID=cds:T3M.1;Parent=transcript:T3M
+chr1\ttest\tCDS\t2001\t2100\t.\t-\t0\tID=cds:T3M.2;Parent=transcript:T3M;transl_except=(pos:complement(2001..2001)%2Caa:TERM)
+chr1\ttest\tCDS\t2301\t2390\t.\t-\t0\tID=cds:T3M.1;Parent=transcript:T3M;transl_except=(pos:complement(2001..2001)%2Caa:TERM)
 ";
 
     /// RefSeq transcripts whose CDS rows are open at one end: NM_000010.1 (`+`) at its 3' end
@@ -988,18 +991,24 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
         Ok(())
     }
 
-    /// `fix_cds` completes the stop codon with bases after the last exon. The alignment keeps
-    /// its length on the genome and on the transcript, and the first transcript base keeps
-    /// its position.
+    /// The poly-A tail completes the stop codon with bases after the last exon, as the `TERM`
+    /// translation exception says. The alignment keeps its length on the genome and on the
+    /// transcript, and the first transcript base keeps its position.
     #[rstest::rstest]
     #[case("T3P", 1)]
     #[case("T3M", -1)]
-    fn fix_cds_keeps_the_alignment(
+    fn completed_stop_codon_keeps_the_alignment(
         #[case] tx_id: &str,
         #[case] strand: i16,
     ) -> Result<(), anyhow::Error> {
-        let mut loader = load(GFF3_CDS_END_NF)?;
-        loader.fix_cds();
+        let mut loader = load(GFF3_POLY_A_STOP)?;
+        // 10 bases of 5' UTR, then the CDS: `ATG`, 62 `AAA` codons and the partial codon `T`.
+        let seq = format!("{}ATG{}T", "C".repeat(10), "AAA".repeat(62));
+        let mut seq_provider = SequenceProvider::FastaMap(HashMap::from([
+            ("T3P".to_string(), seq.clone()),
+            ("T3M".to_string(), seq),
+        ]));
+        filter_transcripts_with_sequence(&mut loader, &mut seq_provider, &NoProgress)?;
 
         let tx = loader
             .transcript_id_to_transcript
@@ -1032,26 +1041,6 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
         let (ref_pos, tgt_pos) = if strand == 1 { (0, 0) } else { (399, 199) };
         assert_eq!(mapper.map_ref_to_tgt(ref_pos, "start", true)?.pos, tgt_pos);
 
-        Ok(())
-    }
-
-    /// Without any `cds_end_NF` tag or RefSeq `partial` flag, a source cannot tell an
-    /// incomplete CDS end from a stop codon that the poly-A tail completes. `db create` then
-    /// warns about the CDS whose length is not a multiple of 3.
-    #[rstest::rstest]
-    #[case::untagged("", 2)]
-    #[case::tagged(";tag=cds_end_NF", 0)]
-    fn partial_codons_without_end_tags_are_counted(
-        #[case] tag: &str,
-        #[case] expected: usize,
-    ) -> Result<(), anyhow::Error> {
-        let gff3 = GFF3_CDS_END_NF.replace(
-            "ID=transcript:T3P;Parent=gene:G3P",
-            &format!("ID=transcript:T3P;Parent=gene:G3P{tag}"),
-        );
-        let loader = load(&gff3)?;
-
-        assert_eq!(loader.partial_codons_without_end_tags(), expected);
         Ok(())
     }
 

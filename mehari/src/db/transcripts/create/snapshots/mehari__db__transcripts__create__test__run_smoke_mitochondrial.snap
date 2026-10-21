@@ -115,7 +115,6 @@ txDb:
         cigar: 784M
       genomeBuild: grch37
     filtered: false
-    filterReason: 32
   - id: ENST00000361789.2
     geneSymbol: MT-CYB
     geneId: HGNC:7427
@@ -138,7 +137,6 @@ txDb:
         cigar: 1141M
       genomeBuild: grch37
     filtered: false
-    filterReason: 32
   - id: ENST00000361390.2
     geneSymbol: MT-ND1
     geneId: HGNC:7455
@@ -161,7 +159,6 @@ txDb:
         cigar: 956M
       genomeBuild: grch37
     filtered: false
-    filterReason: 32
   - id: ENST00000361453.3
     geneSymbol: MT-ND2
     geneId: HGNC:7456
@@ -184,7 +181,6 @@ txDb:
         cigar: 1042M
       genomeBuild: grch37
     filtered: false
-    filterReason: 32
   - id: ENST00000361227.2
     geneSymbol: MT-ND3
     geneId: HGNC:7458
@@ -207,7 +203,6 @@ txDb:
         cigar: 346M
       genomeBuild: grch37
     filtered: false
-    filterReason: 32
   - id: ENST00000361381.2
     geneSymbol: MT-ND4
     geneId: HGNC:7459
@@ -230,7 +225,6 @@ txDb:
         cigar: 1378M
       genomeBuild: grch37
     filtered: false
-    filterReason: 32
   - id: ENST00000361335.1
     geneSymbol: MT-ND4L
     geneId: HGNC:7460
