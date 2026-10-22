@@ -193,6 +193,10 @@ pub trait TranscriptExt {
 
     fn protein_coding(&self) -> bool;
 
+    /// Whether the annotation marks the CDS start as incomplete with the tag `cds_start_NF`, as
+    /// GENCODE does. `load_gff3` sets it for a RefSeq CDS that is open at its 5' end.
+    fn cds_start_incomplete(&self) -> bool;
+
     /// Whether the annotation marks the CDS end as incomplete with the tag `cds_end_NF`, as
     /// GENCODE does. `load_gff3` sets it for a RefSeq CDS that is open at its 3' end. RefSeq
     /// `partial` alone does not count: it also marks transcripts that are incomplete at the 5'
@@ -217,6 +221,14 @@ impl TranscriptExt for Transcript {
                 .biotype
                 .as_ref()
                 .is_some_and(|bt| bt.iter().any(|b| b.is_protein_coding()))
+    }
+
+    fn cds_start_incomplete(&self) -> bool {
+        self.genome_builds.values().any(|gb| {
+            gb.tag
+                .as_ref()
+                .is_some_and(|tags| tags.contains(&Tag::Other("cds_start_NF".into())))
+        })
     }
 
     fn cds_end_incomplete(&self) -> bool {

@@ -428,11 +428,13 @@ pub(crate) fn filter_transcripts_with_sequence(
                         reason |= Reason::ThreePrimeEndTruncated;
                     }
 
-                    // A CDS that reaches the 5' end of the transcript without a start codon is
-                    // incomplete there, e.g. if the annotation clips it at the alignment.
-                    if !loader.disable_filters
-                        && five_prime_truncated(tx)
-                        && seq.get(cds_start..cds_start + 3) != Some("ATG")
+                    // A CDS is incomplete at its 5' end if the annotation says so, or if it
+                    // reaches the 5' end of the transcript without a start codon, e.g. if the
+                    // annotation clips it at the alignment. Annotation reads this flag, so set
+                    // it also without filters.
+                    if tx.cds_start_incomplete()
+                        || (five_prime_truncated(tx)
+                            && seq.get(cds_start..cds_start + 3) != Some("ATG"))
                     {
                         reason |= Reason::FivePrimeEndTruncated;
                     }
@@ -989,6 +991,18 @@ mod tests {
             (missing_stop_codon, invalid_cds_length),
             "{reason:?}"
         );
+        Ok(())
+    }
+
+    /// Annotation reads `FivePrimeEndTruncated`, so `db create` sets it also without filters. The
+    /// CDS starts at the transcript start without a start codon.
+    #[rstest::rstest]
+    #[case::with_filters(false)]
+    #[case::without_filters(true)]
+    fn five_prime_end_truncated_is_flagged(#[case] disable_filters: bool) -> Result<(), Error> {
+        let tx = one_exon_tx("NC_000001.11", 9, 9)?;
+        let (_, reason, _, _) = stored_sequence_with(tx, "CCCAAATAG", disable_filters)?;
+        assert!(reason.contains(Reason::FivePrimeEndTruncated), "{reason:?}");
         Ok(())
     }
 
