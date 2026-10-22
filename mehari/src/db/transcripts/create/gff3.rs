@@ -1,6 +1,7 @@
+use crate::common::contig::ContigManager;
 use crate::common::progress::{Progress, open_with_progress};
 use crate::db::transcripts::create::cdot_models;
-use crate::db::transcripts::create::filter::MITOCHONDRIAL_ACCESSIONS;
+use crate::db::transcripts::create::filter::is_mitochondrial;
 use crate::db::transcripts::create::models::{
     GeneId, TranscriptId, TranscriptLoader, gene_id_without_version,
 };
@@ -233,6 +234,7 @@ pub fn load_gff3(
     // The `GeneId` of each gene row, and its gene ID with version for the transcripts.
     let mut raw_id_to_gene_id: HashMap<String, (GeneId, String)> = HashMap::new();
     let mut gene_symbols: HashMap<GeneId, String> = HashMap::new();
+    let contigs = ContigManager::new(&loader.genome_release);
 
     for result in gff_reader.record_bufs() {
         let record = result?;
@@ -353,10 +355,9 @@ pub fn load_gff3(
             f if f.contains("transcript") || f.contains("mRNA") || f.ends_with("RNA") => {
                 // RefSeq has no `transcript_id` on mitochondrial mRNAs. Name them as cdot
                 // does, plus the version that `load_cdot` adds, e.g. `fake-rna-ND1.0`.
-                let mt_mrna_id = (f == "mRNA"
-                    && MITOCHONDRIAL_ACCESSIONS.contains(&contig.as_str()))
-                .then(|| raw_id.as_ref().map(|id| format!("fake-{id}.0")))
-                .flatten();
+                let mt_mrna_id = (f == "mRNA" && is_mitochondrial(&contigs, &contig))
+                    .then(|| raw_id.as_ref().map(|id| format!("fake-{id}.0")))
+                    .flatten();
                 let resolved_tx_id = resolve_id(
                     get_attr("transcript_id").or(mt_mrna_id),
                     get_attr("version").or_else(|| get_attr("transcript_version")),
@@ -782,7 +783,7 @@ mod tests {
     use crate::db::transcripts::create::filter::{
         filter_transcripts, filter_transcripts_with_sequence,
     };
-    use crate::db::transcripts::create::models::{Identifier, Reason, TranscriptExt};
+    use crate::db::transcripts::create::models::{Fix, Identifier, Reason, TranscriptExt};
     use crate::db::transcripts::create::reference::SequenceProvider;
     use anyhow::Context;
     use flate2::Compression;
@@ -1108,6 +1109,40 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
         // `-`, where the mapper counts transcript positions from the genomic start.
         let (ref_pos, tgt_pos) = if strand == 1 { (0, 0) } else { (399, 199) };
         assert_eq!(mapper.map_ref_to_tgt(ref_pos, "start", true)?.pos, tgt_pos);
+
+        Ok(())
+    }
+
+    /// A mitochondrial transcript is known by the name of its contig in each source. Its CDS
+    /// starts with `ATA`, Met in the vertebrate mitochondrial code, and ends with `TA`, which the
+    /// poly-A tail completes to the stop codon `TAA`.
+    #[rstest::rstest]
+    #[case::refseq("NC_012920.1")]
+    #[case::gencode("chrM")]
+    #[case::ensembl("MT")]
+    fn mitochondrial_contig_is_known_by_its_name(
+        #[case] contig: &str,
+    ) -> Result<(), anyhow::Error> {
+        let gff3 = format!(
+            "##gff-version 3
+{contig}\ttest\tmRNA\t1001\t1008\t.\t+\t.\tID=rna-MT1;transcript_id=MT1.1
+{contig}\ttest\texon\t1001\t1008\t.\t+\t.\tParent=rna-MT1
+{contig}\ttest\tCDS\t1001\t1008\t.\t+\t0\tParent=rna-MT1;protein_id=MP1.1
+"
+        );
+        let mut loader = load(&gff3)?;
+        let mut seq_provider = SequenceProvider::FastaMap(HashMap::from([(
+            "MT1.1".to_string(),
+            "ATAAAATA".to_string(),
+        )]));
+        filter_transcripts_with_sequence(&mut loader, &mut seq_provider, &NoProgress)?;
+
+        let id = Identifier::Transcript(TranscriptId::try_new("MT1.1")?);
+        let reason = loader.discards.get(&id).copied().unwrap_or_default();
+        assert!(reason.is_empty(), "{reason:?}");
+        let fixes = loader.fixes.get(&id).copied().unwrap_or_default();
+        assert!(fixes.contains(Fix::Cds), "{fixes:?}");
+        assert_eq!(transcript(&loader, "MT1.1")?.0.stop_codon, Some(9));
 
         Ok(())
     }

@@ -1,6 +1,7 @@
 use crate::annotate::seqvars::consequence::terms::FeatureTag;
+use crate::common::contig::ContigManager;
 use crate::db::transcripts::create::DisplayFromStr;
-use crate::db::transcripts::create::filter::MITOCHONDRIAL_ACCESSIONS;
+use crate::db::transcripts::create::filter::is_mitochondrial;
 use anyhow::{Error, anyhow};
 use enumflags2::bitflags;
 use enumflags2::{BitFlag, BitFlags};
@@ -192,8 +193,6 @@ pub trait TranscriptExt {
 
     fn protein_coding(&self) -> bool;
 
-    fn is_on_contig(&self, contig: &str) -> bool;
-
     /// Whether the annotation marks the CDS end as incomplete with the tag `cds_end_NF`, as
     /// GENCODE does. `load_gff3` sets it for a RefSeq CDS that is open at its 3' end. RefSeq
     /// `partial` alone does not count: it also marks transcripts that are incomplete at the 5'
@@ -218,10 +217,6 @@ impl TranscriptExt for Transcript {
                 .biotype
                 .as_ref()
                 .is_some_and(|bt| bt.iter().any(|b| b.is_protein_coding()))
-    }
-
-    fn is_on_contig(&self, contig: &str) -> bool {
-        self.genome_builds.values().any(|gb| gb.contig == contig)
     }
 
     fn cds_end_incomplete(&self) -> bool {
@@ -374,11 +369,12 @@ impl TranscriptLoader {
 
     pub(crate) fn gather_transcript_stats(&self) -> Result<(usize, usize, usize), Error> {
         let (mut n_mane_select, mut n_mane_plus_clinical, mut n_mt) = (0, 0, 0);
+        let contigs = ContigManager::new(&self.genome_release);
         for tx in self.transcript_id_to_transcript.values() {
             let mut is_mane_select = false;
             let mut is_mane_plus_clinical = false;
             for gb in tx.genome_builds.values() {
-                if MITOCHONDRIAL_ACCESSIONS.contains(&gb.contig.as_str()) {
+                if is_mitochondrial(&contigs, &gb.contig) {
                     n_mt += 1;
                 }
                 if let Some(tag) = &gb.tag {

@@ -1,3 +1,4 @@
+use crate::common::contig::ContigManager;
 use crate::common::progress::{Progress, Unit};
 use crate::db::transcripts::create::models::{
     Fix, GeneId, Identifier, Reason, TranscriptExt, TranscriptId, TranscriptLoader,
@@ -323,9 +324,14 @@ pub(crate) fn filter_transcripts_with_sequence(
     tracing::info!("Filtering transcripts with sequences …");
     let start = Instant::now();
 
+    let contigs = ContigManager::new(&loader.genome_release);
+    let mitochondrial = |tx: &Transcript| -> bool {
+        tx.genome_builds
+            .values()
+            .any(|alignment| is_mitochondrial(&contigs, &alignment.contig))
+    };
     let five_prime_truncated = |tx: &Transcript| -> bool {
-        let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
-        if tx.protein_coding() && !is_mt {
+        if tx.protein_coding() && !mitochondrial(tx) {
             tx.genome_builds
                 .values()
                 .any(|alignment| truncated_ends(alignment).is_none_or(|(five_prime, _)| five_prime))
@@ -334,8 +340,7 @@ pub(crate) fn filter_transcripts_with_sequence(
         }
     };
     let three_prime_truncated = |tx: &Transcript| -> bool {
-        let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
-        if tx.protein_coding() && !is_mt {
+        if tx.protein_coding() && !mitochondrial(tx) {
             tx.genome_builds.values().any(|alignment| {
                 truncated_ends(alignment).is_none_or(|(_, three_prime)| three_prime)
             })
@@ -371,7 +376,7 @@ pub(crate) fn filter_transcripts_with_sequence(
             });
 
             if let Ok(seq) = seq {
-                let is_mt = MITOCHONDRIAL_ACCESSIONS.iter().any(|a| tx.is_on_contig(a));
+                let is_mt = mitochondrial(tx);
                 if seq.is_empty() {
                     return Either::Left((
                         Identifier::Transcript(tx_id.clone()),
@@ -518,6 +523,14 @@ pub(crate) fn filter_empty_gene_id_mappings(loader: &mut TranscriptLoader) -> Re
 
 /// Mitochondrial accessions.
 pub const MITOCHONDRIAL_ACCESSIONS: &[&str] = &["NC_012920.1", "NC_001807.4"];
+
+/// Whether `contig` is the mitochondrial genome: one of [`MITOCHONDRIAL_ACCESSIONS`] or a name
+/// of it in `contigs`. GFF3 files keep their contig names, e.g. `chrM` in GENCODE and `MT` in
+/// Ensembl.
+pub(crate) fn is_mitochondrial(contigs: &ContigManager, contig: &str) -> bool {
+    MITOCHONDRIAL_ACCESSIONS.contains(&contig) || contigs.is_mitochondrial_alias(contig)
+}
+
 static DISCARD_BIOTYPES_TRANSCRIPTS: Lazy<HashSet<BioType>> = Lazy::new(|| {
     HashSet::from([
         // BioType::PseudogenicTranscript,
