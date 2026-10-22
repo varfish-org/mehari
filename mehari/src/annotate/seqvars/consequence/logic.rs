@@ -1271,9 +1271,9 @@ impl ConsequencePredictor {
                 // hgvs-rs puts it in front of the dup.
                 let vep = self.config.vep_compatibility_mode;
                 let var_c = if vep { ins_c.unwrap_or(var_c) } else { var_c };
-                if let Some(var_p) = self.safe_project_c_to_p(var_c)? {
+                if let Some((var_p, region)) = self.safe_project_c_to_p(var_c)? {
                     projection.p = Some(var_p);
-                    projection.region = self.variant_location(var_c);
+                    projection.region = region;
                 }
             }
         }
@@ -3420,10 +3420,8 @@ impl ConsequencePredictor {
             }
         };
 
-        let compound_var_p = self.safe_project_c_to_p(&compound_var_c)?;
-        let region = compound_var_p
-            .as_ref()
-            .and_then(|_| self.variant_location(&compound_var_c));
+        let (compound_var_p, region) = self.safe_project_c_to_p(&compound_var_c)?.unzip();
+        let region = region.flatten();
 
         let compound_proj = HgvsProjectionContext {
             n: Some(compound_var_n.clone()),
@@ -3738,12 +3736,15 @@ impl ConsequencePredictor {
     }
 
     /// Safely projects a CDS variant to a Protein variant, gracefully catching
-    /// and swallowing expected incomplete-transcript errors as `None`.
+    /// and swallowing expected incomplete-transcript errors as `None`. With the protein comes the
+    /// region of the transcript that `c_to_p` built it for. For a dup whose intron bases are
+    /// unknown (`DuplicationReferenceMissing`), `c_to_p` builds nothing: the protein is `p.?` and
+    /// the region comes from the builder, see `variant_location`.
     fn safe_project_c_to_p(
         &self,
         var_c: &HgvsVariant,
-    ) -> Result<Option<HgvsVariant>, SeqvarsError> {
-        self.mapper.c_to_p(var_c).map_or_else(
+    ) -> Result<Option<(HgvsVariant, Option<VariantLocation>)>, SeqvarsError> {
+        self.mapper.c_to_p_with_region(var_c).map_or_else(
             |e| {
                 if matches!(e, Error::DuplicationReferenceMissing(_)) {
                     // The intron bases of the dup are unknown, so is its protein change.
@@ -3752,7 +3753,7 @@ impl ConsequencePredictor {
                         gene_symbol: var_c.gene_symbol().clone(),
                         loc_edit: ProtLocEdit::Unknown,
                     };
-                    return Ok(Some(var_p));
+                    return Ok(Some((var_p, self.variant_location(var_c))));
                 }
                 if matches!(
                     e,
@@ -3783,7 +3784,7 @@ impl ConsequencePredictor {
                     )))
                 }
             },
-            |var_p| Ok(Some(var_p)),
+            |(var_p, region)| Ok(Some((var_p, Some(region)))),
         )
     }
 }
@@ -8925,15 +8926,22 @@ mod test {
     }
 
     /// hgvs-rs takes the intron bases of a dup next to an exon from the variant. Without them,
-    /// the protein change is unknown.
-    #[test]
-    fn safe_project_c_to_p_dup_without_intron_bases() -> Result<(), anyhow::Error> {
+    /// the protein change is unknown. The region then follows `ins_at_boundary_is_intronic`,
+    /// with or without the decision by sequence that VEP compatibility mode switches off.
+    /// mehari sets it to `false` in both modes, so the copy joins the exon.
+    #[rstest::rstest]
+    fn safe_project_c_to_p_dup_without_intron_bases(
+        #[values(false, true)] vep_compatibility_mode: bool,
+    ) -> Result<(), anyhow::Error> {
         let (tx, seq) = two_exon_tx(20);
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
         let var_c = HgvsVariant::from_str("NM_000001.1:c.40+1dup")?;
-        let var_p = predictor_for(tx, seq).safe_project_c_to_p(&var_c)?;
+        let projection = predictor_with_config(tx, seq, config).safe_project_c_to_p(&var_c)?;
         assert_eq!(
-            var_p.map(|var_p| FormattedLoc(&var_p).to_string()),
-            Some("p.?".to_string())
+            projection.map(|(var_p, region)| (FormattedLoc(&var_p).to_string(), region)),
+            Some(("p.?".to_string(), Some(VariantLocation::Cds)))
         );
         Ok(())
     }
