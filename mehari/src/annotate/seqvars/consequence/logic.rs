@@ -1838,13 +1838,16 @@ impl ConsequencePredictor {
             let utr_exon_variants =
                 Consequence::FivePrimeUtrExonVariant | Consequence::ThreePrimeUtrExonVariant;
             // As for the UTR terms, the region decides, not the c. description. Without a
-            // region, the UTR terms decide.
-            let in_utr = projection.region.is_none_or(|region| {
-                matches!(
+            // region, e.g., if p. failed, both ends of the c. description must lie in one UTR, so
+            // that a deletion from the 5' UTR into the CDS keeps its splice terms. Without c.,
+            // the UTR terms decide.
+            let in_utr = match projection.region {
+                Some(region) => matches!(
                     region,
                     VariantLocation::FivePrimeUtr | VariantLocation::ThreePrimeUtr
-                )
-            });
+                ),
+                None => projection.c.as_ref().is_none_or(lies_in_one_utr),
+            };
             if in_utr
                 && consequences.intersects(splice_variants)
                 && consequences.intersects(utr_intron_variants | utr_exon_variants)
@@ -3400,6 +3403,17 @@ fn inserts_frameshift(var_c: &HgvsVariant) -> bool {
         _ => return false,
     };
     len % 3 != 0
+}
+
+/// Whether `var_c` lies in one UTR: both ends in front of c.1, or both behind the CDS.
+fn lies_in_one_utr(var_c: &HgvsVariant) -> bool {
+    let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
+        return false;
+    };
+    let loc = loc_edit.loc.inner();
+    let in_5p_utr = |pos: &CdsPos| pos.cds_from == CdsFrom::Start && pos.base < 1;
+    (in_5p_utr(&loc.start) && in_5p_utr(&loc.end))
+        || (loc.start.cds_from == CdsFrom::End && loc.end.cds_from == CdsFrom::End)
 }
 
 fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
@@ -6607,6 +6621,23 @@ mod test {
             within_first_codon(loc.start.clone(), loc.end.clone()),
             expected
         );
+        Ok(())
+    }
+
+    /// Without a region, a variant counts as UTR variant only if both ends of c. lie in one UTR.
+    #[rstest::rstest]
+    #[case("c.-5_-1del", true)]
+    #[case("c.-12+1_-12+5del", true)]
+    #[case("c.*1_*5del", true)]
+    #[case("c.-5_3del", false)]
+    #[case("c.10_*2del", false)]
+    #[case("c.-5_*2del", false)]
+    fn variant_lies_in_one_utr(
+        #[case] var_c: &str,
+        #[case] expected: bool,
+    ) -> Result<(), anyhow::Error> {
+        let var_c = HgvsVariant::from_str(&format!("NM_000001.1:{var_c}"))?;
+        assert_eq!(lies_in_one_utr(&var_c), expected);
         Ok(())
     }
 }
