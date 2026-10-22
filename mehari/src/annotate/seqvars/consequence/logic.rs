@@ -2530,10 +2530,7 @@ impl ConsequencePredictor {
             .and_then(|tx| tx.start_codon.zip(tx.stop_codon))
             .map(|(start, stop)| stop - start);
         let deletes = matches!(var_c, HgvsVariant::CdsVariant { loc_edit, .. }
-        if matches!(
-            loc_edit.edit.inner(),
-            NaEdit::DelRef { .. } | NaEdit::DelNum { .. } | NaEdit::RefAlt { .. } | NaEdit::NumAlt { .. }
-        ));
+            if changes_length(loc_edit.edit.inner()));
         if !incomplete_3p && deletes && crosses_cds_end(var_c, cds_len) {
             return self.stop_codon_deletion_terms(var_c, tx_accession);
         }
@@ -3382,7 +3379,6 @@ impl ConsequencePredictor {
         }))
     }
 
-    /// An `AltSeqBuilder` for `var_c` with the settings that `c_to_p` of `self.mapper` uses.
     /// Terms of a deletion from the CDS through its last base, from the protein it produces. The
     /// position of the new stop codon relative to the old one decides: in front of it
     /// `stop_gained`, at it `stop_retained_variant` (and `missense_variant` if a residue changes),
@@ -3433,6 +3429,7 @@ impl ConsequencePredictor {
         consequences
     }
 
+    /// An `AltSeqBuilder` for `var_c` with the settings that `c_to_p` of `self.mapper` uses.
     fn alt_seq_builder<'a>(
         &self,
         var_c: &HgvsVariant,
@@ -3537,6 +3534,22 @@ fn inserts_frameshift(var_c: &HgvsVariant) -> bool {
         _ => return false,
     };
     len % 3 != 0
+}
+
+/// Whether `edit` deletes bases or replaces them by a different number of bases. An edit
+/// without its reference bases counts as such.
+fn changes_length(edit: &NaEdit) -> bool {
+    match edit {
+        NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => true,
+        NaEdit::RefAlt {
+            reference,
+            alternative,
+        } => reference.is_empty() || reference.len() != alternative.len(),
+        NaEdit::NumAlt { count, alternative } => {
+            usize::try_from(*count).ok() != Some(alternative.len())
+        }
+        _ => false,
+    }
 }
 
 /// Whether `var_c` lies in one UTR: both ends in front of c.1, or both behind the CDS.
@@ -6459,6 +6472,72 @@ mod test {
             ),
             (Some(expected_hgvs.0), Some(expected_hgvs.1), &expected_csqs)
         );
+        Ok(())
+    }
+
+    /// A substitution of the last stop codon base changes no length, so it keeps the terms of p.:
+    /// TAA to TAC (Tyr) reads on into the 3' UTR, TAA to TAG keeps the stop codon.
+    #[rstest::rstest]
+    #[case("C", "c.18A>C", "p.Ter6TyrextTer?", vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    #[case("G", "c.18A>G", "p.Ter6=", vec![Consequence::StopRetainedVariant])]
+    fn substitution_of_last_stop_codon_base(
+        #[case] alternative: &str,
+        #[case] expected_c: &str,
+        #[case] expected_p: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CGCATCA");
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1038,
+                reference: "A".into(),
+                alternative: alternative.into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_c), Some(expected_p), &expected_csqs)
+        );
+        Ok(())
+    }
+
+    /// Only deletions and edits that change the number of bases change the length.
+    #[rstest::rstest]
+    #[case("c.10_12del", true)]
+    #[case("c.10_12delinsA", true)]
+    #[case("c.10_12delinsAAA", false)]
+    #[case("c.10A>C", false)]
+    #[case("c.10_11insA", false)]
+    fn edit_changes_length(
+        #[case] var_c: &str,
+        #[case] expected: bool,
+    ) -> Result<(), anyhow::Error> {
+        let HgvsVariant::CdsVariant { loc_edit, .. } =
+            HgvsVariant::from_str(&format!("NM_000001.1:{var_c}"))?
+        else {
+            anyhow::bail!("not a c. variant: {var_c}");
+        };
+        let edit = match loc_edit.edit.inner() {
+            // The parser keeps the reference of `delins` empty; give it one as mehari's c. has.
+            NaEdit::RefAlt {
+                reference,
+                alternative,
+            } if reference.is_empty() => NaEdit::RefAlt {
+                reference: "GCC".into(),
+                alternative: alternative.clone(),
+            },
+            edit => edit.clone(),
+        };
+        assert_eq!(changes_length(&edit), expected);
         Ok(())
     }
 
