@@ -1824,40 +1824,35 @@ impl ConsequencePredictor {
             return;
         }
 
-        if let Some(var_c) = projection.c.as_ref() {
-            // Do not report splice variants in UTRs.
-            if self.config.discard_utr_splice_variants {
-                let splice_variants = Consequence::ExonicSpliceRegionVariant
-                    | Consequence::SpliceDonorVariant
-                    | Consequence::SpliceAcceptorVariant
-                    | Consequence::SpliceRegionVariant
-                    | Consequence::SpliceDonorFifthBaseVariant
-                    | Consequence::SpliceDonorRegionVariant
-                    | Consequence::SplicePolypyrimidineTractVariant;
-                let utr_intron_variants = Consequence::FivePrimeUtrIntronVariant
-                    | Consequence::ThreePrimeUtrIntronVariant;
-                let utr_exon_variants =
-                    Consequence::FivePrimeUtrExonVariant | Consequence::ThreePrimeUtrExonVariant;
-                let is_utr = match var_c {
-                    HgvsVariant::CdsVariant { loc_edit, .. } => {
-                        let loc = loc_edit.loc.inner();
-                        loc.start.base < 0
-                            && loc.end.base < 0
-                            && loc.start.cds_from == CdsFrom::Start
-                            && loc.end.cds_from == CdsFrom::Start
-                            || loc.start.base > 0
-                                && loc.end.base > 0
-                                && loc.start.cds_from == CdsFrom::End
-                                && loc.end.cds_from == CdsFrom::End
-                    }
-                    _ => false, // Not a CDS variant, can't be UTR in this context
-                };
-                if is_utr
-                    && consequences.intersects(splice_variants)
-                    && consequences.intersects(utr_intron_variants | utr_exon_variants)
-                {
-                    *consequences &= !splice_variants;
-                }
+        // Do not report splice variants in UTRs.
+        if self.config.discard_utr_splice_variants {
+            let splice_variants = Consequence::ExonicSpliceRegionVariant
+                | Consequence::SpliceDonorVariant
+                | Consequence::SpliceAcceptorVariant
+                | Consequence::SpliceRegionVariant
+                | Consequence::SpliceDonorFifthBaseVariant
+                | Consequence::SpliceDonorRegionVariant
+                | Consequence::SplicePolypyrimidineTractVariant;
+            let utr_intron_variants =
+                Consequence::FivePrimeUtrIntronVariant | Consequence::ThreePrimeUtrIntronVariant;
+            let utr_exon_variants =
+                Consequence::FivePrimeUtrExonVariant | Consequence::ThreePrimeUtrExonVariant;
+            // As for the UTR terms, the region decides, not the c. description. Without a
+            // region, e.g., if p. failed, both ends of the c. description must lie in one UTR, so
+            // that a deletion from the 5' UTR into the CDS keeps its splice terms. Without c.,
+            // the UTR terms decide.
+            let in_utr = match projection.region {
+                Some(region) => matches!(
+                    region,
+                    VariantLocation::FivePrimeUtr | VariantLocation::ThreePrimeUtr
+                ),
+                None => projection.c.as_ref().is_none_or(lies_in_one_utr),
+            };
+            if in_utr
+                && consequences.intersects(splice_variants)
+                && consequences.intersects(utr_intron_variants | utr_exon_variants)
+            {
+                *consequences &= !splice_variants;
             }
         }
 
@@ -3410,6 +3405,17 @@ fn inserts_frameshift(var_c: &HgvsVariant) -> bool {
     len % 3 != 0
 }
 
+/// Whether `var_c` lies in one UTR: both ends in front of c.1, or both behind the CDS.
+fn lies_in_one_utr(var_c: &HgvsVariant) -> bool {
+    let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
+        return false;
+    };
+    let loc = loc_edit.loc.inner();
+    let in_5p_utr = |pos: &CdsPos| pos.cds_from == CdsFrom::Start && pos.base < 1;
+    (in_5p_utr(&loc.start) && in_5p_utr(&loc.end))
+        || (loc.start.cds_from == CdsFrom::End && loc.end.cds_from == CdsFrom::End)
+}
+
 fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
     match var_c {
         HgvsVariant::CdsVariant { loc_edit, .. } => {
@@ -4345,6 +4351,43 @@ mod test {
             .vep_consequence_terms(vep_consequence_terms)
             .build()?;
         let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some(expected_hgvs_c), &expected_csqs),
+            "spdi = {spdi}"
+        );
+
+        Ok(())
+    }
+
+    /// With `discard_utr_splice_variants`, a variant in a UTR loses its splice terms. The
+    /// region of hgvs-rs decides, as for the UTR terms, not the c. description.
+    #[rstest::rstest]
+    // insertion between acceptor -1 and the first CDS base: the 5' UTR gains a base
+    #[case("22:28987075:G:GC", "ENST00000402174", CHR22_ENSEMBL108_TXS, "c.1-1_1insC", vec![Consequence::FivePrimeUtrExonVariant])]
+    // insertion between the last stop codon base and donor +1: the 3' UTR gains a base
+    #[case("22:31879752:G:GA", "ENST00000646998", CHR22_ENSEMBL108_TXS, "c.3858_3858+1insA", vec![Consequence::ThreePrimeUtrExonVariant])]
+    // dup of acceptor -1, the copy in front of the first CDS base: the 5' UTR gains a base
+    #[case("22:28987075:G:GG", "ENST00000402174", CHR22_ENSEMBL108_TXS, "c.1-1dup", vec![Consequence::FivePrimeUtrExonVariant])]
+    // dup of donor +1 behind the stop codon: the copy lands in the 3' UTR intron
+    #[case("22:31879752:G:GG", "ENST00000646998", CHR22_ENSEMBL108_TXS, "c.3858+1dup", vec![Consequence::ThreePrimeUtrIntronVariant, Consequence::CodingTranscriptIntronVariant])]
+    // deleting the donor G behind the CDS: not in a UTR, so the splice term stays
+    #[case("22:23772977:CG:C", "ENST00000215743", CHR22_ENSEMBL108_TXS, "c.108+1del", vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant])]
+    // minus strand: deleting donor +1 to +3 of a 5' UTR intron
+    #[case("22:26481718:TCAC:T", "ENST00000483631", CHR22_GENCODE42_TXS, "c.-664+1_-664+3del", vec![Consequence::FivePrimeUtrIntronVariant, Consequence::CodingTranscriptIntronVariant])]
+    // minus strand: deletion in a 3' UTR intron that keeps the AG
+    #[case("22:50246093:CTG:C", "ENST00000415993", CHR22_GENCODE42_TXS, "c.*1172-3_*1172-2del", vec![Consequence::ThreePrimeUtrIntronVariant, Consequence::CodingTranscriptIntronVariant])]
+    fn annotate_discard_utr_splice_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] tx_path: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .discard_utr_splice_variants(true)
+            .build()?;
+        let ann = annotate_chr22_window_with_config(spdi, tx_id, config, tx_path)?;
         assert_eq!(
             (ann.hgvs_c.as_deref(), &ann.consequences),
             (Some(expected_hgvs_c), &expected_csqs),
@@ -6578,6 +6621,23 @@ mod test {
             within_first_codon(loc.start.clone(), loc.end.clone()),
             expected
         );
+        Ok(())
+    }
+
+    /// Without a region, a variant counts as UTR variant only if both ends of c. lie in one UTR.
+    #[rstest::rstest]
+    #[case("c.-5_-1del", true)]
+    #[case("c.-12+1_-12+5del", true)]
+    #[case("c.*1_*5del", true)]
+    #[case("c.-5_3del", false)]
+    #[case("c.10_*2del", false)]
+    #[case("c.-5_*2del", false)]
+    fn variant_lies_in_one_utr(
+        #[case] var_c: &str,
+        #[case] expected: bool,
+    ) -> Result<(), anyhow::Error> {
+        let var_c = HgvsVariant::from_str(&format!("NM_000001.1:{var_c}"))?;
+        assert_eq!(lies_in_one_utr(&var_c), expected);
         Ok(())
     }
 }
