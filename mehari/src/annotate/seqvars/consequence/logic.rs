@@ -3,7 +3,7 @@ use super::pick::{self, Candidate};
 use super::plugin::{TxAnnotation, TxContext};
 use super::terms::{ANN_PICK, FeatureTag, GroupedAlleles};
 use super::terms::{
-    Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Pos, Rank, SoFeature,
+    Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, Rank, SoFeature,
 };
 use crate::annotate::seqvars::consequence::{Config, Consequences, FormattedLoc, VcfVariant};
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
@@ -62,7 +62,7 @@ struct HgvsProjectionContext {
     n: Option<HgvsVariant>,
     c: Option<HgvsVariant>,
     p: Option<HgvsVariant>,
-    /// The region of the transcript that `c` changes, as hgvs-rs uses it to project `c` to `p`.
+    /// The region of the transcript that `c` changes, as hgvs-rs uses it to build `p`.
     region: Option<VariantLocation>,
     /// With VEP terms, the c. variant at the input position, before the 3' shift. VEP checks
     /// with it whether an indel overlaps the stop codon.
@@ -121,6 +121,10 @@ pub(crate) trait HgvsVariantExt {
     /// have no reference bases, so they never cover an intron.
     fn alt_depends_on_splicing(&self, alignment: &GenomeAlignment) -> bool;
 
+    /// Check if the variant is an insertion between an exon's edge base and the intron base next
+    /// to it, e.g. `c.80_80+1insA` or `c.81-1_81insA`.
+    fn is_exon_edge_insertion(&self) -> bool;
+
     /// VEP's `stop_gained`, `stop_lost`, `stop_retained_variant` and `synonymous_variant` for an
     /// indel in the CDS, as in VEP 116.3.
     ///
@@ -133,8 +137,13 @@ pub(crate) trait HgvsVariantExt {
     /// the input position of the variant before the 3' shift (`_overlaps_stop_codon_cil`). There,
     /// an insertion overlaps the stop codon only if its bases fit in front of the stop codon end.
     ///
-    /// Returns `None` for an edit other than an insertion, duplication, deletion or delins, for
-    /// an edit that keeps the length, and for an edit with an intronic offset.
+    /// VEP puts an insertion at an exon edge into the exon (`Mapper::map_insert`): `c.N_N+1ins`
+    /// behind c.N, `c.N-1_Nins` in front of c.N. For another indel with an intronic offset, VEP
+    /// builds no codons, and this gives no stop terms. VEP can still report
+    /// `stop_retained_variant` there if the indel overlaps the stop codon on the genome.
+    ///
+    /// Returns `None` for an edit other than an insertion, duplication, deletion or delins, and
+    /// for an edit that keeps the length.
     fn vep_indel_stop_terms(
         &self,
         unshifted: &HgvsVariant,
@@ -164,6 +173,21 @@ impl HgvsVariantExt for HgvsVariant {
             .any(|end| (loc.start.base..loc.end.base).contains(&end))
     }
 
+    fn is_exon_edge_insertion(&self) -> bool {
+        let (start, end, edit) = match self {
+            HgvsVariant::CdsVariant { loc_edit, .. } => {
+                let loc = loc_edit.loc.inner();
+                (loc.start.offset, loc.end.offset, loc_edit.edit.inner())
+            }
+            HgvsVariant::TxVariant { loc_edit, .. } => {
+                let loc = loc_edit.loc.inner();
+                (loc.start.offset, loc.end.offset, loc_edit.edit.inner())
+            }
+            _ => return false,
+        };
+        edit.is_ins() && matches!((start.unwrap_or(0), end.unwrap_or(0)), (0, 1) | (-1, 0))
+    }
+
     fn vep_indel_stop_terms(
         &self,
         unshifted: &HgvsVariant,
@@ -183,19 +207,28 @@ impl HgvsVariantExt for HgvsVariant {
             CdsFrom::End => cds_len + pos.base,
         };
         let index = |cds_pos: i32| usize::try_from(cds_pos).ok();
-        // The first and last base that a variant changes, and the bases that replace them. As in
-        // VEP, an insertion lies between `end` and `start = end + 1`.
-        let changed = |variant: &HgvsVariant| -> Option<(i32, i32, String)> {
+        // The first and last base that a variant changes, the bases that replace them, and
+        // whether an insertion lies behind an intron, at an exon start. As in VEP, an insertion
+        // lies between `end` and `start = end + 1`.
+        let changed = |variant: &HgvsVariant| -> Option<(i32, i32, String, bool)> {
             let HgvsVariant::CdsVariant { loc_edit, .. } = variant else {
                 return None;
             };
             let loc = loc_edit.loc.inner();
-            if loc.start.offset.unwrap_or(0) != 0 || loc.end.offset.unwrap_or(0) != 0 {
-                return None;
-            }
+            let edit = loc_edit.edit.inner();
+            let behind_intron = match (loc.start.offset.unwrap_or(0), loc.end.offset.unwrap_or(0)) {
+                (0, 0) => false,
+                (0, 1) if edit.is_ins() => false,
+                (-1, 0) if edit.is_ins() => true,
+                _ => return None,
+            };
             let (start, end) = (cds_pos(&loc.start), cds_pos(&loc.end));
-            Some(match loc_edit.edit.inner() {
-                NaEdit::Ins { alternative } => (start + 1, start, alternative.clone()),
+            let (start, end, alt) = match edit {
+                // `c.N-1_Nins` lies behind c.N-1, the end of the exon in front.
+                NaEdit::Ins { alternative } => {
+                    let behind = start - i32::from(behind_intron);
+                    (behind + 1, behind, alternative.clone())
+                }
                 NaEdit::Dup { .. } => (
                     end + 1,
                     end,
@@ -204,9 +237,30 @@ impl HgvsVariantExt for HgvsVariant {
                 NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => (start, end, String::new()),
                 NaEdit::RefAlt { alternative, .. } => (start, end, alternative.clone()),
                 _ => return None,
-            })
+            };
+            Some((start, end, alt, behind_intron))
         };
-        let (mut start, mut end, mut alt) = changed(self)?;
+        let Some((mut start, mut end, mut alt, _)) = changed(self) else {
+            // VEP builds no codons for another indel with an intronic offset.
+            let HgvsVariant::CdsVariant { loc_edit, .. } = self else {
+                return None;
+            };
+            let indel = match loc_edit.edit.inner() {
+                NaEdit::RefAlt {
+                    reference,
+                    alternative,
+                } => reference.len() != alternative.len(),
+                NaEdit::NumAlt { count, alternative } => {
+                    usize::try_from(*count).ok() != Some(alternative.len())
+                }
+                NaEdit::InvRef { .. } | NaEdit::InvNum { .. } => false,
+                NaEdit::DelRef { .. }
+                | NaEdit::DelNum { .. }
+                | NaEdit::Ins { .. }
+                | NaEdit::Dup { .. } => true,
+            };
+            return indel.then(Consequences::empty);
+        };
         // VEP shifts an insertion or deletion 3' on the genome, also across the CDS end, where
         // hgvs-rs stops. On the genome, an intron follows the end of an exon.
         let base = |cds_pos: i32| cds_and_utr.as_bytes().get(index(cds_pos - 1)?).copied();
@@ -293,13 +347,21 @@ impl HgvsVariantExt for HgvsVariant {
         let overlaps_stop = !incomplete_3p && end >= cds_len - 2 && start <= cds_len;
         // VEP's `_overlaps_stop_codon_cil` works on the genome, at the input position. An
         // insertion overlaps the stop codon only if its bases fit between its position and the
-        // stop codon end. An input position in an intron overlaps no stop codon.
+        // stop codon end. An intron between the two keeps them apart. An input position in an
+        // intron overlaps no stop codon.
         let strand = Strand::try_from(tx.genome_alignments.first()?.strand).ok()?;
         let overlaps_stop_cil = !incomplete_3p
-            && changed(unshifted).is_some_and(|(start, end, alt)| {
+            && changed(unshifted).is_some_and(|(start, end, alt, behind_intron)| {
                 let ins_len = alt.len() as i32;
+                // An insertion behind an intron lies behind the exon end in front of it.
+                let intron_from = if behind_intron { start } else { end };
                 if start <= end {
                     end >= cds_len - 2 && start <= cds_len
+                } else if exon_ends
+                    .iter()
+                    .any(|exon_end| (intron_from..cds_len).contains(exon_end))
+                {
+                    false
                 } else if strand == Strand::Minus {
                     (cds_len - 2 - ins_len..=cds_len - 1).contains(&end)
                 } else {
@@ -511,6 +573,19 @@ struct ConsequenceContext {
     protein_pos: Option<Pos>,
 }
 
+/// The consequences of a variant on a transcript, with the location and the HGVS projection they
+/// come from.
+struct TxConsequences {
+    consequences: Consequences,
+    location: TranscriptLocationContext,
+    /// `None` up- or downstream of the transcript.
+    projection: Option<(HgvsProjectionContext, ConsequenceContext)>,
+}
+
+/// The terms of the essential splice sites.
+const SPLICE_SITES: Consequences =
+    enumflags2::make_bitflags!(Consequence::{SpliceDonorVariant | SpliceAcceptorVariant});
+
 impl ConsequencePredictor {
     pub fn new(provider: Arc<MehariProvider>, config: Config) -> Self {
         let mut custom_columns: Vec<_> = config
@@ -534,6 +609,10 @@ impl ConsequencePredictor {
             renormalize_g: reference_available && config.renormalize_g,
             genome_seq_available: reference_available,
             normalize: config.normalize,
+            // An insertion between an exon and an intron keeps the splice site, so its bases
+            // extend the exon, also in the protein. hgvs-rs reads a dup of the intron bases
+            // next to an exon as such an insertion.
+            ins_at_boundary_is_intronic: false,
             ..Default::default()
         };
         let mapper = assembly::Mapper::new(mapper_config, provider.clone());
@@ -650,7 +729,6 @@ impl ConsequencePredictor {
         } else {
             (var_g.clone(), var_g.clone())
         };
-
         // Get all affected transcripts.
         let (var_start_fwd, var_end_fwd) = Self::get_var_start_end(&var_g_fwd);
         let (var_start_rev, var_end_rev) = Self::get_var_start_end(&var_g_rev);
@@ -711,21 +789,27 @@ impl ConsequencePredictor {
             ));
         }
 
+        // An indel in a repeat has two ends, one 3'-shifted on each strand.
+        let shifts = var_g_fwd != var_g_rev;
         let anns = self.select_annotations(txs, |tx| {
             if tx.alt_strand == -1 {
+                let other_g = shifts.then_some(&var_g_fwd);
                 self.build_ann_field(
                     var,
                     &var_g_rev,
                     &var_g,
+                    other_g,
                     tx.clone(),
                     var_start_rev,
                     var_end_rev,
                 )
             } else {
+                let other_g = shifts.then_some(&var_g_rev);
                 self.build_ann_field(
                     var,
                     &var_g_fwd,
                     &var_g,
+                    other_g,
                     tx.clone(),
                     var_start_fwd,
                     var_end_fwd,
@@ -777,6 +861,45 @@ impl ConsequencePredictor {
         }
     }
 
+    /// The insertion of the copy that the dup `var_g` adds behind its bases on a transcript on
+    /// `strand`.
+    ///
+    /// Returns `None` if `var_g` is no dup.
+    fn dup_as_ins(var_g: &HgvsVariant, strand: Strand) -> Option<HgvsVariant> {
+        let HgvsVariant::GenomeVariant {
+            accession,
+            gene_symbol,
+            loc_edit,
+        } = var_g
+        else {
+            return None;
+        };
+        let NaEdit::Dup { reference } = loc_edit.edit.inner() else {
+            return None;
+        };
+        let loc = loc_edit.loc.inner();
+        // Behind the bases on the transcript is in front of them on the genome on the minus
+        // strand.
+        let pos = if strand == Strand::Minus {
+            loc.start? - 1
+        } else {
+            loc.end?
+        };
+        Some(HgvsVariant::GenomeVariant {
+            accession: accession.clone(),
+            gene_symbol: gene_symbol.clone(),
+            loc_edit: GenomeLocEdit {
+                loc: Mu::Certain(GenomeInterval {
+                    start: Some(pos),
+                    end: Some(pos + 1),
+                }),
+                edit: Mu::Certain(NaEdit::Ins {
+                    alternative: reference.clone(),
+                }),
+            },
+        })
+    }
+
     fn get_var_start_end(var_g: &HgvsVariant) -> (i32, i32) {
         match &var_g {
             HgvsVariant::GenomeVariant { loc_edit, .. } => {
@@ -814,6 +937,18 @@ impl ConsequencePredictor {
         let mut is_intronic = false;
         let mut distance: Option<i32> = None;
 
+        // The range of an insertion is the base in front of it. An insertion at the start of
+        // an exon adds its bases to the exon, so its range is the first exon base instead.
+        let (var_start, var_end) = match var_g {
+            HgvsVariant::GenomeVariant { loc_edit, .. }
+                if matches!(loc_edit.edit.inner(), NaEdit::Ins { .. })
+                    && (alignment.exons.iter().skip(1)).any(|exon| exon.alt_start_i == var_end) =>
+            {
+                (var_start + 1, var_end + 1)
+            }
+            _ => (var_start, var_end),
+        };
+
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
 
@@ -848,7 +983,7 @@ impl ConsequencePredictor {
                 is_exonic = true;
                 distance = Some(0);
                 consequences |= Self::analyze_exonic_variant(
-                    strand, var_start, var_end, exon_start, exon_end, &rank, is_utr,
+                    ins_shift, strand, var_start, var_end, exon_start, exon_end, &rank, is_utr,
                 );
             } else if let Some(intron_start) = prev_end
                 && var_start >= intron_start
@@ -893,6 +1028,7 @@ impl ConsequencePredictor {
                     intron_start,
                     exon_start,
                     is_utr,
+                    self.config.vep_consequence_terms,
                 );
             }
 
@@ -949,10 +1085,14 @@ impl ConsequencePredictor {
 
     /// The HGVS projection of `var_g` onto `tx`. `unshifted_g` is `var_g` at the input position,
     /// before the 3' shift.
+    ///
+    /// `ins_c` is the c. insertion of the copy of a dup, if `var_g` is one, see `dup_as_ins`.
+    /// With VEP terms, `p.` comes from it.
     fn project_hgvs(
         &self,
         var_g: &HgvsVariant,
         unshifted_g: &HgvsVariant,
+        ins_c: Option<&HgvsVariant>,
         tx: &Transcript,
         transcript_biotype: TranscriptBiotype,
     ) -> Result<HgvsProjectionContext, SeqvarsError> {
@@ -991,29 +1131,14 @@ impl ConsequencePredictor {
             if let Some(var_c) = &projection.c
                 && transcript_biotype == TranscriptBiotype::Coding
             {
-                projection.region = self.variant_location(var_c);
-
-                // if the variant is purely intronic, we can skip safe_project_c_to_p,
-                // and simply inject p.?
-                let is_purely_intronic = match var_c {
-                    HgvsVariant::CdsVariant { loc_edit, .. } => {
-                        let loc = loc_edit.loc.inner();
-                        loc.start.offset.unwrap_or(0) != 0
-                            && loc.end.offset.unwrap_or(0) != 0
-                            && loc.start.base == loc.end.base
-                            && loc.start.cds_from == loc.end.cds_from
-                    }
-                    _ => false,
-                };
-
-                if is_purely_intronic {
-                    projection.p = Some(HgvsVariant::ProtVariant {
-                        accession: var_c.accession().clone(),
-                        gene_symbol: var_c.gene_symbol().clone(),
-                        loc_edit: ProtLocEdit::Unknown,
-                    });
-                } else {
-                    projection.p = self.safe_project_c_to_p(var_c)?;
+                // With VEP terms, `p.` comes from the 3'-shifted variant, as in VEP 116.3. VEP puts
+                // the copy of a dup behind the dup, also next to an exon, while hgvs-rs puts it in
+                // front of the dup.
+                let vep = self.config.vep_consequence_terms;
+                let var_c = if vep { ins_c.unwrap_or(var_c) } else { var_c };
+                if let Some(var_p) = self.safe_project_c_to_p(var_c)? {
+                    projection.p = Some(var_p);
+                    projection.region = self.variant_location(var_c);
                 }
             }
         }
@@ -1030,12 +1155,18 @@ impl ConsequencePredictor {
         Ok(projection)
     }
 
+    /// The positions and consequences of `projection` at `transcript_location`. The terms of a
+    /// dup come from the insertion of its copy: `copy_location` is where the copy goes, `ins_c`
+    /// the insertion as a c. variant.
+    #[allow(clippy::too_many_arguments)]
     fn analyze_transcript_consequences(
         &self,
         projection: &HgvsProjectionContext,
         tx: &Transcript,
         tx_record: &TxForRegionRecord,
         transcript_location: &TranscriptLocationContext,
+        copy_location: Option<&TranscriptLocationContext>,
+        ins_c: Option<&HgvsVariant>,
         tx_len: i32,
         transcript_biotype: TranscriptBiotype,
     ) -> Result<ConsequenceContext, SeqvarsError> {
@@ -1086,9 +1217,9 @@ impl ConsequencePredictor {
                 !(self.config.vep_consequence_terms && region == VariantLocation::FivePrimeUtr)
             });
             context.cds_consequences = Self::analyze_cds_variant(
-                var_c,
+                ins_c.unwrap_or(var_c),
                 region,
-                transcript_location.is_exonic,
+                copy_location.unwrap_or(transcript_location).is_exonic,
                 conservative,
                 incomplete_3p,
                 available_cds_len,
@@ -1182,14 +1313,15 @@ impl ConsequencePredictor {
             }
 
             // VEP takes the stop terms and `synonymous_variant` of an indel from the changed
-            // codons, whatever `p.` says.
+            // codons, whatever `p.` says. For a dup, these are the codons that the insertion of
+            // its copy changes.
             if self.config.vep_consequence_terms
                 && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
                     self.provider.clone(),
                     &tx_record.tx_ac,
                     None,
                 )
-                && let Some(stop_terms) = var_c.vep_indel_stop_terms(
+                && let Some(stop_terms) = ins_c.unwrap_or(var_c).vep_indel_stop_terms(
                     projection.unshifted_c.as_ref().unwrap_or(var_c),
                     &ref_data,
                     tx,
@@ -1208,13 +1340,171 @@ impl ConsequencePredictor {
         Ok(context)
     }
 
+    /// Consequences of `var_g` on `tx`, with the location and the HGVS projection they come
+    /// from. `unshifted_g` is the variant at the input position, before the 3' shift. Returns
+    /// `None` if the projection onto the transcript fails.
+    #[allow(clippy::too_many_arguments)]
+    fn tx_consequences(
+        &self,
+        var_g: &HgvsVariant,
+        unshifted_g: &HgvsVariant,
+        tx: &Transcript,
+        tx_record: &TxForRegionRecord,
+        alignment: &GenomeAlignment,
+        strand: Strand,
+        transcript_biotype: TranscriptBiotype,
+        var_start: i32,
+        var_end: i32,
+    ) -> Result<Option<TxConsequences>, SeqvarsError> {
+        let (transcript_location, transcript_consequences) =
+            self.determine_transcript_context(alignment, strand, var_g, var_start, var_end);
+
+        let mut consequences = transcript_consequences;
+
+        // A dup inserts its copy behind its bases, so its terms come from there, e.g., the exon
+        // terms for a dup of the first exon base. Its positions stay those of `var_g`.
+        let ins_g = Self::dup_as_ins(var_g, strand);
+        let copy_location = match &ins_g {
+            Some(ins_g) => {
+                let (ins_start, ins_end) = Self::get_var_start_end(ins_g);
+                let (location, copy_consequences) =
+                    self.determine_transcript_context(alignment, strand, ins_g, ins_start, ins_end);
+                consequences = copy_consequences;
+                Some(location)
+            }
+            None => None,
+        };
+        let location = copy_location.as_ref().unwrap_or(&transcript_location);
+
+        if location.is_exonic {
+            if transcript_biotype == TranscriptBiotype::NonCoding {
+                consequences |= Consequence::NonCodingTranscriptExonVariant;
+            }
+        } else if location.is_intronic {
+            if transcript_biotype == TranscriptBiotype::NonCoding {
+                consequences |= Consequence::NonCodingTranscriptIntronVariant;
+            } else {
+                consequences |= Consequence::CodingTranscriptIntronVariant;
+            }
+        }
+
+        let projection = if !transcript_location.is_upstream && !transcript_location.is_downstream {
+            // The insertion of the copy of a dup on a coding transcript, as a c. variant. The CDS
+            // terms of the dup come from it, too.
+            let ins_c = ins_g
+                .as_ref()
+                .filter(|_| transcript_biotype == TranscriptBiotype::Coding)
+                .and_then(|ins_g| {
+                    self.mapper
+                        .variant_mapper()
+                        .g_to_c(ins_g, &tx.id, ALT_ALN_METHOD)
+                        .inspect_err(|e| {
+                            tracing::debug!("{}: cannot map {}: {}", &tx.id, ins_g, e);
+                        })
+                        .ok()
+                });
+            let projection =
+                self.project_hgvs(var_g, unshifted_g, ins_c.as_ref(), tx, transcript_biotype)?;
+            if projection.n.is_none() {
+                return Ok(None); // Early exit if g->n projection failed.
+            }
+
+            // VEP 116.3 puts an insertion between an exon and an intron outside the exon, also
+            // the copy of a dup.
+            if self.config.vep_consequence_terms
+                && transcript_biotype == TranscriptBiotype::NonCoding
+            {
+                let ins_n = match &ins_g {
+                    Some(ins_g) => self
+                        .mapper
+                        .variant_mapper()
+                        .g_to_n(ins_g, &tx.id, ALT_ALN_METHOD)
+                        .ok(),
+                    None => projection.n.clone(),
+                };
+                if ins_n.is_some_and(|var_n| var_n.is_exon_edge_insertion()) {
+                    consequences.remove(Consequence::NonCodingTranscriptExonVariant);
+                    consequences |= Consequence::NonCodingTranscriptVariant;
+                }
+            }
+
+            let consequence_ctx = self.analyze_transcript_consequences(
+                &projection,
+                tx,
+                tx_record,
+                &transcript_location,
+                copy_location.as_ref(),
+                ins_c.as_ref(),
+                tx.tx_len(),
+                transcript_biotype,
+            )?;
+
+            consequences |= consequence_ctx.cds_consequences | consequence_ctx.protein_consequences;
+
+            self.consequences_fix_special_cases(
+                &mut consequences,
+                // exon_alignment_consequences, // TODO include these as well
+                consequence_ctx.cds_consequences,
+                consequence_ctx.protein_consequences,
+                &projection,
+                tx.is_incomplete_5p(),
+            );
+
+            Some((projection, consequence_ctx))
+        } else {
+            None
+        };
+
+        Ok(Some(TxConsequences {
+            consequences,
+            location: transcript_location,
+            projection,
+        }))
+    }
+
+    /// Whether the same change at the other end of its repeat, `other_g`, leaves the essential
+    /// splice sites intact, as an equivalent position of `var_g`.
+    fn splice_sites_intact_elsewhere(
+        &self,
+        var_g: &HgvsVariant,
+        other_g: Option<&HgvsVariant>,
+        alignment: &GenomeAlignment,
+        strand: Strand,
+    ) -> bool {
+        // The copy of a dup can also go in front of the dup on the transcript, which is behind it
+        // as seen from the other strand.
+        let opposite = if strand == Strand::Minus {
+            Strand::Plus
+        } else {
+            Strand::Minus
+        };
+        let front_ins_g = Self::dup_as_ins(other_g.unwrap_or(var_g), opposite);
+        front_ins_g.as_ref().or(other_g).is_some_and(|other_g| {
+            let (other_start, other_end) = Self::get_var_start_end(other_g);
+            let (_, other_consequences) = self.determine_transcript_context(
+                alignment,
+                strand,
+                other_g,
+                other_start,
+                other_end,
+            );
+            !other_consequences.intersects(SPLICE_SITES)
+        })
+    }
+
     /// Annotation of `var_g` on the transcript of `tx_record`. `unshifted_g` is `var_g` at the
     /// input position, before the 3' shift.
+    ///
+    /// The HGVS descriptions, the positions and the consequence terms all come from `var_g`, the
+    /// 3'-shifted variant, so that they agree. `other_g` is the same indel at the other end of
+    /// its repeat, if that differs, see `Message::InfoSpliceSiteIntactAtEquivalentPosition`.
+    #[allow(clippy::too_many_arguments)]
     fn build_ann_field(
         &self,
         orig_var: &VcfVariant,
         var_g: &HgvsVariant,
         unshifted_g: &HgvsVariant,
+        other_g: Option<&HgvsVariant>,
         tx_record: TxForRegionRecord,
         var_start: i32,
         var_end: i32,
@@ -1253,73 +1543,43 @@ impl ConsequencePredictor {
         let transcript_biotype =
             TranscriptBiotype::try_from(tx.biotype).expect("invalid transcript biotype");
 
-        let (transcript_location, transcript_consequences) =
-            self.determine_transcript_context(alignment, strand, var_g, var_start, var_end);
-
-        let mut consequences = transcript_consequences;
-
-        if transcript_location.is_exonic {
-            if transcript_biotype == TranscriptBiotype::NonCoding {
-                consequences |= Consequence::NonCodingTranscriptExonVariant;
-            }
-        } else if transcript_location.is_intronic {
-            if transcript_biotype == TranscriptBiotype::NonCoding {
-                consequences |= Consequence::NonCodingTranscriptIntronVariant;
-            } else {
-                consequences |= Consequence::CodingTranscriptIntronVariant;
-            }
-        }
-
-        let (rank, projection, cdna_pos, cds_pos, protein_pos) = if !transcript_location.is_upstream
-            && !transcript_location.is_downstream
-        {
-            let projection = self.project_hgvs(var_g, unshifted_g, tx, transcript_biotype)?;
-            if projection.n.is_none() {
-                return Ok(None); // Early exit if g->n projection failed.
-            }
-
-            let consequence_ctx = self.analyze_transcript_consequences(
-                &projection,
-                tx,
-                &tx_record,
-                &transcript_location,
-                tx.tx_len(),
-                transcript_biotype,
-            )?;
-
-            consequences |= consequence_ctx.cds_consequences | consequence_ctx.protein_consequences;
-
-            self.consequences_fix_special_cases(
-                &mut consequences,
-                // exon_alignment_consequences, // TODO include these as well
-                consequence_ctx.cds_consequences,
-                consequence_ctx.protein_consequences,
-                &projection,
-                tx.is_incomplete_5p(),
-            );
-
-            (
-                Some(transcript_location.rank),
-                Some(projection),
-                consequence_ctx.cdna_pos,
-                consequence_ctx.cds_pos,
-                consequence_ctx.protein_pos,
-            )
-        } else {
-            (None, None, None, None, None)
+        let Some(TxConsequences {
+            mut consequences,
+            location: transcript_location,
+            projection,
+        }) = self.tx_consequences(
+            var_g,
+            unshifted_g,
+            tx,
+            &tx_record,
+            alignment,
+            strand,
+            transcript_biotype,
+            var_start,
+            var_end,
+        )?
+        else {
+            return Ok(None); // Early exit if g->n projection failed.
         };
+        let (rank, cdna_pos, cds_pos, protein_pos) = match &projection {
+            Some((_, ctx)) => (
+                Some(transcript_location.rank.clone()),
+                ctx.cdna_pos.clone(),
+                ctx.cds_pos.clone(),
+                ctx.protein_pos.clone(),
+            ),
+            None => (None, None, None, None),
+        };
+        let projection = projection.as_ref().map(|(projection, _)| projection);
 
         let hgvs_g = Some(self.format_hgvs_g(var_g));
         let hgvs_n = projection
-            .as_ref()
             .and_then(|p| p.n.as_ref())
             .map(|var| FormattedLoc(var).to_string());
         let hgvs_c = projection
-            .as_ref()
             .and_then(|p| p.c.as_ref())
             .map(|var| FormattedLoc(var).to_string());
         let hgvs_p = projection
-            .as_ref()
             .and_then(|p| p.p.as_ref())
             .map(|var| FormattedLoc(var).to_string());
 
@@ -1358,8 +1618,15 @@ impl ConsequencePredictor {
         }
 
         if self.config.vep_consequence_terms {
-            self.adjust_vep_terms(&mut consequences, projection.as_ref());
+            self.adjust_vep_terms(&mut consequences, projection);
         }
+
+        // The 3' shift can move an indel onto an essential splice site, although the same change
+        // at the other end of its repeat leaves the site intact. The terms follow the HGVS
+        // description; a message points this out.
+        let messages = (consequences.intersects(SPLICE_SITES)
+            && self.splice_sites_intact_elsewhere(var_g, other_g, alignment, strand))
+        .then(|| vec![Message::InfoSpliceSiteIntactAtEquivalentPosition]);
 
         let consequences = consequences.iter().collect_vec();
         let putative_impact = (*consequences.first().unwrap()).into();
@@ -1394,20 +1661,26 @@ impl ConsequencePredictor {
             protein_pos,
             strand,
             distance: transcript_location.distance,
-            messages: None,
+            messages,
             custom_fields: BTreeMap::new(),
         };
-        let region = projection.as_ref().and_then(|p| p.region);
-        let alt_depends_on_splicing = projection
-            .as_ref()
-            .and_then(|p| p.n.as_ref())
-            .is_some_and(|var_n| var_n.alt_depends_on_splicing(alignment));
-        let (var_c, var_n) = projection.map_or((None, None), |p| (p.c, p.n));
+        let region = projection.and_then(|p| p.region);
+        let ins_at_boundary_is_intronic = self.mapper.config.ins_at_boundary_is_intronic;
+        let alt_depends_on_splicing = projection.and_then(|p| p.n.as_ref()).is_some_and(|var_n| {
+            // Unless such insertions count as intronic, an insertion at an exon edge joins the
+            // exon and leaves the splice site intact.
+            var_n.alt_depends_on_splicing(alignment)
+                && (ins_at_boundary_is_intronic || !var_n.is_exon_edge_insertion())
+        });
+        let var_c = projection.and_then(|p| p.c.clone());
+        let var_n = projection.and_then(|p| p.n.clone());
 
         Ok(Some(TxAnnotation {
-            context: self
-                .tx_context(Some(tx), var_c, var_n)
-                .with_alt_inputs(region, alt_depends_on_splicing),
+            context: self.tx_context(Some(tx), var_c, var_n).with_alt_inputs(
+                region,
+                alt_depends_on_splicing,
+                ins_at_boundary_is_intronic,
+            ),
             ann,
         }))
     }
@@ -1600,11 +1873,13 @@ impl ConsequencePredictor {
             if checked != Consequences::empty()
                 // if the protein consequence is not effectively empty, we remove the CDS frameshift consequence
                 && !(consequences_protein.eq(&Consequence::GeneVariant) || consequences_protein.is_empty())
-                // if the protein consequence also includes a frameshift, then we keep it
+                // if the protein consequence also includes a frameshift, then we keep it,
+                // and also next to a stop as the first changed residue (`p.Val170Ter`)
                 && !consequences_protein.intersects(
                 Consequence::FrameshiftElongation
                     | Consequence::FrameshiftTruncation
-                    | Consequence::FrameshiftVariant,
+                    | Consequence::FrameshiftVariant
+                    | Consequence::StopGained,
             ) {
                 *consequences &= !checked;
             }
@@ -1747,6 +2022,7 @@ impl ConsequencePredictor {
 
     #[allow(clippy::too_many_arguments)]
     fn analyze_exonic_variant(
+        ins_shift: i32,
         strand: Strand,
         var_start: i32,
         var_end: i32,
@@ -1759,6 +2035,12 @@ impl ConsequencePredictor {
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
+        // The range of an insertion is the base in front of it. The insertion moves the bases
+        // behind it, so a window that counts from the exon start contains it if it contains
+        // the base behind it.
+        let var_overlaps_behind = |start: i32, end: i32| -> bool {
+            overlaps(var_start + ins_shift, var_end + ins_shift, start, end)
+        };
 
         // Check the cases where the variant overlaps with whole exon.
         if var_start <= exon_start && var_end >= exon_end {
@@ -1794,7 +2076,7 @@ impl ConsequencePredictor {
                 }
             }
         }
-        if var_overlaps(exon_start, exon_start + 3) {
+        if var_overlaps_behind(exon_start, exon_start + 3) {
             if strand == Strand::Plus {
                 if !rank.is_first() {
                     consequences |= Consequence::ExonicSpliceRegionVariant;
@@ -1819,14 +2101,32 @@ impl ConsequencePredictor {
         intron_start: i32,
         intron_end: i32,
         _is_utr: bool,
+        vep_terms: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
         let var_overlaps =
             |start: i32, end: i32| -> bool { overlaps(var_start, var_end, start, end) };
+        // The range of an insertion is the base in front of it. The insertion moves the bases
+        // behind it, so a window that counts from the intron start, e.g. donor +3 to +8 on the
+        // plus strand, contains it if it contains the base behind it.
+        let var_overlaps_behind = |start: i32, end: i32| -> bool {
+            overlaps(var_start + ins_shift, var_end + ins_shift, start, end)
+        };
+        // VEP 116.3 puts an insertion into the donor region or at the fifth base only if the
+        // bases on both sides of it are inside. So no insertion is at the fifth base.
+        let var_overlaps_donor = |start: i32, end: i32| -> bool {
+            if vep_terms {
+                var_overlaps(start, end) && var_overlaps_behind(start, end)
+            } else if strand == Strand::Plus {
+                var_overlaps_behind(start, end)
+            } else {
+                var_overlaps(start, end)
+            }
+        };
 
         // Check the cases where the variant overlaps with the splice acceptor/donor site.
-        if var_overlaps(intron_start - ins_shift, intron_start + 2) {
+        if var_overlaps(intron_start, intron_start + 2 - ins_shift) {
             // Left side, is acceptor/donor depending on transcript's strand.
             match strand {
                 Strand::Plus => {
@@ -1840,7 +2140,7 @@ impl ConsequencePredictor {
         }
 
         // Check the case where the variant overlaps with the splice donor site.
-        if var_overlaps(intron_end - 2, intron_end + ins_shift) {
+        if var_overlaps(intron_end - 2, intron_end - ins_shift) {
             // Left side, is acceptor/donor depending on transcript's strand.
             match strand {
                 Strand::Plus => {
@@ -1858,7 +2158,7 @@ impl ConsequencePredictor {
         // n.b. the 1-3 bases in exon check is already done within `analyze_exonic_variant`.
         // We have to check all cases independently and not with `else`
         // because the variant may be larger.
-        if var_overlaps(intron_start + 2, intron_start + 8)
+        if var_overlaps_behind(intron_start + 2, intron_start + 8)
             || var_overlaps(intron_end - 8, intron_end - 2)
         {
             consequences |= Consequence::SpliceRegionVariant;
@@ -1869,26 +2169,26 @@ impl ConsequencePredictor {
         if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
             consequences |= Consequence::SplicePolypyrimidineTractVariant;
         }
-        if strand == Strand::Minus && var_overlaps(intron_start + 2, intron_start + 17) {
+        if strand == Strand::Minus && var_overlaps_behind(intron_start + 2, intron_start + 17) {
             consequences |= Consequence::SplicePolypyrimidineTractVariant;
         }
 
         // Check conditions for splice_donor_region_variant
         // (A sequence variant that falls in the region between the 3rd and 6th base after splice junction (5' end of intron))
         // Note that this is two bases short of the intronic part of splice_region_variant
-        if strand == Strand::Plus && var_overlaps(intron_start + 2, intron_start + 6) {
+        if strand == Strand::Plus && var_overlaps_donor(intron_start + 2, intron_start + 6) {
             consequences |= Consequence::SpliceDonorRegionVariant;
         }
-        if strand == Strand::Minus && var_overlaps(intron_end - 6, intron_end - 2) {
+        if strand == Strand::Minus && var_overlaps_donor(intron_end - 6, intron_end - 2) {
             consequences |= Consequence::SpliceDonorRegionVariant;
         }
 
         // Check conditions for splice_donor_5th_base_variant
         // (A sequence variant that causes a change at the 5th base pair after the start of the intron in the orientation of the transcript.)
-        if strand == Strand::Plus && var_overlaps(intron_start + 4, intron_start + 5) {
+        if strand == Strand::Plus && var_overlaps_donor(intron_start + 4, intron_start + 5) {
             consequences |= Consequence::SpliceDonorFifthBaseVariant;
         }
-        if strand == Strand::Minus && var_overlaps(intron_end - 5, intron_end - 4) {
+        if strand == Strand::Minus && var_overlaps_donor(intron_end - 5, intron_end - 4) {
             consequences |= Consequence::SpliceDonorFifthBaseVariant;
         }
 
@@ -1896,9 +2196,9 @@ impl ConsequencePredictor {
     }
 
     fn ins_shift(var_g: &HgvsVariant) -> i32 {
-        // For insertions, we need to consider the case of the insertion being right at
-        // the exon/intron junction.  We can express this with a shift of 1 for using
-        // "< / >" X +/- shift and meaning <= / >= X.
+        // The range of an insertion is the base in front of it. An insertion changes a
+        // splice site only between its two bases, i.e., behind the first one. We can express
+        // this with a shift of 1 that drops the second site base.
 
         match var_g {
             HgvsVariant::GenomeVariant {
@@ -1944,6 +2244,23 @@ impl ConsequencePredictor {
             //   such as 5’ UTR, 3’ UTR, or intronic position.
             let is_intronic_or_utr = loc_start_offset != 0 && loc_end_offset != 0;
 
+            // An insertion at an exon edge (`c.10_10+1ins`, `c.11-1_11ins`) keeps the splice
+            // site and adds its bases to the exon. In front of the first CDS base (`c.1-1_1ins`),
+            // they join the 5' UTR. Behind the last one (`c.N_N+1ins`), they join the 3' UTR.
+            let at_exon_edge = matches!(edit, NaEdit::Ins { .. })
+                && start_base == end_base
+                && start_cds_from == end_cds_from
+                && matches!((loc_start_offset, loc_end_offset), (0, 1) | (-1, 0));
+            let ins_in_front_of_start = at_exon_edge
+                && start_cds_from == CdsFrom::Start
+                && start_base == 1
+                && loc_start_offset == -1;
+            let ins_behind_stop = at_exon_edge
+                && end_cds_from == CdsFrom::Start
+                && loc_end_offset == 1
+                && !incomplete_3p
+                && available_cds_len == Some(end_base);
+
             // The variables below mean "VARIANT_{starts,stops}_{left,right}_OF_{start,stop}_CODON".
             //
             // start codon
@@ -1960,8 +2277,14 @@ impl ConsequencePredictor {
             let in_3_prime_utr = region == Some(VariantLocation::ThreePrimeUtr);
             // stop codon
             let starts_left_of_stop = start_cds_from == CdsFrom::Start;
-            let ends_right_of_stop = end_cds_from == CdsFrom::End || in_3_prime_utr;
-            if starts_left_of_stop && ends_right_of_stop && !incomplete_3p && !in_3_prime_utr {
+            let ends_right_of_stop =
+                end_cds_from == CdsFrom::End || in_3_prime_utr || ins_behind_stop;
+            if starts_left_of_stop
+                && ends_right_of_stop
+                && !incomplete_3p
+                && !in_3_prime_utr
+                && !ins_behind_stop
+            {
                 consequences |= Consequence::StopLost;
             }
 
@@ -1983,7 +2306,7 @@ impl ConsequencePredictor {
             }
 
             // Detect variants affecting the 5'/3' UTRs.
-            if (starts_left_of_start && start_base < 0) || in_5_prime_utr {
+            if (starts_left_of_start && start_base < 0) || in_5_prime_utr || ins_in_front_of_start {
                 if is_intronic_or_utr {
                     consequences |= Consequence::FivePrimeUtrIntronVariant;
                 } else if is_exonic {
@@ -2017,10 +2340,15 @@ impl ConsequencePredictor {
             // i.e. not within the CDS, as the definition is
             // "A sequence variant which causes a disruption of the translational reading frame,
             // because the number of nucleotides inserted or deleted is not a multiple of three."
-            let within_exonic_sequence = loc_start_offset == 0 && loc_end_offset == 0;
+            let within_exonic_sequence =
+                loc_start_offset == 0 && loc_end_offset == 0 || at_exon_edge;
             let _crosses_boundary = (loc_start_offset != 0) ^ (loc_end_offset != 0);
 
-            if !(ends_right_of_stop || starts_left_of_start || in_5_prime_utr || is_intronic_or_utr)
+            if !(ends_right_of_stop
+                || starts_left_of_start
+                || in_5_prime_utr
+                || ins_in_front_of_start
+                || is_intronic_or_utr)
             {
                 match edit {
                     NaEdit::RefAlt {
@@ -2150,8 +2478,7 @@ impl ConsequencePredictor {
                             {
                                 let original_sequence_len = reference_data.aa_sequence.len();
                                 if let Ok(alt_data) =
-                                    AltSeqBuilder::new(var_c.clone(), &reference_data)
-                                        .build_altseq()
+                                    self.alt_seq_builder(var_c, &reference_data).build_altseq()
                                     && let Some(alt_data) = alt_data.first()
                                 {
                                     let altered_sequence = &alt_data.aa_sequence;
@@ -2694,7 +3021,7 @@ impl ConsequencePredictor {
                 return Ok(None);
             }
 
-            let proj = self.project_hgvs(&var_g, &var_g, tx, transcript_biotype)?;
+            let proj = self.project_hgvs(&var_g, &var_g, None, tx, transcript_biotype)?;
             if proj.n.is_none() || proj.c.is_none() || !proj.is_within_cds_bounds() {
                 return Ok(None);
             }
@@ -2838,12 +3165,15 @@ impl ConsequencePredictor {
         };
 
         let compound_var_p = self.safe_project_c_to_p(&compound_var_c)?;
+        let region = compound_var_p
+            .as_ref()
+            .and_then(|_| self.variant_location(&compound_var_c));
 
         let compound_proj = HgvsProjectionContext {
             n: Some(compound_var_n.clone()),
             c: Some(compound_var_c.clone()),
             p: compound_var_p,
-            region: self.variant_location(&compound_var_c),
+            region,
             unshifted_c: None,
         };
 
@@ -2861,6 +3191,8 @@ impl ConsequencePredictor {
             tx,
             tx_record,
             &tlc,
+            None,
+            None,
             tx_len,
             transcript_biotype,
         )?;
@@ -2965,16 +3297,25 @@ impl ConsequencePredictor {
         Ok(Some(TxAnnotation {
             context: self
                 .tx_context(Some(tx), Some(compound_var_c), Some(compound_var_n))
-                .with_ref_data(ref_data),
+                .with_ref_data(ref_data)
+                .with_alt_inputs(None, false, self.mapper.config.ins_at_boundary_is_intronic),
             ann,
         }))
     }
 
-    /// The region of the transcript that the c. variant `var_c` changes, as hgvs-rs `c_to_p`
-    /// decides it, e.g., `FivePrimeUtr` for `c.1dup`. With `shift_over_boundary`, `c_to_p` can
-    /// use another placement of `var_c`, so the region can differ then.
-    ///
-    /// Returns `None` if hgvs-rs has no reference data for the transcript.
+    /// An `AltSeqBuilder` for `var_c` with the settings that `c_to_p` of `self.mapper` uses.
+    fn alt_seq_builder<'a>(
+        &self,
+        var_c: &HgvsVariant,
+        ref_data: &'a RefTranscriptData,
+    ) -> AltSeqBuilder<'a> {
+        AltSeqBuilder {
+            ins_at_boundary_is_intronic: self.mapper.config.ins_at_boundary_is_intronic,
+            ..AltSeqBuilder::new(var_c.clone(), ref_data)
+        }
+    }
+
+    /// The region of the transcript that `var_c` changes, as `c_to_p` of `self.mapper` uses it.
     fn variant_location(&self, var_c: &HgvsVariant) -> Option<VariantLocation> {
         let ref_data = hgvs::mapper::altseq::ref_transcript_data_cached(
             self.provider.clone(),
@@ -2982,12 +3323,9 @@ impl ConsequencePredictor {
             None,
         )
         .ok()?;
-        AltSeqBuilder {
-            ins_at_boundary_is_intronic: self.mapper.config.ins_at_boundary_is_intronic,
-            ..AltSeqBuilder::new(var_c.clone(), &ref_data)
-        }
-        .variant_location()
-        .ok()
+        self.alt_seq_builder(var_c, &ref_data)
+            .variant_location()
+            .ok()
     }
 
     /// Safely projects a CDS variant to a Protein variant, gracefully catching
@@ -2996,42 +3334,48 @@ impl ConsequencePredictor {
         &self,
         var_c: &HgvsVariant,
     ) -> Result<Option<HgvsVariant>, SeqvarsError> {
-        self.mapper
-            .variant_mapper()
-            .c_to_p(var_c, None)
-            .map_or_else(
-                |e| {
-                    if matches!(
-                        e,
-                        Error::TranscriptLengthInvalid(_, _)
-                            | Error::CannotConvertIntervalEnd(_)
-                            | Error::MultipleAAVariants
-                    ) {
-                        tracing::debug!("c_to_p failed gracefully (typed error): {}", e);
-                        return Ok(None);
-                    }
+        self.mapper.c_to_p(var_c).map_or_else(
+            |e| {
+                if matches!(e, Error::DuplicationReferenceMissing(_)) {
+                    // The intron bases of the dup are unknown, so is its protein change.
+                    let var_p = HgvsVariant::ProtVariant {
+                        accession: var_c.accession().clone(),
+                        gene_symbol: var_c.gene_symbol().clone(),
+                        loc_edit: ProtLocEdit::Unknown,
+                    };
+                    return Ok(Some(var_p));
+                }
+                if matches!(
+                    e,
+                    Error::TranscriptLengthInvalid(_, _)
+                        | Error::CannotConvertIntervalEnd(_)
+                        | Error::MultipleAAVariants
+                ) {
+                    tracing::debug!("c_to_p failed gracefully (typed error): {}", e);
+                    return Ok(None);
+                }
 
-                    let err_str = e.to_string();
-                    if err_str.contains("does not contain a stop codon")
-                        || err_str.contains("multiple of 3")
-                        || err_str.contains("multiple of three")
-                        || err_str.contains("out of bound")
-                        || err_str.contains("outside of sequence bounds")
-                    {
-                        tracing::debug!(
-                            "c_to_p failed gracefully (nested error string): {}",
-                            err_str
-                        );
-                        Ok(None)
-                    } else {
-                        Err(SeqvarsError::HgvsProjection(format!(
-                            "c_to_p mapping failed: {}",
-                            e
-                        )))
-                    }
-                },
-                |v| Ok(Some(v)),
-            )
+                let err_str = e.to_string();
+                if err_str.contains("does not contain a stop codon")
+                    || err_str.contains("multiple of 3")
+                    || err_str.contains("multiple of three")
+                    || err_str.contains("out of bound")
+                    || err_str.contains("outside of sequence bounds")
+                {
+                    tracing::debug!(
+                        "c_to_p failed gracefully (nested error string): {}",
+                        err_str
+                    );
+                    Ok(None)
+                } else {
+                    Err(SeqvarsError::HgvsProjection(format!(
+                        "c_to_p mapping failed: {}",
+                        e
+                    )))
+                }
+            },
+            |var_p| Ok(Some(var_p)),
+        )
     }
 }
 
@@ -3151,7 +3495,7 @@ mod test {
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
-    use std::{fs::File, io::BufReader};
+    use std::{fs::File, io::BufReader, io::Write};
     use tempfile::NamedTempFile;
 
     #[test]
@@ -3676,6 +4020,11 @@ mod test {
     #[case("22:19524002:AC:A", "ENST00000403084", true, vec![Consequence::FrameshiftVariant])]
     // `p.Tyr1910Ter`: insertion inside codon 1910
     #[case("22:17791223:T:TC", "ENST00000441493", true, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    // Default terms: `frameshift_variant`, plus `stop_gained` if the first changed codon is a stop
+    #[case("22:19524002:AC:A", "ENST00000403084", false, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    #[case("22:17791223:T:TC", "ENST00000441493", false, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    #[case("22:38112210:TCA:T", "ENST00000332509", false, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
+    #[case("22:17191782:T:TTATG", "ENST00000262607", false, vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation])]
     // `p.Asp261AlafsTer2`: the new stop lies in the changed codons
     #[case("22:17191782:T:TTATG", "ENST00000262607", true, vec![Consequence::StopGained, Consequence::FrameshiftVariant])]
     // `p.Tyr790Ter`: deletion across codons 790 and 791
@@ -3776,6 +4125,456 @@ mod test {
             "spdi = {}, hgvs_p = {:?}",
             spdi.join(":"),
             ann.hgvs_p
+        );
+
+        Ok(())
+    }
+
+    /// Write chromosome 22 as an indexed FASTA file into `dir`: the windows from `path` and `N`
+    /// elsewhere. Each record ID names the 1-based region of its window, e.g., `22:100-200`.
+    fn write_chr22_from_windows(path: &str, dir: &Path) -> Result<PathBuf, anyhow::Error> {
+        let mut seq = Vec::new();
+        for record in bio::io::fasta::Reader::from_file(path)?.records() {
+            let record = record?;
+            let start = record
+                .id()
+                .split([':', '-'])
+                .nth(1)
+                .ok_or_else(|| anyhow::anyhow!("no window start in {}", record.id()))?
+                .parse::<usize>()?
+                - 1;
+            let end = start + record.seq().len();
+            if seq.len() < end {
+                seq.resize(end, b'N');
+            }
+            seq[start..end].copy_from_slice(record.seq());
+        }
+        let fasta = dir.join("chr22.fa");
+        let mut file = File::create(&fasta)?;
+        file.write_all(b">22\n")?;
+        file.write_all(&seq)?;
+        file.write_all(b"\n")?;
+        std::fs::write(
+            dir.join("chr22.fa.fai"),
+            format!("22\t{}\t4\t{}\t{}\n", seq.len(), seq.len(), seq.len() + 1),
+        )?;
+        Ok(fasta)
+    }
+
+    /// Ensembl 108 chr22 transcripts for `annotate_chr22_window`.
+    const CHR22_ENSEMBL108_TXS: &str =
+        "tests/data/annotate/db/grch38/GRCh38-ensembl.exon-edge-subset.txs.bin.zst";
+
+    /// GENCODE 42 chr22 transcripts that share exon edges with those of `CHR22_ENSEMBL108_TXS`,
+    /// and those of `annotate_dup_csqs`, `annotate_exon_edge_ins_stop_csqs` and
+    /// `annotate_vep_ins_region_csqs`.
+    const CHR22_GENCODE42_TXS: &str =
+        "tests/data/annotate/db/grch38/GRCh38-gencode42.exon-edge-subset.txs.bin.zst";
+
+    /// Annotation of `spdi` on the transcript `tx_id`, with Ensembl 108 chr22 transcripts and
+    /// the chr22 reference around the variant, so that mehari shifts indels 3'.
+    fn annotate_chr22_window(
+        spdi: &str,
+        tx_id: &str,
+        vep_consequence_terms: bool,
+    ) -> Result<AnnField, anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(vep_consequence_terms)
+            .build()?;
+        annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_ENSEMBL108_TXS)
+    }
+
+    /// `annotate_chr22_window` with the predictor configuration `config` and the transcripts
+    /// in `tx_path`.
+    fn annotate_chr22_window_with_config(
+        spdi: &str,
+        tx_id: &str,
+        config: Config,
+        tx_path: &str,
+    ) -> Result<AnnField, anyhow::Error> {
+        let spdi = spdi.split(':').collect::<Vec<_>>();
+
+        let dir = tempfile::tempdir()?;
+        let reference = write_chr22_from_windows(
+            "tests/data/annotate/seqvars/exon-edge.chr22-windows.fa",
+            dir.path(),
+        )?;
+        let tx_db = load_tx_db(tx_path)?;
+        let provider = Arc::new(MehariProvider::new(tx_db, Some(reference), false));
+        let predictor = ConsequencePredictor::new(provider, config);
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: spdi[0].to_string(),
+                position: spdi[1].parse()?,
+                reference: spdi[2].to_string(),
+                alternative: spdi[3].to_string(),
+            })?
+            .unwrap();
+
+        res.into_iter()
+            .find(|ann| ann.feature_id.starts_with(tx_id))
+            .ok_or_else(|| anyhow::anyhow!("no annotation on {}", tx_id))
+    }
+
+    /// Indels at exon edges on Ensembl 108 chr22 transcripts, with the reference so that mehari
+    /// shifts them 3'. The terms and `p.` follow the 3'-shifted HGVS description, also where the
+    /// same change at the other end of its repeat would keep a splice site, see
+    /// `splice_site_intact_at_equivalent_position`. With VEP terms, as VEP 116.3 with
+    /// `--shift_3prime 1`.
+    #[rstest::rstest]
+    // deleting the acceptor G equals deleting the first exon G
+    #[case("22:37713208:AG:A", "ENST00000644935", false, "c.257del", "p.Gly86AlafsTer33", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // deleting the donor G (`GCCG|GTGAGT`), which equals deleting the last exon G
+    #[case("22:23772977:CG:C", "ENST00000215743", false, "c.108+1del", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:23772977:CG:C", "ENST00000215743", true, "c.108+1del", "p.?", vec![Consequence::SpliceDonorVariant])]
+    // minus strand: deleting donor +1 to +3, which equals deleting the last three exon bases
+    #[case("22:26481718:TCAC:T", "ENST00000336873", false, "c.41+1_41+3del", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    // minus strand: deleting acceptor -3 and -2, which equals an intronic deletion that keeps
+    // the AG
+    #[case("22:50246093:CTG:C", "ENST00000216271", false, "c.1651-3_1651-2del", "p.?", vec![Consequence::SpliceAcceptorVariant, Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant])]
+    // deletion of donor +3 to +9 that keeps the GT
+    #[case("22:25763388:AGGTAAGT:A", "ENST00000335473", false, "c.198+3_198+9del", "p.?", vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    // deleting one C of `CCCAG|GT`: the 3'-shifted C is one of the last three exon bases
+    #[case("22:39101499:TC:T", "ENST00000442487", false, "c.416del", "p.Pro139GlnfsTer25", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // the deletion removes donor +1 and +2 at every position
+    #[case("22:28773775:ATGAG:A", "ENST00000249064", false, "c.238_239+2del", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::ExonicSpliceRegionVariant])]
+    // insertion between the last exon base and donor +1: the exon gains a base
+    #[case("22:20996112:T:TA", "ENST00000646124", false, "c.2219_2219+1insA", "p.Tyr741LeufsTer41", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:20996112:T:TA", "ENST00000646124", true, "c.2219_2219+1insA", "p.Tyr741LeufsTer41", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // minus strand: insertion between donor +1 and the last exon base
+    #[case("22:32150991:C:CTT", "ENST00000382097", false, "c.493_493+1insAA", "p.His165GlnfsTer19", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // insertion one base past the acceptor, between the first two exon bases
+    #[case("22:50522343:G:GCTTTCTC", "ENST00000299821", false, "c.1234_1235insCTTTCTC", "p.Val412AlafsTer5", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // insertion between acceptor -1 and the first CDS base: the 5' UTR gains a base
+    #[case("22:28987075:G:GC", "ENST00000402174", false, "c.1-1_1insC", "p.?", vec![Consequence::ExonicSpliceRegionVariant, Consequence::FivePrimeUtrExonVariant])]
+    // insertion between the last stop codon base and donor +1: the 3' UTR gains a base
+    #[case("22:31879752:G:GA", "ENST00000646998", false, "c.3858_3858+1insA", "p.?", vec![Consequence::ExonicSpliceRegionVariant, Consequence::ThreePrimeUtrExonVariant])]
+    // minus strand: dup of the last exon base, in front of donor +1 or inside the exon
+    #[case("22:28710005:C:CA", "ENST00000348295", false, "c.846dup", "p.Pro283SerfsTer7", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // dup inside the stop codon that equals one behind it (`TAA` to `TAAAA`)
+    #[case("22:21469819:T:TAA", "ENST00000432134", false, "c.932_933dup", "p.?", vec![Consequence::ThreePrimeUtrExonVariant])]
+    // frameshift inside the stop codon: every position changes the stop codon
+    #[case("22:42571197:T:TG", "ENST00000340239", false, "c.611dup", "p.Ter204TrpextTer73", vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    // dup of donor +1 to +7: the copy lands behind +7 and leaves the donor intact. hgvs-rs reads
+    // the dup as an insertion at the exon edge (`ins_at_boundary_is_intronic`), so `p.` shifts
+    // the frame.
+    #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", false, "c.1977+1_1977+7dup", "p.Thr660ValfsTer44", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", true, "c.1977+1_1977+7dup", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])]
+    // dup of donor +5 and +6: the copy lands behind +6 and leaves donor +3 to +6 intact
+    #[case("22:31616877:G:GGT", "ENST00000400288", false, "c.3433+5_3433+6dup", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    // dup of c.16 to c.20: the copy lands behind c.20, in the last three exon bases
+    #[case("22:42554033:G:GCCGCA", "ENST00000340239", false, "c.16_20dup", "p.Gly8HisfsTer4", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    fn annotate_exon_edge_indel_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] vep_consequence_terms: bool,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_hgvs_p: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let ann = annotate_chr22_window(spdi, tx_id, vep_consequence_terms)?;
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_hgvs_c), Some(expected_hgvs_p), &expected_csqs),
+            "spdi = {spdi}"
+        );
+
+        Ok(())
+    }
+
+    /// The 3' shift can put an indel onto an essential splice site that the same change at the
+    /// other end of its repeat leaves intact. The terms follow the HGVS description, and a
+    /// message says so.
+    #[rstest::rstest]
+    // c.108+1del equals c.108del
+    #[case("22:23772977:CG:C", "ENST00000215743", true)]
+    // minus strand: c.41+1_41+3del equals deleting the last three exon bases
+    #[case("22:26481718:TCAC:T", "ENST00000336873", true)]
+    // minus strand: c.1651-3_1651-2del equals an intronic deletion that keeps the AG
+    #[case("22:50246093:CTG:C", "ENST00000216271", true)]
+    // c.239+1dup equals c.239_239+1insG, which keeps the donor
+    #[case("22:28773779:G:GG", "ENST00000249064", true)]
+    // c.238_239+2del removes donor +1 and +2 at every position
+    #[case("22:28773775:ATGAG:A", "ENST00000249064", false)]
+    // c.416del has no splice site term
+    #[case("22:39101499:TC:T", "ENST00000442487", false)]
+    fn splice_site_intact_at_equivalent_position(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected: bool,
+    ) -> Result<(), anyhow::Error> {
+        let ann = annotate_chr22_window(spdi, tx_id, false)?;
+        let has_message = ann.messages.as_ref().is_some_and(|messages| {
+            messages.contains(&Message::InfoSpliceSiteIntactAtEquivalentPosition)
+        });
+        assert_eq!(has_message, expected, "{ann:?}");
+
+        Ok(())
+    }
+
+    /// The variants of `annotate_exon_edge_indel_csqs` at the same exon edge of other transcripts
+    /// of the gene (GENCODE 42, i.e., Ensembl 108): in the CDS, in a UTR and on a non-coding
+    /// transcript. The c. and the n. variants get the same terms apart from the region.
+    #[rstest::rstest]
+    // deleting the donor G (`GCCG|GTGAGT`), which equals deleting the last exon G
+    #[case("22:23772977:CG:C", "ENST00000215743", false, "c.108+1del", vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:23772977:CG:C", "ENST00000428253", false, "n.133+1del", vec![Consequence::SpliceDonorVariant, Consequence::NonCodingTranscriptIntronVariant])]
+    #[case("22:23772977:CG:C", "ENST00000428253", true, "n.133+1del", vec![Consequence::SpliceDonorVariant, Consequence::NonCodingTranscriptVariant])]
+    // minus strand: deleting donor +1 to +3, which equals deleting the last three exon bases
+    #[case("22:26481718:TCAC:T", "ENST00000336873", false, "c.41+1_41+3del", vec![Consequence::SpliceDonorVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:26481718:TCAC:T", "ENST00000483631", false, "c.-664+1_-664+3del", vec![Consequence::SpliceDonorVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::FivePrimeUtrIntronVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:26481718:TCAC:T", "ENST00000466781", false, "n.612+1_612+3del", vec![Consequence::SpliceDonorVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::NonCodingTranscriptIntronVariant])]
+    // minus strand: deleting acceptor -3 and -2, which equals an intronic deletion that keeps
+    // the AG
+    #[case("22:50246093:CTG:C", "ENST00000216271", false, "c.1651-3_1651-2del", vec![Consequence::SpliceAcceptorVariant, Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:50246093:CTG:C", "ENST00000415993", false, "c.*1172-3_*1172-2del", vec![Consequence::SpliceAcceptorVariant, Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::ThreePrimeUtrIntronVariant, Consequence::CodingTranscriptIntronVariant])]
+    #[case("22:50246093:CTG:C", "ENST00000477814", false, "n.1286-3_1286-2del", vec![Consequence::SpliceAcceptorVariant, Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant, Consequence::NonCodingTranscriptIntronVariant])]
+    fn annotate_exon_edge_indel_csqs_on_other_transcripts(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] vep_consequence_terms: bool,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(vep_consequence_terms)
+            .build()?;
+        let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some(expected_hgvs_c), &expected_csqs),
+            "spdi = {spdi}"
+        );
+
+        Ok(())
+    }
+
+    /// Dups on GENCODE 42 chr22 transcripts. The terms of a dup come from the insertion of its
+    /// copy behind its bases. With VEP terms, the expected terms are those of VEP 116.3 with
+    /// `--shift_3prime 1`, plus `coding_sequence_variant` next to `splice_region_variant`.
+    #[rstest::rstest]
+    // ENST00000413051 has no 5' UTR, and the copy lands behind c.2, in the CDS. The copy can
+    // also go in front of c.1, so hgvs-rs places the dup in the 5' UTR and gives `p.?`. With VEP
+    // terms, the position of the copy counts, not its 5' UTR region.
+    #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", false, "c.-21_2dup", "p.?", vec![Consequence::FivePrimeUtrExonVariant])]
+    #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", true, "c.-21_2dup", "p.?", vec![Consequence::FrameshiftVariant])]
+    // the copy lands in the last three exon bases
+    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", false, "c.491_504dup", "p.Lys168_Ile169insThrValSerTer", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
+    // VEP's changed codons at the 3'-shifted position hold the new stop codon
+    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", true, "c.491_504dup", "p.Lys168_Ile169insThrValSerTer", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    fn annotate_dup_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] vep_consequence_terms: bool,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_hgvs_p: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(vep_consequence_terms)
+            .build()?;
+        let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_hgvs_c), Some(expected_hgvs_p), &expected_csqs),
+            "spdi = {spdi}"
+        );
+
+        Ok(())
+    }
+
+    /// Insertions at exon edges on GENCODE 42 chr22 transcripts, with VEP terms. VEP puts such an
+    /// insertion into the exon and takes its stop terms from the changed codons there. The
+    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`, plus
+    /// `coding_sequence_variant` next to `splice_region_variant`. mehari adds
+    /// `feature_elongation` and `protein_altering_variant`.
+    #[rstest::rstest]
+    // ENST00000381982 (minus strand): an exon ends with c.1081, the first base of the stop codon
+    // (`t|ag`). `*/Y*` (`tag/tACTag`): the stop codon stays behind the new codon.
+    #[case("22:30491572:C:CAGT", "ENST00000381982", "c.1081_1081+1insACT", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `*/*LX` (`tag/tAACTag`): the bases at the old stop codon still read a stop codon. On the
+    // genome, an intron lies between the input position and the stop codon end, so VEP finds no
+    // overlap with the stop codon.
+    #[case("22:30491572:C:CAGTT", "ENST00000381982", "c.1081_1081+1insAACT", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `*/YX` (`tag/tATag`)
+    #[case("22:30491572:C:CAT", "ENST00000381982", "c.1081_1081+1insAT", vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `*/**` (`tag/tAATag`)
+    #[case("22:30491572:C:CATT", "ENST00000381982", "c.1081_1081+1insAAT", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::StopRetainedVariant, Consequence::CodingSequenceVariant])]
+    // `-/K*` (`-/AAATAA`): in front of the exon that starts with c.520
+    #[case("22:30494210:A:ATTATTT", "ENST00000381982", "c.520-1_520insAAATAA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `F/*F` (`ttt/tAGTtt`): the copy lands behind c.520
+    #[case("22:30494209:A:AACT", "ENST00000381982", "c.520-2_520dup", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // ENST00000398941 (plus strand): an exon ends with c.428, the next one starts with c.429.
+    // `S/SX` (`agc/agCGc`)
+    #[case("22:28744708:A:AGC", "ENST00000398941", "c.428_428+1insCG", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `-/X` (`-/GC`): the copy lands behind c.429
+    #[case("22:28751239:A:AGC", "ENST00000398941", "c.429-1_429dup", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // `K/N*` (`aag/aaCTAg`)
+    #[case("22:37967169:A:AACT", "ENST00000442738", "c.293_293+1insCTA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::ProteinAlteringVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    // minus strand: `-/P` (`-/CCG`)
+    #[case("22:50775771:C:CCGG", "ENST00000395590", "c.297_297+1insCCG", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    fn annotate_exon_edge_ins_stop_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .build()?;
+        let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some(expected_hgvs_c), &expected_csqs),
+            "spdi = {spdi}"
+        );
+
+        Ok(())
+    }
+
+    /// Insertions on GENCODE 42 chr22 transcripts, with VEP terms. VEP counts an insertion as
+    /// inside a region only if the bases on both sides of it are inside. The expected terms are
+    /// those of VEP 116.3 with `--shift_3prime 1`.
+    #[rstest::rstest]
+    // the copy lands between donor +2 and +3, so only one side is in donor +3 to +6
+    #[case("22:15690709:G:GGT", "ENST00000343518", "c.632+1_632+2dup", vec![Consequence::SpliceRegionVariant, Consequence::IntronVariant])]
+    // between donor +4 and +5: inside donor +3 to +6, but not at the fifth base
+    #[case("22:15690713:A:AG", "ENST00000343518", "c.632+4_632+5insG", vec![Consequence::SpliceDonorRegionVariant, Consequence::IntronVariant])]
+    // minus strand
+    #[case("22:26481719:C:CG", "ENST00000466781", "n.612+2_612+3insC", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptVariant, Consequence::IntronVariant])]
+    #[case("22:26481717:C:CA", "ENST00000466781", "n.612+4_612+5insT", vec![Consequence::SpliceDonorRegionVariant, Consequence::NonCodingTranscriptVariant, Consequence::IntronVariant])]
+    // between an exon and an intron of a non-coding transcript: not in the exon
+    #[case("22:20996112:T:TA", "ENST00000495142", "n.2571_2571+1insA", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptVariant])]
+    #[case("22:28710005:C:CA", "ENST00000491919", "n.403dup", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptVariant])]
+    #[case("22:26481721:C:CA", "ENST00000466781", "n.612_612+1insT", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptVariant])]
+    #[case("22:26479355:C:CA", "ENST00000466781", "n.613-1_613insT", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptVariant])]
+    // between the last two exon bases
+    #[case("22:26481722:C:CG", "ENST00000466781", "n.611_612insC", vec![Consequence::SpliceRegionVariant, Consequence::NonCodingTranscriptExonVariant])]
+    fn annotate_vep_ins_region_csqs(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .build()?;
+        let ann = annotate_chr22_window_with_config(spdi, tx_id, config, CHR22_GENCODE42_TXS)?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some(expected_hgvs_c), &expected_csqs),
+            "spdi = {spdi}"
+        );
+
+        Ok(())
+    }
+
+    /// An insertion at an exon edge adds its bases to the exon. So it gets the exon number and a
+    /// CDS position.
+    #[test]
+    fn annotate_ins_at_exon_edge_location() -> Result<(), anyhow::Error> {
+        let ann = annotate_chr22_window("22:32150991:C:CTT", "ENST00000382097", false)?;
+        assert_eq!(ann.hgvs_c.as_deref(), Some("c.493_493+1insAA"));
+        assert_eq!(ann.rank, Some(Rank { ord: 6, total: 9 }));
+        assert_eq!(ann.distance, Some(0));
+        assert_eq!(
+            ann.cds_pos,
+            Some(Pos {
+                ord: 493,
+                total: Some(756)
+            })
+        );
+
+        Ok(())
+    }
+
+    /// The alternative sequences follow the 3'-shifted HGVS description, as the terms do. Deleting
+    /// the donor G of `GCCG|GTGAGT` is `c.108+1del`, which changes splicing, so the alternative
+    /// transcript is unknown.
+    #[test]
+    fn alt_sequences_follow_hgvs() -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .plugins(vec![
+                Arc::new(SequencePlugin::TxRef),
+                Arc::new(SequencePlugin::TxAlt),
+                Arc::new(SequencePlugin::AaRef),
+                Arc::new(SequencePlugin::AaAlt),
+            ])
+            .build()?;
+        let ann = annotate_chr22_window_with_config(
+            "22:23772977:CG:C",
+            "ENST00000215743",
+            config,
+            CHR22_ENSEMBL108_TXS,
+        )?;
+        assert_eq!(ann.hgvs_c.as_deref(), Some("c.108+1del"));
+        assert_eq!(ann.hgvs_p.as_deref(), Some("p.?"));
+
+        assert!(custom_field(&ann, ANN_TX_SEQ_REF).is_some());
+        assert!(custom_field(&ann, ANN_AA_SEQ_REF).is_some());
+        assert_eq!(custom_field(&ann, ANN_TX_SEQ_ALT), None);
+        assert_eq!(custom_field(&ann, ANN_AA_SEQ_ALT), None);
+
+        Ok(())
+    }
+
+    /// Dups and insertions at the edges of a coding exon. A dup of the first or last exon base,
+    /// or of the intron base next to the exon, equals an insertion of that base at the exon
+    /// edge. There, it keeps the splice site and joins the exon, so the frame shifts. The HGVS
+    /// description of a dup of donor +1 still names the donor site, so it also gets
+    /// `splice_donor_variant`. An insertion between the two donor site bases breaks the site.
+    ///
+    /// Exon 2 of ENST00000249064 (plus strand) spans c.186 to c.239 (`CAG|TGT`, `GATGA|GTAAGT`).
+    /// On the minus strand, exon 7 of ENST00000348295 ends at c.846 (`CAT|GTAAGT`), and exon 18
+    /// of ENST00000216271 starts at c.1651 (`CAG|ATG`).
+    #[rstest::rstest]
+    // codon 62 CG|T stays, codon 63 GTT (Val) becomes TGT (Cys)
+    #[case("22:28773725:T:TT", "ENST00000249064", "c.186dup", "p.Val63CysfsTer6", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 62 becomes CGG (Arg, as CGT), codon 63 TGT (Cys) as for c.186dup
+    #[case("22:28773724:G:GG", "ENST00000249064", "c.186-1dup", "p.Val63CysfsTer6", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 80 GA|T (Asp, its T in exon 3) becomes GAA (Glu)
+    #[case("22:28773778:A:AA", "ENST00000249064", "c.239dup", "p.Asp80GlufsTer11", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 80 becomes GAG (Glu), the frame as for c.239dup
+    #[case("22:28773779:G:GG", "ENST00000249064", "c.239+1dup", "p.Asp80GlufsTer11", vec![Consequence::SpliceDonorVariant, Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::CodingTranscriptIntronVariant])]
+    // codon 80 becomes GAC (Asp, as GAT), codon 81 TGT (Cys) becomes TTG (Leu)
+    #[case("22:28773778:A:AC", "ENST00000249064", "c.239_239+1insC", "p.Cys81LeufsTer10", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28773779:G:GC", "ENST00000249064", "c.239+1_239+2insC", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant])]
+    // minus strand: codon 282 CAT stays, codon 283 CCT (Pro) becomes TCC (Ser)
+    #[case("22:28710005:C:CA", "ENST00000348295", "c.846dup", "p.Pro283SerfsTer7", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 283 becomes GCC (Ala)
+    #[case("22:28710005:C:CC", "ENST00000348295", "c.846+1dup", "p.Pro283AlafsTer7", vec![Consequence::SpliceDonorVariant, Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::CodingTranscriptIntronVariant])]
+    // codon 283 becomes CCC (Pro, as CCT), codon 284 TGC (Cys) becomes TTG (Leu)
+    #[case("22:28710005:C:CG", "ENST00000348295", "c.846_846+1insC", "p.Cys284LeufsTer6", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28710004:A:AG", "ENST00000348295", "c.846+1_846+2insC", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant])]
+    // minus strand: codon 551 ATG (Met) becomes AAT (Asn)
+    #[case("22:50246092:T:TT", "ENST00000216271", "c.1651dup", "p.Met551AsnfsTer23", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    // codon 551 becomes GAT (Asp)
+    #[case("22:50246093:C:CC", "ENST00000216271", "c.1651-1dup", "p.Met551AspfsTer23", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    fn annotate_exon_boundary_dup_and_ins(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_hgvs_p: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let ann = annotate_chr22_window(spdi, tx_id, false)?;
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_hgvs_c), Some(expected_hgvs_p), &expected_csqs),
+            "spdi = {spdi}"
         );
 
         Ok(())
@@ -4513,6 +5312,15 @@ mod test {
                                 "17-41277285-T-TA",
                             ]
                             .contains(&record.var.as_str()),
+                        // SnpEff calls these insertions at an exon edge a splice donor or acceptor
+                        // variant. The splice site stays intact, and the inserted bases join the
+                        // exon: the CDS of OPA1 and the 5' UTR of BRCA1.
+                        record_csqs.contains(&"splice_donor_variant")
+                            && expected_one_of.contains(&"frameshift_variant")
+                            && record.var == "3-193363589-A-AG",
+                        record_csqs.contains(&"splice_acceptor_variant")
+                            && expected_one_of.contains(&"exonic_splice_region_variant")
+                            && record.var == "17-41276132-A-ACT",
                         // we call exonic_splice_region_variant, while the others only call splice_region_variant
                         record_csqs.contains(&"splice_region_variant")
                             && expected_one_of.contains(&"exonic_splice_region_variant"),
@@ -5596,6 +6404,140 @@ mod test {
         #[case] expected: bool,
     ) {
         assert_eq!(deletion_keeps_cds(tx_seq, cds_start, del), expected);
+    }
+
+    /// A coding transcript `NM_000001.1` on the plus strand of chr1. Exon 1 spans
+    /// chr1:1001-1060, the intron chr1:1061-1160 and exon 2 chr1:1161-1220. The CDS is `ATG`,
+    /// 18 `GCC` codons and `TAA`, and starts `cds_start` bases into the transcript.
+    fn two_exon_tx(cds_start: usize) -> (Transcript, String) {
+        let utr = "CAGT".repeat(15);
+        let cds = format!("ATG{}TAA", "GCC".repeat(18));
+        let seq = format!("{}{cds}{}", &utr[..cds_start], &utr[cds_start..]);
+        let start = i32::try_from(cds_start).unwrap();
+        let genomic = |tx_pos: i32| {
+            if tx_pos < 60 {
+                1000 + tx_pos
+            } else {
+                1100 + tx_pos
+            }
+        };
+        let exon = |ord: i32| ExonAlignment {
+            alt_start_i: 1000 + 160 * ord,
+            alt_end_i: 1060 + 160 * ord,
+            ord,
+            alt_cds_start_i: Some(1 + 60 * ord),
+            alt_cds_end_i: Some(60 + 60 * ord),
+            cigar: "60M".into(),
+        };
+        let tx = Transcript {
+            id: "NM_000001.1".into(),
+            gene_symbol: "GENE1".into(),
+            gene_id: "1".into(),
+            biotype: TranscriptBiotype::Coding.into(),
+            protein: Some("NP_000001.1".into()),
+            start_codon: Some(start),
+            stop_codon: Some(start + 60),
+            genome_alignments: vec![GenomeAlignment {
+                genome_build: "grch38".into(),
+                contig: "NC_000001.11".into(),
+                cds_start: Some(genomic(start)),
+                cds_end: Some(genomic(start + 59) + 1),
+                strand: Strand::Plus.into(),
+                exons: vec![exon(0), exon(1)],
+                ..Default::default()
+            }],
+            filtered: Some(false),
+            ..Default::default()
+        };
+        (tx, seq)
+    }
+
+    /// The range of an insertion is the base in front of it. The insertion moves the bases
+    /// behind it, so a splice window that counts from its left end, e.g. donor +3 to +8 on the
+    /// plus strand, contains an insertion if it contains the base behind it. A window that
+    /// counts from its right end contains an insertion if it contains the base in front of it.
+    ///
+    /// `two_exon_tx(20)` has the donor +1 at chr1:1061 and the acceptor -1 at chr1:1160.
+    #[rstest::rstest]
+    #[case::exon_and_donor_1(1060, &[Consequence::ExonicSpliceRegionVariant])]
+    #[case::donor_1_2(1061, &[Consequence::SpliceDonorVariant])]
+    #[case::donor_2_3(
+        1062,
+        &[Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant]
+    )]
+    #[case::donor_4_5(
+        1064,
+        &[
+            Consequence::SpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::SpliceDonorFifthBaseVariant,
+        ]
+    )]
+    #[case::donor_5_6(
+        1065,
+        &[Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant]
+    )]
+    #[case::donor_6_7(1066, &[Consequence::SpliceRegionVariant])]
+    #[case::donor_8_9(1068, &[])]
+    #[case::acceptor_9_8(1152, &[Consequence::SplicePolypyrimidineTractVariant])]
+    #[case::acceptor_3_2(
+        1158,
+        &[Consequence::SpliceRegionVariant, Consequence::SplicePolypyrimidineTractVariant]
+    )]
+    #[case::acceptor_1_and_exon(1160, &[Consequence::ExonicSpliceRegionVariant])]
+    #[case::exon_2_3(1162, &[Consequence::ExonicSpliceRegionVariant])]
+    #[case::exon_3_4(1163, &[])]
+    fn splice_windows_for_insertions(
+        #[case] position: i32,
+        #[case] expected: &[Consequence],
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = two_exon_tx(20);
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: "C".into(),
+                alternative: "CTTT".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        let splice_terms = [
+            Consequence::SpliceDonorVariant,
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceRegionVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::SplicePolypyrimidineTractVariant,
+        ];
+        let found = splice_terms
+            .iter()
+            .filter(|term| ann.consequences.contains(term))
+            .collect::<Vec<_>>();
+        let expected = splice_terms
+            .iter()
+            .filter(|term| expected.contains(term))
+            .collect::<Vec<_>>();
+        assert_eq!(found, expected, "{ann:?}");
+        Ok(())
+    }
+
+    /// hgvs-rs takes the intron bases of a dup next to an exon from the variant. Without them,
+    /// the protein change is unknown.
+    #[test]
+    fn safe_project_c_to_p_dup_without_intron_bases() -> Result<(), anyhow::Error> {
+        let (tx, seq) = two_exon_tx(20);
+        let var_c = HgvsVariant::from_str("NM_000001.1:c.40+1dup")?;
+        let var_p = predictor_for(tx, seq).safe_project_c_to_p(&var_c)?;
+        assert_eq!(
+            var_p.map(|var_p| FormattedLoc(&var_p).to_string()),
+            Some("p.?".to_string())
+        );
+        Ok(())
     }
 
     /// An insertion or dup shifts the frame if it inserts a number of bases that is not a

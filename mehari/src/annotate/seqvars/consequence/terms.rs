@@ -941,6 +941,9 @@ pub enum Message {
     InfoNonReferenceAnnotation,
     /// The transcript lacks the `--restrict-transcripts` tags and was kept by `--restrict-fallback`.
     InfoRestrictFallback,
+    /// The 3' shift of HGVS put this indel onto an essential splice site, but the same change at
+    /// another position of its repeat leaves that splice site intact.
+    InfoSpliceSiteIntactAtEquivalentPosition,
 }
 
 /// Representation of an `ANN` field.
