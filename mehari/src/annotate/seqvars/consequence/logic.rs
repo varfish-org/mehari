@@ -1415,7 +1415,6 @@ impl ConsequencePredictor {
                         );
                     context.protein_consequences = Self::analyze_protein_variant(
                         var_p,
-                        &context.protein_pos,
                         conservative,
                         deletes_codons,
                         incomplete_3p,
@@ -2770,7 +2769,6 @@ impl ConsequencePredictor {
     /// codons.
     fn analyze_protein_variant(
         var_p: &HgvsVariant,
-        protein_pos: &Option<Pos>,
         conservative: bool,
         deletes_codons: bool,
         incomplete_3p: bool,
@@ -2803,16 +2801,15 @@ impl ConsequencePredictor {
                                 if loc.start == loc.end && is_stop(&loc.start.aa) {
                                     consequences |= Consequence::StopRetainedVariant;
                                 } else {
-                                    consequences |= Consequence::StopGained;
-                                    // A deletion of the last codons in front of the stop codon
-                                    // only shortens the protein, e.g. 1:43450470:GCCT:G,
-                                    // ENST00000634258.3:c.10294_10296del, p.Leu3432Ter.
-                                    if let Some(p) = protein_pos
-                                        && p.total.is_some_and(|t| p.ord == t)
-                                        && deletes_codons
-                                    {
-                                        consequences &= !Consequence::StopGained;
+                                    // A deletion of whole codons keeps the others, so a stop
+                                    // in place of a residue means that the deletion ends in
+                                    // front of the stop codon. It only shortens the protein,
+                                    // e.g. 1:43450470:GCCT:G, ENST00000634258.3:
+                                    // c.10294_10296del, p.Leu3432Ter.
+                                    if deletes_codons {
                                         consequences |= Consequence::ConservativeInframeDeletion;
+                                    } else {
+                                        consequences |= Consequence::StopGained;
                                     }
                                 }
                             } else {
@@ -7332,23 +7329,28 @@ mod test {
         Ok(())
     }
 
-    /// p. writes a stop in place of the last residue as a substitution, `p.(Ala5Ter)`. A
-    /// deletion of whole codons in front of the stop codon only shortens the protein, other
-    /// changes gain a stop. The CDS is `ATG GCC AAG CTG GCA TAG`.
+    /// p. writes a stop in place of a residue as a substitution, e.g. `p.(Ala5Ter)`. A deletion
+    /// of whole codons in front of the stop codon only shortens the protein, other changes gain
+    /// a stop. The CDS is `ATG GCC AAG CTG GCA TAG`.
     #[rstest::rstest]
     #[case::codon_deletion(
         (1032, "GGCA", "G"),
-        "c.13_15del",
+        ("c.13_15del", "p.(Ala5Ter)"),
+        vec![Consequence::ConservativeInframeDeletion]
+    )]
+    #[case::two_codon_deletion(
+        (1029, "GCTGGCA", "G"),
+        ("c.10_15del", "p.(Leu4Ter)"),
         vec![Consequence::ConservativeInframeDeletion]
     )]
     #[case::delins(
         (1033, "GCA", "TAAC"),
-        "c.13_15delinsTAAC",
+        ("c.13_15delinsTAAC", "p.(Ala5Ter)"),
         vec![Consequence::StopGained, Consequence::FrameshiftVariant]
     )]
-    fn stop_in_place_of_last_residue(
+    fn stop_in_place_of_residue(
         #[case] (position, reference, alternative): (i32, &str, &str),
-        #[case] expected_c: &str,
+        #[case] expected_hgvs: (&str, &str),
         #[case] expected_csqs: Vec<Consequence>,
     ) -> Result<(), anyhow::Error> {
         let (tx, seq) = one_exon_tx(
@@ -7375,7 +7377,7 @@ mod test {
                 ann.hgvs_p.as_deref(),
                 &ann.consequences
             ),
-            (Some(expected_c), Some("p.(Ala5Ter)"), &expected_csqs)
+            (Some(expected_hgvs.0), Some(expected_hgvs.1), &expected_csqs)
         );
         Ok(())
     }
