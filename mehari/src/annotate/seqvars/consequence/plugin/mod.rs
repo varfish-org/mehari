@@ -206,7 +206,8 @@ pub struct TxContext {
     region: Option<VariantLocation>,
     /// Whether the alternative transcript depends on how the variant changes splicing.
     alt_depends_on_splicing: bool,
-    /// The `AltSeqBuilder` setting that `c_to_p` uses.
+    /// The `AltSeqBuilder` setting that gives the alternative sequence of `c_to_p` for
+    /// `var_c`: whether the bases of an insertion at an exon edge are intronic.
     ins_at_boundary_is_intronic: bool,
     ref_data: OnceCell<Option<RefTranscriptData>>,
     alt_data: OnceCell<Option<AltTranscriptData>>,
@@ -277,17 +278,13 @@ impl TxContext {
         if loc.start.offset.unwrap_or(0) == 0 && loc.end.offset.unwrap_or(0) == 0 {
             return Some((loc.start.base, loc.end.base));
         }
-        // Unless such insertions count as intronic, an insertion at an exon edge joins the exon,
-        // so it lies between the exon's last base and the next exon's first one.
-        let var_n = self.var_n.as_ref()?;
-        if self.ins_at_boundary_is_intronic || !var_n.is_exon_edge_insertion() {
+        // If the bases of an insertion at an exon edge, or of the copy of a dup that goes there,
+        // join the exon, they lie between the exon's last base and the next exon's first one.
+        // The alternative transcript then does not depend on splicing.
+        if self.alt_depends_on_splicing {
             return None;
         }
-        let before = if loc.start.offset.unwrap_or(0) == 0 {
-            loc.start.base
-        } else {
-            loc.end.base - 1
-        };
+        let before = self.var_n.as_ref()?.exon_edge_gap()?;
         Some((before, before + 1))
     }
 
