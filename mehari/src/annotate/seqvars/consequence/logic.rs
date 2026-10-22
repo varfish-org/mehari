@@ -1395,10 +1395,16 @@ impl ConsequencePredictor {
                         _ => panic!("Not a protein position: {:?}", var_p),
                     };
 
+                    let deletes_codons = conservative
+                        && matches!(
+                            var_c.na_edit(),
+                            Some(NaEdit::DelRef { .. } | NaEdit::DelNum { .. })
+                        );
                     context.protein_consequences = Self::analyze_protein_variant(
                         var_p,
                         &context.protein_pos,
                         conservative,
+                        deletes_codons,
                         incomplete_3p,
                     );
 
@@ -2746,11 +2752,13 @@ impl ConsequencePredictor {
     }
 
     /// Terms read off the p. variant `var_p`, see `consequences_fix_special_cases` for those
-    /// that the protein decides.
+    /// that the protein decides. `deletes_codons` tells whether the c. variant deletes whole
+    /// codons.
     fn analyze_protein_variant(
         var_p: &HgvsVariant,
         protein_pos: &Option<Pos>,
         conservative: bool,
+        deletes_codons: bool,
         incomplete_3p: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
@@ -2782,13 +2790,12 @@ impl ConsequencePredictor {
                                     consequences |= Consequence::StopRetainedVariant;
                                 } else {
                                     consequences |= Consequence::StopGained;
-                                    // if the substitution happens right before the stop codon
-                                    // and if it is a conservative change
-                                    // then it is not a stop gained
-                                    // cf. 1:43450470:GCCT:G, ENST00000634258.3:c.10294_10296del/p.Leu3432Ter
+                                    // A deletion of the last codons in front of the stop codon
+                                    // only shortens the protein, e.g. 1:43450470:GCCT:G,
+                                    // ENST00000634258.3:c.10294_10296del, p.Leu3432Ter.
                                     if let Some(p) = protein_pos
                                         && p.total.is_some_and(|t| p.ord == t)
-                                        && conservative
+                                        && deletes_codons
                                     {
                                         consequences &= !Consequence::StopGained;
                                         consequences |= Consequence::ConservativeInframeDeletion;
@@ -7263,6 +7270,54 @@ mod test {
                 &ann.consequences
             ),
             (Some(expected_hgvs.0), Some(expected_hgvs.1), &expected_csqs)
+        );
+        Ok(())
+    }
+
+    /// p. writes a stop in place of the last residue as a substitution, `p.(Ala5Ter)`. A
+    /// deletion of whole codons in front of the stop codon only shortens the protein, other
+    /// changes gain a stop. The CDS is `ATG GCC AAG CTG GCA TAG`.
+    #[rstest::rstest]
+    #[case::codon_deletion(
+        (1032, "GGCA", "G"),
+        "c.13_15del",
+        vec![Consequence::ConservativeInframeDeletion]
+    )]
+    #[case::delins(
+        (1033, "GCA", "TAAC"),
+        "c.13_15delinsTAAC",
+        vec![Consequence::StopGained, Consequence::FrameshiftVariant]
+    )]
+    fn stop_in_place_of_last_residue(
+        #[case] (position, reference, alternative): (i32, &str, &str),
+        #[case] expected_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx(
+            "CAGTCAGTCAGTCAGTCAGT",
+            "ATGGCCAAGCTGGCATAG",
+            "GCATCAGTAACTGAGG",
+        );
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: reference.into(),
+                alternative: alternative.into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_c), Some("p.(Ala5Ter)"), &expected_csqs)
         );
         Ok(())
     }
