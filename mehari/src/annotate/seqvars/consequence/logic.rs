@@ -1992,6 +1992,14 @@ impl ConsequencePredictor {
             consequences.remove(ExonLossVariant);
         }
 
+        // VEP reports `feature_elongation` only for structural variants.
+        if self.config.vep_compatibility_mode
+            && consequences.contains(FeatureElongation)
+            && *consequences != Into::<Consequences>::into(FeatureElongation)
+        {
+            consequences.remove(FeatureElongation);
+        }
+
         let suppress_splice_region = SpliceDonorVariant
             | SpliceAcceptorVariant
             | SpliceDonorFifthBaseVariant
@@ -4605,8 +4613,8 @@ mod test {
     /// Indels on Ensembl 108 chr22 transcripts.
     ///
     /// With VEP terms, the expected terms are those of VEP 116.3 with `--shift_3prime 1`. mehari
-    /// adds `feature_elongation` and `protein_altering_variant`. At the stop codon, mehari keeps
-    /// `frameshift_variant` next to `stop_lost` or `stop_retained_variant`, which VEP drops.
+    /// adds `protein_altering_variant`. At the stop codon, mehari keeps `frameshift_variant` next
+    /// to `stop_lost` or `stop_retained_variant`, which VEP drops.
     #[rstest::rstest]
     // `p.Val170Ter`: VEP's changed codons hold no complete codon of the new frame
     #[case("22:19524002:AC:A", "ENST00000403084", true, vec![Consequence::FrameshiftVariant])]
@@ -4624,9 +4632,9 @@ mod test {
     // `p.Glu587Ter`: insertion between codons 586 and 587
     #[case("22:20112682:C:CA", "ENST00000252136", true, vec![Consequence::FrameshiftVariant])]
     // `p.Ter85ArgextTer9`
-    #[case("22:22895417:CCT:C", "ENST00000531372", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation])]
+    #[case("22:22895417:CCT:C", "ENST00000531372", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost])]
     // `p.Ter204TrpextTer73`
-    #[case("22:42571197:T:TG", "ENST00000340239", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation])]
+    #[case("22:42571197:T:TG", "ENST00000340239", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost])]
     // `p.Ter704=`: VEP's changed codons end in a partial codon, and the bases at the stop codon
     // still read a stop codon
     #[case("22:45600444:TG:T", "ENST00000327858", true, vec![Consequence::FrameshiftVariant, Consequence::StopRetainedVariant])]
@@ -4636,7 +4644,7 @@ mod test {
     // `p.Ter512=`: the new frame starts with a stop codon
     #[case("22:17181484:C:CT", "ENST00000262607", true, vec![Consequence::FrameshiftVariant, Consequence::StopRetainedVariant])]
     // `p.Ter704AspextTer1`: in-frame insertion in front of the stop codon
-    #[case("22:45600443:C:CGAT", "ENST00000327858", true, vec![Consequence::FeatureElongation, Consequence::InframeInsertion])]
+    #[case("22:45600443:C:CGAT", "ENST00000327858", true, vec![Consequence::InframeInsertion])]
     // `p.Cys203Ter` (VEP: `p.Cys203del`): in-frame deletion in front of the stop codon
     #[case("22:42571193:CTGT:C", "ENST00000340239", true, vec![Consequence::InframeDeletion])]
     // in-frame deletion across the stop codon
@@ -4646,7 +4654,7 @@ mod test {
     #[case("22:22895421:TGAG:T", "ENST00000531372", true, vec![Consequence::ThreePrimeUtrVariant])]
     // `c.1449_*18del`: VEP builds no altered sequence for a deletion beyond the transcript end,
     // so the stop codon counts as kept
-    #[case("22:50525751:GTTTCGCGGCAAAGGAGCTT:G", "ENST00000487577", true, vec![Consequence::FeatureElongation, Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant])]
+    #[case("22:50525751:GTTTCGCGGCAAAGGAGCTT:G", "ENST00000487577", true, vec![Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant])]
     // `p.Ter704=`: in-frame insertion inside the stop codon that keeps it
     #[case("22:45600443:C:CTAA", "ENST00000327858", false, vec![Consequence::StopRetainedVariant])]
     #[case("22:45600443:C:CTAA", "ENST00000327858", true, vec![Consequence::InframeInsertion, Consequence::StopRetainedVariant])]
@@ -5130,17 +5138,17 @@ mod test {
     /// Insertions at exon edges on GENCODE 42 chr22 transcripts, with VEP terms. VEP puts such an
     /// insertion into the exon and takes its stop terms from the changed codons there. The
     /// expected terms are those of VEP 116.3 with `--shift_3prime 1`. mehari adds
-    /// `feature_elongation` and `protein_altering_variant`.
+    /// `protein_altering_variant`.
     #[rstest::rstest]
     // ENST00000381982 (minus strand): an exon ends with c.1081, the first base of the stop codon
     // (`t|ag`). `*/Y*` (`tag/tACTag`): the stop codon stays behind the new codon.
-    #[case("22:30491572:C:CAGT", "ENST00000381982", "c.1081_1081+1insACT", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
+    #[case("22:30491572:C:CAGT", "ENST00000381982", "c.1081_1081+1insACT", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     // `*/*LX` (`tag/tAACTag`): the bases at the old stop codon still read a stop codon. On the
     // genome, an intron lies between the input position and the stop codon end, so VEP finds no
     // overlap with the stop codon.
     #[case("22:30491572:C:CAGTT", "ENST00000381982", "c.1081_1081+1insAACT", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     // `*/YX` (`tag/tATag`)
-    #[case("22:30491572:C:CAT", "ENST00000381982", "c.1081_1081+1insAT", vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation, Consequence::SpliceRegionVariant])]
+    #[case("22:30491572:C:CAT", "ENST00000381982", "c.1081_1081+1insAT", vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::SpliceRegionVariant])]
     // `*/**` (`tag/tAATag`)
     #[case("22:30491572:C:CATT", "ENST00000381982", "c.1081_1081+1insAAT", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::StopRetainedVariant])]
     // `-/K*` (`-/AAATAA`): in front of the exon that starts with c.520
@@ -5149,13 +5157,13 @@ mod test {
     #[case("22:30494209:A:AACT", "ENST00000381982", "c.520-2_520dup", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     // ENST00000398941 (plus strand): an exon ends with c.428, the next one starts with c.429.
     // `S/SX` (`agc/agCGc`)
-    #[case("22:28744708:A:AGC", "ENST00000398941", "c.428_428+1insCG", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant])]
+    #[case("22:28744708:A:AGC", "ENST00000398941", "c.428_428+1insCG", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     // `-/X` (`-/GC`): the copy lands behind c.429
-    #[case("22:28751239:A:AGC", "ENST00000398941", "c.429-1_429dup", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant])]
+    #[case("22:28751239:A:AGC", "ENST00000398941", "c.429-1_429dup", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     // `K/N*` (`aag/aaCTAg`)
     #[case("22:37967169:A:AACT", "ENST00000442738", "c.293_293+1insCTA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::ProteinAlteringVariant, Consequence::SpliceRegionVariant])]
     // minus strand: `-/P` (`-/CCG`)
-    #[case("22:50775771:C:CCGG", "ENST00000395590", "c.297_297+1insCCG", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
+    #[case("22:50775771:C:CCGG", "ENST00000395590", "c.297_297+1insCCG", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     fn annotate_exon_edge_ins_stop_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
@@ -6743,8 +6751,8 @@ mod test {
     /// chr22:18634680-18634682.
     #[rstest::rstest]
     #[case(false, vec![Consequence::StopLost, Consequence::FeatureElongation])]
-    // VEP 116.3 reports `stop_lost` only
-    #[case(true, vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation])]
+    // VEP 116.3 reports `stop_lost` only, and mehari keeps `frameshift_variant`
+    #[case(true, vec![Consequence::FrameshiftVariant, Consequence::StopLost])]
     fn stop_codon_at_transcript_end_without_padding(
         #[case] vep_consequence_terms: bool,
         #[case] expected_csqs: Vec<Consequence>,
