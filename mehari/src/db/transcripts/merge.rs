@@ -93,16 +93,18 @@ pub fn merge_transcript_databases(
                 .collect();
             for g2tx in tx_db.gene_to_tx.iter_mut() {
                 if let Some(other_g2tx) = other_gene_to_tx.remove(&g2tx.gene_id) {
-                    // Keep the HGNC ID of the first database. Warn as the importer does if the
-                    // other database names another one.
-                    if let Some(other_hgnc_id) = &other_g2tx.hgnc_id
-                        && g2tx.hgnc_id.as_ref() != Some(other_hgnc_id)
+                    // Keep the HGNC ID of the first database, else take the other one. Warn as
+                    // the importer does if the two differ.
+                    if g2tx.hgnc_id.is_none() {
+                        g2tx.hgnc_id = other_g2tx.hgnc_id;
+                    } else if let (Some(hgnc_id), Some(other_hgnc_id)) =
+                        (&g2tx.hgnc_id, &other_g2tx.hgnc_id)
+                        && hgnc_id != other_hgnc_id
                     {
                         tracing::warn!(
-                            "gene {} has HGNC ID {}, but another database names {}",
-                            g2tx.gene_id,
-                            g2tx.hgnc_id.as_deref().unwrap_or("none"),
-                            other_hgnc_id
+                            "gene {} has HGNC ID {hgnc_id}, but another database names \
+                             {other_hgnc_id}",
+                            g2tx.gene_id
                         );
                     }
                     g2tx.tx_ids.extend(other_g2tx.tx_ids);
@@ -231,7 +233,7 @@ mod tests {
     }
 
     /// A gene keeps the HGNC ID of the first database. The merge warns if the other
-    /// database names another one, also if the first names none.
+    /// database names another one.
     #[tracing_test::traced_test]
     #[test]
     fn merge_warns_about_another_hgnc_id() {
@@ -242,11 +244,17 @@ mod tests {
         assert!(logs_contain(
             "gene 11 has HGNC ID HGNC:1, but another database names HGNC:2"
         ));
+    }
 
-        assert_eq!(merged_hgnc_ids(None, Some("HGNC:3")), [None]);
-        assert!(logs_contain(
-            "gene 11 has HGNC ID none, but another database names HGNC:3"
-        ));
+    /// A gene without HGNC ID in the first database takes the one of the other database.
+    #[tracing_test::traced_test]
+    #[test]
+    fn merge_takes_the_hgnc_id_of_the_other_database() {
+        assert_eq!(
+            merged_hgnc_ids(None, Some("HGNC:3")),
+            [Some("HGNC:3".to_string())]
+        );
+        assert!(!logs_contain("HGNC ID"));
     }
 
     /// The merge does not warn if the other database names the same HGNC ID or none.
