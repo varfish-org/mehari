@@ -189,7 +189,7 @@ message Transcript {
   optional uint32 filter_reason = 11;
   // Codons whose amino acid the annotation sets, ordered by position. Without a
   // selenocysteine here, a transcript tagged as selenoprotein reads every UGA as
-  // selenocysteine.
+  // selenocysteine, except a UGA at the end of the CDS: that one is the stop codon.
   repeated TranslationException translation_exceptions = 12;
   // Gene ID of the gene record that this transcript comes from, with version, e.g.,
   // `"ENSG00000121410.14"` for A1BG in Ensembl. Transcripts from different releases of a
