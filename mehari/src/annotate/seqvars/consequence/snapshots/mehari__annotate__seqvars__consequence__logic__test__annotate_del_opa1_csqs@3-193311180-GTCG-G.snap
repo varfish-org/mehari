@@ -1,5 +1,5 @@
 ---
-source: mehari/src/annotate/seqvars/csq.rs
+source: mehari/src/annotate/seqvars/consequence/logic.rs
 expression: res
 ---
 - allele:
@@ -25,7 +25,7 @@ expression: res
   hgvs_g: g.193311181_193311183del
   hgvs_n: n.185_187del
   hgvs_c: c.15_17del
-  hgvs_p: p.Arg6del
+  hgvs_p: p.(Arg6del)
   cdna_pos:
     ord: 185
     total: 6429

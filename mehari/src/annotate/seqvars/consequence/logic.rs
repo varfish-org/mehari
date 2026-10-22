@@ -5,6 +5,7 @@ use super::terms::{ANN_PICK, FeatureTag, GroupedAlleles};
 use super::terms::{
     Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, Rank, SoFeature,
 };
+use crate::annotate::cli::HgvsParentheses;
 use crate::annotate::seqvars::consequence::{Config, Consequences, FormattedLoc, VcfVariant};
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
@@ -669,6 +670,7 @@ impl ConsequencePredictor {
             // splice site right next to the exon, else they extend the exon, also where the
             // intron bases are unknown. VEP compatibility keeps them in the exon.
             ins_at_boundary_by_sequence: !config.vep_compatibility_mode,
+            inferred_p_is_uncertain: config.hgvs_parentheses == HgvsParentheses::Predicted,
             ins_at_boundary_is_intronic: false,
             ..Default::default()
         };
@@ -3890,6 +3892,38 @@ mod test {
         assert!(logs_contain("No reference genome given"));
     }
 
+    /// HGVS writes a predicted protein change in parentheses. c.4G>A changes GCC (Ala2) to ACC.
+    #[rstest::rstest]
+    #[case::predicted(HgvsParentheses::Predicted, "p.(Ala2Thr)")]
+    #[case::never(HgvsParentheses::Never, "p.Ala2Thr")]
+    fn predicted_protein_in_parentheses(
+        #[case] hgvs_parentheses: HgvsParentheses,
+        #[case] expected: &str,
+    ) -> Result<(), anyhow::Error> {
+        let provider = Arc::new(MehariProvider::new(
+            tx_db_with_indels_in_exon_cigars(),
+            None::<PathBuf>,
+            true,
+        ));
+        let config = ConfigBuilder::default()
+            .hgvs_parentheses(hgvs_parentheses)
+            .build()?;
+        let anns = ConsequencePredictor::new(provider, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1006,
+                reference: "G".into(),
+                alternative: "A".into(),
+            })?
+            .unwrap();
+
+        assert_eq!(
+            (anns[0].hgvs_c.as_deref(), anns[0].hgvs_p.as_deref()),
+            (Some("c.4G>A"), Some(expected))
+        );
+        Ok(())
+    }
+
     /// A change of the first codon gives no start terms if the CDS lacks its start codon. c.2T>A
     /// changes the ATG at n.3_5.
     #[rstest::rstest]
@@ -3989,7 +4023,7 @@ mod test {
         let ann = predictor(tx_db_with_indels_in_exon_cigars())
             .predict(&var(2010, "TAAA", "T"))?
             .unwrap();
-        assert_eq!(ann[0].hgvs_p.as_deref(), Some("p.Lys8Ter"));
+        assert_eq!(ann[0].hgvs_p.as_deref(), Some("p.(Lys8Ter)"));
         assert_eq!(
             ann[0].consequences,
             vec![Consequence::ConservativeInframeDeletion]
@@ -4594,7 +4628,7 @@ mod test {
     /// `--shift_3prime 1`.
     #[rstest::rstest]
     // deleting the acceptor G equals deleting the first exon G
-    #[case("22:37713208:AG:A", "ENST00000644935", false, "c.257del", "p.Gly86AlafsTer33", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:37713208:AG:A", "ENST00000644935", false, "c.257del", "p.(Gly86AlafsTer33)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // deleting the donor G (`GCCG|GTGAGT`), which equals deleting the last exon G
     #[case("22:23772977:CG:C", "ENST00000215743", false, "c.108+1del", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant])]
     #[case("22:23772977:CG:C", "ENST00000215743", true, "c.108+1del", "p.?", vec![Consequence::SpliceDonorVariant])]
@@ -4606,26 +4640,26 @@ mod test {
     // deletion of donor +3 to +9 that keeps the GT
     #[case("22:25763388:AGGTAAGT:A", "ENST00000335473", false, "c.198+3_198+9del", "p.?", vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant])]
     // deleting one C of `CCCAG|GT`: the 3'-shifted C is one of the last three exon bases
-    #[case("22:39101499:TC:T", "ENST00000442487", false, "c.416del", "p.Pro139GlnfsTer25", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:39101499:TC:T", "ENST00000442487", false, "c.416del", "p.(Pro139GlnfsTer25)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // the deletion removes donor +1 and +2 at every position
     #[case("22:28773775:ATGAG:A", "ENST00000249064", false, "c.238_239+2del", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::ExonicSpliceRegionVariant])]
     // insertion between the last exon base and donor +1: the exon gains a base
-    #[case("22:20996112:T:TA", "ENST00000646124", false, "c.2219_2219+1insA", "p.Tyr741LeufsTer41", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
-    #[case("22:20996112:T:TA", "ENST00000646124", true, "c.2219_2219+1insA", "p.Tyr741LeufsTer41", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:20996112:T:TA", "ENST00000646124", false, "c.2219_2219+1insA", "p.(Tyr741LeufsTer41)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:20996112:T:TA", "ENST00000646124", true, "c.2219_2219+1insA", "p.(Tyr741LeufsTer41)", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
     // minus strand: insertion between donor +1 and the last exon base
-    #[case("22:32150991:C:CTT", "ENST00000382097", false, "c.493_493+1insAA", "p.His165GlnfsTer19", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:32150991:C:CTT", "ENST00000382097", false, "c.493_493+1insAA", "p.(His165GlnfsTer19)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // insertion one base past the acceptor, between the first two exon bases
-    #[case("22:50522343:G:GCTTTCTC", "ENST00000299821", false, "c.1234_1235insCTTTCTC", "p.Val412AlafsTer5", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:50522343:G:GCTTTCTC", "ENST00000299821", false, "c.1234_1235insCTTTCTC", "p.(Val412AlafsTer5)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // insertion between acceptor -1 and the first CDS base: the 5' UTR gains a base
     #[case("22:28987075:G:GC", "ENST00000402174", false, "c.1-1_1insC", "p.?", vec![Consequence::ExonicSpliceRegionVariant, Consequence::FivePrimeUtrExonVariant])]
     // insertion between the last stop codon base and donor +1: the 3' UTR gains a base
     #[case("22:31879752:G:GA", "ENST00000646998", false, "c.3858_3858+1insA", "p.?", vec![Consequence::ExonicSpliceRegionVariant, Consequence::ThreePrimeUtrExonVariant])]
     // minus strand: dup of the last exon base, in front of donor +1 or inside the exon
-    #[case("22:28710005:C:CA", "ENST00000348295", false, "c.846dup", "p.Pro283SerfsTer7", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28710005:C:CA", "ENST00000348295", false, "c.846dup", "p.(Pro283SerfsTer7)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // dup inside the stop codon that equals one behind it (`TAA` to `TAAAA`)
     #[case("22:21469819:T:TAA", "ENST00000432134", false, "c.932_933dup", "p.?", vec![Consequence::ThreePrimeUtrExonVariant])]
     // frameshift inside the stop codon: every position changes the stop codon
-    #[case("22:42571197:T:TG", "ENST00000340239", false, "c.611dup", "p.Ter204TrpextTer73", vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    #[case("22:42571197:T:TG", "ENST00000340239", false, "c.611dup", "p.(Ter204TrpextTer73)", vec![Consequence::StopLost, Consequence::FeatureElongation])]
     // dup of donor +1 to +7: the copy lands behind +7 and leaves the donor intact. It starts
     // with the GT of the donor, so hgvs-rs keeps it in the intron, too.
     #[case("22:31604404:G:GGTAGGAA", "ENST00000400288", false, "c.1977+1_1977+7dup", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
@@ -4633,7 +4667,7 @@ mod test {
     // dup of donor +5 and +6: the copy lands behind +6 and leaves donor +3 to +6 intact
     #[case("22:31616877:G:GGT", "ENST00000400288", false, "c.3433+5_3433+6dup", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
     // dup of c.16 to c.20: the copy lands behind c.20, in the last three exon bases
-    #[case("22:42554033:G:GCCGCA", "ENST00000340239", false, "c.16_20dup", "p.Gly8HisfsTer4", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:42554033:G:GCCGCA", "ENST00000340239", false, "c.16_20dup", "p.(Gly8HisfsTer4)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     fn annotate_exon_edge_indel_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
@@ -4774,9 +4808,9 @@ mod test {
     #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", false, "c.-21_2dup", "p.?", vec![Consequence::FivePrimeUtrExonVariant])]
     #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", true, "c.-21_2dup", "p.?", vec![Consequence::FrameshiftVariant])]
     // the copy lands in the last three exon bases
-    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", false, "c.491_504dup", "p.Lys168_Ile169insThrValSerTer", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", false, "c.491_504dup", "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
     // VEP's changed codons at the 3'-shifted position hold the new stop codon
-    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", true, "c.491_504dup", "p.Lys168_Ile169insThrValSerTer", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", true, "c.491_504dup", "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
     fn annotate_dup_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
@@ -5055,39 +5089,39 @@ mod test {
     /// of ENST00000216271 starts at c.1651 (`CAG|ATG`).
     #[rstest::rstest]
     // codon 62 CG|T stays, codon 63 GTT (Val) becomes TGT (Cys)
-    #[case("22:28773725:T:TT", "ENST00000249064", "c.186dup", "p.Val63CysfsTer6", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28773725:T:TT", "ENST00000249064", "c.186dup", "p.(Val63CysfsTer6)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // codon 62 becomes CGG (Arg, as CGT), codon 63 TGT (Cys) as for c.186dup
-    #[case("22:28773724:G:GG", "ENST00000249064", "c.186-1dup", "p.Val63CysfsTer6", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28773724:G:GG", "ENST00000249064", "c.186-1dup", "p.(Val63CysfsTer6)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // codon 62 becomes CGC (Arg, as CGT), codon 63 TGT (Cys) as for c.186dup
-    #[case("22:28773724:G:GC", "ENST00000249064", "c.186-1_186insC", "p.Val63CysfsTer6", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28773724:G:GC", "ENST00000249064", "c.186-1_186insC", "p.(Val63CysfsTer6)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // the inserted bases end with the AG of the acceptor, so they stay in the intron
     #[case("22:28773724:G:GAAG", "ENST00000249064", "c.186-1_186insAAG", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
     // the copy ends with the AG of the acceptor
     #[case("22:28773724:G:GCAG", "ENST00000249064", "c.186-3_186-1dup", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
     // codon 80 GA|T (Asp, its T in exon 3) becomes GAA (Glu)
-    #[case("22:28773778:A:AA", "ENST00000249064", "c.239dup", "p.Asp80GlufsTer11", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28773778:A:AA", "ENST00000249064", "c.239dup", "p.(Asp80GlufsTer11)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // codon 80 becomes GAG (Glu), the frame as for c.239dup
-    #[case("22:28773779:G:GG", "ENST00000249064", "c.239+1dup", "p.Asp80GlufsTer11", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28773779:G:GG", "ENST00000249064", "c.239+1dup", "p.(Asp80GlufsTer11)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // the copy starts with the GT of the donor, so it stays in the intron, behind donor +2
     #[case("22:28773778:A:AGT", "ENST00000249064", "c.239+1_239+2dup", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant])]
     // codon 80 becomes GAC (Asp, as GAT), codon 81 TGT (Cys) becomes TTG (Leu)
-    #[case("22:28773778:A:AC", "ENST00000249064", "c.239_239+1insC", "p.Cys81LeufsTer10", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28773778:A:AC", "ENST00000249064", "c.239_239+1insC", "p.(Cys81LeufsTer10)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     #[case("22:28773779:G:GC", "ENST00000249064", "c.239+1_239+2insC", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant])]
     // minus strand: codon 282 CAT stays, codon 283 CCT (Pro) becomes TCC (Ser)
-    #[case("22:28710005:C:CA", "ENST00000348295", "c.846dup", "p.Pro283SerfsTer7", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28710005:C:CA", "ENST00000348295", "c.846dup", "p.(Pro283SerfsTer7)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // codon 283 becomes GCC (Ala)
-    #[case("22:28710005:C:CC", "ENST00000348295", "c.846+1dup", "p.Pro283AlafsTer7", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28710005:C:CC", "ENST00000348295", "c.846+1dup", "p.(Pro283AlafsTer7)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // the copy starts with the GT of the donor
     #[case("22:28710005:C:CAC", "ENST00000348295", "c.846+1_846+2dup", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant, Consequence::CodingTranscriptIntronVariant])]
     // codon 283 becomes CCC (Pro, as CCT), codon 284 TGC (Cys) becomes TTG (Leu)
-    #[case("22:28710005:C:CG", "ENST00000348295", "c.846_846+1insC", "p.Cys284LeufsTer6", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:28710005:C:CG", "ENST00000348295", "c.846_846+1insC", "p.(Cys284LeufsTer6)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     #[case("22:28710004:A:AG", "ENST00000348295", "c.846+1_846+2insC", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant])]
     // minus strand: codon 551 ATG (Met) becomes AAT (Asn)
-    #[case("22:50246092:T:TT", "ENST00000216271", "c.1651dup", "p.Met551AsnfsTer23", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:50246092:T:TT", "ENST00000216271", "c.1651dup", "p.(Met551AsnfsTer23)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // codon 551 becomes GAT (Asp)
-    #[case("22:50246093:C:CC", "ENST00000216271", "c.1651-1dup", "p.Met551AspfsTer23", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:50246093:C:CC", "ENST00000216271", "c.1651-1dup", "p.(Met551AspfsTer23)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // codon 551 becomes CAT (His)
-    #[case("22:50246092:T:TG", "ENST00000216271", "c.1651-1_1651insC", "p.Met551HisfsTer23", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:50246092:T:TG", "ENST00000216271", "c.1651-1_1651insC", "p.(Met551HisfsTer23)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // the inserted bases end with the AG of the acceptor
     #[case("22:50246092:T:TCTC", "ENST00000216271", "c.1651-1_1651insGAG", "p.?", vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant])]
     fn annotate_exon_boundary_dup_and_ins(
@@ -5991,30 +6025,30 @@ mod test {
     /// With Sec positions, UGA reads as selenocysteine only at them. Without, a transcript
     /// tagged as selenoprotein reads every UGA as selenocysteine.
     #[rstest::rstest]
-    #[case::new_uga_is_a_stop(false, vec![8], "1035:G:A", "p.Trp5Ter", Consequence::StopGained)]
+    #[case::new_uga_is_a_stop(false, vec![8], "1035:G:A", "p.(Trp5Ter)", Consequence::StopGained)]
     #[case::new_uga_is_a_stop_despite_tag(
         true,
         vec![8],
         "1035:G:A",
-        "p.Trp5Ter",
+        "p.(Trp5Ter)",
         Consequence::StopGained
     )]
-    #[case::sec_codon_reads_sec(false, vec![8], "1044:A:G", "p.Sec8Trp", Consequence::MissenseVariant)]
+    #[case::sec_codon_reads_sec(false, vec![8], "1044:A:G", "p.(Sec8Trp)", Consequence::MissenseVariant)]
     #[case::codon_after_sec_codon(
         false,
         vec![8],
         "1046:G:A",
-        "p.Arg9His",
+        "p.(Arg9His)",
         Consequence::MissenseVariant
     )]
     #[case::sec_codon_moves_with_deletion(
         false,
         vec![8],
         "1035:GGAA:G",
-        "p.Glu6del",
+        "p.(Glu6del)",
         Consequence::ConservativeInframeDeletion
     )]
-    #[case::tag_without_positions(true, vec![], "1035:G:A", "p.Trp5Sec", Consequence::MissenseVariant)]
+    #[case::tag_without_positions(true, vec![], "1035:G:A", "p.(Trp5Sec)", Consequence::MissenseVariant)]
     fn selenocysteine_only_at_its_positions(
         #[case] tagged: bool,
         #[case] positions: Vec<u32>,
@@ -6177,8 +6211,8 @@ mod test {
     /// The transcript is the one of `selenoprotein_predictor`, but its CDS
     /// `ATG GCC AAG CTG TGG GAA CCA TGA CGC GTT TGA` (`MAKLWEPURV*`) ends with UGA.
     #[rstest::rstest]
-    #[case::stop_codon("1051:T:C", "p.Ter11ArgextTer?", Consequence::StopLost)]
-    #[case::sec_codon("1044:A:G", "p.Sec8Trp", Consequence::MissenseVariant)]
+    #[case::stop_codon("1051:T:C", "p.(Ter11ArgextTer?)", Consequence::StopLost)]
+    #[case::sec_codon("1044:A:G", "p.(Sec8Trp)", Consequence::MissenseVariant)]
     fn last_uga_is_the_stop_codon(
         #[case] var: &str,
         #[case] hgvs_p: &str,
@@ -6247,16 +6281,16 @@ mod test {
     /// at chr1:1021-1038, which ends at the transcript end. `db create` flags it with
     /// `MissingStopCodon`.
     #[rstest::rstest]
-    #[case::synonymous("1038:A:G", "p.Glu6=", &[Consequence::SynonymousVariant])]
-    #[case::missense("1038:A:C", "p.Glu6Asp", &[Consequence::MissenseVariant])]
+    #[case::synonymous("1038:A:G", "p.(Glu6=)", &[Consequence::SynonymousVariant])]
+    #[case::missense("1038:A:C", "p.(Glu6Asp)", &[Consequence::MissenseVariant])]
     // c.16_18del
     #[case::deletion(
         "1035:GGAA:G",
-        "p.Glu6del",
+        "p.(Glu6del)",
         &[Consequence::ConservativeInframeDeletion]
     )]
     // c.17_18insC
-    #[case::frameshift("1037:A:AC", "p.Glu6AspfsTer?", &[Consequence::FrameshiftVariant])]
+    #[case::frameshift("1037:A:AC", "p.(Glu6AspfsTer?)", &[Consequence::FrameshiftVariant])]
     // c.18del
     #[case::frameshift_in_last_codon("1036:GA:G", "p.?", &[Consequence::FrameshiftVariant])]
     // c.16del
@@ -6309,8 +6343,8 @@ mod test {
     /// The transcript has 20 bases of 5' UTR and the CDS `ATG GCC AAG CTG TGG GAA CC`
     /// (`MAKLWE` and 2 bases) at chr1:1021-1040, which ends at the transcript end.
     #[rstest::rstest]
-    #[case::stop_gained("1035:G:A", "p.Trp5Ter", &[Consequence::StopGained])]
-    #[case::last_complete_codon("1038:A:G", "p.Glu6=", &[Consequence::SynonymousVariant])]
+    #[case::stop_gained("1035:G:A", "p.(Trp5Ter)", &[Consequence::StopGained])]
+    #[case::last_complete_codon("1038:A:G", "p.(Glu6=)", &[Consequence::SynonymousVariant])]
     #[case::partial_codon(
         "1039:C:T",
         "p.?",
@@ -6324,7 +6358,7 @@ mod test {
     // c.13_14insCCTA: the new stop takes the place of the last complete codon
     #[case::frameshift_truncation(
         "1033:T:TCCTA",
-        "p.Trp5SerfsTer2",
+        "p.(Trp5SerfsTer2)",
         &[Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation]
     )]
     // c.16_18dup
@@ -6381,8 +6415,8 @@ mod test {
     /// (`MAKLWE` and the stop codon `T`) at chr1:1021-1039, which ends at the transcript end.
     /// `db create` completes the stop codon to `TAA`.
     #[rstest::rstest]
-    #[case::missense("1033:T:C", "p.Trp5Arg", Consequence::MissenseVariant)]
-    #[case::stop_lost("1039:T:C", "p.Ter7GlnextTer?", Consequence::StopLost)]
+    #[case::missense("1033:T:C", "p.(Trp5Arg)", Consequence::MissenseVariant)]
+    #[case::stop_lost("1039:T:C", "p.(Ter7GlnextTer?)", Consequence::StopLost)]
     fn totals_without_poly_a_padding(
         #[case] var: &str,
         #[case] hgvs_p: &str,
@@ -6467,7 +6501,11 @@ mod test {
                 ann.hgvs_p.as_deref(),
                 &ann.consequences
             ),
-            (Some("c.699del"), Some("p.Ter233XaaextTer?"), &expected_csqs)
+            (
+                Some("c.699del"),
+                Some("p.(Ter233XaaextTer?)"),
+                &expected_csqs
+            )
         );
         Ok(())
     }
@@ -6523,7 +6561,7 @@ mod test {
         "TGGGCTGCTCCAGCTTTCTGGAGTTCTCATTAGACTGGGTTCTAGGC",
         "ENST00000525445.6",
         false,
-        ("c.1507_*40del", "p.Ala503ThrfsTer2"),
+        ("c.1507_*40del", "p.(Ala503ThrfsTer2)"),
         vec![
             Consequence::MissenseVariant,
             Consequence::StopRetainedVariant,
@@ -6537,7 +6575,7 @@ mod test {
         "TGGGCTGCTCCAGCTTTCTGGAGTTCTCATTAGACTGGGTTCTAGGC",
         "ENST00000525445.6",
         true,
-        ("c.1507_*40del", "p.Ala503ThrfsTer2"),
+        ("c.1507_*40del", "p.(Ala503ThrfsTer2)"),
         vec![Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant]
     )]
     fn deletion_over_stop_codon_without_frameshift(
@@ -6610,13 +6648,13 @@ mod test {
     #[case::new_stop_in_front(
         "ACAGTAAGCAT",
         (1030, "CTGTGGTAAAC", "C"),
-        ("c.11_*2del", "p.Leu4GlnfsTer2"),
+        ("c.11_*2del", "p.(Leu4GlnfsTer2)"),
         vec![Consequence::StopGained, Consequence::ThreePrimeUtrExonVariant]
     )]
     #[case::new_stop_behind(
         "ACCGCATTAAGC",
         (1033, "TGGTAAAC", "T"),
-        ("c.14_*2del", "p.Trp5SerfsTer3"),
+        ("c.14_*2del", "p.(Trp5SerfsTer3)"),
         vec![
             Consequence::StopLost,
             Consequence::FeatureElongation,
@@ -6627,7 +6665,7 @@ mod test {
     #[case::no_new_stop_reading_past_old_one(
         "ACCGCATCAGCGCC",
         (1033, "TGGTAAAC", "T"),
-        ("c.14_*2del", "p.Trp5SerfsTer?"),
+        ("c.14_*2del", "p.(Trp5SerfsTer?)"),
         vec![
             Consequence::StopLost,
             Consequence::FeatureElongation,
@@ -6668,8 +6706,8 @@ mod test {
     /// A substitution of the last stop codon base changes no length, so it keeps the terms of p.:
     /// TAA to TAC (Tyr) reads on into the 3' UTR, TAA to TAG keeps the stop codon.
     #[rstest::rstest]
-    #[case("C", "c.18A>C", "p.Ter6TyrextTer?", vec![Consequence::StopLost, Consequence::FeatureElongation])]
-    #[case("G", "c.18A>G", "p.Ter6=", vec![Consequence::StopRetainedVariant])]
+    #[case("C", "c.18A>C", "p.(Ter6TyrextTer?)", vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    #[case("G", "c.18A>G", "p.(Ter6=)", vec![Consequence::StopRetainedVariant])]
     fn substitution_of_last_stop_codon_base(
         #[case] alternative: &str,
         #[case] expected_c: &str,
@@ -6758,7 +6796,7 @@ mod test {
             ),
             (
                 Some("c.7_10del"),
-                Some("p.Lys3CysfsTer4"),
+                Some("p.(Lys3CysfsTer4)"),
                 &vec![
                     Consequence::FrameshiftVariant,
                     Consequence::MissenseVariant,
@@ -6797,7 +6835,7 @@ mod test {
             ),
             (
                 Some("c.13_18del"),
-                Some("p.Trp5ArgfsTer?"),
+                Some("p.(Trp5ArgfsTer?)"),
                 &vec![
                     Consequence::StopLost,
                     Consequence::FeatureElongation,
@@ -7093,7 +7131,7 @@ mod test {
             .unwrap();
 
         assert_eq!(res[0].hgvs_g.as_deref(), Some("g.2005_2006delinsCGGGA"));
-        assert_eq!(res[0].hgvs_p.as_deref(), Some("p.Pro5delinsArgAsp"));
+        assert_eq!(res[0].hgvs_p.as_deref(), Some("p.(Pro5delinsArgAsp)"));
 
         Ok(())
     }
@@ -7123,7 +7161,7 @@ mod test {
         let single = predictor.predict(&var(2006, "C", "CA"))?.unwrap();
 
         assert_eq!(phased[0].hgvs_c.as_deref(), Some("c.14_15insA"));
-        assert_eq!(phased[0].hgvs_p.as_deref(), Some("p.Phe6LeufsTer?"));
+        assert_eq!(phased[0].hgvs_p.as_deref(), Some("p.(Phe6LeufsTer?)"));
         let fields = |ann: &AnnField| {
             (
                 ann.hgvs_n.clone(),
@@ -7167,7 +7205,7 @@ mod test {
 
         assert_eq!(phased[0].hgvs_g.as_deref(), Some("g.2006_2007delinsACC"));
         assert_eq!(phased[0].hgvs_c.as_deref(), Some("c.13_14insA"));
-        assert_eq!(phased[0].hgvs_p.as_deref(), Some("p.Pro5HisfsTer?"));
+        assert_eq!(phased[0].hgvs_p.as_deref(), Some("p.(Pro5HisfsTer?)"));
         let fields = |ann: &AnnField| {
             (
                 ann.hgvs_n.clone(),
@@ -7246,7 +7284,7 @@ mod test {
         assert_eq!(mane.hgvs_c.as_deref(), Some("c.5576_5580delinsTCCAA"));
         assert_eq!(
             mane.hgvs_p.as_deref(),
-            Some("p.Pro1859_His1860delinsLeuGln")
+            Some("p.(Pro1859_His1860delinsLeuGln)")
         );
 
         Ok(())
@@ -7368,7 +7406,7 @@ mod test {
     fn alt_sequences_cds_snv() -> Result<(), anyhow::Error> {
         let ann = annotate_with_sequences(&["17:41197701:G:C"], "NM_007294.4")?;
         assert_eq!(ann.hgvs_n.as_deref(), Some("n.5699C>G"));
-        assert_eq!(ann.hgvs_p.as_deref(), Some("p.His1862Gln"));
+        assert_eq!(ann.hgvs_p.as_deref(), Some("p.(His1862Gln)"));
 
         let mut tx_alt = custom_field(&ann, ANN_TX_SEQ_REF).unwrap().to_string();
         tx_alt.replace_range(5698..5699, "G");
@@ -7499,7 +7537,7 @@ mod test {
     fn alt_sequences_phased_cds() -> Result<(), anyhow::Error> {
         let ann = annotate_with_sequences(&["17:41197701:G:C", "17:41197709:GG:G"], "NM_007294.4")?;
         assert_eq!(ann.hgvs_n.as_deref(), Some("n.5691_5699delinsACAGCCAG"));
-        assert_eq!(ann.hgvs_p.as_deref(), Some("p.His1860ThrfsTer62"));
+        assert_eq!(ann.hgvs_p.as_deref(), Some("p.(His1860ThrfsTer62)"));
 
         let mut tx_alt = custom_field(&ann, ANN_TX_SEQ_REF).unwrap().to_string();
         tx_alt.replace_range(5698..5699, "G");

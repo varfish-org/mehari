@@ -1,5 +1,5 @@
 ---
-source: mehari/src/annotate/seqvars/csq.rs
+source: mehari/src/annotate/seqvars/consequence/logic.rs
 expression: res
 ---
 - allele:
@@ -26,7 +26,7 @@ expression: res
   hgvs_g: g.193332512T>G
   hgvs_n: n.203T>G
   hgvs_c: c.33T>G
-  hgvs_p: p.Cys11Trp
+  hgvs_p: p.(Cys11Trp)
   cdna_pos:
     ord: 203
     total: 6429

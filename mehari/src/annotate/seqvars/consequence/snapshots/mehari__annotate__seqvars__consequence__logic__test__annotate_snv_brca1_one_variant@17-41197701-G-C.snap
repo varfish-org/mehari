@@ -25,7 +25,7 @@ expression: res
   hgvs_g: g.41197701G>C
   hgvs_n: n.5699C>G
   hgvs_c: c.5586C>G
-  hgvs_p: p.His1862Gln
+  hgvs_p: p.(His1862Gln)
   cdna_pos:
     ord: 5699
     total: 7088
@@ -59,7 +59,7 @@ expression: res
   hgvs_g: g.41197701G>C
   hgvs_n: n.5639C>G
   hgvs_c: c.5445C>G
-  hgvs_p: p.His1815Gln
+  hgvs_p: p.(His1815Gln)
   cdna_pos:
     ord: 5639
     total: 7028
@@ -93,7 +93,7 @@ expression: res
   hgvs_g: g.41197701G>C
   hgvs_n: n.2293C>G
   hgvs_c: c.2274C>G
-  hgvs_p: p.His758Gln
+  hgvs_p: p.(His758Gln)
   cdna_pos:
     ord: 2293
     total: 3682
@@ -157,7 +157,7 @@ expression: res
   hgvs_g: g.41197701G>C
   hgvs_n: n.5762C>G
   hgvs_c: c.5649C>G
-  hgvs_p: p.His1883Gln
+  hgvs_p: p.(His1883Gln)
   cdna_pos:
     ord: 5762
     total: 7151

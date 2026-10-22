@@ -1,5 +1,5 @@
 ---
-source: mehari/src/annotate/seqvars/csq.rs
+source: mehari/src/annotate/seqvars/consequence/logic.rs
 expression: res
 ---
 - allele:
@@ -23,7 +23,7 @@ expression: res
   hgvs_g: g.179631246G>A
   hgvs_n: n.9790C>T
   hgvs_c: c.9565C>T
-  hgvs_p: p.Gln3189Ter
+  hgvs_p: p.(Gln3189Ter)
   cdna_pos:
     ord: 9790
     total: 104301
@@ -59,7 +59,7 @@ expression: res
   hgvs_g: g.179631246G>A
   hgvs_n: n.9790C>T
   hgvs_c: c.9565C>T
-  hgvs_p: p.Gln3189Ter
+  hgvs_p: p.(Gln3189Ter)
   cdna_pos:
     ord: 9790
     total: 109224
@@ -93,7 +93,7 @@ expression: res
   hgvs_g: g.179631246G>A
   hgvs_n: n.9652C>T
   hgvs_c: c.9427C>T
-  hgvs_p: p.Gln3143Ter
+  hgvs_p: p.(Gln3143Ter)
   cdna_pos:
     ord: 9652
     total: 82029
@@ -127,7 +127,7 @@ expression: res
   hgvs_g: g.179631246G>A
   hgvs_n: n.9790C>T
   hgvs_c: c.9565C>T
-  hgvs_p: p.Gln3189Ter
+  hgvs_p: p.(Gln3189Ter)
   cdna_pos:
     ord: 9790
     total: 101520
@@ -161,7 +161,7 @@ expression: res
   hgvs_g: g.179631246G>A
   hgvs_n: n.9790C>T
   hgvs_c: c.9565C>T
-  hgvs_p: p.Gln3189Ter
+  hgvs_p: p.(Gln3189Ter)
   cdna_pos:
     ord: 9790
     total: 18220
@@ -195,7 +195,7 @@ expression: res
   hgvs_g: g.179631246G>A
   hgvs_n: n.9652C>T
   hgvs_c: c.9427C>T
-  hgvs_p: p.Gln3143Ter
+  hgvs_p: p.(Gln3143Ter)
   cdna_pos:
     ord: 9652
     total: 82404
@@ -229,7 +229,7 @@ expression: res
   hgvs_g: g.179631246G>A
   hgvs_n: n.9652C>T
   hgvs_c: c.9427C>T
-  hgvs_p: p.Gln3143Ter
+  hgvs_p: p.(Gln3143Ter)
   cdna_pos:
     ord: 9652
     total: 82605

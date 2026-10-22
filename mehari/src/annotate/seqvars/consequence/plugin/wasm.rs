@@ -1135,7 +1135,7 @@ mod test {
         .collect::<BTreeMap<_, _>>();
 
         assert_eq!(report, expected);
-        assert_eq!(report["hgvs-p"], "p.Ala1708Glu");
+        assert_eq!(report["hgvs-p"], "p.(Ala1708Glu)");
         Ok(())
     }
 

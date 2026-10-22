@@ -1,5 +1,5 @@
 ---
-source: mehari/src/annotate/seqvars/csq.rs
+source: mehari/src/annotate/seqvars/consequence/logic.rs
 expression: res
 ---
 - allele:
@@ -26,7 +26,7 @@ expression: res
   hgvs_g: g.41197819G>C
   hgvs_n: n.5581C>G
   hgvs_c: c.5468C>G
-  hgvs_p: p.Ala1823Gly
+  hgvs_p: p.(Ala1823Gly)
   cdna_pos:
     ord: 5581
     total: 7088
@@ -61,7 +61,7 @@ expression: res
   hgvs_g: g.41197819G>C
   hgvs_n: n.5521C>G
   hgvs_c: c.5327C>G
-  hgvs_p: p.Ala1776Gly
+  hgvs_p: p.(Ala1776Gly)
   cdna_pos:
     ord: 5521
     total: 7028
@@ -96,7 +96,7 @@ expression: res
   hgvs_g: g.41197819G>C
   hgvs_n: n.2175C>G
   hgvs_c: c.2156C>G
-  hgvs_p: p.Ala719Gly
+  hgvs_p: p.(Ala719Gly)
   cdna_pos:
     ord: 2175
     total: 3682
@@ -131,7 +131,7 @@ expression: res
   hgvs_g: g.41197819G>C
   hgvs_n: n.2189C>G
   hgvs_c: c.2082C>G
-  hgvs_p: p.Cys694Trp
+  hgvs_p: p.(Cys694Trp)
   cdna_pos:
     ord: 2189
     total: 3696
@@ -166,7 +166,7 @@ expression: res
   hgvs_g: g.41197819G>C
   hgvs_n: n.5644C>G
   hgvs_c: c.5531C>G
-  hgvs_p: p.Ala1844Gly
+  hgvs_p: p.(Ala1844Gly)
   cdna_pos:
     ord: 5644
     total: 7151

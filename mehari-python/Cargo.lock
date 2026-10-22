@@ -516,7 +516,7 @@ dependencies = [
  "enum-map",
  "fxhash",
  "getset",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "itertools-num",
  "multimap",
  "ndarray",
@@ -1716,7 +1716,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hgvs"
 version = "2.0.1"
-source = "git+https://github.com/varfish-org/hgvs-rs?rev=3d2c1bfb73ac3b0c287e0ec4b517492e664d0dfd#3d2c1bfb73ac3b0c287e0ec4b517492e664d0dfd"
+source = "git+https://github.com/varfish-org/hgvs-rs?rev=cd43758dd38fa0d017148b762d72f0a6cfbead34#cd43758dd38fa0d017148b762d72f0a6cfbead34"
 dependencies = [
  "ahash",
  "base16ct",
@@ -3326,7 +3326,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "petgraph",
@@ -3345,7 +3345,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2 1.0.107",
  "quote 1.0.47",
  "syn 2.0.119",

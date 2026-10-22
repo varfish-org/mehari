@@ -3,7 +3,7 @@ mod pick;
 pub mod plugin;
 pub mod terms;
 
-use crate::annotate::cli::{PredictorSettings, TranscriptSettings};
+use crate::annotate::cli::{HgvsParentheses, PredictorSettings, TranscriptSettings};
 use crate::annotate::seqvars;
 use crate::annotate::seqvars::consequence::terms::Consequence;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
@@ -203,6 +203,7 @@ impl ConsequenceAnnotator {
                 .renormalize_g(!args.do_not_renormalize_g())
                 .vep_consequence_terms(args.vep_consequence_terms())
                 .vep_compatibility_mode(args.vep_compatibility_mode)
+                .hgvs_parentheses(args.hgvs_parentheses())
                 .plugins(plugins)
                 .build()?,
         );
@@ -339,6 +340,10 @@ pub struct Config {
     /// of indels. `--vep-compatibility-mode` also sets `vep_consequence_terms`.
     #[builder(default = "false")]
     pub vep_compatibility_mode: bool,
+
+    /// Where to write parentheses, e.g. `p.(Gly2Arg)` for a predicted change.
+    #[builder(default)]
+    pub hgvs_parentheses: HgvsParentheses,
 
     /// Plugins filling the custom ANN columns, in column order.
     #[builder(default)]
