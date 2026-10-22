@@ -15,6 +15,7 @@ use crate::annotate::seqvars::consequence::terms::FeatureTag;
 use crate::annotate::seqvars::consequence::terms::{
     AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank,
 };
+use crate::annotate::seqvars::provider::Provider as MehariProvider;
 
 /// Query parameters of the `/api/v1/seqvars/csq` endpoint.
 #[derive(
@@ -46,8 +47,10 @@ pub(crate) struct SeqvarsCsqResultEntry {
     pub putative_impact: PutativeImpact,
     /// The gene symbol.
     pub gene_symbol: String,
-    /// The gene identifier.
+    /// The gene ID of the annotation, e.g., `"672"` for BRCA1 in RefSeq.
     pub gene_id: String,
+    /// The HGNC ID of the gene, e.g., `"HGNC:1100"` for BRCA1; unset for a gene without one.
+    pub hgnc_id: Option<String>,
     /// The feature type.
     pub feature_type: FeatureType,
     /// The feature identifier.
@@ -131,10 +134,11 @@ async fn handle_impl(
         for ann_field in ann_fields {
             if let Some(hgnc_id) = &hgnc_id {
                 // Skip if HGNC gene ID is given but does not match.
-                if ann_field.gene_id != *hgnc_id {
+                if !has_hgnc_id(&predictor.provider, &ann_field.feature_id, hgnc_id) {
                     continue;
                 }
             }
+            let gene_hgnc_id = predictor.hgnc_id(&ann_field.feature_id).map(String::from);
             let AnnField {
                 consequences,
                 putative_impact,
@@ -162,6 +166,7 @@ async fn handle_impl(
                 putative_impact,
                 gene_symbol,
                 gene_id,
+                hgnc_id: gene_hgnc_id,
                 feature_type,
                 feature_id,
                 feature_biotype: if feature_biotype.contains(&FeatureBiotype::Coding) {
@@ -201,6 +206,11 @@ async fn handle_impl(
     Ok(Json(result))
 }
 
+/// Whether the gene of the transcript `tx_ac` has the HGNC ID `hgnc_id`.
+fn has_hgnc_id(provider: &MehariProvider, tx_ac: &str, hgnc_id: &str) -> bool {
+    provider.get_tx(tx_ac).and_then(|tx| tx.hgnc_id.as_deref()) == Some(hgnc_id)
+}
+
 /// Query for consequence of a variant.
 #[allow(clippy::unused_async)]
 #[get("/seqvars/csq")]
@@ -232,4 +242,22 @@ async fn handle_with_openapi(
     query: web::Query<SeqvarsCsqQuery>,
 ) -> actix_web::Result<Json<SeqvarsCsqResponse>, super::CustomError> {
     handle_impl(data, _path, query).await
+}
+
+#[cfg(test)]
+mod test {
+    /// The filter by HGNC ID uses `hgnc_id`, not `gene_id`.
+    #[rstest::rstest]
+    #[case::hgnc_id("HGNC:1", true)]
+    #[case::gene_id("11", false)]
+    fn has_hgnc_id(#[case] hgnc_id: &str, #[case] expected: bool) {
+        use crate::annotate::seqvars::provider::{Provider, test_db};
+
+        let provider = Provider::new(test_db::one_gene_db(), None::<&str>, true);
+
+        assert_eq!(
+            super::has_hgnc_id(&provider, "NM_000001.1", hgnc_id),
+            expected
+        );
+    }
 }

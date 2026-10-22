@@ -664,6 +664,11 @@ impl ConsequencePredictor {
         &self.custom_columns
     }
 
+    /// The HGNC ID of the gene of transcript `tx_id`, if it has one.
+    pub fn hgnc_id(&self, tx_id: &str) -> Option<&str> {
+        self.provider.get_tx(tx_id)?.hgnc_id.as_deref()
+    }
+
     /// The context of a transcript annotation; empty if no plugin reads it.
     fn tx_context(
         &self,
@@ -859,7 +864,7 @@ impl ConsequencePredictor {
         let cands = txs
             .into_iter()
             .filter_map(|record| match self.provider.get_tx(&record.tx_ac) {
-                Some(tx) => Some(Candidate::new(record, tx)),
+                Some(tx) => Some(Candidate::new(record, tx, self.provider.gene_key(tx))),
                 None => {
                     tracing::warn!(
                         "Requested transcript accession {}, got None (potentially filtered)",
@@ -3596,7 +3601,6 @@ mod test {
                 transcripts: vec![Transcript {
                     id: "NM_000000.1".into(),
                     gene_symbol: "TEST".into(),
-                    gene_id: "HGNC:0".into(),
                     biotype: TranscriptBiotype::Coding.into(),
                     protein: Some("NP_000000.1".into()),
                     start_codon: Some(2),
@@ -3616,7 +3620,6 @@ mod test {
                     ..Default::default()
                 }],
                 gene_to_tx: vec![GeneToTxId {
-                    gene_id: "HGNC:0".into(),
                     tx_ids: vec!["NM_000000.1".into()],
                     ..Default::default()
                 }],
@@ -4114,12 +4117,12 @@ mod test {
     #[case("22:45600442:T:TTTAGCA", "ENST00000327858", true, vec![Consequence::InframeInsertion, Consequence::StopRetainedVariant])]
     // `p.?`: in-frame insertion that creates a stop codon in a CDS without one (`cds_end_NF`).
     // VEP's changed codons keep the last amino acid and continue with the stop codon.
-    #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::DisruptiveInframeInsertion])]
-    #[case("22:38140065:C:CTAA", "ENST00000430886", true, vec![Consequence::InframeInsertion, Consequence::StopRetainedVariant])]
+    #[case("22:38140065:C:CTAA", "ENST00000430886", false, vec![Consequence::DisruptiveInframeInsertion, Consequence::IncompleteTerminalCodonVariant])]
+    #[case("22:38140065:C:CTAA", "ENST00000430886", true, vec![Consequence::InframeInsertion, Consequence::IncompleteTerminalCodonVariant, Consequence::StopRetainedVariant])]
     // `p.?`: frameshift in a CDS without a stop codon (`cds_end_NF`)
-    #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
+    #[case("22:38140065:C:CAG", "ENST00000430886", false, vec![Consequence::FrameshiftVariant, Consequence::IncompleteTerminalCodonVariant])]
     // `c.498dup` (`p.?`): a dup of the last CDS base, but without a stop codon the CDS goes on
-    #[case("22:38140065:C:CC", "ENST00000430886", false, vec![Consequence::FrameshiftVariant])]
+    #[case("22:38140065:C:CC", "ENST00000430886", false, vec![Consequence::FrameshiftVariant, Consequence::IncompleteTerminalCodonVariant])]
     // `c.932_933dup` (`p.?`): the copy lands behind the stop codon
     #[case("22:21469819:T:TAA", "ENST00000432134", false, vec![Consequence::ThreePrimeUtrExonVariant])]
     #[case("22:21469819:T:TAA", "ENST00000432134", true, vec![Consequence::ThreePrimeUtrVariant])]
@@ -5541,10 +5544,11 @@ mod test {
         let tx_seq_db = TxSeqDatabase {
             tx_db: Some(TranscriptDb {
                 gene_to_tx: vec![GeneToTxId {
-                    gene_id: tx.gene_id.clone(),
                     tx_ids: vec![tx.id.clone()],
                     filtered: Some(false),
                     filter_reason: None,
+                    gene_id: tx.gene_id.clone(),
+                    hgnc_id: tx.hgnc_id.clone(),
                 }],
                 transcripts: vec![tx.clone()],
             }),
@@ -5582,7 +5586,6 @@ mod test {
         let tx = Transcript {
             id: "NM_000001.1".into(),
             gene_symbol: "GENE1".into(),
-            gene_id: "1".into(),
             biotype: TranscriptBiotype::Coding.into(),
             protein: Some("NP_000001.1".into()),
             start_codon: Some(start),
@@ -5691,6 +5694,131 @@ mod test {
             "{:?}",
             ann.consequences
         );
+
+        Ok(())
+    }
+
+    /// `Gene_ID` is the gene ID of the transcript.
+    #[test]
+    fn ann_gene_id() -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGT", "ATGGCCTAA", "CAGT");
+        let tx = Transcript {
+            gene_id: "11".into(),
+            hgnc_id: Some("HGNC:1".into()),
+            ..tx
+        };
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1008,
+                reference: "G".into(),
+                alternative: "A".into(),
+            })?
+            .unwrap_or_default();
+
+        let gene_ids: Vec<_> = anns.iter().map(|ann| ann.gene_id.as_str()).collect();
+        assert_eq!(gene_ids, ["11"]);
+
+        Ok(())
+    }
+
+    /// Two transcripts and their gene entries. `merged` has a RefSeq and an Ensembl gene of one
+    /// HGNC ID. `versions` has two versions of a gene without HGNC ID.
+    fn two_transcripts_db(db: &str) -> (Vec<Transcript>, Vec<crate::pbs::txs::GeneToTxId>) {
+        use crate::annotate::seqvars::provider::test_db;
+        use crate::pbs::txs::GeneToTxId;
+
+        let tx = |id: &str, gene_id: &str, hgnc_id: Option<&str>| Transcript {
+            gene_id: gene_id.into(),
+            hgnc_id: hgnc_id.map(String::from),
+            ..test_db::transcript(id, 1000)
+        };
+        if db == "merged" {
+            let refseq = tx("NM_000001.1", "672", Some("HGNC:1100"));
+            let ensembl = tx("ENST00000000001.1", "ENSG00000012048.1", Some("HGNC:1100"));
+            let genes = vec![
+                test_db::gene(&refseq),
+                GeneToTxId {
+                    gene_id: "ENSG00000012048".into(),
+                    ..test_db::gene(&ensembl)
+                },
+            ];
+            (vec![refseq, ensembl], genes)
+        } else {
+            let old = tx("ENST00000000001.1", "ENSG00000000001.9", None);
+            let new = tx("ENST00000000001.2", "ENSG00000000001.10", None);
+            let gene = GeneToTxId {
+                gene_id: "ENSG00000000001".into(),
+                tx_ids: vec![old.id.clone(), new.id.clone()],
+                ..test_db::gene(&new)
+            };
+            (vec![old, new], vec![gene])
+        }
+    }
+
+    /// Picking groups the transcripts by gene entry, by length and by severity. A database with a
+    /// RefSeq and an Ensembl gene of one HGNC ID thus picks one transcript of each gene, and a
+    /// database with two versions of a gene picks one.
+    #[rstest::rstest]
+    #[case::refseq_and_ensembl_gene("merged", &["NM_000001.1", "ENST00000000001.1"])]
+    #[case::two_versions_of_a_gene("versions", &["ENST00000000001.1"])]
+    fn picks_per_gene(#[case] db: &str, #[case] expected: &[&str]) -> Result<(), anyhow::Error> {
+        use crate::annotate::seqvars::provider::test_db;
+
+        let (transcripts, genes) = two_transcripts_db(db);
+        let txs: Vec<_> = transcripts
+            .iter()
+            .map(|tx| TxForRegionRecord {
+                tx_ac: tx.id.clone(),
+                alt_ac: "NC_000001.11".into(),
+                alt_strand: 1,
+                alt_aln_method: ALT_ALN_METHOD.into(),
+                start_i: 1000,
+                end_i: 1100,
+            })
+            .collect();
+        // The first transcript has the more severe consequence.
+        let consequences = transcripts
+            .iter()
+            .map(|tx| tx.id.clone())
+            .zip([Consequence::MissenseVariant, Consequence::SynonymousVariant])
+            .collect::<BTreeMap<_, _>>();
+        for settings in [
+            TranscriptSettings {
+                pick: Some(PickUnit::Gene),
+                pick_order: vec![PickCriterion::Length],
+                ..Default::default()
+            },
+            TranscriptSettings::most_severe(PickUnit::Gene),
+        ] {
+            let provider = MehariProvider::new(
+                test_db::tx_seq_db(transcripts.clone(), genes.clone()),
+                None::<PathBuf>,
+                true,
+            );
+            let predictor = ConsequencePredictor::new(
+                Arc::new(provider),
+                ConfigBuilder::default()
+                    .transcript_settings(settings)
+                    .build()?,
+            );
+
+            let reported: Vec<_> = predictor
+                .select_annotations(txs.clone(), |record| {
+                    Ok(Some(TxAnnotation {
+                        context: TxContext::empty(),
+                        ann: AnnField {
+                            feature_id: record.tx_ac.clone(),
+                            consequences: vec![consequences[&record.tx_ac]],
+                            ..Default::default()
+                        },
+                    }))
+                })?
+                .into_iter()
+                .map(|tx| tx.ann.feature_id)
+                .collect();
+            assert_eq!(reported, expected);
+        }
 
         Ok(())
     }
@@ -6742,7 +6870,6 @@ mod test {
         let tx = Transcript {
             id: "NM_000001.1".into(),
             gene_symbol: "GENE1".into(),
-            gene_id: "1".into(),
             biotype: TranscriptBiotype::Coding.into(),
             protein: Some("NP_000001.1".into()),
             start_codon: Some(start),

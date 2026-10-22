@@ -9,7 +9,7 @@ expression: res
     - stop_gained
   putative_impact: high
   gene_symbol: TTN
-  gene_id: "HGNC:12403"
+  gene_id: "7273"
   feature_type:
     so_term:
       term: Transcript

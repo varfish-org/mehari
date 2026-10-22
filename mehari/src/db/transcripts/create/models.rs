@@ -11,7 +11,6 @@ use serde::Serialize;
 use serde_with::serde_as;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::str::FromStr;
 use strum::Display;
 
 /// Helper struct for parsing the label TSV file.
@@ -49,9 +48,25 @@ impl TranscriptId {
 
     /// Split into accession and version. An ID without a numeric version has version 0.
     pub(crate) fn split_version(&self) -> (&str, u32) {
-        self.rsplit_once('.')
-            .and_then(|(ac, version)| Some((ac, version.parse().ok()?)))
-            .unwrap_or((self.as_ref(), 0))
+        split_version(self.as_ref())
+    }
+}
+
+/// Split an ID into accession and version, e.g. `ENSG00000121410.14` into `ENSG00000121410`
+/// and 14. An ID without a numeric version, e.g. `ENSG00000182378.15_PAR_Y`, has version 0.
+pub(crate) fn split_version(id: &str) -> (&str, u32) {
+    id.rsplit_once('.')
+        .and_then(|(ac, version)| Some((ac, version.parse().ok()?)))
+        .unwrap_or((id, 0))
+}
+
+/// A gene ID without its version, e.g. `ENSG00000182378` for `ENSG00000182378.14`. GENCODE
+/// before release 44 names the PAR_Y copy of a gene `ENSG00000182378.14_PAR_Y`. Its gene ID
+/// keeps the suffix: `ENSG00000182378_PAR_Y`.
+pub(crate) fn gene_id_without_version(id: &str) -> String {
+    match id.strip_suffix("_PAR_Y") {
+        Some(id) => format!("{}_PAR_Y", split_version(id).0),
+        None => split_version(id).0.to_string(),
     }
 }
 
@@ -160,32 +175,15 @@ pub struct LogFix {
     pub tags: Option<Vec<Tag>>,
 }
 
+/// The gene ID of the annotation without version, e.g. `672` for BRCA1 in RefSeq and
+/// `ENSG00000012048` in Ensembl. Transcripts without gene ID name their gene otherwise, e.g.
+/// by gene name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub enum GeneId {
-    Hgnc(usize),
-    Gene(String),
-}
+pub struct GeneId(pub(crate) String);
 
 impl Display for GeneId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GeneId::Hgnc(id) => write!(f, "HGNC:{}", id),
-            GeneId::Gene(id) => write!(f, "GENE:{}", id),
-        }
-    }
-}
-
-impl FromStr for GeneId {
-    type Err = std::num::ParseIntError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(num_str) = s.strip_prefix("HGNC:") {
-            num_str.parse::<usize>().map(GeneId::Hgnc)
-        } else if let Some(gene_str) = s.strip_prefix("GENE:") {
-            Ok(GeneId::Gene(gene_str.to_string()))
-        } else {
-            s.parse::<usize>().map(GeneId::Hgnc)
-        }
+        f.write_str(&self.0)
     }
 }
 
@@ -271,6 +269,9 @@ pub struct TranscriptLoader {
     pub(crate) transcript_id_to_transcript: HashMap<TranscriptId, Transcript>,
     pub(crate) gene_id_to_gene: HashMap<GeneId, Gene>,
     pub(crate) gene_id_to_transcript_ids: HashMap<GeneId, Vec<TranscriptId>>,
+    /// The gene ID with version of the gene record that each transcript comes from, e.g.
+    /// `ENSG00000121410.11` for a transcript that cdot lists under this gene version.
+    pub(crate) transcript_gene_ids: HashMap<TranscriptId, String>,
     pub(crate) discards: HashMap<Identifier, BitFlags<Reason>>,
     pub(crate) fixes: HashMap<Identifier, BitFlags<Fix>>,
     pub(crate) disable_filters: bool,
@@ -323,6 +324,8 @@ impl TranscriptLoader {
             ids.sort_unstable();
             ids.dedup();
         }
+        self.transcript_gene_ids
+            .extend(other.transcript_gene_ids.drain());
 
         for (id, reason) in other.discards.drain() {
             *self.discards.entry(id).or_default() |= reason;
@@ -669,21 +672,20 @@ impl TranscriptLoader {
                     self.transcript_id_to_transcript.get(tx_id).cloned()
                 };
 
-                if let Some(hgnc) = transcript.and_then(|t| t.hgnc) {
-                    let gene_id: GeneId = hgnc.parse().expect("Invalid GeneId");
-
-                    if remove {
-                        let txs = self.gene_id_to_transcript_ids.get_mut(&gene_id);
-                        if let Some(txs) = txs {
-                            txs.retain(|tx| tx != tx_id);
-                            if txs.is_empty() {
-                                *self
-                                    .discards
-                                    .entry(Identifier::Gene(gene_id.clone()))
-                                    .or_default() |= Reason::NoTranscriptLeft;
-                                self.gene_id_to_transcript_ids.remove(&gene_id);
-                                self.gene_id_to_gene.remove(&gene_id);
-                            }
+                // The loaders set `gene_version` to the `GeneId` of the transcript.
+                if let Some(gene_id) = transcript.map(|t| GeneId(t.gene_version))
+                    && remove
+                {
+                    let txs = self.gene_id_to_transcript_ids.get_mut(&gene_id);
+                    if let Some(txs) = txs {
+                        txs.retain(|tx| tx != tx_id);
+                        if txs.is_empty() {
+                            *self
+                                .discards
+                                .entry(Identifier::Gene(gene_id.clone()))
+                                .or_default() |= Reason::NoTranscriptLeft;
+                            self.gene_id_to_transcript_ids.remove(&gene_id);
+                            self.gene_id_to_gene.remove(&gene_id);
                         }
                     }
                 }
@@ -805,6 +807,67 @@ mod tests {
         assert_eq!(exons[1].alt_cds_start_i, exons[0].alt_cds_end_i + 1);
         assert_eq!(is_changed, changed);
 
+        Ok(())
+    }
+
+    #[test]
+    fn merge_keeps_the_gene_ids_of_both_loaders() -> Result<(), Error> {
+        let mut first = TranscriptLoader::new("GRCh38".to_string(), false);
+        let mut other = first.clone();
+        first
+            .transcript_gene_ids
+            .insert(TranscriptId::try_new("NM_000001.1")?, "G1.2".to_string());
+        other
+            .transcript_gene_ids
+            .insert(TranscriptId::try_new("NM_000002.1")?, "G1.3".to_string());
+
+        first.merge(&mut other);
+
+        let mut gene_ids: Vec<_> = first.transcript_gene_ids.values().cloned().collect();
+        gene_ids.sort();
+        assert_eq!(gene_ids, ["G1.2", "G1.3"]);
+        Ok(())
+    }
+
+    /// A gene loses its last transcript: it is discarded with `NoTranscriptLeft` and removed.
+    #[test]
+    fn gene_without_transcripts_is_discarded() -> Result<(), Error> {
+        let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
+        let gene_id = GeneId("G1".to_string());
+        loader.gene_id_to_gene.insert(
+            gene_id.clone(),
+            serde_json::from_value(serde_json::json!({"url": ""}))?,
+        );
+        for tx_id in ["NM_000001.1", "NM_000002.1"] {
+            let id = TranscriptId::try_new(tx_id)?;
+            let tx = serde_json::from_value(serde_json::json!({
+                "id": tx_id,
+                "gene_version": "G1",
+                "genome_builds": {},
+            }))?;
+            loader.transcript_id_to_transcript.insert(id.clone(), tx);
+            loader
+                .gene_id_to_transcript_ids
+                .entry(gene_id.clone())
+                .or_default()
+                .push(id);
+        }
+        let gene = Identifier::Gene(gene_id.clone());
+        let discard = |loader: &mut TranscriptLoader, tx_id: &str| -> Result<(), Error> {
+            loader.mark_discarded(
+                &Identifier::Transcript(TranscriptId::try_new(tx_id)?),
+                Reason::MissingHgncId.into(),
+            )?;
+            loader.discard(true)
+        };
+
+        discard(&mut loader, "NM_000001.1")?;
+        assert!(loader.gene_id_to_gene.contains_key(&gene_id));
+        assert!(!loader.discards.contains_key(&gene));
+
+        discard(&mut loader, "NM_000002.1")?;
+        assert!(loader.gene_id_to_gene.is_empty());
+        assert_eq!(loader.discards[&gene], Reason::NoTranscriptLeft);
         Ok(())
     }
 

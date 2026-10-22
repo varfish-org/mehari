@@ -61,6 +61,7 @@ struct _TraceAnnField {
     pub putative_impact: String,
     pub gene_symbol: String,
     pub gene_id: String,
+    pub hgnc_id: Option<String>,
     pub feature_type: String,
     pub feature_id: String,
     pub feature_biotype: Vec<String>,
@@ -85,6 +86,7 @@ struct ArrowAnnField {
     pub putative_impact: String,
     pub gene_symbol: String,
     pub gene_id: String,
+    pub hgnc_id: Option<String>,
     pub feature_type: String,
     pub feature_id: String,
     pub feature_biotype: Vec<String>,
@@ -104,7 +106,7 @@ struct ArrowAnnField {
 }
 
 impl ArrowAnnField {
-    fn from_ann_field(f: AnnField, custom_columns: &[String]) -> Self {
+    fn from_ann_field(f: AnnField, hgnc_id: Option<String>, custom_columns: &[String]) -> Self {
         let custom_fields = if custom_columns.is_empty() {
             None
         } else {
@@ -121,6 +123,7 @@ impl ArrowAnnField {
             putative_impact: f.putative_impact.to_string(),
             gene_symbol: f.gene_symbol,
             gene_id: f.gene_id,
+            hgnc_id,
             feature_type: f.feature_type.to_string(),
             feature_id: f.feature_id,
             feature_biotype: f.feature_biotype.iter().map(|b| b.to_string()).collect(),
@@ -268,7 +271,10 @@ impl PySeqvarsAnnotator {
         let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
             .unwrap_or_default()
             .into_iter()
-            .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
+            .map(|f| {
+                let hgnc_id = self.predictor.hgnc_id(&f.feature_id).map(String::from);
+                ArrowAnnField::from_ann_field(f, hgnc_id, &self.custom_columns)
+            })
             .collect();
 
         #[derive(Serialize)]
@@ -375,7 +381,10 @@ impl PySeqvarsAnnotator {
 
                     let arrow_anns: Vec<ArrowAnnField> = ann_fields
                         .into_iter()
-                        .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
+                        .map(|f| {
+                            let hgnc_id = self.predictor.hgnc_id(&f.feature_id).map(String::from);
+                            ArrowAnnField::from_ann_field(f, hgnc_id, &self.custom_columns)
+                        })
                         .collect();
 
                     Ok(ArrowResult {
@@ -431,7 +440,10 @@ impl PySeqvarsAnnotator {
         let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
             .unwrap_or_default()
             .into_iter()
-            .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
+            .map(|f| {
+                let hgnc_id = self.predictor.hgnc_id(&f.feature_id).map(String::from);
+                ArrowAnnField::from_ann_field(f, hgnc_id, &self.custom_columns)
+            })
             .collect();
 
         #[derive(Serialize)]

@@ -1,5 +1,6 @@
 ---
 source: mehari/src/annotate/seqvars/consequence/logic.rs
+assertion_line: 6063
 expression: summarize_custom_fields(&res)
 ---
 - - NM_007294.4
@@ -7,36 +8,36 @@ expression: summarize_custom_fields(&res)
     - frameshift_truncation
   - aa_sequence_alt: len=1829 fnv1a=578afa769869977a
     aa_sequence_ref: len=1864 fnv1a=ae18f86d024d3d7a
-    tx_sequence_alt: len=7092 fnv1a=9fc10ae9e160f8dd
-    tx_sequence_ref: len=7091 fnv1a=0aaebb917c6565c7
+    tx_sequence_alt: len=7089 fnv1a=df84f563ce745a38
+    tx_sequence_ref: len=7088 fnv1a=d84d182cff3756f6
 - - NM_007297.4
   - - frameshift_variant
     - frameshift_truncation
   - aa_sequence_alt: len=1782 fnv1a=c5691397a29cd98b
     aa_sequence_ref: len=1817 fnv1a=81ecfd73f1efa179
-    tx_sequence_alt: len=7032 fnv1a=5901489492a4b971
-    tx_sequence_ref: len=7031 fnv1a=d80a75b5b6c93bcb
+    tx_sequence_alt: len=7029 fnv1a=a3ae7308cdb1fff4
+    tx_sequence_ref: len=7028 fnv1a=5e83482a5c8b0882
 - - NM_007298.3
   - - frameshift_variant
     - frameshift_truncation
   - aa_sequence_alt: len=725 fnv1a=b7d1b95979765e95
     aa_sequence_ref: len=760 fnv1a=d618933df245e6eb
-    tx_sequence_alt: len=3703 fnv1a=2455e71198472fef
-    tx_sequence_ref: len=3702 fnv1a=cdf09384d4a5b3fb
+    tx_sequence_alt: len=3700 fnv1a=2f91e452836208ee
+    tx_sequence_ref: len=3699 fnv1a=25ecb34991f7f392
 - - NM_007299.4
   - - frameshift_variant
     - frameshift_truncation
   - aa_sequence_alt: len=631 fnv1a=c6bfc603e0ef0181
     aa_sequence_ref: len=700 fnv1a=5ffd0bb51b97cafb
-    tx_sequence_alt: len=3700 fnv1a=ab6df668c3dd7bfc
-    tx_sequence_ref: len=3699 fnv1a=d43b0136d23c9418
+    tx_sequence_alt: len=3697 fnv1a=de144cb1c472ff53
+    tx_sequence_ref: len=3696 fnv1a=174ffce650dc54a7
 - - NM_007300.4
   - - frameshift_variant
     - frameshift_truncation
   - aa_sequence_alt: len=1850 fnv1a=194cb128d0cccdcc
     aa_sequence_ref: len=1885 fnv1a=4fd034489b3a5014
-    tx_sequence_alt: len=7155 fnv1a=ffa84235acd6de18
-    tx_sequence_ref: len=7154 fnv1a=ebedf1e0eb94f40c
+    tx_sequence_alt: len=7152 fnv1a=7cb99d3c6c2332a7
+    tx_sequence_ref: len=7151 fnv1a=95325a22ff859a83
 - - NR_027676.2
   - - non_coding_transcript_exon_variant
   - {}

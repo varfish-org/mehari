@@ -104,8 +104,8 @@ pub(crate) fn build_protobuf(
                 .unwrap_or(&empty);
             let gene_id_reason = loader.discards.get(&Identifier::Gene(gene_id.clone()));
             let filtered = gene_id_reason.is_some_and(|reason| reason.intersects(Reason::hard()));
+            let hgnc_id = loader.gene_id_to_gene.get(gene_id).and_then(hgnc_id);
             crate::pbs::txs::GeneToTxId {
-                gene_id: gene_id.to_string(),
                 tx_ids: tx_ids
                     .iter()
                     .sorted_unstable()
@@ -113,6 +113,8 @@ pub(crate) fn build_protobuf(
                     .collect(),
                 filtered: Some(filtered),
                 filter_reason: gene_id_reason.map(|r| r.bits()),
+                gene_id: gene_id.to_string(),
+                hgnc_id,
             }
         })
         .collect::<Vec<_>>();
@@ -136,6 +138,11 @@ pub(crate) fn build_protobuf(
     tracing::info!(" … done composing transcript seq database");
 
     Ok(tx_seq_db)
+}
+
+/// The HGNC ID of `gene`, e.g. `HGNC:1100`.
+fn hgnc_id(gene: &Gene) -> Option<String> {
+    gene.hgnc.as_ref().map(|hgnc| format!("HGNC:{hgnc}"))
 }
 
 fn protobuf_transcript(
@@ -188,21 +195,21 @@ fn protobuf_transcript(
         .collect();
 
     // Now, just obtain the basic properties and create a new `data::Transcript`.
-    let Gene { gene_symbol, .. } =
-        loader
-            .gene_id_to_gene
-            .get(gene_id)
-            .cloned()
-            .unwrap_or_else(|| Gene {
-                aliases: None,
-                biotype: None,
-                description: None,
-                gene_symbol: None,
-                hgnc: Some(gene_id.to_string()),
-                map_location: None,
-                summary: None,
-                url: "".to_string(),
-            });
+    let gene = loader
+        .gene_id_to_gene
+        .get(gene_id)
+        .cloned()
+        .unwrap_or_else(|| Gene {
+            aliases: None,
+            biotype: None,
+            description: None,
+            gene_symbol: None,
+            hgnc: None,
+            map_location: None,
+            summary: None,
+            url: "".to_string(),
+        });
+    let hgnc_id = hgnc_id(&gene);
 
     let Transcript {
         protein,
@@ -218,8 +225,7 @@ fn protobuf_transcript(
 
     crate::pbs::txs::Transcript {
         id: (*tx_id).to_string(),
-        gene_symbol: gene_symbol.unwrap_or("<MISSING>".to_string()),
-        gene_id: gene_id.to_string(),
+        gene_symbol: gene.gene_symbol.unwrap_or("<MISSING>".to_string()),
         biotype,
         tags,
         protein,
@@ -232,6 +238,12 @@ fn protobuf_transcript(
             .not()
             .then(|| combined_reason.bits()),
         translation_exceptions: translation_exceptions(tx),
+        gene_id: loader
+            .transcript_gene_ids
+            .get(tx_id)
+            .cloned()
+            .unwrap_or_else(|| gene_id.to_string()),
+        hgnc_id,
     }
 }
 
@@ -385,4 +397,83 @@ fn protobuf_genome_alignment(
         exons,
     };
     (genome_alignment, tags)
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use anyhow::Context;
+
+    /// `gene_id` and `hgnc_id` of a transcript or a gene in the database.
+    pub(crate) type GeneFields = (String, Option<String>);
+
+    /// The gene fields of transcript `tx_id` and of its gene, as the database holds them.
+    pub(crate) fn gene_fields(
+        loader: &mut TranscriptLoader,
+        tx_id: &str,
+    ) -> Result<[GeneFields; 2], Error> {
+        let db = build_protobuf(loader, &mut HashMap::new(), Default::default())?;
+        let tx_db = db.tx_db.context("no transcript database")?;
+        let tx = tx_db
+            .transcripts
+            .iter()
+            .find(|tx| tx.id == tx_id)
+            .with_context(|| format!("{tx_id} not in the database"))?;
+        let gene = tx_db
+            .gene_to_tx
+            .iter()
+            .find(|gene| gene.tx_ids.contains(&tx.id))
+            .with_context(|| format!("no gene of {tx_id} in the database"))?;
+        Ok([
+            (tx.gene_id.clone(), tx.hgnc_id.clone()),
+            (gene.gene_id.clone(), gene.hgnc_id.clone()),
+        ])
+    }
+
+    /// The gene fields of the gene `gene_id`, as the database holds them.
+    pub(crate) fn gene_to_tx_fields(
+        loader: &mut TranscriptLoader,
+        gene_id: &str,
+    ) -> Result<GeneFields, Error> {
+        let db = build_protobuf(loader, &mut HashMap::new(), Default::default())?;
+        let gene = db
+            .tx_db
+            .context("no transcript database")?
+            .gene_to_tx
+            .into_iter()
+            .find(|gene| gene.gene_id == gene_id)
+            .with_context(|| format!("{gene_id} not in the database"))?;
+        Ok((gene.gene_id, gene.hgnc_id))
+    }
+
+    /// A transcript whose gene has no record gets the symbol `<MISSING>` and no HGNC ID.
+    #[test]
+    fn transcript_without_gene_record_is_kept() -> Result<(), Error> {
+        let mut loader = TranscriptLoader::new("GRCh38".to_string(), false);
+        let tx_id = TranscriptId::try_new("NM_000001.1")?;
+        loader.transcript_id_to_transcript.insert(
+            tx_id.clone(),
+            serde_json::from_value(serde_json::json!({
+                "id": "NM_000001.1",
+                "gene_version": "G1",
+                "genome_builds": {},
+            }))?,
+        );
+        loader
+            .gene_id_to_transcript_ids
+            .insert(GeneId("G1".to_string()), vec![tx_id]);
+
+        let db = build_protobuf(&mut loader, &mut HashMap::new(), Default::default())?;
+        let tx = &db.tx_db.context("no transcript database")?.transcripts[0];
+
+        assert_eq!(
+            (
+                tx.gene_symbol.as_str(),
+                tx.gene_id.as_str(),
+                tx.hgnc_id.as_deref()
+            ),
+            ("<MISSING>", "G1", None)
+        );
+        Ok(())
+    }
 }

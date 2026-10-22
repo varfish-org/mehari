@@ -1294,7 +1294,12 @@ components:
           description: The gene symbol.
         gene_id:
           type: string
-          description: The gene identifier.
+          description: The gene ID of the annotation, e.g., `"672"` for BRCA1 in RefSeq.
+        hgnc_id:
+          type:
+          - string
+          - 'null'
+          description: The HGNC ID of the gene, e.g., `"HGNC:1100"` for BRCA1; unset for a gene without one.
         feature_type:
           $ref: '#/components/schemas/FeatureType'
           description: The feature type.
@@ -1533,12 +1538,19 @@ components:
       type: object
       description: Explanation of transcript effect per individual gene.
       required:
-      - hgnc_id
+      - gene_id
       - transcript_effects
       properties:
-        hgnc_id:
+        gene_id:
           type: string
-          description: HGNC identifier
+          description: |-
+            Gene ID of the annotation without version, e.g. `"672"` for BRCA1 in RefSeq or
+            `"ENSG00000182378"` for PLCXD1 in GENCODE.
+        hgnc_id:
+          type:
+          - string
+          - 'null'
+          description: HGNC ID of the gene, e.g. `"HGNC:1100"` for BRCA1. Unset for genes without HGNC ID.
         transcript_effects:
           type: array
           items:
@@ -1584,7 +1596,12 @@ components:
           description: HGNC symbol, e.g., `"BRCA1"`
         gene_id:
           type: string
-          description: HGNC gene identifier, e.g., `"1100"` for BRCA1.
+          description: Gene ID of the annotation, e.g., `"672"` for BRCA1 in RefSeq.
+        hgnc_id:
+          type:
+          - string
+          - 'null'
+          description: HGNC ID of the gene, e.g., `"HGNC:1100"` for BRCA1; unset for a gene without one.
         biotype:
           $ref: '#/components/schemas/TranscriptBiotype'
           description: Transcript biotype.

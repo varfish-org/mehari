@@ -145,8 +145,11 @@ struct TxRegion {
 #[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 // #[schema(as=StrucvarsGeneTranscriptEffects)] // TODO: rename back to GeneTranscriptEffects once utoipa's as= is fixed.
 pub struct StrucvarsGeneTranscriptEffects {
-    /// HGNC identifier
-    hgnc_id: String,
+    /// Gene ID of the annotation without version, e.g. `"672"` for BRCA1 in RefSeq or
+    /// `"ENSG00000182378"` for PLCXD1 in GENCODE.
+    gene_id: String,
+    /// HGNC ID of the gene, e.g. `"HGNC:1100"` for BRCA1. Unset for genes without HGNC ID.
+    hgnc_id: Option<String>,
     /// Transcript effects for the gene.
     transcript_effects: Vec<StrucvarsTranscriptEffect>,
 }
@@ -316,6 +319,36 @@ fn gene_tx_effect_for_range(
     result
 }
 
+/// Group the effects on transcripts by gene, with one entry per gene entry. Transcripts
+/// without gene entry give one entry per gene ID.
+fn effects_by_gene<'a>(
+    mehari_provider: &'a MehariProvider,
+    tx_effects: impl Iterator<Item = (&'a Transcript, Vec<StrucvarsTranscriptEffect>)>,
+) -> Vec<StrucvarsGeneTranscriptEffects> {
+    let mut effects_by_gene: HashMap<_, Vec<_>> = HashMap::new();
+    for (tx, effects) in tx_effects {
+        let gene = if let Some(gene) = mehari_provider.gene_of(&tx.id) {
+            (gene.gene_id.as_str(), gene.hgnc_id.as_deref())
+        } else {
+            (tx.gene_id.as_str(), tx.hgnc_id.as_deref())
+        };
+        effects_by_gene.entry(gene).or_default().extend(effects);
+    }
+
+    effects_by_gene
+        .into_iter()
+        .map(|((gene_id, hgnc_id), mut transcript_effects)| {
+            transcript_effects.sort();
+            transcript_effects.dedup();
+            StrucvarsGeneTranscriptEffects {
+                gene_id: gene_id.into(),
+                hgnc_id: hgnc_id.map(String::from),
+                transcript_effects,
+            }
+        })
+        .collect()
+}
+
 /// Helper that computes effects on transcripts for a single breakend, e.g., one side of BND or INS.
 fn compute_tx_effects_for_breakpoint(
     sv: &impl interface::StrucVar,
@@ -337,35 +370,16 @@ fn compute_tx_effects_for_breakpoint(
     let query = (sv.start() - X_STREAM)..(sv.start() + X_STREAM);
 
     if let Some(idx) = mehari_provider.tx_trees.contig_to_idx.get(chrom_acc) {
-        let mut effects_by_gene: HashMap<_, Vec<_>> = HashMap::new();
-
         // Collect all transcripts that overlap the INS and compute the effect of the INS on
         // the transcript.
         let tree = &mehari_provider.tx_trees.trees[*idx];
-        for it in tree.find(query) {
-            let tx = &tx_db.transcripts[*it.data() as usize];
-            effects_by_gene
-                .entry(tx.gene_id.clone())
-                .or_default()
-                .extend(gene_tx_effects_for_bp(tx, sv.start()));
-        }
-
-        // Deduplicate results.
-        effects_by_gene.iter_mut().for_each(|(_, v)| {
-            v.sort();
-            v.dedup()
-        });
-
-        // Convert the results into the final format.
-        effects_by_gene
-            .into_iter()
-            .map(
-                |(hgnc_id, transcript_effects)| StrucvarsGeneTranscriptEffects {
-                    hgnc_id,
-                    transcript_effects,
-                },
-            )
-            .collect()
+        effects_by_gene(
+            mehari_provider,
+            tree.find(query).into_iter().map(|it| {
+                let tx = &tx_db.transcripts[*it.data() as usize];
+                (tx, gene_tx_effects_for_bp(tx, sv.start()))
+            }),
+        )
     } else {
         // We do not have any transcripts for this chromosome.
         Default::default()
@@ -393,35 +407,16 @@ fn compute_tx_effects_for_linear(
     let query = (sv.start() - X_STREAM)..(sv.stop() + X_STREAM);
 
     if let Some(idx) = mehari_provider.tx_trees.contig_to_idx.get(chrom_acc) {
-        let mut effects_by_gene: HashMap<_, Vec<_>> = HashMap::new();
-
         // Collect all transcripts that overlap the SV and compute the effect of the SV on
         // the transcript.
         let tree = &mehari_provider.tx_trees.trees[*idx];
-        for it in tree.find(query) {
-            let tx = &tx_db.transcripts[*it.data() as usize];
-            effects_by_gene
-                .entry(tx.gene_id.clone())
-                .or_default()
-                .extend(gene_tx_effect_for_range(tx, sv.start(), sv.stop()));
-        }
-
-        // Deduplicate results.
-        effects_by_gene.iter_mut().for_each(|(_, v)| {
-            v.sort();
-            v.dedup()
-        });
-
-        // Convert the results into the final format.
-        effects_by_gene
-            .into_iter()
-            .map(
-                |(hgnc_id, transcript_effects)| StrucvarsGeneTranscriptEffects {
-                    hgnc_id,
-                    transcript_effects,
-                },
-            )
-            .collect()
+        effects_by_gene(
+            mehari_provider,
+            tree.find(query).into_iter().map(|it| {
+                let tx = &tx_db.transcripts[*it.data() as usize];
+                (tx, gene_tx_effect_for_range(tx, sv.start(), sv.stop()))
+            }),
+        )
     } else {
         // We do not have any transcripts for this chromosome.
         Default::default()
@@ -461,5 +456,111 @@ impl ConsequencePredictor {
     /// Return data version string (if set).
     pub fn data_version(&self) -> Option<String> {
         self.provider.as_ref().tx_seq_db.version.clone()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::interface::{StrandOrientation, StrucVar, StrucvarsSvType};
+
+    /// A deletion on chr1.
+    struct Deletion {
+        start: i32,
+        stop: i32,
+    }
+
+    impl StrucVar for Deletion {
+        fn chrom(&self) -> String {
+            "1".into()
+        }
+
+        fn chrom2(&self) -> String {
+            "1".into()
+        }
+
+        fn start(&self) -> i32 {
+            self.start
+        }
+
+        fn stop(&self) -> i32 {
+            self.stop
+        }
+
+        fn sv_type(&self) -> StrucvarsSvType {
+            StrucvarsSvType::Del
+        }
+
+        fn strand_orientation(&self) -> StrandOrientation {
+            StrandOrientation::NotApplicable
+        }
+    }
+
+    /// The effects form one entry per gene entry, with its gene ID and HGNC ID. Here, two
+    /// transcripts come from two versions of one gene, and only one names the HGNC ID.
+    #[test]
+    fn one_entry_per_gene() {
+        use crate::annotate::seqvars::provider::{Provider, test_db};
+        use crate::pbs::txs::{GeneToTxId, Transcript};
+        use std::sync::Arc;
+
+        let txs = [
+            ("ENST00000000001.1", "ENSG00000000001.9", Some("HGNC:1")),
+            ("ENST00000000001.2", "ENSG00000000001.10", None),
+        ]
+        .map(|(id, gene_id, hgnc_id)| Transcript {
+            gene_id: gene_id.into(),
+            hgnc_id: hgnc_id.map(String::from),
+            ..test_db::transcript(id, 1000)
+        });
+        let gene = GeneToTxId {
+            gene_id: "ENSG00000000001".into(),
+            hgnc_id: Some("HGNC:1".into()),
+            tx_ids: txs.iter().map(|tx| tx.id.clone()).collect(),
+            filtered: Some(false),
+            ..Default::default()
+        };
+        let provider = Provider::new(
+            test_db::tx_seq_db(txs.to_vec(), vec![gene]),
+            None::<&str>,
+            true,
+        );
+
+        let effects =
+            super::ConsequencePredictor::new(Arc::new(provider)).compute_tx_effects(&Deletion {
+                start: 900,
+                stop: 1200,
+            });
+        let mut genes: Vec<_> = effects
+            .iter()
+            .map(|gene| (gene.gene_id.as_str(), gene.hgnc_id.as_deref()))
+            .collect();
+        genes.sort();
+        assert_eq!(genes, [("ENSG00000000001", Some("HGNC:1"))]);
+    }
+
+    /// A transcript without gene entry forms an entry with its own gene ID and HGNC ID.
+    #[test]
+    fn transcript_without_gene_entry() {
+        use crate::annotate::seqvars::provider::{Provider, test_db};
+        use crate::pbs::txs::Transcript;
+        use std::sync::Arc;
+
+        let tx = Transcript {
+            gene_id: "11".into(),
+            hgnc_id: Some("HGNC:1".into()),
+            ..test_db::transcript("NM_000001.1", 1000)
+        };
+        let provider = Provider::new(test_db::tx_seq_db(vec![tx], vec![]), None::<&str>, true);
+
+        let effects =
+            super::ConsequencePredictor::new(Arc::new(provider)).compute_tx_effects(&Deletion {
+                start: 900,
+                stop: 1200,
+            });
+        let genes: Vec<_> = effects
+            .iter()
+            .map(|gene| (gene.gene_id.as_str(), gene.hgnc_id.as_deref()))
+            .collect();
+        assert_eq!(genes, [("11", Some("HGNC:1"))]);
     }
 }

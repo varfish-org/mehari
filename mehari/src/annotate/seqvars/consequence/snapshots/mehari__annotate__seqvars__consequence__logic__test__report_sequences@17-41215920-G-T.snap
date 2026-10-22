@@ -1,37 +1,38 @@
 ---
 source: mehari/src/annotate/seqvars/consequence/logic.rs
+assertion_line: 6063
 expression: summarize_custom_fields(&res)
 ---
 - - NM_007294.4
   - - missense_variant
   - aa_sequence_alt: len=1864 fnv1a=ed8e1d0a495a676e
     aa_sequence_ref: len=1864 fnv1a=ae18f86d024d3d7a
-    tx_sequence_alt: len=7091 fnv1a=8c45651427fd1979
-    tx_sequence_ref: len=7091 fnv1a=0aaebb917c6565c7
+    tx_sequence_alt: len=7088 fnv1a=8060968223fac98c
+    tx_sequence_ref: len=7088 fnv1a=d84d182cff3756f6
 - - NM_007297.4
   - - missense_variant
   - aa_sequence_alt: len=1817 fnv1a=a12b2c4b91c4cdb5
     aa_sequence_ref: len=1817 fnv1a=81ecfd73f1efa179
-    tx_sequence_alt: len=7031 fnv1a=f457274ed2fd73ed
-    tx_sequence_ref: len=7031 fnv1a=d80a75b5b6c93bcb
+    tx_sequence_alt: len=7028 fnv1a=878c90363b59ff68
+    tx_sequence_ref: len=7028 fnv1a=5e83482a5c8b0882
 - - NM_007298.3
   - - missense_variant
   - aa_sequence_alt: len=760 fnv1a=1939af5244422bcf
     aa_sequence_ref: len=760 fnv1a=d618933df245e6eb
-    tx_sequence_alt: len=3702 fnv1a=ea5ea20ea4ec4bdd
-    tx_sequence_ref: len=3702 fnv1a=cdf09384d4a5b3fb
+    tx_sequence_alt: len=3699 fnv1a=9109949338fa5338
+    tx_sequence_ref: len=3699 fnv1a=25ecb34991f7f392
 - - NM_007299.4
   - - missense_variant
   - aa_sequence_alt: len=700 fnv1a=9e885543a7a470af
     aa_sequence_ref: len=700 fnv1a=5ffd0bb51b97cafb
-    tx_sequence_alt: len=3699 fnv1a=dbec0babf86fa81e
-    tx_sequence_ref: len=3699 fnv1a=d43b0136d23c9418
+    tx_sequence_alt: len=3696 fnv1a=7bf1338fea614c39
+    tx_sequence_ref: len=3696 fnv1a=174ffce650dc54a7
 - - NM_007300.4
   - - missense_variant
   - aa_sequence_alt: len=1885 fnv1a=93a49137bed0d2f0
     aa_sequence_ref: len=1885 fnv1a=4fd034489b3a5014
-    tx_sequence_alt: len=7154 fnv1a=2037373aac64e9a2
-    tx_sequence_ref: len=7154 fnv1a=ebedf1e0eb94f40c
+    tx_sequence_alt: len=7151 fnv1a=5a855dd0e1734145
+    tx_sequence_ref: len=7151 fnv1a=95325a22ff859a83
 - - NR_027676.2
   - - non_coding_transcript_exon_variant
   - {}

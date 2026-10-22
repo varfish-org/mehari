@@ -17,15 +17,18 @@ use crate::pbs::txs::{Transcript, TranscriptBiotype, TranscriptTag};
 pub(crate) struct Candidate<'a> {
     record: TxForRegionRecord,
     tx: &'a Transcript,
+    /// The key that groups the transcripts of one gene.
+    gene: &'a str,
     /// `None` until annotated, then the annotation if the transcript gives one.
     ann: Option<Option<TxAnnotation>>,
 }
 
 impl<'a> Candidate<'a> {
-    pub(crate) fn new(record: TxForRegionRecord, tx: &'a Transcript) -> Self {
+    pub(crate) fn new(record: TxForRegionRecord, tx: &'a Transcript, gene: &'a str) -> Self {
         Self {
             record,
             tx,
+            gene,
             ann: None,
         }
     }
@@ -87,7 +90,7 @@ where
 
     if !settings.restrict_transcripts.is_empty() {
         let all: Vec<_> = (0..cands.len()).collect();
-        for (gene, idxs) in group_by(&cands, &all, |cand| gene_key(cand.tx).to_string()) {
+        for (gene, idxs) in group_by(&cands, &all, |cand| cand.gene.to_string()) {
             let allowed: Vec<_> = idxs
                 .iter()
                 .map(|&i| {
@@ -283,14 +286,9 @@ fn is_coding(tx: &Transcript) -> bool {
     tx.biotype == TranscriptBiotype::Coding as i32
 }
 
-/// The key that groups the transcripts of one gene.
-fn gene_key(tx: &Transcript) -> &str {
-    &tx.gene_id
-}
-
 fn unit_key(unit: PickUnit, cand: &Candidate<'_>) -> String {
     match unit {
-        PickUnit::Gene => gene_key(cand.tx).to_string(),
+        PickUnit::Gene => cand.gene.to_string(),
         PickUnit::Transcript => cand.record.tx_ac.clone(),
         PickUnit::Allele => String::new(),
     }
@@ -389,7 +387,7 @@ mod test {
                     start_i: 0,
                     end_i: 100,
                 };
-                Candidate::new(record, tx)
+                Candidate::new(record, tx, &tx.gene_id)
             })
             .collect();
         let selection = select(settings, cands, |record| {
@@ -545,8 +543,8 @@ mod test {
             end_i: 100,
         };
         let cands = vec![
-            Candidate::new(record(0), &tx),
-            Candidate::new(record(1), &tx),
+            Candidate::new(record(0), &tx, &tx.gene_id),
+            Candidate::new(record(1), &tx, &tx.gene_id),
         ];
         let selection = select(
             &settings(Some(PickUnit::Transcript), &[P::Severity]),

@@ -10,7 +10,7 @@ expression: res
     - conservative_inframe_deletion
   putative_impact: high
   gene_symbol: OPA1
-  gene_id: "HGNC:8140"
+  gene_id: "4976"
   feature_type:
     so_term:
       term: Transcript

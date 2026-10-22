@@ -1,7 +1,9 @@
 use crate::common::progress::{Progress, open_with_progress};
 use crate::db::transcripts::create::cdot_models;
 use crate::db::transcripts::create::filter::MITOCHONDRIAL_ACCESSIONS;
-use crate::db::transcripts::create::models::{GeneId, TranscriptId, TranscriptLoader};
+use crate::db::transcripts::create::models::{
+    GeneId, TranscriptId, TranscriptLoader, gene_id_without_version,
+};
 use anyhow::{Context, Error, anyhow};
 use hgvs::data::cdot::json::models::{
     BioType, Gene, GenomeAlignment, Tag, Transcript, Translation,
@@ -186,12 +188,22 @@ fn parse_biotype(value: &str) -> Option<BioType> {
         .ok()
 }
 
+/// The HGNC ID in an Ensembl gene description, e.g. `8907` in
+/// `... [Source:HGNC Symbol;Acc:HGNC:8907]`. cdot reads it with the regular expression
+/// `.*\[Source:HGNC.*Acc:(HGNC:)?(\d+)]`.
+fn hgnc_from_description(description: &str) -> Option<&str> {
+    let (_, source) = description.rsplit_once("[Source:HGNC")?;
+    let (_, acc) = source.rsplit_once("Acc:")?;
+    let (hgnc, _) = acc.strip_prefix("HGNC:").unwrap_or(acc).split_once(']')?;
+    (!hgnc.is_empty() && hgnc.bytes().all(|b| b.is_ascii_digit())).then_some(hgnc)
+}
+
 /// Load and extract from standard generic GFF3 using noodles::gff.
 ///
 /// Reads the same transcript fields as cdot does, plus the biotype attribute of transcripts.
 /// For RefSeq, these fields include the `cDNA_match` rows, which align some transcripts to the
-/// genome, including gaps. Genes keep the gene ID of the annotation, whereas `load_cdot` names
-/// them by HGNC ID.
+/// genome, including gaps. As in `load_cdot`, genes keep the gene ID of the annotation without
+/// version.
 pub fn load_gff3(
     loader: &mut TranscriptLoader,
     path: impl AsRef<Path>,
@@ -218,7 +230,8 @@ pub fn load_gff3(
     let mut sec_rows: Vec<(String, i32, i32)> = Vec::new();
     // Keyed by the transcript accession in `Target`, with the contig of each row.
     let mut cdna_matches: HashMap<String, Vec<(String, AlignedExon)>> = HashMap::new();
-    let mut raw_id_to_gene_id: HashMap<String, GeneId> = HashMap::new();
+    // The `GeneId` of each gene row, and its gene ID with version for the transcripts.
+    let mut raw_id_to_gene_id: HashMap<String, (GeneId, String)> = HashMap::new();
     let mut gene_symbols: HashMap<GeneId, String> = HashMap::new();
 
     for result in gff_reader.record_bufs() {
@@ -271,36 +284,62 @@ pub fn load_gff3(
             // As cdot does, read only rows without `Parent` as genes. A RefSeq gene segment
             // below its gene names the same NCBI Gene ID and would replace the gene.
             f if f.contains("gene") && raw_parent.is_none() => {
-                // Genes keep the ID of the annotation. GFF3 has no shared attribute for it:
-                // GENCODE and Ensembl write `gene_id`, RefSeq writes the NCBI Gene ID into
-                // `Dbxref`, and `ID` is only unique within the file.
-                let ncbi_gene_id = get_values("Dbxref")
+                // Genes keep the ID of the annotation without version, and their transcripts
+                // keep it with version. GFF3 has no shared attribute for it: GENCODE writes
+                // `gene_id` with version, Ensembl writes `gene_id` and `version`, RefSeq writes
+                // the NCBI Gene ID into `Dbxref`, and `ID` is only unique within the file.
+                let dbxrefs = get_values("Dbxref");
+                let ncbi_gene_id = dbxrefs
                     .iter()
                     .find_map(|x| x.strip_prefix("GeneID:"))
                     .map(String::from);
-                let resolved_gene_id = resolve_id(
-                    get_attr("gene_id").or(ncbi_gene_id),
+                let versioned_gene_id = resolve_id(
+                    get_attr("gene_id").or(ncbi_gene_id.clone()),
                     get_attr("version").or_else(|| get_attr("gene_version")),
                     &["gene:"],
                 );
-                let gene_id = GeneId::Gene(resolved_gene_id.clone());
+                let gene_id = GeneId(match get_attr("gene_id") {
+                    Some(id) => gene_id_without_version(&id),
+                    None => ncbi_gene_id.unwrap_or_else(|| resolve_id(None, None, &["gene:"])),
+                });
 
                 if let Some(rid) = &raw_id {
-                    raw_id_to_gene_id.insert(rid.clone(), gene_id.clone());
+                    raw_id_to_gene_id
+                        .insert(rid.clone(), (gene_id.clone(), versioned_gene_id.clone()));
                 }
 
-                if !resolved_gene_id.is_empty() {
+                // As cdot does, read the HGNC ID from `Dbxref` in RefSeq and from the
+                // description in Ensembl. GENCODE writes it into `hgnc_id`, which cdot does
+                // not read.
+                let description = get_attr("description");
+                let hgnc = dbxrefs
+                    .iter()
+                    .find_map(|x| x.strip_prefix("HGNC:"))
+                    .map(|x| x.strip_prefix("HGNC:").unwrap_or(x).to_string())
+                    .or_else(|| {
+                        description
+                            .as_deref()
+                            .and_then(hgnc_from_description)
+                            .map(String::from)
+                    })
+                    .or_else(|| {
+                        get_attr("hgnc_id")
+                            .map(|x| x.strip_prefix("HGNC:").unwrap_or(&x).to_string())
+                    })
+                    .filter(|hgnc| !hgnc.is_empty());
+
+                if !gene_id.0.is_empty() {
                     loader.gene_id_to_gene.insert(
                         gene_id.clone(),
                         Gene {
-                            hgnc: Some(gene_id.to_string()),
+                            hgnc,
                             gene_symbol: name.clone(),
                             aliases: None,
                             biotype: get_attr("gene_biotype")
                                 .or_else(|| get_attr("biotype"))
                                 .and_then(|biotype| parse_biotype(&biotype))
                                 .map(|biotype| vec![biotype]),
-                            description: get_attr("description"),
+                            description,
                             map_location: None,
                             summary: None,
                             url: String::new(),
@@ -659,20 +698,25 @@ pub fn load_gff3(
             }
         }
 
-        let gene_id = match &row.raw_parent {
+        let (gene_id, versioned_gene_id) = match &row.raw_parent {
             Some(raw) => raw_id_to_gene_id
                 .get(raw)
                 .cloned()
-                .unwrap_or_else(|| GeneId::Gene(raw.clone())),
-            None => GeneId::Gene(tx_id.clone()),
+                .unwrap_or_else(|| (GeneId(raw.clone()), raw.clone())),
+            None => (GeneId(tx_id.clone()), tx_id.clone()),
         };
         let gene_name = gene_symbols.get(&gene_id).cloned().or(row.gene_name);
+        // As cdot does, a transcript has the HGNC ID of its gene.
+        let hgnc = loader
+            .gene_id_to_gene
+            .get(&gene_id)
+            .and_then(|gene| gene.hgnc.clone());
 
         let transcript = Transcript {
             id: tx_id.clone(),
-            hgnc: Some(gene_id.to_string()),
+            hgnc,
             gene_name: gene_name.clone(),
-            gene_version: "".to_string(),
+            gene_version: gene_id.to_string(),
             biotype: Some(biotypes.clone()),
             protein: tx_cds_start.map(|_| {
                 children
@@ -691,6 +735,9 @@ pub fn load_gff3(
 
         let t_id = TranscriptId::try_new(tx_id)?;
         loader
+            .transcript_gene_ids
+            .insert(t_id.clone(), versioned_gene_id.clone());
+        loader
             .transcript_id_to_transcript
             .insert(t_id.clone(), transcript);
         loader
@@ -704,7 +751,7 @@ pub fn load_gff3(
             .gene_id_to_gene
             .entry(gene_id.clone())
             .or_insert_with(|| Gene {
-                hgnc: Some(gene_id.to_string()),
+                hgnc: None,
                 gene_symbol: gene_name,
                 aliases: None,
                 biotype: None,
@@ -731,6 +778,7 @@ mod tests {
     use super::*;
     use crate::common::progress::NoProgress;
     use crate::db::transcripts::create::build::build_protobuf;
+    use crate::db::transcripts::create::build::tests::{gene_fields, gene_to_tx_fields};
     use crate::db::transcripts::create::filter::{
         filter_transcripts, filter_transcripts_with_sequence,
     };
@@ -878,18 +926,38 @@ NC_000024.10\tRefSeq\tcDNA_match\t5001\t5300\t.\t+\t.\tID=aln-4;Target=NM_000001
 ";
 
     /// A GENCODE transcript with a PAR_Y copy that has its own `ID` but the same
-    /// `transcript_id`, and an Ensembl gene whose `description` names its HGNC ID.
+    /// `transcript_id`, and an Ensembl gene whose `description` names its HGNC ID. The GENCODE
+    /// gene names its HGNC ID in `hgnc_id`.
     const GFF3_GENCODE_ENSEMBL: &str = "\
 ##gff-version 3
-chrX\tHAVANA\tgene\t1001\t2000\t.\t+\t.\tID=ENSG00000182378.15;gene_id=ENSG00000182378.15;gene_name=PLCXD1
+chrX\tHAVANA\tgene\t1001\t2000\t.\t+\t.\tID=ENSG00000182378.15;gene_id=ENSG00000182378.15;gene_name=PLCXD1;hgnc_id=HGNC:37102
 chrX\tHAVANA\ttranscript\t1001\t2000\t.\t+\t.\tID=ENST00000399012.6;Parent=ENSG00000182378.15;gene_id=ENSG00000182378.15;transcript_id=ENST00000399012.6;tag=basic,Ensembl_canonical,MANE_Select
 chrX\tHAVANA\texon\t1001\t2000\t.\t+\t.\tID=exon:ENST00000399012.6:1;Parent=ENST00000399012.6;transcript_id=ENST00000399012.6
-chrY\tHAVANA\tgene\t5001\t6000\t.\t+\t.\tID=ENSG00000182378.15_PAR_Y;gene_id=ENSG00000182378.15;gene_name=PLCXD1
+chrY\tHAVANA\tgene\t5001\t6000\t.\t+\t.\tID=ENSG00000182378.15_PAR_Y;gene_id=ENSG00000182378.15;gene_name=PLCXD1;hgnc_id=HGNC:37102
 chrY\tHAVANA\ttranscript\t5001\t6000\t.\t+\t.\tID=ENST00000399012.6_PAR_Y;Parent=ENSG00000182378.15_PAR_Y;gene_id=ENSG00000182378.15;transcript_id=ENST00000399012.6;tag=basic,Ensembl_canonical,MANE_Select
 chrY\tHAVANA\texon\t5001\t6000\t.\t+\t.\tID=exon:ENST00000399012.6_PAR_Y:1;Parent=ENST00000399012.6_PAR_Y;transcript_id=ENST00000399012.6
 22\tensembl_havana\tgene\t1001\t2000\t.\t+\t.\tID=gene:ENSG00000100001;Name=GE;biotype=protein_coding;description=test gene [Source:HGNC Symbol%3BAcc:HGNC:8907];gene_id=ENSG00000100001;version=3
 22\tensembl_havana\tmRNA\t1001\t2000\t.\t+\t.\tID=transcript:ENST00000100001;Parent=gene:ENSG00000100001;biotype=protein_coding;transcript_id=ENST00000100001;version=2
 22\tensembl_havana\texon\t1001\t2000\t.\t+\t.\tParent=transcript:ENST00000100001
+";
+
+    /// A gene with a PAR_Y copy, as GENCODE writes it before release 44: the `gene_id` and
+    /// `transcript_id` of the copy end in `_PAR_Y`.
+    const GFF3_GENCODE_PAR_Y_SUFFIX: &str = "\
+##gff-version 3
+chrX\tHAVANA\tgene\t1001\t2000\t.\t+\t.\tID=ENSG00000182378.14;gene_id=ENSG00000182378.14;gene_name=PLCXD1
+chrX\tHAVANA\ttranscript\t1001\t2000\t.\t+\t.\tID=ENST00000399012.5;Parent=ENSG00000182378.14;gene_id=ENSG00000182378.14;transcript_id=ENST00000399012.5
+chrX\tHAVANA\texon\t1001\t2000\t.\t+\t.\tID=exon:ENST00000399012.5:1;Parent=ENST00000399012.5;transcript_id=ENST00000399012.5
+chrY\tHAVANA\tgene\t5001\t6000\t.\t+\t.\tID=ENSG00000182378.14_PAR_Y;gene_id=ENSG00000182378.14_PAR_Y;gene_name=PLCXD1
+chrY\tHAVANA\ttranscript\t5001\t6000\t.\t+\t.\tID=ENST00000399012.5_PAR_Y;Parent=ENSG00000182378.14_PAR_Y;gene_id=ENSG00000182378.14_PAR_Y;transcript_id=ENST00000399012.5_PAR_Y
+chrY\tHAVANA\texon\t5001\t6000\t.\t+\t.\tID=exon:ENST00000399012.5_PAR_Y:1;Parent=ENST00000399012.5_PAR_Y;transcript_id=ENST00000399012.5_PAR_Y
+";
+
+    /// A RefSeq gene and an Ensembl gene without transcripts. Both have an HGNC ID.
+    const GFF3_GENES_WITHOUT_TRANSCRIPTS: &str = "\
+##gff-version 3
+NC_000001.11\tBestRefSeq\tgene\t1001\t2000\t.\t+\t.\tID=gene-GW;Dbxref=GeneID:77,HGNC:HGNC:77;Name=GW;gene_biotype=protein_coding
+22\tensembl_havana\tgene\t3001\t4000\t.\t+\t.\tID=gene:ENSG00000100010;Name=GZ;biotype=protein_coding;description=test gene [Source:HGNC Symbol%3BAcc:HGNC:78];gene_id=ENSG00000100010;version=5
 ";
 
     /// An Ensembl and a GENCODE NMD transcript. Their GFF3 type is `mRNA` and `transcript`,
@@ -1316,7 +1384,7 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
         assert_eq!(tx.partial, Some(1));
         assert_eq!(alignment.tag, None);
         assert_eq!(
-            loader.gene_id_to_gene[&GeneId::Gene("44".into())].biotype,
+            loader.gene_id_to_gene[&GeneId("44".into())].biotype,
             Some(vec![BioType::LncRna, BioType::NcRna])
         );
 
@@ -1334,7 +1402,7 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
         );
 
         assert_eq!(
-            loader.gene_id_to_gene[&GeneId::Gene("ENSG00000100001.3".into())].biotype,
+            loader.gene_id_to_gene[&GeneId("ENSG00000100001".into())].biotype,
             Some(vec![BioType::ProteinCoding, BioType::MRna, BioType::NcRna])
         );
 
@@ -1360,15 +1428,15 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
         Ok(())
     }
 
-    /// Genes keep the ID of the annotation, even if it names an HGNC ID.
+    /// Genes keep the ID of the annotation without version, even if it names an HGNC ID.
     #[rstest::rstest]
     #[case::refseq_ncbi_gene_id(GFF3_REFSEQ, "NM_000001.1", "11")]
     #[case::refseq_without_hgnc(GFF3_REFSEQ, "NM_000003.1", "33")]
-    #[case::gencode_gene_id(GFF3_GENCODE_ENSEMBL, "ENST00000399012.6", "ENSG00000182378.15")]
+    #[case::gencode_gene_id(GFF3_GENCODE_ENSEMBL, "ENST00000399012.6", "ENSG00000182378")]
     #[case::ensembl_gene_id_and_version(
         GFF3_GENCODE_ENSEMBL,
         "ENST00000100001.2",
-        "ENSG00000100001.3"
+        "ENSG00000100001"
     )]
     fn gene_id_comes_from_the_annotation(
         #[case] gff3: &str,
@@ -1378,7 +1446,7 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
         let loader = load(gff3)?;
 
         assert!(
-            loader.gene_id_to_transcript_ids[&GeneId::Gene(gene_id.into())]
+            loader.gene_id_to_transcript_ids[&GeneId(gene_id.into())]
                 .contains(&TranscriptId::try_new(tx_id)?)
         );
 
@@ -1512,7 +1580,7 @@ NC_000001.11\tBestRefSeq\tCDS\t1011\t1100\t.\t+\t0\tID=cds-NP_000020.1;Parent=rn
     fn gene_segment_does_not_replace_its_gene() -> Result<(), anyhow::Error> {
         let loader = load(GFF3_REFSEQ)?;
 
-        let gene = &loader.gene_id_to_gene[&GeneId::Gene("3514".into())];
+        let gene = &loader.gene_id_to_gene[&GeneId("3514".into())];
         assert_eq!(gene.gene_symbol.as_deref(), Some("IGKC"));
         assert_eq!(
             gene.description.as_deref(),
@@ -1520,5 +1588,131 @@ NC_000001.11\tBestRefSeq\tCDS\t1011\t1100\t.\t+\t0\tID=cds-NP_000020.1;Parent=rn
         );
 
         Ok(())
+    }
+
+    /// A transcript names its gene by the gene ID of the gene row with version: GENCODE writes
+    /// it into `gene_id`, Ensembl into `gene_id` and `version`. The gene drops the version.
+    /// Both have the HGNC ID of the gene.
+    #[rstest::rstest]
+    #[case::refseq(GFF3_REFSEQ, "NM_000001.1", "11", "11", Some("HGNC:1"))]
+    #[case::refseq_without_hgnc(GFF3_REFSEQ, "NM_000003.1", "33", "33", None)]
+    #[case::gencode(
+        GFF3_GENCODE_ENSEMBL,
+        "ENST00000399012.6",
+        "ENSG00000182378.15",
+        "ENSG00000182378",
+        Some("HGNC:37102")
+    )]
+    #[case::gencode_par_y(
+        GFF3_GENCODE_PAR_Y_SUFFIX,
+        "ENST00000399012.5_PAR_Y",
+        "ENSG00000182378.14_PAR_Y",
+        "ENSG00000182378_PAR_Y",
+        None
+    )]
+    #[case::ensembl(
+        GFF3_GENCODE_ENSEMBL,
+        "ENST00000100001.2",
+        "ENSG00000100001.3",
+        "ENSG00000100001",
+        Some("HGNC:8907")
+    )]
+    fn gene_fields_reach_the_database(
+        #[case] gff3: &str,
+        #[case] tx_id: &str,
+        #[case] tx_gene_id: &str,
+        #[case] gene_id: &str,
+        #[case] hgnc_id: Option<&str>,
+    ) -> Result<(), anyhow::Error> {
+        let mut loader = load(gff3)?;
+        let fields = |gene_id: &str| (gene_id.to_string(), hgnc_id.map(String::from));
+        assert_eq!(
+            gene_fields(&mut loader, tx_id)?,
+            [fields(tx_gene_id), fields(gene_id)]
+        );
+
+        Ok(())
+    }
+
+    /// A gene without transcripts keeps its gene ID and HGNC ID.
+    #[rstest::rstest]
+    #[case::refseq("77", "HGNC:77")]
+    #[case::ensembl("ENSG00000100010", "HGNC:78")]
+    fn gene_without_transcripts_keeps_its_gene_fields(
+        #[case] gene_id: &str,
+        #[case] hgnc_id: &str,
+    ) -> Result<(), anyhow::Error> {
+        let mut loader = load(GFF3_GENES_WITHOUT_TRANSCRIPTS)?;
+        assert_eq!(
+            gene_to_tx_fields(&mut loader, gene_id)?,
+            (gene_id.to_string(), Some(hgnc_id.to_string()))
+        );
+
+        Ok(())
+    }
+
+    /// The PAR_Y copy of a gene stays a gene of its own. Its gene ID loses the version, but
+    /// keeps the suffix `_PAR_Y`.
+    #[test]
+    fn par_y_copy_with_suffix_is_its_own_gene() -> Result<(), anyhow::Error> {
+        let loader = load(GFF3_GENCODE_PAR_Y_SUFFIX)?;
+
+        let genes: HashMap<_, _> = loader
+            .gene_id_to_transcript_ids
+            .iter()
+            .map(|(gene_id, tx_ids)| {
+                let tx_ids: Vec<_> = tx_ids.iter().map(|tx_id| tx_id.to_string()).collect();
+                (gene_id.to_string(), tx_ids)
+            })
+            .collect();
+        assert_eq!(
+            genes,
+            HashMap::from([
+                (
+                    "ENSG00000182378".to_string(),
+                    vec!["ENST00000399012.5".to_string()]
+                ),
+                (
+                    "ENSG00000182378_PAR_Y".to_string(),
+                    vec!["ENST00000399012.5_PAR_Y".to_string()]
+                ),
+            ])
+        );
+
+        Ok(())
+    }
+
+    /// The filters flag only the transcripts of genes without HGNC ID with `MissingHgncId`.
+    #[rstest::rstest]
+    #[case::hgnc("NM_000001.1", false)]
+    #[case::without_hgnc("NM_000003.1", true)]
+    fn missing_hgnc_id_is_flagged(
+        #[case] tx_id: &str,
+        #[case] flagged: bool,
+    ) -> Result<(), anyhow::Error> {
+        let mut loader = load(GFF3_REFSEQ)?;
+        filter_transcripts(&mut loader)?;
+
+        let reason = loader
+            .discards
+            .get(&Identifier::Transcript(TranscriptId::try_new(tx_id)?))
+            .copied()
+            .unwrap_or_default();
+        assert_eq!(
+            reason.contains(Reason::MissingHgncId),
+            flagged,
+            "{reason:?}"
+        );
+
+        Ok(())
+    }
+
+    /// Ensembl names the HGNC ID in the description, with or without `HGNC:`.
+    #[rstest::rstest]
+    #[case::hgnc_prefix("test gene [Source:HGNC Symbol;Acc:HGNC:8907]", Some("8907"))]
+    #[case::bare_number("test gene [Source:HGNC Symbol;Acc:37102]", Some("37102"))]
+    #[case::other_source("test gene [Source:NCBI gene;Acc:100287102]", None)]
+    fn hgnc_id_is_read_from_the_description(#[case] description: &str, #[case] hgnc: Option<&str>) {
+        assert_eq!(hgnc_from_description(description), hgnc);
     }
 }

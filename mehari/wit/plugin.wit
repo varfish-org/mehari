@@ -1,4 +1,4 @@
-package mehari:plugin@0.1.0;
+package mehari:plugin@0.1.1;
 
 /// The mehari run.
 interface host {
@@ -101,7 +101,8 @@ interface types {
         /// `HIGH`, `MODERATE`, `LOW` or `MODIFIER`.
         impact: func() -> string;
         gene-symbol: func() -> string;
-        /// The HGNC ID, e.g. `HGNC:1100`.
+        /// The gene ID of the annotation, e.g. `672` for BRCA1 in RefSeq or
+        /// `ENSG00000012048.23` in Ensembl; empty for intergenic variants.
         gene-id: func() -> string;
         /// E.g. `Coding`.
         biotypes: func() -> list<string>;
@@ -134,6 +135,8 @@ interface types {
 
         /// Accession of the protein; coding transcripts only.
         protein-id: func() -> option<string>;
+        /// The HGNC ID of the gene, e.g. `HGNC:1100`; none for a gene without one.
+        hgnc-id: func() -> option<string>;
         /// Accession of the chromosome, e.g. `NC_000017.11`; `none` for intergenic variants.
         contig: func() -> option<string>;
         /// Genome build of the alignment, as in the transcript database, e.g. `grch38`.

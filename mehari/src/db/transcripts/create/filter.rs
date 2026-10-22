@@ -133,13 +133,15 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
     struct Params<'a> {
         tx: &'a Transcript,
         tx_id: &'a str,
+        gene: Option<&'a Gene>,
     }
 
-    // Check whether the transcript has an HGNC id.
+    // Check whether the gene of the transcript has an HGNC id. The database gives the
+    // transcript the HGNC ID of its gene.
     let missing_hgnc = |p: &Params| -> bool {
-        p.tx.hgnc.is_none()
-            || p.tx.hgnc.as_ref().unwrap().is_empty()
-            || p.tx.hgnc.as_ref().unwrap().starts_with("GENE:")
+        p.gene
+            .and_then(|gene| gene.hgnc.as_deref())
+            .is_none_or(str::is_empty)
     };
 
     // Check whether the transcript has any genome builds.
@@ -253,7 +255,9 @@ pub(crate) fn filter_transcripts(loader: &mut TranscriptLoader) -> Result<(), Er
         .transcript_id_to_transcript
         .iter()
         .filter_map(|(tx_id, tx)| {
-            let p = Params::new(tx, tx_id);
+            // The loaders set `gene_version` to the `GeneId` of the transcript.
+            let gene = loader.gene_id_to_gene.get(&GeneId(tx.gene_version.clone()));
+            let p = Params::new(tx, tx_id, gene);
             let reason = tx_filters
                 .iter()
                 .filter_map(|(f, r)| f(&p).then_some(*r))

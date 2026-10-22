@@ -10,7 +10,7 @@ expression: res
     - exonic_splice_region_variant
   putative_impact: moderate
   gene_symbol: BRCA1
-  gene_id: "HGNC:1100"
+  gene_id: "672"
   feature_type:
     so_term:
       term: Transcript

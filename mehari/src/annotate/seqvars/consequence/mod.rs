@@ -90,7 +90,40 @@ pub fn load_tx_db(tx_path: impl AsRef<Path> + Display) -> anyhow::Result<TxSeqDa
         }
     }
 
-    db
+    let db = db?;
+    refuse_without_gene_ids(&db, &tx_path)?;
+    Ok(db)
+}
+
+/// Fail if the database predates annotation gene IDs, i.e., if it has transcripts and none of
+/// them has a `gene_id`.
+fn refuse_without_gene_ids(db: &TxSeqDatabase, tx_path: impl Display) -> anyhow::Result<()> {
+    let predates_gene_ids = db.tx_db.as_ref().is_some_and(|tx_db| {
+        !tx_db.transcripts.is_empty() && tx_db.transcripts.iter().all(|tx| tx.gene_id.is_empty())
+    });
+    if !predates_gene_ids {
+        return Ok(());
+    }
+
+    let mehari_versions = db
+        .source_version
+        .iter()
+        .map(|sv| sv.mehari_version.as_str())
+        .filter(|version| !version.is_empty())
+        .unique()
+        .join(", ");
+    let built_by = if mehari_versions.is_empty() {
+        "an unknown mehari version".to_string()
+    } else {
+        format!("mehari {mehari_versions}")
+    };
+    Err(anyhow!(
+        "transcript database {} predates annotation gene IDs: it was built by {}. Rebuild it \
+        with mehari {} or newer.",
+        tx_path,
+        built_by,
+        crate::common::version()
+    ))
 }
 
 pub(crate) fn load_transcript_dbs_for_assembly(
@@ -348,5 +381,73 @@ impl<'a> fmt::Display for FormattedLoc<'a> {
             HgvsVariant::ProtVariant { loc_edit, .. } => write!(f, "p.{}", NoRef(loc_edit)),
             HgvsVariant::RnaVariant { loc_edit, .. } => write!(f, "r.{}", NoRef(loc_edit)),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::load_tx_db;
+    use crate::pbs::txs::{SourceVersion, Transcript, TranscriptDb, TxSeqDatabase};
+    use prost::Message;
+    use temp_testdir::TempDir;
+
+    /// Write a database with transcripts of the given `gene_id`s, built by the given mehari
+    /// versions, and load it.
+    fn write_and_load(
+        gene_ids: &[&str],
+        mehari_versions: &[&str],
+    ) -> anyhow::Result<TxSeqDatabase> {
+        let db = TxSeqDatabase {
+            tx_db: Some(TranscriptDb {
+                transcripts: gene_ids
+                    .iter()
+                    .map(|&gene_id| Transcript {
+                        gene_id: gene_id.into(),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }),
+            source_version: mehari_versions
+                .iter()
+                .map(|&mehari_version| SourceVersion {
+                    mehari_version: mehari_version.into(),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let temp = TempDir::default();
+        let path = temp.join("txs.bin");
+        std::fs::write(&path, db.encode_to_vec())?;
+        load_tx_db(path.display().to_string())
+    }
+
+    /// A database whose transcripts have no `gene_id` predates annotation gene IDs. Loading it
+    /// fails and names each mehari version that built it once.
+    #[rstest::rstest]
+    #[case::merged_database(&["0.38.0", "0.37.1", "0.38.0"], "built by mehari 0.38.0, 0.37.1.")]
+    #[case::no_mehari_version(&[], "built by an unknown mehari version.")]
+    fn old_database_is_refused(#[case] mehari_versions: &[&str], #[case] built_by: &str) {
+        let err = write_and_load(&["", ""], mehari_versions).unwrap_err();
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("txs.bin predates annotation gene IDs"),
+            "{msg}"
+        );
+        assert!(msg.contains(built_by), "{msg}");
+        assert!(
+            msg.ends_with("Rebuild it with mehari 0.0.0 or newer."),
+            "{msg}"
+        );
+    }
+
+    /// A database loads if a transcript has a `gene_id`, or if it has no transcripts.
+    #[rstest::rstest]
+    #[case::new_database(&["672", ""])]
+    #[case::no_transcripts(&[])]
+    fn database_loads(#[case] gene_ids: &[&str]) {
+        assert!(write_and_load(gene_ids, &["0.38.0"]).is_ok());
     }
 }

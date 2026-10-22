@@ -10,7 +10,7 @@ expression: res
     - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
-  gene_id: "HGNC:1100"
+  gene_id: "672"
   feature_type:
     so_term:
       term: Transcript
@@ -41,7 +41,7 @@ expression: res
     - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
-  gene_id: "HGNC:1100"
+  gene_id: "672"
   feature_type:
     so_term:
       term: Transcript
@@ -70,7 +70,7 @@ expression: res
     - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
-  gene_id: "HGNC:1100"
+  gene_id: "672"
   feature_type:
     so_term:
       term: Transcript
@@ -99,7 +99,7 @@ expression: res
     - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
-  gene_id: "HGNC:1100"
+  gene_id: "672"
   feature_type:
     so_term:
       term: Transcript
@@ -128,7 +128,7 @@ expression: res
     - coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
-  gene_id: "HGNC:1100"
+  gene_id: "672"
   feature_type:
     so_term:
       term: Transcript
@@ -157,7 +157,7 @@ expression: res
     - non_coding_transcript_intron_variant
   putative_impact: high
   gene_symbol: BRCA1
-  gene_id: "HGNC:1100"
+  gene_id: "672"
   feature_type:
     so_term:
       term: Transcript
