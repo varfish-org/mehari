@@ -1426,13 +1426,6 @@ impl ConsequencePredictor {
                         | Consequence::ConservativeInframeDeletion
                         | Consequence::DisruptiveInframeDeletion;
                     let indel_in_cds = context.cds_consequences.intersects(indel_terms);
-                    let protein_unchanged = matches!(
-                        var_p,
-                        HgvsVariant::ProtVariant {
-                            loc_edit: ProtLocEdit::NoChange | ProtLocEdit::NoChangeUncertain,
-                            ..
-                        }
-                    );
                     // A silent change, e.g., `p.Phe703=` or `p.Ter704=`.
                     let silent = matches!(
                         var_p,
@@ -1445,29 +1438,11 @@ impl ConsequencePredictor {
                             _ => false,
                         }
                     );
-                    if indel_in_cds
-                        && (protein_unchanged || silent)
-                        && !self.config.vep_compatibility_mode
-                    {
-                        // An indel that keeps the protein (`p.=`) is synonymous. An indel with a
-                        // silent change keeps only the term of that change. VEP reports the indel
-                        // terms instead.
+                    // An indel with a silent change keeps only the term of that change. VEP
+                    // reports the indel terms instead. hgvs-rs writes no `p.=` for an indel in
+                    // the CDS: an alt sequence that keeps the CDS makes a UTR variant, `p.?`.
+                    if indel_in_cds && silent && !self.config.vep_compatibility_mode {
                         context.cds_consequences.remove(indel_terms);
-                        if protein_unchanged {
-                            context.protein_consequences |= Consequence::SynonymousVariant;
-                        }
-                    } else if indel_in_cds
-                        && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
-                            self.provider.clone(),
-                            &tx_record.tx_ac,
-                            None,
-                        )
-                    {
-                        // An indel that keeps the protein (`p.=`) keeps the stop codon, if the
-                        // CDS has one.
-                        if ref_data.aa_sequence.ends_with('*') && protein_unchanged {
-                            context.protein_consequences |= Consequence::StopRetainedVariant;
-                        }
                     }
                 }
             }
