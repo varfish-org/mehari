@@ -2243,7 +2243,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hgvs"
 version = "2.0.1"
-source = "git+https://github.com/varfish-org/hgvs-rs?rev=d800a5fb5bbe2223f1a0841290957d61984f412b#d800a5fb5bbe2223f1a0841290957d61984f412b"
+source = "git+https://github.com/varfish-org/hgvs-rs?rev=3d2c1bfb73ac3b0c287e0ec4b517492e664d0dfd#3d2c1bfb73ac3b0c287e0ec4b517492e664d0dfd"
 dependencies = [
  "ahash",
  "base16ct",
