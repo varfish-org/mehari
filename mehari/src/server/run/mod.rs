@@ -1,5 +1,6 @@
 use crate::annotate::cli::{PredictorSettings, Sources};
-use crate::annotate::seqvars::consequence::ConfigBuilder;
+use crate::annotate::seqvars::consequence::plugin::TranscriptPlugin;
+use crate::annotate::seqvars::consequence::{Config, ConfigBuilder};
 use crate::annotate::seqvars::consequence::{
     ConsequenceAnnotator, load_transcript_dbs_for_assembly,
 };
@@ -203,6 +204,25 @@ fn print_hints(args: &Args, enabled_sources: &[(String, Endpoint)]) {
     }
 }
 
+/// The configuration of the REST seqvars predictor: the transcript settings and
+/// `--hgvs-parentheses` of `settings`, and `plugins`. It ignores the VEP options, so
+/// `--hgvs-parentheses` keeps its default `predicted` with them.
+fn seqvars_config(
+    settings: &PredictorSettings,
+    plugins: Vec<Arc<dyn TranscriptPlugin>>,
+) -> anyhow::Result<Config> {
+    Ok(ConfigBuilder::default()
+        .transcript_settings(settings.transcript_settings.clone())
+        .hgvs_parentheses(
+            settings
+                .reporting_settings
+                .hgvs_parentheses
+                .unwrap_or_default(),
+        )
+        .plugins(plugins)
+        .build()?)
+}
+
 /// Main entry point for `server run` sub command.
 ///
 /// # Errors
@@ -396,11 +416,11 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
                     args.in_memory_reference,
                     &args.predictor_settings,
                 )?;
-                let config = ConfigBuilder::default()
-                    .transcript_settings(args.predictor_settings.transcript_settings.clone())
-                    // As loaded by `from_db_and_settings`.
-                    .plugins(annotator.predictor.config.plugins.clone())
-                    .build()?;
+                // The plugins as loaded by `from_db_and_settings`.
+                let config = seqvars_config(
+                    &args.predictor_settings,
+                    annotator.predictor.config.plugins.clone(),
+                )?;
 
                 let provider = annotator.predictor.provider.clone();
                 data.provider.insert(assembly.clone(), provider.clone());
@@ -524,4 +544,27 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
 
     tracing::info!("All done. Have a nice day!");
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::{Args, seqvars_config};
+    use crate::annotate::cli::HgvsParentheses;
+    use clap::Parser;
+
+    /// The REST predictor writes parentheses as `--hgvs-parentheses` says. It ignores the VEP
+    /// options, also for the default.
+    #[rstest::rstest]
+    #[case::default(&[], HgvsParentheses::Predicted)]
+    #[case::never(&["--hgvs-parentheses", "never"], HgvsParentheses::Never)]
+    #[case::vep_compatibility_mode(&["--vep-compatibility-mode"], HgvsParentheses::Predicted)]
+    fn seqvars_config_hgvs_parentheses(
+        #[case] options: &[&str],
+        #[case] expected: HgvsParentheses,
+    ) -> Result<(), anyhow::Error> {
+        let args = Args::try_parse_from([&["run", "--transcripts", "txs.bin"], options].concat())?;
+        let config = seqvars_config(&args.predictor_settings, Vec::new())?;
+        assert_eq!(config.hgvs_parentheses, expected);
+        Ok(())
+    }
 }
