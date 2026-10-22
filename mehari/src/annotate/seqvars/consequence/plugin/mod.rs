@@ -216,13 +216,13 @@ pub struct TxContext {
 impl TxContext {
     pub(crate) fn new(
         provider: Arc<MehariProvider>,
-        tx: Option<&Transcript>,
+        tx_id: Option<String>,
         var_c: Option<HgvsVariant>,
         var_n: Option<HgvsVariant>,
     ) -> Self {
         Self {
             provider: Some(provider),
-            tx_id: tx.map(|tx| tx.id.clone()),
+            tx_id,
             var_c,
             var_n,
             region: None,

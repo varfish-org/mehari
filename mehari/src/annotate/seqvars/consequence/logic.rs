@@ -692,15 +692,51 @@ impl ConsequencePredictor {
     /// The context of a transcript annotation; empty if no plugin reads it.
     fn tx_context(
         &self,
-        tx: Option<&Transcript>,
+        tx_id: Option<String>,
         var_c: Option<HgvsVariant>,
         var_n: Option<HgvsVariant>,
     ) -> TxContext {
         if self.config.plugins.is_empty() {
             TxContext::empty()
         } else {
-            TxContext::new(self.provider.clone(), tx, var_c, var_n)
+            TxContext::new(self.provider.clone(), tx_id, var_c, var_n)
         }
+    }
+
+    /// The context of the annotation of `projection` on transcript `tx_id`, which takes the
+    /// variants of `projection` over; empty if no plugin reads it.
+    fn projection_context(
+        &self,
+        tx_id: String,
+        projection: Option<HgvsProjectionContext>,
+        alignment: &GenomeAlignment,
+    ) -> TxContext {
+        if self.config.plugins.is_empty() {
+            return TxContext::empty();
+        }
+        let edge_in_intron = (projection.as_ref()).and_then(|p| self.edge_bases_in_intron(p));
+        let ins_at_boundary_is_intronic =
+            edge_in_intron.unwrap_or(self.mapper.config.ins_at_boundary_is_intronic);
+        let alt_depends_on_splicing = (projection.as_ref())
+            .and_then(|p| p.n.as_ref())
+            .is_some_and(|var_n| {
+                // Unless they count as intronic, the bases of an insertion at an exon edge join
+                // the exon and leave the splice site intact. Where hgvs-rs decides this per
+                // variant, so do those of the copy of a dup that can go there.
+                let at_edge = match edge_in_intron {
+                    Some(_) => var_n.exon_edge_gap().is_some(),
+                    None => var_n.is_exon_edge_insertion(),
+                };
+                var_n.alt_depends_on_splicing(alignment)
+                    && (ins_at_boundary_is_intronic || !at_edge)
+            });
+        let (var_c, var_n, region) =
+            projection.map_or((None, None, None), |p| (p.c, p.n, p.region));
+        TxContext::new(self.provider.clone(), Some(tx_id), var_c, var_n).with_alt_inputs(
+            region,
+            alt_depends_on_splicing,
+            ins_at_boundary_is_intronic,
+        )
     }
 
     /// Run the plugins on the reported annotations of one prediction.
@@ -1797,7 +1833,8 @@ impl ConsequencePredictor {
             ),
             None => (None, None, None, None),
         };
-        let projection = projection.as_ref().map(|(projection, _)| projection);
+        let owned_projection = projection.map(|(projection, _)| projection);
+        let projection = owned_projection.as_ref();
 
         let hgvs_g = Some(self.format_hgvs_g(var_g));
         let hgvs_n = projection
@@ -1891,29 +1928,9 @@ impl ConsequencePredictor {
             messages,
             custom_fields: BTreeMap::new(),
         };
-        let region = projection.and_then(|p| p.region);
-        let edge_in_intron = projection.and_then(|p| self.edge_bases_in_intron(p));
-        let ins_at_boundary_is_intronic =
-            edge_in_intron.unwrap_or(self.mapper.config.ins_at_boundary_is_intronic);
-        let alt_depends_on_splicing = projection.and_then(|p| p.n.as_ref()).is_some_and(|var_n| {
-            // Unless they count as intronic, the bases of an insertion at an exon edge join the
-            // exon and leave the splice site intact. Where hgvs-rs decides this per variant, so
-            // do those of the copy of a dup that can go there.
-            let at_edge = match edge_in_intron {
-                Some(_) => var_n.exon_edge_gap().is_some(),
-                None => var_n.is_exon_edge_insertion(),
-            };
-            var_n.alt_depends_on_splicing(alignment) && (ins_at_boundary_is_intronic || !at_edge)
-        });
-        let var_c = projection.and_then(|p| p.c.clone());
-        let var_n = projection.and_then(|p| p.n.clone());
 
         Ok(Some(TxAnnotation {
-            context: self.tx_context(Some(tx), var_c, var_n).with_alt_inputs(
-                region,
-                alt_depends_on_splicing,
-                ins_at_boundary_is_intronic,
-            ),
+            context: self.projection_context(tx_record.tx_ac, owned_projection, alignment),
             ann,
         }))
     }
@@ -3424,8 +3441,8 @@ impl ConsequencePredictor {
         let region = region.flatten();
 
         let compound_proj = HgvsProjectionContext {
-            n: Some(compound_var_n.clone()),
-            c: Some(compound_var_c.clone()),
+            n: Some(compound_var_n),
+            c: Some(compound_var_c),
             p: compound_var_p,
             region,
             unshifted_g: None,
@@ -3549,16 +3566,13 @@ impl ConsequencePredictor {
             custom_fields: BTreeMap::new(),
         };
 
+        let ins_at_boundary_is_intronic = (self.edge_bases_in_intron(&compound_proj))
+            .unwrap_or(self.mapper.config.ins_at_boundary_is_intronic);
         Ok(Some(TxAnnotation {
             context: self
-                .tx_context(Some(tx), Some(compound_var_c), Some(compound_var_n))
+                .tx_context(Some(tx.id.clone()), compound_proj.c, compound_proj.n)
                 .with_ref_data(ref_data)
-                .with_alt_inputs(
-                    None,
-                    false,
-                    self.edge_bases_in_intron(&compound_proj)
-                        .unwrap_or(self.mapper.config.ins_at_boundary_is_intronic),
-                ),
+                .with_alt_inputs(None, false, ins_at_boundary_is_intronic),
             ann,
         }))
     }
