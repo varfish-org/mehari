@@ -2098,14 +2098,15 @@ impl ConsequencePredictor {
         // Inserted residues that end with a stop codon in front of the old one shorten the
         // protein, also where p. keeps the number of residues, e.g. `p.Lys3_Leu4delinsAsnTer`,
         // so no `missense_variant`. A new stop codon at the old position keeps the length: then
-        // the changed residues are `missense_variant`, and the stop is retained, not gained. VEP
-        // keeps the terms of p.
+        // the changed residues are `missense_variant`, not `protein_altering_variant`, and the
+        // stop is retained, not gained. VEP keeps the terms of p.
         if !vep_compat
             && matches!(protein_edit(projection), Some(ProteinEdit::DelIns { alternative })
                 if has_stop(alternative))
         {
             if consequences_sequence.contains(Consequence::StopRetainedVariant) {
-                consequences_protein.remove(Consequence::StopGained);
+                consequences_protein
+                    .remove(Consequence::StopGained | Consequence::ProteinAlteringVariant);
                 consequences_protein |= consequences_sequence
                     & (Consequence::MissenseVariant | Consequence::StopRetainedVariant);
             } else {
@@ -7241,6 +7242,20 @@ mod test {
         ("ATGGCCAAGCTGTGGTAA", "CGCATCA"),
         (1035, "GTA", "CTG"),
         ("c.15_17delinsCTG", "p.(Trp5Cys)"),
+        vec![Consequence::MissenseVariant, Consequence::StopRetainedVariant]
+    )]
+    // `c.15delinsCTAA` turns TGG (Trp) into TGC (Cys) and puts a new TAA at the old position.
+    // The protein keeps its length.
+    #[case::delins_with_stop_at_old_position(
+        ("ATGGCCAAGCTGTGGTAA", "CGCATCA"),
+        (1035, "G", "CTAA"),
+        ("c.15delinsCTAA", "p.(Trp5delinsCysTer)"),
+        vec![Consequence::MissenseVariant, Consequence::StopRetainedVariant]
+    )]
+    #[case::delins_of_two_bases_with_stop_at_old_position(
+        ("ATGGCCAAGCTGTGGTAA", "CGCATCA"),
+        (1034, "GG", "CCTAA"),
+        ("c.14_15delinsCCTAA", "p.(Trp5delinsSerTer)"),
         vec![Consequence::MissenseVariant, Consequence::StopRetainedVariant]
     )]
     fn protein_decides_terms(
