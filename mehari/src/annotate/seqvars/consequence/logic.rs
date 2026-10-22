@@ -1347,11 +1347,21 @@ impl ConsequencePredictor {
             );
 
             if let Some(var_p) = &projection.p {
-                // The terms of an `fs` and of a change that leaves no CDS codon behind it depend
-                // on the protein, see `consequences_fix_special_cases`. Building it costs time,
-                // so only for them.
+                // The terms of an `fs`, of a delins with a stop, of a change of the stop codon and
+                // of a change that leaves no CDS codon behind it depend on the protein, see
+                // `consequences_fix_special_cases`. Building the protein costs time, so only these
+                // get it.
                 let fs = matches!(protein_edit(projection), Some(ProteinEdit::Fs { .. }));
-                if (fs || self.leaves_no_codon_behind(projection, tx))
+                let delins_with_stop = matches!(protein_edit(projection),
+                    Some(ProteinEdit::DelIns { alternative }) if has_stop(alternative));
+                let cds_len = tx
+                    .start_codon
+                    .zip(tx.stop_codon)
+                    .map(|(start, stop)| stop - start);
+                if (fs
+                    || delins_with_stop
+                    || touches_stop_codon(var_c, cds_len)
+                    || self.leaves_no_codon_behind(projection, tx))
                     && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
                         self.provider.clone(),
                         &tx_record.tx_ac,
@@ -2074,14 +2084,33 @@ impl ConsequencePredictor {
                     & (Consequence::MissenseVariant | Consequence::StopRetainedVariant);
             }
         }
-        // Inserted residues that end with a stop codon shorten the protein, also where p. keeps
-        // the number of residues, e.g. `p.Lys3_Leu4delinsAsnTer`. VEP terms keep
-        // `missense_variant` there.
+        // Inserted residues that end with a stop codon in front of the old one shorten the
+        // protein, also where p. keeps the number of residues, e.g. `p.Lys3_Leu4delinsAsnTer`,
+        // so no `missense_variant`. A new stop codon at the old position keeps the length: then
+        // the changed residues are `missense_variant`, and the stop is retained, not gained. VEP
+        // terms keep the terms of p.
         if !vep_terms
             && matches!(protein_edit(projection), Some(ProteinEdit::DelIns { alternative })
                 if has_stop(alternative))
         {
-            consequences_protein.remove(Consequence::MissenseVariant);
+            if consequences_sequence.contains(Consequence::StopRetainedVariant) {
+                consequences_protein.remove(Consequence::StopGained);
+                consequences_protein |= consequences_sequence
+                    & (Consequence::MissenseVariant | Consequence::StopRetainedVariant);
+            } else {
+                consequences_protein.remove(Consequence::MissenseVariant);
+            }
+        }
+        // A change of stop codon bases that keeps the stop codon is `stop_retained_variant`,
+        // also where p. does not show it, e.g. `p.(Trp5Cys)` for `c.15_17delinsCTG`, where TGA
+        // takes the place of TAA.
+        if !vep_terms
+            && consequences_sequence.contains(Consequence::StopRetainedVariant)
+            && !consequences_protein.intersects(
+                Consequence::StopGained | Consequence::StopLost | Consequence::StopRetainedVariant,
+            )
+        {
+            consequences_protein |= Consequence::StopRetainedVariant;
         }
         // An in-frame insertion in front of the stop codon keeps it, also where p. describes the
         // longer protein as an extension, e.g. `p.Ter6AspextTer1` for `c.15_16insGAT`. So it is
@@ -3782,6 +3811,20 @@ fn inserts_in_frame_before_stop_codon(var_c: &HgvsVariant, cds_len: i32) -> bool
         _ => return false,
     };
     behind <= cds_len - 3 && len % 3 == 0
+}
+
+/// Whether `var_c` changes bases of the stop codon of a CDS of length `cds_len`, i.e., starts in
+/// the CDS and reaches its last 3 bases or behind.
+fn touches_stop_codon(var_c: &HgvsVariant, cds_len: Option<i32>) -> bool {
+    let (HgvsVariant::CdsVariant { loc_edit, .. }, Some(cds_len)) = (var_c, cds_len) else {
+        return false;
+    };
+    let loc = loc_edit.loc.inner();
+    let in_cds =
+        |pos: &CdsPos| pos.cds_from == CdsFrom::Start && pos.offset.unwrap_or_default() == 0;
+    in_cds(&loc.start)
+        && loc.start.base >= 1
+        && (loc.end.cds_from == CdsFrom::End || (in_cds(&loc.end) && loc.end.base > cds_len - 3))
 }
 
 /// Whether the amino acids `s` of a p. edit hold a stop. hgvs-rs gives `X` (`Xaa`) for an
@@ -7185,6 +7228,14 @@ mod test {
         (1029, "GCT", "CTA"),
         ("c.9_11delinsCTA", "p.(Lys3_Leu4delinsAsnTer)"),
         vec![Consequence::StopGained]
+    )]
+    // `c.15_17delinsCTG` turns TGG (Trp) into TGC (Cys) and the stop codon TAA into TGA. p. omits
+    // the unchanged stop, but its codon changed.
+    #[case::delins_keeping_stop_position(
+        ("ATGGCCAAGCTGTGGTAA", "CGCATCA"),
+        (1035, "GTA", "CTG"),
+        ("c.15_17delinsCTG", "p.(Trp5Cys)"),
+        vec![Consequence::MissenseVariant, Consequence::StopRetainedVariant]
     )]
     fn protein_decides_terms(
         #[case] (cds, utr3): (&str, &str),
