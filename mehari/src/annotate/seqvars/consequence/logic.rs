@@ -965,6 +965,49 @@ impl ConsequencePredictor {
         })
     }
 
+    /// The insertion at an exon edge that equals the dup `var_g` whose bases span that edge: its
+    /// copy, rotated to start with the bases behind the edge, e.g. `c.186-1_186insTAG` for
+    /// `c.186-2_186dup` of `AGT`. `None` for another variant, and for a dup across no edge or
+    /// more than one.
+    fn dup_across_edge_as_ins(
+        var_g: &HgvsVariant,
+        alignment: &GenomeAlignment,
+    ) -> Option<HgvsVariant> {
+        let HgvsVariant::GenomeVariant {
+            accession,
+            gene_symbol,
+            loc_edit,
+        } = var_g
+        else {
+            return None;
+        };
+        let NaEdit::Dup { reference } = loc_edit.edit.inner() else {
+            return None;
+        };
+        let loc = loc_edit.loc.inner();
+        let (start, end) = (loc.start?, loc.end?);
+        // The 0-based positions between two bases of the dup that lie at an exon edge.
+        let mut edges = (alignment.exons.iter().tuple_windows())
+            .flat_map(|(prev, next)| [prev.alt_end_i, next.alt_start_i])
+            .filter(|&pos| (start..end).contains(&pos));
+        let (Some(edge), None) = (edges.next(), edges.next()) else {
+            return None;
+        };
+        let split = usize::try_from(edge - start + 1).ok()?;
+        let copy = [reference.get(split..)?, reference.get(..split)?].concat();
+        Some(HgvsVariant::GenomeVariant {
+            accession: accession.clone(),
+            gene_symbol: gene_symbol.clone(),
+            loc_edit: GenomeLocEdit {
+                loc: Mu::Certain(GenomeInterval {
+                    start: Some(edge),
+                    end: Some(edge + 1),
+                }),
+                edit: Mu::Certain(NaEdit::Ins { alternative: copy }),
+            },
+        })
+    }
+
     fn get_var_start_end(var_g: &HgvsVariant) -> (i32, i32) {
         match &var_g {
             HgvsVariant::GenomeVariant { loc_edit, .. } => {
@@ -1511,7 +1554,8 @@ impl ConsequencePredictor {
 
         // hgvs-rs decides whether the bases of an insertion at an exon edge, or the copy of a dup
         // that can go there, lie in the intron or join the exon. The variant takes the location
-        // of these bases at the edge, and their terms.
+        // of these bases at the edge, and their terms. The copy of a dup across the edge can go
+        // there, rotated, so that the terms agree with the region of the dup and with its p.
         if let Some(in_intron) = projection
             .as_ref()
             .and_then(|p| self.edge_bases_in_intron(p))
@@ -1528,7 +1572,9 @@ impl ConsequencePredictor {
             };
             let edge_g = match &ins_g {
                 Some(behind) if at_edge(behind) => Some(behind.clone()),
-                Some(_) => Self::dup_as_ins(var_g, opposite).filter(|front| at_edge(front)),
+                Some(_) => Self::dup_as_ins(var_g, opposite)
+                    .filter(|front| at_edge(front))
+                    .or_else(|| Self::dup_across_edge_as_ins(var_g, alignment)),
                 None if var_g.na_edit().is_some_and(NaEdit::is_ins) && at_edge(var_g) => {
                     Some(var_g.clone())
                 }
@@ -8529,6 +8575,75 @@ mod test {
                     ord: 1,
                     total: Some(45)
                 }),
+            )
+        );
+        Ok(())
+    }
+
+    /// A dup whose bases span an exon edge equals the insertion of its rotated copy at that
+    /// edge, e.g. `c.186-2_186dup` of `AGT` and `c.186-1_186insTAG`. hgvs-rs puts it in the
+    /// intron, so its terms, rank and positions are those of the intron, in sync with `p.?`. On
+    /// the donor side, the copy behind the dup lies in the intron, too, and keeps its terms. The
+    /// distance to the exon counts on the genome, so only its size is checked.
+    #[rstest::rstest]
+    // acceptor side, plus strand
+    #[case(
+        "22:28773722:C:CAGT",
+        "ENST00000249064",
+        "c.186-2_186dup",
+        vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant],
+        Rank { ord: 1, total: 4 }
+    )]
+    // acceptor side, minus strand
+    #[case(
+        "22:50246091:A:ATCT",
+        "ENST00000216271",
+        "c.1651-2_1651dup",
+        vec![Consequence::SpliceRegionVariant, Consequence::CodingTranscriptIntronVariant],
+        Rank { ord: 17, total: 19 }
+    )]
+    // donor side, plus strand
+    #[case(
+        "22:28773776:T:TGAG",
+        "ENST00000249064",
+        "c.238_239+1dup",
+        vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant],
+        Rank { ord: 2, total: 4 }
+    )]
+    // donor side, minus strand
+    #[case(
+        "22:26481720:A:ACC",
+        "ENST00000336873",
+        "c.41_41+1dup",
+        vec![Consequence::SpliceDonorVariant, Consequence::CodingTranscriptIntronVariant],
+        Rank { ord: 2, total: 13 }
+    )]
+    fn dup_across_exon_edge(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+        #[case] expected_rank: Rank,
+    ) -> Result<(), anyhow::Error> {
+        let ann = annotate_chr22_window(spdi, tx_id, false)?;
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences,
+                &ann.rank,
+                ann.distance.map(i32::abs),
+                &ann.cdna_pos,
+                &ann.cds_pos,
+            ),
+            (
+                Some(expected_c),
+                Some("p.?"),
+                &expected_csqs,
+                &Some(expected_rank),
+                Some(1),
+                &None,
+                &None,
             )
         );
         Ok(())
