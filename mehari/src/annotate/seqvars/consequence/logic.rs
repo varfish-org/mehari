@@ -1000,13 +1000,9 @@ impl ConsequencePredictor {
                     .map(|s| s - 1)
                     .expect("Failed to get start position");
                 let end = loc.end.expect("Failed to get end position");
-                // In insertion / duplication cases, range end is exclusive.
-                // See https://hgvs-nomenclature.org/stable/recommendations/DNA/insertion/
-                let end = if edit.is_ins() || edit.is_dup() {
-                    end - 1
-                } else {
-                    end
-                };
+                // The range of an insertion is the base in front of it, as its end is the base
+                // behind it. A dup covers its bases.
+                let end = if edit.is_ins() { end - 1 } else { end };
                 (start, end)
             }
             _ => unreachable!(),
@@ -2497,10 +2493,7 @@ impl ConsequencePredictor {
             HgvsVariant::GenomeVariant {
                 loc_edit: GenomeLocEdit { edit, .. },
                 ..
-            } => {
-                let edit = edit.inner();
-                if edit.is_ins() || edit.is_dup() { 1 } else { 0 }
-            }
+            } => i32::from(edit.inner().is_ins()),
             _ => unreachable!(),
         }
     }
@@ -6256,6 +6249,16 @@ mod test {
 
     /// `predictor_for` with the predictor configuration `config`.
     fn predictor_with_config(tx: Transcript, seq: String, config: Config) -> ConsequencePredictor {
+        predictor_with_reference(tx, seq, config, None)
+    }
+
+    /// `predictor_with_config` with the reference genome at `reference`.
+    fn predictor_with_reference(
+        tx: Transcript,
+        seq: String,
+        config: Config,
+        reference: Option<&Path>,
+    ) -> ConsequencePredictor {
         use crate::pbs::txs::{GeneToTxId, SequenceDb, SourceVersion, TranscriptDb, TxSeqDatabase};
 
         // hgvs-rs caches the reference protein by the database version, so each database
@@ -6283,7 +6286,7 @@ mod test {
                 ..Default::default()
             }],
         };
-        let provider = Arc::new(MehariProvider::new(tx_seq_db, None::<PathBuf>, true));
+        let provider = Arc::new(MehariProvider::new(tx_seq_db, reference, true));
         ConsequencePredictor::new(provider, config)
     }
 
@@ -8449,6 +8452,93 @@ mod test {
             .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
 
         assert_eq!(ann.consequences, vec![Consequence::SpliceDonorVariant]);
+        Ok(())
+    }
+
+    /// A dup of one base covers that base, also the first transcript base, `n.1dup`. Its rank and
+    /// positions are those of the base.
+    #[test]
+    fn dup_of_first_transcript_base() -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CGCATCA");
+        // The genome holds the transcript at chr1:1001, so that mehari writes the C behind the
+        // first base as `g.1001dup`.
+        let mut reference = NamedTempFile::new()?;
+        write!(
+            reference,
+            ">1\n{}{seq}{}\n",
+            "T".repeat(1000),
+            "T".repeat(100)
+        )?;
+        let predictor =
+            predictor_with_reference(tx, seq, Config::default(), Some(reference.path()));
+        let anns = predictor
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1001,
+                reference: "C".into(),
+                alternative: "CC".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_g.as_deref(),
+                ann.hgvs_c.as_deref(),
+                &ann.consequences,
+                &ann.rank,
+                ann.distance,
+                &ann.cdna_pos,
+            ),
+            (
+                Some("g.1001dup"),
+                Some("c.-20dup"),
+                &vec![Consequence::FivePrimeUtrExonVariant],
+                &Some(Rank { ord: 1, total: 1 }),
+                Some(0),
+                &Some(Pos {
+                    ord: 1,
+                    total: Some(45)
+                }),
+            )
+        );
+        Ok(())
+    }
+
+    /// A dup of one base at an exon edge covers that base. On ENST00000491919 (minus strand,
+    /// non-coding), `n.403dup` is a dup of the last base of exon 2, its first base on the genome.
+    /// It lies in exon 2, not in the intron behind it.
+    #[test]
+    fn dup_of_exon_edge_base() -> Result<(), anyhow::Error> {
+        let ann = annotate_chr22_window_with_config(
+            "22:28710005:C:CA",
+            "ENST00000491919",
+            Config::default(),
+            CHR22_GENCODE42_TXS,
+        )?;
+
+        assert_eq!(
+            (
+                ann.hgvs_n.as_deref(),
+                &ann.consequences,
+                &ann.rank,
+                ann.distance,
+                ann.cdna_pos.map(|pos| pos.ord),
+            ),
+            (
+                Some("n.403dup"),
+                &vec![
+                    Consequence::ExonicSpliceRegionVariant,
+                    Consequence::NonCodingTranscriptExonVariant
+                ],
+                &Some(Rank { ord: 2, total: 5 }),
+                Some(0),
+                Some(403),
+            )
+        );
         Ok(())
     }
 
