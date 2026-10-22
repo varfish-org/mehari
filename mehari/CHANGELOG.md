@@ -1,5 +1,70 @@
 # Changelog
 
+## [0.47.0](https://github.com/varfish-org/mehari/compare/mehari-v0.46.0...mehari-v0.47.0) (2026-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **db:** take gene_id from the annotation, add hgnc_id ([#1085](https://github.com/varfish-org/mehari/issues/1085))
+* **db:** import GFF3 transcripts like cdot ([#1065](https://github.com/varfish-org/mehari/issues/1065))
+* **annotate:** redesign transcript picking options ([#1093](https://github.com/varfish-org/mehari/issues/1093)) (#1096)
+* WebAssembly plugins ([#426](https://github.com/varfish-org/mehari/issues/426)) (#1091)
+* add transcript plugins and an NMD plugin ([#246](https://github.com/varfish-org/mehari/issues/246)) (#1107)
+* normalize MT variants across the circular origin ([#1087](https://github.com/varfish-org/mehari/issues/1087))
+* **deps:** bump hgvs to 2.0 and the MSRV to 1.92 ([#1080](https://github.com/varfish-org/mehari/issues/1080))
+* restrict mehari db to transcripts ([#1033](https://github.com/varfish-org/mehari/issues/1033)) (#1074)
+
+### Features
+
+* add transcript plugins and an NMD plugin ([#246](https://github.com/varfish-org/mehari/issues/246)) ([#1107](https://github.com/varfish-org/mehari/issues/1107)) ([4c79261](https://github.com/varfish-org/mehari/commit/4c792612f0c66974dc2b61158fcf70888a93af7f))
+* **annotate:** add --compound-window-size ([#1109](https://github.com/varfish-org/mehari/issues/1109)) ([c478355](https://github.com/varfish-org/mehari/commit/c47835512d2c46a0093f24e4aa3f8929034b8643))
+* **annotate:** redesign transcript picking options ([#1093](https://github.com/varfish-org/mehari/issues/1093)) ([#1096](https://github.com/varfish-org/mehari/issues/1096)) ([5da296b](https://github.com/varfish-org/mehari/commit/5da296b33cbe99fddbc81def5b3a5c837cceb1e4))
+* **annotate:** warn when no reference genome is given ([#1112](https://github.com/varfish-org/mehari/issues/1112)) ([b9fb18c](https://github.com/varfish-org/mehari/commit/b9fb18c47e0fe2acc9369d656139ba945db1b80c))
+* **annotate:** write predicted protein changes in parentheses ([#1115](https://github.com/varfish-org/mehari/issues/1115)) ([2037881](https://github.com/varfish-org/mehari/commit/2037881525dfb8ceb34dc6c8711eb0409953b1b6))
+* apply translation exceptions and complete stop codons only with evidence ([#1068](https://github.com/varfish-org/mehari/issues/1068)) ([b87f3af](https://github.com/varfish-org/mehari/commit/b87f3af6eadbaf5c5b89a758b11ce9ead5ce3c69))
+* **db:** import GFF3 transcripts like cdot ([#1065](https://github.com/varfish-org/mehari/issues/1065)) ([c0849bf](https://github.com/varfish-org/mehari/commit/c0849bf6c179ee1032f37611789b478d7a39f5db))
+* **db:** take gene_id from the annotation, add hgnc_id ([#1085](https://github.com/varfish-org/mehari/issues/1085)) ([776f2e0](https://github.com/varfish-org/mehari/commit/776f2e035147c68d54e39e2db46af2f13d4692ea))
+* **server:** report missing transcripts as message ([#386](https://github.com/varfish-org/mehari/issues/386)) ([#1095](https://github.com/varfish-org/mehari/issues/1095)) ([2cee16b](https://github.com/varfish-org/mehari/commit/2cee16b827baac51cc34c29a321015548ce1e0c1))
+* WebAssembly plugins ([#426](https://github.com/varfish-org/mehari/issues/426)) ([#1091](https://github.com/varfish-org/mehari/issues/1091)) ([6bab41a](https://github.com/varfish-org/mehari/commit/6bab41a013ca4d1b1a166a8f9723bf24f471561e))
+
+
+### Bug Fixes
+
+* **annotate:** apply VEP rules only in compatibility mode ([#1111](https://github.com/varfish-org/mehari/issues/1111)) ([936c7a2](https://github.com/varfish-org/mehari/commit/936c7a2f61f50c27adaaebc9cfe096aee31db9e9))
+* **annotate:** correct indel, UTR and start codon annotations ([#1067](https://github.com/varfish-org/mehari/issues/1067)) ([3953d9d](https://github.com/varfish-org/mehari/commit/3953d9dc23d6761a7951aaa40e00d49111dd6448))
+* **annotate:** decide insertions at exon edges by sequence ([#1114](https://github.com/varfish-org/mehari/issues/1114)) ([62373fa](https://github.com/varfish-org/mehari/commit/62373fa065bb0b503a90166916e8ea782ad0a62b))
+* **annotate:** derive SV type from ALT if no SVTYPE ([#557](https://github.com/varfish-org/mehari/issues/557)) ([#1090](https://github.com/varfish-org/mehari/issues/1090)) ([e0a174b](https://github.com/varfish-org/mehari/commit/e0a174b85d64c20133bd232518288ba20ffad871))
+* **annotate:** discard UTR splice terms by region ([#1082](https://github.com/varfish-org/mehari/issues/1082)) ([1829566](https://github.com/varfish-org/mehari/commit/1829566d010514af6633461b51a288935c4e65c1))
+* **annotate:** no CDS.pos for UTR variants ([#1099](https://github.com/varfish-org/mehari/issues/1099)) ([#1101](https://github.com/varfish-org/mehari/issues/1101)) ([834f658](https://github.com/varfish-org/mehari/commit/834f6582026c5afcd0cc100840f80d8cb7725e51))
+* **annotate:** no frameshift for indels over the CDS end ([#1081](https://github.com/varfish-org/mehari/issues/1081)) ([b1c2741](https://github.com/varfish-org/mehari/commit/b1c2741d3be9bb3ddde038d68ded412457cacfb3))
+* **annotate:** normalize phased variants as one change ([#1083](https://github.com/varfish-org/mehari/issues/1083)) ([f046f88](https://github.com/varfish-org/mehari/commit/f046f88f7b57b24254f76ec26bcf903a4ba41e9e))
+* **annotate:** number introns in transcript order ([#1098](https://github.com/varfish-org/mehari/issues/1098)) ([#1100](https://github.com/varfish-org/mehari/issues/1100)) ([471fc81](https://github.com/varfish-org/mehari/commit/471fc81ed36d89c38999c2939007eb6c125f6141))
+* **annotate:** order compound variant groups deterministically ([#1097](https://github.com/varfish-org/mehari/issues/1097)) ([66fb709](https://github.com/varfish-org/mehari/commit/66fb7099246307f0a17e5657ca34e365aea3e25e))
+* **annotate:** reconcile consequence terms with the protein sequence ([#1116](https://github.com/varfish-org/mehari/issues/1116)) ([604d350](https://github.com/varfish-org/mehari/commit/604d350364175367824646aafa94148b20aeca48))
+* **annotate:** take indel terms and p. from the 3'-shifted HGVS ([#1069](https://github.com/varfish-org/mehari/issues/1069)) ([034515c](https://github.com/varfish-org/mehari/commit/034515c6418e3cc6ec784ad6f1c076676741a44b))
+* **annotate:** take the terms of stop codon deletions from the protein ([#1113](https://github.com/varfish-org/mehari/issues/1113)) ([d0ee375](https://github.com/varfish-org/mehari/commit/d0ee375c9fc32053e77ea3db8385c529aa92aefb))
+* **annotate:** transcript length, strand and totals ([#1066](https://github.com/varfish-org/mehari/issues/1066)) ([9f63f8d](https://github.com/varfish-org/mehari/commit/9f63f8dfe407dbbf3950f6b6bc91fe67731198e3))
+* **annotate:** VEP stop terms in partial codons ([#1084](https://github.com/varfish-org/mehari/issues/1084)) ([8d4c805](https://github.com/varfish-org/mehari/commit/8d4c805faec5d86cf52359086c5068d553d1b419))
+* correct edge cases found in the final review of the stack ([#1117](https://github.com/varfish-org/mehari/issues/1117)) ([b861941](https://github.com/varfish-org/mehari/commit/b861941ba466d8795100904dab035d6bbbf6da0d))
+* normalize MT variants across the circular origin ([#1087](https://github.com/varfish-org/mehari/issues/1087)) ([3550666](https://github.com/varfish-org/mehari/commit/355066678a070fb666b1eced572a998912a3d3ae))
+
+
+### Performance Improvements
+
+* **annotate:** overlap writing and prepare VCF records on workers ([#1102](https://github.com/varfish-org/mehari/issues/1102)) ([1f918b6](https://github.com/varfish-org/mehari/commit/1f918b6acf7ecf03d2d41800bf833f1a0e4ff539))
+* **annotate:** take the region from c_to_p and stop copying for plugins ([#1118](https://github.com/varfish-org/mehari/issues/1118)) ([02e55a4](https://github.com/varfish-org/mehari/commit/02e55a4471709815c19a4f1992d93a79a985d94c))
+* pre-size transcript DB buffer from zstd header ([#1103](https://github.com/varfish-org/mehari/issues/1103)) ([0e42732](https://github.com/varfish-org/mehari/commit/0e42732ccc677f3ee13e79e14ff755f188accc69))
+
+
+### Code Refactoring
+
+* restrict mehari db to transcripts ([#1033](https://github.com/varfish-org/mehari/issues/1033)) ([#1074](https://github.com/varfish-org/mehari/issues/1074)) ([ffb923c](https://github.com/varfish-org/mehari/commit/ffb923cca27d831faedad13178c6a6f6c6692af3))
+
+
+### Build System
+
+* **deps:** bump hgvs to 2.0 and the MSRV to 1.92 ([#1080](https://github.com/varfish-org/mehari/issues/1080)) ([2228a2a](https://github.com/varfish-org/mehari/commit/2228a2a7e888234390aefec5375ec9962fbae513))
+
 ## [0.46.0](https://github.com/varfish-org/mehari/compare/mehari-v0.45.1...mehari-v0.46.0) (2026-09-22)
 
 
