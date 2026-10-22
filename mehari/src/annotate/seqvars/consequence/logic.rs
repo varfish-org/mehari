@@ -1347,11 +1347,24 @@ impl ConsequencePredictor {
             );
 
             if let Some(var_p) = &projection.p {
-                // The terms of an `fs`, of a delins with a stop, of a change of the stop codon and
-                // of a change that leaves no CDS codon behind it depend on the protein, see
-                // `consequences_fix_special_cases`. Building the protein costs time, so only these
-                // get it.
-                let fs = matches!(protein_edit(projection), Some(ProteinEdit::Fs { .. }));
+                // The terms of a frameshift, of a delins with a stop, of a change of the stop
+                // codon and of a change that leaves no CDS codon behind it depend on the protein,
+                // see `consequences_fix_special_cases`. Building the protein costs time, so only
+                // these get it. A frameshift counts by p. (`fs`) or by its length, as p. can
+                // describe it otherwise, e.g. `p.(Trp5Ser)`. Without the start codon
+                // (`p.Met1?`), the protein is unknown.
+                let start_lost = matches!(
+                    var_p,
+                    HgvsVariant::ProtVariant {
+                        loc_edit: ProtLocEdit::InitiationUncertain,
+                        ..
+                    }
+                );
+                let fs = matches!(protein_edit(projection), Some(ProteinEdit::Fs { .. }))
+                    || (context
+                        .cds_consequences
+                        .contains(Consequence::FrameshiftVariant)
+                        && !start_lost);
                 let delins_with_stop = matches!(protein_edit(projection),
                     Some(ProteinEdit::DelIns { alternative }) if has_stop(alternative));
                 let cds_len = tx
@@ -7228,6 +7241,14 @@ mod test {
         ("c.2del", "p.Met1?"),
         vec![Consequence::StartLost]
     )]
+    // `c.2_5del` loses the start codon. Read from c.1, the new frame ends at the old position,
+    // but the protein is unknown.
+    #[case::start_lost_frame_ending_at_old_position(
+        ("ATGGCCAAGCTGTGGTAA", "CTAAGCATCA"),
+        (1021, "ATGGC", "A"),
+        ("c.2_5del", "p.Met1?"),
+        vec![Consequence::StartLost]
+    )]
     // `c.9_11delinsCTA` keeps the number of residues in p., but the protein ends at the new stop
     // codon.
     #[case::delins_ending_with_stop(
@@ -7257,6 +7278,28 @@ mod test {
         (1034, "GG", "CCTAA"),
         ("c.14_15delinsCCTAA", "p.(Trp5delinsSerTer)"),
         vec![Consequence::MissenseVariant, Consequence::StopRetainedVariant]
+    )]
+    // The frameshifts `c.13_14insCCTAA` and `c.14delinsCCTAA` both give `MAKLS*`, with a new TAA
+    // at the old position. p. describes one as a substitution, the other as `fs`.
+    #[case::fs_ins_keeping_length(
+        ("ATGGCCAAGCTGTGGTAA", "CGCATCA"),
+        (1033, "T", "TCCTAA"),
+        ("c.13_14insCCTAA", "p.(Trp5Ser)"),
+        vec![
+            Consequence::FrameshiftVariant,
+            Consequence::MissenseVariant,
+            Consequence::StopRetainedVariant
+        ]
+    )]
+    #[case::fs_delins_keeping_length(
+        ("ATGGCCAAGCTGTGGTAA", "CGCATCA"),
+        (1034, "G", "CCTAA"),
+        ("c.14delinsCCTAA", "p.(Trp5SerfsTer2)"),
+        vec![
+            Consequence::FrameshiftVariant,
+            Consequence::MissenseVariant,
+            Consequence::StopRetainedVariant
+        ]
     )]
     fn protein_decides_terms(
         #[case] (cds, utr3): (&str, &str),
