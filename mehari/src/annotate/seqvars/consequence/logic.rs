@@ -110,6 +110,23 @@ impl HgvsProjectionContext {
             false
         }
     }
+
+    /// Whether VEP builds codons for the c. variant, see `vep_indel_protein_terms`. VEP does so
+    /// if the variant has no intron offset, or if its bases go to an exon edge, which VEP adds to
+    /// the exon. These are an insertion at the edge, and a dup that ends next to the edge, as VEP
+    /// inserts the copy behind the dup.
+    fn vep_has_codons(&self) -> bool {
+        let Some(HgvsVariant::CdsVariant { loc_edit, .. }) = &self.c else {
+            return false;
+        };
+        let loc = loc_edit.loc.inner();
+        let offsets = (loc.start.offset.unwrap_or(0), loc.end.offset.unwrap_or(0));
+        match loc_edit.edit.inner() {
+            NaEdit::Ins { .. } => matches!(offsets, (0, 0) | (0, 1) | (-1, 0)),
+            NaEdit::Dup { .. } => matches!(offsets.1, 0 | -1),
+            _ => offsets == (0, 0),
+        }
+    }
 }
 
 /// Extension trait for checks on `HgvsVariant`s that consequence prediction needs.
@@ -615,10 +632,20 @@ struct TranscriptLocationContext {
     is_downstream: bool,
 }
 
+/// The terms of a variant on a coding transcript by their source. `consequences_fix_special_cases`
+/// reconciles them.
 #[derive(Debug)]
 struct ConsequenceContext {
+    /// Terms of the c. variant, e.g. `frameshift_variant` by its length.
     cds_consequences: Consequences,
+    /// Terms read off the p. variant, e.g. `frameshift_variant` for `fs`.
     protein_consequences: Consequences,
+    /// Terms of the protein the variant produces compared to the reference, see
+    /// `sequence_consequences()`, for the variants whose terms depend on it.
+    sequence_consequences: Consequences,
+    /// In VEP compatibility mode, VEP's stop terms and `synonymous_variant` of an indel from its
+    /// changed codons, see `vep_indel_protein_terms()`.
+    vep_codon_consequences: Option<Consequences>,
     cdna_pos: Option<Pos>,
     cds_pos: Option<Pos>,
     protein_pos: Option<Pos>,
@@ -1265,6 +1292,8 @@ impl ConsequencePredictor {
         let mut context = ConsequenceContext {
             cds_consequences: Consequences::empty(),
             protein_consequences: Consequences::empty(),
+            sequence_consequences: Consequences::empty(),
+            vep_codon_consequences: None,
             cdna_pos: None,
             cds_pos: None,
             protein_pos: None,
@@ -1318,6 +1347,29 @@ impl ConsequencePredictor {
             );
 
             if let Some(var_p) = &projection.p {
+                // The terms of an `fs`, of a delins with a stop, of a change of the stop codon and
+                // of a change that leaves no CDS codon behind it depend on the protein, see
+                // `consequences_fix_special_cases`. Building the protein costs time, so only these
+                // get it.
+                let fs = matches!(protein_edit(projection), Some(ProteinEdit::Fs { .. }));
+                let delins_with_stop = matches!(protein_edit(projection),
+                    Some(ProteinEdit::DelIns { alternative }) if has_stop(alternative));
+                let cds_len = tx
+                    .start_codon
+                    .zip(tx.stop_codon)
+                    .map(|(start, stop)| stop - start);
+                if (fs
+                    || delins_with_stop
+                    || touches_stop_codon(var_c, cds_len)
+                    || self.leaves_no_codon_behind(projection, tx))
+                    && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
+                        self.provider.clone(),
+                        &tx_record.tx_ac,
+                        None,
+                    )
+                {
+                    context.sequence_consequences = self.sequence_consequences(var_c, &ref_data);
+                }
                 if matches!(
                     var_p,
                     HgvsVariant::ProtVariant {
@@ -1325,16 +1377,7 @@ impl ConsequencePredictor {
                         ..
                     }
                 ) {
-                    // protein_pos remains empty. A deletion through the stop codon still gets the
-                    // terms of the protein it produces.
-                    context.protein_consequences = self.analyze_protein_variant(
-                        var_c,
-                        var_p,
-                        &None,
-                        conservative,
-                        &tx_record.tx_ac,
-                        incomplete_3p,
-                    );
+                    // protein_pos and protein_consequences remain empty.
                 } else {
                     // Like VEP, do not count the stop codon (if the transcript has one).
                     let prot_len = cds_len
@@ -1352,12 +1395,10 @@ impl ConsequencePredictor {
                         _ => panic!("Not a protein position: {:?}", var_p),
                     };
 
-                    context.protein_consequences = self.analyze_protein_variant(
-                        var_c,
+                    context.protein_consequences = Self::analyze_protein_variant(
                         var_p,
                         &context.protein_pos,
                         conservative,
-                        &tx_record.tx_ac,
                         incomplete_3p,
                     );
 
@@ -1422,19 +1463,12 @@ impl ConsequencePredictor {
                     &tx_record.tx_ac,
                     None,
                 )
-                && let Some(protein_terms) = ins_c.unwrap_or(var_c).vep_indel_protein_terms(
+            {
+                context.vep_codon_consequences = ins_c.unwrap_or(var_c).vep_indel_protein_terms(
                     projection.unshifted_c.as_ref().unwrap_or(var_c),
                     &ref_data,
                     tx,
-                )
-            {
-                context.protein_consequences.remove(
-                    Consequence::StopGained
-                        | Consequence::StopLost
-                        | Consequence::StopRetainedVariant
-                        | Consequence::SynonymousVariant,
                 );
-                context.protein_consequences |= protein_terms;
             }
         }
 
@@ -1602,18 +1636,28 @@ impl ConsequencePredictor {
             let copy_outside = copy_location
                 .as_ref()
                 .is_some_and(|location| location.is_upstream || location.is_downstream);
-            if !(self.config.vep_compatibility_mode && copy_outside) {
-                consequences |=
-                    consequence_ctx.cds_consequences | consequence_ctx.protein_consequences;
-            }
+            let (cds, protein, sequence, vep_codons) =
+                if self.config.vep_compatibility_mode && copy_outside {
+                    Default::default()
+                } else {
+                    (
+                        consequence_ctx.cds_consequences,
+                        consequence_ctx.protein_consequences,
+                        consequence_ctx.sequence_consequences,
+                        consequence_ctx.vep_codon_consequences,
+                    )
+                };
+            consequences |= cds;
 
             self.consequences_fix_special_cases(
                 &mut consequences,
                 // exon_alignment_consequences, // TODO include these as well
-                consequence_ctx.cds_consequences,
-                consequence_ctx.protein_consequences,
+                cds,
+                protein,
+                sequence,
+                vep_codons,
                 &projection,
-                tx.is_incomplete_5p(),
+                tx,
             );
 
             Some((projection, consequence_ctx))
@@ -1898,17 +1942,21 @@ impl ConsequencePredictor {
             consequences.insert(MissenseVariant);
         }
 
-        // VEP marks some intronic variants as coding_sequence_variant,
-        // which is wrong, but we will mimic here for compatibility
-        let within_cds_bounds = projection_context
-            .map(|c| c.is_within_cds_bounds())
-            .unwrap_or(false);
-        if consequences.contains(ExonicSpliceRegionVariant) {
+        // VEP's `missense_variant` excludes a lost start codon and the stop terms.
+        if self.config.vep_compatibility_mode
+            && consequences.intersects(StartLost | StopGained | StopLost | StopRetainedVariant)
+        {
+            consequences.remove(MissenseVariant);
+        }
+        // VEP's `frameshift` excludes `stop_retained_variant`.
+        if self.config.vep_compatibility_mode && consequences.contains(StopRetainedVariant) {
+            consequences.remove(FrameshiftVariant | FrameshiftElongation | FrameshiftTruncation);
+        }
+
+        let exonic_splice_region = consequences.contains(ExonicSpliceRegionVariant);
+        if exonic_splice_region {
             consequences.remove(ExonicSpliceRegionVariant);
             consequences.insert(SpliceRegionVariant);
-            if within_cds_bounds {
-                consequences.insert(CodingSequenceVariant);
-            }
         }
 
         if consequences.intersects(FrameshiftElongation | FrameshiftTruncation) {
@@ -1931,22 +1979,23 @@ impl ConsequencePredictor {
             consequences.remove(inframe_specifics);
         }
 
+        // VEP builds no codons for a change of the CDS with an end in an intron, so it reports no
+        // in-frame term there, but `coding_sequence_variant`, unless one of the terms below
+        // applies (`coding_unknown` in VEP's `VariationEffect.pm`).
         let is_inframe = consequences.intersects(InframeDeletion | InframeInsertion);
-        let essential_splice = SpliceDonorVariant | SpliceAcceptorVariant;
-
-        if is_inframe {
-            if consequences.intersects(essential_splice) {
-                consequences.remove(InframeDeletion | InframeInsertion);
-                if within_cds_bounds {
-                    consequences.insert(CodingSequenceVariant);
-                }
-            } else if consequences.intersects(
-                SpliceRegionVariant
-                    | SpliceDonorFifthBaseVariant
-                    | SpliceDonorRegionVariant
-                    | SplicePolypyrimidineTractVariant,
-            ) && within_cds_bounds
-            {
+        if self.config.vep_compatibility_mode
+            && (exonic_splice_region || is_inframe)
+            && projection_context.is_some_and(|p| p.is_within_cds_bounds() && !p.vep_has_codons())
+        {
+            consequences.remove(InframeDeletion | InframeInsertion);
+            if !consequences.intersects(
+                FrameshiftVariant
+                    | ProteinAlteringVariant
+                    | StartRetainedVariant
+                    | StartLost
+                    | StopRetainedVariant
+                    | StopLost,
+            ) {
                 consequences.insert(CodingSequenceVariant);
             }
         }
@@ -1955,6 +2004,19 @@ impl ConsequencePredictor {
             && *consequences != Into::<Consequences>::into(ExonLossVariant)
         {
             consequences.remove(ExonLossVariant);
+        }
+
+        // VEP reports `feature_elongation` only for structural variants.
+        if self.config.vep_compatibility_mode
+            && consequences.contains(FeatureElongation)
+            && *consequences != Into::<Consequences>::into(FeatureElongation)
+        {
+            consequences.remove(FeatureElongation);
+        }
+
+        // VEP's splice and intron terms exclude each other where SO's regions overlap.
+        if !self.config.vep_compatibility_mode {
+            return;
         }
 
         let suppress_splice_region = SpliceDonorVariant
@@ -1974,23 +2036,109 @@ impl ConsequencePredictor {
             consequences.remove(SplicePolypyrimidineTractVariant);
         }
 
-        let suppress_intron =
-            SpliceDonorVariant | SpliceAcceptorVariant | SpliceDonorFifthBaseVariant;
+        // VEP counts the intron bases from +3 and -3 on as intronic (`_intron_effects`), so a
+        // change of donor +5 stays an `intron_variant`.
+        let suppress_intron = SpliceDonorVariant | SpliceAcceptorVariant;
 
         if consequences.intersects(suppress_intron) {
             consequences.remove(IntronVariant);
         }
     }
 
+    /// Add the protein terms to `consequences`, which hold the terms of the location and of the
+    /// c. variant (`consequences_cds`), and fix special cases. The protein terms are those read
+    /// off the p. variant (`consequences_protein`), reconciled with those of the protein that
+    /// the variant produces (`consequences_sequence`). In VEP compatibility mode, VEP's stop
+    /// terms and `synonymous_variant` of an indel (`vep_codons`) replace those of the protein.
+    /// See `ConsequenceContext`.
     #[allow(clippy::too_many_arguments, unused_variables)]
     fn consequences_fix_special_cases(
         &self,
         consequences: &mut Consequences,
         consequences_cds: Consequences,
         consequences_protein: Consequences,
+        consequences_sequence: Consequences,
+        vep_codons: Option<Consequences>,
         projection: &HgvsProjectionContext,
-        incomplete_5p: bool,
+        tx: &Transcript,
     ) {
+        let vep_compat = self.config.vep_compatibility_mode;
+        let no_codon_behind = self.leaves_no_codon_behind(projection, tx);
+        let mut consequences_protein = consequences_protein;
+        if no_codon_behind {
+            // A change that leaves no CDS codon behind it has the terms of the protein it
+            // produces, without `missense_variant` in VEP compatibility mode. HGVS can still
+            // describe it as a frameshift, e.g., a deletion through the stop codon, or as `p.?`
+            // past the transcript end.
+            consequences_protein = consequences_sequence;
+            if vep_compat {
+                consequences_protein.remove(Consequence::MissenseVariant);
+            }
+        } else if consequences_protein.contains(Consequence::FrameshiftVariant) {
+            // An `fs` that ends the protein in front of its stop codon or behind it.
+            if consequences_sequence.contains(Consequence::StopGained) {
+                consequences_protein |= Consequence::FrameshiftTruncation;
+            }
+            if consequences_sequence.contains(Consequence::FeatureElongation) {
+                consequences_protein |= Consequence::FrameshiftElongation;
+            }
+            // An `fs` whose protein keeps its length changes residues, and another stop codon
+            // takes the old position. VEP keeps only the frameshift.
+            if consequences_sequence.contains(Consequence::MissenseVariant) && !vep_compat {
+                consequences_protein |= consequences_sequence
+                    & (Consequence::MissenseVariant | Consequence::StopRetainedVariant);
+            }
+        }
+        // Inserted residues that end with a stop codon in front of the old one shorten the
+        // protein, also where p. keeps the number of residues, e.g. `p.Lys3_Leu4delinsAsnTer`,
+        // so no `missense_variant`. A new stop codon at the old position keeps the length: then
+        // the changed residues are `missense_variant`, and the stop is retained, not gained. VEP
+        // keeps the terms of p.
+        if !vep_compat
+            && matches!(protein_edit(projection), Some(ProteinEdit::DelIns { alternative })
+                if has_stop(alternative))
+        {
+            if consequences_sequence.contains(Consequence::StopRetainedVariant) {
+                consequences_protein.remove(Consequence::StopGained);
+                consequences_protein |= consequences_sequence
+                    & (Consequence::MissenseVariant | Consequence::StopRetainedVariant);
+            } else {
+                consequences_protein.remove(Consequence::MissenseVariant);
+            }
+        }
+        // A change of stop codon bases that keeps the stop codon is `stop_retained_variant`,
+        // also where p. does not show it, e.g. `p.(Trp5Cys)` for `c.15_17delinsCTG`, where TGA
+        // takes the place of TAA.
+        if !vep_compat
+            && consequences_sequence.contains(Consequence::StopRetainedVariant)
+            && !consequences_protein.intersects(
+                Consequence::StopGained | Consequence::StopLost | Consequence::StopRetainedVariant,
+            )
+        {
+            consequences_protein |= Consequence::StopRetainedVariant;
+        }
+        // An in-frame insertion in front of the stop codon keeps it, also where p. describes the
+        // longer protein as an extension, e.g. `p.Ter6AspextTer1` for `c.15_16insGAT`. So it is
+        // no `stop_lost`. VEP keeps it.
+        if !vep_compat
+            && matches!(protein_edit(projection), Some(ProteinEdit::Ext { .. }))
+            && let (Some(var_c), Some(start), Some(stop)) =
+                (&projection.c, tx.start_codon, tx.stop_codon)
+            && inserts_in_frame_before_stop_codon(var_c, stop - start)
+        {
+            consequences_protein.remove(Consequence::StopLost);
+        }
+        if let Some(vep_codons) = vep_codons {
+            consequences_protein.remove(
+                Consequence::StopGained
+                    | Consequence::StopLost
+                    | Consequence::StopRetainedVariant
+                    | Consequence::SynonymousVariant,
+            );
+            consequences_protein |= vep_codons;
+        }
+        *consequences |= consequences_protein;
+
         // If we have a transcript_ablation, we can remove all other consequences
         if consequences.contains(Consequence::TranscriptAblation) {
             *consequences = Consequence::TranscriptAblation.into();
@@ -2029,28 +2177,12 @@ impl ConsequencePredictor {
             }
         }
 
-        // vep simply reports the frameshift on the protein level, irrespective of the
-        // actual outcome
-        // i.e., this depends on if you want to have the mechanism or the outcome described
-        if !self.config.vep_consequence_terms {
-            // If a frameshift/ins/del was predicted on the CDS level,
-            // but any relevant consequence (i.e. not just GeneVariant) was produced on the protein level,
-            // then it is likely that the frameshift induced a more specific consequence.
-            let check_cds_csqs: Consequences = Consequence::FrameshiftVariant.into();
-            let checked = consequences_cds & check_cds_csqs;
-            if checked != Consequences::empty()
-                // if the protein consequence is not effectively empty, we remove the CDS frameshift consequence
-                && !(consequences_protein.eq(&Consequence::GeneVariant) || consequences_protein.is_empty())
-                // if the protein consequence also includes a frameshift, then we keep it,
-                // and also next to a stop as the first changed residue (`p.Val170Ter`)
-                && !consequences_protein.intersects(
-                Consequence::FrameshiftElongation
-                    | Consequence::FrameshiftTruncation
-                    | Consequence::FrameshiftVariant
-                    | Consequence::StopGained,
-            ) {
-                *consequences &= !checked;
-            }
+        // `frameshift_variant` of the c. variant needs a codon of the CDS behind the change that
+        // reads in another frame. Without the start codon (`p.Met1?`), no reading frame of the
+        // protein is known to shift. VEP keeps it.
+        if !vep_compat && (no_codon_behind || consequences_protein.contains(Consequence::StartLost))
+        {
+            *consequences &= !(consequences_cds & Consequence::FrameshiftVariant);
         }
 
         // In some cases, we predict a stop lost based on the cds variant
@@ -2180,7 +2312,7 @@ impl ConsequencePredictor {
         // A CDS that is incomplete at its 5' end, e.g. `cds_start_NF`, has no start codon, so a
         // change of its first codon is just a change of the CDS. VEP gives no start terms there
         // either.
-        if incomplete_5p {
+        if tx.is_incomplete_5p() {
             *consequences &= !(Consequence::StartLost | Consequence::StartRetainedVariant);
             if consequences.is_empty() {
                 *consequences |= Consequence::CodingSequenceVariant;
@@ -2269,7 +2401,7 @@ impl ConsequencePredictor {
         intron_start: i32,
         intron_end: i32,
         _is_utr: bool,
-        vep_terms: bool,
+        vep_compatibility_mode: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
 
@@ -2284,7 +2416,7 @@ impl ConsequencePredictor {
         // VEP 116.3 puts an insertion into the donor region or at the fifth base only if the
         // bases on both sides of it are inside. So no insertion is at the fifth base.
         let var_overlaps_donor = |start: i32, end: i32| -> bool {
-            if vep_terms {
+            if vep_compatibility_mode {
                 var_overlaps(start, end) && var_overlaps_behind(start, end)
             } else if strand == Strand::Plus {
                 var_overlaps_behind(start, end)
@@ -2515,6 +2647,10 @@ impl ConsequencePredictor {
             let within_exonic_sequence =
                 loc_start_offset == 0 && loc_end_offset == 0 || at_exon_edge;
             let _crosses_boundary = (loc_start_offset != 0) ^ (loc_end_offset != 0);
+            // Between two exon positions, a deletion or delins replaces the CDS bases from one to
+            // the other. Its reference also holds the bases of an intron in between.
+            let cds_bases = (loc_start_offset == 0 && loc_end_offset == 0)
+                .then(|| start_base.abs_diff(end_base) as usize + 1);
 
             if !(ends_right_of_stop
                 || starts_left_of_start
@@ -2527,14 +2663,15 @@ impl ConsequencePredictor {
                         reference,
                         alternative,
                     } => {
-                        if reference.len().abs_diff(alternative.len()) % 3 != 0 {
+                        let reference_len = cds_bases.unwrap_or(reference.len());
+                        if reference_len.abs_diff(alternative.len()) % 3 != 0 {
                             if within_exonic_sequence {
                                 consequences |= Consequence::FrameshiftVariant;
                             }
                         } else {
                             // Check for inframe insertions/deletions (that are not delins)
                             match (
-                                reference.len().cmp(&alternative.len()),
+                                reference_len.cmp(&alternative.len()),
                                 alternative.is_empty() ^ reference.is_empty(),
                             ) {
                                 (Ordering::Less, true) => {
@@ -2556,7 +2693,7 @@ impl ConsequencePredictor {
                         }
                     }
                     NaEdit::DelRef { reference } => {
-                        if reference.len() % 3 != 0 {
+                        if cds_bases.unwrap_or(reference.len()) % 3 != 0 {
                             if within_exonic_sequence {
                                 consequences |= Consequence::FrameshiftVariant;
                             }
@@ -2567,7 +2704,7 @@ impl ConsequencePredictor {
                         }
                     }
                     NaEdit::DelNum { count } => {
-                        if count % 3 != 0 {
+                        if cds_bases.map_or(count % 3, |bases| bases as i32 % 3) != 0 {
                             if within_exonic_sequence {
                                 consequences |= Consequence::FrameshiftVariant;
                             }
@@ -2608,13 +2745,12 @@ impl ConsequencePredictor {
         consequences
     }
 
+    /// Terms read off the p. variant `var_p`, see `consequences_fix_special_cases` for those
+    /// that the protein decides.
     fn analyze_protein_variant(
-        &self,
-        var_c: &HgvsVariant,
         var_p: &HgvsVariant,
         protein_pos: &Option<Pos>,
         conservative: bool,
-        tx_accession: &str,
         incomplete_3p: bool,
     ) -> Consequences {
         let mut consequences: Consequences = Consequences::empty();
@@ -2624,26 +2760,6 @@ impl ConsequencePredictor {
             s == "X" || s == "Ter" || s == "*"
         }
 
-        // hgvs-rs gives `X` (`Xaa`) for an incomplete codon at the transcript end, not for a
-        // stop codon.
-        fn has_stop(s: &str) -> bool {
-            s.contains('*') || s.contains("Ter")
-        }
-
-        // A deletion from the CDS through its last base leaves only CDS bases in front of it, so
-        // no CDS codon reads in another frame. HGVS still describes it as a frameshift, or as
-        // `p.?` past the transcript end. Its terms come from the protein it produces.
-        let cds_len = self
-            .provider
-            .get_tx(tx_accession)
-            .and_then(|tx| tx.start_codon.zip(tx.stop_codon))
-            .map(|(start, stop)| stop - start);
-        let deletes = matches!(var_c, HgvsVariant::CdsVariant { loc_edit, .. }
-            if changes_length(loc_edit.edit.inner()));
-        if !incomplete_3p && deletes && crosses_cds_end(var_c, cds_len) {
-            return self.stop_codon_deletion_terms(var_c, tx_accession);
-        }
-
         match var_p {
             HgvsVariant::ProtVariant { loc_edit, .. } => match loc_edit {
                 ProtLocEdit::Ordinary { loc, edit } => {
@@ -2651,69 +2767,6 @@ impl ConsequencePredictor {
                     match edit.inner() {
                         ProteinEdit::Fs { .. } => {
                             consequences |= Consequence::FrameshiftVariant;
-
-                            // in the case of frameshifts, we will get the altered protein sequence
-                            // in order to compare it with the unaltered one
-
-                            if let Ok(reference_data) =
-                                hgvs::mapper::altseq::ref_transcript_data_cached(
-                                    self.provider.clone(),
-                                    tx_accession,
-                                    None,
-                                )
-                            {
-                                // Count the residues before the stops. `Xaa` counts as a
-                                // residue. A CDS with an incomplete end has no stop codon.
-                                let original_amino_acids =
-                                    reference_data.aa_sequence.trim_end_matches('*').len();
-                                if let Ok(alt_data) = self
-                                    .mapper
-                                    .alt_seq_builder(var_c, &reference_data)
-                                    .and_then(|builder| builder.build_altseq())
-                                    && let Some(alt_data) = alt_data.first()
-                                {
-                                    let altered_sequence = &alt_data.aa_sequence;
-
-                                    // Compare the lengths up to the first stop of the new frame.
-                                    // A new frame without a stop (`fsTer?`) runs to the
-                                    // transcript end. It is an elongation only if it has more
-                                    // residues than the reference, e.g., `Xaa` in place of the
-                                    // reference stop codon. Without a reference stop codon, hgvs
-                                    // cuts it to the reference length.
-                                    //
-                                    // do not use the 'X' fallback here,
-                                    // as that is _usually_ only added
-                                    // when the number of bases is not divisible by 3.
-                                    // We only want to identify cases where a new/later
-                                    // stop codon is encountered
-                                    // .or_else(|| altered_sequence.find('X'))
-                                    if let Some(pos) = altered_sequence.find('*') {
-                                        match pos.cmp(&original_amino_acids) {
-                                            Ordering::Less => {
-                                                consequences |= Consequence::FrameshiftTruncation;
-                                            }
-                                            // The new stop codon takes the old position, so the
-                                            // protein keeps its length: its changed residues are a
-                                            // missense change, and the stop is retained. A
-                                            // frameshift inside the CDS still reads codons in
-                                            // another frame and keeps `frameshift_variant`.
-                                            Ordering::Equal => {
-                                                if !self.config.vep_consequence_terms {
-                                                    consequences |= Consequence::MissenseVariant
-                                                        | Consequence::StopRetainedVariant;
-                                                }
-                                            }
-                                            Ordering::Greater => {
-                                                consequences |= Consequence::FrameshiftElongation;
-                                            }
-                                        }
-                                    } else if reference_data.aa_sequence.ends_with('*')
-                                        && altered_sequence.len() > original_amino_acids
-                                    {
-                                        consequences |= Consequence::FrameshiftElongation;
-                                    }
-                                }
-                            }
                         }
                         ProteinEdit::Ext { .. } => {
                             if !incomplete_3p {
@@ -2789,16 +2842,10 @@ impl ConsequencePredictor {
                         }
                         // Inserted bases that encode a stop codon give an insertion up to the
                         // stop, e.g., `p.Lys168_Ile169insThrValSerTer`, also if their number is
-                        // not a multiple of 3, as HGVS prescribes. The frame still shifts then.
+                        // not a multiple of 3, as HGVS prescribes. The frame still shifts then,
+                        // so the CDS terms tell `frameshift_variant` or the in-frame insertion.
                         ProteinEdit::Ins { alternative } if has_stop(alternative) => {
                             consequences |= Consequence::StopGained;
-                            consequences |= if inserts_frameshift(var_c) {
-                                Consequence::FrameshiftVariant
-                            } else if conservative {
-                                Consequence::ConservativeInframeInsertion
-                            } else {
-                                Consequence::DisruptiveInframeInsertion
-                            };
                         }
                         ProteinEdit::Ins { .. } | ProteinEdit::Dup => {
                             if conservative {
@@ -3384,14 +3431,15 @@ impl ConsequencePredictor {
             transcript_biotype,
         )?;
 
-        let mut consequences =
-            c_ctx.cds_consequences | c_ctx.protein_consequences | base_group_consequences;
+        let mut consequences = c_ctx.cds_consequences | base_group_consequences;
         self.consequences_fix_special_cases(
             &mut consequences,
             c_ctx.cds_consequences,
             c_ctx.protein_consequences,
+            c_ctx.sequence_consequences,
+            c_ctx.vep_codon_consequences,
             &compound_proj,
-            tx.is_incomplete_5p(),
+            tx,
         );
 
         if self.config.vep_consequence_terms {
@@ -3495,55 +3543,142 @@ impl ConsequencePredictor {
         }))
     }
 
-    /// Terms of a deletion from the CDS through its last base, from the protein it produces. The
-    /// position of the new stop codon relative to the old one decides: in front of it
-    /// `stop_gained`, at it `stop_retained_variant` (and `missense_variant` if a residue changes),
-    /// behind it or none `stop_lost`, with `feature_elongation` if the protein gets longer.
-    fn stop_codon_deletion_terms(&self, var_c: &HgvsVariant, tx_accession: &str) -> Consequences {
-        let mut consequences = Consequences::empty();
-        let Ok(reference_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
-            self.provider.clone(),
-            tx_accession,
-            None,
-        ) else {
-            return consequences;
+    /// Whether the c. variant of `projection` leaves no complete codon of the CDS behind it, so
+    /// that none reads in another frame. A change of the length from the CDS through its last
+    /// base `c.N` does so, see `crosses_cds_end`. Outside VEP compatibility mode, so does a
+    /// frameshift that ends inside the stop codon, `c.(N-2)` to `c.N`: an insertion or the copy
+    /// of a dup that goes inside it, or a deletion or delins from the CDS that ends in it. An
+    /// in-frame change there keeps the frame, and its p. terms stay. `false` for a CDS with an
+    /// incomplete 3' end, as it has no stop codon.
+    fn leaves_no_codon_behind(&self, projection: &HgvsProjectionContext, tx: &Transcript) -> bool {
+        let Some(var_c @ HgvsVariant::CdsVariant { loc_edit, .. }) = &projection.c else {
+            return false;
         };
+        let Some(cds_len) = (tx.start_codon.zip(tx.stop_codon))
+            .filter(|_| !tx.is_incomplete_3p())
+            .map(|(start, stop)| stop - start)
+        else {
+            return false;
+        };
+        let loc = loc_edit.loc.inner();
+        let edit = loc_edit.edit.inner();
+        if changes_length(edit) && crosses_cds_end(var_c, Some(cds_len)) {
+            return true;
+        }
+        if self.config.vep_compatibility_mode
+            || loc.start.cds_from != CdsFrom::Start
+            || loc.start.base < 1
+            || loc.start.offset.unwrap_or_default() != 0
+        {
+            return false;
+        }
+        let in_stop_codon = |pos: &CdsPos| {
+            pos.cds_from == CdsFrom::Start
+                && pos.base >= cds_len - 2
+                && pos.offset.unwrap_or_default() == 0
+        };
+        // The CDS bases from `start` to `end`.
+        let cds_bases = usize::try_from(loc.end.base - loc.start.base + 1).unwrap_or_default();
+        // The bases go behind `start`, the copy behind `end`.
+        let (inside, inserted, deleted) = match edit {
+            NaEdit::Ins { alternative } => (
+                in_stop_codon(&loc.start) && loc.start.base < cds_len,
+                alternative.len(),
+                0,
+            ),
+            NaEdit::Dup { .. } => (
+                in_stop_codon(&loc.end) && loc.end.base < cds_len,
+                cds_bases,
+                0,
+            ),
+            NaEdit::DelRef { .. } | NaEdit::DelNum { .. } => {
+                (in_stop_codon(&loc.end), 0, cds_bases)
+            }
+            NaEdit::RefAlt { alternative, .. } | NaEdit::NumAlt { alternative, .. } => {
+                (in_stop_codon(&loc.end), alternative.len(), cds_bases)
+            }
+            NaEdit::InvRef { .. } | NaEdit::InvNum { .. } => (false, 0, 0),
+        };
+        inside && inserted.abs_diff(deleted) % 3 != 0
+    }
+
+    /// Terms of the protein that `var_c` produces, compared to the reference protein of
+    /// `ref_data`. The first stop codon of the new protein decides:
+    /// - in front of the reference stop codon: `stop_gained`;
+    /// - at its position: `missense_variant` if residues change, and `stop_retained_variant` if
+    ///   the variant changes the bases there;
+    /// - behind it: `stop_lost` and `feature_elongation`;
+    /// - none: `stop_lost`, with `feature_elongation` if the protein gets longer.
+    ///
+    /// Without a reference stop codon, the reference end takes its place, with neither
+    /// `stop_lost` nor `stop_retained_variant`. A new protein without a stop codon then gets no
+    /// term, as the residues behind that end are unknown.
+    ///
+    /// Empty if the variant changes no base up to the reference stop codon, e.g., a deletion that
+    /// can go behind it, and without a protein, as for a UTR variant.
+    fn sequence_consequences(
+        &self,
+        var_c: &HgvsVariant,
+        ref_data: &RefTranscriptData,
+    ) -> Consequences {
+        // `build_altseq` builds no protein outside the CDS or for a deletion of the whole CDS.
         let Some(alt_data) = self
             .mapper
-            .alt_seq_builder(var_c, &reference_data)
+            .alt_seq_builder(var_c, ref_data)
             .and_then(|builder| builder.build_altseq())
             .ok()
             .and_then(|alt_data| alt_data.into_iter().next())
+            .filter(|alt_data| alt_data.variant_start_aa.is_some())
         else {
-            return consequences;
+            return Consequences::empty();
         };
-        // A deletion that can go behind the stop codon keeps every CDS base.
-        let cds = ..usize::try_from(reference_data.cds_stop).unwrap_or_default();
-        if alt_data.transcript_sequence.get(cds) == reference_data.transcript_sequence.get(cds) {
-            return consequences;
+        let ref_seq = ref_data.transcript_sequence.as_bytes();
+        let alt_seq = alt_data.transcript_sequence.as_bytes();
+        let stop_end = usize::try_from(ref_data.cds_stop).unwrap_or_default();
+        let prefix = ref_seq
+            .iter()
+            .zip(alt_seq)
+            .take_while(|(r, a)| r == a)
+            .count();
+        if prefix >= stop_end {
+            return Consequences::empty();
         }
+        // Behind a change of the length, the bases at the stop codon are other ones.
+        let changes_stop_codon = ref_seq.len() != alt_seq.len() || {
+            let suffix = (ref_seq.iter().rev().zip(alt_seq.iter().rev()))
+                .take_while(|(r, a)| r == a)
+                .count();
+            ref_seq.len() - suffix > stop_end.saturating_sub(3)
+        };
+
         // Count the residues before the stops. `Xaa` counts as a residue.
-        let reference = reference_data.aa_sequence.trim_end_matches('*');
+        let reference = ref_data.aa_sequence.trim_end_matches('*');
+        let has_stop = reference.len() < ref_data.aa_sequence.len();
         let altered = alt_data.aa_sequence.as_str();
         match altered.find('*') {
             Some(pos) => match pos.cmp(&reference.len()) {
-                Ordering::Less => consequences |= Consequence::StopGained,
+                Ordering::Less => Consequence::StopGained.into(),
                 Ordering::Equal => {
-                    consequences |= Consequence::StopRetainedVariant;
-                    if !self.config.vep_consequence_terms && altered[..pos] != *reference {
+                    let mut consequences = Consequences::empty();
+                    if altered[..pos] != *reference {
                         consequences |= Consequence::MissenseVariant;
                     }
+                    if has_stop && changes_stop_codon {
+                        consequences |= Consequence::StopRetainedVariant;
+                    }
+                    consequences
                 }
-                Ordering::Greater => {
-                    consequences |= Consequence::StopLost | Consequence::FeatureElongation;
+                Ordering::Greater if has_stop => {
+                    Consequence::StopLost | Consequence::FeatureElongation
                 }
+                Ordering::Greater => Consequence::FeatureElongation.into(),
             },
+            None if !has_stop => Consequences::empty(),
             None if altered.len() > reference.len() => {
-                consequences |= Consequence::StopLost | Consequence::FeatureElongation;
+                Consequence::StopLost | Consequence::FeatureElongation
             }
-            None => consequences |= Consequence::StopLost,
+            None => Consequence::StopLost.into(),
         }
-        consequences
     }
 
     /// The region of the transcript that `var_c` changes, as `c_to_p` of `self.mapper` uses it.
@@ -3641,25 +3776,60 @@ fn within_first_codon(start: CdsPos, end: CdsPos) -> bool {
         && end.base <= 3
 }
 
-/// Whether the insertion or dup `var_c` inserts a number of bases that is not a multiple of 3.
-fn inserts_frameshift(var_c: &HgvsVariant) -> bool {
+/// The edit of the p. variant of `projection`, if it has one.
+fn protein_edit(projection: &HgvsProjectionContext) -> Option<&ProteinEdit> {
+    match &projection.p {
+        Some(HgvsVariant::ProtVariant {
+            loc_edit: ProtLocEdit::Ordinary { edit, .. },
+            ..
+        }) => Some(edit.inner()),
+        _ => None,
+    }
+}
+
+/// Whether the insertion or dup `var_c` keeps the frame and puts its bases in front of the stop
+/// codon of a CDS of length `cds_len`, so that the stop codon stays.
+fn inserts_in_frame_before_stop_codon(var_c: &HgvsVariant, cds_len: i32) -> bool {
     let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
         return false;
     };
     let loc = loc_edit.loc.inner();
-    let len = match loc_edit.edit.inner() {
-        NaEdit::Ins { alternative } => alternative.len(),
-        NaEdit::Dup { reference } if !reference.is_empty() => reference.len(),
-        NaEdit::Dup { .. }
-            if loc.start.cds_from == loc.end.cds_from
-                && loc.start.offset.unwrap_or_default() == 0
-                && loc.end.offset.unwrap_or_default() == 0 =>
-        {
-            loc.start.base.abs_diff(loc.end.base) as usize + 1
-        }
+    if [&loc.start, &loc.end]
+        .iter()
+        .any(|pos| pos.cds_from != CdsFrom::Start || pos.offset.unwrap_or_default() != 0)
+    {
+        return false;
+    }
+    // The bases go behind `start`, the copy behind `end`.
+    let (behind, len) = match loc_edit.edit.inner() {
+        NaEdit::Ins { alternative } => (loc.start.base, alternative.len()),
+        NaEdit::Dup { .. } => (
+            loc.end.base,
+            usize::try_from(loc.end.base - loc.start.base + 1).unwrap_or_default(),
+        ),
         _ => return false,
     };
-    len % 3 != 0
+    behind <= cds_len - 3 && len % 3 == 0
+}
+
+/// Whether `var_c` changes bases of the stop codon of a CDS of length `cds_len`, i.e., starts in
+/// the CDS and reaches its last 3 bases or behind.
+fn touches_stop_codon(var_c: &HgvsVariant, cds_len: Option<i32>) -> bool {
+    let (HgvsVariant::CdsVariant { loc_edit, .. }, Some(cds_len)) = (var_c, cds_len) else {
+        return false;
+    };
+    let loc = loc_edit.loc.inner();
+    let in_cds =
+        |pos: &CdsPos| pos.cds_from == CdsFrom::Start && pos.offset.unwrap_or_default() == 0;
+    in_cds(&loc.start)
+        && loc.start.base >= 1
+        && (loc.end.cds_from == CdsFrom::End || (in_cds(&loc.end) && loc.end.base > cds_len - 3))
+}
+
+/// Whether the amino acids `s` of a p. edit hold a stop. hgvs-rs gives `X` (`Xaa`) for an
+/// incomplete codon at the transcript end, not for a stop codon.
+fn has_stop(s: &str) -> bool {
+    s.contains('*') || s.contains("Ter")
 }
 
 /// Whether `edit` deletes bases or replaces them by a different number of bases. An edit
@@ -4349,11 +4519,148 @@ mod test {
         Ok(())
     }
 
+    /// A deletion from the end of an exon through the intron into the next exon deletes the CDS
+    /// bases on both sides of the intron. On OPA1 `NM_130837.3`, `c.1375_1380del` deletes 89
+    /// genome bases, but 6 CDS bases, so it keeps the frame. The test database has no genome
+    /// sequence, so the intron bases of the VCF REF allele are made up, as in
+    /// `alt_sequences_deletion_covers_intron`.
+    #[rstest::rstest]
+    #[case(
+        false,
+        vec![
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceDonorVariant,
+            Consequence::ConservativeInframeDeletion,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::SpliceRegionVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::SplicePolypyrimidineTractVariant
+        ]
+    )]
+    // VEP counts the CDS bases for `frameshift_variant`, too, and builds codons for a deletion
+    // between two exon positions
+    #[case(
+        true,
+        vec![
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceDonorVariant,
+            Consequence::InframeDeletion,
+            Consequence::SpliceDonorFifthBaseVariant
+        ]
+    )]
+    fn deletion_across_intron_keeps_frame(
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .transcript_settings(pick_mane_by_gene())
+                .vep_consequence_terms(vep_compatibility_mode)
+                .vep_compatibility_mode(vep_compatibility_mode)
+                .build()?,
+        );
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: "3".into(),
+                position: 193361230,
+                reference: format!("TAAT{}ACT", "A".repeat(83)),
+                alternative: "T".into(),
+            })?
+            .unwrap_or_default();
+        let ann = res
+            .iter()
+            .find(|ann| ann.feature_id == "NM_130837.3")
+            .ok_or_else(|| anyhow::anyhow!("no annotation on NM_130837.3: {res:?}"))?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some("c.1375_1380del"), &expected_csqs)
+        );
+
+        Ok(())
+    }
+
+    /// With VEP compatibility, the terms of ClinVar variants on BRCA1 `NM_007294.4` as VEP 109
+    /// reports them in `clinvar.excerpt.vep.brca1.tsv`. VEP 116 has the same predicates for them.
+    #[rstest::rstest]
+    // VEP builds codons for an exonic change in the splice region, so it reports no
+    // `coding_sequence_variant`.
+    #[case(
+        "17:41197817:T:A",
+        "c.5470A>T",
+        "missense_variant&splice_region_variant"
+    )]
+    #[case(
+        "17:41197818:T:C",
+        "c.5469A>G",
+        "splice_region_variant&synonymous_variant"
+    )]
+    #[case("17:41201209:G:A", "c.5335C>T", "splice_region_variant&stop_gained")]
+    #[case(
+        "17:41201137:CT:C",
+        "c.5406del",
+        "frameshift_variant&splice_region_variant"
+    )]
+    #[case(
+        "17:41242960:CCTG:C",
+        "c.4183_4185del",
+        "inframe_deletion&splice_region_variant"
+    )]
+    // VEP puts an insertion at an exon edge into the exon.
+    #[case(
+        "17:41276033:C:CCAGATG",
+        "c.80_80+1insCATCTG",
+        "inframe_insertion&splice_region_variant"
+    )]
+    // VEP builds no codons for a deletion with an end in an intron.
+    #[case(
+        "17:41267741:ACTT:A",
+        "c.133_134+1del",
+        "coding_sequence_variant&splice_donor_variant"
+    )]
+    fn vep_terms_as_recorded(
+        #[case] spdi: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: &str,
+    ) -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .vep_consequence_terms(true)
+                .vep_compatibility_mode(true)
+                .build()?,
+        );
+
+        let res = predictor.predict(&spdi.parse()?)?.unwrap_or_default();
+        let ann = res
+            .iter()
+            .find(|ann| ann.feature_id == "NM_007294.4")
+            .ok_or_else(|| anyhow::anyhow!("no annotation on NM_007294.4: {res:?}"))?;
+        let csqs = ann
+            .consequences
+            .iter()
+            .map(|csq| csq.to_string())
+            .sorted()
+            .join("&");
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), csqs.as_str()),
+            (Some(expected_hgvs_c), expected_csqs)
+        );
+
+        Ok(())
+    }
+
     /// Indels on Ensembl 108 chr22 transcripts.
     ///
     /// With VEP terms, the expected terms are those of VEP 116.3 with `--shift_3prime 1`. mehari
-    /// adds `feature_elongation` and `protein_altering_variant`. At the stop codon, mehari keeps
-    /// `frameshift_variant` next to `stop_lost` or `stop_retained_variant`, which VEP drops.
+    /// adds `protein_altering_variant`. At the stop codon, mehari keeps `frameshift_variant` next
+    /// to `stop_lost`, which VEP drops.
     #[rstest::rstest]
     // `p.Val170Ter`: VEP's changed codons hold no complete codon of the new frame
     #[case("22:19524002:AC:A", "ENST00000403084", true, vec![Consequence::FrameshiftVariant])]
@@ -4371,19 +4678,19 @@ mod test {
     // `p.Glu587Ter`: insertion between codons 586 and 587
     #[case("22:20112682:C:CA", "ENST00000252136", true, vec![Consequence::FrameshiftVariant])]
     // `p.Ter85ArgextTer9`
-    #[case("22:22895417:CCT:C", "ENST00000531372", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation])]
+    #[case("22:22895417:CCT:C", "ENST00000531372", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost])]
     // `p.Ter204TrpextTer73`
-    #[case("22:42571197:T:TG", "ENST00000340239", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation])]
+    #[case("22:42571197:T:TG", "ENST00000340239", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost])]
     // `p.Ter704=`: VEP's changed codons end in a partial codon, and the bases at the stop codon
     // still read a stop codon
-    #[case("22:45600444:TG:T", "ENST00000327858", true, vec![Consequence::FrameshiftVariant, Consequence::StopRetainedVariant])]
+    #[case("22:45600444:TG:T", "ENST00000327858", true, vec![Consequence::StopRetainedVariant])]
     // `p.Ter204=`: VEP's changed codons end in a partial codon, and VEP does not count the
     // insertion behind the first base of the stop codon as overlapping it
     #[case("22:42571196:T:TTAAC", "ENST00000340239", true, vec![Consequence::FrameshiftVariant])]
     // `p.Ter512=`: the new frame starts with a stop codon
-    #[case("22:17181484:C:CT", "ENST00000262607", true, vec![Consequence::FrameshiftVariant, Consequence::StopRetainedVariant])]
+    #[case("22:17181484:C:CT", "ENST00000262607", true, vec![Consequence::StopRetainedVariant])]
     // `p.Ter704AspextTer1`: in-frame insertion in front of the stop codon
-    #[case("22:45600443:C:CGAT", "ENST00000327858", true, vec![Consequence::FeatureElongation, Consequence::InframeInsertion])]
+    #[case("22:45600443:C:CGAT", "ENST00000327858", true, vec![Consequence::InframeInsertion])]
     // `p.Cys203Ter` (VEP: `p.Cys203del`): in-frame deletion in front of the stop codon
     #[case("22:42571193:CTGT:C", "ENST00000340239", true, vec![Consequence::InframeDeletion])]
     // in-frame deletion across the stop codon
@@ -4393,7 +4700,7 @@ mod test {
     #[case("22:22895421:TGAG:T", "ENST00000531372", true, vec![Consequence::ThreePrimeUtrVariant])]
     // `c.1449_*18del`: VEP builds no altered sequence for a deletion beyond the transcript end,
     // so the stop codon counts as kept
-    #[case("22:50525751:GTTTCGCGGCAAAGGAGCTT:G", "ENST00000487577", true, vec![Consequence::FeatureElongation, Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant])]
+    #[case("22:50525751:GTTTCGCGGCAAAGGAGCTT:G", "ENST00000487577", true, vec![Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant])]
     // `p.Ter704=`: in-frame insertion inside the stop codon that keeps it
     #[case("22:45600443:C:CTAA", "ENST00000327858", false, vec![Consequence::StopRetainedVariant])]
     #[case("22:45600443:C:CTAA", "ENST00000327858", true, vec![Consequence::InframeInsertion, Consequence::StopRetainedVariant])]
@@ -4645,7 +4952,7 @@ mod test {
     #[case("22:28773775:ATGAG:A", "ENST00000249064", false, "c.238_239+2del", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::ExonicSpliceRegionVariant])]
     // insertion between the last exon base and donor +1: the exon gains a base
     #[case("22:20996112:T:TA", "ENST00000646124", false, "c.2219_2219+1insA", "p.(Tyr741LeufsTer41)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
-    #[case("22:20996112:T:TA", "ENST00000646124", true, "c.2219_2219+1insA", "p.(Tyr741LeufsTer41)", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:20996112:T:TA", "ENST00000646124", true, "c.2219_2219+1insA", "p.(Tyr741LeufsTer41)", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     // minus strand: insertion between donor +1 and the last exon base
     #[case("22:32150991:C:CTT", "ENST00000382097", false, "c.493_493+1insAA", "p.(His165GlnfsTer19)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // insertion one base past the acceptor, between the first two exon bases
@@ -4687,6 +4994,24 @@ mod test {
             "spdi = {spdi}"
         );
 
+        Ok(())
+    }
+
+    /// With VEP terms, a change of donor +5 is also an `intron_variant`, as VEP counts the intron
+    /// bases from +3 on as intronic (`_intron_effects`).
+    #[test]
+    fn vep_fifth_base_is_intronic() -> Result<(), anyhow::Error> {
+        let ann = annotate_chr22_window("22:25763388:AGGTAAGT:A", "ENST00000335473", true)?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (
+                Some("c.198+3_198+9del"),
+                &vec![
+                    Consequence::SpliceDonorFifthBaseVariant,
+                    Consequence::IntronVariant
+                ]
+            )
+        );
         Ok(())
     }
 
@@ -4800,7 +5125,7 @@ mod test {
 
     /// Dups on GENCODE 42 chr22 transcripts. The terms of a dup come from the insertion of its
     /// copy behind its bases. With VEP terms, the expected terms are those of VEP 116.3 with
-    /// `--shift_3prime 1`, plus `coding_sequence_variant` next to `splice_region_variant`.
+    /// `--shift_3prime 1`.
     #[rstest::rstest]
     // ENST00000413051 has no 5' UTR, and the copy lands behind c.2, in the CDS. The copy can
     // also go in front of c.1, so hgvs-rs places the dup in the 5' UTR and gives `p.?`. With VEP
@@ -4810,7 +5135,7 @@ mod test {
     // the copy lands in the last three exon bases
     #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", false, "c.491_504dup", "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
     // VEP's changed codons at the 3'-shifted position hold the new stop codon
-    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", true, "c.491_504dup", "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", true, "c.491_504dup", "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     fn annotate_dup_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
@@ -4858,34 +5183,33 @@ mod test {
 
     /// Insertions at exon edges on GENCODE 42 chr22 transcripts, with VEP terms. VEP puts such an
     /// insertion into the exon and takes its stop terms from the changed codons there. The
-    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`, plus
-    /// `coding_sequence_variant` next to `splice_region_variant`. mehari adds
-    /// `feature_elongation` and `protein_altering_variant`.
+    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`. mehari adds
+    /// `protein_altering_variant`.
     #[rstest::rstest]
     // ENST00000381982 (minus strand): an exon ends with c.1081, the first base of the stop codon
     // (`t|ag`). `*/Y*` (`tag/tACTag`): the stop codon stays behind the new codon.
-    #[case("22:30491572:C:CAGT", "ENST00000381982", "c.1081_1081+1insACT", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30491572:C:CAGT", "ENST00000381982", "c.1081_1081+1insACT", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     // `*/*LX` (`tag/tAACTag`): the bases at the old stop codon still read a stop codon. On the
     // genome, an intron lies between the input position and the stop codon end, so VEP finds no
     // overlap with the stop codon.
-    #[case("22:30491572:C:CAGTT", "ENST00000381982", "c.1081_1081+1insAACT", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30491572:C:CAGTT", "ENST00000381982", "c.1081_1081+1insAACT", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     // `*/YX` (`tag/tATag`)
-    #[case("22:30491572:C:CAT", "ENST00000381982", "c.1081_1081+1insAT", vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30491572:C:CAT", "ENST00000381982", "c.1081_1081+1insAT", vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::SpliceRegionVariant])]
     // `*/**` (`tag/tAATag`)
-    #[case("22:30491572:C:CATT", "ENST00000381982", "c.1081_1081+1insAAT", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::StopRetainedVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30491572:C:CATT", "ENST00000381982", "c.1081_1081+1insAAT", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::StopRetainedVariant])]
     // `-/K*` (`-/AAATAA`): in front of the exon that starts with c.520
-    #[case("22:30494210:A:ATTATTT", "ENST00000381982", "c.520-1_520insAAATAA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30494210:A:ATTATTT", "ENST00000381982", "c.520-1_520insAAATAA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     // `F/*F` (`ttt/tAGTtt`): the copy lands behind c.520
-    #[case("22:30494209:A:AACT", "ENST00000381982", "c.520-2_520dup", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30494209:A:AACT", "ENST00000381982", "c.520-2_520dup", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     // ENST00000398941 (plus strand): an exon ends with c.428, the next one starts with c.429.
     // `S/SX` (`agc/agCGc`)
-    #[case("22:28744708:A:AGC", "ENST00000398941", "c.428_428+1insCG", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:28744708:A:AGC", "ENST00000398941", "c.428_428+1insCG", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     // `-/X` (`-/GC`): the copy lands behind c.429
-    #[case("22:28751239:A:AGC", "ENST00000398941", "c.429-1_429dup", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:28751239:A:AGC", "ENST00000398941", "c.429-1_429dup", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     // `K/N*` (`aag/aaCTAg`)
-    #[case("22:37967169:A:AACT", "ENST00000442738", "c.293_293+1insCTA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::ProteinAlteringVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:37967169:A:AACT", "ENST00000442738", "c.293_293+1insCTA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::ProteinAlteringVariant, Consequence::SpliceRegionVariant])]
     // minus strand: `-/P` (`-/CCG`)
-    #[case("22:50775771:C:CCGG", "ENST00000395590", "c.297_297+1insCCG", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:50775771:C:CCGG", "ENST00000395590", "c.297_297+1insCCG", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     fn annotate_exon_edge_ins_stop_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
@@ -4945,12 +5269,11 @@ mod test {
     }
 
     /// Indels at the end of the CDS on transcripts of `CHR22_CDS_END_TXS`, with VEP terms. The
-    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`, plus
-    /// `coding_sequence_variant`, which mehari adds for a splice region in the CDS.
+    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`.
     #[rstest::rstest]
     // The deletion shifts from `c.1637_*1del` to `c.1638_*1+1del` and keeps the stop codon
     // `TGA`. VEP builds no codons for it, as its end lies in the intron.
-    #[case("22:15719775:TGAG:T", "ENST00000343518", Some("c.1638_*1+1del"), vec![Consequence::SpliceDonorVariant, Consequence::StopRetainedVariant, Consequence::CodingSequenceVariant, Consequence::ThreePrimeUtrVariant])]
+    #[case("22:15719775:TGAG:T", "ENST00000343518", Some("c.1638_*1+1del"), vec![Consequence::SpliceDonorVariant, Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant])]
     // ENST00000381982 (minus strand): an exon ends with c.1081, the first base of the stop codon
     // (`t|ag`). VEP takes the stop codon from the genome, so c.1081 lies outside it.
     #[case("22:30491570:TACAG:T", "ENST00000381982", Some("c.1080_1081+2del"), vec![Consequence::SpliceDonorVariant, Consequence::CodingSequenceVariant])]
@@ -5918,6 +6241,18 @@ mod test {
     /// A predictor for `tx`, a transcript on chr1 (GRCh38) with the sequence `seq`. It reports
     /// the transcript sequences.
     fn predictor_for(tx: Transcript, seq: String) -> ConsequencePredictor {
+        let config = ConfigBuilder::default()
+            .plugins(vec![
+                Arc::new(SequencePlugin::TxRef),
+                Arc::new(SequencePlugin::TxAlt),
+            ])
+            .build()
+            .unwrap();
+        predictor_with_config(tx, seq, config)
+    }
+
+    /// `predictor_for` with the predictor configuration `config`.
+    fn predictor_with_config(tx: Transcript, seq: String, config: Config) -> ConsequencePredictor {
         use crate::pbs::txs::{GeneToTxId, SequenceDb, SourceVersion, TranscriptDb, TxSeqDatabase};
 
         // hgvs-rs caches the reference protein by the database version, so each database
@@ -5946,13 +6281,6 @@ mod test {
             }],
         };
         let provider = Arc::new(MehariProvider::new(tx_seq_db, None::<PathBuf>, true));
-        let config = ConfigBuilder::default()
-            .plugins(vec![
-                Arc::new(SequencePlugin::TxRef),
-                Arc::new(SequencePlugin::TxAlt),
-            ])
-            .build()
-            .unwrap();
         ConsequencePredictor::new(provider, config)
     }
 
@@ -6295,6 +6623,13 @@ mod test {
     #[case::frameshift_in_last_codon("1036:GA:G", "p.?", &[Consequence::FrameshiftVariant])]
     // c.16del
     #[case::frameshift_at_last_codon("1034:GG:G", "p.?", &[Consequence::FrameshiftVariant])]
+    // c.16_17insGGGGGTAAGG: the new frame reads a stop codon behind the end of the CDS, which
+    // is no `feature_elongation`, as the residues behind that end are unknown
+    #[case::frameshift_with_stop_behind_end(
+        "1035:G:GGGGGGGTAAG",
+        "p.(Glu6delinsGlyGlyTer)",
+        &[Consequence::FrameshiftVariant]
+    )]
     fn last_amino_acid_without_stop_codon(
         #[case] var: &str,
         #[case] hgvs_p: &str,
@@ -6462,8 +6797,8 @@ mod test {
     /// chr22:18634680-18634682.
     #[rstest::rstest]
     #[case(false, vec![Consequence::StopLost, Consequence::FeatureElongation])]
-    // VEP 116.3 reports `stop_lost` only
-    #[case(true, vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation])]
+    // VEP 116.3 reports `stop_lost` only, and mehari keeps `frameshift_variant`
+    #[case(true, vec![Consequence::FrameshiftVariant, Consequence::StopLost])]
     fn stop_codon_at_transcript_end_without_padding(
         #[case] vep_consequence_terms: bool,
         #[case] expected_csqs: Vec<Consequence>,
@@ -6802,6 +7137,246 @@ mod test {
                     Consequence::MissenseVariant,
                     Consequence::StopRetainedVariant
                 ]
+            )
+        );
+        Ok(())
+    }
+
+    /// Where p. and the protein disagree, the protein decides the terms, and `frameshift_variant`
+    /// requires a codon of the CDS behind the change that reads in another frame. On a test
+    /// transcript with 20 bases of 5' UTR, the CDS `cds` at chr1:1021 and the 3' UTR `utr3`.
+    #[rstest::rstest]
+    // `c.11_18del` deletes through the stop codon, and the protein ends at a new stop codon in
+    // front of the old position. No CDS codon is left to read in another frame.
+    #[case::through_stop_codon(
+        ("ATGGCCAAGCTGTGGTAA", "CATAAGCATCA"),
+        (1030, "CTGTGGTAA", "C"),
+        ("c.11_18del", "p.(Leu4ProfsTer2)"),
+        vec![Consequence::StopGained]
+    )]
+    // `c.14_17del` ends inside the stop codon. A new stop codon from the 3' UTR takes the old
+    // position, so only Trp5 changes.
+    #[case::into_stop_codon(
+        ("ATGGCCAAGCTGTGGTAA", "CTAAGCATCA"),
+        (1033, "TGGTA", "T"),
+        ("c.14_17del", "p.(Trp5TyrfsTer2)"),
+        vec![Consequence::MissenseVariant, Consequence::StopRetainedVariant]
+    )]
+    // `c.16_17insC` splits the stop codon, and the protein reads on into the 3' UTR.
+    #[case::ins_into_stop_codon(
+        ("ATGGCCAAGCTGTGGTAA", "CTAAGCATCA"),
+        (1036, "T", "TC"),
+        ("c.16_17insC", "p.(Ter6SerextTer?)"),
+        vec![Consequence::StopLost, Consequence::FeatureElongation]
+    )]
+    // `c.14_16dup` keeps the frame, so its p. terms stay. Its copy splits the stop codon.
+    #[case::in_frame_dup_into_stop_codon(
+        ("ATGGCCAAGCTGTGGTAA", "CTAAGCATCA"),
+        (1036, "T", "TGGT"),
+        ("c.14_16dup", "p.(Ter6TrpextTer1)"),
+        vec![
+            Consequence::StopLost,
+            Consequence::FeatureElongation,
+            Consequence::DisruptiveInframeInsertion
+        ]
+    )]
+    // `c.15_16insGAT` adds Asp in front of the stop codon, which stays.
+    #[case::in_frame_ins_before_stop_codon(
+        ("ATGGCCAAGCTGTGGTAA", "CTAAGCATCA"),
+        (1035, "G", "GGAT"),
+        ("c.15_16insGAT", "p.(Ter6AspextTer1)"),
+        vec![
+            Consequence::FeatureElongation,
+            Consequence::DisruptiveInframeInsertion
+        ]
+    )]
+    // `c.7_10del` shifts the frame of codons 4 and 5 and of the stop codon, and a new stop codon
+    // from the 3' UTR takes the old position.
+    #[case::fs_keeping_length(
+        ("ATGGCCAAGCTGTGGTAA", "CTAAGCATCA"),
+        (1026, "CAAGC", "C"),
+        ("c.7_10del", "p.(Lys3CysfsTer4)"),
+        vec![
+            Consequence::FrameshiftVariant,
+            Consequence::MissenseVariant,
+            Consequence::StopRetainedVariant
+        ]
+    )]
+    // `c.15del` keeps Ala5 (`GCA` to `GCT`), and the stop codon reads in another frame.
+    #[case::stop_codon_in_new_frame(
+        ("ATGGCCAAGCTGGCATAA", "GCATCAGTAAC"),
+        (1034, "CA", "C"),
+        ("c.15del", "p.(Ter6LysextTer3)"),
+        vec![
+            Consequence::FrameshiftVariant,
+            Consequence::StopLost,
+            Consequence::FeatureElongation
+        ]
+    )]
+    // `c.2del` loses the start codon, so no reading frame of the protein shifts.
+    #[case::start_lost(
+        ("ATGGCCAAGCTGTGGTAA", "CGCATCA"),
+        (1021, "AT", "A"),
+        ("c.2del", "p.Met1?"),
+        vec![Consequence::StartLost]
+    )]
+    // `c.9_11delinsCTA` keeps the number of residues in p., but the protein ends at the new stop
+    // codon.
+    #[case::delins_ending_with_stop(
+        ("ATGGCCAAGCTGTGGTAA", "CGCATCA"),
+        (1029, "GCT", "CTA"),
+        ("c.9_11delinsCTA", "p.(Lys3_Leu4delinsAsnTer)"),
+        vec![Consequence::StopGained]
+    )]
+    // `c.15_17delinsCTG` turns TGG (Trp) into TGC (Cys) and the stop codon TAA into TGA. p. omits
+    // the unchanged stop, but its codon changed.
+    #[case::delins_keeping_stop_position(
+        ("ATGGCCAAGCTGTGGTAA", "CGCATCA"),
+        (1035, "GTA", "CTG"),
+        ("c.15_17delinsCTG", "p.(Trp5Cys)"),
+        vec![Consequence::MissenseVariant, Consequence::StopRetainedVariant]
+    )]
+    fn protein_decides_terms(
+        #[case] (cds, utr3): (&str, &str),
+        #[case] variant: (i32, &str, &str),
+        #[case] expected_hgvs: (&str, &str),
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", cds, utr3);
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: variant.0,
+                reference: variant.1.into(),
+                alternative: variant.2.into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_hgvs.0), Some(expected_hgvs.1), &expected_csqs)
+        );
+        Ok(())
+    }
+
+    /// With VEP compatibility, `missense_variant` does not go with a stop term, as in VEP's
+    /// `missense_variant`. `c.9_11delinsCTA` changes `KL` to `N*`.
+    #[test]
+    fn vep_missense_without_stop_terms() -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CGCATCA");
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .vep_compatibility_mode(true)
+            .build()?;
+        let anns = predictor_with_config(tx, seq, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1029,
+                reference: "GCT".into(),
+                alternative: "CTA".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some("c.9_11delinsCTA"), &vec![Consequence::StopGained])
+        );
+        Ok(())
+    }
+
+    /// In VEP compatibility mode, VEP shifts an insertion 3' also across the CDS end, where
+    /// hgvs-rs stops. The A inserted behind c.16 is `c.18dup`. If the 3' UTR starts with an A,
+    /// VEP shifts it there, outside the CDS. Else it stays behind c.18, and its input position
+    /// in the stop codon gives `stop_retained_variant`.
+    #[rstest::rstest]
+    #[case::into_utr("AAGCATCA", vec![Consequence::ThreePrimeUtrVariant])]
+    #[case::at_cds_end(
+        "CAGCATCA",
+        vec![Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant]
+    )]
+    fn vep_shifts_insertion_across_cds_end(
+        #[case] utr3: &str,
+        #[case] expected: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", utr3);
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .vep_compatibility_mode(true)
+            .build()?;
+        let anns = predictor_with_config(tx, seq, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1036,
+                reference: "T".into(),
+                alternative: "TA".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some("c.18dup"), &expected)
+        );
+        Ok(())
+    }
+
+    /// In VEP compatibility mode, VEP applies the translation exceptions to the reference
+    /// codons. Deleting the Sec codon `TGA` (codon 8) is no `stop_lost`.
+    #[test]
+    fn vep_codons_read_translation_exceptions() -> Result<(), anyhow::Error> {
+        use crate::pbs::txs::TranslationException;
+
+        let utr = "CAGTCAGTCAGTCAGTCAGT";
+        let (tx, seq) = one_exon_tx(utr, "ATGGCCAAGCTGTGGGAACCATGACGCGTTTAA", utr);
+        let tx = Transcript {
+            translation_exceptions: vec![TranslationException {
+                position: 8,
+                amino_acid: "U".into(),
+            }],
+            ..tx
+        };
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .vep_compatibility_mode(true)
+            .build()?;
+        let anns = predictor_with_config(tx, seq, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1041,
+                reference: "ATGA".into(),
+                alternative: "A".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (
+                Some("c.22_24del"),
+                Some("p.(Sec8del)"),
+                &vec![Consequence::InframeDeletion]
             )
         );
         Ok(())
@@ -7686,6 +8261,72 @@ mod test {
         Ok(())
     }
 
+    /// VEP terms alone only rename terms. VEP's exclusions of overlapping splice and intron
+    /// terms, and its terms of a frameshift, need `vep_compatibility_mode`.
+    #[rstest::rstest]
+    // donor +1 of `two_exon_tx(20)`
+    #[case::donor_1(
+        true, (1061, "C", "T"),
+        vec![Consequence::SpliceDonorVariant, Consequence::IntronVariant],
+        vec![Consequence::SpliceDonorVariant]
+    )]
+    // donor +5 of `two_exon_tx(20)`
+    #[case::donor_5(
+        true, (1065, "C", "T"),
+        vec![
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::SpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::IntronVariant
+        ],
+        vec![Consequence::SpliceDonorFifthBaseVariant, Consequence::IntronVariant]
+    )]
+    // `c.7_10del`, `p.(Lys3CysfsTer4)`: a new stop codon takes the old position, see
+    // `frameshift_keeping_protein_length`.
+    #[case::fs_keeping_length(
+        false, (1026, "CAAGC", "C"),
+        vec![
+            Consequence::FrameshiftVariant,
+            Consequence::MissenseVariant,
+            Consequence::StopRetainedVariant
+        ],
+        vec![Consequence::FrameshiftVariant]
+    )]
+    fn vep_terms_rename_only(
+        #[case] two_exons: bool,
+        #[case] (position, reference, alternative): (i32, &str, &str),
+        #[case] expected_terms_only: Vec<Consequence>,
+        #[case] expected_compatibility: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = if two_exons {
+            two_exon_tx(20)
+        } else {
+            one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CTAAGCATCA")
+        };
+        let mut found = Vec::new();
+        for compatibility in [false, true] {
+            let config = ConfigBuilder::default()
+                .vep_consequence_terms(true)
+                .vep_compatibility_mode(compatibility)
+                .build()?;
+            let anns = predictor_with_config(tx.clone(), seq.clone(), config)
+                .predict(&VcfVariant {
+                    chromosome: "1".into(),
+                    position,
+                    reference: reference.into(),
+                    alternative: alternative.into(),
+                })?
+                .unwrap_or_default();
+            let ann = anns
+                .iter()
+                .find(|ann| ann.feature_id == "NM_000001.1")
+                .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+            found.push(ann.consequences.clone());
+        }
+        assert_eq!(found, [expected_terms_only, expected_compatibility]);
+        Ok(())
+    }
+
     /// hgvs-rs takes the intron bases of a dup next to an exon from the variant. Without them,
     /// the protein change is unknown.
     #[test]
@@ -7697,22 +8338,6 @@ mod test {
             var_p.map(|var_p| FormattedLoc(&var_p).to_string()),
             Some("p.?".to_string())
         );
-        Ok(())
-    }
-
-    /// An insertion or dup shifts the frame if it inserts a number of bases that is not a
-    /// multiple of 3.
-    #[rstest::rstest]
-    #[case("c.10_11insTAA", false)]
-    #[case("c.10_11insTA", true)]
-    #[case("c.10_12dup", false)]
-    #[case("c.10_23dup", true)]
-    fn insertion_shifts_frame(
-        #[case] var_c: &str,
-        #[case] expected: bool,
-    ) -> Result<(), anyhow::Error> {
-        let var_c = HgvsVariant::from_str(&format!("NM_000001.1:{var_c}"))?;
-        assert_eq!(inserts_frameshift(&var_c), expected);
         Ok(())
     }
 
