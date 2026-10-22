@@ -797,28 +797,7 @@ impl ConsequencePredictor {
 
         // We follow hgvs conventions and therefore normalize input variants
         let var_g = Self::get_var_g(&norm_var, chrom_acc);
-        let (var_g_fwd, var_g_rev) = if self.mapper.config.renormalize_g {
-            // On circular contigs, normalize one lap further so that shifting 5' can cross the
-            // origin, then shift back.  Positions may then lie just beyond either contig end.
-            let lap = self.circular_length(chrom_acc).unwrap_or(0);
-            let var_g_lap = Self::shift_var_g(&var_g, lap);
-            let right = self
-                .mapper
-                .variant_mapper()
-                .right_normalizer()?
-                .normalize(&var_g_lap)?;
-            let left = self
-                .mapper
-                .variant_mapper()
-                .left_normalizer()?
-                .normalize(&var_g_lap)?;
-            (
-                Self::shift_var_g(&right, -lap),
-                Self::shift_var_g(&left, -lap),
-            )
-        } else {
-            (var_g.clone(), var_g.clone())
-        };
+        let (var_g_fwd, var_g_rev) = self.normalize_g(&var_g, chrom_acc)?;
         // Get all affected transcripts.
         let (var_start_fwd, var_end_fwd) = Self::get_var_start_end(&var_g_fwd);
         let (var_start_rev, var_end_rev) = Self::get_var_start_end(&var_g_rev);
@@ -907,6 +886,36 @@ impl ConsequencePredictor {
             }
         })?;
         Ok(Some(self.run_plugins(std::slice::from_ref(var), anns)?))
+    }
+
+    /// `var_g` shifted 3' for a transcript on the plus strand and on the minus strand, if
+    /// `renormalize_g` is set.
+    fn normalize_g(
+        &self,
+        var_g: &HgvsVariant,
+        chrom_acc: &str,
+    ) -> Result<(HgvsVariant, HgvsVariant), SeqvarsError> {
+        if !self.mapper.config.renormalize_g {
+            return Ok((var_g.clone(), var_g.clone()));
+        }
+        // On circular contigs, normalize one lap further so that shifting 5' can cross the
+        // origin, then shift back.  Positions may then lie just beyond either contig end.
+        let lap = self.circular_length(chrom_acc).unwrap_or(0);
+        let var_g_lap = Self::shift_var_g(var_g, lap);
+        let right = self
+            .mapper
+            .variant_mapper()
+            .right_normalizer()?
+            .normalize(&var_g_lap)?;
+        let left = self
+            .mapper
+            .variant_mapper()
+            .left_normalizer()?
+            .normalize(&var_g_lap)?;
+        Ok((
+            Self::shift_var_g(&right, -lap),
+            Self::shift_var_g(&left, -lap),
+        ))
     }
 
     /// Annotate the transcripts near the variant that `Config::transcript_settings` selects.
@@ -3106,7 +3115,9 @@ impl ConsequencePredictor {
                     }),
                 },
             };
-            hgvs_g = Some(self.format_hgvs_g(&compound_var_g));
+            // As in `predict`, `hgvs_g` is 3'-shifted on the strand of the transcript.
+            let (fwd, rev) = self.normalize_g(&compound_var_g, chrom_acc)?;
+            hgvs_g = Some((self.format_hgvs_g(&fwd), self.format_hgvs_g(&rev)));
         }
 
         let txs = self.get_transcripts_for_variant_group(&sorted_vars, chrom_acc)?;
@@ -3115,12 +3126,19 @@ impl ConsequencePredictor {
         }
 
         let multi_anns = self.select_annotations(txs, |tx_record| {
+            let hgvs_g = hgvs_g.as_ref().map(|(fwd, rev)| {
+                if tx_record.alt_strand == -1 {
+                    rev.clone()
+                } else {
+                    fwd.clone()
+                }
+            });
             self.predict_multiple_for_transcript(
                 &sorted_vars,
                 &sorted_originals,
                 tx_record,
                 chrom_acc,
-                hgvs_g.clone(),
+                hgvs_g,
             )
         })?;
 
@@ -7808,7 +7826,7 @@ mod test {
             .predict_multiple(&[var(2005, "C", "CGGG"), var(2006, "C", "A")])?
             .unwrap();
 
-        assert_eq!(res[0].hgvs_g.as_deref(), Some("g.2005_2006delinsCGGGA"));
+        assert_eq!(res[0].hgvs_g.as_deref(), Some("g.2006delinsGGGA"));
         assert_eq!(res[0].hgvs_p.as_deref(), Some("p.(Pro5delinsArgAsp)"));
 
         Ok(())
@@ -7881,11 +7899,12 @@ mod test {
         // The same change as one variant.
         let single = predictor.predict(&var(2006, "C", "AC"))?.unwrap();
 
-        assert_eq!(phased[0].hgvs_g.as_deref(), Some("g.2006_2007delinsACC"));
+        assert_eq!(phased[0].hgvs_g.as_deref(), Some("g.2005_2006insA"));
         assert_eq!(phased[0].hgvs_c.as_deref(), Some("c.13_14insA"));
         assert_eq!(phased[0].hgvs_p.as_deref(), Some("p.(Pro5HisfsTer?)"));
         let fields = |ann: &AnnField| {
             (
+                ann.hgvs_g.clone(),
                 ann.hgvs_n.clone(),
                 ann.hgvs_c.clone(),
                 ann.hgvs_p.clone(),
