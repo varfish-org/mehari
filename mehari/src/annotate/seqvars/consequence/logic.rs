@@ -2584,6 +2584,10 @@ impl ConsequencePredictor {
             let within_exonic_sequence =
                 loc_start_offset == 0 && loc_end_offset == 0 || at_exon_edge;
             let _crosses_boundary = (loc_start_offset != 0) ^ (loc_end_offset != 0);
+            // Between two exon positions, a deletion or delins replaces the CDS bases from one to
+            // the other. Its reference also holds the bases of an intron in between.
+            let cds_bases = (loc_start_offset == 0 && loc_end_offset == 0)
+                .then(|| start_base.abs_diff(end_base) as usize + 1);
 
             if !(ends_right_of_stop
                 || starts_left_of_start
@@ -2596,14 +2600,15 @@ impl ConsequencePredictor {
                         reference,
                         alternative,
                     } => {
-                        if reference.len().abs_diff(alternative.len()) % 3 != 0 {
+                        let reference_len = cds_bases.unwrap_or(reference.len());
+                        if reference_len.abs_diff(alternative.len()) % 3 != 0 {
                             if within_exonic_sequence {
                                 consequences |= Consequence::FrameshiftVariant;
                             }
                         } else {
                             // Check for inframe insertions/deletions (that are not delins)
                             match (
-                                reference.len().cmp(&alternative.len()),
+                                reference_len.cmp(&alternative.len()),
                                 alternative.is_empty() ^ reference.is_empty(),
                             ) {
                                 (Ordering::Less, true) => {
@@ -2625,7 +2630,7 @@ impl ConsequencePredictor {
                         }
                     }
                     NaEdit::DelRef { reference } => {
-                        if reference.len() % 3 != 0 {
+                        if cds_bases.unwrap_or(reference.len()) % 3 != 0 {
                             if within_exonic_sequence {
                                 consequences |= Consequence::FrameshiftVariant;
                             }
@@ -2636,7 +2641,7 @@ impl ConsequencePredictor {
                         }
                     }
                     NaEdit::DelNum { count } => {
-                        if count % 3 != 0 {
+                        if cds_bases.map_or(count % 3, |bases| bases as i32 % 3) != 0 {
                             if within_exonic_sequence {
                                 consequences |= Consequence::FrameshiftVariant;
                             }
@@ -4358,6 +4363,70 @@ mod test {
         assert_eq!(res[0].feature_id, "NM_130837.3");
         assert_eq!(res[0].consequences, expected_csqs, "spdi = {}", spdi);
         insta::assert_yaml_snapshot!(res);
+
+        Ok(())
+    }
+
+    /// A deletion from the end of an exon through the intron into the next exon deletes the CDS
+    /// bases on both sides of the intron. On OPA1 `NM_130837.3`, `c.1375_1380del` deletes 89
+    /// genome bases, but 6 CDS bases, so it keeps the frame. The test database has no genome
+    /// sequence, so the intron bases of the VCF REF allele are made up, as in
+    /// `alt_sequences_deletion_covers_intron`.
+    #[rstest::rstest]
+    #[case(
+        false,
+        vec![
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceDonorVariant,
+            Consequence::ConservativeInframeDeletion,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::SpliceRegionVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::SplicePolypyrimidineTractVariant
+        ]
+    )]
+    // VEP counts the CDS bases for `frameshift_variant`, too
+    #[case(
+        true,
+        vec![
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceDonorVariant,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::CodingSequenceVariant
+        ]
+    )]
+    fn deletion_across_intron_keeps_frame(
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .transcript_settings(pick_mane_by_gene())
+                .vep_consequence_terms(vep_compatibility_mode)
+                .vep_compatibility_mode(vep_compatibility_mode)
+                .build()?,
+        );
+
+        let res = predictor
+            .predict(&VcfVariant {
+                chromosome: "3".into(),
+                position: 193361230,
+                reference: format!("TAAT{}ACT", "A".repeat(83)),
+                alternative: "T".into(),
+            })?
+            .unwrap_or_default();
+        let ann = res
+            .iter()
+            .find(|ann| ann.feature_id == "NM_130837.3")
+            .ok_or_else(|| anyhow::anyhow!("no annotation on NM_130837.3: {res:?}"))?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some("c.1375_1380del"), &expected_csqs)
+        );
 
         Ok(())
     }
