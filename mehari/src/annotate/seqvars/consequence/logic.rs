@@ -1010,18 +1010,21 @@ impl ConsequencePredictor {
         let mut distance: Option<i32> = None;
 
         // The range of an insertion is the base in front of it. An insertion at the start of
-        // an exon adds its bases to the exon, so its range is the first exon base instead. With
-        // `ins_in_intron`, an insertion between an exon and an intron adds them to the intron,
-        // so its range is empty, at the intron edge. In VEP compatibility mode, an insertion
-        // behind the last exon on the genome lies outside the transcript, as in VEP 116.3, so its
-        // range is the base behind the exon. Without a reference, mehari does not shift an
+        // an exon adds its bases to the exon, so its range is the first exon base instead. This
+        // includes the start of the transcript on the genome, so that an insertion at either
+        // transcript end joins the exon, as its HGVS description has it. With `ins_in_intron`,
+        // an insertion between an exon and an intron adds them to the intron, so its range is
+        // empty, at the intron edge. In VEP compatibility mode, an insertion in front of the
+        // first or behind the last exon on the genome lies outside the transcript, as in VEP
+        // 116.3, so its range is the base outside. Without a reference, mehari does not shift an
         // insertion on the genome, so an insertion that VEP shifts behind the last exon stays
         // inside.
         let is_ins = matches!(var_g, HgvsVariant::GenomeVariant { loc_edit, .. }
             if matches!(loc_edit.edit.inner(), NaEdit::Ins { .. }));
         let in_intron = is_ins && ins_in_intron && Self::at_intron_edge(alignment, var_end);
-        let at_exon_start =
-            (alignment.exons.iter().skip(1)).any(|exon| exon.alt_start_i == var_end);
+        let at_exon_start = (alignment.exons.iter())
+            .skip(usize::from(self.config.vep_compatibility_mode))
+            .any(|exon| exon.alt_start_i == var_end);
         let behind_last_exon = self.config.vep_compatibility_mode
             && alignment.exons.iter().map(|exon| exon.alt_end_i).max() == Some(var_end);
         let (var_start, var_end) = if in_intron {
@@ -5300,6 +5303,8 @@ mod test {
     #[case("22:41767606:T:TA", "ENST00000540833", Some("c.1521dup"), vec![Consequence::DownstreamGeneVariant])]
     // an insertion behind the last base that does not shift
     #[case("22:18530459:A:AC", "ENST00000613577", None, vec![Consequence::DownstreamGeneVariant])]
+    // also on the minus strand
+    #[case("22:30489395:A:AC", "ENST00000381982", None, vec![Consequence::DownstreamGeneVariant])]
     fn annotate_vep_cds_end_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
@@ -8524,6 +8529,133 @@ mod test {
                     ord: 1,
                     total: Some(45)
                 }),
+            )
+        );
+        Ok(())
+    }
+
+    /// An insertion at either end of a transcript joins its terminal exon on both strands, as
+    /// one at an exon edge where no splice site decides. Its HGVS description is reported, in
+    /// sync with the terms. In VEP compatibility mode, it lies outside, as in VEP 116.3.
+    ///
+    /// `one_exon_tx` spans chr1:1001-1045, also mirrored on the minus strand.
+    #[rstest::rstest]
+    #[case::plus_3p_end(
+        Strand::Plus,
+        (1045, "A", "AC"),
+        false,
+        Some("c.*7_*8insC"),
+        Consequence::ThreePrimeUtrExonVariant
+    )]
+    #[case::plus_5p_end(
+        Strand::Plus,
+        (1000, "T", "TG"),
+        false,
+        Some("c.-21_-20insG"),
+        Consequence::FivePrimeUtrExonVariant
+    )]
+    #[case::minus_3p_end(
+        Strand::Minus,
+        (1000, "T", "TC"),
+        false,
+        Some("c.*7_*8insG"),
+        Consequence::ThreePrimeUtrExonVariant
+    )]
+    #[case::minus_5p_end(
+        Strand::Minus,
+        (1045, "G", "GA"),
+        false,
+        Some("c.-21_-20insT"),
+        Consequence::FivePrimeUtrExonVariant
+    )]
+    #[case::plus_3p_end_vep(
+        Strand::Plus,
+        (1045, "A", "AC"),
+        true,
+        None,
+        Consequence::DownstreamGeneVariant
+    )]
+    #[case::plus_5p_end_vep(
+        Strand::Plus,
+        (1000, "T", "TG"),
+        true,
+        None,
+        Consequence::UpstreamGeneVariant
+    )]
+    #[case::minus_3p_end_vep(
+        Strand::Minus,
+        (1000, "T", "TC"),
+        true,
+        None,
+        Consequence::DownstreamGeneVariant
+    )]
+    #[case::minus_5p_end_vep(
+        Strand::Minus,
+        (1045, "G", "GA"),
+        true,
+        None,
+        Consequence::UpstreamGeneVariant
+    )]
+    fn insertion_at_transcript_end(
+        #[case] strand: Strand,
+        #[case] (position, reference, alternative): (i32, &str, &str),
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected_c: Option<&str>,
+        #[case] expected_csq: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let (mut tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CGCATCA");
+        if strand == Strand::Minus {
+            // n.1 lies at chr1:1045, the CDS at chr1:1008-1025.
+            let alignment = &mut tx.genome_alignments[0];
+            alignment.strand = Strand::Minus.into();
+            alignment.cds_start = Some(1007);
+            alignment.cds_end = Some(1025);
+        }
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
+        let anns = predictor_with_config(tx, seq, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: reference.into(),
+                alternative: alternative.into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (expected_c, &vec![expected_csq])
+        );
+        Ok(())
+    }
+
+    /// The insertions behind the last base of ENST00000613577 (plus strand) and of
+    /// ENST00000381982 (minus strand) join the last exon, see `insertion_at_transcript_end`.
+    #[rstest::rstest]
+    #[case("22:18530459:A:AC", "ENST00000613577", "c.1071_*1insC")]
+    #[case("22:30489395:A:AC", "ENST00000381982", "c.*481_*482insG")]
+    fn insertion_behind_transcript_end(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_c: &str,
+    ) -> Result<(), anyhow::Error> {
+        let ann =
+            annotate_chr22_window_with_config(spdi, tx_id, Config::default(), CHR22_CDS_END_TXS)?;
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (
+                Some(expected_c),
+                Some("p.?"),
+                &vec![Consequence::ThreePrimeUtrExonVariant]
             )
         );
         Ok(())
