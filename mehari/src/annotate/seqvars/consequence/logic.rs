@@ -110,6 +110,23 @@ impl HgvsProjectionContext {
             false
         }
     }
+
+    /// Whether VEP builds codons for the c. variant, see `vep_indel_protein_terms`. VEP does so
+    /// if the variant has no intron offset, or if its bases go to an exon edge, which VEP adds to
+    /// the exon. These are an insertion at the edge, and a dup that ends next to the edge, as VEP
+    /// inserts the copy behind the dup.
+    fn vep_has_codons(&self) -> bool {
+        let Some(HgvsVariant::CdsVariant { loc_edit, .. }) = &self.c else {
+            return false;
+        };
+        let loc = loc_edit.loc.inner();
+        let offsets = (loc.start.offset.unwrap_or(0), loc.end.offset.unwrap_or(0));
+        match loc_edit.edit.inner() {
+            NaEdit::Ins { .. } => matches!(offsets, (0, 0) | (0, 1) | (-1, 0)),
+            NaEdit::Dup { .. } => matches!(offsets.1, 0 | -1),
+            _ => offsets == (0, 0),
+        }
+    }
 }
 
 /// Extension trait for checks on `HgvsVariant`s that consequence prediction needs.
@@ -1915,17 +1932,10 @@ impl ConsequencePredictor {
             consequences.insert(MissenseVariant);
         }
 
-        // VEP marks some intronic variants as coding_sequence_variant,
-        // which is wrong, but we will mimic here for compatibility
-        let within_cds_bounds = projection_context
-            .map(|c| c.is_within_cds_bounds())
-            .unwrap_or(false);
-        if consequences.contains(ExonicSpliceRegionVariant) {
+        let exonic_splice_region = consequences.contains(ExonicSpliceRegionVariant);
+        if exonic_splice_region {
             consequences.remove(ExonicSpliceRegionVariant);
             consequences.insert(SpliceRegionVariant);
-            if within_cds_bounds {
-                consequences.insert(CodingSequenceVariant);
-            }
         }
 
         if consequences.intersects(FrameshiftElongation | FrameshiftTruncation) {
@@ -1948,22 +1958,23 @@ impl ConsequencePredictor {
             consequences.remove(inframe_specifics);
         }
 
+        // VEP builds no codons for a change of the CDS with an end in an intron, so it reports no
+        // in-frame term there, but `coding_sequence_variant`, unless one of the terms below
+        // applies (`coding_unknown` in VEP's `VariationEffect.pm`).
         let is_inframe = consequences.intersects(InframeDeletion | InframeInsertion);
-        let essential_splice = SpliceDonorVariant | SpliceAcceptorVariant;
-
-        if is_inframe {
-            if consequences.intersects(essential_splice) {
-                consequences.remove(InframeDeletion | InframeInsertion);
-                if within_cds_bounds {
-                    consequences.insert(CodingSequenceVariant);
-                }
-            } else if consequences.intersects(
-                SpliceRegionVariant
-                    | SpliceDonorFifthBaseVariant
-                    | SpliceDonorRegionVariant
-                    | SplicePolypyrimidineTractVariant,
-            ) && within_cds_bounds
-            {
+        if self.config.vep_compatibility_mode
+            && (exonic_splice_region || is_inframe)
+            && projection_context.is_some_and(|p| p.is_within_cds_bounds() && !p.vep_has_codons())
+        {
+            consequences.remove(InframeDeletion | InframeInsertion);
+            if !consequences.intersects(
+                FrameshiftVariant
+                    | ProteinAlteringVariant
+                    | StartRetainedVariant
+                    | StartLost
+                    | StopRetainedVariant
+                    | StopLost,
+            ) {
                 consequences.insert(CodingSequenceVariant);
             }
         }
@@ -4465,14 +4476,15 @@ mod test {
             Consequence::SplicePolypyrimidineTractVariant
         ]
     )]
-    // VEP counts the CDS bases for `frameshift_variant`, too
+    // VEP counts the CDS bases for `frameshift_variant`, too, and builds codons for a deletion
+    // between two exon positions
     #[case(
         true,
         vec![
             Consequence::SpliceAcceptorVariant,
             Consequence::SpliceDonorVariant,
-            Consequence::SpliceDonorFifthBaseVariant,
-            Consequence::CodingSequenceVariant
+            Consequence::InframeDeletion,
+            Consequence::SpliceDonorFifthBaseVariant
         ]
     )]
     fn deletion_across_intron_keeps_frame(
@@ -4505,6 +4517,78 @@ mod test {
         assert_eq!(
             (ann.hgvs_c.as_deref(), &ann.consequences),
             (Some("c.1375_1380del"), &expected_csqs)
+        );
+
+        Ok(())
+    }
+
+    /// With VEP compatibility, the terms of ClinVar variants on BRCA1 `NM_007294.4` as VEP 109
+    /// reports them in `clinvar.excerpt.vep.brca1.tsv`. VEP 116 has the same predicates for them.
+    #[rstest::rstest]
+    // VEP builds codons for an exonic change in the splice region, so it reports no
+    // `coding_sequence_variant`.
+    #[case(
+        "17:41197817:T:A",
+        "c.5470A>T",
+        "missense_variant&splice_region_variant"
+    )]
+    #[case(
+        "17:41197818:T:C",
+        "c.5469A>G",
+        "splice_region_variant&synonymous_variant"
+    )]
+    #[case("17:41201209:G:A", "c.5335C>T", "splice_region_variant&stop_gained")]
+    #[case(
+        "17:41201137:CT:C",
+        "c.5406del",
+        "frameshift_variant&splice_region_variant"
+    )]
+    #[case(
+        "17:41242960:CCTG:C",
+        "c.4183_4185del",
+        "inframe_deletion&splice_region_variant"
+    )]
+    // VEP puts an insertion at an exon edge into the exon.
+    #[case(
+        "17:41276033:C:CCAGATG",
+        "c.80_80+1insCATCTG",
+        "inframe_insertion&splice_region_variant"
+    )]
+    // VEP builds no codons for a deletion with an end in an intron.
+    #[case(
+        "17:41267741:ACTT:A",
+        "c.133_134+1del",
+        "coding_sequence_variant&splice_donor_variant"
+    )]
+    fn vep_terms_as_recorded(
+        #[case] spdi: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_csqs: &str,
+    ) -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .vep_consequence_terms(true)
+                .vep_compatibility_mode(true)
+                .build()?,
+        );
+
+        let res = predictor.predict(&spdi.parse()?)?.unwrap_or_default();
+        let ann = res
+            .iter()
+            .find(|ann| ann.feature_id == "NM_007294.4")
+            .ok_or_else(|| anyhow::anyhow!("no annotation on NM_007294.4: {res:?}"))?;
+        let csqs = ann
+            .consequences
+            .iter()
+            .map(|csq| csq.to_string())
+            .sorted()
+            .join("&");
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), csqs.as_str()),
+            (Some(expected_hgvs_c), expected_csqs)
         );
 
         Ok(())
@@ -4806,7 +4890,7 @@ mod test {
     #[case("22:28773775:ATGAG:A", "ENST00000249064", false, "c.238_239+2del", "p.?", vec![Consequence::SpliceDonorVariant, Consequence::ExonicSpliceRegionVariant])]
     // insertion between the last exon base and donor +1: the exon gains a base
     #[case("22:20996112:T:TA", "ENST00000646124", false, "c.2219_2219+1insA", "p.(Tyr741LeufsTer41)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
-    #[case("22:20996112:T:TA", "ENST00000646124", true, "c.2219_2219+1insA", "p.(Tyr741LeufsTer41)", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:20996112:T:TA", "ENST00000646124", true, "c.2219_2219+1insA", "p.(Tyr741LeufsTer41)", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     // minus strand: insertion between donor +1 and the last exon base
     #[case("22:32150991:C:CTT", "ENST00000382097", false, "c.493_493+1insAA", "p.(His165GlnfsTer19)", vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation, Consequence::ExonicSpliceRegionVariant])]
     // insertion one base past the acceptor, between the first two exon bases
@@ -4961,7 +5045,7 @@ mod test {
 
     /// Dups on GENCODE 42 chr22 transcripts. The terms of a dup come from the insertion of its
     /// copy behind its bases. With VEP terms, the expected terms are those of VEP 116.3 with
-    /// `--shift_3prime 1`, plus `coding_sequence_variant` next to `splice_region_variant`.
+    /// `--shift_3prime 1`.
     #[rstest::rstest]
     // ENST00000413051 has no 5' UTR, and the copy lands behind c.2, in the CDS. The copy can
     // also go in front of c.1, so hgvs-rs places the dup in the 5' UTR and gives `p.?`. With VEP
@@ -4971,7 +5055,7 @@ mod test {
     // the copy lands in the last three exon bases
     #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", false, "c.491_504dup", "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
     // VEP's changed codons at the 3'-shifted position hold the new stop codon
-    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", true, "c.491_504dup", "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", true, "c.491_504dup", "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     fn annotate_dup_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
@@ -5019,34 +5103,33 @@ mod test {
 
     /// Insertions at exon edges on GENCODE 42 chr22 transcripts, with VEP terms. VEP puts such an
     /// insertion into the exon and takes its stop terms from the changed codons there. The
-    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`, plus
-    /// `coding_sequence_variant` next to `splice_region_variant`. mehari adds
+    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`. mehari adds
     /// `feature_elongation` and `protein_altering_variant`.
     #[rstest::rstest]
     // ENST00000381982 (minus strand): an exon ends with c.1081, the first base of the stop codon
     // (`t|ag`). `*/Y*` (`tag/tACTag`): the stop codon stays behind the new codon.
-    #[case("22:30491572:C:CAGT", "ENST00000381982", "c.1081_1081+1insACT", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30491572:C:CAGT", "ENST00000381982", "c.1081_1081+1insACT", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     // `*/*LX` (`tag/tAACTag`): the bases at the old stop codon still read a stop codon. On the
     // genome, an intron lies between the input position and the stop codon end, so VEP finds no
     // overlap with the stop codon.
-    #[case("22:30491572:C:CAGTT", "ENST00000381982", "c.1081_1081+1insAACT", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30491572:C:CAGTT", "ENST00000381982", "c.1081_1081+1insAACT", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     // `*/YX` (`tag/tATag`)
-    #[case("22:30491572:C:CAT", "ENST00000381982", "c.1081_1081+1insAT", vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30491572:C:CAT", "ENST00000381982", "c.1081_1081+1insAT", vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation, Consequence::SpliceRegionVariant])]
     // `*/**` (`tag/tAATag`)
-    #[case("22:30491572:C:CATT", "ENST00000381982", "c.1081_1081+1insAAT", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::StopRetainedVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30491572:C:CATT", "ENST00000381982", "c.1081_1081+1insAAT", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::StopRetainedVariant])]
     // `-/K*` (`-/AAATAA`): in front of the exon that starts with c.520
-    #[case("22:30494210:A:ATTATTT", "ENST00000381982", "c.520-1_520insAAATAA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30494210:A:ATTATTT", "ENST00000381982", "c.520-1_520insAAATAA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     // `F/*F` (`ttt/tAGTtt`): the copy lands behind c.520
-    #[case("22:30494209:A:AACT", "ENST00000381982", "c.520-2_520dup", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:30494209:A:AACT", "ENST00000381982", "c.520-2_520dup", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     // ENST00000398941 (plus strand): an exon ends with c.428, the next one starts with c.429.
     // `S/SX` (`agc/agCGc`)
-    #[case("22:28744708:A:AGC", "ENST00000398941", "c.428_428+1insCG", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:28744708:A:AGC", "ENST00000398941", "c.428_428+1insCG", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant])]
     // `-/X` (`-/GC`): the copy lands behind c.429
-    #[case("22:28751239:A:AGC", "ENST00000398941", "c.429-1_429dup", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:28751239:A:AGC", "ENST00000398941", "c.429-1_429dup", vec![Consequence::FrameshiftVariant, Consequence::FeatureElongation, Consequence::SpliceRegionVariant])]
     // `K/N*` (`aag/aaCTAg`)
-    #[case("22:37967169:A:AACT", "ENST00000442738", "c.293_293+1insCTA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::ProteinAlteringVariant, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:37967169:A:AACT", "ENST00000442738", "c.293_293+1insCTA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::ProteinAlteringVariant, Consequence::SpliceRegionVariant])]
     // minus strand: `-/P` (`-/CCG`)
-    #[case("22:50775771:C:CCGG", "ENST00000395590", "c.297_297+1insCCG", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant, Consequence::CodingSequenceVariant])]
+    #[case("22:50775771:C:CCGG", "ENST00000395590", "c.297_297+1insCCG", vec![Consequence::FeatureElongation, Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     fn annotate_exon_edge_ins_stop_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
@@ -5106,12 +5189,11 @@ mod test {
     }
 
     /// Indels at the end of the CDS on transcripts of `CHR22_CDS_END_TXS`, with VEP terms. The
-    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`, plus
-    /// `coding_sequence_variant`, which mehari adds for a splice region in the CDS.
+    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`.
     #[rstest::rstest]
     // The deletion shifts from `c.1637_*1del` to `c.1638_*1+1del` and keeps the stop codon
     // `TGA`. VEP builds no codons for it, as its end lies in the intron.
-    #[case("22:15719775:TGAG:T", "ENST00000343518", Some("c.1638_*1+1del"), vec![Consequence::SpliceDonorVariant, Consequence::StopRetainedVariant, Consequence::CodingSequenceVariant, Consequence::ThreePrimeUtrVariant])]
+    #[case("22:15719775:TGAG:T", "ENST00000343518", Some("c.1638_*1+1del"), vec![Consequence::SpliceDonorVariant, Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant])]
     // ENST00000381982 (minus strand): an exon ends with c.1081, the first base of the stop codon
     // (`t|ag`). VEP takes the stop codon from the genome, so c.1081 lies outside it.
     #[case("22:30491570:TACAG:T", "ENST00000381982", Some("c.1080_1081+2del"), vec![Consequence::SpliceDonorVariant, Consequence::CodingSequenceVariant])]
