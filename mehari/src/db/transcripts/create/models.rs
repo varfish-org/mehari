@@ -111,6 +111,7 @@ impl Reason {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Serialize, Hash, PartialEq, Eq)]
 pub enum Fix {
+    /// `A` bases complete the stop codon, as the poly-A tail does. No filter reason marks it.
     Cds,
     GenomeBuild,
     Tags,
@@ -194,6 +195,17 @@ pub trait TranscriptExt {
     fn protein_coding(&self) -> bool;
 
     fn is_on_contig(&self, contig: &str) -> bool;
+
+    /// Whether the annotation marks the CDS end as incomplete with the tag `cds_end_NF`, as
+    /// GENCODE does. `load_gff3` sets it for a RefSeq CDS that is open at its 3' end. RefSeq
+    /// `partial` alone does not count: it also marks transcripts that are incomplete at the 5'
+    /// end or that the genome does not align completely.
+    fn cds_end_incomplete(&self) -> bool;
+
+    /// Whether the annotation says that the poly-A tail completes the stop codon: a note such as
+    /// "stop codon completed by the addition of 3' A residues to the mRNA", or a `TERM`
+    /// translation exception at the partial last codon.
+    fn stop_codon_completed_by_poly_a(&self) -> bool;
 }
 
 impl TranscriptExt for Transcript {
@@ -212,6 +224,31 @@ impl TranscriptExt for Transcript {
 
     fn is_on_contig(&self, contig: &str) -> bool {
         self.genome_builds.values().any(|gb| gb.contig == contig)
+    }
+
+    fn cds_end_incomplete(&self) -> bool {
+        self.genome_builds.values().any(|gb| {
+            gb.tag
+                .as_ref()
+                .is_some_and(|tags| tags.contains(&Tag::Other("cds_end_NF".into())))
+        })
+    }
+
+    fn stop_codon_completed_by_poly_a(&self) -> bool {
+        let noted = self.genome_builds.values().any(|gb| {
+            gb.note
+                .as_ref()
+                .is_some_and(|note| note.contains("completed by the addition of 3' A"))
+        });
+        // The partial last codon is the codon after the complete ones.
+        let last_codon = self.cds_length().map(|len| len / 3 + 1);
+        let term = self
+            .translation
+            .as_ref()
+            .and_then(|translation| translation.transl_except.as_ref())
+            .and_then(|transl_except| transl_except.get("TERM"))
+            .is_some_and(|positions| last_codon.is_some_and(|codon| positions.contains(&codon)));
+        noted || term
     }
 }
 
@@ -305,7 +342,6 @@ impl TranscriptLoader {
             self.update_transcript_tags(txid_to_label);
         }
         self.fix_unaligned_bases();
-        self.fix_cds();
     }
 
     pub(crate) fn update_pseudogene_status(&mut self) -> Result<(), Error> {
@@ -430,53 +466,6 @@ impl TranscriptLoader {
                         ))
                         .or_default()
                         .insert(Fix::GenomeBuild);
-                }
-            });
-    }
-
-    pub(crate) fn fix_cds(&mut self) {
-        self.transcript_id_to_transcript
-            .values_mut()
-            .filter(|tx| tx.protein_coding())
-            .filter_map(|tx| {
-                tx.start_codon
-                    .zip(tx.stop_codon)
-                    .and_then(|(cds_start, cds_end)| {
-                        let cds_len = cds_end - cds_start;
-                        (cds_len % 3 != 0).then_some((tx, cds_start, cds_end, cds_len))
-                    })
-            })
-            .for_each(|(tx, _cds_start, cds_end, cds_len)| {
-                // Handle multiple genome builds safely
-                if tx.genome_builds.is_empty() {
-                    tracing::warn!(
-                        "Transcript {} has no genome builds, skipping CDS fix",
-                        tx.id
-                    );
-                    return;
-                }
-
-                for gb in tx.genome_builds.values_mut() {
-                    let delta = 3 - (cds_len % 3);
-                    if delta == 0 {
-                        continue;
-                    };
-                    tx.stop_codon = Some(cds_end + delta);
-                    let exon = gb
-                        .exons
-                        .iter_mut()
-                        .max_by_key(|g| g.alt_cds_end_i)
-                        .expect("No exons found during fix_cds");
-                    exon.alt_cds_end_i += delta;
-                    // The padding bases exist in the transcript only. In the CIGAR
-                    // convention of the hgvs mapper that is `D`; `I` advances the genome.
-                    exon.cigar.push_str(&format!("{}D", delta));
-                    self.fixes
-                        .entry(Identifier::Transcript(
-                            TranscriptId::try_new(&tx.id).unwrap(),
-                        ))
-                        .or_default()
-                        .insert(Fix::Cds);
                 }
             });
     }

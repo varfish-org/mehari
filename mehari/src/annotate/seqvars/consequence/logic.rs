@@ -1069,7 +1069,7 @@ impl ConsequencePredictor {
                     // c.-N (5' UTR) and c.*N (3' UTR) are not positions in the CDS.
                     (start.cds_from == CdsFrom::Start && start.base >= 1).then_some(Pos {
                         ord: start.base,
-                        total: cds_len,
+                        total: cds_len.map(|len| len - tx.stop_codon_padding(tx_len)),
                     })
                 }
                 _ => panic!("Invalid CDS position: {:?}", var_c),
@@ -1965,10 +1965,12 @@ impl ConsequencePredictor {
                 consequences |= Consequence::StopLost;
             }
 
+            // The last codon starts at the last codon boundary. It is partial if the CDS
+            // length is not a multiple of 3.
             if incomplete_3p
                 && let Some(cds_len) = available_cds_len
                 && start_base <= cds_len
-                && end_base >= cds_len - 2
+                && end_base >= cds_len - (cds_len - 1) % 3
             {
                 consequences |= Consequence::IncompleteTerminalCodonVariant;
             }
@@ -2167,7 +2169,11 @@ impl ConsequencePredictor {
                                     // stop codon is encountered
                                     // .or_else(|| altered_sequence.find('X'))
                                     if let Some(pos) = altered_sequence.find('*') {
-                                        match (pos + 1).cmp(&original_sequence_len) {
+                                        // Count the amino acids before the stops. A CDS with an
+                                        // incomplete end has no stop codon.
+                                        let original_amino_acids =
+                                            reference_data.aa_sequence.trim_end_matches('*').len();
+                                        match pos.cmp(&original_amino_acids) {
                                             Ordering::Less => {
                                                 consequences |= Consequence::FrameshiftTruncation;
                                             }
@@ -4531,6 +4537,471 @@ mod test {
             }
         }
 
+        Ok(())
+    }
+
+    /// A predictor for `tx`, a transcript on chr1 (GRCh38) with the sequence `seq`. It reports
+    /// the transcript sequences.
+    fn predictor_for(tx: Transcript, seq: String) -> ConsequencePredictor {
+        use crate::pbs::txs::{GeneToTxId, SequenceDb, SourceVersion, TranscriptDb, TxSeqDatabase};
+
+        // hgvs-rs caches the reference protein by the database version, so each database
+        // needs its own version.
+        let version = format!("{tx:?} {seq}");
+        let tx_seq_db = TxSeqDatabase {
+            tx_db: Some(TranscriptDb {
+                gene_to_tx: vec![GeneToTxId {
+                    gene_id: tx.gene_id.clone(),
+                    tx_ids: vec![tx.id.clone()],
+                    filtered: Some(false),
+                    filter_reason: None,
+                }],
+                transcripts: vec![tx.clone()],
+            }),
+            seq_db: Some(SequenceDb {
+                aliases: vec![tx.id],
+                aliases_idx: vec![0],
+                seqs: vec![seq],
+            }),
+            version: Some(version),
+            source_version: vec![SourceVersion {
+                assembly: "GRCh38".into(),
+                ..Default::default()
+            }],
+        };
+        let provider = Arc::new(MehariProvider::new(tx_seq_db, None::<PathBuf>, true));
+        let config = ConfigBuilder::default()
+            .plugins(vec![
+                Arc::new(SequencePlugin::TxRef),
+                Arc::new(SequencePlugin::TxAlt),
+            ])
+            .build()
+            .unwrap();
+        ConsequencePredictor::new(provider, config)
+    }
+
+    /// A coding transcript `NM_000001.1` with one exon at chr1:1001 on the plus strand. Its
+    /// sequence is `utr5`, `cds` and `utr3`.
+    fn one_exon_tx(utr5: &str, cds: &str, utr3: &str) -> (Transcript, String) {
+        use crate::pbs::txs::ExonAlignment;
+
+        let seq = format!("{utr5}{cds}{utr3}");
+        let len = i32::try_from(seq.len()).unwrap();
+        let start = i32::try_from(utr5.len()).unwrap();
+        let stop = start + i32::try_from(cds.len()).unwrap();
+        let tx = Transcript {
+            id: "NM_000001.1".into(),
+            gene_symbol: "GENE1".into(),
+            gene_id: "1".into(),
+            biotype: TranscriptBiotype::Coding.into(),
+            protein: Some("NP_000001.1".into()),
+            start_codon: Some(start),
+            stop_codon: Some(stop),
+            genome_alignments: vec![GenomeAlignment {
+                genome_build: "grch38".into(),
+                contig: "NC_000001.11".into(),
+                cds_start: Some(1000 + start),
+                cds_end: Some(1000 + stop),
+                strand: Strand::Plus.into(),
+                exons: vec![ExonAlignment {
+                    alt_start_i: 1000,
+                    alt_end_i: 1000 + len,
+                    ord: 0,
+                    alt_cds_start_i: Some(1),
+                    alt_cds_end_i: Some(len),
+                    cigar: format!("{len}M"),
+                }],
+                ..Default::default()
+            }],
+            filtered: Some(false),
+            ..Default::default()
+        };
+        (tx, seq)
+    }
+
+    /// A predictor for one selenoprotein transcript on the plus strand of chr1 (GRCh38).
+    ///
+    /// Its one exon spans chr1:1001-1073: 20 bases of 5' UTR, the CDS
+    /// `ATG GCC AAG CTG TGG GAA CCA TGA CGC GTT TAA` (`MAKLWEPURV*`) at chr1:1021-1053, and 20
+    /// bases of 3' UTR. The eighth codon is the Sec codon.
+    fn selenoprotein_predictor(tagged: bool, positions: Vec<u32>) -> ConsequencePredictor {
+        use crate::pbs::txs::TranslationException;
+
+        let utr = "CAGTCAGTCAGTCAGTCAGT";
+        let (tx, seq) = one_exon_tx(utr, "ATGGCCAAGCTGTGGGAACCATGACGCGTTTAA", utr);
+        let tx = Transcript {
+            gene_symbol: "SELENOX".into(),
+            tags: tagged
+                .then(|| TranscriptTag::Selenoprotein.into())
+                .into_iter()
+                .collect(),
+            translation_exceptions: positions
+                .into_iter()
+                .map(|position| TranslationException {
+                    position,
+                    amino_acid: "U".into(),
+                })
+                .collect(),
+            ..tx
+        };
+        predictor_for(tx, seq)
+    }
+
+    /// With Sec positions, UGA reads as selenocysteine only at them. Without, a transcript
+    /// tagged as selenoprotein reads every UGA as selenocysteine.
+    #[rstest::rstest]
+    #[case::new_uga_is_a_stop(false, vec![8], "1035:G:A", "p.Trp5Ter", Consequence::StopGained)]
+    #[case::new_uga_is_a_stop_despite_tag(
+        true,
+        vec![8],
+        "1035:G:A",
+        "p.Trp5Ter",
+        Consequence::StopGained
+    )]
+    #[case::sec_codon_reads_sec(false, vec![8], "1044:A:G", "p.Sec8Trp", Consequence::MissenseVariant)]
+    #[case::codon_after_sec_codon(
+        false,
+        vec![8],
+        "1046:G:A",
+        "p.Arg9His",
+        Consequence::MissenseVariant
+    )]
+    #[case::sec_codon_moves_with_deletion(
+        false,
+        vec![8],
+        "1035:GGAA:G",
+        "p.Glu6del",
+        Consequence::ConservativeInframeDeletion
+    )]
+    #[case::tag_without_positions(true, vec![], "1035:G:A", "p.Trp5Sec", Consequence::MissenseVariant)]
+    fn selenocysteine_only_at_its_positions(
+        #[case] tagged: bool,
+        #[case] positions: Vec<u32>,
+        #[case] var: &str,
+        #[case] hgvs_p: &str,
+        #[case] consequence: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let var = var.split(':').collect::<Vec<_>>();
+        let anns = selenoprotein_predictor(tagged, positions)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: var[0].parse()?,
+                reference: var[1].into(),
+                alternative: var[2].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(ann.hgvs_p.as_deref(), Some(hgvs_p));
+        assert!(
+            ann.consequences.contains(&consequence),
+            "{:?}",
+            ann.consequences
+        );
+
+        Ok(())
+    }
+
+    /// A selenoprotein without Sec positions reads UGA as selenocysteine inside its CDS, but a
+    /// UGA at the CDS end is its stop codon, as in SEPHS2.
+    ///
+    /// The transcript is the one of `selenoprotein_predictor`, but its CDS
+    /// `ATG GCC AAG CTG TGG GAA CCA TGA CGC GTT TGA` (`MAKLWEPURV*`) ends with UGA.
+    #[rstest::rstest]
+    #[case::stop_codon("1051:T:C", "p.Ter11ArgextTer?", Consequence::StopLost)]
+    #[case::sec_codon("1044:A:G", "p.Sec8Trp", Consequence::MissenseVariant)]
+    fn last_uga_is_the_stop_codon(
+        #[case] var: &str,
+        #[case] hgvs_p: &str,
+        #[case] consequence: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let utr = "CAGTCAGTCAGTCAGTCAGT";
+        let (tx, seq) = one_exon_tx(utr, "ATGGCCAAGCTGTGGGAACCATGACGCGTTTGA", utr);
+        let tx = Transcript {
+            tags: vec![TranscriptTag::Selenoprotein.into()],
+            ..tx
+        };
+        let var = var.split(':').collect::<Vec<_>>();
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: var[0].parse()?,
+                reference: var[1].into(),
+                alternative: var[2].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(ann.hgvs_p.as_deref(), Some(hgvs_p));
+        assert!(
+            ann.consequences.contains(&consequence),
+            "{:?}",
+            ann.consequences
+        );
+
+        Ok(())
+    }
+
+    /// A mitochondrial transcript reads UGA as Trp, as the vertebrate mitochondrial code does.
+    /// `c.15G>A` turns TGG into TGA.
+    #[test]
+    fn mitochondrial_code_reads_uga_as_trp() -> Result<(), anyhow::Error> {
+        let (mut tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CGCATCA");
+        tx.genome_alignments[0].contig = "NC_012920.1".into();
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "MT".into(),
+                position: 1035,
+                reference: "G".into(),
+                alternative: "A".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some("c.15G>A"), &vec![Consequence::SynonymousVariant])
+        );
+        Ok(())
+    }
+
+    /// Without a stop codon, a change of the last amino acid is an ordinary change of it, not an
+    /// extension. A frameshift that leaves no complete codon there gives `p.?`.
+    ///
+    /// The transcript has 20 bases of 5' UTR and the CDS `ATG GCC AAG CTG TGG GAA` (`MAKLWE`)
+    /// at chr1:1021-1038, which ends at the transcript end. `db create` flags it with
+    /// `MissingStopCodon`.
+    #[rstest::rstest]
+    #[case::synonymous("1038:A:G", "p.Glu6=", &[Consequence::SynonymousVariant])]
+    #[case::missense("1038:A:C", "p.Glu6Asp", &[Consequence::MissenseVariant])]
+    // c.16_18del
+    #[case::deletion(
+        "1035:GGAA:G",
+        "p.Glu6del",
+        &[Consequence::ConservativeInframeDeletion]
+    )]
+    // c.17_18insC
+    #[case::frameshift("1037:A:AC", "p.Glu6AspfsTer?", &[Consequence::FrameshiftVariant])]
+    // c.18del
+    #[case::frameshift_in_last_codon("1036:GA:G", "p.?", &[Consequence::FrameshiftVariant])]
+    // c.16del
+    #[case::frameshift_at_last_codon("1034:GG:G", "p.?", &[Consequence::FrameshiftVariant])]
+    fn last_amino_acid_without_stop_codon(
+        #[case] var: &str,
+        #[case] hgvs_p: &str,
+        #[case] expected: &[Consequence],
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGGAA", "");
+        let tx = Transcript {
+            filter_reason: Some(BitFlags::from(Reason::MissingStopCodon).bits()),
+            ..tx
+        };
+        let var = var.split(':').collect::<Vec<_>>();
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: var[0].parse()?,
+                reference: var[1].into(),
+                alternative: var[2].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(ann.hgvs_p.as_deref(), Some(hgvs_p), "{ann:?}");
+        for consequence in [
+            Consequence::SynonymousVariant,
+            Consequence::MissenseVariant,
+            Consequence::ConservativeInframeDeletion,
+            Consequence::FrameshiftVariant,
+            Consequence::FeatureElongation,
+        ] {
+            assert_eq!(
+                ann.consequences.contains(&consequence),
+                expected.contains(&consequence),
+                "{consequence:?}: {ann:?}"
+            );
+        }
+        Ok(())
+    }
+
+    /// A CDS whose end the annotation marks as incomplete keeps its partial last codon, and
+    /// `db create` flags it with `MissingStopCodon`. The protein ends with the last complete
+    /// codon. The amino acids after it are unknown, so a variant after it gives `p.?`.
+    ///
+    /// The transcript has 20 bases of 5' UTR and the CDS `ATG GCC AAG CTG TGG GAA CC`
+    /// (`MAKLWE` and 2 bases) at chr1:1021-1040, which ends at the transcript end.
+    #[rstest::rstest]
+    #[case::stop_gained("1035:G:A", "p.Trp5Ter", &[Consequence::StopGained])]
+    #[case::last_complete_codon("1038:A:G", "p.Glu6=", &[Consequence::SynonymousVariant])]
+    #[case::partial_codon(
+        "1039:C:T",
+        "p.?",
+        &[Consequence::IncompleteTerminalCodonVariant]
+    )]
+    #[case::frameshift_into_partial_codon(
+        "1039:C:CGTGGGAAC",
+        "p.?",
+        &[Consequence::FrameshiftVariant, Consequence::IncompleteTerminalCodonVariant]
+    )]
+    // c.13_14insCCTA: the new stop takes the place of the last complete codon
+    #[case::frameshift_truncation(
+        "1033:T:TCCTA",
+        "p.Trp5SerfsTer2",
+        &[Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation]
+    )]
+    // c.16_18dup
+    #[case::dup_of_last_complete_codon(
+        "1035:G:GGAA",
+        "p.?",
+        &[Consequence::ConservativeInframeInsertion]
+    )]
+    fn incomplete_cds_end_has_no_stop_codon(
+        #[case] var: &str,
+        #[case] hgvs_p: &str,
+        #[case] expected: &[Consequence],
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGGAACC", "");
+        let tx = Transcript {
+            filter_reason: Some(BitFlags::from(Reason::MissingStopCodon).bits()),
+            ..tx
+        };
+        let var = var.split(':').collect::<Vec<_>>();
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: var[0].parse()?,
+                reference: var[1].into(),
+                alternative: var[2].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(ann.hgvs_p.as_deref(), Some(hgvs_p), "{ann:?}");
+        for consequence in expected {
+            assert!(ann.consequences.contains(consequence), "{ann:?}");
+        }
+        for consequence in [
+            Consequence::StopLost,
+            Consequence::StopRetainedVariant,
+            Consequence::FeatureElongation,
+            Consequence::IncompleteTerminalCodonVariant,
+        ] {
+            if !expected.contains(&consequence) {
+                assert!(!ann.consequences.contains(&consequence), "{ann:?}");
+            }
+        }
+        Ok(())
+    }
+
+    /// `db create` completes a stop codon at the transcript end with `A` bases. They follow the
+    /// last exon, and no total or sequence counts them.
+    ///
+    /// The transcript has 20 bases of 5' UTR and the CDS `ATG GCC AAG CTG TGG GAA T`
+    /// (`MAKLWE` and the stop codon `T`) at chr1:1021-1039, which ends at the transcript end.
+    /// `db create` completes the stop codon to `TAA`.
+    #[rstest::rstest]
+    #[case::missense("1033:T:C", "p.Trp5Arg", Consequence::MissenseVariant)]
+    #[case::stop_lost("1039:T:C", "p.Ter7GlnextTer?", Consequence::StopLost)]
+    fn totals_without_poly_a_padding(
+        #[case] var: &str,
+        #[case] hgvs_p: &str,
+        #[case] consequence: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let (utr5, cds) = ("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGGAAT");
+        let (tx, seq) = one_exon_tx(utr5, cds, "");
+        let tx = Transcript {
+            stop_codon: tx.stop_codon.map(|stop| stop + 2),
+            ..tx
+        };
+        let var = var.split(':').collect::<Vec<_>>();
+        let position: usize = var[0].parse()?;
+        let anns = predictor_for(tx, format!("{seq}AA"))
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: position.try_into()?,
+                reference: var[1].into(),
+                alternative: var[2].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(ann.hgvs_p.as_deref(), Some(hgvs_p), "{ann:?}");
+        assert!(ann.consequences.contains(&consequence), "{ann:?}");
+        let totals = [&ann.cdna_pos, &ann.cds_pos].map(|pos| pos.as_ref().and_then(|p| p.total));
+        assert_eq!(totals, [Some(39), Some(19)], "{ann:?}");
+        assert_eq!(custom_field(ann, ANN_TX_SEQ_REF), Some(seq.as_str()));
+        let mut seq_alt = seq.clone();
+        seq_alt.replace_range(position - 1001..position - 1000, var[2]);
+        assert_eq!(custom_field(ann, ANN_TX_SEQ_ALT), Some(seq_alt.as_str()));
+        Ok(())
+    }
+
+    /// Deleting the last base of a stop codon at the transcript end loses the stop codon. No
+    /// appended `A` bases complete a new one.
+    ///
+    /// The transcripts come from `db create` with the GENCODE 42 GFF3 records of FAM246B. Its
+    /// transcript `ENST00000652395.1` has one exon, which ends with the stop codon `TGA` at
+    /// chr22:18634680-18634682.
+    #[rstest::rstest]
+    #[case(false, vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    // VEP 116.3 reports `stop_lost` only
+    #[case(true, vec![Consequence::FrameshiftVariant, Consequence::StopLost, Consequence::FeatureElongation])]
+    fn stop_codon_at_transcript_end_without_padding(
+        #[case] vep_consequence_terms: bool,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db(
+            "tests/data/annotate/db/grch38/GRCh38-gencode42.stop-at-tx-end.txs.bin.zst",
+        )?;
+        // The test needs no reference: a `G` follows the deleted `A`, so the deletion cannot
+        // shift.
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .vep_consequence_terms(vep_consequence_terms)
+                .build()?,
+        );
+
+        let anns = predictor
+            .predict(&VcfVariant {
+                chromosome: "22".into(),
+                position: 18634681,
+                reference: "GA".into(),
+                alternative: "G".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "ENST00000652395.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for ENST00000652395.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some("c.699del"), Some("p.Ter233XaaextTer?"), &expected_csqs)
+        );
         Ok(())
     }
 
