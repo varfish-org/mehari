@@ -2009,8 +2009,9 @@ impl ConsequencePredictor {
             consequences.remove(SplicePolypyrimidineTractVariant);
         }
 
-        let suppress_intron =
-            SpliceDonorVariant | SpliceAcceptorVariant | SpliceDonorFifthBaseVariant;
+        // VEP counts the intron bases from +3 and -3 on as intronic (`_intron_effects`), so a
+        // change of donor +5 stays an `intron_variant`.
+        let suppress_intron = SpliceDonorVariant | SpliceAcceptorVariant;
 
         if consequences.intersects(suppress_intron) {
             consequences.remove(IntronVariant);
@@ -4939,6 +4940,24 @@ mod test {
             "spdi = {spdi}"
         );
 
+        Ok(())
+    }
+
+    /// With VEP terms, a change of donor +5 is also an `intron_variant`, as VEP counts the intron
+    /// bases from +3 on as intronic (`_intron_effects`).
+    #[test]
+    fn vep_fifth_base_is_intronic() -> Result<(), anyhow::Error> {
+        let ann = annotate_chr22_window("22:25763388:AGGTAAGT:A", "ENST00000335473", true)?;
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (
+                Some("c.198+3_198+9del"),
+                &vec![
+                    Consequence::SpliceDonorFifthBaseVariant,
+                    Consequence::IntronVariant
+                ]
+            )
+        );
         Ok(())
     }
 
