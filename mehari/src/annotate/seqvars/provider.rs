@@ -428,7 +428,16 @@ impl Provider {
                 InMemoryFastaAccess::from_path(path, contig_manager.clone())
                     .expect("Failed to open reference FASTA file"),
             )),
-            (None, _) => None,
+            // Once per assembly, as predictors can share a provider.
+            (None, _) => {
+                tracing::warn!(
+                    "No reference genome given for {}: indels in introns or at exon edges may \
+                     not be 3'-shifted in their HGVS descriptions, and their consequences can be \
+                     off",
+                    assembly_name
+                );
+                None
+            }
         };
 
         Self {

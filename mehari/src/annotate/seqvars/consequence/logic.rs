@@ -678,12 +678,6 @@ impl ConsequencePredictor {
         tracing::info!("Building transcript interval trees ...");
 
         let reference_available = provider.reference_available();
-        if !reference_available {
-            tracing::warn!(
-                "No reference genome given: indels in introns or at exon edges may not be \
-                 3'-shifted in their HGVS descriptions, and their consequences can be off"
-            );
-        }
 
         let mapper_config = assembly::Config {
             // TODO: add ability to construct assembly mapper/config with custom mappings (for contig <-> accession lookups) in hgvs-rs to avoid lock-in to bioutils assemblies.
@@ -4042,7 +4036,8 @@ mod test {
         }
     }
 
-    /// Without a reference genome, the predictor warns that HGVS descriptions may not be shifted.
+    /// Without a reference genome, mehari warns that HGVS descriptions may not be shifted. It
+    /// warns once per assembly, also if two predictors share it, as in the server.
     #[tracing_test::traced_test]
     #[test]
     fn warn_without_reference() {
@@ -4051,8 +4046,18 @@ mod test {
             None::<PathBuf>,
             true,
         ));
+        ConsequencePredictor::new(provider.clone(), Default::default());
         ConsequencePredictor::new(provider, Default::default());
-        assert!(logs_contain("No reference genome given"));
+        logs_assert(|lines: &[&str]| {
+            let warnings = lines
+                .iter()
+                .filter(|line| line.contains("No reference genome given"))
+                .collect::<Vec<_>>();
+            match warnings[..] {
+                [warning] if warning.contains("No reference genome given for grch37:") => Ok(()),
+                _ => Err(format!("{warnings:?}")),
+            }
+        });
     }
 
     /// HGVS writes a predicted protein change in parentheses. c.4G>A changes GCC (Ala2) to ACC.
