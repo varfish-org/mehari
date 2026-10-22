@@ -155,7 +155,7 @@ pub struct ReportingSettings {
     #[arg(long, default_value_t = false)]
     pub keep_intergenic: bool,
 
-    /// Whether to report splice variants in UTRs.
+    /// Drop the splice terms of variants in UTRs.
     #[arg(long, default_value_t = false)]
     pub discard_utr_splice_variants: bool,
 

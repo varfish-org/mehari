@@ -320,7 +320,7 @@ pub struct Config {
     #[builder(default = "false")]
     pub keep_intergenic: bool,
 
-    /// Whether to report splice variants in UTRs.
+    /// Drop the splice terms of variants in UTRs.
     #[builder(default = "false")]
     pub discard_utr_splice_variants: bool,
 
