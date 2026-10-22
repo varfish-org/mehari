@@ -1932,6 +1932,13 @@ impl ConsequencePredictor {
             consequences.insert(MissenseVariant);
         }
 
+        // VEP's `missense_variant` excludes a lost start codon and the stop terms.
+        if self.config.vep_compatibility_mode
+            && consequences.intersects(StartLost | StopGained | StopLost | StopRetainedVariant)
+        {
+            consequences.remove(MissenseVariant);
+        }
+
         let exonic_splice_region = consequences.contains(ExonicSpliceRegionVariant);
         if exonic_splice_region {
             consequences.remove(ExonicSpliceRegionVariant);
@@ -6161,6 +6168,18 @@ mod test {
     /// A predictor for `tx`, a transcript on chr1 (GRCh38) with the sequence `seq`. It reports
     /// the transcript sequences.
     fn predictor_for(tx: Transcript, seq: String) -> ConsequencePredictor {
+        let config = ConfigBuilder::default()
+            .plugins(vec![
+                Arc::new(SequencePlugin::TxRef),
+                Arc::new(SequencePlugin::TxAlt),
+            ])
+            .build()
+            .unwrap();
+        predictor_with_config(tx, seq, config)
+    }
+
+    /// `predictor_for` with the predictor configuration `config`.
+    fn predictor_with_config(tx: Transcript, seq: String, config: Config) -> ConsequencePredictor {
         use crate::pbs::txs::{GeneToTxId, SequenceDb, SourceVersion, TranscriptDb, TxSeqDatabase};
 
         // hgvs-rs caches the reference protein by the database version, so each database
@@ -6189,13 +6208,6 @@ mod test {
             }],
         };
         let provider = Arc::new(MehariProvider::new(tx_seq_db, None::<PathBuf>, true));
-        let config = ConfigBuilder::default()
-            .plugins(vec![
-                Arc::new(SequencePlugin::TxRef),
-                Arc::new(SequencePlugin::TxAlt),
-            ])
-            .build()
-            .unwrap();
         ConsequencePredictor::new(provider, config)
     }
 
@@ -7170,6 +7182,121 @@ mod test {
                 &ann.consequences
             ),
             (Some(expected_hgvs.0), Some(expected_hgvs.1), &expected_csqs)
+        );
+        Ok(())
+    }
+
+    /// With VEP compatibility, `missense_variant` does not go with a stop term, as in VEP's
+    /// `missense_variant`. `c.9_11delinsCTA` changes `KL` to `N*`.
+    #[test]
+    fn vep_missense_without_stop_terms() -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CGCATCA");
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .vep_compatibility_mode(true)
+            .build()?;
+        let anns = predictor_with_config(tx, seq, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1029,
+                reference: "GCT".into(),
+                alternative: "CTA".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some("c.9_11delinsCTA"), &vec![Consequence::StopGained])
+        );
+        Ok(())
+    }
+
+    /// In VEP compatibility mode, VEP shifts an insertion 3' also across the CDS end, where
+    /// hgvs-rs stops. The A inserted behind c.16 is `c.18dup`. If the 3' UTR starts with an A,
+    /// VEP shifts it there, outside the CDS. Else it stays behind c.18, and its input position
+    /// in the stop codon gives `stop_retained_variant`.
+    #[rstest::rstest]
+    #[case::into_utr("AAGCATCA", vec![Consequence::ThreePrimeUtrVariant])]
+    #[case::at_cds_end(
+        "CAGCATCA",
+        vec![Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant]
+    )]
+    fn vep_shifts_insertion_across_cds_end(
+        #[case] utr3: &str,
+        #[case] expected: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", utr3);
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .vep_compatibility_mode(true)
+            .build()?;
+        let anns = predictor_with_config(tx, seq, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1036,
+                reference: "T".into(),
+                alternative: "TA".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), &ann.consequences),
+            (Some("c.18dup"), &expected)
+        );
+        Ok(())
+    }
+
+    /// In VEP compatibility mode, VEP applies the translation exceptions to the reference
+    /// codons. Deleting the Sec codon `TGA` (codon 8) is no `stop_lost`.
+    #[test]
+    fn vep_codons_read_translation_exceptions() -> Result<(), anyhow::Error> {
+        use crate::pbs::txs::TranslationException;
+
+        let utr = "CAGTCAGTCAGTCAGTCAGT";
+        let (tx, seq) = one_exon_tx(utr, "ATGGCCAAGCTGTGGGAACCATGACGCGTTTAA", utr);
+        let tx = Transcript {
+            translation_exceptions: vec![TranslationException {
+                position: 8,
+                amino_acid: "U".into(),
+            }],
+            ..tx
+        };
+        let config = ConfigBuilder::default()
+            .vep_consequence_terms(true)
+            .vep_compatibility_mode(true)
+            .build()?;
+        let anns = predictor_with_config(tx, seq, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1041,
+                reference: "ATGA".into(),
+                alternative: "A".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (
+                Some("c.22_24del"),
+                Some("p.(Sec8del)"),
+                &vec![Consequence::InframeDeletion]
+            )
         );
         Ok(())
     }
