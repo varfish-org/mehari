@@ -45,7 +45,8 @@ pub struct Sources {
 #[derive(Debug, ClapArgs, Default, Clone)]
 pub struct PredictorSettings {
     /// Enable vep compatibility mode.
-    /// This enables specific normalization flags and less fine-grained vep consequence terms.
+    /// This enables specific normalization flags, less fine-grained vep consequence terms and
+    /// VEP's rules where they differ from HGVS or SO.
     #[arg(long, default_value_t = false, hide = true)]
     pub vep_compatibility_mode: bool,
 
