@@ -3556,14 +3556,7 @@ impl ConsequencePredictor {
         };
         let loc = loc_edit.loc.inner();
         let edit = loc_edit.edit.inner();
-        if matches!(
-            edit,
-            NaEdit::DelRef { .. }
-                | NaEdit::DelNum { .. }
-                | NaEdit::RefAlt { .. }
-                | NaEdit::NumAlt { .. }
-        ) && crosses_cds_end(var_c, Some(cds_len))
-        {
+        if changes_length(edit) && crosses_cds_end(var_c, Some(cds_len)) {
             return true;
         }
         if self.config.vep_consequence_terms
