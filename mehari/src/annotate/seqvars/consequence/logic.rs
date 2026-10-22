@@ -631,6 +631,12 @@ impl ConsequencePredictor {
         tracing::info!("Building transcript interval trees ...");
 
         let reference_available = provider.reference_available();
+        if !reference_available {
+            tracing::warn!(
+                "No reference genome given: indels in introns or at exon edges may not be \
+                 3'-shifted in their HGVS descriptions, and their consequences can be off"
+            );
+        }
 
         let mapper_config = assembly::Config {
             // TODO: add ability to construct assembly mapper/config with custom mappings (for contig <-> accession lookups) in hgvs-rs to avoid lock-in to bioutils assemblies.
@@ -3681,6 +3687,19 @@ mod test {
             }],
             ..Default::default()
         }
+    }
+
+    /// Without a reference genome, the predictor warns that HGVS descriptions may not be shifted.
+    #[tracing_test::traced_test]
+    #[test]
+    fn warn_without_reference() {
+        let provider = Arc::new(MehariProvider::new(
+            tx_db_with_indels_in_exon_cigars(),
+            None::<PathBuf>,
+            true,
+        ));
+        ConsequencePredictor::new(provider, Default::default());
+        assert!(logs_contain("No reference genome given"));
     }
 
     /// A change of the first codon gives no start terms if the CDS lacks its start codon. c.2T>A

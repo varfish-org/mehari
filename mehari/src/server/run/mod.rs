@@ -82,7 +82,8 @@ impl FromStr for AssemblyReference {
 pub struct Args {
     /// Path to the reference genome(s), with accompanying index.
     ///
-    /// Provide one reference per assembly you want to serve (e.g., GRCh37 and/or GRCh38).
+    /// Provide one reference per assembly you want to serve (e.g., GRCh37 and/or GRCh38), strongly
+    /// recommended.
     /// Example: --reference grch37=/path/to/grch37.fa
     #[arg(long, value_name = "ASSEMBLY=PATH")]
     pub reference: Vec<AssemblyReference>,
@@ -379,15 +380,7 @@ pub async fn run(args_common: &crate::common::Args, args: &Args) -> Result<(), a
         tracing::info!("Loading data for assembly {:?}...", &assembly);
 
         // Load transcript data if available for this release.
-        // At the moment, this is the only type of data that can benefit from a reference FASTA.
         if let Some(tx_db_paths) = transcript_paths.get(&assembly.clone()) {
-            if reference_path.is_none() {
-                tracing::warn!(
-                    "No reference FASTA provided for {}. Some features like HGVSg normalization will be unavailable.",
-                    &assembly
-                );
-            }
-
             tracing::info!("Building seqvars predictors for {}...", &assembly);
             let tx_dbs = load_transcript_dbs_for_assembly(tx_db_paths, assembly)?;
             if tx_dbs.is_empty() {

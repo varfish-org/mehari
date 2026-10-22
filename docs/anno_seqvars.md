@@ -30,6 +30,7 @@ You can invoke Mehari to annotate a VCF file `IN.vcf` creating an output file `O
 
 ```text
 $ mehari annotate seqvars \
+    --reference path/to/reference.fa \
     --transcripts path/to/transcripts-db \
     --input IN.vcf \
     --output OUT.vcf
