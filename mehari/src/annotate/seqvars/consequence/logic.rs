@@ -3572,8 +3572,8 @@ fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
     }
 }
 
-/// Whether `var_c` starts in the CDS and ends at its last base, `c.N` for a CDS of length
-/// `cds_len`, or behind it, e.g. at `c.*N`.
+/// Whether `var_c` starts in the CDS, not in an intron, and ends at its last base, `c.N` for a
+/// CDS of length `cds_len`, or behind it, e.g. at `c.*N`.
 fn crosses_cds_end(var_c: &HgvsVariant, cds_len: Option<i32>) -> bool {
     let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
         return false;
@@ -3581,7 +3581,10 @@ fn crosses_cds_end(var_c: &HgvsVariant, cds_len: Option<i32>) -> bool {
     let loc = loc_edit.loc.inner();
     let ends_at_cds_end = loc.end.cds_from == CdsFrom::End
         || (loc.end.cds_from == CdsFrom::Start && cds_len.is_some_and(|len| loc.end.base >= len));
-    loc.start.cds_from == CdsFrom::Start && loc.start.base >= 1 && ends_at_cds_end
+    loc.start.cds_from == CdsFrom::Start
+        && loc.start.base >= 1
+        && loc.start.offset.unwrap_or_default() == 0
+        && ends_at_cds_end
 }
 
 /// Whether deleting `tx_seq[del]` leaves the CDS that starts at `cds_start` intact.
@@ -6274,6 +6277,7 @@ mod test {
     #[case("c.10_*2del", true)]
     #[case("c.30_30+5del", true)]
     #[case("c.-2_30del", false)]
+    #[case("c.10+5_*2del", false)]
     fn indel_crosses_cds_end(
         #[case] var_c: &str,
         #[case] expected: bool,
