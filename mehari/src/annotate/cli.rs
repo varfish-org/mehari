@@ -75,6 +75,18 @@ impl PredictorSettings {
     pub fn vep_consequence_terms(&self) -> bool {
         self.reporting_settings.use_vep_consequence_terms || self.vep_compatibility_mode
     }
+
+    /// `--hgvs-parentheses`, by default `never` in VEP compatibility mode, as VEP writes no
+    /// parentheses, and `predicted` otherwise.
+    pub fn hgvs_parentheses(&self) -> HgvsParentheses {
+        self.reporting_settings
+            .hgvs_parentheses
+            .unwrap_or(if self.vep_compatibility_mode {
+                HgvsParentheses::Never
+            } else {
+                HgvsParentheses::Predicted
+            })
+    }
 }
 
 #[derive(Debug, ClapArgs, Clone)]
@@ -151,6 +163,11 @@ pub struct ReportingSettings {
     #[arg(long, default_value_t = false, hide = true)]
     use_vep_consequence_terms: bool,
 
+    /// Parentheses around predicted changes, e.g. `p.(Gly2Arg)`, as HGVS recommends. Default
+    /// `predicted`, `never` with `--vep-compatibility-mode`.
+    #[arg(long, value_enum)]
+    pub hgvs_parentheses: Option<HgvsParentheses>,
+
     /// Plugin to run, adding ANN columns: tx-sequence-ref, tx-sequence-alt, aa-sequence-ref,
     /// aa-sequence-alt, nmd, or the path of a WebAssembly component (`.wasm`) followed by its
     /// options as `,key=value`; `data=<dir>` lets the component read that directory.
@@ -171,6 +188,16 @@ pub struct NormalizationSettings {
     /// Whether to skip re-normalizing genomic variants.
     #[arg(long, default_value_t = false, hide = true)]
     do_not_renormalize_g: bool,
+}
+
+/// Value of `--hgvs-parentheses`.
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum HgvsParentheses {
+    /// Around predicted changes. mehari predicts every `p.`, except `p.?`.
+    #[default]
+    Predicted,
+    /// Never.
+    Never,
 }
 
 /// Unit for `--pick`.
@@ -271,4 +298,28 @@ pub enum PhasingStrategy {
 
     /// Completely ignores phasing metadata and _assumes_ all variants on the transcript are on the same haplotype.
     Ignore,
+}
+
+#[cfg(test)]
+mod test {
+    use super::{HgvsParentheses, PredictorSettings};
+
+    /// `--hgvs-parentheses` defaults to `never` in VEP compatibility mode, as VEP writes none.
+    #[rstest::rstest]
+    #[case(None, false, HgvsParentheses::Predicted)]
+    #[case(None, true, HgvsParentheses::Never)]
+    #[case(Some(HgvsParentheses::Predicted), true, HgvsParentheses::Predicted)]
+    #[case(Some(HgvsParentheses::Never), false, HgvsParentheses::Never)]
+    fn hgvs_parentheses_default(
+        #[case] option: Option<HgvsParentheses>,
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected: HgvsParentheses,
+    ) {
+        let mut settings = PredictorSettings {
+            vep_compatibility_mode,
+            ..Default::default()
+        };
+        settings.reporting_settings.hgvs_parentheses = option;
+        assert_eq!(settings.hgvs_parentheses(), expected);
+    }
 }

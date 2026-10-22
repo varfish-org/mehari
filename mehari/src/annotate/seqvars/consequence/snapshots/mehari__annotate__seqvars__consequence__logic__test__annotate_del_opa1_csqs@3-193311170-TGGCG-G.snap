@@ -1,5 +1,5 @@
 ---
-source: mehari/src/annotate/seqvars/csq.rs
+source: mehari/src/annotate/seqvars/consequence/logic.rs
 expression: res
 ---
 - allele:
@@ -26,7 +26,7 @@ expression: res
   hgvs_g: g.193311170_193311174delinsG
   hgvs_n: n.174_177del
   hgvs_c: c.4_7del
-  hgvs_p: p.Trp2AspfsTer15
+  hgvs_p: p.(Trp2AspfsTer15)
   cdna_pos:
     ord: 174
     total: 6429

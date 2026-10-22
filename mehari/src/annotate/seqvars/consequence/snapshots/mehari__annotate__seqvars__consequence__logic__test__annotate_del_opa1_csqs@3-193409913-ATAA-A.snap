@@ -1,5 +1,5 @@
 ---
-source: mehari/src/annotate/seqvars/csq.rs
+source: mehari/src/annotate/seqvars/consequence/logic.rs
 expression: res
 ---
 - allele:
@@ -27,7 +27,7 @@ expression: res
   hgvs_g: g.193409914_193409916del
   hgvs_n: n.3216_3218del
   hgvs_c: c.3046_3048del
-  hgvs_p: p.Ter1016IleextTer12
+  hgvs_p: p.(Ter1016IleextTer12)
   cdna_pos:
     ord: 3216
     total: 6429
