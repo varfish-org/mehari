@@ -2568,16 +2568,19 @@ impl ConsequencePredictor {
                                             Ordering::Less => {
                                                 consequences |= Consequence::FrameshiftTruncation;
                                             }
+                                            // The new stop codon takes the old position, so the
+                                            // protein keeps its length: its changed residues are a
+                                            // missense change, and the stop is retained. A
+                                            // frameshift inside the CDS still reads codons in
+                                            // another frame and keeps `frameshift_variant`.
                                             Ordering::Equal => {
                                                 if over_stop {
                                                     consequences |=
                                                         Consequence::StopRetainedVariant;
                                                 }
                                                 if !self.config.vep_consequence_terms {
-                                                    consequences |= Consequence::MissenseVariant;
-                                                    // TODO: discuss stop_retained
-                                                    // consequences |= Consequence::StopRetainedVariant;
-                                                    consequences &= !Consequence::FrameshiftVariant;
+                                                    consequences |= Consequence::MissenseVariant
+                                                        | Consequence::StopRetainedVariant;
                                                 }
                                             }
                                             Ordering::Greater if over_stop => {
@@ -6360,6 +6363,44 @@ mod test {
                 &ann.consequences
             ),
             (Some(expected_hgvs.0), Some(expected_hgvs.1), &expected_csqs)
+        );
+        Ok(())
+    }
+
+    /// `c.7_10del` shifts the frame of codons 4 and 5 and of the stop codon, and a new stop codon
+    /// from the 3' UTR takes the old position. The protein keeps its length, so the frameshift is
+    /// also a missense change.
+    #[test]
+    fn frameshift_keeping_protein_length() -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CTAAGCATCA");
+        let anns = predictor_for(tx, seq)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1026,
+                reference: "CAAGC".into(),
+                alternative: "C".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (
+                Some("c.7_10del"),
+                Some("p.Lys3CysfsTer4"),
+                &vec![
+                    Consequence::FrameshiftVariant,
+                    Consequence::MissenseVariant,
+                    Consequence::StopRetainedVariant
+                ]
+            )
         );
         Ok(())
     }
