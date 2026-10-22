@@ -11,7 +11,7 @@ use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::errors::{GroupValidationError, SeqvarsError};
 use crate::pbs::txs::{GenomeAlignment, Strand, Transcript, TranscriptBiotype, TranscriptTag};
-use hgvs::mapper::altseq::{RefTranscriptData, VariantLocation};
+use hgvs::mapper::altseq::{RefTranscriptData, VariantLocation, ref_transcript_data_shared};
 use hgvs::parser::{NoRef, ProteinEdit};
 use hgvs::sequences::translate_cds_with_exceptions;
 use hgvs::{
@@ -1422,11 +1422,7 @@ impl ConsequencePredictor {
                     || delins_with_stop
                     || touches_stop_codon(var_c, cds_len)
                     || self.leaves_no_codon_behind(projection, tx))
-                    && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
-                        self.provider.clone(),
-                        &tx_record.tx_ac,
-                        None,
-                    )
+                    && let Ok(ref_data) = self.ref_data(&tx_record.tx_ac)
                 {
                     context.sequence_consequences = self.sequence_consequences(var_c, &ref_data);
                 }
@@ -1498,11 +1494,7 @@ impl ConsequencePredictor {
             // codons, whatever `p.` says. For a dup, these are the codons that the insertion of
             // its copy changes.
             if self.config.vep_compatibility_mode
-                && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
-                    self.provider.clone(),
-                    &tx_record.tx_ac,
-                    None,
-                )
+                && let Ok(ref_data) = self.ref_data(&tx_record.tx_ac)
             {
                 let var_c = ins_c.unwrap_or(var_c);
                 // A phased change has no input position, so it stands for itself, its copy for a
@@ -3354,13 +3346,8 @@ impl ConsequencePredictor {
             return Ok(None);
         }
 
-        let ref_data = match hgvs::mapper::altseq::ref_transcript_data_cached(
-            self.provider.clone(),
-            &tx.id,
-            None,
-        ) {
-            Ok(r) => r,
-            Err(_) => return Ok(None),
+        let Ok(ref_data) = self.ref_data(&tx.id) else {
+            return Ok(None);
         };
 
         let vars_n = projections
@@ -3715,14 +3702,15 @@ impl ConsequencePredictor {
         }
     }
 
+    /// The reference data of transcript `tx_ac`, shared with the cache of hgvs-rs.
+    fn ref_data(&self, tx_ac: &str) -> Result<Arc<RefTranscriptData>, Error> {
+        let provider: Arc<dyn Provider + Send + Sync> = self.provider.clone();
+        ref_transcript_data_shared(&provider, tx_ac, None)
+    }
+
     /// The region of the transcript that `var_c` changes, as `c_to_p` of `self.mapper` uses it.
     fn variant_location(&self, var_c: &HgvsVariant) -> Option<VariantLocation> {
-        let ref_data = hgvs::mapper::altseq::ref_transcript_data_cached(
-            self.provider.clone(),
-            &var_c.accession().value,
-            None,
-        )
-        .ok()?;
+        let ref_data = self.ref_data(&var_c.accession().value).ok()?;
         self.mapper
             .alt_seq_builder(var_c, &ref_data)
             .and_then(|builder| builder.variant_location())
