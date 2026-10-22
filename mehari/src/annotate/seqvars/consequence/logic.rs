@@ -713,6 +713,11 @@ impl ConsequencePredictor {
         &self.custom_columns
     }
 
+    /// Whether to report VEP terms. VEP compatibility mode implies them.
+    fn vep_consequence_terms(&self) -> bool {
+        self.config.vep_consequence_terms || self.config.vep_compatibility_mode
+    }
+
     /// The HGNC ID of the gene of transcript `tx_id`, if it has one.
     pub fn hgnc_id(&self, tx_id: &str) -> Option<&str> {
         self.provider.get_tx(tx_id)?.hgnc_id.as_deref()
@@ -1815,7 +1820,7 @@ impl ConsequencePredictor {
             consequences |= Consequence::GeneVariant;
         }
 
-        if self.config.vep_consequence_terms {
+        if self.vep_consequence_terms() {
             self.adjust_vep_terms(&mut consequences, projection);
         }
 
@@ -3429,7 +3434,7 @@ impl ConsequencePredictor {
             tx,
         );
 
-        if self.config.vep_consequence_terms {
+        if self.vep_consequence_terms() {
             self.adjust_vep_terms(&mut consequences, Some(&compound_proj));
         }
         if consequences.is_empty() {
@@ -8419,6 +8424,31 @@ mod test {
             found.push(ann.consequences.clone());
         }
         assert_eq!(found, [expected_terms_only, expected_compatibility]);
+        Ok(())
+    }
+
+    /// VEP compatibility mode implies VEP terms, also without `vep_consequence_terms`. Donor +1
+    /// of `two_exon_tx(20)`, see `vep_terms_rename_only`.
+    #[test]
+    fn vep_compatibility_implies_vep_terms() -> Result<(), anyhow::Error> {
+        let (tx, seq) = two_exon_tx(20);
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(true)
+            .build()?;
+        let anns = predictor_with_config(tx, seq, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1061,
+                reference: "C".into(),
+                alternative: "T".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(ann.consequences, vec![Consequence::SpliceDonorVariant]);
         Ok(())
     }
 
