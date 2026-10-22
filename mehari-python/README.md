@@ -87,6 +87,7 @@ This column is a polars `List(Struct)` with the following fields:
 - `putative_impact`: `ImpactEnum`
 - `gene_symbol`: `String`
 - `gene_id`: `String`
+- `hgnc_id`: `String`
 - `feature_type`: `String`
 - `feature_id`: `String`
 - `feature_biotype`: `List(String)`

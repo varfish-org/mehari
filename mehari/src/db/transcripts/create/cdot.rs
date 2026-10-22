@@ -6,7 +6,7 @@ use crate::db::transcripts::create::models::{
 use anyhow::Error;
 use hgvs::data::cdot::json::models::{Gene, Transcript};
 use itertools::Itertools;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 /// Load and extract from cdot JSON.
@@ -22,6 +22,8 @@ pub fn load_cdot(
         ..
     } = read_cdot_json(path.as_ref(), progress)?;
     let cdot_genes = cdot_genes.into_iter().collect::<HashMap<_, _>>();
+    // In order of ID, so that the same transcript makes the gene of transcripts without gene
+    // record in every run.
     let cdot_transcripts = cdot_transcripts
         .into_iter()
         .map(|(txid, mut tx)| {
@@ -33,7 +35,7 @@ pub fn load_cdot(
             tx.id.clone_from(&txid);
             TranscriptId::try_new(txid).map(|t| (t, tx))
         })
-        .collect::<Result<HashMap<_, _>, _>>()?;
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
     loader.annotation_version = cdot_version;
 
     // The HGNC IDs that the versions and the transcripts of each gene name.
@@ -424,6 +426,28 @@ mod tests {
         let gene = &loader.gene_id_to_gene[&GeneId("ENSG00000000001".to_string())];
         assert_eq!(gene.gene_symbol.as_deref(), Some("GX"));
         assert_eq!(gene.hgnc.as_deref(), Some("7"));
+        Ok(())
+    }
+
+    /// Of several transcripts without gene record, the one with the lowest ID makes the gene,
+    /// whatever the order of the file.
+    #[test]
+    fn lowest_transcript_id_makes_the_gene() -> Result<(), Error> {
+        let transcripts: serde_json::Map<String, Value> = (1..=9)
+            .map(|i| {
+                let id = format!("NM_00000{i}.1");
+                let mut tx = cdot_tx(&id, "ENSG00000000001.5", Some(&i.to_string()));
+                tx["gene_name"] = json!(format!("G{i}"));
+                (id, tx)
+            })
+            .collect();
+        let loader = load_json(json!({}), Value::Object(transcripts))?;
+
+        let gene = &loader.gene_id_to_gene[&GeneId("ENSG00000000001".to_string())];
+        assert_eq!(
+            (gene.gene_symbol.as_deref(), gene.hgnc.as_deref()),
+            (Some("G1"), Some("1"))
+        );
         Ok(())
     }
 

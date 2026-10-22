@@ -1,6 +1,5 @@
 ---
 source: mehari/src/db/transcripts/subset/mod.rs
-assertion_line: 548
 expression: "String::from_utf8(buf)?"
 ---
 txDb:

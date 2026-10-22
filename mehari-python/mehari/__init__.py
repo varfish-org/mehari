@@ -41,6 +41,7 @@ class AnnotationDict(typing.TypedDict):
     putative_impact: str
     gene_symbol: str
     gene_id: str
+    hgnc_id: str | None
     feature_type: str
     feature_id: str
     feature_biotype: list[FeatureBiotypeType]

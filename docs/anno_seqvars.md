@@ -64,6 +64,10 @@ Four options narrow this down:
   Criteria before `severity` need no annotation, so `--pick gene --pick-order mane-select` annotates only the picked transcripts.
 - `--flag-pick` keeps all annotations and marks the picked ones with `1` in an extra ANN column, `pick`, after the columns of the plugins.
 
+In these options, a gene is a gene entry of the transcript database: the transcripts of one gene ID without version, e.g. `ENSG00000182378` for all versions of PLCXD1.
+So `--pick gene` reports a RefSeq gene and an Ensembl gene separately, also if they have the same HGNC ID.
+This also applies where `--pick gene` replaces `--report-most-severe-consequence-by gene` in the table below.
+
 These options replace `--pick-transcript`, `--pick-transcript-mode` and `--report-most-severe-consequence-by`:
 
 | Before | Now |

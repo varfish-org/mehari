@@ -1,6 +1,7 @@
+use crate::common::contig::ContigManager;
 use crate::common::progress::{Progress, open_with_progress};
 use crate::db::transcripts::create::cdot_models;
-use crate::db::transcripts::create::filter::MITOCHONDRIAL_ACCESSIONS;
+use crate::db::transcripts::create::filter::is_mitochondrial;
 use crate::db::transcripts::create::models::{
     GeneId, TranscriptId, TranscriptLoader, gene_id_without_version,
 };
@@ -233,6 +234,7 @@ pub fn load_gff3(
     // The `GeneId` of each gene row, and its gene ID with version for the transcripts.
     let mut raw_id_to_gene_id: HashMap<String, (GeneId, String)> = HashMap::new();
     let mut gene_symbols: HashMap<GeneId, String> = HashMap::new();
+    let contigs = ContigManager::new(&loader.genome_release);
 
     for result in gff_reader.record_bufs() {
         let record = result?;
@@ -353,10 +355,9 @@ pub fn load_gff3(
             f if f.contains("transcript") || f.contains("mRNA") || f.ends_with("RNA") => {
                 // RefSeq has no `transcript_id` on mitochondrial mRNAs. Name them as cdot
                 // does, plus the version that `load_cdot` adds, e.g. `fake-rna-ND1.0`.
-                let mt_mrna_id = (f == "mRNA"
-                    && MITOCHONDRIAL_ACCESSIONS.contains(&contig.as_str()))
-                .then(|| raw_id.as_ref().map(|id| format!("fake-{id}.0")))
-                .flatten();
+                let mt_mrna_id = (f == "mRNA" && is_mitochondrial(&contigs, &contig))
+                    .then(|| raw_id.as_ref().map(|id| format!("fake-{id}.0")))
+                    .flatten();
                 let resolved_tx_id = resolve_id(
                     get_attr("transcript_id").or(mt_mrna_id),
                     get_attr("version").or_else(|| get_attr("transcript_version")),
@@ -565,6 +566,15 @@ pub fn load_gff3(
         } else {
             cds_fragments.iter_mut().min_by_key(|(start, _, _)| *start)
         };
+        // RefSeq marks an incomplete CDS start with `start_range` on `+` and with `end_range` on
+        // `-`. Check it before the phase moves that end of the first fragment.
+        let open_5p_end = first_fragment.as_ref().is_some_and(|(start, end, _)| {
+            if is_reverse {
+                children.cds_open_ends.contains(end)
+            } else {
+                children.cds_open_starts.contains(start)
+            }
+        });
         if let Some((start, end, phase)) = first_fragment {
             let phase = i32::from(*phase);
             if is_reverse {
@@ -600,6 +610,11 @@ pub fn load_gff3(
         let cds_end_nf = Tag::Other("cds_end_NF".into());
         if open_3p_end && !tags.contains(&cds_end_nf) {
             tags.push(cds_end_nf);
+        }
+        // `cds_start_incomplete` reads an open 5' end as the `cds_start_NF` tag of GENCODE.
+        let cds_start_nf = Tag::Other("cds_start_NF".into());
+        if open_5p_end && !tags.contains(&cds_start_nf) {
+            tags.push(cds_start_nf);
         }
 
         // Map the first and last CDS base in transcript direction to transcript positions.
@@ -782,7 +797,7 @@ mod tests {
     use crate::db::transcripts::create::filter::{
         filter_transcripts, filter_transcripts_with_sequence,
     };
-    use crate::db::transcripts::create::models::{Identifier, Reason, TranscriptExt};
+    use crate::db::transcripts::create::models::{Fix, Identifier, Reason, TranscriptExt};
     use crate::db::transcripts::create::reference::SequenceProvider;
     use anyhow::Context;
     use flate2::Compression;
@@ -842,10 +857,11 @@ chr1\ttest\tCDS\t2001\t2100\t.\t-\t0\tID=cds:T3M.2;Parent=transcript:T3M;transl_
 chr1\ttest\tCDS\t2301\t2390\t.\t-\t0\tID=cds:T3M.1;Parent=transcript:T3M;transl_except=(pos:complement(2001..2001)%2Caa:TERM)
 ";
 
-    /// RefSeq transcripts whose CDS rows are open at one end: NM_000010.1 (`+`) at its 3' end
+    /// Transcripts whose CDS rows are open at one end. RefSeq: NM_000010.1 (`+`) at its 3' end
     /// with `end_range`, NM_000011.1 (`-`) at its 3' end with `start_range`, NM_000012.1 (`+`)
-    /// at its 5' end with `start_range`, and NM_000013.1 (`+`) at both sides of a hole in the
-    /// alignment.
+    /// at its 5' end with `start_range` and phase 1, NM_000013.1 (`+`) at both sides of a hole
+    /// in the alignment, and NM_000014.1 (`-`) at its 5' end with `end_range` and phase 2.
+    /// GENCODE: ENST00000100014.1 (`+`) with the tag `cds_start_NF` and phase 1.
     const GFF3_OPEN_ENDS: &str = "\
 ##gff-version 3
 NC_000001.11\tBestRefSeq\tmRNA\t1001\t1300\t.\t+\t.\tID=rna-NM_000010.1;transcript_id=NM_000010.1;partial=true;end_range=1300,.
@@ -856,12 +872,18 @@ NC_000001.11\tBestRefSeq\texon\t2001\t2300\t.\t-\t.\tParent=rna-NM_000011.1
 NC_000001.11\tBestRefSeq\tCDS\t2001\t2290\t.\t-\t0\tParent=rna-NM_000011.1;protein_id=NP_000011.1;partial=true;start_range=.,2001
 NC_000001.11\tBestRefSeq\tmRNA\t3001\t3300\t.\t+\t.\tID=rna-NM_000012.1;transcript_id=NM_000012.1;partial=true;start_range=.,3001
 NC_000001.11\tBestRefSeq\texon\t3001\t3300\t.\t+\t.\tParent=rna-NM_000012.1
-NC_000001.11\tBestRefSeq\tCDS\t3001\t3290\t.\t+\t0\tParent=rna-NM_000012.1;protein_id=NP_000012.1;partial=true;start_range=.,3001
+NC_000001.11\tBestRefSeq\tCDS\t3001\t3290\t.\t+\t1\tParent=rna-NM_000012.1;protein_id=NP_000012.1;partial=true;start_range=.,3001
 NC_000001.11\tBestRefSeq\tmRNA\t4001\t4300\t.\t+\t.\tID=rna-NM_000013.1;transcript_id=NM_000013.1;partial=true
 NC_000001.11\tBestRefSeq\texon\t4001\t4150\t.\t+\t.\tParent=rna-NM_000013.1;partial=true;end_range=4150,.
 NC_000001.11\tBestRefSeq\texon\t4152\t4300\t.\t+\t.\tParent=rna-NM_000013.1;partial=true;start_range=.,4152
 NC_000001.11\tBestRefSeq\tCDS\t4011\t4150\t.\t+\t0\tParent=rna-NM_000013.1;protein_id=NP_000013.1;partial=true;end_range=4150,.
 NC_000001.11\tBestRefSeq\tCDS\t4152\t4290\t.\t+\t1\tParent=rna-NM_000013.1;protein_id=NP_000013.1;partial=true;start_range=.,4152
+NC_000001.11\tBestRefSeq\tmRNA\t5001\t5300\t.\t-\t.\tID=rna-NM_000014.1;transcript_id=NM_000014.1;partial=true;end_range=5300,.
+NC_000001.11\tBestRefSeq\texon\t5001\t5300\t.\t-\t.\tParent=rna-NM_000014.1
+NC_000001.11\tBestRefSeq\tCDS\t5011\t5300\t.\t-\t2\tParent=rna-NM_000014.1;protein_id=NP_000014.1;partial=true;end_range=5300,.
+chr1\tHAVANA\ttranscript\t6001\t6300\t.\t+\t.\tID=ENST00000100014.1;transcript_id=ENST00000100014.1;tag=cds_start_NF,mRNA_start_NF
+chr1\tHAVANA\texon\t6001\t6300\t.\t+\t.\tParent=ENST00000100014.1
+chr1\tHAVANA\tCDS\t6001\t6290\t.\t+\t1\tParent=ENST00000100014.1;protein_id=ENSP00000100014.1
 ";
 
     /// RefSeq-style transcripts. Their `cDNA_match` rows hold the alignment to the genome:
@@ -1112,6 +1134,40 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
         Ok(())
     }
 
+    /// A mitochondrial transcript is known by the name of its contig in each source. Its CDS
+    /// starts with `ATA`, Met in the vertebrate mitochondrial code, and ends with `TA`, which the
+    /// poly-A tail completes to the stop codon `TAA`.
+    #[rstest::rstest]
+    #[case::refseq("NC_012920.1")]
+    #[case::gencode("chrM")]
+    #[case::ensembl("MT")]
+    fn mitochondrial_contig_is_known_by_its_name(
+        #[case] contig: &str,
+    ) -> Result<(), anyhow::Error> {
+        let gff3 = format!(
+            "##gff-version 3
+{contig}\ttest\tmRNA\t1001\t1008\t.\t+\t.\tID=rna-MT1;transcript_id=MT1.1
+{contig}\ttest\texon\t1001\t1008\t.\t+\t.\tParent=rna-MT1
+{contig}\ttest\tCDS\t1001\t1008\t.\t+\t0\tParent=rna-MT1;protein_id=MP1.1
+"
+        );
+        let mut loader = load(&gff3)?;
+        let mut seq_provider = SequenceProvider::FastaMap(HashMap::from([(
+            "MT1.1".to_string(),
+            "ATAAAATA".to_string(),
+        )]));
+        filter_transcripts_with_sequence(&mut loader, &mut seq_provider, &NoProgress)?;
+
+        let id = Identifier::Transcript(TranscriptId::try_new("MT1.1")?);
+        let reason = loader.discards.get(&id).copied().unwrap_or_default();
+        assert!(reason.is_empty(), "{reason:?}");
+        let fixes = loader.fixes.get(&id).copied().unwrap_or_default();
+        assert!(fixes.contains(Fix::Cds), "{fixes:?}");
+        assert_eq!(transcript(&loader, "MT1.1")?.0.stop_codon, Some(9));
+
+        Ok(())
+    }
+
     /// A RefSeq CDS row that is open at the 3' end of the CDS marks the CDS end as incomplete,
     /// as `cds_end_NF` does. An open 5' end or a hole in the alignment does not.
     #[rstest::rstest]
@@ -1119,6 +1175,7 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
     #[case::minus_3p_end("NM_000011.1", true)]
     #[case::plus_5p_end("NM_000012.1", false)]
     #[case::hole("NM_000013.1", false)]
+    #[case::minus_5p_end("NM_000014.1", false)]
     fn open_3p_end_marks_an_incomplete_cds_end(
         #[case] tx_id: &str,
         #[case] incomplete: bool,
@@ -1130,6 +1187,42 @@ NC_000001.11\tBestRefSeq\tCDS\t7011\t7100\t.\t+\t0\tID=cds-NP_000009.1;Parent=rn
             .context("transcript not loaded")?;
         assert_eq!(tx.partial, Some(1));
         assert_eq!(tx.cds_end_incomplete(), incomplete);
+        Ok(())
+    }
+
+    /// A RefSeq CDS row that is open at the 5' end of the CDS marks the CDS start as incomplete,
+    /// as `cds_start_NF` does, also if its phase moves the CDS start. An open 3' end or a hole in
+    /// the alignment does not.
+    #[rstest::rstest]
+    #[case::plus_3p_end("NM_000010.1", false)]
+    #[case::minus_3p_end("NM_000011.1", false)]
+    #[case::plus_5p_end("NM_000012.1", true)]
+    #[case::hole("NM_000013.1", false)]
+    #[case::minus_5p_end("NM_000014.1", true)]
+    fn open_5p_end_marks_an_incomplete_cds_start(
+        #[case] tx_id: &str,
+        #[case] incomplete: bool,
+    ) -> Result<(), anyhow::Error> {
+        let loader = load(GFF3_OPEN_ENDS)?;
+        let (tx, _) = transcript(&loader, tx_id)?;
+        assert_eq!(tx.cds_start_incomplete(), incomplete);
+        Ok(())
+    }
+
+    /// A CDS that is incomplete at its 5' end is flagged, also if its phase leaves bases in
+    /// front of it.
+    #[rstest::rstest]
+    #[case::refseq_plus("NM_000012.1")]
+    #[case::refseq_minus("NM_000014.1")]
+    #[case::gencode_cds_start_nf("ENST00000100014.1")]
+    fn incomplete_cds_start_is_flagged(#[case] tx_id: &str) -> Result<(), anyhow::Error> {
+        let mut loader = load(GFF3_OPEN_ENDS)?;
+        let mut seq_provider =
+            SequenceProvider::FastaMap(HashMap::from([(tx_id.to_string(), "C".repeat(300))]));
+        filter_transcripts_with_sequence(&mut loader, &mut seq_provider, &NoProgress)?;
+
+        let reason = loader.discards[&Identifier::Transcript(TranscriptId::try_new(tx_id)?)];
+        assert!(reason.contains(Reason::FivePrimeEndTruncated), "{reason:?}");
         Ok(())
     }
 

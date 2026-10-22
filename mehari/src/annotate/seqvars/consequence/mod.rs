@@ -320,7 +320,7 @@ pub struct Config {
     #[builder(default = "false")]
     pub keep_intergenic: bool,
 
-    /// Whether to report splice variants in UTRs.
+    /// Drop the splice terms of variants in UTRs.
     #[builder(default = "false")]
     pub discard_utr_splice_variants: bool,
 
@@ -337,7 +337,7 @@ pub struct Config {
     pub vep_consequence_terms: bool,
 
     /// Whether to reproduce VEP's behaviour where it differs from HGVS or SO, e.g. its stop terms
-    /// of indels. `--vep-compatibility-mode` also sets `vep_consequence_terms`.
+    /// of indels. Implies `vep_consequence_terms`.
     #[builder(default = "false")]
     pub vep_compatibility_mode: bool,
 
