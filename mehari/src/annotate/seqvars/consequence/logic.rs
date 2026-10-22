@@ -11,7 +11,7 @@ use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::errors::{GroupValidationError, SeqvarsError};
 use crate::pbs::txs::{GenomeAlignment, Strand, Transcript, TranscriptBiotype, TranscriptTag};
-use hgvs::mapper::altseq::{RefTranscriptData, VariantLocation};
+use hgvs::mapper::altseq::{RefTranscriptData, VariantLocation, ref_transcript_data_shared};
 use hgvs::parser::{NoRef, ProteinEdit};
 use hgvs::sequences::translate_cds_with_exceptions;
 use hgvs::{
@@ -692,15 +692,51 @@ impl ConsequencePredictor {
     /// The context of a transcript annotation; empty if no plugin reads it.
     fn tx_context(
         &self,
-        tx: Option<&Transcript>,
+        tx_id: Option<String>,
         var_c: Option<HgvsVariant>,
         var_n: Option<HgvsVariant>,
     ) -> TxContext {
         if self.config.plugins.is_empty() {
             TxContext::empty()
         } else {
-            TxContext::new(self.provider.clone(), tx, var_c, var_n)
+            TxContext::new(self.provider.clone(), tx_id, var_c, var_n)
         }
+    }
+
+    /// The context of the annotation of `projection` on transcript `tx_id`, which takes the
+    /// variants of `projection` over; empty if no plugin reads it.
+    fn projection_context(
+        &self,
+        tx_id: String,
+        projection: Option<HgvsProjectionContext>,
+        alignment: &GenomeAlignment,
+    ) -> TxContext {
+        if self.config.plugins.is_empty() {
+            return TxContext::empty();
+        }
+        let edge_in_intron = (projection.as_ref()).and_then(|p| self.edge_bases_in_intron(p));
+        let ins_at_boundary_is_intronic =
+            edge_in_intron.unwrap_or(self.mapper.config.ins_at_boundary_is_intronic);
+        let alt_depends_on_splicing = (projection.as_ref())
+            .and_then(|p| p.n.as_ref())
+            .is_some_and(|var_n| {
+                // Unless they count as intronic, the bases of an insertion at an exon edge join
+                // the exon and leave the splice site intact. Where hgvs-rs decides this per
+                // variant, so do those of the copy of a dup that can go there.
+                let at_edge = match edge_in_intron {
+                    Some(_) => var_n.exon_edge_gap().is_some(),
+                    None => var_n.is_exon_edge_insertion(),
+                };
+                var_n.alt_depends_on_splicing(alignment)
+                    && (ins_at_boundary_is_intronic || !at_edge)
+            });
+        let (var_c, var_n, region) =
+            projection.map_or((None, None, None), |p| (p.c, p.n, p.region));
+        TxContext::new(self.provider.clone(), Some(tx_id), var_c, var_n).with_alt_inputs(
+            region,
+            alt_depends_on_splicing,
+            ins_at_boundary_is_intronic,
+        )
     }
 
     /// Run the plugins on the reported annotations of one prediction.
@@ -1271,9 +1307,9 @@ impl ConsequencePredictor {
                 // hgvs-rs puts it in front of the dup.
                 let vep = self.config.vep_compatibility_mode;
                 let var_c = if vep { ins_c.unwrap_or(var_c) } else { var_c };
-                if let Some(var_p) = self.safe_project_c_to_p(var_c)? {
+                if let Some((var_p, region)) = self.safe_project_c_to_p(var_c)? {
                     projection.p = Some(var_p);
-                    projection.region = self.variant_location(var_c);
+                    projection.region = region;
                 }
             }
         }
@@ -1386,11 +1422,7 @@ impl ConsequencePredictor {
                     || delins_with_stop
                     || touches_stop_codon(var_c, cds_len)
                     || self.leaves_no_codon_behind(projection, tx))
-                    && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
-                        self.provider.clone(),
-                        &tx_record.tx_ac,
-                        None,
-                    )
+                    && let Ok(ref_data) = self.ref_data(&tx_record.tx_ac)
                 {
                     context.sequence_consequences = self.sequence_consequences(var_c, &ref_data);
                 }
@@ -1462,11 +1494,7 @@ impl ConsequencePredictor {
             // codons, whatever `p.` says. For a dup, these are the codons that the insertion of
             // its copy changes.
             if self.config.vep_compatibility_mode
-                && let Ok(ref_data) = hgvs::mapper::altseq::ref_transcript_data_cached(
-                    self.provider.clone(),
-                    &tx_record.tx_ac,
-                    None,
-                )
+                && let Ok(ref_data) = self.ref_data(&tx_record.tx_ac)
             {
                 let var_c = ins_c.unwrap_or(var_c);
                 // A phased change has no input position, so it stands for itself, its copy for a
@@ -1797,7 +1825,8 @@ impl ConsequencePredictor {
             ),
             None => (None, None, None, None),
         };
-        let projection = projection.as_ref().map(|(projection, _)| projection);
+        let owned_projection = projection.map(|(projection, _)| projection);
+        let projection = owned_projection.as_ref();
 
         let hgvs_g = Some(self.format_hgvs_g(var_g));
         let hgvs_n = projection
@@ -1891,29 +1920,9 @@ impl ConsequencePredictor {
             messages,
             custom_fields: BTreeMap::new(),
         };
-        let region = projection.and_then(|p| p.region);
-        let edge_in_intron = projection.and_then(|p| self.edge_bases_in_intron(p));
-        let ins_at_boundary_is_intronic =
-            edge_in_intron.unwrap_or(self.mapper.config.ins_at_boundary_is_intronic);
-        let alt_depends_on_splicing = projection.and_then(|p| p.n.as_ref()).is_some_and(|var_n| {
-            // Unless they count as intronic, the bases of an insertion at an exon edge join the
-            // exon and leave the splice site intact. Where hgvs-rs decides this per variant, so
-            // do those of the copy of a dup that can go there.
-            let at_edge = match edge_in_intron {
-                Some(_) => var_n.exon_edge_gap().is_some(),
-                None => var_n.is_exon_edge_insertion(),
-            };
-            var_n.alt_depends_on_splicing(alignment) && (ins_at_boundary_is_intronic || !at_edge)
-        });
-        let var_c = projection.and_then(|p| p.c.clone());
-        let var_n = projection.and_then(|p| p.n.clone());
 
         Ok(Some(TxAnnotation {
-            context: self.tx_context(Some(tx), var_c, var_n).with_alt_inputs(
-                region,
-                alt_depends_on_splicing,
-                ins_at_boundary_is_intronic,
-            ),
+            context: self.projection_context(tx_record.tx_ac, owned_projection, alignment),
             ann,
         }))
     }
@@ -3337,13 +3346,8 @@ impl ConsequencePredictor {
             return Ok(None);
         }
 
-        let ref_data = match hgvs::mapper::altseq::ref_transcript_data_cached(
-            self.provider.clone(),
-            &tx.id,
-            None,
-        ) {
-            Ok(r) => r,
-            Err(_) => return Ok(None),
+        let Ok(ref_data) = self.ref_data(&tx.id) else {
+            return Ok(None);
         };
 
         let vars_n = projections
@@ -3420,14 +3424,12 @@ impl ConsequencePredictor {
             }
         };
 
-        let compound_var_p = self.safe_project_c_to_p(&compound_var_c)?;
-        let region = compound_var_p
-            .as_ref()
-            .and_then(|_| self.variant_location(&compound_var_c));
+        let (compound_var_p, region) = self.safe_project_c_to_p(&compound_var_c)?.unzip();
+        let region = region.flatten();
 
         let compound_proj = HgvsProjectionContext {
-            n: Some(compound_var_n.clone()),
-            c: Some(compound_var_c.clone()),
+            n: Some(compound_var_n),
+            c: Some(compound_var_c),
             p: compound_var_p,
             region,
             unshifted_g: None,
@@ -3551,16 +3553,13 @@ impl ConsequencePredictor {
             custom_fields: BTreeMap::new(),
         };
 
+        let ins_at_boundary_is_intronic = (self.edge_bases_in_intron(&compound_proj))
+            .unwrap_or(self.mapper.config.ins_at_boundary_is_intronic);
         Ok(Some(TxAnnotation {
             context: self
-                .tx_context(Some(tx), Some(compound_var_c), Some(compound_var_n))
+                .tx_context(Some(tx.id.clone()), compound_proj.c, compound_proj.n)
                 .with_ref_data(ref_data)
-                .with_alt_inputs(
-                    None,
-                    false,
-                    self.edge_bases_in_intron(&compound_proj)
-                        .unwrap_or(self.mapper.config.ins_at_boundary_is_intronic),
-                ),
+                .with_alt_inputs(None, false, ins_at_boundary_is_intronic),
             ann,
         }))
     }
@@ -3703,14 +3702,15 @@ impl ConsequencePredictor {
         }
     }
 
+    /// The reference data of transcript `tx_ac`, shared with the cache of hgvs-rs.
+    fn ref_data(&self, tx_ac: &str) -> Result<Arc<RefTranscriptData>, Error> {
+        let provider: Arc<dyn Provider + Send + Sync> = self.provider.clone();
+        ref_transcript_data_shared(&provider, tx_ac, None)
+    }
+
     /// The region of the transcript that `var_c` changes, as `c_to_p` of `self.mapper` uses it.
     fn variant_location(&self, var_c: &HgvsVariant) -> Option<VariantLocation> {
-        let ref_data = hgvs::mapper::altseq::ref_transcript_data_cached(
-            self.provider.clone(),
-            &var_c.accession().value,
-            None,
-        )
-        .ok()?;
+        let ref_data = self.ref_data(&var_c.accession().value).ok()?;
         self.mapper
             .alt_seq_builder(var_c, &ref_data)
             .and_then(|builder| builder.variant_location())
@@ -3738,12 +3738,15 @@ impl ConsequencePredictor {
     }
 
     /// Safely projects a CDS variant to a Protein variant, gracefully catching
-    /// and swallowing expected incomplete-transcript errors as `None`.
+    /// and swallowing expected incomplete-transcript errors as `None`. With the protein comes the
+    /// region of the transcript that `c_to_p` built it for. For a dup whose intron bases are
+    /// unknown (`DuplicationReferenceMissing`), `c_to_p` builds nothing: the protein is `p.?` and
+    /// the region comes from the builder, see `variant_location`.
     fn safe_project_c_to_p(
         &self,
         var_c: &HgvsVariant,
-    ) -> Result<Option<HgvsVariant>, SeqvarsError> {
-        self.mapper.c_to_p(var_c).map_or_else(
+    ) -> Result<Option<(HgvsVariant, Option<VariantLocation>)>, SeqvarsError> {
+        self.mapper.c_to_p_with_region(var_c).map_or_else(
             |e| {
                 if matches!(e, Error::DuplicationReferenceMissing(_)) {
                     // The intron bases of the dup are unknown, so is its protein change.
@@ -3752,7 +3755,7 @@ impl ConsequencePredictor {
                         gene_symbol: var_c.gene_symbol().clone(),
                         loc_edit: ProtLocEdit::Unknown,
                     };
-                    return Ok(Some(var_p));
+                    return Ok(Some((var_p, self.variant_location(var_c))));
                 }
                 if matches!(
                     e,
@@ -3783,7 +3786,7 @@ impl ConsequencePredictor {
                     )))
                 }
             },
-            |var_p| Ok(Some(var_p)),
+            |(var_p, region)| Ok(Some((var_p, Some(region)))),
         )
     }
 }
@@ -8925,15 +8928,22 @@ mod test {
     }
 
     /// hgvs-rs takes the intron bases of a dup next to an exon from the variant. Without them,
-    /// the protein change is unknown.
-    #[test]
-    fn safe_project_c_to_p_dup_without_intron_bases() -> Result<(), anyhow::Error> {
+    /// the protein change is unknown. The region then follows `ins_at_boundary_is_intronic`,
+    /// with or without the decision by sequence that VEP compatibility mode switches off.
+    /// mehari sets it to `false` in both modes, so the copy joins the exon.
+    #[rstest::rstest]
+    fn safe_project_c_to_p_dup_without_intron_bases(
+        #[values(false, true)] vep_compatibility_mode: bool,
+    ) -> Result<(), anyhow::Error> {
         let (tx, seq) = two_exon_tx(20);
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
         let var_c = HgvsVariant::from_str("NM_000001.1:c.40+1dup")?;
-        let var_p = predictor_for(tx, seq).safe_project_c_to_p(&var_c)?;
+        let projection = predictor_with_config(tx, seq, config).safe_project_c_to_p(&var_c)?;
         assert_eq!(
-            var_p.map(|var_p| FormattedLoc(&var_p).to_string()),
-            Some("p.?".to_string())
+            projection.map(|(var_p, region)| (FormattedLoc(&var_p).to_string(), region)),
+            Some(("p.?".to_string(), Some(VariantLocation::Cds)))
         );
         Ok(())
     }

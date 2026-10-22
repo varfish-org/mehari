@@ -48,7 +48,7 @@ enumflags2 = { version = "0.7.11", features = ["serde"] }
 env_logger = "0.11"
 flate2 = "1.1"
 futures = "0.3"
-hgvs = { git = "https://github.com/varfish-org/hgvs-rs", rev = "cd43758dd38fa0d017148b762d72f0a6cfbead34" }
+hgvs = "3.0.0"
 indexmap = { version = "2.13", features = ["serde"] }
 itertools = "0.15"
 jsonl = "4.0"

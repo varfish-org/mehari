@@ -9,9 +9,10 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use hgvs::data::interface::Provider;
 use hgvs::mapper::altseq::{
     AltSeqBuilder, AltTranscriptData, RefTranscriptData, VariantLocation,
-    ref_transcript_data_cached,
+    ref_transcript_data_shared,
 };
 use hgvs::parser::HgvsVariant;
 use itertools::Itertools;
@@ -209,20 +210,21 @@ pub struct TxContext {
     /// The `AltSeqBuilder` setting that gives the alternative sequence of `c_to_p` for
     /// `var_c`: whether the bases of an insertion at an exon edge are intronic.
     ins_at_boundary_is_intronic: bool,
-    ref_data: OnceCell<Option<RefTranscriptData>>,
+    /// Shared with the cache of hgvs-rs.
+    ref_data: OnceCell<Option<Arc<RefTranscriptData>>>,
     alt_data: OnceCell<Option<AltTranscriptData>>,
 }
 
 impl TxContext {
     pub(crate) fn new(
         provider: Arc<MehariProvider>,
-        tx: Option<&Transcript>,
+        tx_id: Option<String>,
         var_c: Option<HgvsVariant>,
         var_n: Option<HgvsVariant>,
     ) -> Self {
         Self {
             provider: Some(provider),
-            tx_id: tx.map(|tx| tx.id.clone()),
+            tx_id,
             var_c,
             var_n,
             region: None,
@@ -263,7 +265,7 @@ impl TxContext {
     }
 
     /// Reuse reference data the caller has computed already.
-    pub(crate) fn with_ref_data(mut self, ref_data: RefTranscriptData) -> Self {
+    pub(crate) fn with_ref_data(mut self, ref_data: Arc<RefTranscriptData>) -> Self {
         self.ref_data = OnceCell::from(Some(ref_data));
         self
     }
@@ -298,9 +300,10 @@ impl TxContext {
         self.ref_data
             .get_or_init(|| {
                 let tx_id = self.tx_id.as_deref()?;
-                ref_transcript_data_cached(self.provider.clone()?, tx_id, None).ok()
+                let provider: Arc<dyn Provider + Send + Sync> = self.provider.clone()?;
+                ref_transcript_data_shared(&provider, tx_id, None).ok()
             })
-            .as_ref()
+            .as_deref()
     }
 
     /// Transcript and protein sequence with the variant applied; `None` if the variant changes
