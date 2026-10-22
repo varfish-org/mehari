@@ -1938,6 +1938,10 @@ impl ConsequencePredictor {
         {
             consequences.remove(MissenseVariant);
         }
+        // VEP's `frameshift` excludes `stop_retained_variant`.
+        if self.config.vep_compatibility_mode && consequences.contains(StopRetainedVariant) {
+            consequences.remove(FrameshiftVariant | FrameshiftElongation | FrameshiftTruncation);
+        }
 
         let exonic_splice_region = consequences.contains(ExonicSpliceRegionVariant);
         if exonic_splice_region {
@@ -4614,7 +4618,7 @@ mod test {
     ///
     /// With VEP terms, the expected terms are those of VEP 116.3 with `--shift_3prime 1`. mehari
     /// adds `protein_altering_variant`. At the stop codon, mehari keeps `frameshift_variant` next
-    /// to `stop_lost` or `stop_retained_variant`, which VEP drops.
+    /// to `stop_lost`, which VEP drops.
     #[rstest::rstest]
     // `p.Val170Ter`: VEP's changed codons hold no complete codon of the new frame
     #[case("22:19524002:AC:A", "ENST00000403084", true, vec![Consequence::FrameshiftVariant])]
@@ -4637,12 +4641,12 @@ mod test {
     #[case("22:42571197:T:TG", "ENST00000340239", true, vec![Consequence::FrameshiftVariant, Consequence::StopLost])]
     // `p.Ter704=`: VEP's changed codons end in a partial codon, and the bases at the stop codon
     // still read a stop codon
-    #[case("22:45600444:TG:T", "ENST00000327858", true, vec![Consequence::FrameshiftVariant, Consequence::StopRetainedVariant])]
+    #[case("22:45600444:TG:T", "ENST00000327858", true, vec![Consequence::StopRetainedVariant])]
     // `p.Ter204=`: VEP's changed codons end in a partial codon, and VEP does not count the
     // insertion behind the first base of the stop codon as overlapping it
     #[case("22:42571196:T:TTAAC", "ENST00000340239", true, vec![Consequence::FrameshiftVariant])]
     // `p.Ter512=`: the new frame starts with a stop codon
-    #[case("22:17181484:C:CT", "ENST00000262607", true, vec![Consequence::FrameshiftVariant, Consequence::StopRetainedVariant])]
+    #[case("22:17181484:C:CT", "ENST00000262607", true, vec![Consequence::StopRetainedVariant])]
     // `p.Ter704AspextTer1`: in-frame insertion in front of the stop codon
     #[case("22:45600443:C:CGAT", "ENST00000327858", true, vec![Consequence::InframeInsertion])]
     // `p.Cys203Ter` (VEP: `p.Cys203del`): in-frame deletion in front of the stop codon
