@@ -92,7 +92,7 @@ regex = "1.12.4"
 indicatif = { version = "0.18.4", features = ["rayon"] }
 
 [dependencies.noodles]
-version = "0.117.0"
+version = "0.118.0"
 features = ["async", "core", "vcf", "bcf", "csi", "fasta", "tabix", "gff"]
 
 [dependencies.noodles-bgzf]
