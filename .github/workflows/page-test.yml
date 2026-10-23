@@ -16,7 +16,7 @@ jobs:
           lfs: true
 
       - name: locosopa
-        uses: koesterlab/locosopa@44cf6bc85f9fbb4e4a26112779dc58abd90a758e # v1.4.0
+        uses: koesterlab/locosopa@054a450eb871569eba6068712684519747d0ddf3 # v1.5.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config: page/config.yaml
