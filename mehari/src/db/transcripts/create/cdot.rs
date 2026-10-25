@@ -36,6 +36,7 @@ pub fn load_cdot(
             TranscriptId::try_new(txid).map(|t| (t, tx))
         })
         .collect::<Result<BTreeMap<_, _>, _>>()?;
+    let codons_count_unaligned = codons_count_unaligned_bases(&cdot_version);
     loader.annotation_version = cdot_version;
 
     // The HGNC IDs that the versions and the transcripts of each gene name.
@@ -64,7 +65,7 @@ pub fn load_cdot(
     }
 
     for (tx_id, mut tx) in cdot_transcripts {
-        shift_codons_past_unaligned_bases(&mut tx, &loader.genome_release);
+        shift_codons_past_unaligned_bases(&mut tx, &loader.genome_release, codons_count_unaligned);
         let (gene_id, key) = gene_key(&tx);
         if let Some(hgnc) = &tx.hgnc {
             hgnc_ids
@@ -133,17 +134,32 @@ fn gene_key(tx: &Transcript) -> (GeneId, &str) {
     }
 }
 
+/// Whether the cdot data release `cdot_version`, e.g. `0.2.36`, counts the transcript bases that
+/// align nowhere in `start_codon` and `stop_codon`, as in the transcript positions of the exons.
+/// It does since 0.2.34 (SACGF/cdot#123).
+fn codons_count_unaligned_bases(cdot_version: &str) -> bool {
+    let version: Vec<u32> = (cdot_version.split('.'))
+        .map_while(|part| part.parse().ok())
+        .collect();
+    version.as_slice() >= [0, 2, 34].as_slice()
+}
+
 /// Count the unaligned bases in front of the codons of a cdot transcript, as the exons do.
 ///
-/// cdot sets `start_codon` and `stop_codon` from the transcript lengths of the exons in front of
-/// the codon. It leaves out the transcript bases that align nowhere: those in front of the first
-/// exon and those between two exons. `TranscriptLoader::fix_unaligned_bases` adds these bases to
-/// the exons, so the codons must count them, too.
+/// Up to data release 0.2.33, cdot sets `start_codon` and `stop_codon` from the transcript
+/// lengths of the exons in front of the codon. It leaves out the transcript bases that align
+/// nowhere: those in front of the first exon and those between two exons.
+/// `TranscriptLoader::fix_unaligned_bases` adds these bases to the exons, so the codons must count
+/// them, too. Since 0.2.34, cdot counts them itself, which `codons_count_unaligned` tells.
 ///
 /// A CDS that starts in unaligned bases begins at the first aligned base in cdot, without its
 /// frame. If its length is then no multiple of 3, the frame comes from the stop codon, as GFF3
 /// gives it with the phase.
-fn shift_codons_past_unaligned_bases(tx: &mut cdot_models::Transcript, genome_release: &str) {
+fn shift_codons_past_unaligned_bases(
+    tx: &mut cdot_models::Transcript,
+    genome_release: &str,
+    codons_count_unaligned: bool,
+) {
     let Some((_, alignment)) = tx
         .genome_builds
         .iter()
@@ -153,25 +169,27 @@ fn shift_codons_past_unaligned_bases(tx: &mut cdot_models::Transcript, genome_re
     };
     let mut exons: Vec<_> = alignment.exons.iter().collect();
     exons.sort_by_key(|exon| exon.ord);
-    // The unaligned bases in front of the exon that holds the 0-based transcript position
-    // `pos`, which counts the exons as cdot does.
-    let unaligned_before = |pos: i32| {
-        let mut counted = 0;
-        let mut unaligned = 0;
-        let mut next_tx_start = 1;
-        for exon in &exons {
-            unaligned += exon.alt_cds_start_i - next_tx_start;
-            counted += exon.alt_cds_end_i - exon.alt_cds_start_i + 1;
-            next_tx_start = exon.alt_cds_end_i + 1;
-            if pos < counted {
-                break;
+    if !codons_count_unaligned {
+        // The unaligned bases in front of the exon that holds the 0-based transcript position
+        // `pos`, which counts the exons as cdot does.
+        let unaligned_before = |pos: i32| {
+            let mut counted = 0;
+            let mut unaligned = 0;
+            let mut next_tx_start = 1;
+            for exon in &exons {
+                unaligned += exon.alt_cds_start_i - next_tx_start;
+                counted += exon.alt_cds_end_i - exon.alt_cds_start_i + 1;
+                next_tx_start = exon.alt_cds_end_i + 1;
+                if pos < counted {
+                    break;
+                }
             }
-        }
-        unaligned
-    };
-    tx.start_codon = tx.start_codon.map(|start| start + unaligned_before(start));
-    // `stop_codon` is the end of the CDS, so its last base decides.
-    tx.stop_codon = tx.stop_codon.map(|stop| stop + unaligned_before(stop - 1));
+            unaligned
+        };
+        tx.start_codon = tx.start_codon.map(|start| start + unaligned_before(start));
+        // `stop_codon` is the end of the CDS, so its last base decides.
+        tx.stop_codon = tx.stop_codon.map(|stop| stop + unaligned_before(stop - 1));
+    }
 
     let leading = exons.first().map_or(0, |exon| exon.alt_cds_start_i - 1);
     if let (Some(start), Some(stop)) = (tx.start_codon, tx.stop_codon)
@@ -469,38 +487,62 @@ mod tests {
         Ok(())
     }
 
-    /// 5 unaligned bases in front of exon 1 and 5 between exons 1 and 2. cdot counts the start
-    /// codon in exon 1 without the first 5 and the end of the CDS in exon 2 without all 10. A CDS
-    /// that cdot starts at the first aligned base, at 0, has no frame, so it ends with the stop
-    /// codon: it starts at 5 + (160 - 5) % 3 = 7 then.
+    /// cdot counts the codons in transcript positions. Since data release 0.2.34, these include
+    /// the bases that align nowhere, as the transcript positions of the exons do
+    /// (SACGF/cdot#123). Up to 0.2.33, they leave these bases out, and the codons move past them.
+    /// Either way, the codons end up at the same positions, e.g. with 48 unaligned bases between
+    /// two exons, as in NM_001137667.2 (CASP8AP2), or 119 in front of the first exon, as in
+    /// NM_053005.5 (MOB2). A CDS that starts in unaligned bases begins at the first aligned base,
+    /// without its frame. Its frame then comes from the stop codon: with 5 unaligned bases, it
+    /// starts at 5 + (160 - 5) % 3 = 7.
     #[rstest::rstest]
-    #[case::start_in_exon(10, (15, 160))]
-    #[case::clipped_start(0, (7, 160))]
-    fn codons_count_unaligned_bases(
-        #[case] start_codon: i32,
+    #[case::between_exons("0.2.36", [(1, 100), (149, 248)], (9, 160), (9, 160))]
+    #[case::between_exons_before_0_2_34("0.2.33", [(1, 100), (149, 248)], (9, 112), (9, 160))]
+    #[case::in_front("0.2.34", [(6, 105), (106, 205)], (20, 160), (20, 160))]
+    #[case::in_front_before_0_2_34("0.2.22", [(6, 105), (106, 205)], (15, 155), (20, 160))]
+    #[case::start_in_unaligned_bases("0.2.36", [(6, 105), (106, 205)], (5, 160), (7, 160))]
+    #[case::start_in_unaligned_bases_before_0_2_34(
+        "0.2.22",
+        [(6, 105), (106, 205)],
+        (0, 155),
+        (7, 160)
+    )]
+    fn codons_in_transcript_positions(
+        #[case] cdot_version: &str,
+        #[case] tx_ranges: [(i32, i32); 2],
+        #[case] (start_codon, stop_codon): (i32, i32),
         #[case] expected: (i32, i32),
     ) -> Result<(), Error> {
-        let mut tx: cdot_models::Transcript = serde_json::from_value(json!({
+        let [(start_1, end_1), (start_2, end_2)] = tx_ranges;
+        let tx = json!({
             "id": "NM_000001.1",
             "gene_version": "1",
             "start_codon": start_codon,
-            "stop_codon": 150,
+            "stop_codon": stop_codon,
             "genome_builds": {
                 "GRCh38": {
                     "contig": "NC_000001.11",
                     "strand": "+",
-                    "cds_start": 1004,
-                    "cds_end": 2045,
+                    "cds_start": 1000 + expected.0 + 1 - start_1,
+                    "cds_end": 2000 + expected.1 - start_2 + 1,
                     "exons": [
-                        [1000, 1100, 0, 6, 105, null],
-                        [2000, 2100, 1, 111, 210, null],
+                        [1000, 1100, 0, start_1, end_1, null],
+                        [2000, 2100, 1, start_2, end_2, null],
                     ],
                 },
             },
-        }))?;
+        });
+        let mut file = tempfile::NamedTempFile::new()?;
+        let container = json!({
+            "cdot_version": cdot_version,
+            "genome_builds": ["GRCh38"],
+            "genes": {},
+            "transcripts": {"NM_000001.1": tx},
+        });
+        file.write_all(container.to_string().as_bytes())?;
+        let loader = load(file.path())?;
 
-        shift_codons_past_unaligned_bases(&mut tx, "grch38");
-
+        let tx = &loader.transcript_id_to_transcript[&TranscriptId::try_new("NM_000001.1")?];
         assert_eq!(
             (tx.start_codon, tx.stop_codon),
             (Some(expected.0), Some(expected.1))
