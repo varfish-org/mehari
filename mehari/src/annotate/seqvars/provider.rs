@@ -25,7 +25,7 @@ use hgvs::{
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -256,6 +256,9 @@ pub struct Provider {
     /// string used in the database (e.g. "1")
     contig_alias_map: FxHashMap<String, String>,
 
+    /// The contigs of the database that are mitochondrial, see `translation_table`.
+    mitochondrial_contigs: FxHashSet<String>,
+
     /// for reading parts of reference sequences
     reference_reader: Option<ReferenceReaderImpl>,
 
@@ -343,6 +346,11 @@ impl Provider {
                 }
             }
         }
+        // The keys include the contigs of all alignments.
+        let mitochondrial_contigs = (contig_alias_map.keys())
+            .filter(|contig| contig_manager.is_mitochondrial_alias(contig))
+            .cloned()
+            .collect();
 
         let mut gene_map: FxHashMap<String, Vec<u32>> = FxHashMap::default();
         for (idx, entry) in tx_seq_db
@@ -445,6 +453,7 @@ impl Provider {
             tx_trees,
             contig_manager,
             contig_alias_map,
+            mitochondrial_contigs,
             gene_map,
             tx_map,
             tx_genes,
@@ -549,10 +558,8 @@ impl Provider {
             .translation_exceptions
             .iter()
             .any(|exception| exception.amino_acid == "U");
-        let is_mitochondrial = tx.genome_alignments.first().is_some_and(|alignment| {
-            self.contig_manager
-                .is_mitochondrial_alias(alignment.contig.as_str())
-        });
+        let is_mitochondrial = (tx.genome_alignments.first())
+            .is_some_and(|alignment| self.mitochondrial_contigs.contains(&alignment.contig));
         if is_mitochondrial {
             TranslationTable::VertebrateMitochondrial
         } else if is_selenoprotein && !has_selenocysteine {
