@@ -1,0 +1,14 @@
+---
+source: mehari/src/annotate/seqvars/consequence/logic.rs
+expression: seen
+---
+- hgvs_c: c.8del
+  reference_transcript: CAGTCAGTCAGTCAGTCAGTATGGCCAAGCTGTGGGAACCACGCGTTTAACGCATCAGTCAGTCAGTCAG
+  reference_protein: MAKLWEPRV*
+  reference_cds_start: 21
+  reference_cds_end: 50
+  alternative_transcript: CAGTCAGTCAGTCAGTCAGTATGGCCAGCTGTGGGAACCACGCGTTTAACGCATCAGTCAGTCAGTCAG
+  alternative_protein: MASCGNHAFNASVSQSX
+  alternative_cds_start: 21
+  frameshift: true
+  first_changed_codon: 3
