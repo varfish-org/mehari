@@ -9,7 +9,9 @@ updates:
       interval: "weekly"
 
   - package-ecosystem: "cargo"
-    directory: "/mehari"
+    # The workspace root: from there, dependabot updates the members' manifests and Cargo.lock. From
+    # /mehari it does not find the root, because mehari/Cargo.toml inherits nothing from the workspace.
+    directory: "/"
     schedule:
       interval: "weekly"
     ignore:
