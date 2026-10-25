@@ -1247,6 +1247,11 @@ impl ConsequencePredictor {
             consequences |= Consequence::SpliceRegionVariant;
         }
 
+        // VEP 116.3 reports no polypyrimidine tract for a variant that overlaps an exon.
+        if self.config.vep_compatibility_mode && is_exonic {
+            consequences.remove(Consequence::SplicePolypyrimidineTractVariant);
+        }
+
         let min_start = min_start.expect("must have seen exon");
         let max_end = max_end.expect("must have seen exon");
         let is_upstream = var_end <= min_start;
@@ -2096,10 +2101,6 @@ impl ConsequencePredictor {
             consequences.remove(SpliceDonorRegionVariant);
         }
 
-        if consequences.contains(SpliceAcceptorVariant) {
-            consequences.remove(SplicePolypyrimidineTractVariant);
-        }
-
         // VEP counts the intron bases from +3 and -3 on as intronic (`_intron_effects`), so a
         // change of donor +5 stays an `intron_variant`.
         let suppress_intron = SpliceDonorVariant | SpliceAcceptorVariant;
@@ -2489,6 +2490,17 @@ impl ConsequencePredictor {
                 var_overlaps(start, end)
             }
         };
+        // VEP 116.3 puts an insertion into the polypyrimidine tract if the base on either side of
+        // it is inside.
+        let var_overlaps_tract = |start: i32, end: i32| -> bool {
+            if vep_compatibility_mode {
+                var_overlaps(start, end) || var_overlaps_behind(start, end)
+            } else if strand == Strand::Plus {
+                var_overlaps(start, end)
+            } else {
+                var_overlaps_behind(start, end)
+            }
+        };
 
         // Check the cases where the variant overlaps with the splice acceptor/donor site.
         if var_overlaps(intron_start, intron_start + 2 - ins_shift) {
@@ -2531,10 +2543,10 @@ impl ConsequencePredictor {
 
         // Check the case where the variant overlaps with the polypyrimidine tract.
         // (A sequence variant that falls in the polypyrimidine tract at 3' end of intron between 17 and 3 bases from the end (acceptor -3 to acceptor -17))
-        if strand == Strand::Plus && var_overlaps(intron_end - 17, intron_end - 2) {
+        if strand == Strand::Plus && var_overlaps_tract(intron_end - 17, intron_end - 2) {
             consequences |= Consequence::SplicePolypyrimidineTractVariant;
         }
-        if strand == Strand::Minus && var_overlaps_behind(intron_start + 2, intron_start + 17) {
+        if strand == Strand::Minus && var_overlaps_tract(intron_start + 2, intron_start + 17) {
             consequences |= Consequence::SplicePolypyrimidineTractVariant;
         }
 
@@ -5119,6 +5131,48 @@ mod test {
                 ]
             )
         );
+        Ok(())
+    }
+
+    /// `splice_polypyrimidine_tract_variant` covers acceptor -17 to -3. mehari counts an
+    /// insertion as in the tract if its bases go there, and reports the tract also for a
+    /// variant that reaches into the exon. With VEP terms, as VEP 116.3: an insertion is in the
+    /// tract if the base on either side is (`_intron_effects`), and no variant that overlaps an
+    /// exon is in it (`include => { exon => 0 }`), also next to `splice_acceptor_variant`.
+    #[rstest::rstest]
+    // plus strand: insertion between -18 and -17
+    #[case("22:28773707:T:TC", "ENST00000249064", "c.186-18_186-17insC", [false, true])]
+    // plus strand: deletion of -3 and -2
+    #[case("22:28773721:ACA:A", "ENST00000249064", "c.186-3_186-2del", [true, true])]
+    // plus strand: deletion of -3 to the first exon base
+    #[case("22:28773721:ACAGT:A", "ENST00000249064", "c.186-3_186del", [true, false])]
+    // minus strand: insertion between -18 and -17
+    #[case("22:50246109:G:GA", "ENST00000216271", "c.1651-18_1651-17insT", [false, true])]
+    // minus strand: deletion of -3 and -2
+    #[case("22:50246093:CTG:C", "ENST00000216271", "c.1651-3_1651-2del", [true, true])]
+    // minus strand: deletion of -3 to the first exon base
+    #[case("22:50246091:ATCTG:A", "ENST00000216271", "c.1651-3_1651del", [true, false])]
+    fn polypyrimidine_tract(
+        #[case] spdi: &str,
+        #[case] tx_id: &str,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected_in_tract: [bool; 2],
+    ) -> Result<(), anyhow::Error> {
+        for (vep_consequence_terms, expected_in_tract) in
+            [false, true].into_iter().zip(expected_in_tract)
+        {
+            let ann = annotate_chr22_window(spdi, tx_id, vep_consequence_terms)?;
+            assert_eq!(
+                (
+                    ann.hgvs_c.as_deref(),
+                    ann.consequences
+                        .contains(&Consequence::SplicePolypyrimidineTractVariant)
+                ),
+                (Some(expected_hgvs_c), expected_in_tract),
+                "spdi = {spdi}, VEP terms = {vep_consequence_terms}, {:?}",
+                ann.consequences
+            );
+        }
         Ok(())
     }
 
