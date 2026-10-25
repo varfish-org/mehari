@@ -183,6 +183,9 @@ pub(crate) trait HgvsVariantExt {
     /// of an unknown stretch, and finds no stop codon altered by them. Of the stop terms, such an
     /// indel can then only get `stop_retained_variant`, from the overlap at `unshifted_g`.
     ///
+    /// VEP also takes `inframe_insertion` and `protein_altering_variant` of an in-frame insertion
+    /// from these codons, see `VepCodonTerms::inframe_insertion`.
+    ///
     /// Returns `None` for an edit other than an insertion, duplication, deletion or delins, and
     /// for an edit that keeps the length.
     fn vep_indel_protein_terms(
@@ -190,7 +193,23 @@ pub(crate) trait HgvsVariantExt {
         unshifted_g: &HgvsVariant,
         ref_data: &RefTranscriptData,
         tx: &Transcript,
-    ) -> Option<Consequences>;
+    ) -> Option<VepCodonTerms>;
+}
+
+/// VEP's terms of an indel from the codons that it changes, see `vep_indel_protein_terms`.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct VepCodonTerms {
+    /// `stop_gained`, `stop_lost`, `stop_retained_variant` or `synonymous_variant`, or none.
+    stops: Consequences,
+    /// For an in-frame insertion, VEP's `inframe_insertion` and `protein_altering_variant`. The
+    /// first applies if the altered peptide, cut behind its first stop, starts or ends with the
+    /// reference peptide. Else the second applies, unless the uncut altered peptide starts with a
+    /// stop, or starts or ends with the reference peptide. Else neither applies, e.g. for `Y` to
+    /// `*Y`.
+    ///
+    /// `None` for another indel, and where other rules decide: in or right behind the start
+    /// codon, in the stop codon, and for a peptide with an `X`.
+    inframe_insertion: Option<Consequences>,
 }
 
 impl HgvsVariantExt for HgvsVariant {
@@ -247,7 +266,7 @@ impl HgvsVariantExt for HgvsVariant {
         unshifted_g: &HgvsVariant,
         ref_data: &RefTranscriptData,
         tx: &Transcript,
-    ) -> Option<Consequences> {
+    ) -> Option<VepCodonTerms> {
         let codon = |cds_pos: i32| (cds_pos + 2) / 3;
         let alignment = tx.genome_alignments.first()?;
         let incomplete_3p = tx.is_incomplete_3p();
@@ -334,12 +353,13 @@ impl HgvsVariantExt for HgvsVariant {
                 start <= to && end >= from
             };
             let stop_retained = covers(self, 1, cds_len) && overlaps_stop_cil;
-            return indel.then(|| {
-                if stop_retained {
+            return indel.then(|| VepCodonTerms {
+                stops: if stop_retained {
                     Consequence::StopRetainedVariant.into()
                 } else {
                     Consequences::empty()
-                }
+                },
+                inframe_insertion: None,
             });
         };
         // VEP shifts an insertion or deletion 3' on the genome, also across the CDS end, where
@@ -367,7 +387,7 @@ impl HgvsVariantExt for HgvsVariant {
         }
         // VEP checks the stop codon only for an indel that overlaps the CDS after the 3' shift.
         if start.min(end) > cds_len {
-            return Some(Consequences::empty());
+            return Some(VepCodonTerms::default());
         }
         // The altered CDS and 3' UTR. VEP builds none for an indel beyond the transcript end.
         let before = cds_and_utr.get(..index(start - 1)?)?;
@@ -489,17 +509,43 @@ impl HgvsVariantExt for HgvsVariant {
             && peptides.as_ref().is_some_and(|(ref_pep, alt_pep)| {
                 !ref_pep.is_empty() && ref_pep == alt_pep && !alt_pep.contains('X')
             });
+        // See `VepCodonTerms::inframe_insertion`. An insertion lies between `end` and `start`.
+        let inframe_insertion = peptides
+            .as_ref()
+            .filter(|(ref_pep, alt_pep)| {
+                start > end
+                    && len_change % 3 == 0
+                    && end > 3
+                    && !ref_pep.contains(['*', 'X'])
+                    && !alt_pep.contains('X')
+            })
+            .map(|(ref_pep, alt_pep)| {
+                let up_to_stop = alt_pep.split_inclusive('*').next().unwrap_or_default();
+                let keeps_ref = |pep: &str| {
+                    pep.starts_with(ref_pep.as_str()) || pep.ends_with(ref_pep.as_str())
+                };
+                if keeps_ref(up_to_stop) {
+                    Consequence::InframeInsertion.into()
+                } else if !alt_pep.starts_with('*') && !keeps_ref(alt_pep) {
+                    Consequence::ProteinAlteringVariant.into()
+                } else {
+                    Consequences::empty()
+                }
+            });
 
-        Some(if stop_retained {
-            Consequence::StopRetainedVariant.into()
-        } else if stop_lost {
-            Consequence::StopLost.into()
-        } else if stop_gained {
-            Consequence::StopGained.into()
-        } else if synonymous {
-            Consequence::SynonymousVariant.into()
-        } else {
-            Consequences::empty()
+        Some(VepCodonTerms {
+            stops: if stop_retained {
+                Consequence::StopRetainedVariant.into()
+            } else if stop_lost {
+                Consequence::StopLost.into()
+            } else if stop_gained {
+                Consequence::StopGained.into()
+            } else if synonymous {
+                Consequence::SynonymousVariant.into()
+            } else {
+                Consequences::empty()
+            },
+            inframe_insertion,
         })
     }
 }
@@ -629,9 +675,9 @@ struct ConsequenceContext {
     /// Terms of the protein the variant produces compared to the reference, see
     /// `sequence_consequences()`, for the variants whose terms depend on it.
     sequence_consequences: Consequences,
-    /// In VEP compatibility mode, VEP's stop terms and `synonymous_variant` of an indel from its
-    /// changed codons, see `vep_indel_protein_terms()`.
-    vep_codon_consequences: Option<Consequences>,
+    /// In VEP compatibility mode, VEP's terms of an indel from its changed codons, see
+    /// `vep_indel_protein_terms()`.
+    vep_codon_consequences: Option<VepCodonTerms>,
     cdna_pos: Option<Pos>,
     cds_pos: Option<Pos>,
     protein_pos: Option<Pos>,
@@ -2172,8 +2218,9 @@ impl ConsequencePredictor {
     /// c. variant (`consequences_cds`), and fix special cases. The protein terms are those read
     /// off the p. variant (`consequences_protein`), reconciled with those of the protein that
     /// the variant produces (`consequences_sequence`). In VEP compatibility mode, VEP's stop
-    /// terms and `synonymous_variant` of an indel (`vep_codons`) replace those of the protein.
-    /// See `ConsequenceContext`.
+    /// terms and `synonymous_variant` of an indel (`vep_codons`) replace those of the protein,
+    /// and its in-frame insertion terms those of the c. and the p. variant. See
+    /// `ConsequenceContext`.
     #[allow(clippy::too_many_arguments, unused_variables)]
     fn consequences_fix_special_cases(
         &self,
@@ -2181,7 +2228,7 @@ impl ConsequencePredictor {
         consequences_cds: Consequences,
         consequences_protein: Consequences,
         consequences_sequence: Consequences,
-        vep_codons: Option<Consequences>,
+        vep_codons: Option<VepCodonTerms>,
         projection: &HgvsProjectionContext,
         tx: &Transcript,
     ) {
@@ -2259,7 +2306,15 @@ impl ConsequencePredictor {
                     | Consequence::StopRetainedVariant
                     | Consequence::SynonymousVariant,
             );
-            consequences_protein |= vep_codons;
+            consequences_protein |= vep_codons.stops;
+            if let Some(inframe_insertion) = vep_codons.inframe_insertion {
+                let terms = Consequence::ConservativeInframeInsertion
+                    | Consequence::DisruptiveInframeInsertion
+                    | Consequence::ProteinAlteringVariant;
+                consequences.remove(terms);
+                consequences_protein.remove(terms);
+                consequences_protein |= inframe_insertion;
+            }
         }
         *consequences |= consequences_protein;
 
@@ -5409,9 +5464,8 @@ mod test {
     }
 
     /// Insertions at exon edges on GENCODE 42 chr22 transcripts, with VEP terms. VEP puts such an
-    /// insertion into the exon and takes its stop terms from the changed codons there. The
-    /// expected terms are those of VEP 116.3 with `--shift_3prime 1`. mehari adds
-    /// `protein_altering_variant`.
+    /// insertion into the exon and takes its stop terms and in-frame insertion terms from the
+    /// changed codons there. The expected terms are those of VEP 116.3 with `--shift_3prime 1`.
     #[rstest::rstest]
     // ENST00000381982 (minus strand): an exon ends with c.1081, the first base of the stop codon
     // (`t|ag`). `*/Y*` (`tag/tACTag`): the stop codon stays behind the new codon.
@@ -5427,14 +5481,14 @@ mod test {
     // `-/K*` (`-/AAATAA`): in front of the exon that starts with c.520
     #[case("22:30494210:A:ATTATTT", "ENST00000381982", "c.520-1_520insAAATAA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     // `F/*F` (`ttt/tAGTtt`): the copy lands behind c.520
-    #[case("22:30494209:A:AACT", "ENST00000381982", "c.520-2_520dup", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
+    #[case("22:30494209:A:AACT", "ENST00000381982", "c.520-2_520dup", vec![Consequence::StopGained, Consequence::SpliceRegionVariant])]
     // ENST00000398941 (plus strand): an exon ends with c.428, the next one starts with c.429.
     // `S/SX` (`agc/agCGc`)
     #[case("22:28744708:A:AGC", "ENST00000398941", "c.428_428+1insCG", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     // `-/X` (`-/GC`): the copy lands behind c.429
     #[case("22:28751239:A:AGC", "ENST00000398941", "c.429-1_429dup", vec![Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     // `K/N*` (`aag/aaCTAg`)
-    #[case("22:37967169:A:AACT", "ENST00000442738", "c.293_293+1insCTA", vec![Consequence::StopGained, Consequence::InframeInsertion, Consequence::ProteinAlteringVariant, Consequence::SpliceRegionVariant])]
+    #[case("22:37967169:A:AACT", "ENST00000442738", "c.293_293+1insCTA", vec![Consequence::StopGained, Consequence::ProteinAlteringVariant, Consequence::SpliceRegionVariant])]
     // minus strand: `-/P` (`-/CCG`)
     #[case("22:50775771:C:CCGG", "ENST00000395590", "c.297_297+1insCCG", vec![Consequence::InframeInsertion, Consequence::SpliceRegionVariant])]
     fn annotate_exon_edge_ins_stop_csqs(
@@ -7714,6 +7768,70 @@ mod test {
                 Some("p.(Sec8del)"),
                 &vec![Consequence::InframeDeletion]
             )
+        );
+        Ok(())
+    }
+
+    /// In VEP compatibility mode, an in-frame insertion is `inframe_insertion` only if the
+    /// peptide of the changed codons, cut behind its first stop, starts or ends with the
+    /// reference peptide, as in VEP's `inframe_insertion`. Else it is `protein_altering_variant`,
+    /// unless the peptide starts with a stop. The CDS is `ATG GCC AAG CTG TGG TAA`.
+    #[rstest::rstest]
+    // `AAG` to `ACC CAG`: K to TQ
+    #[case::protein_altering(
+        (1027, "A", "ACCC"),
+        true,
+        "p.(Lys3delinsThrGln)",
+        vec![Consequence::ProteinAlteringVariant]
+    )]
+    #[case::protein_altering_default(
+        (1027, "A", "ACCC"),
+        false,
+        "p.(Lys3delinsThrGln)",
+        vec![Consequence::DisruptiveInframeInsertion, Consequence::ProteinAlteringVariant]
+    )]
+    // `TGG` to `TAG AGG`: W to *R
+    #[case::stop_first((1033, "T", "TAGA"), true, "p.(Trp5Ter)", vec![Consequence::StopGained])]
+    // `CTG` to `CAA CTG`: L to QL
+    #[case::ends_with_reference(
+        (1030, "C", "CAAC"),
+        true,
+        "p.(Lys3_Leu4insGln)",
+        vec![Consequence::InframeInsertion]
+    )]
+    // a stop between two codons: VEP's reference peptide is empty
+    #[case::stop_between_codons(
+        (1029, "G", "GTAG"),
+        true,
+        "p.(Leu4Ter)",
+        vec![Consequence::StopGained, Consequence::InframeInsertion]
+    )]
+    fn vep_inframe_insertion_terms_from_codons(
+        #[case] (position, reference, alternative): (i32, &str, &str),
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected_hgvs_p: &str,
+        #[case] expected: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CGCATCA");
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
+        let anns = predictor_with_config(tx, seq, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: reference.into(),
+                alternative: alternative.into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (ann.hgvs_p.as_deref(), &ann.consequences),
+            (Some(expected_hgvs_p), &expected)
         );
         Ok(())
     }
