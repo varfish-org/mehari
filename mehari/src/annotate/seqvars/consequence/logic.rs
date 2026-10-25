@@ -127,6 +127,20 @@ impl HgvsProjectionContext {
             _ => offsets == (0, 0),
         }
     }
+
+    /// Whether the bases that the c. variant puts in hold another base than A, C, G and T, e.g.
+    /// the `N` of an unknown stretch. VEP translates no such bases.
+    fn has_ambiguous_alt(&self) -> bool {
+        let Some(HgvsVariant::CdsVariant { loc_edit, .. }) = &self.c else {
+            return false;
+        };
+        match loc_edit.edit.inner() {
+            NaEdit::RefAlt { alternative, .. }
+            | NaEdit::NumAlt { alternative, .. }
+            | NaEdit::Ins { alternative } => !is_unambiguous(alternative),
+            _ => false,
+        }
+    }
 }
 
 /// Extension trait for checks on `HgvsVariant`s that consequence prediction needs.
@@ -164,6 +178,10 @@ pub(crate) trait HgvsVariantExt {
     /// behind c.N, `c.N-1_Nins` in front of c.N. For another indel with an intronic offset, VEP
     /// builds no codons. Of the stop terms, VEP then reports only `stop_retained_variant`: if the
     /// indel covers a CDS base, and if `unshifted_g` overlaps the stop codon.
+    ///
+    /// VEP translates no bases other than A, C, G and T (`seq_is_unambiguous_dna`), e.g. the `N`
+    /// of an unknown stretch, and finds no stop codon altered by them. Of the stop terms, such an
+    /// indel can then only get `stop_retained_variant`, from the overlap at `unshifted_g`.
     ///
     /// Returns `None` for an edit other than an insertion, duplication, deletion or delins, and
     /// for an edit that keeps the length.
@@ -384,7 +402,8 @@ impl HgvsVariantExt for HgvsVariant {
             Some(peptide)
         };
         let in_cds = (1..=cds_len).contains(&start) && (1..=cds_len).contains(&end);
-        let peptides = if in_cds {
+        let unambiguous = is_unambiguous(alt);
+        let peptides = if in_cds && unambiguous {
             let alt_len = index(3 * (last - first + 1) + len_change)?;
             // VEP takes the reference codons from the CDS alone, so a partial last codon stays
             // partial.
@@ -409,6 +428,7 @@ impl HgvsVariantExt for HgvsVariant {
             let stop_codon = index(cds_len - 3)?..index(cds_len)?;
             Some(
                 overlaps
+                    && unambiguous
                     && len_change != 0
                     && (1..=cds_len).contains(&start)
                     && alt_seq.as_ref().is_some_and(|alt_seq| {
@@ -1903,6 +1923,10 @@ impl ConsequencePredictor {
             })
             .collect_vec();
 
+        if self.vep_consequence_terms() {
+            self.adjust_vep_terms(&mut consequences, projection);
+        }
+
         if consequences.is_empty() {
             tracing::error!(
                 "No consequences for {:?} on {} (hgvs_n={}, hgvs_c={}, hgvs_p={}) - adding `gene_variant`; \
@@ -1915,10 +1939,6 @@ impl ConsequencePredictor {
                 hgvs_p.as_deref().unwrap_or("None")
             );
             consequences |= Consequence::GeneVariant;
-        }
-
-        if self.vep_consequence_terms() {
-            self.adjust_vep_terms(&mut consequences, projection);
         }
 
         // The 3' shift can move an indel onto an essential splice site, although the same change
@@ -2060,6 +2080,44 @@ impl ConsequencePredictor {
             if !consequences.intersects(
                 FrameshiftVariant
                     | ProteinAlteringVariant
+                    | StartRetainedVariant
+                    | StartLost
+                    | StopRetainedVariant
+                    | StopLost,
+            ) {
+                consequences.insert(CodingSequenceVariant);
+            }
+        }
+
+        // VEP translates no bases other than A, C, G and T, so it gives such bases in the CDS no
+        // terms of the changed amino acids. An in-frame deletion needs the changed codons to
+        // match, which these bases never do. VEP then reports `coding_sequence_variant`, unless
+        // one of the terms below applies (`coding_unknown`). Bases that go into a UTR, e.g. with
+        // `c.-1_1ins`, are not in the CDS.
+        let in_utr = |p: &HgvsProjectionContext| {
+            matches!(
+                p.region,
+                Some(VariantLocation::FivePrimeUtr | VariantLocation::ThreePrimeUtr)
+            )
+        };
+        if self.config.vep_compatibility_mode
+            && projection_context.is_some_and(|p| {
+                p.is_within_cds_bounds()
+                    && !in_utr(p)
+                    && p.vep_has_codons()
+                    && p.has_ambiguous_alt()
+            })
+        {
+            consequences.remove(
+                InframeDeletion
+                    | InframeInsertion
+                    | ProteinAlteringVariant
+                    | MissenseVariant
+                    | StopGained
+                    | SynonymousVariant,
+            );
+            if !consequences.intersects(
+                FrameshiftVariant
                     | StartRetainedVariant
                     | StartLost
                     | StopRetainedVariant
@@ -3932,6 +3990,14 @@ fn vep_overlaps_stop_codon(var_g: &HgvsVariant, alignment: &GenomeAlignment) -> 
         _ => (start, end),
     };
     end >= from && start <= to
+}
+
+/// Whether `bases` hold only A, C, G and T in either case, as VEP's `seq_is_unambiguous_dna`
+/// checks.
+fn is_unambiguous(bases: &str) -> bool {
+    bases
+        .bytes()
+        .all(|base| b"ACGT".contains(&base.to_ascii_uppercase()))
 }
 
 /// Whether the amino acids `s` of a p. edit hold a stop. hgvs-rs gives `X` (`Xaa`) for an
@@ -8620,6 +8686,79 @@ mod test {
             .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
 
         assert_eq!(ann.consequences, vec![Consequence::SpliceDonorVariant]);
+        Ok(())
+    }
+
+    /// VEP translates no bases other than A, C, G and T, e.g. the `N` bases of an unknown
+    /// stretch that ClinVar inserts. So in VEP compatibility mode, an indel that puts in such
+    /// bases gets no terms of the changed amino acids, but `coding_sequence_variant` unless it
+    /// shifts the frame. By default, a stop codon in front of the `N` bases ends the protein, as
+    /// p. has it. The CDS is `ATG GCC AAG CTG TGG GAA CCA TAA` at chr1:1021-1044.
+    #[rstest::rstest]
+    // `c.6_7insTAGNNNN`
+    #[case::frameshift_with_stop(
+        "1026:C:CTAGNNNN",
+        Some(Consequence::StopGained),
+        vec![Consequence::FrameshiftVariant]
+    )]
+    // `c.5_6insNNN`
+    #[case::inframe(
+        "1025:C:CNNN",
+        Some(Consequence::DisruptiveInframeInsertion),
+        vec![Consequence::CodingSequenceVariant]
+    )]
+    // `c.6_7insTAGNNN`
+    #[case::inframe_with_stop(
+        "1026:C:CTAGNNN",
+        Some(Consequence::StopGained),
+        vec![Consequence::CodingSequenceVariant]
+    )]
+    // `c.7delinsNNNC`, whose default terms depend on how p. reads the `N` bases
+    #[case::delins("1027:A:NNNC", None, vec![Consequence::CodingSequenceVariant])]
+    // `c.-1_1insNNN`, whose bases go into the 5' UTR
+    #[case::utr(
+        "1020:T:TNNN",
+        Some(Consequence::FivePrimeUtrExonVariant),
+        vec![Consequence::FivePrimeUtrVariant]
+    )]
+    // `AA>ct` at c.7: VEP reads lower-case bases as A, C, G and T
+    #[case::lower_case(
+        "1027:AA:ct",
+        Some(Consequence::MissenseVariant),
+        vec![Consequence::MissenseVariant]
+    )]
+    fn vep_terms_of_ambiguous_bases(
+        #[case] var: &str,
+        #[case] expected_default: Option<Consequence>,
+        #[case] expected_compatibility: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let var = var.split(':').collect::<Vec<_>>();
+        let mut found = Vec::new();
+        for vep_compatibility_mode in [false, true] {
+            let utr = "CAGTCAGTCAGTCAGTCAGT";
+            let (tx, seq) = one_exon_tx(utr, "ATGGCCAAGCTGTGGGAACCATAA", utr);
+            let config = ConfigBuilder::default()
+                .vep_compatibility_mode(vep_compatibility_mode)
+                .build()?;
+            let anns = predictor_with_config(tx, seq, config)
+                .predict(&VcfVariant {
+                    chromosome: "1".into(),
+                    position: var[0].parse()?,
+                    reference: var[1].into(),
+                    alternative: var[2].into(),
+                })?
+                .unwrap_or_default();
+            let ann = anns
+                .iter()
+                .find(|ann| ann.feature_id == "NM_000001.1")
+                .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+            found.push(ann.consequences.clone());
+        }
+
+        if let Some(expected_default) = expected_default {
+            assert!(found[0].contains(&expected_default), "{:?}", found[0]);
+        }
+        assert_eq!(found[1], expected_compatibility);
         Ok(())
     }
 
