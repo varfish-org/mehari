@@ -4191,6 +4191,18 @@ fn is_conservative_cds_variant(var_c: &HgvsVariant) -> bool {
             let start_cds_from = loc.start.cds_from;
             let end_base = loc.end.base;
             let end_cds_from = loc.end.cds_from;
+            // An insertion lies between two CDS bases, also at an exon edge, e.g. `c.9_9+1ins`
+            // or `c.10-1_10ins` behind c.9. It is conservative if the first base ends a codon.
+            if loc_edit.edit.inner().is_ins() {
+                let in_front = if loc.start.offset.unwrap_or(0) < 0 {
+                    end_base - 1
+                } else {
+                    start_base
+                };
+                return start_cds_from == CdsFrom::Start
+                    && end_cds_from == CdsFrom::Start
+                    && in_front % 3 == 0;
+            }
             // The range is "conservative" (regarding deletions and insertions) if
             // it does not start or end within codons.
             start_cds_from == CdsFrom::Start
@@ -6843,6 +6855,194 @@ mod test {
         Ok(())
     }
 
+    /// SO: a conservative in-frame insertion "inserts one or more codons into the coding
+    /// sequence between existing codons", a disruptive one "within an existing codon". A
+    /// conservative in-frame deletion "deletes one or more entire codons from the coding sequence
+    /// but does not change any remaining codons", a disruptive one "deletes bases from the coding
+    /// sequence starting within an existing codon". The CDS is `ATG GCC AAG CTG TGG TAA` at
+    /// chr1:1021-1038. VEP terms do not tell the two apart.
+    #[rstest::rstest]
+    #[case::ins_between_codons(
+        "1026:C:CGGG",
+        false,
+        "c.6_7insGGG",
+        Consequence::ConservativeInframeInsertion
+    )]
+    #[case::ins_behind_start_codon(
+        "1023:G:GCCC",
+        false,
+        "c.3_4insCCC",
+        Consequence::ConservativeInframeInsertion
+    )]
+    #[case::ins_in_front_of_stop_codon(
+        "1035:G:GCCC",
+        false,
+        "c.15_16insCCC",
+        Consequence::ConservativeInframeInsertion
+    )]
+    #[case::ins_within_codon(
+        "1027:A:AGGG",
+        false,
+        "c.7_8insGGG",
+        Consequence::DisruptiveInframeInsertion
+    )]
+    #[case::dup_ending_with_codon(
+        "1026:C:CGCC",
+        false,
+        "c.4_6dup",
+        Consequence::ConservativeInframeInsertion
+    )]
+    #[case::dup_within_codon(
+        "1027:A:ACCA",
+        false,
+        "c.5_7dup",
+        Consequence::DisruptiveInframeInsertion
+    )]
+    #[case::del_of_codon(
+        "1026:CAAG:C",
+        false,
+        "c.7_9del",
+        Consequence::ConservativeInframeDeletion
+    )]
+    #[case::del_within_codon(
+        "1027:AAGC:A",
+        false,
+        "c.8_10del",
+        Consequence::DisruptiveInframeDeletion
+    )]
+    #[case::vep_ins_between_codons(
+        "1026:C:CGGG",
+        true,
+        "c.6_7insGGG",
+        Consequence::InframeInsertion
+    )]
+    // `GCC` to `GCG CAC`: VEP's changed codons read A to AH, which starts with A
+    #[case::vep_ins_within_codon("1025:C:CGCA", true, "c.5_6insGCA", Consequence::InframeInsertion)]
+    fn conservative_or_disruptive_inframe_indel(
+        #[case] var: &str,
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected_hgvs_c: &str,
+        #[case] expected: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let var = var.split(':').collect::<Vec<_>>();
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CGCATCA");
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
+        let anns = predictor_with_config(tx, seq, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: var[0].parse()?,
+                reference: var[1].into(),
+                alternative: var[2].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+        let inframe = Consequence::ConservativeInframeInsertion
+            | Consequence::DisruptiveInframeInsertion
+            | Consequence::ConservativeInframeDeletion
+            | Consequence::DisruptiveInframeDeletion
+            | Consequence::InframeInsertion
+            | Consequence::InframeDeletion;
+        let found = (ann.consequences.iter().copied())
+            .filter(|csq| inframe.contains(*csq))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), found),
+            (Some(expected_hgvs_c), vec![expected]),
+            "{:?}",
+            ann.consequences
+        );
+        Ok(())
+    }
+
+    /// An insertion at an exon edge whose bases join the exon lies between the CDS bases on both
+    /// sides of the edge, see `conservative_or_disruptive_inframe_indel`. Exon 1 ends with
+    /// c.9, the end of a codon, and the CDS is `ATG GCC AAG | CTG TGG TAA`.
+    #[rstest::rstest]
+    #[case::behind_exon_end(1029, "G", "GCCC", "c.9_9+1insCCC")]
+    #[case::in_front_of_exon_start(1053, "G", "GAAA", "c.10-1_10insAAA")]
+    fn conservative_inframe_insertion_at_exon_edge(
+        #[case] position: i32,
+        #[case] reference: &str,
+        #[case] alternative: &str,
+        #[case] expected_hgvs_c: &str,
+    ) -> Result<(), anyhow::Error> {
+        let exon_1 = "CAGTCAGTCAGTCAGTCAGTATGGCCAAG";
+        let intron = format!("GT{}AG", "C".repeat(20));
+        let exon_2 = "CTGTGGTAACATCA";
+        let exon = |ord, alt_start_i, alt_end_i, tx_start, tx_end| ExonAlignment {
+            alt_start_i,
+            alt_end_i,
+            ord,
+            alt_cds_start_i: Some(tx_start),
+            alt_cds_end_i: Some(tx_end),
+            cigar: format!("{}M", tx_end - tx_start + 1),
+        };
+        let tx = Transcript {
+            id: "NM_000001.1".into(),
+            gene_symbol: "GENE1".into(),
+            biotype: TranscriptBiotype::Coding.into(),
+            protein: Some("NP_000001.1".into()),
+            start_codon: Some(20),
+            stop_codon: Some(38),
+            genome_alignments: vec![GenomeAlignment {
+                genome_build: "grch38".into(),
+                contig: "NC_000001.11".into(),
+                cds_start: Some(1020),
+                cds_end: Some(1062),
+                strand: Strand::Plus.into(),
+                exons: vec![exon(0, 1000, 1029, 1, 29), exon(1, 1053, 1067, 30, 43)],
+                ..Default::default()
+            }],
+            filtered: Some(false),
+            ..Default::default()
+        };
+        let mut genome = NamedTempFile::new()?;
+        write!(
+            genome,
+            ">1\n{}{exon_1}{intron}{exon_2}{}\n",
+            "T".repeat(1000),
+            "T".repeat(100)
+        )?;
+        let predictor = predictor_with_reference(
+            tx,
+            format!("{exon_1}{exon_2}"),
+            Config::default(),
+            Some(genome.path()),
+        );
+        let anns = predictor
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: reference.into(),
+                alternative: alternative.into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.consequences
+                    .contains(&Consequence::ConservativeInframeInsertion),
+                ann.consequences
+                    .contains(&Consequence::DisruptiveInframeInsertion)
+            ),
+            (Some(expected_hgvs_c), true, false),
+            "{:?}",
+            ann.consequences
+        );
+        Ok(())
+    }
+
     /// `Gene_ID` is the gene ID of the transcript.
     #[test]
     fn ann_gene_id() -> Result<(), anyhow::Error> {
@@ -7622,7 +7822,7 @@ mod test {
         ("c.15_16insGAT", "p.(Ter6AspextTer1)"),
         vec![
             Consequence::FeatureElongation,
-            Consequence::DisruptiveInframeInsertion
+            Consequence::ConservativeInframeInsertion
         ]
     )]
     // `c.7_10del` shifts the frame of codons 4 and 5 and of the stop codon, and a new stop codon
