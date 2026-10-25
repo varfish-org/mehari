@@ -812,6 +812,14 @@ impl ConsequencePredictor {
             .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, qry_start, qry_end)
             .map_err(|e| SeqvarsError::Provider(e.to_string()))?;
         txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
+        txs.retain(|tx| {
+            let var_g = if tx.alt_strand == -1 {
+                &var_g_rev
+            } else {
+                &var_g_fwd
+            };
+            self.in_reach(&tx.tx_ac, var_g)
+        });
 
         // Handle case of no overlapping transcripts -> intergenic.
         if txs.is_empty() {
@@ -888,6 +896,37 @@ impl ConsequencePredictor {
             }
         })?;
         Ok(Some(self.run_plugins(std::slice::from_ref(var), anns)?))
+    }
+
+    /// Whether the transcript `tx_ac` is in reach of `var_g`, shifted 3' on its strand. The
+    /// transcripts come from `PADDING` around the variant at both ends of its repeat, but the 3'
+    /// shift, or the copy that a dup inserts behind its bases, can put the bases farther away. A
+    /// variant that lies outside the transcript is then out of reach, as if the transcript were
+    /// not nearby.
+    fn in_reach(&self, tx_ac: &str, var_g: &HgvsVariant) -> bool {
+        let Some(alignment) =
+            (self.provider.get_tx(tx_ac)).and_then(|tx| tx.genome_alignments.first())
+        else {
+            return true;
+        };
+        let Ok(strand) = Strand::try_from(alignment.strand) else {
+            return true;
+        };
+        let location = |var_g: &HgvsVariant| {
+            let (start, end) = Self::get_var_start_end(var_g);
+            (self.determine_transcript_context(alignment, strand, var_g, start, end, false)).0
+        };
+        let outside =
+            |location: &TranscriptLocationContext| location.is_upstream || location.is_downstream;
+        let own = location(var_g);
+        if !outside(&own) {
+            return true;
+        }
+        let bases = Self::dup_as_ins(var_g, strand).map_or(own, |ins_g| location(&ins_g));
+        !outside(&bases)
+            || bases
+                .distance
+                .is_none_or(|distance| distance.abs() <= PADDING)
     }
 
     /// `var_g` shifted 3' for a transcript on the plus strand and on the minus strand, if
@@ -8579,6 +8618,106 @@ mod test {
                     total: Some(45)
                 }),
             )
+        );
+        Ok(())
+    }
+
+    /// The transcripts come from `PADDING` around the variant at both ends of its repeat. A
+    /// transcript farther than `PADDING` from the 3'-shifted bases gets no annotation. With
+    /// `keep_intergenic`, a variant without a transcript in reach is intergenic. The genome holds
+    /// the transcript at chr1:1001-1017, `T` bases behind it and then `AGGG`.
+    #[rstest::rstest]
+    // `g.6020_6021insAAGG`, 5003 bases behind the transcript; 5000 bases before the 3' shift
+    #[case::ins_shifted_beyond(5000, 6017, "TAGGA", None)]
+    // `g.6017_6018insAAGG`, 5000 bases behind the transcript
+    #[case::ins_shifted_to_limit(4997, 6014, "TAGGA", Some(vec![Consequence::DownstreamGeneVariant]))]
+    // `g.6015_6018dup` starts 4998 bases behind the transcript, but its copy goes 5001 bases
+    // behind it
+    #[case::dup_copy_beyond(4997, 6014, "TAGGG", None)]
+    fn no_annotation_beyond_padding(
+        #[case] t_bases: usize,
+        #[case] position: i32,
+        #[case] alternative: &str,
+        #[case] expected: Option<Vec<Consequence>>,
+        #[values(false, true)] vep_compatibility_mode: bool,
+        #[values(false, true)] keep_intergenic: bool,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGT", "ATGGCCTAA", "CAGT");
+        let mut reference = NamedTempFile::new()?;
+        write!(
+            reference,
+            ">1\n{}{seq}{}AGGG{}\n",
+            "T".repeat(1000),
+            "T".repeat(t_bases),
+            "C".repeat(100)
+        )?;
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .keep_intergenic(keep_intergenic)
+            .build()?;
+        let anns = predictor_with_reference(tx, seq, config, Some(reference.path()))
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: "T".into(),
+                alternative: alternative.into(),
+            })?
+            .unwrap_or_default();
+        let found = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .map(|ann| ann.consequences.clone());
+        let intergenic =
+            (anns.iter()).any(|ann| ann.consequences == [Consequence::IntergenicVariant]);
+
+        assert_eq!(found, expected, "{anns:?}");
+        assert_eq!(
+            intergenic,
+            keep_intergenic && expected.is_none(),
+            "{anns:?}"
+        );
+        Ok(())
+    }
+
+    /// A dup whose bases overlap the transcript keeps its annotation, also if its copy goes
+    /// farther than `PADDING` behind the transcript. The dup of chr1:1011-6020 covers the stop
+    /// codon, the 3' UTR and the 5003 `T` bases behind the transcript.
+    #[rstest::rstest]
+    fn dup_over_transcript_end_keeps_annotation(
+        #[values(false, true)] vep_compatibility_mode: bool,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGT", "ATGGCCTAA", "CAGT");
+        let t_bases = "T".repeat(5003);
+        let mut reference = NamedTempFile::new()?;
+        write!(
+            reference,
+            ">1\n{}{seq}{t_bases}AGGG{}\n",
+            "T".repeat(1000),
+            "C".repeat(100)
+        )?;
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
+        let anns = predictor_with_reference(tx, seq, config, Some(reference.path()))
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1010,
+                reference: "C".into(),
+                alternative: format!("CTAACAGT{t_bases}"),
+            })?
+            .unwrap_or_default();
+        let found = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .map(|ann| (ann.hgvs_c.as_deref(), ann.consequences.clone()));
+
+        assert_eq!(
+            found,
+            Some((
+                Some("c.7_*5007dup"),
+                vec![Consequence::CodingSequenceVariant]
+            )),
+            "{anns:?}"
         );
         Ok(())
     }
