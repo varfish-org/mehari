@@ -838,14 +838,15 @@ impl ConsequencePredictor {
     ///
     /// If there was any error during the prediction.
     pub fn predict(&self, var: &VcfVariant) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
-        // Normalize variant by stripping common prefix and suffix.
-        let mut norm_var = self.normalize_variant(var);
-
-        // TODO check for VCF specification version.
-        // According to VCF specification (>=4.1), an alternative of "N" means REF=ALT
-        // Prior to 4.1, it indicated a deletion.
-        if norm_var.alternative == "N" {
-            norm_var.alternative = norm_var.reference.clone();
+        // Normalize variant by stripping common prefix and suffix. An `N` in ALT is one unknown
+        // base, also an ALT of `N` alone.
+        let norm_var = self.normalize_variant(var);
+        // A variant without change has nothing to annotate. hgvs-rs would put the empty change
+        // at both ends of the contig.
+        if norm_var.reference.is_empty() && norm_var.alternative.is_empty() {
+            return Ok(Some(
+                self.run_plugins(std::slice::from_ref(var), Vec::new())?,
+            ));
         }
 
         // Obtain accession from chromosome name.
@@ -895,7 +896,9 @@ impl ConsequencePredictor {
                     self.run_plugins(std::slice::from_ref(var), Vec::new())?,
                 ));
             }
-            let hgvs_g = Some(self.format_hgvs_g(&var_g));
+            let hgvs_g = self
+                .writes_hgvs(&var.alternative)
+                .then(|| self.format_hgvs_g(&var_g));
 
             let ann = AnnField {
                 allele: Allele::Alt {
@@ -1421,6 +1424,7 @@ impl ConsequencePredictor {
                     projection.p = Some(var_p);
                     projection.region = region;
                 }
+                self.mark_unknown_protein(&mut projection, &tx.id);
             }
         }
 
@@ -1528,10 +1532,39 @@ impl ConsequencePredictor {
                     .start_codon
                     .zip(tx.stop_codon)
                     .map(|(start, stop)| stop - start);
+                // A protein that reads unknown bases gives no terms, see `project_hgvs`.
+                let unknown_protein = !self.config.vep_compatibility_mode
+                    && matches!(
+                        var_p,
+                        HgvsVariant::ProtVariant {
+                            loc_edit: ProtLocEdit::Unknown,
+                            ..
+                        }
+                    )
+                    && projection.has_ambiguous_alt();
+                // The terms that need the amino acids give way to their SO parent, unless the
+                // frameshift or in-frame term of the c. variant stands for it. The bases of
+                // `c.-1_1ins` go into the 5' UTR, also where hgvs-rs counts them to the CDS, in
+                // front of a transcript without 5' UTR.
+                if unknown_protein
+                    && projection.region == Some(VariantLocation::Cds)
+                    && context.cds_pos.is_some()
+                    && projection.is_within_coding_sequence()
+                    && !context.cds_consequences.intersects(
+                        Consequence::FrameshiftVariant
+                            | Consequence::ConservativeInframeInsertion
+                            | Consequence::DisruptiveInframeInsertion
+                            | Consequence::ConservativeInframeDeletion
+                            | Consequence::DisruptiveInframeDeletion,
+                    )
+                {
+                    context.cds_consequences |= Consequence::CodingSequenceVariant;
+                }
                 if (fs
                     || delins_with_stop
                     || touches_stop_codon(var_c, cds_len)
                     || self.leaves_no_codon_behind(projection, tx))
+                    && !unknown_protein
                     && let Ok(ref_data) = self.ref_data(&tx_record.tx_ac)
                 {
                     context.sequence_consequences = self.sequence_consequences(var_c, &ref_data);
@@ -1938,14 +1971,16 @@ impl ConsequencePredictor {
         let owned_projection = projection.map(|(projection, _)| projection);
         let projection = owned_projection.as_ref();
 
-        let hgvs_g = Some(self.format_hgvs_g(var_g));
-        let hgvs_n = projection
+        let hgvs = self.writes_hgvs(&orig_var.alternative);
+        let hgvs_g = hgvs.then(|| self.format_hgvs_g(var_g));
+        let hgvs_projection = projection.filter(|_| hgvs);
+        let hgvs_n = hgvs_projection
             .and_then(|p| p.n.as_ref())
             .map(|var| FormattedLoc(var).to_string());
-        let hgvs_c = projection
+        let hgvs_c = hgvs_projection
             .and_then(|p| p.c.as_ref())
             .map(|var| FormattedLoc(var).to_string());
-        let hgvs_p = projection
+        let hgvs_p = hgvs_projection
             .and_then(|p| p.p.as_ref())
             .map(|var| FormattedLoc(var).to_string());
 
@@ -3164,6 +3199,12 @@ impl ConsequencePredictor {
         }
     }
 
+    /// Whether the annotations of a variant with ALT `alternative` get HGVS descriptions. VEP
+    /// 116.3 writes none for an allele with bases other than A, C, G and T.
+    fn writes_hgvs(&self, alternative: &str) -> bool {
+        !self.config.vep_compatibility_mode || is_unambiguous(alternative)
+    }
+
     // Normalize variant by stripping common suffixes and prefixes.
     fn normalize_variant(&self, var: &VcfVariant) -> VcfVariant {
         let mut result = var.clone();
@@ -3204,19 +3245,13 @@ impl ConsequencePredictor {
     ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
         // Run each input variant through single-variant normalization first. Like in `predict`,
         // a VCF indel then lies behind its first REF base, as the VCF specification defines.
-        let normalized_variants: Vec<VcfVariant> = variants
-            .iter()
-            .map(|v| {
-                let mut norm = self.normalize_variant(v);
-                // Detect when ALT == "N" and rewrite ALT to the normalized REF
-                if norm.alternative == "N" {
-                    norm.alternative = norm.reference.clone();
-                }
-                norm
-            })
-            .collect();
+        let normalized_variants: Vec<VcfVariant> =
+            variants.iter().map(|v| self.normalize_variant(v)).collect();
 
-        let mut paired_vars: Vec<_> = variants.iter().cloned().zip(normalized_variants).collect();
+        // A variant without change changes nothing in the group.
+        let mut paired_vars: Vec<_> = (variants.iter().cloned().zip(normalized_variants))
+            .filter(|(_, norm)| !(norm.reference.is_empty() && norm.alternative.is_empty()))
+            .collect();
         // An insertion lies in front of the base at its position, so it sorts before a variant
         // that starts at that base.
         paired_vars.sort_by_key(|(_, norm)| (norm.position, norm.reference.len()));
@@ -3591,13 +3626,14 @@ impl ConsequencePredictor {
         let (compound_var_p, region) = self.safe_project_c_to_p(&compound_var_c)?.unzip();
         let region = region.flatten();
 
-        let compound_proj = HgvsProjectionContext {
+        let mut compound_proj = HgvsProjectionContext {
             n: Some(compound_var_n),
             c: Some(compound_var_c),
             p: compound_var_p,
             region,
             unshifted_g: None,
         };
+        self.mark_unknown_protein(&mut compound_proj, &tx.id);
 
         let tlc = TranscriptLocationContext {
             rank: Rank { ord: 1, total: 1 }, // dummy rank since we potentially span multiple exons
@@ -3658,6 +3694,11 @@ impl ConsequencePredictor {
             .p
             .as_ref()
             .map(|p| format!("{}", p).split(':').nth(1).unwrap().to_owned());
+
+        // As in `build_ann_field`, see `writes_hgvs`.
+        let hgvs = (sorted_originals.iter()).all(|var| self.writes_hgvs(&var.alternative));
+        let [hgvs_g, hgvs_n, hgvs_c, hgvs_p] =
+            [hgvs_g, hgvs_n, hgvs_c, hgvs_p].map(|desc| desc.filter(|_| hgvs));
 
         let ref_alts = sorted_originals
             .iter()
@@ -3864,6 +3905,52 @@ impl ConsequencePredictor {
             }
             None => Consequence::StopLost.into(),
         }
+    }
+
+    /// Make p. of `projection` on transcript `tx_ac` `p.?` if the protein reads a codon with an
+    /// unknown base, which can be any amino acid or a stop. VEP compatibility mode keeps p., as
+    /// VEP's rules for such bases decide the terms there, see `adjust_vep_terms`.
+    fn mark_unknown_protein(&self, projection: &mut HgvsProjectionContext, tx_ac: &str) {
+        if self.config.vep_compatibility_mode
+            || projection.p.is_none()
+            || !projection.has_ambiguous_alt()
+        {
+            return;
+        }
+        if let Some(var_c) = &projection.c
+            && self.reads_unknown_codon(var_c, tx_ac)
+        {
+            projection.p = Some(HgvsVariant::ProtVariant {
+                accession: var_c.accession().clone(),
+                gene_symbol: var_c.gene_symbol().clone(),
+                loc_edit: ProtLocEdit::Unknown,
+            });
+        }
+    }
+
+    /// Whether the protein of `var_c` on transcript `tx_ac` reads a codon with an unknown base,
+    /// e.g. `N`, from the first changed residue up to a stop. hgvs-rs translates such a codon to
+    /// `X` unless all its readings give the same amino acid.
+    fn reads_unknown_codon(&self, var_c: &HgvsVariant, tx_ac: &str) -> bool {
+        let Ok(ref_data) = self.ref_data(tx_ac) else {
+            return false;
+        };
+        let Some((alt_data, start)) = self
+            .mapper
+            .alt_seq_builder(var_c, &ref_data)
+            .and_then(|builder| builder.build_altseq())
+            .ok()
+            .and_then(|alt_data| alt_data.into_iter().next())
+            .and_then(|alt_data| {
+                let start = usize::try_from(alt_data.variant_start_aa?).ok()?;
+                Some((alt_data, start))
+            })
+        else {
+            return false;
+        };
+        (alt_data.aa_sequence.get(start.saturating_sub(1)..))
+            .and_then(|changed| changed.split('*').next())
+            .is_some_and(|read| read.contains('X'))
     }
 
     /// The reference data of transcript `tx_ac`, shared with the cache of hgvs-rs.
@@ -8877,6 +8964,319 @@ mod test {
             assert!(found[0].contains(&expected_default), "{:?}", found[0]);
         }
         assert_eq!(found[1], expected_compatibility);
+        Ok(())
+    }
+
+    /// `hgvs_c`, `hgvs_p` and the terms of an annotation.
+    type HgvsAndTerms = (Option<&'static str>, Option<&'static str>, Vec<Consequence>);
+
+    /// An `N` in ALT is one unknown base, also an ALT of `N` alone. By default, the terms of the
+    /// position and length stay, c. shows the `N`, and p. is `p.?` where the unknown bases can
+    /// change the protein. In VEP compatibility mode, there is no HGVS, as in VEP. A variant
+    /// without change gets no annotation. The genome holds the transcript at chr1:1001-1064,
+    /// with the CDS `ATG GCC AAG CTG TGG GAA CCA TAA` at chr1:1021-1044, and `T` bases behind
+    /// it.
+    #[rstest::rstest]
+    // no change: hgvs-rs would put it at both ends of the contig
+    #[case::no_change("1027:A:A", None, None)]
+    // `N` alone: one unknown base in place of REF, also of a longer one
+    #[case::alt_n(
+        "1027:A:N",
+        Some((Some("c.7A>N"), Some("p.?"), vec![Consequence::CodingSequenceVariant])),
+        Some((None, None, vec![Consequence::CodingSequenceVariant]))
+    )]
+    #[case::alt_n_longer_ref(
+        "1027:AAG:N",
+        Some((Some("c.7_9delinsN"), Some("p.?"), vec![Consequence::FrameshiftVariant])),
+        Some((None, None, vec![Consequence::FrameshiftVariant]))
+    )]
+    #[case::alt_n_inframe(
+        "1027:AAGC:N",
+        Some((Some("c.7_10delinsN"), Some("p.?"), vec![Consequence::CodingSequenceVariant])),
+        Some((None, None, vec![Consequence::CodingSequenceVariant]))
+    )]
+    // one unknown base behind c.6: the frameshift reads it at once
+    #[case::frameshift(
+        "1026:C:CN",
+        Some((Some("c.6_7insN"), Some("p.?"), vec![Consequence::FrameshiftVariant])),
+        Some((None, None, vec![Consequence::FrameshiftVariant]))
+    )]
+    #[case::inframe(
+        "1025:C:CNNN",
+        Some((Some("c.5_6insNNN"), Some("p.?"), vec![Consequence::DisruptiveInframeInsertion])),
+        Some((None, None, vec![Consequence::CodingSequenceVariant]))
+    )]
+    // `TAG` ends the protein in front of the unknown bases
+    #[case::stop_in_front(
+        "1026:C:CTAGNNNN",
+        Some((
+            Some("c.6_7insTAGNNNN"),
+            Some("p.(Lys3Ter)"),
+            vec![Consequence::StopGained, Consequence::FrameshiftVariant]
+        )),
+        Some((None, None, vec![Consequence::FrameshiftVariant]))
+    )]
+    #[case::substitution(
+        "1027:AA:NA",
+        Some((Some("c.7A>N"), Some("p.?"), vec![Consequence::CodingSequenceVariant])),
+        Some((None, None, vec![Consequence::CodingSequenceVariant]))
+    )]
+    #[case::utr(
+        "1020:T:TNNN",
+        Some((Some("c.-1_1insNNN"), Some("p.?"), vec![Consequence::FivePrimeUtrExonVariant])),
+        Some((None, None, vec![Consequence::FivePrimeUtrVariant]))
+    )]
+    fn unknown_bases_in_alt(
+        #[case] var: &str,
+        #[case] expected_default: Option<HgvsAndTerms>,
+        #[case] expected_compatibility: Option<HgvsAndTerms>,
+    ) -> Result<(), anyhow::Error> {
+        let var = var.split(':').collect::<Vec<_>>();
+        let utr = "CAGTCAGTCAGTCAGTCAGT";
+        let (tx, seq) = one_exon_tx(utr, "ATGGCCAAGCTGTGGGAACCATAA", utr);
+        let mut reference = NamedTempFile::new()?;
+        write!(
+            reference,
+            ">1\n{}{seq}{}\n",
+            "T".repeat(1000),
+            "T".repeat(100)
+        )?;
+        for (vep_compatibility_mode, expected) in
+            [(false, expected_default), (true, expected_compatibility)]
+        {
+            let config = ConfigBuilder::default()
+                .vep_compatibility_mode(vep_compatibility_mode)
+                .build()?;
+            let anns =
+                predictor_with_reference(tx.clone(), seq.clone(), config, Some(reference.path()))
+                    .predict(&VcfVariant {
+                        chromosome: "1".into(),
+                        position: var[0].parse()?,
+                        reference: var[1].into(),
+                        alternative: var[2].into(),
+                    })?
+                    .unwrap_or_default();
+            let found = anns
+                .iter()
+                .find(|ann| ann.feature_id == "NM_000001.1")
+                .map(|ann| {
+                    (
+                        ann.hgvs_c.as_deref(),
+                        ann.hgvs_p.as_deref(),
+                        ann.consequences.clone(),
+                    )
+                });
+            assert_eq!(
+                found, expected,
+                "compatibility mode {vep_compatibility_mode}: {anns:?}"
+            );
+            // Without HGVS, there is neither n. nor g.
+            if let Some(ann) = anns.iter().find(|ann| ann.feature_id == "NM_000001.1")
+                && ann.hgvs_c.is_none()
+            {
+                assert_eq!((&ann.hgvs_n, &ann.hgvs_g), (&None, &None), "{ann:?}");
+            }
+        }
+        Ok(())
+    }
+
+    /// An unknown base in place of the last base of exon 1 of `two_exon_tx(20)`, c.40, keeps
+    /// the term of its position and gets `coding_sequence_variant` in place of the terms that
+    /// need the amino acid.
+    #[test]
+    fn unknown_base_at_exon_edge() -> Result<(), anyhow::Error> {
+        let (tx, seq) = two_exon_tx(20);
+        let anns = predictor_with_config(tx, seq, Config::default())
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1059,
+                reference: "CG".into(),
+                alternative: "CN".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (
+                Some("c.40G>N"),
+                Some("p.?"),
+                &vec![
+                    Consequence::ExonicSpliceRegionVariant,
+                    Consequence::CodingSequenceVariant
+                ]
+            )
+        );
+        Ok(())
+    }
+
+    /// The bases of `c.-1_1ins` go into the 5' UTR, also in front of a transcript without 5'
+    /// UTR, where hgvs-rs counts them to the CDS. Unknown bases there leave the CDS as it is, so
+    /// they give no `coding_sequence_variant`, e.g. those that ClinVar 2031467 inserts in front
+    /// of ENST00000552914.5. The CDS `ATG GCC AAG CTG TGG GAA CCA TAA` starts the transcript at
+    /// chr1:1001.
+    #[test]
+    fn unknown_bases_in_front_of_transcript() -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("", "ATGGCCAAGCTGTGGGAACCATAA", "CAGTCAGTCAGTCAGTCAGT");
+        let mut reference = NamedTempFile::new()?;
+        write!(
+            reference,
+            ">1\n{}{seq}{}\n",
+            "T".repeat(1000),
+            "T".repeat(100)
+        )?;
+        let config = ConfigBuilder::default().build()?;
+        let anns = predictor_with_reference(tx, seq, config, Some(reference.path()))
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1000,
+                reference: "T".into(),
+                alternative: "TNNNN".into(),
+            })?
+            .unwrap_or_default();
+        let found = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .map(|ann| {
+                (
+                    ann.hgvs_c.as_deref(),
+                    ann.hgvs_p.as_deref(),
+                    ann.consequences.clone(),
+                )
+            });
+
+        assert_eq!(
+            found,
+            Some((
+                Some("c.-1_1insNNNN"),
+                Some("p.?"),
+                vec![Consequence::FivePrimeUtrExonVariant]
+            )),
+            "{anns:?}"
+        );
+        Ok(())
+    }
+
+    /// An intergenic variant with `keep_intergenic` follows the rules of `unknown_bases_in_alt`
+    /// for its g. description: no HGVS for an unknown base in VEP compatibility mode. The
+    /// transcript at chr1:1001-1064 lies farther than `PADDING` from chr1:15000.
+    #[rstest::rstest]
+    #[case::insertion("TN", Some(Some("g.15000_15001insN")), Some(None))]
+    #[case::alt_n("N", Some(Some("g.15000T>N")), Some(None))]
+    fn intergenic_unknown_bases(
+        #[case] alternative: &str,
+        #[case] expected_default: Option<Option<&str>>,
+        #[case] expected_compatibility: Option<Option<&str>>,
+    ) -> Result<(), anyhow::Error> {
+        let utr = "CAGTCAGTCAGTCAGTCAGT";
+        let (tx, seq) = one_exon_tx(utr, "ATGGCCAAGCTGTGGGAACCATAA", utr);
+        let mut reference = NamedTempFile::new()?;
+        write!(
+            reference,
+            ">1\n{}{seq}{}\n",
+            "T".repeat(1000),
+            "T".repeat(20000)
+        )?;
+        for (vep_compatibility_mode, expected) in
+            [(false, expected_default), (true, expected_compatibility)]
+        {
+            let config = ConfigBuilder::default()
+                .vep_compatibility_mode(vep_compatibility_mode)
+                .keep_intergenic(true)
+                .build()?;
+            let anns =
+                predictor_with_reference(tx.clone(), seq.clone(), config, Some(reference.path()))
+                    .predict(&VcfVariant {
+                        chromosome: "1".into(),
+                        position: 15000,
+                        reference: "T".into(),
+                        alternative: alternative.into(),
+                    })?
+                    .unwrap_or_default();
+            let found = anns
+                .iter()
+                .find(|ann| ann.consequences == [Consequence::IntergenicVariant])
+                .map(|ann| ann.hgvs_g.as_deref());
+            assert_eq!(
+                found, expected,
+                "compatibility mode {vep_compatibility_mode}: {anns:?}"
+            );
+        }
+        Ok(())
+    }
+
+    /// Phased variants follow the rules of `unknown_bases_in_alt` for the combined change, see
+    /// there for the transcript.
+    #[rstest::rstest]
+    // one unknown base behind c.6, and c.10C>T
+    #[case::frameshift(
+        ("1026:C:CN", "1030:C:T"),
+        (Some("c.7_10delinsNAAGT"), Some("p.?"), vec![Consequence::FrameshiftVariant]),
+        (None, None, vec![Consequence::FrameshiftVariant])
+    )]
+    // `N` alone at c.7, and c.10C>T
+    #[case::alt_n(
+        ("1027:A:N", "1030:C:T"),
+        (Some("c.7_10delinsNAGT"), Some("p.?"), vec![Consequence::CodingSequenceVariant]),
+        (None, None, vec![Consequence::CodingSequenceVariant])
+    )]
+    fn phased_unknown_bases(
+        #[case] vars: (&str, &str),
+        #[case] expected_default: HgvsAndTerms,
+        #[case] expected_compatibility: HgvsAndTerms,
+    ) -> Result<(), anyhow::Error> {
+        let utr = "CAGTCAGTCAGTCAGTCAGT";
+        let (tx, seq) = one_exon_tx(utr, "ATGGCCAAGCTGTGGGAACCATAA", utr);
+        let mut reference = NamedTempFile::new()?;
+        write!(
+            reference,
+            ">1\n{}{seq}{}\n",
+            "T".repeat(1000),
+            "T".repeat(100)
+        )?;
+        let vars = [vars.0, vars.1].map(|var| {
+            let var = var.split(':').collect::<Vec<_>>();
+            VcfVariant {
+                chromosome: "1".into(),
+                position: var[0].parse().unwrap_or_default(),
+                reference: var[1].into(),
+                alternative: var[2].into(),
+            }
+        });
+        for (vep_compatibility_mode, expected) in
+            [(false, expected_default), (true, expected_compatibility)]
+        {
+            let config = ConfigBuilder::default()
+                .vep_compatibility_mode(vep_compatibility_mode)
+                .build()?;
+            let anns =
+                predictor_with_reference(tx.clone(), seq.clone(), config, Some(reference.path()))
+                    .predict_multiple(&vars)?
+                    .unwrap_or_default();
+            let ann = anns
+                .iter()
+                .find(|ann| ann.feature_id == "NM_000001.1")
+                .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+            assert_eq!(
+                (
+                    ann.hgvs_c.as_deref(),
+                    ann.hgvs_p.as_deref(),
+                    ann.consequences.clone()
+                ),
+                expected,
+                "compatibility mode {vep_compatibility_mode}: {ann:?}"
+            );
+            if ann.hgvs_c.is_none() {
+                assert_eq!((&ann.hgvs_n, &ann.hgvs_g), (&None, &None), "{ann:?}");
+            }
+        }
         Ok(())
     }
 
