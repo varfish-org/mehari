@@ -61,6 +61,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Without --locked, cargo rewrites a Cargo.lock that does not match the manifests, e.g. after a
+      # dependency bump that did not update it.
+      - name: Check that Cargo.lock is up to date
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
       - name: Lint with clippy
         run: cargo clippy --workspace --all-features
 
