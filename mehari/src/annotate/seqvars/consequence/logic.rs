@@ -1537,6 +1537,16 @@ impl ConsequencePredictor {
                 incomplete_3p,
                 available_cds_len,
             );
+            // A change of a start codon base that hgvs-rs places in the 5' UTR keeps the start
+            // codon in front of the CDS, as the same change fits in front of c.1, e.g. `c.-2_1del`
+            // or `c.1dup`, whose copy goes between c.1 and c.2. VEP compatibility mode decides
+            // this as VEP, see `consequences_fix_special_cases`.
+            if !self.config.vep_compatibility_mode
+                && projection.region == Some(VariantLocation::FivePrimeUtr)
+                && changes_start_codon(var_c)
+            {
+                context.cds_consequences |= Consequence::StartRetainedVariant;
+            }
 
             if let Some(var_p) = &projection.p {
                 // The terms of a frameshift, of a delins with a stop, of a change of the stop
@@ -2462,8 +2472,10 @@ impl ConsequencePredictor {
             *consequences &= !Consequence::StartLost;
         }
 
-        // VEP reports `start_retained_variant` for a deletion in the start codon that leaves the
-        // CDS intact. Outside VEP compatibility mode, hgvs-rs puts such a deletion in the 5' UTR.
+        // VEP reports `start_retained_variant` for a deletion in the start codon, or from the 5'
+        // UTR into it, that leaves the CDS intact. It also reports `start_lost` there, as it reads
+        // the codon at the old place of the start codon; mehari does not. Outside VEP
+        // compatibility mode, hgvs-rs puts such a deletion in the 5' UTR.
         if self.config.vep_compatibility_mode
             && let (
                 Some(HgvsVariant::TxVariant {
@@ -2481,15 +2493,21 @@ impl ConsequencePredictor {
             let c_edit = c_loc_edit.edit.inner();
             let c_loc = c_loc_edit.loc.inner();
 
-            // If edit occurs within the first 3 bases of the CDS,
+            // If edit occurs within the first 3 bases of the CDS, or a deletion from the 5' UTR
+            // into them,
             let (start, end) = (c_loc.start.base, c_loc.end.base);
-            if within_first_codon(c_loc.start.clone(), c_loc.end.clone()) {
+            let from_utr = CdsPos {
+                base: start.max(1),
+                ..c_loc.start.clone()
+            };
+            if within_first_codon(from_utr, c_loc.end.clone()) {
                 // … then we need to check whether this is a start lost or a start retained.
-                // To that end, check the deletion against the transcript sequence (0-based).
+                // To that end, check the deletion against the transcript sequence (0-based), in
+                // which c.1 follows c.-1.
                 let start_retained = match c_edit {
                     NaEdit::DelRef { .. } => match (
                         self.provider.get_seq_part(&accession.value, None, None),
-                        usize::try_from(n_loc.start.base - start),
+                        usize::try_from(n_loc.start.base - start - i32::from(start < 0)),
                         usize::try_from(n_loc.start.base - 1),
                         usize::try_from(n_loc.end.base),
                     ) {
@@ -2506,7 +2524,8 @@ impl ConsequencePredictor {
                     *consequences &= !Consequence::StartLost;
                     *consequences |= Consequence::StartRetainedVariant;
                 }
-
+            }
+            if within_first_codon(c_loc.start.clone(), c_loc.end.clone()) {
                 // VEP puts the copy of a dup behind the dup. If the inserted bases lie inside
                 // the start codon and can go before c.1, VEP reports `start_lost` and
                 // `start_retained_variant`, but no in-frame insertion.
@@ -4151,6 +4170,26 @@ fn within_first_codon(start: CdsPos, end: CdsPos) -> bool {
         && end.base <= 3
 }
 
+/// Whether `var_c` changes a base of the start codon c.1 to c.3: an insertion between two of
+/// them, a dup whose copy goes there, behind its last base, or another edit of one of them.
+fn changes_start_codon(var_c: &HgvsVariant) -> bool {
+    let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
+        return false;
+    };
+    let loc = loc_edit.loc.inner();
+    let in_exon = |pos: &CdsPos| pos.cds_from == CdsFrom::Start && pos.offset.unwrap_or(0) == 0;
+    if !(in_exon(&loc.start) && in_exon(&loc.end)) {
+        return false;
+    }
+    match loc_edit.edit.inner() {
+        NaEdit::Ins { .. } => {
+            (1..=2).contains(&loc.start.base) && loc.end.base == loc.start.base + 1
+        }
+        NaEdit::Dup { .. } => (1..=2).contains(&loc.end.base),
+        _ => loc.start.base <= 3 && loc.end.base >= 1,
+    }
+}
+
 /// The edit of the p. variant of `projection`, if it has one.
 fn protein_edit(projection: &HgvsProjectionContext) -> Option<&ProteinEdit> {
     match &projection.p {
@@ -4325,7 +4364,7 @@ fn crosses_cds_end(var_c: &HgvsVariant, cds_len: Option<i32>) -> bool {
 
 /// Whether deleting `tx_seq[del]` leaves the CDS that starts at `cds_start` intact.
 ///
-/// `del` must start at or after `cds_start`.  The CDS stays intact if it then starts
+/// `del` must end behind `cds_start`.  The CDS stays intact if it then starts
 /// `del.len()` bases earlier, i.e. if the same bases could be deleted from the 5' UTR.
 /// VEP's `_ins_del_start_altered` checks the same.
 ///
@@ -5640,10 +5679,11 @@ mod test {
     /// copy behind its bases. With VEP terms, the expected terms are those of VEP 116.3 with
     /// `--shift_3prime 1`.
     #[rstest::rstest]
-    // ENST00000413051 has no 5' UTR, and the copy lands behind c.2, in the CDS. The copy can
-    // also go in front of c.1, so hgvs-rs places the dup in the 5' UTR and gives `p.?`. With VEP
-    // terms, the position of the copy counts, not its 5' UTR region.
-    #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", false, "c.-21_2dup", "p.?", vec![Consequence::FivePrimeUtrExonVariant])]
+    // ENST00000413051 has no 5' UTR, and the copy lands behind c.2, in the start codon. The copy
+    // can also go in front of c.1, so hgvs-rs places the dup in the 5' UTR and gives `p.?`, and
+    // the start codon remains. With VEP terms, the position of the copy counts, not its 5' UTR
+    // region.
+    #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", false, "c.-21_2dup", "p.?", vec![Consequence::StartRetainedVariant, Consequence::FivePrimeUtrExonVariant])]
     #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", true, "c.-21_2dup", "p.?", vec![Consequence::FrameshiftVariant])]
     // the copy lands in the last three exon bases
     #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", false, "c.491_504dup", "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
@@ -5689,7 +5729,13 @@ mod test {
             config,
             CHR22_GENCODE42_TXS,
         )?;
-        assert_eq!(ann.consequences, [Consequence::FivePrimeUtrVariant]);
+        assert_eq!(
+            ann.consequences,
+            [
+                Consequence::StartRetainedVariant,
+                Consequence::FivePrimeUtrVariant
+            ]
+        );
 
         Ok(())
     }
@@ -6114,55 +6160,56 @@ mod test {
 
     /// An insertion or dup that can go before c.1 or after the last CDS base leaves the CDS
     /// intact, so it lies in a UTR. `c.1dup` inserts an A in front of the ATG, and `c.1_3dup` an
-    /// ATG. The stop codon of NM_007294.4 ends at c.5592.
+    /// ATG. The stop codon of NM_007294.4 ends at c.5592. The copy of `c.1dup` goes between c.1
+    /// and c.2, so it changes the start codon, which remains: `start_retained_variant`.
     #[rstest::rstest]
     #[case(
         "3:193311166:G:GC",
         "NM_130837.3",
         "c.-1_1insC",
-        Consequence::FivePrimeUtrExonVariant
+        vec![Consequence::FivePrimeUtrExonVariant]
     )] // OPA1, forward
     #[case(
         "17:41258543:T:TA",
         "NM_007297.4",
         "c.-1_1insT",
-        Consequence::FivePrimeUtrExonVariant
+        vec![Consequence::FivePrimeUtrExonVariant]
     )] // BRCA1, reverse
     #[case(
         "3:193311167:A:AA",
         "NM_130837.3",
         "c.1dup",
-        Consequence::FivePrimeUtrExonVariant
+        vec![Consequence::StartRetainedVariant, Consequence::FivePrimeUtrExonVariant]
     )]
     #[case(
         "17:41276112:A:AT",
         "NM_007294.4",
         "c.1dup",
-        Consequence::FivePrimeUtrExonVariant
+        vec![Consequence::StartRetainedVariant, Consequence::FivePrimeUtrExonVariant]
     )]
     #[case(
         "3:193311169:G:GATG",
         "NM_130837.3",
         "c.1_3dup",
-        Consequence::FivePrimeUtrExonVariant
+        vec![Consequence::FivePrimeUtrExonVariant]
     )]
     #[case(
         "17:41276110:C:CCAT",
         "NM_007294.4",
         "c.1_3dup",
-        Consequence::FivePrimeUtrExonVariant
+        vec![Consequence::FivePrimeUtrExonVariant]
     )]
     #[case(
         "17:41197695:T:TT",
         "NM_007294.4",
         "c.5592dup",
-        Consequence::ThreePrimeUtrExonVariant
+        vec![Consequence::ThreePrimeUtrExonVariant]
     )]
     fn annotate_ins_keeping_cds(
         #[case] spdi: &str,
         #[case] tx_id: &str,
         #[case] expected_hgvs_c: &str,
-        #[case] expected_csq: Consequence,
+        #[case] expected_csqs: Vec<Consequence>,
     ) -> Result<(), anyhow::Error> {
         let spdi = spdi.split(':').collect::<Vec<_>>();
 
@@ -6182,7 +6229,7 @@ mod test {
         let ann = res.iter().find(|ann| ann.feature_id == tx_id).unwrap();
         assert_eq!(ann.hgvs_c.as_deref(), Some(expected_hgvs_c));
         assert_eq!(ann.hgvs_p.as_deref(), Some("p.?"));
-        assert_eq!(ann.consequences, vec![expected_csq]);
+        assert_eq!(ann.consequences, expected_csqs);
 
         Ok(())
     }
@@ -6233,16 +6280,17 @@ mod test {
     }
 
     /// A deletion that can go before c.1 or after the last CDS base leaves the CDS intact. hgvs-rs
-    /// then gives `p.?`, and the default terms are UTR terms. In NM_007294.4, c.-2, c.-1 and c.1
+    /// then gives `p.?`, and the default terms are UTR terms. A deletion of a start codon base
+    /// keeps the start codon then: `start_retained_variant`. In NM_007294.4, c.-2, c.-1 and c.1
     /// are A bases. In NM_130837.3, c.3048 and c.*1 are A bases.
     ///
     /// VEP 116.3 with `--shift_3prime 1` keeps such a deletion at the start codon in the CDS and
     /// reports `start_retained_variant`. It shifts the one behind the stop codon into the 3' UTR.
     #[rstest::rstest]
-    #[case("17:41276112:AT:A", "NM_007294.4", "c.1del", false, vec![Consequence::FivePrimeUtrExonVariant])]
+    #[case("17:41276112:AT:A", "NM_007294.4", "c.1del", false, vec![Consequence::StartRetainedVariant, Consequence::FivePrimeUtrExonVariant])]
     #[case("17:41276112:AT:A", "NM_007294.4", "c.1del", true, vec![Consequence::FrameshiftVariant, Consequence::StartRetainedVariant])]
-    #[case("17:41276112:ATT:A", "NM_007294.4", "c.-1_1del", false, vec![Consequence::FivePrimeUtrExonVariant])]
-    #[case("17:41276112:ATT:A", "NM_007294.4", "c.-1_1del", true, vec![Consequence::StartLost, Consequence::FivePrimeUtrVariant])]
+    #[case("17:41276112:ATT:A", "NM_007294.4", "c.-1_1del", false, vec![Consequence::StartRetainedVariant, Consequence::FivePrimeUtrExonVariant])]
+    #[case("17:41276112:ATT:A", "NM_007294.4", "c.-1_1del", true, vec![Consequence::StartRetainedVariant, Consequence::FivePrimeUtrVariant])]
     #[case("3:193409915:AA:A", "NM_130837.3", "c.3048del", false, vec![Consequence::ThreePrimeUtrExonVariant])]
     #[case("3:193409915:AA:A", "NM_130837.3", "c.3048del", true, vec![Consequence::ThreePrimeUtrVariant])]
     fn annotate_del_keeping_cds(
@@ -6278,6 +6326,72 @@ mod test {
         assert_eq!(ann.hgvs_p.as_deref(), Some("p.?"));
         assert_eq!(ann.consequences, expected_csqs);
 
+        Ok(())
+    }
+
+    /// An indel from the 5' UTR into the start codon changes a start codon base, by its 3'-shifted
+    /// description. If the same change fits in front of c.1, the start codon remains in front of
+    /// the CDS: `start_retained_variant`, not `start_lost`. VEP compatibility mode decides this
+    /// for a deletion only, as VEP, and keeps the CDS terms of a dup. The 5' UTR of
+    /// `one_exon_tx` ends with `CAGT`, and c.-3 and c.1 are A bases.
+    #[rstest::rstest]
+    #[case::del(
+        (1018, "AGTA", "A"),
+        false,
+        "c.-2_1del",
+        vec![Consequence::StartRetainedVariant, Consequence::FivePrimeUtrExonVariant]
+    )]
+    #[case::del_vep(
+        (1018, "AGTA", "A"),
+        true,
+        "c.-2_1del",
+        vec![Consequence::StartRetainedVariant, Consequence::FivePrimeUtrVariant]
+    )]
+    #[case::dup(
+        (1021, "A", "AAGTA"),
+        false,
+        "c.-3_1dup",
+        vec![Consequence::StartRetainedVariant, Consequence::FivePrimeUtrExonVariant]
+    )]
+    #[case::dup_vep(
+        (1021, "A", "AAGTA"),
+        true,
+        "c.-3_1dup",
+        vec![Consequence::FrameshiftVariant]
+    )]
+    fn start_retained_from_5_prime_utr(
+        #[case] (position, reference, alternative): (i32, &str, &str),
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected_c: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", "CGCATCA");
+        let mut genome = NamedTempFile::new()?;
+        write!(genome, ">1\n{}{seq}{}\n", "T".repeat(1000), "T".repeat(100))?;
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
+        let anns = predictor_with_reference(tx, seq, config, Some(genome.path()))
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: reference.into(),
+                alternative: alternative.into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_c), Some("p.?"), &expected_csqs)
+        );
         Ok(())
     }
 
