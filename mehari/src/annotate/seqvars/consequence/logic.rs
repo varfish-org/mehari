@@ -19,7 +19,7 @@ use hgvs::{
     mapper::{Error, assembly},
     parser::{
         Accession, CdsFrom, CdsPos, GenomeInterval, GenomeLocEdit, HgvsVariant, MtInterval,
-        MtLocEdit, Mu, NaEdit, ProtLocEdit,
+        MtLocEdit, Mu, NaEdit, ProtLocEdit, UncertainLengthChange,
     },
 };
 use itertools::Itertools;
@@ -1634,6 +1634,20 @@ impl ConsequencePredictor {
                     && let Ok(ref_data) = self.ref_data(&tx_record.tx_ac)
                 {
                     context.sequence_consequences = self.sequence_consequences(var_c, &ref_data);
+                    // Unknown bases in front of the new stop codon of a frameshift can hold an
+                    // earlier one, which keeps a gained stop only, see `mark_unknown_protein`.
+                    if !self.config.vep_compatibility_mode
+                        && projection.has_ambiguous_alt()
+                        && matches!(
+                            protein_edit(projection),
+                            Some(ProteinEdit::Fs {
+                                length: UncertainLengthChange::Unknown,
+                                ..
+                            })
+                        )
+                    {
+                        context.sequence_consequences &= Consequence::StopGained;
+                    }
                 }
                 if matches!(
                     var_p,
@@ -4061,6 +4075,22 @@ impl ConsequencePredictor {
         if let Some(var_c) = &projection.c
             && self.reads_unknown_codon(var_c, tx_ac)
         {
+            // The length change makes a frameshift whatever the unknown bases read. If the first
+            // new residue is known, p. keeps it, and the new stop codon is at an unknown place.
+            if let Some(HgvsVariant::ProtVariant {
+                loc_edit: ProtLocEdit::Ordinary { edit, .. },
+                ..
+            }) = &mut projection.p
+                && let ProteinEdit::Fs {
+                    alternative: Some(alternative),
+                    length,
+                    ..
+                } = edit.inner_mut()
+                && alternative != "X"
+            {
+                *length = UncertainLengthChange::Unknown;
+                return;
+            }
             projection.p = Some(HgvsVariant::ProtVariant {
                 accession: var_c.accession().clone(),
                 gene_symbol: var_c.gene_symbol().clone(),
@@ -9871,10 +9901,11 @@ mod test {
 
     /// An `N` in ALT is one unknown base, also an ALT of `N` alone. By default, the terms of the
     /// position and length stay, c. shows the `N`, and p. is `p.?` where the unknown bases can
-    /// change the protein. In VEP compatibility mode, there is no HGVS, as in VEP. A variant
-    /// without change gets no annotation. The genome holds the transcript at chr1:1001-1064,
-    /// with the CDS `ATG GCC AAG CTG TGG GAA CCA TAA` at chr1:1021-1044, and `T` bases behind
-    /// it.
+    /// change the protein. A frameshift stays one, with its new stop codon at an unknown place
+    /// (`fsTer?`) if unknown bases come first. In VEP compatibility mode, there is no HGVS, as in
+    /// VEP. A variant without change gets no annotation. The genome holds the transcript at
+    /// chr1:1001-1064, with the CDS `ATG GCC AAG CTG TGG GAA CCA TAA` at chr1:1021-1044, and `T`
+    /// bases behind it.
     #[rstest::rstest]
     // no change: hgvs-rs would put it at both ends of the contig
     #[case::no_change("1027:A:A", None, None)]
@@ -9904,6 +9935,17 @@ mod test {
         "1025:C:CNNN",
         Some((Some("c.5_6insNNN"), Some("p.?"), vec![Consequence::DisruptiveInframeInsertion])),
         Some((None, None, vec![Consequence::CodingSequenceVariant]))
+    )]
+    // The frameshift is certain and Phe takes the place of Lys3, but the unknown bases may hold
+    // a stop codon in front of the `TAA` behind them. Either one shortens the protein.
+    #[case::frameshift_with_unknown_stop(
+        "1026:C:CTTTNNNTA",
+        Some((
+            Some("c.6_7insTTTNNNTA"),
+            Some("p.(Lys3PhefsTer?)"),
+            vec![Consequence::FrameshiftVariant, Consequence::FrameshiftTruncation]
+        )),
+        Some((None, None, vec![Consequence::FrameshiftVariant]))
     )]
     // `TAG` ends the protein in front of the unknown bases
     #[case::stop_in_front(
