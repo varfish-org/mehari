@@ -95,6 +95,8 @@ use mehari::db::transcripts::create;
 use mehari::server;
 use mehari::{annotate, common, db, verify};
 use tracing::level_filters::LevelFilter;
+use tracing_subscriber::filter::Targets;
+use tracing_subscriber::layer::SubscriberExt;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -248,17 +250,45 @@ async fn main() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
 
     // Build a tracing subscriber according to the configuration in `cli.common`.
+    let level = max_level(&cli.common.verbose);
+    // hgvs logs details of single variants at INFO, as biocommons/hgvs does.
+    let hgvs_level = if level == LevelFilter::INFO {
+        LevelFilter::WARN
+    } else {
+        level
+    };
+    // A server runs for long, so it logs every warning.
+    #[cfg(feature = "server")]
+    let is_server = matches!(cli.command, Commands::Server(_));
+    #[cfg(not(feature = "server"))]
+    let is_server = false;
+    let log_limit = (!is_server).then(common::log_limit::LogLimit::default);
     let collector = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_target(false)
-        .with_max_level(max_level(&cli.common.verbose))
+        .with_max_level(level)
         .compact()
-        .finish();
+        .finish()
+        .with(
+            Targets::new()
+                .with_default(level)
+                .with_target("hgvs", hgvs_level),
+        )
+        .with(log_limit.clone());
     tracing::subscriber::set_global_default(collector)?;
 
     // Install collector and go into sub commands.
     tracing::info!("Mehari startup -- letting the dromedary off the leash...");
 
+    common::log_limit::summarize(log_limit.as_ref(), run(&cli)).await?;
+    tracing::info!("... the dromedary is back in the stable.");
+    tracing::info!("All done. Have a nice day!");
+
+    Ok(())
+}
+
+/// Run the command of `cli`.
+async fn run(cli: &Cli) -> Result<(), anyhow::Error> {
     match &cli.command {
         Commands::Db(db) => match &db.command {
             DbCommands::Transcripts(transcripts) => match &transcripts.command {
@@ -296,9 +326,6 @@ async fn main() -> Result<(), anyhow::Error> {
             }
         },
     }
-
-    tracing::info!("... the dromedary is back in the stable.");
-    tracing::info!("All done. Have a nice day!");
 
     Ok(())
 }

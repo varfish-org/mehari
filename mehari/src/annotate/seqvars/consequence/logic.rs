@@ -2020,15 +2020,12 @@ impl ConsequencePredictor {
         }
 
         if consequences.is_empty() {
-            tracing::error!(
-                "No consequences for {:?} on {} (hgvs_n={}, hgvs_c={}, hgvs_p={}) - adding `gene_variant`; \
-                most likely the transcript has multiple stop codons and the variant \
-                lies behind the first.",
-                orig_var,
+            tracing::warn!(
+                "No consequences for {}:{} on {}, adding `gene_variant`; most likely the \
+                transcript has multiple stop codons and the variant lies behind the first.",
+                orig_var.chromosome,
+                orig_var.position,
                 &tx_record.tx_ac,
-                hgvs_n.as_deref().unwrap_or("None"),
-                hgvs_c.as_deref().unwrap_or("None"),
-                hgvs_p.as_deref().unwrap_or("None")
             );
             consequences |= Consequence::GeneVariant;
         }

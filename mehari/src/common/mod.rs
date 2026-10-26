@@ -8,6 +8,7 @@ use clap_verbosity_flag::{InfoLevel, Verbosity};
 
 pub mod contig;
 pub mod io;
+pub mod log_limit;
 pub mod noodles;
 pub mod progress;
 
