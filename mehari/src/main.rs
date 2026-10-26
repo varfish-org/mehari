@@ -89,10 +89,12 @@ static GLOBAL: Jemalloc = Jemalloc;
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use clap::{Args, Parser, Subcommand};
+use clap_verbosity_flag::{InfoLevel, Verbosity};
 use mehari::db::transcripts::create;
 #[cfg(feature = "server")]
 use mehari::server;
 use mehari::{annotate, common, db, verify};
+use tracing::level_filters::LevelFilter;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -249,16 +251,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let collector = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_target(false)
-        .with_max_level(match cli.common.verbose.log_level() {
-            Some(level) => match level {
-                log::Level::Error => tracing::Level::ERROR,
-                log::Level::Warn => tracing::Level::WARN,
-                log::Level::Info => tracing::Level::INFO,
-                log::Level::Debug => tracing::Level::DEBUG,
-                log::Level::Trace => tracing::Level::TRACE,
-            },
-            None => tracing::Level::INFO,
-        })
+        .with_max_level(max_level(&cli.common.verbose))
         .compact()
         .finish();
     tracing::subscriber::set_global_default(collector)?;
@@ -308,4 +301,37 @@ async fn main() -> Result<(), anyhow::Error> {
     tracing::info!("All done. Have a nice day!");
 
     Ok(())
+}
+
+/// The most verbose level that `verbose` logs.
+fn max_level(verbose: &Verbosity<InfoLevel>) -> LevelFilter {
+    match verbose.log_level() {
+        Some(level) => match level {
+            log::Level::Error => LevelFilter::ERROR,
+            log::Level::Warn => LevelFilter::WARN,
+            log::Level::Info => LevelFilter::INFO,
+            log::Level::Debug => LevelFilter::DEBUG,
+            log::Level::Trace => LevelFilter::TRACE,
+        },
+        None => LevelFilter::OFF,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use clap_verbosity_flag::Verbosity;
+    use tracing::level_filters::LevelFilter;
+
+    /// mehari logs from INFO on; each `-v` logs one level more, each `-q` one less, down to
+    /// nothing.
+    #[rstest::rstest]
+    #[case::trace(2, 0, LevelFilter::TRACE)]
+    #[case::debug(1, 0, LevelFilter::DEBUG)]
+    #[case::info(0, 0, LevelFilter::INFO)]
+    #[case::warn(0, 1, LevelFilter::WARN)]
+    #[case::error(0, 2, LevelFilter::ERROR)]
+    #[case::off(0, 3, LevelFilter::OFF)]
+    fn max_level(#[case] verbose: u8, #[case] quiet: u8, #[case] expected: LevelFilter) {
+        assert_eq!(super::max_level(&Verbosity::new(verbose, quiet)), expected);
+    }
 }
