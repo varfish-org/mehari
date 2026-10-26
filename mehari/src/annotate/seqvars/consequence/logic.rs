@@ -939,12 +939,20 @@ impl ConsequencePredictor {
 
         // An indel in a repeat has two ends, one 3'-shifted on each strand.
         let shifts = var_g_fwd != var_g_rev;
+        // The same for all transcripts on a strand.
+        let hgvs_g_fwd = self.format_hgvs_g(&var_g_fwd);
+        let hgvs_g_rev = if shifts {
+            self.format_hgvs_g(&var_g_rev)
+        } else {
+            hgvs_g_fwd.clone()
+        };
         let anns = self.select_annotations(txs, |tx| {
             if tx.alt_strand == -1 {
                 let other_g = shifts.then_some(&var_g_fwd);
                 self.build_ann_field(
                     var,
                     &var_g_rev,
+                    &hgvs_g_rev,
                     &var_g,
                     other_g,
                     tx.clone(),
@@ -956,6 +964,7 @@ impl ConsequencePredictor {
                 self.build_ann_field(
                     var,
                     &var_g_fwd,
+                    &hgvs_g_fwd,
                     &var_g,
                     other_g,
                     tx.clone(),
@@ -1894,13 +1903,15 @@ impl ConsequencePredictor {
     /// input position, before the 3' shift.
     ///
     /// The HGVS descriptions, the positions and the consequence terms all come from `var_g`, the
-    /// 3'-shifted variant, so that they agree. `other_g` is the same indel at the other end of
-    /// its repeat, if that differs, see `Message::InfoSpliceSiteIntactAtEquivalentPosition`.
+    /// 3'-shifted variant, so that they agree. `hgvs_g` is `var_g` formatted, see
+    /// `format_hgvs_g`. `other_g` is the same indel at the other end of its repeat, if that
+    /// differs, see `Message::InfoSpliceSiteIntactAtEquivalentPosition`.
     #[allow(clippy::too_many_arguments)]
     fn build_ann_field(
         &self,
         orig_var: &VcfVariant,
         var_g: &HgvsVariant,
+        hgvs_g: &str,
         unshifted_g: &HgvsVariant,
         other_g: Option<&HgvsVariant>,
         tx_record: TxForRegionRecord,
@@ -1972,7 +1983,7 @@ impl ConsequencePredictor {
         let projection = owned_projection.as_ref();
 
         let hgvs = self.writes_hgvs(&orig_var.alternative);
-        let hgvs_g = hgvs.then(|| self.format_hgvs_g(var_g));
+        let hgvs_g = hgvs.then(|| hgvs_g.to_string());
         let hgvs_projection = projection.filter(|_| hgvs);
         let hgvs_n = hgvs_projection
             .and_then(|p| p.n.as_ref())
