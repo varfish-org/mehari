@@ -1368,6 +1368,15 @@ impl ConsequencePredictor {
         if deletes && var_start <= min_start && var_end >= max_end {
             consequences |= Consequence::TranscriptAblation;
         }
+        // A dup of all exons amplifies it. VEP 116.3 reports this for structural variants only.
+        let dups = var_g.na_edit().is_some_and(NaEdit::is_dup);
+        if dups
+            && !self.config.vep_compatibility_mode
+            && var_start <= min_start
+            && var_end >= max_end
+        {
+            consequences |= Consequence::TranscriptAmplification;
+        }
         let is_upstream = var_end <= min_start;
         let is_downstream = var_start >= max_end;
 
@@ -1853,6 +1862,9 @@ impl ConsequencePredictor {
                 transcript_location = edge_location;
             }
         }
+
+        // The amplification by a dup comes from its bases, not from where its copy goes.
+        consequences |= transcript_consequences & Consequence::TranscriptAmplification;
 
         let location = copy_location.as_ref().unwrap_or(&transcript_location);
         if location.is_exonic {
@@ -2432,10 +2444,16 @@ impl ConsequencePredictor {
         }
         *consequences |= consequences_protein;
 
-        // If we have a transcript_ablation, we can remove all other consequences
-        if consequences.contains(Consequence::TranscriptAblation) {
-            *consequences = Consequence::TranscriptAblation.into();
-            return;
+        // If we have a transcript_ablation or amplification, we can remove all other
+        // consequences
+        for whole in [
+            Consequence::TranscriptAblation,
+            Consequence::TranscriptAmplification,
+        ] {
+            if consequences.contains(whole) {
+                *consequences = whole.into();
+                return;
+            }
         }
 
         // Do not report splice variants in UTRs.
@@ -10937,8 +10955,8 @@ mod test {
 
     /// The terms of `two_exon_tx(20)`, or of the same transcript without a CDS, for the
     /// variant `(position, reference length, alternative)`, a deletion behind the first REF base
-    /// if `alternative` is empty. The genome holds the transcript with an intron of `C` bases,
-    /// between `T` bases.
+    /// if `alternative` is empty, and a dup of them if it is `dup`. The genome holds the
+    /// transcript with an intron of `C` bases, between `T` bases.
     fn two_exon_tx_terms(
         coding: bool,
         (position, ref_len, alternative): (usize, usize, &str),
@@ -10966,10 +10984,10 @@ mod test {
         let mut genome = NamedTempFile::new()?;
         write!(genome, ">1\n{contig}\n")?;
         let reference = &contig[position - 1..position - 1 + ref_len];
-        let alternative = if alternative.is_empty() {
-            &reference[..1]
-        } else {
-            alternative
+        let alternative = match alternative {
+            "" => reference[..1].to_string(),
+            "dup" => format!("{reference}{}", &reference[1..]),
+            _ => alternative.to_string(),
         };
         let config = ConfigBuilder::default()
             .vep_compatibility_mode(vep_compatibility_mode)
@@ -11003,6 +11021,25 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let terms = two_exon_tx_terms(coding, variant, vep_compatibility_mode)?;
         assert_eq!(terms, [Consequence::TranscriptAblation]);
+        Ok(())
+    }
+
+    /// A dup of all exons amplifies the transcript, coding or not. VEP 116.3 reports
+    /// `transcript_amplification` for a structural variant only, so compatibility mode keeps the
+    /// terms of the insertion of the copy, here behind the transcript. The dup is of
+    /// chr1:996-1225; `two_exon_tx(20)` spans chr1:1001-1220.
+    #[rstest::rstest]
+    #[case::coding(true, false, vec![Consequence::TranscriptAmplification])]
+    #[case::non_coding(false, false, vec![Consequence::TranscriptAmplification])]
+    #[case::coding_vep(true, true, vec![Consequence::DownstreamGeneVariant])]
+    #[case::non_coding_vep(false, true, vec![Consequence::DownstreamGeneVariant])]
+    fn transcript_amplification_of_all_exons(
+        #[case] coding: bool,
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let terms = two_exon_tx_terms(coding, (995, 231, "dup"), vep_compatibility_mode)?;
+        assert_eq!(terms, expected);
         Ok(())
     }
 
