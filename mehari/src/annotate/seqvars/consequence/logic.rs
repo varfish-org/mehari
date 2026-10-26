@@ -2907,6 +2907,18 @@ impl ConsequencePredictor {
                 consequences |= Consequence::TranscriptAblation;
             }
 
+            // A variant with both ends in introns covers the exon bases between them, if any. The
+            // first lies behind the intron of its start, the last in front of that of its end.
+            let between_introns = is_intronic_or_utr && is_exonic;
+            let first_exon_base_in_5_prime_utr = start_cds_from == CdsFrom::Start
+                && if loc_start_offset < 0 {
+                    start_base < 0
+                } else {
+                    start_base < -1
+                };
+            let last_exon_base_in_3_prime_utr =
+                end_cds_from == CdsFrom::End && (loc_end_offset > 0 || end_base > 1);
+
             // Detect variants affecting the 5'/3' UTRs.
             if (starts_left_of_start && start_base < 0) || in_5_prime_utr || ins_in_front_of_start {
                 if is_intronic_or_utr {
@@ -2914,11 +2926,17 @@ impl ConsequencePredictor {
                 } else if is_exonic {
                     consequences |= Consequence::FivePrimeUtrExonVariant;
                 }
+                if between_introns && first_exon_base_in_5_prime_utr {
+                    consequences |= Consequence::FivePrimeUtrExonVariant;
+                }
             }
             if ends_right_of_stop {
                 if is_intronic_or_utr {
                     consequences |= Consequence::ThreePrimeUtrIntronVariant;
                 } else if is_exonic {
+                    consequences |= Consequence::ThreePrimeUtrExonVariant;
+                }
+                if between_introns && last_exon_base_in_3_prime_utr {
                     consequences |= Consequence::ThreePrimeUtrExonVariant;
                 }
             }
@@ -6014,6 +6032,83 @@ mod test {
             csqs
         );
 
+        Ok(())
+    }
+
+    /// A variant with both ends in introns covers the exon bases between them. It is a UTR exon
+    /// variant if one of these lies in a UTR, e.g. c.*1 to c.*5 for `c.112-59_*6-51del`. The
+    /// first of them lies behind the intron of its start, the last in front of that of its end.
+    #[rstest::rstest]
+    #[case(
+        "c.112-59_*6-51del",
+        VariantLocation::Intron,
+        true,
+        Consequence::ThreePrimeUtrExonVariant | Consequence::ThreePrimeUtrIntronVariant
+    )]
+    #[case(
+        "c.*160+197_*437-8del",
+        VariantLocation::ThreePrimeUtr,
+        true,
+        Consequence::ThreePrimeUtrExonVariant | Consequence::ThreePrimeUtrIntronVariant
+    )]
+    #[case(
+        "c.-89-3923_201+2793del",
+        VariantLocation::Intron,
+        true,
+        Consequence::FivePrimeUtrExonVariant | Consequence::FivePrimeUtrIntronVariant
+    )]
+    #[case(
+        "c.-19-2025_120+884delinsTTA",
+        VariantLocation::Intron,
+        true,
+        Consequence::FivePrimeUtrExonVariant | Consequence::FivePrimeUtrIntronVariant
+    )]
+    #[case(
+        "c.-90+5_-50-10del",
+        VariantLocation::FivePrimeUtr,
+        true,
+        Consequence::FivePrimeUtrExonVariant | Consequence::FivePrimeUtrIntronVariant
+    )]
+    // The exons between start with c.1 and end with c.3857.
+    #[case(
+        "c.-1+5_100+5del",
+        VariantLocation::Intron,
+        true,
+        Consequence::FivePrimeUtrIntronVariant.into()
+    )]
+    #[case(
+        "c.110+5_*1-10del",
+        VariantLocation::Intron,
+        true,
+        Consequence::ThreePrimeUtrIntronVariant.into()
+    )]
+    // within one intron
+    #[case(
+        "c.-10+5_-10+20del",
+        VariantLocation::FivePrimeUtr,
+        false,
+        Consequence::FivePrimeUtrIntronVariant.into()
+    )]
+    fn analyze_cds_variant_utr_exon_between_introns(
+        #[case] var_c: &str,
+        #[case] region: VariantLocation,
+        #[case] is_exonic: bool,
+        #[case] expected: Consequences,
+    ) -> Result<(), anyhow::Error> {
+        let var_c = HgvsVariant::from_str(&format!("NM_000000.1:{var_c}"))?;
+        let csqs = ConsequencePredictor::analyze_cds_variant(
+            &var_c,
+            Some(region),
+            is_exonic,
+            false,
+            false,
+            Some(3858),
+        );
+        let utr_terms = Consequence::FivePrimeUtrExonVariant
+            | Consequence::FivePrimeUtrIntronVariant
+            | Consequence::ThreePrimeUtrExonVariant
+            | Consequence::ThreePrimeUtrIntronVariant;
+        assert_eq!(csqs & utr_terms, expected, "{csqs:?}");
         Ok(())
     }
 
