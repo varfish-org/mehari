@@ -13,7 +13,7 @@ use crate::errors::{GroupValidationError, SeqvarsError};
 use crate::pbs::txs::{GenomeAlignment, Strand, Transcript, TranscriptBiotype, TranscriptTag};
 use hgvs::mapper::altseq::{RefTranscriptData, VariantLocation, ref_transcript_data_shared};
 use hgvs::parser::{NoRef, ProteinEdit};
-use hgvs::sequences::translate_cds_with_exceptions;
+use hgvs::sequences::{revcomp, translate_cds_with_exceptions};
 use hgvs::{
     data::interface::{Provider, TxForRegionRecord},
     mapper::{Error, assembly},
@@ -696,6 +696,17 @@ struct TxConsequences {
 const SPLICE_SITES: Consequences =
     enumflags2::make_bitflags!(Consequence::{SpliceDonorVariant | SpliceAcceptorVariant});
 
+/// The terms of the splice sites and the regions around them.
+const SPLICE_TERMS: Consequences = enumflags2::make_bitflags!(Consequence::{
+    SpliceDonorVariant
+        | SpliceAcceptorVariant
+        | SpliceRegionVariant
+        | ExonicSpliceRegionVariant
+        | SpliceDonorRegionVariant
+        | SpliceDonorFifthBaseVariant
+        | SplicePolypyrimidineTractVariant
+});
+
 impl ConsequencePredictor {
     pub fn new(provider: Arc<MehariProvider>, config: Config) -> Self {
         let mut custom_columns: Vec<_> = config
@@ -1317,6 +1328,17 @@ impl ConsequencePredictor {
             min_start = Some(std::cmp::min(min_start.unwrap_or(exon_start), exon_start));
             max_end = Some(std::cmp::max(max_end.unwrap_or(exon_end), exon_end));
             prev_end = Some(exon_end);
+        }
+
+        // An MNV changes only the bases where REF and ALT differ, so only these get splice terms.
+        if let Some(runs) = var_g
+            .na_edit()
+            .and_then(|edit| changed_runs(edit, var_start))
+        {
+            consequences &= !SPLICE_TERMS;
+            for (start, end) in runs {
+                consequences |= self.splice_terms(alignment, strand, start, end);
+            }
         }
 
         // Bases in the intron at an exon edge keep the splice site, but they lie in the splice
@@ -2540,6 +2562,52 @@ impl ConsequencePredictor {
                 *consequences |= Consequence::CodingSequenceVariant;
             }
         }
+    }
+
+    /// The splice terms of the bases from `start` to `end` (0-based, end-exclusive) on the
+    /// transcript of `alignment`, as `determine_transcript_context` finds them for a variant.
+    fn splice_terms(
+        &self,
+        alignment: &GenomeAlignment,
+        strand: Strand,
+        start: i32,
+        end: i32,
+    ) -> Consequences {
+        let mut consequences = Consequences::empty();
+        let mut prev_end = None;
+        for exon in &alignment.exons {
+            if overlaps(start, end, exon.alt_start_i, exon.alt_end_i) {
+                let rank = Rank {
+                    ord: exon.ord + 1,
+                    total: alignment.exons.len() as i32,
+                };
+                consequences |= Self::analyze_exonic_variant(
+                    0,
+                    strand,
+                    start,
+                    end,
+                    exon.alt_start_i,
+                    exon.alt_end_i,
+                    &rank,
+                    false,
+                );
+            }
+            if let Some(intron_start) = prev_end {
+                consequences |= Self::analyze_intronic_variant(
+                    0,
+                    alignment,
+                    strand,
+                    start,
+                    end,
+                    intron_start,
+                    exon.alt_start_i,
+                    false,
+                    self.config.vep_compatibility_mode,
+                );
+            }
+            prev_end = Some(exon.alt_end_i);
+        }
+        consequences & SPLICE_TERMS
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4261,6 +4329,33 @@ fn deletion_keeps_cds(tx_seq: &str, cds_start: usize, del: std::ops::Range<usize
 #[inline]
 fn overlaps(start_a: i32, end_a: i32, start_b: i32, end_b: i32) -> bool {
     (start_a < end_b) && (end_a > start_b)
+}
+
+/// The runs of bases that `edit`, starting at the 0-based position `start`, changes, as 0-based,
+/// end-exclusive ranges. `None` unless `edit` replaces bases by as many others and keeps some of
+/// them, e.g. the C of `GCT>ACC` or of the inversion `GCAT>ATGC`.
+fn changed_runs(edit: &NaEdit, start: i32) -> Option<Vec<(i32, i32)>> {
+    let (reference, alternative) = match edit {
+        NaEdit::RefAlt {
+            reference,
+            alternative,
+        } if reference.len() == alternative.len() => (reference, alternative.clone()),
+        NaEdit::InvRef { reference } => (reference, revcomp(reference)),
+        _ => return None,
+    };
+    let mut runs: Vec<(i32, i32)> = Vec::new();
+    let bases = reference.bytes().zip(alternative.bytes());
+    for (pos, (ref_base, alt_base)) in (start..).zip(bases) {
+        if ref_base.eq_ignore_ascii_case(&alt_base) {
+            continue;
+        }
+        match runs.last_mut() {
+            Some((_, end)) if *end == pos => *end = pos + 1,
+            _ => runs.push((pos, pos + 1)),
+        }
+    }
+    let len = i32::try_from(reference.len()).ok()?;
+    (runs != [(start, start + len)]).then_some(runs)
 }
 
 impl ConsequencePredictor {
@@ -9288,6 +9383,90 @@ mod test {
             .filter(|csq| SPLICE_SITES.contains(**csq))
             .collect_vec();
         assert_eq!(found, [&expected], "{ann:?}");
+        Ok(())
+    }
+
+    /// An MNV, also an inversion, changes only the bases where REF and ALT differ, and only
+    /// these get splice terms. The genome holds `two_exon_tx(20)` with the intron `GTACTA`,
+    /// `C` bases and `AACTAG`. Its donor +1 lies at chr1:1061, its acceptor -1 at chr1:1160.
+    #[rstest::rstest]
+    // donor +5 stays T
+    #[case::donor_5th_base_kept(
+        (1064, "CTA", "GTT"),
+        "c.40+4_40+6delinsGTT",
+        vec![Consequence::SpliceRegionVariant, Consequence::SpliceDonorRegionVariant],
+        vec![Consequence::SpliceDonorRegionVariant]
+    )]
+    // acceptor -2 and -1 stay AG
+    #[case::acceptor_kept(
+        (1158, "TAGCCG", "CAGCCA"),
+        "c.41-3_43delinsCAGCCA",
+        vec![
+            Consequence::SpliceRegionVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::SplicePolypyrimidineTractVariant
+        ],
+        vec![Consequence::SpliceRegionVariant]
+    )]
+    // the inversion keeps the palindrome `CTAG` from -4 to -1
+    #[case::acceptor_kept_by_inversion(
+        (1155, "AACTAGCC", "GGCTAGTT"),
+        "c.41-6_42inv",
+        vec![
+            Consequence::SpliceRegionVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::SplicePolypyrimidineTractVariant
+        ],
+        vec![Consequence::SpliceRegionVariant]
+    )]
+    fn splice_terms_of_changed_mnv_bases(
+        #[case] (position, reference, alternative): (i32, &str, &str),
+        #[case] expected_c: &str,
+        #[case] expected: Vec<Consequence>,
+        #[case] expected_vep: Vec<Consequence>,
+        #[values(false, true)] vep_compatibility_mode: bool,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = two_exon_tx(20);
+        let intron = format!("GTACTA{}AACTAG", "C".repeat(88));
+        let mut genome = NamedTempFile::new()?;
+        write!(
+            genome,
+            ">1\n{}{}{intron}{}{}\n",
+            "T".repeat(1000),
+            &seq[..60],
+            &seq[60..],
+            "T".repeat(100)
+        )?;
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
+        let anns = predictor_with_reference(tx, seq, config, Some(genome.path()))
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: reference.into(),
+                alternative: alternative.into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        let found = (ann.consequences.iter())
+            .filter(|csq| SPLICE_TERMS.contains(**csq))
+            .cloned()
+            .collect_vec();
+        let expected = if vep_compatibility_mode {
+            expected_vep
+        } else {
+            expected
+        };
+        assert_eq!(
+            (ann.hgvs_c.as_deref(), found),
+            (Some(expected_c), expected),
+            "{ann:?}"
+        );
         Ok(())
     }
 
