@@ -2579,7 +2579,7 @@ impl ConsequencePredictor {
             if var_end > exon_end {
                 if strand == Strand::Plus && !rank.is_last() {
                     consequences |= Consequence::SpliceDonorVariant;
-                } else if strand == Strand::Minus && !rank.is_last() {
+                } else if strand == Strand::Minus && !rank.is_first() {
                     consequences |= Consequence::SpliceAcceptorVariant;
                 }
             }
@@ -9187,6 +9187,107 @@ mod test {
             .filter(|term| expected.contains(term))
             .collect::<Vec<_>>();
         assert_eq!(found, expected, "{ann:?}");
+        Ok(())
+    }
+
+    /// A variant over a whole exon that reaches past it changes the splice site of the exon on
+    /// that side. On the genome, the left side of an exon holds its acceptor on the plus strand
+    /// and its donor on the minus strand. The first exon in transcript order has no acceptor, the
+    /// last no donor. The exon spans chr1:1001-1100.
+    #[rstest::rstest]
+    #[case::plus_left_first(Strand::Plus, (990, 1100), Rank { ord: 1, total: 3 }, None)]
+    #[case::plus_left_middle(
+        Strand::Plus, (990, 1100), Rank { ord: 2, total: 3 }, Some(Consequence::SpliceAcceptorVariant)
+    )]
+    #[case::plus_left_last(
+        Strand::Plus, (990, 1100), Rank { ord: 3, total: 3 }, Some(Consequence::SpliceAcceptorVariant)
+    )]
+    #[case::plus_right_first(
+        Strand::Plus, (1000, 1110), Rank { ord: 1, total: 3 }, Some(Consequence::SpliceDonorVariant)
+    )]
+    #[case::plus_right_middle(
+        Strand::Plus, (1000, 1110), Rank { ord: 2, total: 3 }, Some(Consequence::SpliceDonorVariant)
+    )]
+    #[case::plus_right_last(Strand::Plus, (1000, 1110), Rank { ord: 3, total: 3 }, None)]
+    #[case::minus_left_first(
+        Strand::Minus, (990, 1100), Rank { ord: 1, total: 3 }, Some(Consequence::SpliceDonorVariant)
+    )]
+    #[case::minus_left_middle(
+        Strand::Minus, (990, 1100), Rank { ord: 2, total: 3 }, Some(Consequence::SpliceDonorVariant)
+    )]
+    #[case::minus_left_last(Strand::Minus, (990, 1100), Rank { ord: 3, total: 3 }, None)]
+    #[case::minus_right_first(Strand::Minus, (1000, 1110), Rank { ord: 1, total: 3 }, None)]
+    #[case::minus_right_middle(
+        Strand::Minus,
+        (1000, 1110),
+        Rank { ord: 2, total: 3 },
+        Some(Consequence::SpliceAcceptorVariant)
+    )]
+    #[case::minus_right_last(
+        Strand::Minus,
+        (1000, 1110),
+        Rank { ord: 3, total: 3 },
+        Some(Consequence::SpliceAcceptorVariant)
+    )]
+    #[case::plus_single(Strand::Plus, (990, 1110), Rank { ord: 1, total: 1 }, None)]
+    #[case::minus_single(Strand::Minus, (990, 1110), Rank { ord: 1, total: 1 }, None)]
+    fn splice_site_of_covered_exon(
+        #[case] strand: Strand,
+        #[case] (var_start, var_end): (i32, i32),
+        #[case] rank: Rank,
+        #[case] expected: Option<Consequence>,
+    ) {
+        let csqs = ConsequencePredictor::analyze_exonic_variant(
+            0, strand, var_start, var_end, 1000, 1100, &rank, false,
+        );
+        assert_eq!(
+            csqs & SPLICE_SITES,
+            expected.map_or_else(Consequences::empty, Consequences::from)
+        );
+    }
+
+    /// The deletion of the whole first exon of a minus-strand transcript and of the bases in
+    /// front of it changes the donor of the exon, but no acceptor, as the exon has none. That of
+    /// the last exon and of the bases behind it changes the acceptor of the exon. These are
+    /// `two_exon_tx(20)` mirrored onto the minus strand, with exon 1 at chr1:1161-1220, exon 2 at
+    /// chr1:1001-1060 and the CDS at chr1:1041-1200.
+    #[rstest::rstest]
+    // chr1:1150-1230, the end of the intron, exon 1 and 10 bases in front of the transcript
+    #[case::first_exon(1149, 82, Consequence::SpliceDonorVariant)]
+    // chr1:995-1070, 6 bases behind the transcript, exon 2 and the start of the intron
+    #[case::last_exon(994, 77, Consequence::SpliceAcceptorVariant)]
+    fn deletion_of_minus_strand_terminal_exon(
+        #[case] position: i32,
+        #[case] ref_len: usize,
+        #[case] expected: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let (mut tx, seq) = two_exon_tx(20);
+        let alignment = &mut tx.genome_alignments[0];
+        alignment.strand = Strand::Minus.into();
+        alignment.cds_start = Some(1040);
+        alignment.cds_end = Some(1200);
+        for exon in &mut alignment.exons {
+            exon.ord = 1 - exon.ord;
+            exon.alt_cds_start_i = Some(1 + 60 * exon.ord);
+            exon.alt_cds_end_i = Some(60 + 60 * exon.ord);
+        }
+        let anns = predictor_with_config(tx, seq, Config::default())
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: "A".repeat(ref_len),
+                alternative: "A".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        let found = (ann.consequences.iter())
+            .filter(|csq| SPLICE_SITES.contains(**csq))
+            .collect_vec();
+        assert_eq!(found, [&expected], "{ann:?}");
         Ok(())
     }
 
