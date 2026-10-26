@@ -2956,10 +2956,6 @@ impl ConsequencePredictor {
             //
             // start codon
             let starts_left_of_start = start_cds_from == CdsFrom::Start && start_base < 0;
-            let ends_right_of_start = start_cds_from != CdsFrom::Start || start_base > 0;
-            if starts_left_of_start && ends_right_of_start {
-                consequences |= Consequence::StartLost;
-            }
             // hgvs-rs places an insertion or duplication in a UTR if it leaves the CDS intact,
             // e.g., `c.1dup` in front of the start codon or `c.Ndup` behind the stop codon.
             // Without a stop codon, the CDS goes on behind `c.N`, so hgvs-rs keeps a `c.Ndup` in
@@ -8515,6 +8511,13 @@ mod test {
         (1021, "AT", "A"),
         ("c.2del", "p.Met1?"),
         vec![Consequence::StartLost]
+    )]
+    // `c.-2_2delinsCC` from the 5' UTR loses the start codon, as p. tells.
+    #[case::start_lost_by_delins_from_5_prime_utr(
+        ("ATGGCCAAGCTGTGGTAA", "CGCATCA"),
+        (1019, "GTAT", "CC"),
+        ("c.-2_2delinsCC", "p.Met1?"),
+        vec![Consequence::StartLost, Consequence::FivePrimeUtrExonVariant]
     )]
     // `c.2_5del` loses the start codon. Read from c.1, the new frame ends at the old position,
     // but the protein is unknown.
