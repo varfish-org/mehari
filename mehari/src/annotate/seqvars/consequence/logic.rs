@@ -2402,9 +2402,9 @@ impl ConsequencePredictor {
         {
             consequences_protein |= Consequence::StopRetainedVariant;
         }
-        // An in-frame insertion in front of the stop codon keeps it, also where p. describes the
-        // longer protein as an extension, e.g. `p.Ter6AspextTer1` for `c.15_16insGAT`. So it is
-        // no `stop_lost`. VEP keeps it.
+        // An in-frame insertion or delins in front of the stop codon keeps it, also where p.
+        // describes the longer protein as an extension, e.g. `p.Ter6AspextTer1` for
+        // `c.15_16insGAT`. So it is no `stop_lost`. VEP keeps it.
         if !vep_compat
             && matches!(protein_edit(projection), Some(ProteinEdit::Ext { .. }))
             && let (Some(var_c), Some(start), Some(stop)) =
@@ -4254,8 +4254,8 @@ fn protein_edit(projection: &HgvsProjectionContext) -> Option<&ProteinEdit> {
     }
 }
 
-/// Whether the insertion or dup `var_c` keeps the frame and puts its bases in front of the stop
-/// codon of a CDS of length `cds_len`, so that the stop codon stays.
+/// Whether the insertion, dup or delins `var_c` keeps the frame and puts its bases in front of
+/// the stop codon of a CDS of length `cds_len`, so that the stop codon stays.
 fn inserts_in_frame_before_stop_codon(var_c: &HgvsVariant, cds_len: i32) -> bool {
     let HgvsVariant::CdsVariant { loc_edit, .. } = var_c else {
         return false;
@@ -4267,13 +4267,15 @@ fn inserts_in_frame_before_stop_codon(var_c: &HgvsVariant, cds_len: i32) -> bool
     {
         return false;
     }
-    // The bases go behind `start`, the copy behind `end`.
+    // The bases go behind `start`, the copy behind `end`, and those of a delins in place of the
+    // bases up to `end`.
+    let ref_len = usize::try_from(loc.end.base - loc.start.base + 1).unwrap_or_default();
     let (behind, len) = match loc_edit.edit.inner() {
         NaEdit::Ins { alternative } => (loc.start.base, alternative.len()),
-        NaEdit::Dup { .. } => (
-            loc.end.base,
-            usize::try_from(loc.end.base - loc.start.base + 1).unwrap_or_default(),
-        ),
+        NaEdit::Dup { .. } => (loc.end.base, ref_len),
+        NaEdit::RefAlt { alternative, .. } | NaEdit::NumAlt { alternative, .. } => {
+            (loc.end.base, alternative.len().abs_diff(ref_len))
+        }
         _ => return false,
     };
     behind <= cds_len - 3 && len % 3 == 0
@@ -8313,6 +8315,14 @@ mod test {
             Consequence::FeatureElongation,
             Consequence::ConservativeInframeInsertion
         ]
+    )]
+    // `c.12_15delinsATGGGGC` keeps Leu4 and Trp5 and adds Gly in front of the stop codon, which
+    // stays.
+    #[case::in_frame_delins_before_stop_codon(
+        ("ATGGCCAAGCTGTGGTAA", "CTAAGCATCA"),
+        (1032, "GTGG", "ATGGGGC"),
+        ("c.12_15delinsATGGGGC", "p.(Ter6GlyextTer1)"),
+        vec![Consequence::FeatureElongation]
     )]
     // `c.7_10del` shifts the frame of codons 4 and 5 and of the stop codon, and a new stop codon
     // from the 3' UTR takes the old position.
