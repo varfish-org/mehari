@@ -2511,6 +2511,20 @@ impl ConsequencePredictor {
             *consequences &= !Consequence::StartLost;
         }
 
+        // A change of start codon bases whose protein keeps Met1, as p. tells, keeps a start
+        // codon in its place, e.g. `c.-2_3del` with `p.(Met2del)`, where the next ATG takes it.
+        if let Some(var_c) = &projection.c
+            && changes_start_codon(var_c)
+            && let Some(HgvsVariant::ProtVariant {
+                loc_edit: ProtLocEdit::Ordinary { loc, .. },
+                ..
+            }) = &projection.p
+            && loc.inner().start.number >= 2
+        {
+            *consequences &= !Consequence::StartLost;
+            *consequences |= Consequence::StartRetainedVariant;
+        }
+
         // VEP reports `start_retained_variant` for a deletion in the start codon, or from the 5'
         // UTR into it, that leaves the CDS intact. It also reports `start_lost` there, as it reads
         // the codon at the old place of the start codon; mehari does not. Outside VEP
@@ -6446,6 +6460,136 @@ mod test {
                 &ann.consequences
             ),
             (Some(expected_c), Some("p.?"), &expected_csqs)
+        );
+        Ok(())
+    }
+
+    /// A deletion of start codon bases whose protein keeps Met1, as p. tells, keeps a start
+    /// codon in its place: `start_retained_variant`, not `start_lost`. The other terms follow
+    /// from p. as usual. The transcript has 20 bases of 5' UTR ending with `CAGT`; with two exons,
+    /// exon 1 ends with c.40 and an intron of `C` bases follows.
+    #[rstest::rstest]
+    // c.4 to c.6 are `ATG`, so the deletion of c.-2 to c.3 leaves the next start codon in place.
+    #[case::next_start_codon(
+        false,
+        "ATGATGGCCAAGCTGTGGTAA",
+        (1018, 6),
+        false,
+        "c.-2_3del",
+        "p.(Met2del)",
+        vec![
+            Consequence::DisruptiveInframeDeletion,
+            Consequence::StartRetainedVariant,
+            Consequence::FivePrimeUtrExonVariant
+        ]
+    )]
+    // c.41 to c.43 are `ATG`, so the deletion of c.1 to c.40 leaves a start codon in place, in
+    // another frame.
+    #[case::start_codon_in_another_frame(
+        true,
+        "ATGGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCCATGAAGCCGCCGCCTAA",
+        (1020, 41),
+        false,
+        "c.1_40del",
+        "p.(Ala2LysfsTer?)",
+        vec![
+            Consequence::FrameshiftVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::StartRetainedVariant
+        ]
+    )]
+    #[case::next_start_codon_vep(
+        false,
+        "ATGATGGCCAAGCTGTGGTAA",
+        (1018, 6),
+        true,
+        "c.-2_3del",
+        "p.(Met2del)",
+        vec![
+            Consequence::InframeDeletion,
+            Consequence::StartRetainedVariant,
+            Consequence::FivePrimeUtrVariant
+        ]
+    )]
+    #[case::start_codon_in_another_frame_vep(
+        true,
+        "ATGGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCGCCCATGAAGCCGCCGCCTAA",
+        (1020, 41),
+        true,
+        "c.1_40del",
+        "p.(Ala2LysfsTer?)",
+        vec![
+            Consequence::FrameshiftVariant,
+            Consequence::SpliceRegionVariant,
+            Consequence::StartRetainedVariant
+        ]
+    )]
+    fn start_codon_in_place_after_deletion(
+        #[case] two_exons: bool,
+        #[case] cds: &str,
+        #[case] (position, ref_len): (usize, usize),
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected_c: &str,
+        #[case] expected_p: &str,
+        #[case] expected_csqs: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let utr5 = "CAGTCAGTCAGTCAGTCAGT";
+        let utr3 = "CAGTCAGTCAGTCAGTCAGTCAG";
+        let (mut tx, seq) = one_exon_tx(utr5, cds, utr3);
+        let contig = if two_exons {
+            // Exon 1 at chr1:1001-1060, the intron at chr1:1061-1160 and exon 2 behind it.
+            let len = i32::try_from(seq.len())?;
+            let cds_end = 1100 + 20 + i32::try_from(cds.len())?;
+            let exon = |ord, alt_start_i, alt_end_i, tx_start, tx_end| ExonAlignment {
+                alt_start_i,
+                alt_end_i,
+                ord,
+                alt_cds_start_i: Some(tx_start),
+                alt_cds_end_i: Some(tx_end),
+                cigar: format!("{}M", tx_end - tx_start + 1),
+            };
+            let alignment = &mut tx.genome_alignments[0];
+            alignment.cds_end = Some(cds_end);
+            alignment.exons = vec![
+                exon(0, 1000, 1060, 1, 60),
+                exon(1, 1160, 1100 + len, 61, len),
+            ];
+            format!(
+                "{}{}{}{}",
+                &seq[..60],
+                "C".repeat(100),
+                &seq[60..],
+                "T".repeat(100)
+            )
+        } else {
+            format!("{seq}{}", "T".repeat(100))
+        };
+        let contig = format!("{}{contig}", "T".repeat(1000));
+        let mut genome = NamedTempFile::new()?;
+        write!(genome, ">1\n{contig}\n")?;
+        let reference = &contig[position - 1..position - 1 + ref_len];
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
+        let anns = predictor_with_reference(tx, seq, config, Some(genome.path()))
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: i32::try_from(position)?,
+                reference: reference.into(),
+                alternative: reference[..1].into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+        assert_eq!(
+            (
+                ann.hgvs_c.as_deref(),
+                ann.hgvs_p.as_deref(),
+                &ann.consequences
+            ),
+            (Some(expected_c), Some(expected_p), &expected_csqs)
         );
         Ok(())
     }
