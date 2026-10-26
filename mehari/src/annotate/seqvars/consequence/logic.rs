@@ -1354,6 +1354,20 @@ impl ConsequencePredictor {
 
         let min_start = min_start.expect("must have seen exon");
         let max_end = max_end.expect("must have seen exon");
+
+        // A deletion, also a delins, of all exons ablates the transcript.
+        let deletes = var_g.na_edit().is_some_and(|edit| {
+            matches!(
+                edit,
+                NaEdit::DelRef { .. }
+                    | NaEdit::DelNum { .. }
+                    | NaEdit::RefAlt { .. }
+                    | NaEdit::NumAlt { .. }
+            )
+        });
+        if deletes && var_start <= min_start && var_end >= max_end {
+            consequences |= Consequence::TranscriptAblation;
+        }
         let is_upstream = var_end <= min_start;
         let is_downstream = var_start >= max_end;
 
@@ -1601,11 +1615,22 @@ impl ConsequencePredictor {
                 {
                     context.cds_consequences |= Consequence::CodingSequenceVariant;
                 }
+                // Without the start codon (`p.Met1?`) or a protein (`p.0`), e.g. after a deletion
+                // of the whole CDS, no reading frame goes on whose terms the protein could tell.
+                let no_protein = matches!(
+                    var_p,
+                    HgvsVariant::ProtVariant {
+                        loc_edit: ProtLocEdit::NoProtein | ProtLocEdit::NoProteinUncertain,
+                        ..
+                    }
+                );
                 if (fs
                     || delins_with_stop
                     || touches_stop_codon(var_c, cds_len)
                     || self.leaves_no_codon_behind(projection, tx))
                     && !unknown_protein
+                    && !start_lost
+                    && !no_protein
                     && let Ok(ref_data) = self.ref_data(&tx_record.tx_ac)
                 {
                     context.sequence_consequences = self.sequence_consequences(var_c, &ref_data);
@@ -2899,8 +2924,13 @@ impl ConsequencePredictor {
             let starts_left_of_stop = start_cds_from == CdsFrom::Start;
             let ends_right_of_stop =
                 end_cds_from == CdsFrom::End || in_3_prime_utr || ins_behind_stop;
+            // A change from the start codon on through the stop codon leaves no reading frame
+            // that could go on behind the stop codon.
+            let from_start_codon = start_cds_from == CdsFrom::Start
+                && (start_base < 3 || start_base == 3 && loc_start_offset <= 0);
             if starts_left_of_stop
                 && ends_right_of_stop
+                && !from_start_codon
                 && !incomplete_3p
                 && !in_3_prime_utr
                 && !ins_behind_stop
@@ -2917,13 +2947,6 @@ impl ConsequencePredictor {
                 && end_base >= cds_len - (cds_len - 1) % 3
             {
                 consequences |= Consequence::IncompleteTerminalCodonVariant;
-            }
-
-            if (start_cds_from == CdsFrom::Start && start_base <= 0)
-                && ends_right_of_stop
-                && matches!(edit, NaEdit::DelNum { .. } | NaEdit::DelRef { .. })
-            {
-                consequences |= Consequence::TranscriptAblation;
             }
 
             // A variant with both ends in introns covers the exon bases between them, if any. The
@@ -10713,6 +10736,136 @@ mod test {
     ) -> Result<(), anyhow::Error> {
         let var_c = HgvsVariant::from_str(&format!("NM_000001.1:{var_c}"))?;
         assert_eq!(lies_in_one_utr(&var_c), expected);
+        Ok(())
+    }
+
+    /// The terms of `two_exon_tx(20)`, or of the same transcript without a CDS, for the
+    /// variant `(position, reference length, alternative)`, a deletion behind the first REF base
+    /// if `alternative` is empty. The genome holds the transcript with an intron of `C` bases,
+    /// between `T` bases.
+    fn two_exon_tx_terms(
+        coding: bool,
+        (position, ref_len, alternative): (usize, usize, &str),
+        vep_compatibility_mode: bool,
+    ) -> Result<Vec<Consequence>, anyhow::Error> {
+        let (mut tx, seq) = two_exon_tx(20);
+        if !coding {
+            tx.id = "NR_000001.1".into();
+            tx.biotype = TranscriptBiotype::NonCoding.into();
+            tx.protein = None;
+            tx.start_codon = None;
+            tx.stop_codon = None;
+            tx.genome_alignments[0].cds_start = None;
+            tx.genome_alignments[0].cds_end = None;
+        }
+        let tx_id = tx.id.clone();
+        let contig = format!(
+            "{}{}{}{}{}",
+            "T".repeat(1000),
+            &seq[..60],
+            "C".repeat(100),
+            &seq[60..],
+            "T".repeat(100)
+        );
+        let mut genome = NamedTempFile::new()?;
+        write!(genome, ">1\n{contig}\n")?;
+        let reference = &contig[position - 1..position - 1 + ref_len];
+        let alternative = if alternative.is_empty() {
+            &reference[..1]
+        } else {
+            alternative
+        };
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
+        let anns = predictor_with_reference(tx, seq, config, Some(genome.path()))
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: i32::try_from(position)?,
+                reference: reference.into(),
+                alternative: alternative.into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == tx_id)
+            .ok_or_else(|| anyhow::anyhow!("no annotation for {tx_id}: {anns:?}"))?;
+        Ok(ann.consequences.clone())
+    }
+
+    /// A deletion, also a delins, whose deleted bases cover all exons ablates the transcript,
+    /// coding or not. `two_exon_tx(20)` spans chr1:1001-1220; the deleted bases are
+    /// chr1:996-1225.
+    #[rstest::rstest]
+    #[case::deletion(true, (995, 231, ""))]
+    #[case::delins(true, (996, 230, "GA"))]
+    #[case::non_coding(false, (995, 231, ""))]
+    fn transcript_ablation_of_all_exons(
+        #[case] coding: bool,
+        #[case] variant: (usize, usize, &str),
+        #[values(false, true)] vep_compatibility_mode: bool,
+    ) -> Result<(), anyhow::Error> {
+        let terms = two_exon_tx_terms(coding, variant, vep_compatibility_mode)?;
+        assert_eq!(terms, [Consequence::TranscriptAblation]);
+        Ok(())
+    }
+
+    /// A deletion of the whole CDS that keeps exon bases of the UTRs is no ablation. It removes
+    /// the start codon, so no reading frame goes on through the stop codon: no `stop_lost`, and
+    /// no terms of a protein (`p.0?`, `p.Met1?`). `two_exon_tx(20)` has its CDS at
+    /// chr1:1021-1060 and chr1:1161-1180; `c.-6_*9del` spans chr1:1015-1189 and `c.1_*8del`
+    /// chr1:1021-1188. In VEP compatibility mode, VEP's stop terms of the changed codons stay.
+    #[rstest::rstest]
+    #[case::from_5_prime_utr(
+        (1014, 176, ""),
+        false,
+        vec![
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceDonorVariant,
+            Consequence::StartLost,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::SpliceRegionVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::SplicePolypyrimidineTractVariant,
+            Consequence::FivePrimeUtrExonVariant,
+            Consequence::ThreePrimeUtrExonVariant,
+        ]
+    )]
+    #[case::from_5_prime_utr_vep(
+        (1014, 176, ""),
+        true,
+        vec![
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceDonorVariant,
+            Consequence::StartLost,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::FivePrimeUtrVariant,
+            Consequence::ThreePrimeUtrVariant,
+        ]
+    )]
+    #[case::from_start_codon(
+        (1020, 169, ""),
+        false,
+        vec![
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceDonorVariant,
+            Consequence::StartLost,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::SpliceRegionVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::SplicePolypyrimidineTractVariant,
+            Consequence::ThreePrimeUtrExonVariant,
+        ]
+    )]
+    fn deletion_of_whole_cds(
+        #[case] variant: (usize, usize, &str),
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let terms = two_exon_tx_terms(true, variant, vep_compatibility_mode)?;
+        assert_eq!(terms, expected);
         Ok(())
     }
 }
