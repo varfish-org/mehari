@@ -1000,6 +1000,7 @@ async fn run_with_writer(
         .consequence_predictor()
         .map(|predictor| predictor.provider.clone())
         .filter(|provider| provider.reference_available());
+    warn_on_hg19_chrm(&header_in, reference_provider.as_deref());
 
     let mut additional_header_info = annotator.versions_for_vcf_header();
     additional_header_info.push(("mehariCmd".into(), env::args().join(" ")));
@@ -1199,6 +1200,30 @@ async fn run_with_writer(
     }
     writer.shutdown().await?;
     Ok(())
+}
+
+/// The length of chrM in hg19, the Yoruba sequence NC_001807.4. GRCh37, GRCh38 and the
+/// transcript databases use the rCRS, NC_012920.1, with 16,569 bp.
+const HG19_CHRM_LENGTH: usize = 16_571;
+
+/// Warn if the VCF header or the reference genome has the chrM of hg19, whose positions differ
+/// from those of the rCRS.
+fn warn_on_hg19_chrm(header: &VcfHeader, reference: Option<&provider::Provider>) {
+    let source = if header.contigs().iter().any(|(name, contig)| {
+        ContigManager::canonicalize(name) == "MT" && contig.length() == Some(HG19_CHRM_LENGTH)
+    }) {
+        "VCF header"
+    } else if reference.and_then(|provider| provider.reference_length("MT"))
+        == Some(HG19_CHRM_LENGTH)
+    {
+        "reference genome"
+    } else {
+        return;
+    };
+    tracing::warn!(
+        "chrM has {HG19_CHRM_LENGTH} bp in the {source}, so it is NC_001807.4 of hg19, but the \
+         transcripts are on the rCRS, NC_012920.1: chrM variants are misannotated"
+    );
 }
 
 /// Whether the REF of `record` differs from the reference genome; `None` if the reference genome
@@ -2226,6 +2251,79 @@ mod test {
         assert!(logs_contain(
             "REF at chrM:5 differs from the reference genome"
         ));
+        Ok(())
+    }
+
+    /// Annotate a chrM SNV in a VCF with the header line `contig` (or none), with `reference`.
+    async fn annotate_chrm(contig: &str, reference: Option<PathBuf>) -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_in = temp.join("input.vcf");
+        std::fs::write(
+            &path_in,
+            format!(
+                "##fileformat=VCFv4.2\n{contig}#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                 chrM\t3\t.\tT\tC\t.\t.\t.\n"
+            ),
+        )?;
+        let args = Args {
+            threads: 1,
+            reference,
+            in_memory_reference: true,
+            assembly: Some("grch38".into()),
+            predictor_settings: Default::default(),
+            input: path_in.to_string_lossy().into(),
+            output: temp.join("output.vcf").to_string_lossy().into(),
+            output_format: OutputFormat::Vcf,
+            max_var_count: None,
+            sources: Sources {
+                transcripts: Some(vec![
+                    "tests/data/annotate/db/grch38/mt-origin.txs.bin.zst".into(),
+                ]),
+                ..Default::default()
+            },
+        };
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        run(&args_common, &args).await
+    }
+
+    /// A chrM of 16,571 bp in the VCF header is the one of hg19, NC_001807.4.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn hg19_chrm_in_the_vcf_header_is_logged() -> Result<(), anyhow::Error> {
+        annotate_chrm("##contig=<ID=chrM,length=16571>\n", None).await?;
+
+        assert!(logs_contain("chrM has 16571 bp in the VCF header"));
+        Ok(())
+    }
+
+    /// A chrM of 16,571 bp in the reference genome is the one of hg19, NC_001807.4.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn hg19_chrm_in_the_reference_is_logged() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let reference = temp.join("chrM.fasta");
+        let rcrs = std::fs::read_to_string("tests/data/annotate/db/grch38/chrM.fasta")?;
+        std::fs::write(&reference, format!("{}AC\n", rcrs.trim_end()))?;
+
+        annotate_chrm("", Some(reference)).await?;
+
+        assert!(logs_contain("chrM has 16571 bp in the reference genome"));
+        Ok(())
+    }
+
+    /// The rCRS, NC_012920.1, has 16,569 bp.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn rcrs_chrm_is_not_logged() -> Result<(), anyhow::Error> {
+        annotate_chrm(
+            "##contig=<ID=chrM,length=16569>\n",
+            Some("tests/data/annotate/db/grch38/chrM.fasta".into()),
+        )
+        .await?;
+
+        assert!(!logs_contain("NC_001807.4"));
         Ok(())
     }
 

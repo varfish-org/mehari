@@ -558,6 +558,15 @@ impl Provider {
         reader.get(accession, Some(start), Some(end)).ok().flatten()
     }
 
+    /// The length of the chromosome `chrom`, by any of its names, in the reference genome, if
+    /// one is given and has it. This reads the whole chromosome.
+    pub fn reference_length(&self, chrom: &str) -> Option<usize> {
+        let reader = self.reference_reader.as_ref()?;
+        let accession = self.contig_manager.get_accession(chrom)?;
+        let bases = reader.get(accession, None, None).ok().flatten()?;
+        Some(bases.len())
+    }
+
     /// The genetic code of `tx`. A selenoprotein without the positions of its selenocysteine
     /// codons reads every UGA as selenocysteine, except at the CDS end, see
     /// `get_tx_translation_exceptions`.
