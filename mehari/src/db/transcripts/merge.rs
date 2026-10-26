@@ -4,7 +4,8 @@ use crate::db::transcripts::create::write_tx_db;
 use crate::pbs::txs::TxSeqDatabase;
 use clap::Parser;
 use itertools::Itertools;
-use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 
 /// Merge two or more mehari transcript databases.
 #[derive(Parser, Debug)]
@@ -61,23 +62,52 @@ pub fn merge_transcript_databases(
         let seq_db = first.seq_db.as_mut().unwrap();
         let tx_db = first.tx_db.as_mut().unwrap();
 
-        let mut prev_max_idx = *seq_db.aliases_idx.iter().max().unwrap();
+        // A transcript can be in several databases, e.g., the Ensembl transcripts that RefSeq
+        // databases contain for chrMT. The copy of the first database that has it wins, and
+        // the others are skipped with their sequences, aliases and gene memberships.
+        let mut known_tx_ids: HashSet<_> =
+            tx_db.transcripts.iter().map(|tx| tx.id.clone()).collect();
+        let mut skipped_count = 0;
         for other in others.iter_mut() {
-            let mut other_seq_db = other.seq_db.take().unwrap();
-            // Merge the sequence database.
-            seq_db.seqs.append(&mut other_seq_db.seqs);
-            // Merge the aliases.
-            seq_db.aliases.append(&mut other_seq_db.aliases);
-            // Merge the alias index, ensuring that they are unique by adding the max index.
-            seq_db.aliases_idx.extend(
-                other_seq_db
-                    .aliases_idx
-                    .drain(..)
-                    .map(|idx| idx + prev_max_idx + 1),
-            );
-            prev_max_idx = *seq_db.aliases_idx.iter().max().unwrap();
+            first.source_version.append(&mut other.source_version);
 
             let mut other_tx_db = other.tx_db.take().unwrap();
+            let skipped: HashSet<_> = (other_tx_db.transcripts.iter())
+                .filter(|tx| known_tx_ids.contains(&tx.id))
+                .map(|tx| tx.id.clone())
+                .collect();
+            skipped_count += skipped.len();
+            other_tx_db
+                .transcripts
+                .retain(|tx| !skipped.contains(&tx.id));
+            known_tx_ids.extend(other_tx_db.transcripts.iter().map(|tx| tx.id.clone()));
+
+            // Merge the sequence database, renumbering the sequences that are kept.
+            let mut other_seq_db = other.seq_db.take().unwrap();
+            let mut seq_idx = HashMap::new();
+            for (alias, idx) in other_seq_db
+                .aliases
+                .into_iter()
+                .zip(other_seq_db.aliases_idx)
+            {
+                if skipped.contains(&alias) {
+                    continue;
+                }
+                let idx = match seq_idx.entry(idx) {
+                    Entry::Occupied(entry) => *entry.get(),
+                    Entry::Vacant(entry) => {
+                        let seq = other_seq_db
+                            .seqs
+                            .get_mut(idx as usize)
+                            .ok_or_else(|| anyhow::anyhow!("No sequence for alias {alias}"))?;
+                        seq_db.seqs.push(std::mem::take(seq));
+                        *entry.insert(seq_db.seqs.len() as u32 - 1)
+                    }
+                };
+                seq_db.aliases.push(alias);
+                seq_db.aliases_idx.push(idx);
+            }
+
             // Merge the transcript database.
             tx_db.transcripts.append(&mut other_tx_db.transcripts);
 
@@ -89,7 +119,12 @@ pub fn merge_transcript_databases(
             let mut other_gene_to_tx: HashMap<_, _> = other_tx_db
                 .gene_to_tx
                 .into_iter()
-                .map(|g2t| (g2t.gene_id.clone(), g2t))
+                .filter_map(|mut g2t| {
+                    // Drop a gene whose transcripts were all skipped.
+                    let tx_count = g2t.tx_ids.len();
+                    g2t.tx_ids.retain(|tx_id| !skipped.contains(tx_id));
+                    (tx_count == 0 || !g2t.tx_ids.is_empty()).then(|| (g2t.gene_id.clone(), g2t))
+                })
                 .collect();
             for g2tx in tx_db.gene_to_tx.iter_mut() {
                 if let Some(other_g2tx) = other_gene_to_tx.remove(&g2tx.gene_id) {
@@ -120,6 +155,9 @@ pub fn merge_transcript_databases(
             for other_g2tx in other_gene_to_tx.into_values() {
                 tx_db.gene_to_tx.push(other_g2tx);
             }
+        }
+        if skipped_count > 0 {
+            tracing::info!("Skipped {skipped_count} transcripts that an earlier database has");
         }
 
         let result = std::mem::take(first);
@@ -155,7 +193,10 @@ pub fn run(_common_args: &common::Args, args: &Args) -> Result<(), anyhow::Error
 #[cfg(test)]
 mod tests {
     use super::merge_transcript_databases;
-    use crate::pbs::txs::{GeneToTxId, SequenceDb, SourceVersion, TranscriptDb, TxSeqDatabase};
+    use crate::pbs::txs::{
+        GeneToTxId, SequenceDb, SourceVersion, Transcript, TranscriptDb, TranscriptTag,
+        TxSeqDatabase,
+    };
 
     /// A database with one `GeneToTxId` for each `(gene_id, hgnc_id, tx_id)`.
     fn db(genes: &[(&str, &str, &str)]) -> TxSeqDatabase {
@@ -268,6 +309,133 @@ mod tests {
             );
         }
         assert!(!logs_contain("HGNC ID"));
+    }
+
+    /// A database of `source_name` with one gene, transcript and sequence for each
+    /// `(gene_id, tx_id, seq)`.
+    fn db_with_txs(source_name: &str, txs: &[(&str, &str, &str)]) -> TxSeqDatabase {
+        TxSeqDatabase {
+            tx_db: Some(TranscriptDb {
+                transcripts: txs
+                    .iter()
+                    .map(|&(gene_id, tx_id, _)| Transcript {
+                        id: tx_id.into(),
+                        gene_id: gene_id.into(),
+                        ..Default::default()
+                    })
+                    .collect(),
+                gene_to_tx: txs
+                    .iter()
+                    .map(|&(gene_id, tx_id, _)| GeneToTxId {
+                        gene_id: gene_id.into(),
+                        tx_ids: vec![tx_id.into()],
+                        ..Default::default()
+                    })
+                    .collect(),
+            }),
+            seq_db: Some(SequenceDb {
+                aliases: txs.iter().map(|&(_, tx_id, _)| tx_id.into()).collect(),
+                aliases_idx: (0..txs.len() as u32).collect(),
+                seqs: txs.iter().map(|&(_, _, seq)| seq.into()).collect(),
+            }),
+            version: Some("test".into()),
+            source_version: vec![SourceVersion {
+                assembly: "GRCh38".into(),
+                source_name: source_name.into(),
+                ..Default::default()
+            }],
+        }
+    }
+
+    /// A transcript whose ID an earlier database has is skipped, with its sequence and gene
+    /// membership. Here, the RefSeq database has a copy of an Ensembl transcript.
+    #[tracing_test::traced_test]
+    #[test]
+    fn merge_skips_transcripts_of_earlier_databases() {
+        let first = db_with_txs("ensembl", &[("ENSG1", "ENST1.1", "ACGT")]);
+        let mut other = db_with_txs(
+            "refseq",
+            &[("ENSG1", "ENST1.1", "TTTT"), ("2", "NM_000002.1", "GG")],
+        );
+        other.tx_db.as_mut().unwrap().transcripts[0].tags =
+            vec![TranscriptTag::EnsemblGraft.into()];
+
+        let merged = merge_transcript_databases(vec![first, other]).unwrap();
+
+        let tx_db = merged.tx_db.unwrap();
+        let transcripts: Vec<_> = (tx_db.transcripts.iter())
+            .map(|tx| (tx.id.as_str(), tx.tags.as_slice()))
+            .collect();
+        assert_eq!(
+            transcripts,
+            [("ENST1.1", &[][..]), ("NM_000002.1", &[][..])]
+        );
+        let genes: Vec<_> = (tx_db.gene_to_tx.iter())
+            .map(|gene| (gene.gene_id.as_str(), gene.tx_ids.clone()))
+            .collect();
+        assert_eq!(
+            genes,
+            [
+                ("ENSG1", vec!["ENST1.1".to_string()]),
+                ("2", vec!["NM_000002.1".to_string()])
+            ]
+        );
+        let seq_db = merged.seq_db.unwrap();
+        assert_eq!(seq_db.aliases, ["ENST1.1", "NM_000002.1"]);
+        assert_eq!(seq_db.aliases_idx, [0, 1]);
+        assert_eq!(seq_db.seqs, ["ACGT", "GG"]);
+        assert!(logs_contain("Skipped 1 transcripts"));
+    }
+
+    /// A skipped transcript can be in a gene of another ID, e.g., of an NCBI Gene ID in a RefSeq
+    /// database. It leaves that gene, and a gene without other transcripts is dropped. A gene
+    /// that had no transcripts stays.
+    #[test]
+    fn merge_drops_genes_left_without_transcripts() {
+        let first = db_with_txs("ensembl", &[("ENSG1", "ENST1.1", "ACGT")]);
+        let mut other = db_with_txs(
+            "refseq",
+            &[("4567", "ENST1.1", "ACGT"), ("2", "NM_000002.1", "GG")],
+        );
+        (other.tx_db.as_mut().unwrap().gene_to_tx).push(GeneToTxId {
+            gene_id: "3".into(),
+            ..Default::default()
+        });
+
+        let mut genes: Vec<_> = merge_transcript_databases(vec![first, other])
+            .unwrap()
+            .tx_db
+            .unwrap()
+            .gene_to_tx
+            .into_iter()
+            .map(|gene| (gene.gene_id, gene.tx_ids))
+            .collect();
+        genes.sort();
+
+        assert_eq!(
+            genes,
+            [
+                ("2".to_string(), vec!["NM_000002.1".to_string()]),
+                ("3".to_string(), vec![]),
+                ("ENSG1".to_string(), vec!["ENST1.1".to_string()]),
+            ]
+        );
+    }
+
+    /// The merged database keeps the source versions of all databases.
+    #[test]
+    fn merge_keeps_all_source_versions() {
+        let databases = vec![
+            db_with_txs("ensembl", &[("ENSG1", "ENST1.1", "ACGT")]),
+            db_with_txs("refseq", &[("2", "NM_000002.1", "GG")]),
+        ];
+
+        let merged = merge_transcript_databases(databases).unwrap();
+
+        let source_names: Vec<_> = (merged.source_version.iter())
+            .map(|sv| sv.source_name.as_str())
+            .collect();
+        assert_eq!(source_names, ["ensembl", "refseq"]);
     }
 
     /// Two genes can share one HGNC ID. The merge keeps them apart by `gene_id`.
