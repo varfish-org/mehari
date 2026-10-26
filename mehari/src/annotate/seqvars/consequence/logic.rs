@@ -2979,8 +2979,9 @@ impl ConsequencePredictor {
         let mut consequences: Consequences = Consequences::empty();
 
         // TODO move to hgvs-rs library as method of `ProtPos` or similar
+        // `X` (`Xaa`) is an unknown residue, e.g., of a codon with an `N`, not a stop.
         fn is_stop(s: &str) -> bool {
-            s == "X" || s == "Ter" || s == "*"
+            s == "Ter" || s == "*"
         }
 
         match var_p {
@@ -3015,6 +3016,10 @@ impl ConsequencePredictor {
                                         consequences |= Consequence::StopGained;
                                     }
                                 }
+                            } else if alternative == "X" {
+                                // An unknown residue can be the same, another or a stop, so
+                                // only the common SO parent applies.
+                                consequences |= Consequence::CodingSequenceVariant;
                             } else {
                                 consequences |= Consequence::MissenseVariant;
                                 // Missense variants that affect selenocysteine are marked
@@ -6785,6 +6790,56 @@ mod test {
             ann.consequences
         );
 
+        Ok(())
+    }
+
+    /// `Xaa` is an unknown residue, not a stop. A substitution by it can be synonymous, missense
+    /// or a stop, so it is a `coding_sequence_variant`, their common SO parent. The CDS is
+    /// `ATG GCC AAG CTG TGG TAA` at chr1:1021-1038, or `ATG GCN ...` with an unknown base.
+    #[rstest::rstest]
+    // `c.8_9delinsNC`: `AAG` to `ANC`, an `N` that the protein reads gives `p.?`
+    #[case::n_in_alt("ATGGCCAAGCTGTGGTAA", (1028, "AG", "NC"), false, Some("p.?"))]
+    // VEP writes no HGVS for such alleles
+    #[case::n_in_alt_vep(
+        "ATGGCCAAGCTGTGGTAA",
+        (1028, "AG", "NC"),
+        true,
+        None
+    )]
+    // `c.5C>A`: `GCN` (Ala) to `GAN` (Asp or Glu)
+    #[case::n_in_reference(
+        "ATGGCNAAGCTGTGGTAA",
+        (1025, "C", "A"),
+        false,
+        Some("p.(Ala2Xaa)")
+    )]
+    fn unknown_residue_is_no_stop(
+        #[case] cds: &str,
+        #[case] (position, reference, alternative): (i32, &str, &str),
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected_hgvs_p: Option<&str>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", cds, "CGCATCA");
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
+        let anns = predictor_with_config(tx, seq, config)
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position,
+                reference: reference.into(),
+                alternative: alternative.into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(
+            (ann.hgvs_p.as_deref(), &ann.consequences),
+            (expected_hgvs_p, &vec![Consequence::CodingSequenceVariant])
+        );
         Ok(())
     }
 
