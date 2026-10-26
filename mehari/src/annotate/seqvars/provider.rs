@@ -879,12 +879,16 @@ impl ProviderInterface for Provider {
         Ok(tx_idxs
             .iter()
             .map(|entry| {
-                let tx = &self
+                &self
                     .tx_seq_db
                     .tx_db
                     .as_ref()
                     .expect("no tx_db?")
-                    .transcripts[*entry.data() as usize];
+                    .transcripts[*entry.data() as usize]
+            })
+            // `get_tx` does not return filtered transcripts either.
+            .filter(|tx| tx.filtered != Some(true))
+            .map(|tx| {
                 assert_eq!(
                     tx.genome_alignments.len(),
                     1,
@@ -1251,6 +1255,33 @@ mod test {
             .map(|tx| tx.tx_ac)
             .collect();
         assert_eq!(tx_acs, ["NM_000001.1", "NM_000002.1"]);
+
+        Ok(())
+    }
+
+    /// The lookup by region skips filtered transcripts, as `get_tx` does.
+    #[test]
+    fn region_lookup_skips_filtered_transcripts() -> Result<(), anyhow::Error> {
+        use super::{Provider, test_db};
+        use crate::pbs::txs::Transcript;
+        use hgvs::data::interface::Provider as _;
+
+        let filtered = Transcript {
+            filtered: Some(true),
+            ..test_db::transcript("NM_000002.1", 1000)
+        };
+        let tx_seq_db = test_db::tx_seq_db(
+            vec![test_db::transcript("NM_000001.1", 1000), filtered],
+            vec![],
+        );
+        let provider = Provider::new(tx_seq_db, None::<&str>, true);
+
+        let tx_acs: Vec<_> = provider
+            .get_tx_for_region("NC_000001.11", "splign", 1000, 1100)?
+            .into_iter()
+            .map(|tx| tx.tx_ac)
+            .collect();
+        assert_eq!(tx_acs, ["NM_000001.1"]);
 
         Ok(())
     }
