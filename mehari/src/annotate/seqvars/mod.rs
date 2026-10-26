@@ -995,6 +995,12 @@ async fn run_with_writer(
         assembly,
     )?);
 
+    // With a reference genome, the REF of each record is compared with it.
+    let reference_provider = annotator
+        .consequence_predictor()
+        .map(|predictor| predictor.provider.clone())
+        .filter(|provider| provider.reference_available());
+
     let mut additional_header_info = annotator.versions_for_vcf_header();
     additional_header_info.push(("mehariCmd".into(), env::args().join(" ")));
     additional_header_info.push(("mehariVersion".into(), env!("CARGO_PKG_VERSION").into()));
@@ -1085,6 +1091,16 @@ async fn run_with_writer(
                             &vcf_record
                         );
                         anyhow::bail!("multi-allelic records not supported");
+                    }
+                    if let Some(provider) = &reference_provider
+                        && ref_differs(provider, &vcf_record) == Some(true)
+                    {
+                        tracing::warn!(
+                            "REF at {}:{} differs from the reference genome; the annotation uses \
+                             the reference",
+                            vcf_record.reference_sequence_name(),
+                            vcf_record.variant_start().map_or(0, |pos| pos.get())
+                        );
                     }
                     next_batch.push(vcf_record);
                     total_read += 1;
@@ -1183,6 +1199,16 @@ async fn run_with_writer(
     }
     writer.shutdown().await?;
     Ok(())
+}
+
+/// Whether the REF of `record` differs from the reference genome; `None` if the reference genome
+/// lacks the bases.
+fn ref_differs(provider: &provider::Provider, record: &VcfRecord) -> Option<bool> {
+    let start = record.variant_start()?.get() as u64 - 1;
+    let reference = record.reference_bases();
+    let end = start + reference.len() as u64;
+    let bases = provider.reference_bases(record.reference_sequence_name(), start, end)?;
+    Some(!bases.eq_ignore_ascii_case(reference.as_bytes()))
 }
 
 pub(crate) fn setup_seqvars_annotator(
@@ -2155,6 +2181,51 @@ mod test {
 
         insta::assert_yaml_snapshot!("mitochondrial_origin_output", snapshot_data);
 
+        Ok(())
+    }
+
+    /// With a reference genome, records whose REF differs from it are logged. chrM begins with
+    /// GATCA, so the REF of chrM:3 matches and those of chrM:4 and chrM:5 do not.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn ref_differing_from_the_reference_is_logged() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let path_in = temp.join("input.vcf");
+        std::fs::write(
+            &path_in,
+            "##fileformat=VCFv4.2\n##contig=<ID=chrM,length=16569>\n\
+             #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+             chrM\t3\t.\tT\tC\t.\t.\t.\nchrM\t4\t.\tG\tA\t.\t.\t.\nchrM\t5\t.\tC\tT\t.\t.\t.\n",
+        )?;
+        let prefix = "tests/data/annotate/db/grch38";
+        let args = Args {
+            threads: 1,
+            reference: Some(format!("{prefix}/chrM.fasta").into()),
+            in_memory_reference: true,
+            assembly: Some("grch38".into()),
+            predictor_settings: Default::default(),
+            input: path_in.to_string_lossy().into(),
+            output: temp.join("output.vcf").to_string_lossy().into(),
+            output_format: OutputFormat::Vcf,
+            max_var_count: None,
+            sources: Sources {
+                transcripts: Some(vec![format!("{prefix}/mt-origin.txs.bin.zst")]),
+                ..Default::default()
+            },
+        };
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+
+        run(&args_common, &args).await?;
+
+        assert!(!logs_contain("REF at chrM:3 "));
+        assert!(logs_contain(
+            "REF at chrM:4 differs from the reference genome"
+        ));
+        assert!(logs_contain(
+            "REF at chrM:5 differs from the reference genome"
+        ));
         Ok(())
     }
 

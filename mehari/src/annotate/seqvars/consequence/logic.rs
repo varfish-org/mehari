@@ -4390,8 +4390,9 @@ mod test {
         }
     }
 
-    /// Without a reference genome, mehari warns that HGVS descriptions may not be shifted. It
-    /// warns once per assembly, also if two predictors share it, as in the server.
+    /// Without a reference genome, mehari warns that HGVS descriptions may not be shifted and
+    /// that reference alleles come from the transcripts. It warns once per assembly, also if two
+    /// predictors share it, as in the server.
     #[tracing_test::traced_test]
     #[test]
     fn warn_without_reference() {
@@ -4408,7 +4409,12 @@ mod test {
                 .filter(|line| line.contains("No reference genome given"))
                 .collect::<Vec<_>>();
             match warnings[..] {
-                [warning] if warning.contains("No reference genome given for grch37:") => Ok(()),
+                [warning]
+                    if warning.contains("No reference genome given for grch37:")
+                        && warning.contains("transcripts that differ from the genome") =>
+                {
+                    Ok(())
+                }
                 _ => Err(format!("{warnings:?}")),
             }
         });

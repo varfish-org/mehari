@@ -441,7 +441,8 @@ impl Provider {
                 tracing::warn!(
                     "No reference genome given for {}: indels in introns or at exon edges may \
                      not be 3'-shifted in their HGVS descriptions, and their consequences can be \
-                     off",
+                     off. Reference alleles then come from the VCF and the transcripts, so \
+                     variants on transcripts that differ from the genome may be misannotated",
                     assembly_name
                 );
                 None
@@ -547,6 +548,14 @@ impl Provider {
 
     pub fn reference_available(&self) -> bool {
         self.reference_reader.is_some()
+    }
+
+    /// The bases `[start, end)` of the chromosome `chrom`, by any of its names, in the reference
+    /// genome, if one is given and has them.
+    pub fn reference_bases(&self, chrom: &str, start: u64, end: u64) -> Option<Vec<u8>> {
+        let reader = self.reference_reader.as_ref()?;
+        let accession = self.contig_manager.get_accession(chrom)?;
+        reader.get(accession, Some(start), Some(end)).ok().flatten()
     }
 
     /// The genetic code of `tx`. A selenoprotein without the positions of its selenocysteine
