@@ -6730,12 +6730,18 @@ mod test {
         (tx, seq)
     }
 
-    /// A predictor for one selenoprotein transcript on the plus strand of chr1 (GRCh38).
+    /// A predictor for one selenoprotein transcript, see `selenoprotein_tx`.
+    fn selenoprotein_predictor(tagged: bool, positions: Vec<u32>) -> ConsequencePredictor {
+        let (tx, seq) = selenoprotein_tx(tagged, positions);
+        predictor_for(tx, seq)
+    }
+
+    /// One selenoprotein transcript on the plus strand of chr1 (GRCh38).
     ///
     /// Its one exon spans chr1:1001-1073: 20 bases of 5' UTR, the CDS
     /// `ATG GCC AAG CTG TGG GAA CCA TGA CGC GTT TAA` (`MAKLWEPURV*`) at chr1:1021-1053, and 20
     /// bases of 3' UTR. The eighth codon is the Sec codon.
-    fn selenoprotein_predictor(tagged: bool, positions: Vec<u32>) -> ConsequencePredictor {
+    fn selenoprotein_tx(tagged: bool, positions: Vec<u32>) -> (Transcript, String) {
         use crate::pbs::txs::TranslationException;
 
         let utr = "CAGTCAGTCAGTCAGTCAGT";
@@ -6755,7 +6761,7 @@ mod test {
                 .collect(),
             ..tx
         };
-        predictor_for(tx, seq)
+        (tx, seq)
     }
 
     /// With Sec positions, UGA reads as selenocysteine only at them. Without, a transcript
@@ -6813,6 +6819,118 @@ mod test {
             ann.consequences
         );
 
+        Ok(())
+    }
+
+    /// What a plugin sees of the sequences of one transcript, through the accessors of
+    /// `wit/plugin.wit`.
+    #[derive(Debug, serde::Serialize)]
+    struct SeenSequences {
+        hgvs_c: Option<String>,
+        reference_transcript: Option<String>,
+        reference_protein: Option<String>,
+        reference_cds_start: Option<i32>,
+        reference_cds_end: Option<i32>,
+        alternative_transcript: Option<String>,
+        alternative_protein: Option<String>,
+        alternative_cds_start: Option<i32>,
+        frameshift: Option<bool>,
+        first_changed_codon: Option<i32>,
+    }
+
+    /// A plugin that records what it sees of the sequences, as the WebAssembly host reads it.
+    #[derive(Debug, Default)]
+    struct SequenceProbe(std::sync::Mutex<Vec<SeenSequences>>);
+
+    impl TranscriptPlugin for SequenceProbe {
+        fn columns(&self) -> Vec<String> {
+            Vec::new()
+        }
+
+        fn annotate(
+            &self,
+            _variants: &[VcfVariant],
+            txs: &mut Vec<crate::annotate::seqvars::consequence::plugin::TxAnnotation>,
+        ) -> Result<(), SeqvarsError> {
+            let mut seen = self.0.lock().unwrap();
+            for tx in txs {
+                let ref_data = tx.context.ref_data();
+                let alt_data = tx.context.alt_data();
+                seen.push(SeenSequences {
+                    hgvs_c: tx.ann.hgvs_c.clone(),
+                    reference_transcript: ref_data.map(|d| d.transcript_sequence.to_string()),
+                    reference_protein: ref_data.map(|d| d.aa_sequence.to_string()),
+                    reference_cds_start: ref_data.map(|d| d.cds_start),
+                    reference_cds_end: ref_data.map(|d| d.cds_stop),
+                    alternative_transcript: alt_data.map(|d| d.transcript_sequence.clone()),
+                    alternative_protein: alt_data.map(|d| d.aa_sequence.clone()),
+                    alternative_cds_start: alt_data.map(|d| d.cds_start),
+                    frameshift: alt_data.map(|d| d.is_frameshift),
+                    first_changed_codon: alt_data.and_then(|d| d.variant_start_aa),
+                });
+            }
+            Ok(())
+        }
+    }
+
+    /// Plugins see the same reference and alternative sequences, whatever `c_to_p` computes for
+    /// `p.`. The transcript has 20 bases of 5' UTR, the CDS
+    /// `ATG GCC AAG CTG TGG GAA CCA CGC GTT TAA` (`MAKLWEPRV*`) at chr1:1021-1050, and 20 bases of
+    /// 3' UTR; `seleno` is that of `selenoprotein_tx` with its Sec codon, and `mito` one on the
+    /// mitochondrion whose CDS ends with a `T` that the poly(A) tail completes to a stop codon.
+    #[rstest::rstest]
+    #[case::synonymous("standard", "1026:C:T")]
+    #[case::missense("standard", "1024:G:A")]
+    #[case::stop_gain("standard", "1027:A:T")]
+    #[case::stop_loss("standard", "1048:T:C")]
+    #[case::start_loss("standard", "1021:A:G")]
+    #[case::inframe_insertion("standard", "1026:C:CGGC")]
+    #[case::inframe_deletion("standard", "1026:CAAG:C")]
+    #[case::inframe_delins("standard", "1027:AAG:TTTCCC")]
+    #[case::frameshift_insertion("standard", "1026:C:CA")]
+    #[case::frameshift_deletion("standard", "1026:CA:C")]
+    #[case::frameshift_into_utr3("standard", "1045:GT:G")]
+    #[case::cds_end("standard", "1050:A:G")]
+    #[case::n_allele("standard", "1027:AAG:NNN")]
+    #[case::selenoprotein_missense("seleno", "1024:G:A")]
+    #[case::selenoprotein_deletion("seleno", "1035:GGAA:G")]
+    #[case::mitochondrial_poly_a_stop("mito", "1024:G:A")]
+    fn plugins_see_sequences(#[case] tx: &str, #[case] var: &str) -> Result<(), anyhow::Error> {
+        crate::common::set_snapshot_suffix!("{tx}-{}", var.replace(':', "-"));
+        let utr = "CAGTCAGTCAGTCAGTCAGT";
+        let (tx, seq, chromosome) = match tx {
+            "seleno" => {
+                let (tx, seq) = selenoprotein_tx(false, vec![8]);
+                (tx, seq, "1")
+            }
+            "mito" => {
+                let (mut tx, seq) = one_exon_tx(utr, "ATGGCCAAGCTGTGGT", "");
+                tx.genome_alignments[0].contig = "NC_012920.1".into();
+                (tx, seq, "MT")
+            }
+            _ => {
+                let (tx, seq) = one_exon_tx(
+                    utr,
+                    "ATGGCCAAGCTGTGGGAACCACGCGTTTAA",
+                    "CGCATCAGTCAGTCAGTCAG",
+                );
+                (tx, seq, "1")
+            }
+        };
+        let probe = Arc::new(SequenceProbe::default());
+        let config = ConfigBuilder::default()
+            .plugins(vec![probe.clone() as Arc<dyn TranscriptPlugin>])
+            .build()?;
+        let var = var.split(':').collect::<Vec<_>>();
+        predictor_with_config(tx, seq, config).predict(&VcfVariant {
+            chromosome: chromosome.into(),
+            position: var[0].parse()?,
+            reference: var[1].into(),
+            alternative: var[2].into(),
+        })?;
+
+        let seen = std::mem::take(&mut *probe.0.lock().unwrap());
+        assert_yaml_snapshot!(seen);
         Ok(())
     }
 
