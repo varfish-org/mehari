@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.48.0](https://github.com/varfish-org/mehari/compare/mehari-v0.47.0...mehari-v0.48.0) (2026-10-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deps:** bump hgvs to 4.0 ([#1125](https://github.com/varfish-org/mehari/issues/1125))
+
+### Features
+
+* **annotate:** warn about the chrM of hg19 ([#1141](https://github.com/varfish-org/mehari/issues/1141)) ([386e517](https://github.com/varfish-org/mehari/commit/386e517854d71b782da37c98288404390c28905f))
+* **annotate:** warn when REF differs from genome ([#1139](https://github.com/varfish-org/mehari/issues/1139)) ([815e059](https://github.com/varfish-org/mehari/commit/815e059a234d2d12e8bc39383b1b3f6c8a0805d1))
+* limit repeated warnings per call site ([#1138](https://github.com/varfish-org/mehari/issues/1138)) ([2bf07d6](https://github.com/varfish-org/mehari/commit/2bf07d64312e06a458e59d96a5c1e80328956ce7))
+
+
+### Bug Fixes
+
+* **annotate:** conservative in-frame insertions ([#1132](https://github.com/varfish-org/mehari/issues/1132)) ([ecd1753](https://github.com/varfish-org/mehari/commit/ecd1753ab4b13572c6df7c05c86aebd7830994df))
+* **annotate:** drop transcripts out of reach ([#1126](https://github.com/varfish-org/mehari/issues/1126)) ([cd058d2](https://github.com/varfish-org/mehari/commit/cd058d2daaaf259be264906d5abf8c65b579fbdb))
+* **annotate:** give ambiguous bases VEP's terms ([#1128](https://github.com/varfish-org/mehari/issues/1128)) ([d297790](https://github.com/varfish-org/mehari/commit/d297790524b6963cd4e07cf0a6661dec50e42cee))
+* **annotate:** match VEP's polypyrimidine tract ([#1127](https://github.com/varfish-org/mehari/issues/1127)) ([1e5e68c](https://github.com/varfish-org/mehari/commit/1e5e68cf63540c7e17fe7573e146068dd4cc897e))
+* **annotate:** read N in ALT as one unknown base ([#1130](https://github.com/varfish-org/mehari/issues/1130)) ([832d5a5](https://github.com/varfish-org/mehari/commit/832d5a5c13b62c88e9d7cdd865a7b44511b7b3b7))
+* **annotate:** read Xaa as unknown, not as a stop ([#1131](https://github.com/varfish-org/mehari/issues/1131)) ([fa70f6c](https://github.com/varfish-org/mehari/commit/fa70f6c631b55c858a96a6cedbc9e8ae80d59d57))
+* **annotate:** skip filtered transcripts in lookup ([#1136](https://github.com/varfish-org/mehari/issues/1136)) ([5ae4c7b](https://github.com/varfish-org/mehari/commit/5ae4c7bec7fe4f715443dd5e971194ba67c66bd3))
+* **annotate:** take VEP's in-frame insertion terms ([#1129](https://github.com/varfish-org/mehari/issues/1129)) ([513fb99](https://github.com/varfish-org/mehari/commit/513fb9936a10e39173ec25882318a6ff9ec93ec5))
+* **db:** merge transcripts without duplicates ([#1140](https://github.com/varfish-org/mehari/issues/1140)) ([c4d4797](https://github.com/varfish-org/mehari/commit/c4d47976290820607d38586e601d1fae5d0d61af))
+* **db:** shift cdot codons only before data 0.2.34 ([#1135](https://github.com/varfish-org/mehari/issues/1135)) ([16fa64d](https://github.com/varfish-org/mehari/commit/16fa64db8c4a0bc34e4d92f5134143806fa782cc))
+* turn logging off with -qqq ([#1137](https://github.com/varfish-org/mehari/issues/1137)) ([478e990](https://github.com/varfish-org/mehari/commit/478e990aef5b47cd509bf0a030c4c5b126fbc011))
+
+
+### Performance Improvements
+
+* **annotate:** format hgvs_g once per strand ([#1133](https://github.com/varfish-org/mehari/issues/1133)) ([a6e4d5a](https://github.com/varfish-org/mehari/commit/a6e4d5a235aa2989d85cfe419410ff3de5418721))
+
+
+### Build System
+
+* **deps:** bump hgvs to 4.0 ([#1125](https://github.com/varfish-org/mehari/issues/1125)) ([d83a51d](https://github.com/varfish-org/mehari/commit/d83a51d3fedee62e8f1e627bf8889a485b9eef39))
+
 ## [0.47.0](https://github.com/varfish-org/mehari/compare/mehari-v0.46.0...mehari-v0.47.0) (2026-10-22)
 
 
