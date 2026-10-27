@@ -82,6 +82,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     writer.write_header()?;
 
     // 4. Process Records Stream
+    let has_hgnc_id = ann_has_hgnc_id(&header);
     let mut records = reader.records(&header).await;
     while let Some(record) = records.try_next().await? {
         // Parse ANN fields into the Sidecar
@@ -90,7 +91,16 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                 record.info().get("ANN")
             {
                 arr.iter()
-                    .filter_map(|s| s.as_ref().map(|s| AnnField::from_str(s).unwrap()))
+                    .filter_map(|s| {
+                        s.as_ref().map(|s| {
+                            if has_hgnc_id {
+                                AnnField::from_str(s)
+                            } else {
+                                AnnField::parse_without_hgnc_id(s)
+                            }
+                            .unwrap()
+                        })
+                    })
                     .collect::<Vec<_>>()
             } else {
                 vec![]
@@ -114,6 +124,15 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     writer.flush()?;
     tracing::info!("... done writing VarFish TSV");
     Ok(())
+}
+
+/// Whether the `ANN` values have the `HGNC_ID` field, by the field names in the header. Older
+/// mehari versions do not write it.
+fn ann_has_hgnc_id(header: &VcfHeader) -> bool {
+    header
+        .infos()
+        .get("ANN")
+        .is_none_or(|info| info.description().contains("Gene_ID | HGNC_ID"))
 }
 
 fn load_hgnc_map(path: &str) -> anyhow::Result<FxHashMap<String, HgncRecord>> {
@@ -262,8 +281,9 @@ impl VarFishSeqvarTsvWriter {
         self.hgnc_map = Some(hgnc_map)
     }
 
-    /// Find the HGNC record of an ANN `Gene_ID`. VCFs of older mehari versions name the HGNC
-    /// ID. Newer ones name the Ensembl gene ID, mostly with version, or the NCBI Gene ID.
+    /// Find the HGNC record of an ANN `HGNC_ID` or `Gene_ID`. In `Gene_ID`, VCFs of older mehari
+    /// versions name the HGNC ID. Newer ones name the Ensembl gene ID, mostly with version, or
+    /// the NCBI Gene ID.
     fn find_hgnc_record(&self, gene_id: &str) -> Option<&HgncRecord> {
         let hgnc_id: &str = if gene_id.starts_with("HGNC:") {
             gene_id
@@ -710,9 +730,11 @@ impl VarFishSeqvarTsvWriter {
             let mut anns_by_gene: FxHashMap<String, Vec<AnnField>> = FxHashMap::default();
             for ann in anns {
                 // The RefSeq and the Ensembl entries of a gene have different `Gene_ID`s, so
-                // group them by their HGNC record.
-                let gene_id = self
-                    .find_hgnc_record(&ann.gene_id)
+                // group them by their HGNC record. VCFs of older mehari versions have no
+                // `HGNC_ID`.
+                let gene_id = (ann.hgnc_id.as_deref())
+                    .and_then(|hgnc_id| self.find_hgnc_record(hgnc_id))
+                    .or_else(|| self.find_hgnc_record(&ann.gene_id))
                     .map_or_else(|| ann.gene_id.clone(), |record| record.hgnc_id.clone());
                 anns_by_gene.entry(gene_id).or_default().push(ann);
             }
@@ -1007,21 +1029,31 @@ mod tests {
     }
 
     /// The RefSeq and the Ensembl entry of one gene give one row, also if their `Gene_ID`
-    /// differs. Entries without HGNC record give one row per `Gene_ID`.
+    /// differs. `HGNC_ID` finds the record first. Entries without HGNC record give one row per
+    /// `Gene_ID`.
     #[rstest]
     #[case::gene_ids(
         "672",
         "ENSG00000012048.23",
+        "",
         &[("672", "NM_007294.4", "ENSG00000012048", "ENST00000357654.9")],
     )]
     #[case::hgnc_ids(
         "HGNC:1100",
+        "HGNC:1100",
+        "",
+        &[("672", "NM_007294.4", "ENSG00000012048", "ENST00000357654.9")],
+    )]
+    #[case::hgnc_id_field(
+        "1",
+        "ENSG00000000001.1",
         "HGNC:1100",
         &[("672", "NM_007294.4", "ENSG00000012048", "ENST00000357654.9")],
     )]
     #[case::unknown_gene_ids(
         "1",
         "ENSG00000000001.1",
+        "",
         &[
             ("", "NM_007294.4", "", "NM_007294.4"),
             ("", "ENST00000357654.9", "", "ENST00000357654.9"),
@@ -1030,6 +1062,7 @@ mod tests {
     fn one_row_per_gene(
         #[case] refseq_gene_id: &str,
         #[case] ensembl_gene_id: &str,
+        #[case] hgnc_id: &str,
         #[case] expected: &[(&str, &str, &str, &str)],
     ) -> anyhow::Result<()> {
         let temp = TempDir::default();
@@ -1037,7 +1070,8 @@ mod tests {
         let mut writer = writer(&path)?;
         let ann = |gene_id: &str, feature_id: &str| {
             AnnField::from_str(&format!(
-                "C|missense_variant|MODERATE|BRCA1|{gene_id}|transcript|{feature_id}|Coding|||||||||||1|"
+                "C|missense_variant|MODERATE|BRCA1|{gene_id}|{hgnc_id}|transcript|{feature_id}|\
+                 Coding|||||||||||1|"
             ))
         };
         let record = AnnotatedVariant {
@@ -1087,6 +1121,32 @@ mod tests {
         Ok(())
     }
 
+    /// The `ANN` header of the current version names `HGNC_ID`, the one of older versions not.
+    #[rstest]
+    #[case::current(&AnnField::ann_field_names(&[]).join(" | "), true)]
+    #[case::older(
+        "Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | Feature_ID",
+        false
+    )]
+    fn ann_header_names_hgnc_id(#[case] fields: &str, #[case] expected: bool) {
+        use noodles::vcf::header::record::value::Map;
+        use noodles::vcf::header::record::value::map::{Info, info::Number, info::Type};
+
+        let header = VcfHeader::builder()
+            .add_info(
+                "ANN",
+                Map::<Info>::new(
+                    Number::Unknown,
+                    Type::String,
+                    format!("Functional annotations: '{fields}'"),
+                ),
+            )
+            .build();
+
+        assert_eq!(ann_has_hgnc_id(&header), expected);
+    }
+
+    /// The input is a VCF of an older mehari version, without `HGNC_ID`.
     #[tokio::test]
     async fn smoke_test_export_tsv() -> Result<(), anyhow::Error> {
         let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

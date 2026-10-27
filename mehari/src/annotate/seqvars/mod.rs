@@ -2002,7 +2002,7 @@ mod test {
                 let fields = ann.split('|').collect::<Vec<_>>();
                 format!(
                     "{} {} {}",
-                    fields[6],
+                    fields[7],
                     fields[fields.len() - 2],
                     fields[fields.len() - 1]
                 )

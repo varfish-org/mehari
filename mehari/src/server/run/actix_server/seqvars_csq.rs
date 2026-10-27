@@ -138,12 +138,12 @@ async fn handle_impl(
                     continue;
                 }
             }
-            let gene_hgnc_id = predictor.hgnc_id(&ann_field.feature_id).map(String::from);
             let AnnField {
                 consequences,
                 putative_impact,
                 gene_symbol,
                 gene_id,
+                hgnc_id: gene_hgnc_id,
                 feature_type,
                 feature_id,
                 feature_biotype,

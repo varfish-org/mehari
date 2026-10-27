@@ -969,6 +969,10 @@ pub struct AnnField {
     #[serde(alias = "Gene_ID")]
     pub gene_id: String,
 
+    /// The HGNC ID of the gene, e.g. `HGNC:1100`; none for a gene without one.
+    #[serde(alias = "HGNC_ID")]
+    pub hgnc_id: Option<String>,
+
     /// The feature type.
     #[serde(alias = "Feature_Type")]
     pub feature_type: FeatureType,
@@ -1063,6 +1067,7 @@ impl Default for AnnField {
             putative_impact: PutativeImpact::Modifier,
             gene_symbol: Default::default(),
             gene_id: Default::default(),
+            hgnc_id: Default::default(),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -1150,12 +1155,21 @@ fn parse_opt_list<T: FromStr>(i: &str) -> IResult<&str, Option<Vec<T>>> {
 }
 
 impl AnnField {
-    fn parse_nom<'a>(i: &'a str, custom_columns: &[String]) -> IResult<&'a str, Self> {
+    fn parse_nom<'a>(
+        i: &'a str,
+        custom_columns: &[String],
+        with_hgnc_id: bool,
+    ) -> IResult<&'a str, Self> {
         let (i, allele) = parse_parsed(i)?;
         let (i, consequences) = parse_item_list(i)?;
         let (i, putative_impact) = parse_parsed(i)?;
         let (i, gene_symbol) = parse_string(i)?;
         let (i, gene_id) = parse_string(i)?;
+        let (i, hgnc_id) = if with_hgnc_id {
+            parse_opt_string(i)?
+        } else {
+            (i, None)
+        };
         let (i, feature_type) = parse_parsed(i)?;
         let (i, feature_id) = parse_string(i)?;
         let (i, feature_biotype) = parse_item_list(i)?;
@@ -1189,6 +1203,7 @@ impl AnnField {
                 putative_impact,
                 gene_symbol,
                 gene_id,
+                hgnc_id,
                 feature_type,
                 feature_id,
                 feature_biotype,
@@ -1210,7 +1225,20 @@ impl AnnField {
     }
 
     pub fn parse(s: &str, custom_columns: &[String]) -> Result<Self, anyhow::Error> {
-        match Self::parse_nom(s, custom_columns) {
+        Self::parse_with(s, custom_columns, true)
+    }
+
+    /// Parses an `ANN` value of older mehari versions, which have no `HGNC_ID` field.
+    pub fn parse_without_hgnc_id(s: &str) -> Result<Self, anyhow::Error> {
+        Self::parse_with(s, &[], false)
+    }
+
+    fn parse_with(
+        s: &str,
+        custom_columns: &[String],
+        with_hgnc_id: bool,
+    ) -> Result<Self, anyhow::Error> {
+        match Self::parse_nom(s, custom_columns, with_hgnc_id) {
             Ok((_, ann)) => Ok(ann),
             Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
                 Err(anyhow::anyhow!("nom parsing error: {:?}", e.code))
@@ -1239,10 +1267,11 @@ impl AnnField {
 
         let _ = write!(
             buf,
-            "|{}|{}|{}|{}|{}|",
+            "|{}|{}|{}|{}|{}|{}|",
             self.putative_impact,
             self.gene_symbol,
             self.gene_id,
+            self.hgnc_id.as_deref().unwrap_or_default(),
             self.feature_type,
             self.feature_id
         );
@@ -1657,6 +1686,7 @@ mod test {
             putative_impact: PutativeImpact::Moderate,
             gene_symbol: String::from("GENE"),
             gene_id: String::from("HGNC:gene_id"),
+            hgnc_id: Some(String::from("HGNC:hgnc_id")),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -1688,15 +1718,15 @@ mod test {
 
         assert_eq!(
             format!("{}", &value),
-            "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|Coding|Other|1/2|HGVS.g|\
-            HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
+            "A|missense_variant|MODERATE|GENE|HGNC:gene_id|HGNC:hgnc_id|transcript|feature_id|Coding|\
+            Other|1/2|HGVS.g|HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
         );
     }
 
     #[test]
     fn ann_field_from_str() -> Result<(), anyhow::Error> {
-        let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
-        Coding|Other|1/2|HGVS.g|HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
+        let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|HGNC:hgnc_id|transcript|\
+        feature_id|Coding|Other|1/2|HGVS.g|HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
 
         let field = AnnField::from_str(value)?;
         assert_eq!(format!("{}", &field), value);
@@ -1706,17 +1736,35 @@ mod test {
 
     #[test]
     fn ann_field_from_str_with_empty_fields() -> Result<(), anyhow::Error> {
-        let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
+        let value = "A|missense_variant|MODERATE|GENE|HGNC:gene_id||transcript|feature_id|\
         ||1/2|HGVS.g|HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
 
         let field = AnnField::from_str(value)?;
+        assert_eq!(field.hgnc_id, None);
         assert_eq!(format!("{}", &field), value);
 
         Ok(())
     }
 
+    /// `ANN` of older mehari versions has no `HGNC_ID`; it is written back with an empty one.
+    #[test]
+    fn ann_field_without_hgnc_id() -> Result<(), anyhow::Error> {
+        let value = "A|missense_variant|MODERATE|GENE|672|transcript|feature_id|\
+        Coding|Other|1/2|HGVS.g|HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
+
+        let field = AnnField::parse_without_hgnc_id(value)?;
+        assert_eq!(
+            (field.gene_id.as_str(), field.hgnc_id.as_deref()),
+            ("672", None)
+        );
+        assert_eq!(field.feature_id, "feature_id");
+        assert_eq!(format!("{}", &field), value.replace("|672|", "|672||"));
+
+        Ok(())
+    }
+
     fn dummy_ann_string() -> &'static str {
-        "A|missense_variant|MODERATE|GENE|HGNC:gene_id|transcript|feature_id|\
+        "A|missense_variant|MODERATE|GENE|HGNC:gene_id|HGNC:hgnc_id|transcript|feature_id|\
          Coding|Other|1/2|HGVS.g|HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND"
     }
 
@@ -1847,6 +1895,7 @@ mod test {
                 "Annotation_Impact",
                 "Gene_Name",
                 "Gene_ID",
+                "HGNC_ID",
                 "Feature_Type",
                 "Feature_ID",
                 "Transcript_BioType",

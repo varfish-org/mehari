@@ -10,6 +10,7 @@ expression: res
   putative_impact: modifier
   gene_symbol: OPA1
   gene_id: "4976"
+  hgnc_id: "HGNC:8140"
   feature_type:
     so_term:
       term: Transcript

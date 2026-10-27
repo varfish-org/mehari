@@ -761,11 +761,6 @@ impl ConsequencePredictor {
         self.config.vep_consequence_terms || self.config.vep_compatibility_mode
     }
 
-    /// The HGNC ID of the gene of transcript `tx_id`, if it has one.
-    pub fn hgnc_id(&self, tx_id: &str) -> Option<&str> {
-        self.provider.get_tx(tx_id)?.hgnc_id.as_deref()
-    }
-
     /// The context of a transcript annotation; empty if no plugin reads it.
     fn tx_context(
         &self,
@@ -916,6 +911,7 @@ impl ConsequencePredictor {
                     alternative: var.alternative.clone(),
                 },
                 gene_id: "".to_string(),
+                hgnc_id: None,
                 consequences: vec![Consequence::IntergenicVariant],
                 putative_impact:
                     crate::annotate::seqvars::consequence::terms::PutativeImpact::Modifier,
@@ -2181,6 +2177,7 @@ impl ConsequencePredictor {
             putative_impact,
             gene_symbol: tx.gene_symbol.clone(),
             gene_id: tx.gene_id.clone(),
+            hgnc_id: tx.hgnc_id.clone(),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -4054,6 +4051,7 @@ impl ConsequencePredictor {
             putative_impact,
             gene_symbol: tx.gene_symbol.clone(),
             gene_id: tx.gene_id.clone(),
+            hgnc_id: tx.hgnc_id.clone(),
             feature_type: FeatureType::SoTerm {
                 term: SoFeature::Transcript,
             },
@@ -7982,6 +7980,43 @@ mod test {
 
         let gene_ids: Vec<_> = anns.iter().map(|ann| ann.gene_id.as_str()).collect();
         assert_eq!(gene_ids, ["11"]);
+
+        Ok(())
+    }
+
+    /// `HGNC_ID` is the HGNC ID of the transcript's gene, and empty for a gene without one, for
+    /// single and for compound variants.
+    #[rstest::rstest]
+    #[case::gene_with_hgnc_id(Some("HGNC:1"))]
+    #[case::gene_without_hgnc_id(None)]
+    fn ann_hgnc_id(#[case] hgnc_id: Option<&str>) -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGT", "ATGGCCTAA", "CAGT");
+        let tx = Transcript {
+            hgnc_id: hgnc_id.map(String::from),
+            ..tx
+        };
+        let predictor = predictor_for(tx, seq);
+        let snv = |position: i32, reference: &str, alternative: &str| VcfVariant {
+            chromosome: "1".into(),
+            position,
+            reference: reference.into(),
+            alternative: alternative.into(),
+        };
+        let single = predictor.predict(&snv(1008, "G", "A"))?;
+        let compound = predictor.predict_multiple(&[snv(1008, "G", "A"), snv(1009, "C", "T")])?;
+
+        let reported: Vec<_> = (single.into_iter().flatten())
+            .chain(compound.into_iter().flatten())
+            .map(|ann| {
+                let field = ann.to_string().split('|').nth(5).map(String::from);
+                (ann.hgnc_id, field)
+            })
+            .collect();
+        let expected = (
+            hgnc_id.map(String::from),
+            Some(hgnc_id.unwrap_or_default().to_string()),
+        );
+        assert_eq!(reported, [expected.clone(), expected]);
 
         Ok(())
     }
