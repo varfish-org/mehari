@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.49.0](https://github.com/varfish-org/mehari/compare/mehari-v0.48.1...mehari-v0.49.0) (2026-10-27)
+
+
+### Features
+
+* **annotate:** report the HGNC ID in ANN ([#1149](https://github.com/varfish-org/mehari/issues/1149)) ([7d13cde](https://github.com/varfish-org/mehari/commit/7d13cde0f17b151dcf45978ce9ca9ac7aba1ca59))
+
+
+### Bug Fixes
+
+* **annotate:** start, CDS and in-frame terms after 0.48.1 ([#1150](https://github.com/varfish-org/mehari/issues/1150)) ([d6bf656](https://github.com/varfish-org/mehari/commit/d6bf6563bdca7b854bbcc0cbf14600bf0609d66a))
+
 ## [0.48.1](https://github.com/varfish-org/mehari/compare/mehari-v0.48.0...mehari-v0.48.1) (2026-10-27)
 
 

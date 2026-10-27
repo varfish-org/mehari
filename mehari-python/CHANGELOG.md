@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.49.0](https://github.com/varfish-org/mehari/compare/mehari-python-v0.48.1...mehari-python-v0.49.0) (2026-10-27)
+
+
+### Features
+
+* **annotate:** report the HGNC ID in ANN ([#1149](https://github.com/varfish-org/mehari/issues/1149)) ([7d13cde](https://github.com/varfish-org/mehari/commit/7d13cde0f17b151dcf45978ce9ca9ac7aba1ca59))
+
 ## [0.48.1](https://github.com/varfish-org/mehari/compare/mehari-python-v0.48.0...mehari-python-v0.48.1) (2026-10-27)
 
 
