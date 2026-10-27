@@ -1706,9 +1706,9 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hgvs"
-version = "4.0.0"
+version = "4.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32b20fcf2cb95ed607bac609f02eec927eb6bb914bed22bdcfb80b1d1506edb1"
+checksum = "b7ff9e509b0d7e12b5ef8a864ccf0a7ddc8621efc6228ba8cb4588125d814057"
 dependencies = [
  "ahash",
  "base16ct",
@@ -2306,7 +2306,7 @@ dependencies = [
 
 [[package]]
 name = "mehari"
-version = "0.48.0"
+version = "0.48.1"
 dependencies = [
  "annonars",
  "anyhow",
@@ -2370,7 +2370,7 @@ dependencies = [
 
 [[package]]
 name = "mehari-python"
-version = "0.48.0"
+version = "0.48.1"
 dependencies = [
  "anyhow",
  "arrow",
@@ -3725,9 +3725,9 @@ checksum = "a39e0e9135d7a7208ee80aa4e3e4b88f0f5ad7be92153ed70686c38a03db2e63"
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags 2.13.2",
  "errno",
