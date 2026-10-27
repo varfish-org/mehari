@@ -2458,14 +2458,21 @@ impl ConsequencePredictor {
         }
         // An in-frame insertion or delins in front of the stop codon keeps it, also where p.
         // describes the longer protein as an extension, e.g. `p.Ter6AspextTer1` for
-        // `c.15_16insGAT`. So it is no `stop_lost`. VEP keeps it.
-        if !vep_compat
-            && matches!(protein_edit(projection), Some(ProteinEdit::Ext { .. }))
+        // `c.15_16insGAT`. So it is no `stop_lost`, but an in-frame insertion, conservative or
+        // disruptive as any other, also for a delins. VEP keeps `stop_lost`.
+        if matches!(protein_edit(projection), Some(ProteinEdit::Ext { .. }))
             && let (Some(var_c), Some(start), Some(stop)) =
                 (&projection.c, tx.start_codon, tx.stop_codon)
             && inserts_in_frame_before_stop_codon(var_c, stop - start)
         {
-            consequences_protein.remove(Consequence::StopLost);
+            consequences_protein |= if is_conservative_cds_variant(var_c) {
+                Consequence::ConservativeInframeInsertion
+            } else {
+                Consequence::DisruptiveInframeInsertion
+            };
+            if !vep_compat {
+                consequences_protein.remove(Consequence::StopLost);
+            }
         }
         // A change of stop codon bases, by its 3'-shifted description, has the stop terms of the
         // protein it produces, not those of p. or of its positions: `stop_lost` if the protein
@@ -7854,6 +7861,19 @@ mod test {
     )]
     // `GCC` to `GCG CAC`: VEP's changed codons read A to AH, which starts with A
     #[case::vep_ins_within_codon("1025:C:CGCA", true, "c.5_6insGCA", Consequence::InframeInsertion)]
+    // `TGG` to `TGG GGC` in front of the stop codon, which p. describes as `p.(Ter6GlyextTer1)`
+    #[case::delins_in_front_of_stop_codon(
+        "1032:GTGG:ATGGGGC",
+        false,
+        "c.12_15delinsATGGGGC",
+        Consequence::DisruptiveInframeInsertion
+    )]
+    #[case::vep_delins_in_front_of_stop_codon(
+        "1032:GTGG:ATGGGGC",
+        true,
+        "c.12_15delinsATGGGGC",
+        Consequence::InframeInsertion
+    )]
     fn conservative_or_disruptive_inframe_indel(
         #[case] var: &str,
         #[case] vep_compatibility_mode: bool,
@@ -8811,12 +8831,15 @@ mod test {
         ]
     )]
     // `c.12_15delinsATGGGGC` keeps Leu4 and Trp5 and adds Gly in front of the stop codon, which
-    // stays.
+    // stays. It starts within codon 4, so the insertion is disruptive.
     #[case::in_frame_delins_before_stop_codon(
         ("ATGGCCAAGCTGTGGTAA", "CTAAGCATCA"),
         (1032, "GTGG", "ATGGGGC"),
         ("c.12_15delinsATGGGGC", "p.(Ter6GlyextTer1)"),
-        vec![Consequence::FeatureElongation]
+        vec![
+            Consequence::FeatureElongation,
+            Consequence::DisruptiveInframeInsertion
+        ]
     )]
     // `c.7_10del` shifts the frame of codons 4 and 5 and of the stop codon, and a new stop codon
     // from the 3' UTR takes the old position.
