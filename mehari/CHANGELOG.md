@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.48.1](https://github.com/varfish-org/mehari/compare/mehari-v0.48.0...mehari-v0.48.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **annotate:** consequence terms per SO and HGVS ([#1147](https://github.com/varfish-org/mehari/issues/1147)) ([c9f4470](https://github.com/varfish-org/mehari/commit/c9f4470c0dd4966a653e8573aaea3dc08bbac49c))
+
 ## [0.48.0](https://github.com/varfish-org/mehari/compare/mehari-v0.47.0...mehari-v0.48.0) (2026-10-26)
 
 
