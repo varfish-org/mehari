@@ -9823,6 +9823,43 @@ mod test {
         Ok(())
     }
 
+    /// HGVS numbers the central base of an intron of odd length from the exon in front of it, on
+    /// both strands. `two_exon_tx(20)` mirrored onto the minus strand, with exon 1 at
+    /// chr1:1162-1221, the intron at chr1:1061-1161 and exon 2 at chr1:1001-1060; its central
+    /// base chr1:1111 is c.40+51.
+    #[test]
+    fn central_intron_base_on_minus_strand() -> Result<(), anyhow::Error> {
+        let (mut tx, seq) = two_exon_tx(20);
+        let alignment = &mut tx.genome_alignments[0];
+        alignment.strand = Strand::Minus.into();
+        alignment.cds_start = Some(1040);
+        alignment.cds_end = Some(1201);
+        for exon in &mut alignment.exons {
+            exon.ord = 1 - exon.ord;
+            exon.alt_cds_start_i = Some(1 + 60 * exon.ord);
+            exon.alt_cds_end_i = Some(60 + 60 * exon.ord);
+            if exon.ord == 0 {
+                exon.alt_start_i += 1;
+                exon.alt_end_i += 1;
+            }
+        }
+        let anns = predictor_with_config(tx, seq, Config::default())
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 1111,
+                reference: "A".into(),
+                alternative: "G".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
+
+        assert_eq!(ann.hgvs_c.as_deref(), Some("c.40+51T>C"), "{ann:?}");
+        Ok(())
+    }
+
     /// An MNV, also an inversion, changes only the bases where REF and ALT differ, and only
     /// these get splice terms. The genome holds `two_exon_tx(20)` with the intron `GTACTA`,
     /// `C` bases and `AACTAG`. Its donor +1 lies at chr1:1061, its acceptor -1 at chr1:1160.
