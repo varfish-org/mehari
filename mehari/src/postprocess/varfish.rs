@@ -5,7 +5,7 @@ use crate::common::TsvContigStyle;
 use crate::common::contig::ContigManager;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
 use crate::ped::{PedigreeByName, Sex};
-use anyhow::Error;
+use anyhow::{Context, Error};
 use clap::Parser;
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -21,7 +21,6 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use std::str::FromStr;
 
 #[derive(Parser, Debug)]
 #[command(about = "Export annotated VCF to VarFish TSV format", long_about = None)]
@@ -82,7 +81,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     writer.write_header()?;
 
     // 4. Process Records Stream
-    let has_hgnc_id = ann_has_hgnc_id(&header);
+    let ann_names = AnnField::ann_field_names_from_header(&header);
     let mut records = reader.records(&header).await;
     while let Some(record) = records.try_next().await? {
         // Parse ANN fields into the Sidecar
@@ -90,18 +89,12 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             if let Some(Some(field::Value::Array(field::value::Array::String(arr)))) =
                 record.info().get("ANN")
             {
+                let names = (ann_names.as_deref())
+                    .context("ANN values, but no field names in the ANN header")?;
                 arr.iter()
-                    .filter_map(|s| {
-                        s.as_ref().map(|s| {
-                            if has_hgnc_id {
-                                AnnField::from_str(s)
-                            } else {
-                                AnnField::parse_without_hgnc_id(s)
-                            }
-                            .unwrap()
-                        })
-                    })
-                    .collect::<Vec<_>>()
+                    .flatten()
+                    .map(|s| AnnField::parse_named(s, names))
+                    .collect::<Result<Vec<_>, _>>()?
             } else {
                 vec![]
             };
@@ -124,15 +117,6 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     writer.flush()?;
     tracing::info!("... done writing VarFish TSV");
     Ok(())
-}
-
-/// Whether the `ANN` values have the `HGNC_ID` field, by the field names in the header. Older
-/// mehari versions do not write it.
-fn ann_has_hgnc_id(header: &VcfHeader) -> bool {
-    header
-        .infos()
-        .get("ANN")
-        .is_none_or(|info| info.description().contains("Gene_ID | HGNC_ID"))
 }
 
 fn load_hgnc_map(path: &str) -> anyhow::Result<FxHashMap<String, HgncRecord>> {
@@ -970,6 +954,7 @@ mod tests {
     use super::*;
     use rstest::rstest;
     use std::path::PathBuf;
+    use std::str::FromStr;
     use temp_testdir::TempDir;
 
     /// A writer with the HGNC records of the test data, e.g. BRCA1 with `HGNC:1100`,
@@ -1121,48 +1106,69 @@ mod tests {
         Ok(())
     }
 
-    /// The `ANN` header of the current version names `HGNC_ID`, the one of older versions not.
-    #[rstest]
-    #[case::current(&AnnField::ann_field_names(&[]).join(" | "), true)]
-    #[case::older(
-        "Allele | Annotation | Annotation_Impact | Gene_Name | Gene_ID | Feature_Type | Feature_ID",
-        false
-    )]
-    fn ann_header_names_hgnc_id(#[case] fields: &str, #[case] expected: bool) {
-        use noodles::vcf::header::record::value::Map;
-        use noodles::vcf::header::record::value::map::{Info, info::Number, info::Type};
-
-        let header = VcfHeader::builder()
-            .add_info(
-                "ANN",
-                Map::<Info>::new(
-                    Number::Unknown,
-                    Type::String,
-                    format!("Functional annotations: '{fields}'"),
-                ),
-            )
-            .build();
-
-        assert_eq!(ann_has_hgnc_id(&header), expected);
+    /// `vcf` in the current layout: the HGNC ID of the older `Gene_ID` moves into `HGNC_ID`
+    /// after it, and `Gene_ID` becomes `0`, which no HGNC record has.
+    fn with_hgnc_id_field(vcf: &str) -> String {
+        let move_hgnc_id = |ann: &str| {
+            let mut fields: Vec<_> = ann.split('|').collect();
+            let hgnc_id = fields[4];
+            fields[4] = "0";
+            fields.insert(5, hgnc_id);
+            fields.join("|")
+        };
+        let move_in_info = |info: &str| {
+            (info.split(';'))
+                .map(|item| match item.strip_prefix("ANN=") {
+                    Some(anns) => {
+                        let anns: Vec<_> = anns.split(',').map(move_hgnc_id).collect();
+                        format!("ANN={}", anns.join(","))
+                    }
+                    None => item.to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join(";")
+        };
+        vcf.lines()
+            .map(|line| {
+                if line.starts_with("##INFO=<ID=ANN,") {
+                    line.replace("Gene_ID | ", "Gene_ID | HGNC_ID | ")
+                } else if line.starts_with('#') {
+                    line.to_string()
+                } else {
+                    let mut columns: Vec<_> = line.split('\t').map(String::from).collect();
+                    columns[7] = move_in_info(&columns[7]);
+                    columns.join("\t")
+                }
+            })
+            .map(|line| line + "\n")
+            .collect()
     }
 
-    /// The input is a VCF of an older mehari version, without `HGNC_ID`.
+    /// The input is a VCF of an older mehari version, with the HGNC ID in `Gene_ID` and without
+    /// `HGNC_ID`, or the same VCF in the current layout. Both give the same rows.
+    #[rstest]
+    #[case::older_version(false)]
+    #[case::hgnc_id_field(true)]
     #[tokio::test]
-    async fn smoke_test_export_tsv() -> Result<(), anyhow::Error> {
+    async fn smoke_test_export_tsv(#[case] hgnc_id_field: bool) -> Result<(), anyhow::Error> {
         let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
         let temp = TempDir::default();
         let path_out = temp.join("output.tsv");
+        let mut input =
+            base_path.join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.mehari.vcf");
+        if hgnc_id_field {
+            let path = temp.join("input.vcf");
+            std::fs::write(&path, with_hgnc_id_field(&std::fs::read_to_string(&input)?))?;
+            input = path;
+        }
 
         let args_common = crate::common::Args {
             verbose: Default::default(),
         };
 
         let args = Args {
-            input: base_path
-                .join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.mehari.vcf")
-                .display()
-                .to_string(),
+            input: input.display().to_string(),
             pedigree: base_path
                 .join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped")
                 .display()

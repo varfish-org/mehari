@@ -4,9 +4,6 @@ use crate::pbs::txs::TranscriptTag;
 use enumflags2::bitflags;
 use hgvs::data::cdot::json::models::Tag;
 use nom::Parser;
-use nom::bytes::complete::take_until;
-use nom::character::complete::char;
-use nom::combinator::{map_res, opt, rest};
 use nom::multi::separated_list1;
 use nom::{
     IResult,
@@ -16,7 +13,7 @@ use nom::{
     combinator::{all_consuming, map},
 };
 use parse_display::{Display, FromStr};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
@@ -1055,6 +1052,19 @@ impl AnnField {
 
         result
     }
+
+    /// The field names in the description of the `ANN` header, as `annotate seqvars` writes
+    /// them, e.g. `Functional annotations: 'Allele | Annotation | ...'`.
+    pub fn ann_field_names_from_header(header: &noodles::vcf::Header) -> Option<Vec<String>> {
+        let description = header.infos().get("ANN")?.description();
+        let names = description.split('\'').nth(1)?;
+        Some(
+            names
+                .split('|')
+                .map(|name| name.trim().to_string())
+                .collect(),
+        )
+    }
 }
 
 impl Default for AnnField {
@@ -1090,163 +1100,140 @@ impl Default for AnnField {
     }
 }
 
-/// Extracts everything up to the next '|' (or EOF) and consumes the '|'.
-fn parse_pipe_field(i: &str) -> IResult<&str, &str> {
-    let (i, val) = alt((take_until("|"), rest)).parse(i)?;
-    let (i, _) = opt(char('|')).parse(i)?;
-    Ok((i, val))
+/// A field of an `ANN` value: its name, and its value if the names of the value include it.
+struct Field<'a> {
+    name: &'a str,
+    value: Option<&'a str>,
 }
 
-/// Parses a required string
-fn parse_string(i: &str) -> IResult<&str, String> {
-    map(parse_pipe_field, String::from).parse(i)
-}
-
-/// Parses an optional string (empty "" becomes None)
-fn parse_opt_string(i: &str) -> IResult<&str, Option<String>> {
-    let (i, val) = parse_pipe_field(i)?;
-    Ok((i, (!val.is_empty()).then(|| val.to_string())))
-}
-
-/// Parses a required generic type using FromStr
-fn parse_parsed<T: FromStr>(i: &str) -> IResult<&str, T> {
-    map_res(parse_pipe_field, |s| s.parse::<T>()).parse(i)
-}
-
-/// Parses an optional generic type using FromStr
-fn parse_opt_parsed<T: FromStr>(i: &str) -> IResult<&str, Option<T>> {
-    let (i, val) = parse_pipe_field(i)?;
-    let parsed = (!val.is_empty())
-        .then(|| {
-            val.parse::<T>().map_err(|_| {
-                nom::Err::Error(nom::error::Error::new(i, nom::error::ErrorKind::Verify))
-            })
-        })
-        .transpose()?;
-    Ok((i, parsed))
-}
-
-/// Idiomatic nom parsing for `&` separated lists
-fn parse_item_list<T: FromStr>(i: &str) -> IResult<&str, Vec<T>> {
-    let (i, field) = parse_pipe_field(i)?;
-    if field.is_empty() {
-        return Ok((i, vec![]));
+impl<'a> Field<'a> {
+    /// The value of a field that `ANN` must have.
+    fn required(&self) -> Result<&'a str, anyhow::Error> {
+        self.value
+            .ok_or_else(|| anyhow::anyhow!("ANN has no field {}", self.name))
     }
-    let (_, items) = separated_list1(
-        char('&'),
-        map_res(alt((take_until("&"), rest)), |s: &str| s.parse::<T>()),
-    )
-    .parse(field)?;
-    Ok((i, items))
-}
 
-/// Idiomatic nom parsing for optional `&` separated lists
-fn parse_opt_list<T: FromStr>(i: &str) -> IResult<&str, Option<Vec<T>>> {
-    let (i, field) = parse_pipe_field(i)?;
-    if field.is_empty() {
-        return Ok((i, None));
+    /// The value; `None` if it is empty or `ANN` has no such field.
+    fn optional(&self) -> Option<&'a str> {
+        self.value.filter(|value| !value.is_empty())
     }
-    let (_, items) = separated_list1(
-        char('&'),
-        map_res(alt((take_until("&"), rest)), |s: &str| s.parse::<T>()),
-    )
-    .parse(field)?;
-    Ok((i, Some(items)))
+
+    fn parse<T: FromStr>(&self, value: &str) -> Result<T, anyhow::Error> {
+        value
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid value {value:?} of ANN field {}", self.name))
+    }
+
+    fn string(&self) -> Result<String, anyhow::Error> {
+        Ok(self.required()?.to_string())
+    }
+
+    fn opt_string(&self) -> Option<String> {
+        self.optional().map(String::from)
+    }
+
+    fn parsed<T: FromStr>(&self) -> Result<T, anyhow::Error> {
+        self.parse(self.required()?)
+    }
+
+    fn opt_parsed<T: FromStr>(&self) -> Result<Option<T>, anyhow::Error> {
+        self.optional().map(|value| self.parse(value)).transpose()
+    }
+
+    /// Items separated by `&`; empty if the value is empty.
+    fn list<T: FromStr>(&self) -> Result<Vec<T>, anyhow::Error> {
+        self.required()?;
+        Ok(self.opt_list()?.unwrap_or_default())
+    }
+
+    fn opt_list<T: FromStr>(&self) -> Result<Option<Vec<T>>, anyhow::Error> {
+        self.optional()
+            .map(|value| value.split('&').map(|item| self.parse(item)).collect())
+            .transpose()
+    }
 }
 
 impl AnnField {
-    fn parse_nom<'a>(
-        i: &'a str,
-        custom_columns: &[String],
-        with_hgnc_id: bool,
-    ) -> IResult<&'a str, Self> {
-        let (i, allele) = parse_parsed(i)?;
-        let (i, consequences) = parse_item_list(i)?;
-        let (i, putative_impact) = parse_parsed(i)?;
-        let (i, gene_symbol) = parse_string(i)?;
-        let (i, gene_id) = parse_string(i)?;
-        let (i, hgnc_id) = if with_hgnc_id {
-            parse_opt_string(i)?
-        } else {
-            (i, None)
-        };
-        let (i, feature_type) = parse_parsed(i)?;
-        let (i, feature_id) = parse_string(i)?;
-        let (i, feature_biotype) = parse_item_list(i)?;
-        let (i, feature_tags) = parse_item_list(i)?;
-        let (i, rank) = parse_opt_parsed(i)?;
-        let (i, hgvs_g) = parse_opt_string(i)?;
-        let (i, hgvs_n) = parse_opt_string(i)?;
-        let (i, hgvs_c) = parse_opt_string(i)?;
-        let (i, hgvs_p) = parse_opt_string(i)?;
-        let (i, cdna_pos) = parse_opt_parsed(i)?;
-        let (i, cds_pos) = parse_opt_parsed(i)?;
-        let (i, protein_pos) = parse_opt_parsed(i)?;
-        let (i, distance) = parse_opt_parsed(i)?;
-        let (i, strand) = parse_parsed(i)?;
-        let (i, messages) = parse_opt_list(i)?;
+    /// Parses an `ANN` value whose fields have the given `names`, in any order, e.g. those of
+    /// the `ANN` header. The names that mehari writes fill the fields of `AnnField`, other names
+    /// fill `custom_fields`. An `Option` field whose name is missing stays `None`, the others
+    /// must be named. Fields missing at the end of the value are empty.
+    pub fn parse_named(s: &str, names: &[String]) -> Result<Self, anyhow::Error> {
+        let mut values: HashMap<&str, &str> = (names.iter().map(String::as_str))
+            .zip(s.split('|').chain(std::iter::repeat("")))
+            .collect();
+        // In the order of the fields of `AnnField`.
+        let own_names = Self::ann_field_names(&[]);
+        let fields: Vec<_> = own_names
+            .iter()
+            .map(|name| Field {
+                name,
+                value: values.remove(name.as_str()),
+            })
+            .collect();
+        let custom_fields = values
+            .into_iter()
+            .map(|(name, value)| {
+                (
+                    name.to_string(),
+                    (!value.is_empty()).then(|| value.to_string()),
+                )
+            })
+            .collect();
+        let [
+            allele,
+            consequences,
+            putative_impact,
+            gene_symbol,
+            gene_id,
+            hgnc_id,
+            feature_type,
+            feature_id,
+            feature_biotype,
+            feature_tags,
+            rank,
+            hgvs_g,
+            hgvs_n,
+            hgvs_c,
+            hgvs_p,
+            cdna_pos,
+            cds_pos,
+            protein_pos,
+            distance,
+            strand,
+            messages,
+        ] = <[Field; 21]>::try_from(fields)
+            .map_err(|_| anyhow::anyhow!("the ANN parser does not know all fields of AnnField"))?;
 
-        let mut custom_fields = BTreeMap::new();
-        let mut current_i = i;
-
-        for col_name in custom_columns {
-            let (next_i, val) = parse_opt_string(current_i)?;
-            current_i = next_i;
-            custom_fields.insert(col_name.clone(), val);
-        }
-
-        Ok((
-            current_i,
-            Self {
-                allele,
-                consequences,
-                putative_impact,
-                gene_symbol,
-                gene_id,
-                hgnc_id,
-                feature_type,
-                feature_id,
-                feature_biotype,
-                feature_tags,
-                rank,
-                hgvs_g,
-                hgvs_n,
-                hgvs_c,
-                hgvs_p,
-                cdna_pos,
-                cds_pos,
-                protein_pos,
-                distance,
-                strand,
-                messages,
-                custom_fields,
-            },
-        ))
+        Ok(Self {
+            allele: allele.parsed()?,
+            consequences: consequences.list()?,
+            putative_impact: putative_impact.parsed()?,
+            gene_symbol: gene_symbol.string()?,
+            gene_id: gene_id.string()?,
+            hgnc_id: hgnc_id.opt_string(),
+            feature_type: feature_type.parsed()?,
+            feature_id: feature_id.string()?,
+            feature_biotype: feature_biotype.list()?,
+            feature_tags: feature_tags.list()?,
+            rank: rank.opt_parsed()?,
+            hgvs_g: hgvs_g.opt_string(),
+            hgvs_n: hgvs_n.opt_string(),
+            hgvs_c: hgvs_c.opt_string(),
+            hgvs_p: hgvs_p.opt_string(),
+            cdna_pos: cdna_pos.opt_parsed()?,
+            cds_pos: cds_pos.opt_parsed()?,
+            protein_pos: protein_pos.opt_parsed()?,
+            distance: distance.opt_parsed()?,
+            strand: strand.parsed()?,
+            messages: messages.opt_list()?,
+            custom_fields,
+        })
     }
 
+    /// Parses an `ANN` value with the fields that mehari writes, then `custom_columns`.
     pub fn parse(s: &str, custom_columns: &[String]) -> Result<Self, anyhow::Error> {
-        Self::parse_with(s, custom_columns, true)
-    }
-
-    /// Parses an `ANN` value of older mehari versions, which have no `HGNC_ID` field.
-    pub fn parse_without_hgnc_id(s: &str) -> Result<Self, anyhow::Error> {
-        Self::parse_with(s, &[], false)
-    }
-
-    fn parse_with(
-        s: &str,
-        custom_columns: &[String],
-        with_hgnc_id: bool,
-    ) -> Result<Self, anyhow::Error> {
-        match Self::parse_nom(s, custom_columns, with_hgnc_id) {
-            Ok((_, ann)) => Ok(ann),
-            Err(nom::Err::Error(e)) | Err(nom::Err::Failure(e)) => {
-                Err(anyhow::anyhow!("nom parsing error: {:?}", e.code))
-            }
-            Err(nom::Err::Incomplete(_)) => {
-                Err(anyhow::anyhow!("nom parsing error: incomplete string"))
-            }
-        }
+        Self::parse_named(s, &Self::ann_field_names(custom_columns))
     }
 
     pub fn format(&self, custom_columns: &[String]) -> String {
@@ -1746,21 +1733,99 @@ mod test {
         Ok(())
     }
 
-    /// `ANN` of older mehari versions has no `HGNC_ID`; it is written back with an empty one.
+    /// `ANN` of older mehari versions has no `HGNC_ID`; it stays empty and is written back as
+    /// an empty field.
     #[test]
-    fn ann_field_without_hgnc_id() -> Result<(), anyhow::Error> {
+    fn parse_named_without_hgnc_id() -> Result<(), anyhow::Error> {
+        let names: Vec<_> = (AnnField::ann_field_names(&[]).into_iter())
+            .filter(|name| name != "HGNC_ID")
+            .collect();
         let value = "A|missense_variant|MODERATE|GENE|672|transcript|feature_id|\
         Coding|Other|1/2|HGVS.g|HGVS.n|HGVS.c|HGVS.p|1|1/2|1|1|0|ERROR_CHROMOSOME_NOT_FOUND";
 
-        let field = AnnField::parse_without_hgnc_id(value)?;
+        let field = AnnField::parse_named(value, &names)?;
         assert_eq!(
-            (field.gene_id.as_str(), field.hgnc_id.as_deref()),
-            ("672", None)
+            (
+                field.gene_id.as_str(),
+                field.hgnc_id.as_deref(),
+                field.feature_id.as_str()
+            ),
+            ("672", None, "feature_id")
         );
-        assert_eq!(field.feature_id, "feature_id");
         assert_eq!(format!("{}", &field), value.replace("|672|", "|672||"));
 
         Ok(())
+    }
+
+    /// The names of the `ANN` header of mehari, with `HGNC_ID` and plugin columns.
+    #[test]
+    fn parse_named_with_header_names() -> Result<(), anyhow::Error> {
+        use noodles::vcf::header::record::value::Map;
+        use noodles::vcf::header::record::value::map::{Info, info::Number, info::Type};
+
+        let columns = full_sequence_columns();
+        let fields = AnnField::ann_field_names(&columns).join(" | ");
+        let header = noodles::vcf::Header::builder()
+            .add_info(
+                "ANN",
+                Map::<Info>::new(
+                    Number::Unknown,
+                    Type::String,
+                    format!("Functional annotations: '{fields}'"),
+                ),
+            )
+            .build();
+        let names = AnnField::ann_field_names_from_header(&header).unwrap_or_default();
+        assert_eq!(names, AnnField::ann_field_names(&columns));
+
+        let value = format!("{}|ACG|TCG|T|S", dummy_ann_string());
+        let field = AnnField::parse_named(&value, &names)?;
+        assert_eq!(field.hgnc_id.as_deref(), Some("HGNC:hgnc_id"));
+        assert_eq!(
+            field.custom_fields.get(ANN_AA_SEQ_ALT),
+            Some(&Some("S".to_string()))
+        );
+        assert_eq!(field.format(&columns), value);
+
+        Ok(())
+    }
+
+    /// The names and values of `dummy_ann_string` with the sequence columns.
+    fn named_fields() -> Vec<(String, String)> {
+        let columns = full_sequence_columns();
+        let value = format!("{}|ACG|TCG|T|S", dummy_ann_string());
+        (AnnField::ann_field_names(&columns).into_iter())
+            .zip(value.split('|').map(String::from))
+            .collect()
+    }
+
+    /// `parse_named` of `fields`.
+    fn parse_fields(fields: Vec<(String, String)>) -> Result<AnnField, anyhow::Error> {
+        let (names, values): (Vec<_>, Vec<_>) = fields.into_iter().unzip();
+        AnnField::parse_named(&values.join("|"), &names)
+    }
+
+    /// The fields may come in any order.
+    #[test]
+    fn parse_named_in_another_order() -> Result<(), anyhow::Error> {
+        let mut fields = named_fields();
+        let expected = parse_fields(fields.clone())?;
+        fields.reverse();
+
+        assert_eq!(parse_fields(fields)?, expected);
+
+        Ok(())
+    }
+
+    /// A field that `AnnField` always has must be named.
+    #[test]
+    fn parse_named_without_a_required_field() {
+        let fields = (named_fields().into_iter())
+            .filter(|(name, _)| name != "Feature_ID")
+            .collect();
+
+        let error = parse_fields(fields).map(|_| ()).map_err(|e| e.to_string());
+        assert_eq!(error, Err("ANN has no field Feature_ID".to_string()));
     }
 
     fn dummy_ann_string() -> &'static str {
