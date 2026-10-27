@@ -2502,6 +2502,8 @@ impl ConsequencePredictor {
             }
             *consequences &= !stop_terms;
         }
+        // The terms of the protein, without VEP's terms of the changed codons.
+        let terms_of_protein = consequences_protein;
         if let Some(vep_codons) = vep_codons {
             consequences_protein.remove(
                 Consequence::StopGained
@@ -2628,9 +2630,12 @@ impl ConsequencePredictor {
         // e.g.:
         // 13:32316456:TA:T
         // (This case just shortens a poly-A from which the start codon starts)
+        //
+        // VEP's stop terms of the changed codons tell nothing about the start codon, e.g.
+        // `stop_lost` of `c.1_*1790del`, which removes it.
         if consequences_cds.contains(Consequence::StartLost)
-            && !consequences_protein.contains(Consequence::StartLost)
-            && !consequences_protein.is_empty()
+            && !terms_of_protein.contains(Consequence::StartLost)
+            && !terms_of_protein.is_empty()
         {
             *consequences &= !Consequence::StartLost;
         }
@@ -11561,6 +11566,19 @@ mod test {
             Consequence::SpliceDonorRegionVariant,
             Consequence::SplicePolypyrimidineTractVariant,
             Consequence::ThreePrimeUtrExonVariant,
+        ]
+    )]
+    // VEP's `stop_lost` of the changed codons does not replace `start_lost`.
+    #[case::from_start_codon_vep(
+        (1020, 169, ""),
+        true,
+        vec![
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceDonorVariant,
+            Consequence::StopLost,
+            Consequence::StartLost,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::ThreePrimeUtrVariant,
         ]
     )]
     fn deletion_of_whole_cds(
