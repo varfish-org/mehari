@@ -2458,14 +2458,21 @@ impl ConsequencePredictor {
         }
         // An in-frame insertion or delins in front of the stop codon keeps it, also where p.
         // describes the longer protein as an extension, e.g. `p.Ter6AspextTer1` for
-        // `c.15_16insGAT`. So it is no `stop_lost`. VEP keeps it.
-        if !vep_compat
-            && matches!(protein_edit(projection), Some(ProteinEdit::Ext { .. }))
+        // `c.15_16insGAT`. So it is no `stop_lost`, but an in-frame insertion, conservative or
+        // disruptive as any other, also for a delins. VEP keeps `stop_lost`.
+        if matches!(protein_edit(projection), Some(ProteinEdit::Ext { .. }))
             && let (Some(var_c), Some(start), Some(stop)) =
                 (&projection.c, tx.start_codon, tx.stop_codon)
             && inserts_in_frame_before_stop_codon(var_c, stop - start)
         {
-            consequences_protein.remove(Consequence::StopLost);
+            consequences_protein |= if is_conservative_cds_variant(var_c) {
+                Consequence::ConservativeInframeInsertion
+            } else {
+                Consequence::DisruptiveInframeInsertion
+            };
+            if !vep_compat {
+                consequences_protein.remove(Consequence::StopLost);
+            }
         }
         // A change of stop codon bases, by its 3'-shifted description, has the stop terms of the
         // protein it produces, not those of p. or of its positions: `stop_lost` if the protein
@@ -2502,6 +2509,8 @@ impl ConsequencePredictor {
             }
             *consequences &= !stop_terms;
         }
+        // The terms of the protein, without VEP's terms of the changed codons.
+        let terms_of_protein = consequences_protein;
         if let Some(vep_codons) = vep_codons {
             consequences_protein.remove(
                 Consequence::StopGained
@@ -2628,9 +2637,12 @@ impl ConsequencePredictor {
         // e.g.:
         // 13:32316456:TA:T
         // (This case just shortens a poly-A from which the start codon starts)
+        //
+        // VEP's stop terms of the changed codons tell nothing about the start codon, e.g.
+        // `stop_lost` of `c.1_*1790del`, which removes it.
         if consequences_cds.contains(Consequence::StartLost)
-            && !consequences_protein.contains(Consequence::StartLost)
-            && !consequences_protein.is_empty()
+            && !terms_of_protein.contains(Consequence::StartLost)
+            && !terms_of_protein.is_empty()
         {
             *consequences &= !Consequence::StartLost;
         }
@@ -2671,13 +2683,13 @@ impl ConsequencePredictor {
             let c_loc = c_loc_edit.loc.inner();
 
             // If edit occurs within the first 3 bases of the CDS, or a deletion from the 5' UTR
-            // into them,
+            // into them, by its description. A deletion in the 5' UTR changes none of them.
             let (start, end) = (c_loc.start.base, c_loc.end.base);
             let from_utr = CdsPos {
                 base: start.max(1),
                 ..c_loc.start.clone()
             };
-            if within_first_codon(from_utr, c_loc.end.clone()) {
+            if end >= 1 && within_first_codon(from_utr, c_loc.end.clone()) {
                 // … then we need to check whether this is a start lost or a start retained.
                 // To that end, check the deletion against the transcript sequence (0-based), in
                 // which c.1 follows c.-1.
@@ -2751,14 +2763,13 @@ impl ConsequencePredictor {
 
         // Without a known protein (`p.?`), a change of CDS bases gets `coding_sequence_variant`
         // next to the terms of its region, unless a term tells more about the change of the CDS,
-        // and no stop terms, e.g. an inversion from the CDS past the transcript end.
+        // and no stop terms, e.g. an inversion from the CDS past the transcript end. The start
+        // terms tell only about the start codon, e.g. for a deletion from it into an intron.
         let coding_terms = Consequence::FrameshiftVariant
             | Consequence::ConservativeInframeInsertion
             | Consequence::DisruptiveInframeInsertion
             | Consequence::ConservativeInframeDeletion
             | Consequence::DisruptiveInframeDeletion
-            | Consequence::StartLost
-            | Consequence::StartRetainedVariant
             | Consequence::CodingSequenceVariant;
         if unknown_protein
             && !matches!(
@@ -6710,6 +6721,21 @@ mod test {
         "c.-3_1dup",
         vec![Consequence::FrameshiftVariant]
     )]
+    // A deletion in the 5' UTR changes no start codon base, also where it ends at c.-1.
+    #[case::utr_del((1019, "GT", "G"), false, "c.-1del", vec![Consequence::FivePrimeUtrExonVariant])]
+    #[case::utr_del_vep((1019, "GT", "G"), true, "c.-1del", vec![Consequence::FivePrimeUtrVariant])]
+    #[case::utr_del_of_4(
+        (1015, "TCAGT", "T"),
+        false,
+        "c.-4_-1del",
+        vec![Consequence::FivePrimeUtrExonVariant]
+    )]
+    #[case::utr_del_of_4_vep(
+        (1015, "TCAGT", "T"),
+        true,
+        "c.-4_-1del",
+        vec![Consequence::FivePrimeUtrVariant]
+    )]
     fn start_retained_from_5_prime_utr(
         #[case] (position, reference, alternative): (i32, &str, &str),
         #[case] vep_compatibility_mode: bool,
@@ -7835,6 +7861,19 @@ mod test {
     )]
     // `GCC` to `GCG CAC`: VEP's changed codons read A to AH, which starts with A
     #[case::vep_ins_within_codon("1025:C:CGCA", true, "c.5_6insGCA", Consequence::InframeInsertion)]
+    // `TGG` to `TGG GGC` in front of the stop codon, which p. describes as `p.(Ter6GlyextTer1)`
+    #[case::delins_in_front_of_stop_codon(
+        "1032:GTGG:ATGGGGC",
+        false,
+        "c.12_15delinsATGGGGC",
+        Consequence::DisruptiveInframeInsertion
+    )]
+    #[case::vep_delins_in_front_of_stop_codon(
+        "1032:GTGG:ATGGGGC",
+        true,
+        "c.12_15delinsATGGGGC",
+        Consequence::InframeInsertion
+    )]
     fn conservative_or_disruptive_inframe_indel(
         #[case] var: &str,
         #[case] vep_compatibility_mode: bool,
@@ -8792,12 +8831,15 @@ mod test {
         ]
     )]
     // `c.12_15delinsATGGGGC` keeps Leu4 and Trp5 and adds Gly in front of the stop codon, which
-    // stays.
+    // stays. It starts within codon 4, so the insertion is disruptive.
     #[case::in_frame_delins_before_stop_codon(
         ("ATGGCCAAGCTGTGGTAA", "CTAAGCATCA"),
         (1032, "GTGG", "ATGGGGC"),
         ("c.12_15delinsATGGGGC", "p.(Ter6GlyextTer1)"),
-        vec![Consequence::FeatureElongation]
+        vec![
+            Consequence::FeatureElongation,
+            Consequence::DisruptiveInframeInsertion
+        ]
     )]
     // `c.7_10del` shifts the frame of codons 4 and 5 and of the stop codon, and a new stop codon
     // from the 3' UTR takes the old position.
@@ -11548,12 +11590,62 @@ mod test {
             Consequence::ThreePrimeUtrExonVariant,
         ]
     )]
+    // VEP's `stop_lost` of the changed codons does not replace `start_lost`.
+    #[case::from_start_codon_vep(
+        (1020, 169, ""),
+        true,
+        vec![
+            Consequence::SpliceAcceptorVariant,
+            Consequence::SpliceDonorVariant,
+            Consequence::StopLost,
+            Consequence::StartLost,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::ThreePrimeUtrVariant,
+        ]
+    )]
     fn deletion_of_whole_cds(
         #[case] variant: (usize, usize, &str),
         #[case] vep_compatibility_mode: bool,
         #[case] expected: Vec<Consequence>,
     ) -> Result<(), anyhow::Error> {
         let terms = two_exon_tx_terms(true, variant, vep_compatibility_mode)?;
+        assert_eq!(terms, expected);
+        Ok(())
+    }
+
+    /// A deletion with an end in an intron changes the CDS as its splicing goes, so without a
+    /// protein (`p.?`) it gets `coding_sequence_variant`, also next to `start_lost`.
+    /// `c.-3_40+5del` of `two_exon_tx(20)` deletes chr1:1018-1065, through the start codon into
+    /// intron 1.
+    #[rstest::rstest]
+    #[case::default(
+        false,
+        vec![
+            Consequence::SpliceDonorVariant,
+            Consequence::StartLost,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::SpliceRegionVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::CodingSequenceVariant,
+            Consequence::FivePrimeUtrExonVariant,
+        ]
+    )]
+    #[case::vep(
+        true,
+        vec![
+            Consequence::SpliceDonorVariant,
+            Consequence::StartLost,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::CodingSequenceVariant,
+            Consequence::FivePrimeUtrVariant,
+        ]
+    )]
+    fn coding_sequence_variant_next_to_start_lost(
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let terms = two_exon_tx_terms(true, (1017, 49, ""), vep_compatibility_mode)?;
         assert_eq!(terms, expected);
         Ok(())
     }
