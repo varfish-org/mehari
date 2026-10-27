@@ -2671,13 +2671,13 @@ impl ConsequencePredictor {
             let c_loc = c_loc_edit.loc.inner();
 
             // If edit occurs within the first 3 bases of the CDS, or a deletion from the 5' UTR
-            // into them,
+            // into them, by its description. A deletion in the 5' UTR changes none of them.
             let (start, end) = (c_loc.start.base, c_loc.end.base);
             let from_utr = CdsPos {
                 base: start.max(1),
                 ..c_loc.start.clone()
             };
-            if within_first_codon(from_utr, c_loc.end.clone()) {
+            if end >= 1 && within_first_codon(from_utr, c_loc.end.clone()) {
                 // … then we need to check whether this is a start lost or a start retained.
                 // To that end, check the deletion against the transcript sequence (0-based), in
                 // which c.1 follows c.-1.
@@ -6709,6 +6709,21 @@ mod test {
         true,
         "c.-3_1dup",
         vec![Consequence::FrameshiftVariant]
+    )]
+    // A deletion in the 5' UTR changes no start codon base, also where it ends at c.-1.
+    #[case::utr_del((1019, "GT", "G"), false, "c.-1del", vec![Consequence::FivePrimeUtrExonVariant])]
+    #[case::utr_del_vep((1019, "GT", "G"), true, "c.-1del", vec![Consequence::FivePrimeUtrVariant])]
+    #[case::utr_del_of_4(
+        (1015, "TCAGT", "T"),
+        false,
+        "c.-4_-1del",
+        vec![Consequence::FivePrimeUtrExonVariant]
+    )]
+    #[case::utr_del_of_4_vep(
+        (1015, "TCAGT", "T"),
+        true,
+        "c.-4_-1del",
+        vec![Consequence::FivePrimeUtrVariant]
     )]
     fn start_retained_from_5_prime_utr(
         #[case] (position, reference, alternative): (i32, &str, &str),
