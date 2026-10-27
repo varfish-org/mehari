@@ -10,6 +10,7 @@ expression: res
   putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "672"
+  hgnc_id: "HGNC:1100"
   feature_type:
     so_term:
       term: Transcript
@@ -46,6 +47,7 @@ expression: res
   putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "672"
+  hgnc_id: "HGNC:1100"
   feature_type:
     so_term:
       term: Transcript
@@ -80,6 +82,7 @@ expression: res
   putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "672"
+  hgnc_id: "HGNC:1100"
   feature_type:
     so_term:
       term: Transcript
@@ -114,6 +117,7 @@ expression: res
   putative_impact: modifier
   gene_symbol: BRCA1
   gene_id: "672"
+  hgnc_id: "HGNC:1100"
   feature_type:
     so_term:
       term: Transcript
@@ -144,6 +148,7 @@ expression: res
   putative_impact: moderate
   gene_symbol: BRCA1
   gene_id: "672"
+  hgnc_id: "HGNC:1100"
   feature_type:
     so_term:
       term: Transcript
@@ -178,6 +183,7 @@ expression: res
   putative_impact: modifier
   gene_symbol: BRCA1
   gene_id: "672"
+  hgnc_id: "HGNC:1100"
   feature_type:
     so_term:
       term: Transcript

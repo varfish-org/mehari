@@ -10,6 +10,7 @@ expression: res
   putative_impact: high
   gene_symbol: TTN
   gene_id: "7273"
+  hgnc_id: "HGNC:12403"
   feature_type:
     so_term:
       term: Transcript
@@ -44,6 +45,7 @@ expression: res
   putative_impact: high
   gene_symbol: TTN
   gene_id: "7273"
+  hgnc_id: "HGNC:12403"
   feature_type:
     so_term:
       term: Transcript
@@ -80,6 +82,7 @@ expression: res
   putative_impact: high
   gene_symbol: TTN
   gene_id: "7273"
+  hgnc_id: "HGNC:12403"
   feature_type:
     so_term:
       term: Transcript
@@ -114,6 +117,7 @@ expression: res
   putative_impact: high
   gene_symbol: TTN
   gene_id: "7273"
+  hgnc_id: "HGNC:12403"
   feature_type:
     so_term:
       term: Transcript
@@ -148,6 +152,7 @@ expression: res
   putative_impact: high
   gene_symbol: TTN
   gene_id: "7273"
+  hgnc_id: "HGNC:12403"
   feature_type:
     so_term:
       term: Transcript
@@ -182,6 +187,7 @@ expression: res
   putative_impact: high
   gene_symbol: TTN
   gene_id: "7273"
+  hgnc_id: "HGNC:12403"
   feature_type:
     so_term:
       term: Transcript
@@ -216,6 +222,7 @@ expression: res
   putative_impact: high
   gene_symbol: TTN
   gene_id: "7273"
+  hgnc_id: "HGNC:12403"
   feature_type:
     so_term:
       term: Transcript

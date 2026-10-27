@@ -1,5 +1,5 @@
 use crate::annotate::seqvars::consequence::terms::{
-    ANN_AA_SEQ_ALT, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS,
+    ANN_AA_SEQ_ALT, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, AnnField,
 };
 use crate::common::noodles::NoodlesVariantReader;
 use anyhow::{Context, Error};
@@ -52,42 +52,31 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
     let mut reader = crate::common::noodles::open_variant_reader(&args.path_input_vcf).await?;
     let header = reader.read_header().await?;
 
-    let ann_header = header
-        .infos()
-        .get("ANN")
-        .context("VCF does not contain an INFO/ANN header. Was it processed by Mehari?")?;
+    let columns = AnnField::ann_field_names_from_header(&header)
+        .context("VCF has no field names in its INFO/ANN header. Was it processed by Mehari?")?;
 
-    let description = ann_header.description();
-
-    let format_string = description
-        .split('\'')
-        .nth(1)
-        .context("Could not parse ANN format from VCF header description.")?;
-
-    let columns: Vec<&str> = format_string.split(" | ").map(|s| s.trim()).collect();
-
-    let aa_seq_idx = columns.iter().position(|&c| c == ANN_AA_SEQ_ALT)
+    let aa_seq_idx = columns.iter().position(|c| c == ANN_AA_SEQ_ALT)
         .context(format!("VCF was not annotated with {ANN_AA_SEQ_ALT}. Please run 'annotate seqvars' with '--plugin aa-sequence-alt' first."))?;
     let feature_id_idx = columns
         .iter()
-        .position(|&c| c == "Feature_ID")
+        .position(|c| c == "Feature_ID")
         .context("Required column 'Feature_ID' not found in ANN header")?;
     let gene_name_idx = columns
         .iter()
-        .position(|&c| c == "Gene_Name")
+        .position(|c| c == "Gene_Name")
         .context("Required column 'Gene_Name' not found in ANN header")?;
     let hgvs_p_idx = columns
         .iter()
-        .position(|&c| c == "HGVS.p")
+        .position(|c| c == "HGVS.p")
         .context("Required column 'HGVS.p' not found in ANN header")?;
 
     let group_id_idx = columns
         .iter()
-        .position(|&c| c == ANN_COMPOUND_IDS)
+        .position(|c| c == ANN_COMPOUND_IDS)
         .unwrap_or(usize::MAX);
     let group_vars_idx = columns
         .iter()
-        .position(|&c| c == ANN_COMPOUND_VARIANTS)
+        .position(|c| c == ANN_COMPOUND_VARIANTS)
         .unwrap_or(usize::MAX);
 
     let out_file = File::create(&args.path_output_fasta)?;

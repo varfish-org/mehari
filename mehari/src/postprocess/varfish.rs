@@ -5,7 +5,7 @@ use crate::common::TsvContigStyle;
 use crate::common::contig::ContigManager;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
 use crate::ped::{PedigreeByName, Sex};
-use anyhow::Error;
+use anyhow::{Context, Error};
 use clap::Parser;
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -21,7 +21,6 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use std::str::FromStr;
 
 #[derive(Parser, Debug)]
 #[command(about = "Export annotated VCF to VarFish TSV format", long_about = None)]
@@ -82,6 +81,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     writer.write_header()?;
 
     // 4. Process Records Stream
+    let ann_names = AnnField::ann_field_names_from_header(&header);
     let mut records = reader.records(&header).await;
     while let Some(record) = records.try_next().await? {
         // Parse ANN fields into the Sidecar
@@ -89,9 +89,12 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             if let Some(Some(field::Value::Array(field::value::Array::String(arr)))) =
                 record.info().get("ANN")
             {
+                let names = (ann_names.as_deref())
+                    .context("ANN values, but no field names in the ANN header")?;
                 arr.iter()
-                    .filter_map(|s| s.as_ref().map(|s| AnnField::from_str(s).unwrap()))
-                    .collect::<Vec<_>>()
+                    .flatten()
+                    .map(|s| AnnField::parse_named(s, names))
+                    .collect::<Result<Vec<_>, _>>()?
             } else {
                 vec![]
             };
@@ -262,8 +265,9 @@ impl VarFishSeqvarTsvWriter {
         self.hgnc_map = Some(hgnc_map)
     }
 
-    /// Find the HGNC record of an ANN `Gene_ID`. VCFs of older mehari versions name the HGNC
-    /// ID. Newer ones name the Ensembl gene ID, mostly with version, or the NCBI Gene ID.
+    /// Find the HGNC record of an ANN `HGNC_ID` or `Gene_ID`. In `Gene_ID`, VCFs of older mehari
+    /// versions name the HGNC ID. Newer ones name the Ensembl gene ID, mostly with version, or
+    /// the NCBI Gene ID.
     fn find_hgnc_record(&self, gene_id: &str) -> Option<&HgncRecord> {
         let hgnc_id: &str = if gene_id.starts_with("HGNC:") {
             gene_id
@@ -710,9 +714,11 @@ impl VarFishSeqvarTsvWriter {
             let mut anns_by_gene: FxHashMap<String, Vec<AnnField>> = FxHashMap::default();
             for ann in anns {
                 // The RefSeq and the Ensembl entries of a gene have different `Gene_ID`s, so
-                // group them by their HGNC record.
-                let gene_id = self
-                    .find_hgnc_record(&ann.gene_id)
+                // group them by their HGNC record. VCFs of older mehari versions have no
+                // `HGNC_ID`.
+                let gene_id = (ann.hgnc_id.as_deref())
+                    .and_then(|hgnc_id| self.find_hgnc_record(hgnc_id))
+                    .or_else(|| self.find_hgnc_record(&ann.gene_id))
                     .map_or_else(|| ann.gene_id.clone(), |record| record.hgnc_id.clone());
                 anns_by_gene.entry(gene_id).or_default().push(ann);
             }
@@ -948,6 +954,7 @@ mod tests {
     use super::*;
     use rstest::rstest;
     use std::path::PathBuf;
+    use std::str::FromStr;
     use temp_testdir::TempDir;
 
     /// A writer with the HGNC records of the test data, e.g. BRCA1 with `HGNC:1100`,
@@ -1007,21 +1014,31 @@ mod tests {
     }
 
     /// The RefSeq and the Ensembl entry of one gene give one row, also if their `Gene_ID`
-    /// differs. Entries without HGNC record give one row per `Gene_ID`.
+    /// differs. `HGNC_ID` finds the record first. Entries without HGNC record give one row per
+    /// `Gene_ID`.
     #[rstest]
     #[case::gene_ids(
         "672",
         "ENSG00000012048.23",
+        "",
         &[("672", "NM_007294.4", "ENSG00000012048", "ENST00000357654.9")],
     )]
     #[case::hgnc_ids(
         "HGNC:1100",
+        "HGNC:1100",
+        "",
+        &[("672", "NM_007294.4", "ENSG00000012048", "ENST00000357654.9")],
+    )]
+    #[case::hgnc_id_field(
+        "1",
+        "ENSG00000000001.1",
         "HGNC:1100",
         &[("672", "NM_007294.4", "ENSG00000012048", "ENST00000357654.9")],
     )]
     #[case::unknown_gene_ids(
         "1",
         "ENSG00000000001.1",
+        "",
         &[
             ("", "NM_007294.4", "", "NM_007294.4"),
             ("", "ENST00000357654.9", "", "ENST00000357654.9"),
@@ -1030,6 +1047,7 @@ mod tests {
     fn one_row_per_gene(
         #[case] refseq_gene_id: &str,
         #[case] ensembl_gene_id: &str,
+        #[case] hgnc_id: &str,
         #[case] expected: &[(&str, &str, &str, &str)],
     ) -> anyhow::Result<()> {
         let temp = TempDir::default();
@@ -1037,7 +1055,8 @@ mod tests {
         let mut writer = writer(&path)?;
         let ann = |gene_id: &str, feature_id: &str| {
             AnnField::from_str(&format!(
-                "C|missense_variant|MODERATE|BRCA1|{gene_id}|transcript|{feature_id}|Coding|||||||||||1|"
+                "C|missense_variant|MODERATE|BRCA1|{gene_id}|{hgnc_id}|transcript|{feature_id}|\
+                 Coding|||||||||||1|"
             ))
         };
         let record = AnnotatedVariant {
@@ -1087,22 +1106,69 @@ mod tests {
         Ok(())
     }
 
+    /// `vcf` in the current layout: the HGNC ID of the older `Gene_ID` moves into `HGNC_ID`
+    /// after it, and `Gene_ID` becomes `0`, which no HGNC record has.
+    fn with_hgnc_id_field(vcf: &str) -> String {
+        let move_hgnc_id = |ann: &str| {
+            let mut fields: Vec<_> = ann.split('|').collect();
+            let hgnc_id = fields[4];
+            fields[4] = "0";
+            fields.insert(5, hgnc_id);
+            fields.join("|")
+        };
+        let move_in_info = |info: &str| {
+            (info.split(';'))
+                .map(|item| match item.strip_prefix("ANN=") {
+                    Some(anns) => {
+                        let anns: Vec<_> = anns.split(',').map(move_hgnc_id).collect();
+                        format!("ANN={}", anns.join(","))
+                    }
+                    None => item.to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join(";")
+        };
+        vcf.lines()
+            .map(|line| {
+                if line.starts_with("##INFO=<ID=ANN,") {
+                    line.replace("Gene_ID | ", "Gene_ID | HGNC_ID | ")
+                } else if line.starts_with('#') {
+                    line.to_string()
+                } else {
+                    let mut columns: Vec<_> = line.split('\t').map(String::from).collect();
+                    columns[7] = move_in_info(&columns[7]);
+                    columns.join("\t")
+                }
+            })
+            .map(|line| line + "\n")
+            .collect()
+    }
+
+    /// The input is a VCF of an older mehari version, with the HGNC ID in `Gene_ID` and without
+    /// `HGNC_ID`, or the same VCF in the current layout. Both give the same rows.
+    #[rstest]
+    #[case::older_version(false)]
+    #[case::hgnc_id_field(true)]
     #[tokio::test]
-    async fn smoke_test_export_tsv() -> Result<(), anyhow::Error> {
+    async fn smoke_test_export_tsv(#[case] hgnc_id_field: bool) -> Result<(), anyhow::Error> {
         let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
         let temp = TempDir::default();
         let path_out = temp.join("output.tsv");
+        let mut input =
+            base_path.join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.mehari.vcf");
+        if hgnc_id_field {
+            let path = temp.join("input.vcf");
+            std::fs::write(&path, with_hgnc_id_field(&std::fs::read_to_string(&input)?))?;
+            input = path;
+        }
 
         let args_common = crate::common::Args {
             verbose: Default::default(),
         };
 
         let args = Args {
-            input: base_path
-                .join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.mehari.vcf")
-                .display()
-                .to_string(),
+            input: input.display().to_string(),
             pedigree: base_path
                 .join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped")
                 .display()

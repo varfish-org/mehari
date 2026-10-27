@@ -58,6 +58,7 @@ def test_annotate_string_format(annotator):
         (c for c in annotations if c.get("feature_id") == "NM_007294.4"), None
     )
     assert nm_007294 is not None
+    assert nm_007294["hgnc_id"] == "HGNC:1100"
     assert nm_007294["distance"] == 0
     assert nm_007294["strand"] == -1
     assert nm_007294["putative_impact"] == "MODERATE"

@@ -1756,6 +1756,9 @@ mod test {
     use crate::annotate::cli::{PickUnit, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
     use crate::annotate::seqvars::consequence::plugin::{BuiltinPlugin, PluginSpec};
+    use crate::annotate::seqvars::consequence::terms::{
+        ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, AnnField,
+    };
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
     use clap_verbosity_flag::Verbosity;
     use futures::TryStreamExt;
@@ -1990,6 +1993,11 @@ mod test {
 
         run(&args_common, &args).await?;
 
+        let header = open_variant_reader(&args.output)
+            .await?
+            .read_header()
+            .await?;
+        let names = AnnField::ann_field_names_from_header(&header).unwrap_or_default();
         let compound_columns = read_vcf(&args.output)
             .await?
             .iter()
@@ -1998,16 +2006,17 @@ mod test {
                 _ => vec![],
             })
             .flatten()
-            .map(|ann| {
-                let fields = ann.split('|').collect::<Vec<_>>();
-                format!(
+            .map(|ann| -> Result<String, anyhow::Error> {
+                let ann = AnnField::parse_named(&ann, &names)?;
+                let column = |name: &str| ann.custom_fields[name].clone().unwrap_or_default();
+                Ok(format!(
                     "{} {} {}",
-                    fields[6],
-                    fields[fields.len() - 2],
-                    fields[fields.len() - 1]
-                )
+                    ann.feature_id,
+                    column(ANN_COMPOUND_IDS),
+                    column(ANN_COMPOUND_VARIANTS)
+                ))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, anyhow::Error>>()?;
         insta::assert_yaml_snapshot!(compound_columns);
 
         Ok(())
