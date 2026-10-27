@@ -2756,14 +2756,13 @@ impl ConsequencePredictor {
 
         // Without a known protein (`p.?`), a change of CDS bases gets `coding_sequence_variant`
         // next to the terms of its region, unless a term tells more about the change of the CDS,
-        // and no stop terms, e.g. an inversion from the CDS past the transcript end.
+        // and no stop terms, e.g. an inversion from the CDS past the transcript end. The start
+        // terms tell only about the start codon, e.g. for a deletion from it into an intron.
         let coding_terms = Consequence::FrameshiftVariant
             | Consequence::ConservativeInframeInsertion
             | Consequence::DisruptiveInframeInsertion
             | Consequence::ConservativeInframeDeletion
             | Consequence::DisruptiveInframeDeletion
-            | Consequence::StartLost
-            | Consequence::StartRetainedVariant
             | Consequence::CodingSequenceVariant;
         if unknown_protein
             && !matches!(
@@ -11587,6 +11586,43 @@ mod test {
         #[case] expected: Vec<Consequence>,
     ) -> Result<(), anyhow::Error> {
         let terms = two_exon_tx_terms(true, variant, vep_compatibility_mode)?;
+        assert_eq!(terms, expected);
+        Ok(())
+    }
+
+    /// A deletion with an end in an intron changes the CDS as its splicing goes, so without a
+    /// protein (`p.?`) it gets `coding_sequence_variant`, also next to `start_lost`.
+    /// `c.-3_40+5del` of `two_exon_tx(20)` deletes chr1:1018-1065, through the start codon into
+    /// intron 1.
+    #[rstest::rstest]
+    #[case::default(
+        false,
+        vec![
+            Consequence::SpliceDonorVariant,
+            Consequence::StartLost,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::SpliceRegionVariant,
+            Consequence::ExonicSpliceRegionVariant,
+            Consequence::SpliceDonorRegionVariant,
+            Consequence::CodingSequenceVariant,
+            Consequence::FivePrimeUtrExonVariant,
+        ]
+    )]
+    #[case::vep(
+        true,
+        vec![
+            Consequence::SpliceDonorVariant,
+            Consequence::StartLost,
+            Consequence::SpliceDonorFifthBaseVariant,
+            Consequence::CodingSequenceVariant,
+            Consequence::FivePrimeUtrVariant,
+        ]
+    )]
+    fn coding_sequence_variant_next_to_start_lost(
+        #[case] vep_compatibility_mode: bool,
+        #[case] expected: Vec<Consequence>,
+    ) -> Result<(), anyhow::Error> {
+        let terms = two_exon_tx_terms(true, (1017, 49, ""), vep_compatibility_mode)?;
         assert_eq!(terms, expected);
         Ok(())
     }
