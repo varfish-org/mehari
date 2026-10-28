@@ -155,6 +155,7 @@ You can enable compression by using the suffix `.gz` for gzip compression and `.
 Mehari only builds transcript databases.
 Build the CADD, SpliceAI, and dbSNP lookup databases with [annonars](https://github.com/varfish-org/annonars) (version 0.45.0 or later), then pass them to `mehari annotate seqvars` via `--cadd`, `--spliceai`, and `--dbsnp`.
 CADD and SpliceAI need the FASTA index (`.fai`) of the reference; it defines the contig names the databases use.
+`--cadd` reads databases from both `annonars cadd import` and the generic `annonars tsv import` with the `RawScore` and `PHRED` columns.
 
 ```sh
 annonars cadd import \
