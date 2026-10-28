@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.49.1](https://github.com/varfish-org/mehari/compare/mehari-v0.49.0...mehari-v0.49.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **annotate:** read CADD DBs from annonars tsv import ([#1153](https://github.com/varfish-org/mehari/issues/1153)) ([b7125a1](https://github.com/varfish-org/mehari/commit/b7125a15e1c5c89925707ab76a49764751c0e45b))
+
 ## [0.49.0](https://github.com/varfish-org/mehari/compare/mehari-v0.48.1...mehari-v0.49.0) (2026-10-27)
 
 
