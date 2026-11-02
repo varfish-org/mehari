@@ -121,7 +121,7 @@ fn build_header(
     annotators: &[AnnotatorEnum],
     additional_records: &[(String, String)],
     custom_columns: &[String],
-) -> VcfHeader {
+) -> Result<VcfHeader, anyhow::Error> {
     let mut header_out = header_in.clone();
     *header_out.file_format_mut() = FileFormat::default();
 
@@ -220,14 +220,18 @@ fn build_header(
 
     if with_annotations {
         let fields = AnnField::ann_field_names(custom_columns).join(" | ");
-        header_out.infos_mut().insert(
-            "ANN".into(),
-            Map::<Info>::new(
-                Number::Unknown,
-                InfoType::String,
-                format!("Functional annotations: '{fields}'"),
-            ),
+        // `Source` and `Version` are the VCF specification's attributes to identify the producer
+        // of an INFO field; consumers can tell `ANN` from mehari apart from SnpEff's.
+        let mut ann = Map::<Info>::new(
+            Number::Unknown,
+            InfoType::String,
+            format!("Functional annotations: '{fields}'"),
         );
+        ann.other_fields_mut()
+            .insert("Source".parse()?, "mehari".into());
+        ann.other_fields_mut()
+            .insert("Version".parse()?, env!("CARGO_PKG_VERSION").into());
+        header_out.infos_mut().insert("ANN".into(), ann);
     }
 
     if with_clinvar {
@@ -260,7 +264,7 @@ fn build_header(
             .unwrap();
     }
 
-    header_out
+    Ok(header_out)
 }
 
 /// Return path component for the assembly.
@@ -1038,7 +1042,7 @@ async fn run_with_writer(
         &annotator.annotators,
         &additional_header_info,
         &custom_columns,
-    );
+    )?;
 
     // Perform the VCF annotation. The compound processor moves into each batch's blocking task
     // and back, so that compound predictions do not run on the async runtime.
@@ -1747,6 +1751,7 @@ impl VariantProcessor {
 #[cfg(test)]
 mod test {
     use super::binning::bin_from_range;
+    use super::build_header;
     use super::consequence::{ConsequenceAnnotator, VcfVariant, load_tx_db};
     use super::{
         AnnotatedVariant, Annotator, AnnotatorEnum, Args, OutputFormat, VariantProcessor,
@@ -1762,6 +1767,7 @@ mod test {
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
     use clap_verbosity_flag::Verbosity;
     use futures::TryStreamExt;
+    use noodles::vcf::Header as VcfHeader;
     use pretty_assertions::assert_eq;
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
@@ -1820,13 +1826,48 @@ mod test {
         run(&args_common, &args).await?;
 
         let actual = std::fs::read_to_string(args.output)?;
-        // remove vcf header lines starting with ##mehari
+        // remove vcf header lines starting with ##mehari, and normalize the version of mehari
+        // that the `ANN` header line carries, as it changes with every release
+        let version = format!("Version=\"{}\"", env!("CARGO_PKG_VERSION"));
         let actual = actual
             .lines()
             .filter(|line| !line.starts_with("##mehari"))
+            .map(|line| line.replace(&version, "Version=\"[VERSION]\""))
             .collect::<Vec<_>>()
             .join("\n");
         insta::assert_snapshot!(actual);
+
+        Ok(())
+    }
+
+    /// The `ANN` header names mehari as its source, and a reader still finds the field names.
+    #[test]
+    fn ann_header_has_source_and_version() -> Result<(), anyhow::Error> {
+        let header = build_header(&VcfHeader::default(), true, false, false, &[], &[], &[])?;
+
+        let mut buf = Vec::new();
+        noodles::vcf::io::Writer::new(&mut buf).write_header(&header)?;
+        let text = String::from_utf8(buf)?;
+        let line = text
+            .lines()
+            .find(|line| line.starts_with("##INFO=<ID=ANN,"))
+            .unwrap();
+        assert!(line.contains(",Source=\"mehari\""), "{line}");
+        assert!(
+            line.ends_with(&format!(",Version=\"{}\">", env!("CARGO_PKG_VERSION"))),
+            "{line}"
+        );
+
+        let read_back: VcfHeader = text.parse()?;
+        assert_eq!(
+            AnnField::ann_field_names_from_header(&read_back),
+            Some(AnnField::ann_field_names(&[]))
+        );
+        let info = read_back.infos().get("ANN").unwrap();
+        assert_eq!(
+            info.other_fields().get("Source").map(|v| v.as_str()),
+            Some("mehari")
+        );
 
         Ok(())
     }

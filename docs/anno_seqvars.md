@@ -89,6 +89,8 @@ The evaluation strategy can be managed via `--phasing-strategy` (options include
 
 The variant effect/consequence will be formatted similar to the one in, following the `ANN` field standard [documented here](https://pcingola.github.io/SnpEff/se_inputoutput/#ann-field-vcf-output-files).
 
+The `##INFO=<ID=ANN,...>` header line carries the VCF specification's `Source="mehari"` and `Version` (the mehari version) attributes, so that tools can tell it from SnpEff's `ANN` field.
+
 `Gene_ID` is the gene ID of the transcript's gene record in the annotation, with its version if it has one, e.g. `672` for BRCA1 in RefSeq or `ENSG00000182378.15` for PLCXD1 in GENCODE.
 `HGNC_ID`, which mehari adds after `Gene_ID`, is the HGNC ID of the gene, e.g. `HGNC:1100` for BRCA1, and empty for a gene without one.
 Mehari refuses a transcript database that predates annotation gene IDs, i.e., one in which no transcript has a gene ID.
