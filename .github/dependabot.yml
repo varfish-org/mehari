@@ -16,6 +16,9 @@ updates:
       interval: "weekly"
     ignore:
       - dependency-name: "rocksdb"
+      # Stay on the wasmtime LTS line (see mehari/Cargo.toml); the next LTS is a manual move.
+      - dependency-name: "wasmtime*"
+        update-types: ["version-update:semver-major"]
     groups:
       # Group together updates to noodles as there are peer dependencies.
       # 
@@ -30,6 +33,10 @@ updates:
       utoipa:
         patterns:
           - "utoipa*"
+      # wasmtime and wasmtime-wasi must be the same version.
+      wasmtime:
+        patterns:
+          - "wasmtime*"
       prost:
         patterns:
           - "annonars"
