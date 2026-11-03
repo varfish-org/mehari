@@ -24,6 +24,8 @@ pub mod versions;
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct CustomError {
     err: String,
+    #[serde(skip)]
+    status: actix_web::http::StatusCode,
 }
 
 impl std::fmt::Display for CustomError {
@@ -36,11 +38,37 @@ impl CustomError {
     fn new(err: anyhow::Error) -> Self {
         CustomError {
             err: err.to_string(),
+            status: actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    /// An error in the query, with status 400.
+    fn bad_request(err: anyhow::Error) -> Self {
+        CustomError {
+            status: actix_web::http::StatusCode::BAD_REQUEST,
+            ..Self::new(err)
         }
     }
 }
 
-impl ResponseError for CustomError {}
+/// A query that does not deserialize, as a bad request with a JSON body like every other error.
+fn query_error(
+    err: actix_web::error::QueryPayloadError,
+    _req: &actix_web::HttpRequest,
+) -> actix_web::Error {
+    CustomError::bad_request(anyhow::anyhow!("{err}")).into()
+}
+
+impl ResponseError for CustomError {
+    fn status_code(&self) -> actix_web::http::StatusCode {
+        self.status
+    }
+
+    /// The error as JSON, as the OpenAPI schema says.
+    fn error_response(&self) -> actix_web::HttpResponse {
+        actix_web::HttpResponse::build(self.status).json(self)
+    }
+}
 
 /// Data structure for the web server data.
 #[derive(Default, derivative::Derivative)]
@@ -84,6 +112,7 @@ pub async fn main(
     actix_web::HttpServer::new(move || {
         actix_web::App::new()
             .app_data(data.clone())
+            .app_data(actix_web::web::QueryConfig::default().error_handler(query_error))
             .service(gene_txs::handle)
             .service(gene_txs::handle_with_openapi)
             .service(seqvars_csq::handle)
@@ -111,4 +140,26 @@ pub async fn main(
     .workers(args.threads.get())
     .run()
     .await
+}
+
+#[cfg(test)]
+mod test {
+    /// A query that does not deserialize gives status 400 with a JSON body, as the schema says.
+    #[actix_web::test]
+    async fn query_error_is_json() -> Result<(), anyhow::Error> {
+        let err = actix_web::web::Query::<super::seqvars_csq::SeqvarsCsqQuery>::from_query(
+            "assembly=grch37&chromosome=17&position=x&reference=N&alternative=A",
+        )
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("no error"))?;
+        let request = actix_web::test::TestRequest::default().to_http_request();
+        let error = super::query_error(err, &request);
+        let response = error.error_response();
+        assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response.headers().get("content-type").map(|v| v.as_bytes()),
+            Some(b"application/json".as_slice())
+        );
+        Ok(())
+    }
 }

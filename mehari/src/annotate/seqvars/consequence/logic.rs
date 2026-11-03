@@ -1271,18 +1271,40 @@ impl ConsequencePredictor {
     }
 
     /// The annotations of `var`, also of a symbolic allele, with `info` from the INFO fields of
-    /// its record, see `predict_sv`, or of a breakend, see `predict_breakend`.
+    /// its record, see `predict_sv`, or of a breakend, see `predict_breakend`. `*`, `<*>`,
+    /// `<NON_REF>` and `ALT` `.` are no variants of their own and have none. A symbolic allele
+    /// that `StructuralVariant::from_info` rejects, a malformed breakend and a claim other than
+    /// `D`, `J` and `DJ` give `SeqvarsError::InvalidVariant`.
     pub fn predict_with_info(
         &self,
         var: &VcfVariant,
         info: &SvInfo,
     ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
-        if let Some(sv) = StructuralVariant::from_info(var.position, &var.alternative, info) {
-            self.predict_sv(var, &sv)
-        } else if let Ok(breakend) = var.alternative.parse::<Breakend>() {
-            self.predict_breakend(var, &breakend)
-        } else {
-            self.predict(var)
+        let invalid = |reason: String| Err(SeqvarsError::InvalidVariant(reason));
+        let alt = &var.alternative;
+        if is_sequence_allele(alt) || matches!(alt.as_str(), "*" | "<*>" | "<NON_REF>" | ".") {
+            return self.predict(var);
+        }
+        if alt.starts_with('<') {
+            if let Some(sv) = StructuralVariant::from_info(var.position, alt, info) {
+                return self.predict_sv(var, &sv);
+            }
+            // With a length, the allele passes, so its end is what is missing.
+            let with_length = SvInfo {
+                sv_length: Some(1),
+                ..info.clone()
+            };
+            return invalid(
+                if StructuralVariant::from_info(var.position, alt, &with_length).is_some() {
+                    format!("{alt} has no end past its position (END or SVLEN)")
+                } else {
+                    format!("{alt} is not supported")
+                },
+            );
+        }
+        match alt.parse::<Breakend>() {
+            Ok(breakend) => self.predict_breakend(var, &breakend),
+            Err(e) => invalid(e.to_string()),
         }
     }
 

@@ -304,16 +304,30 @@ pub enum SvKind {
 }
 
 /// `SVCLAIM` of VCF 4.5: what the call of a structural variant claims.
-#[derive(Debug, PartialEq, Eq, Clone, Copy, strum::EnumString, strum::Display)]
+#[derive(
+    Debug,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+    strum::EnumString,
+    strum::Display,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg_attr(feature = "server", derive(utoipa::ToSchema))]
 pub enum SvClaim {
     /// `D`: a change of the copy number.
     #[strum(serialize = "D")]
+    #[serde(rename = "D")]
     Abundance,
     /// `J`: breakpoints that are joined.
     #[strum(serialize = "J")]
+    #[serde(rename = "J")]
     Adjacency,
     /// `DJ`: both.
     #[strum(serialize = "DJ")]
+    #[serde(rename = "DJ")]
     Both,
 }
 

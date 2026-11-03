@@ -197,7 +197,9 @@ paths:
           type: string
       - name: alternative
         in: query
-        description: SPDI insertion.
+        description: |-
+          SPDI insertion; also a symbolic allele such as `<DEL>`, or a breakend such as
+          `G]13:123456]`.
         required: true
         schema:
           type: string
@@ -209,6 +211,40 @@ paths:
           type:
           - string
           - 'null'
+      - name: end
+        in: query
+        description: For a symbolic allele, the position of the last changed base (`END`).
+        required: false
+        schema:
+          type:
+          - integer
+          - 'null'
+          format: int32
+      - name: sv_length
+        in: query
+        description: For a symbolic allele, its length (`SVLEN`); for `<INS>`, the number of inserted bases.
+        required: false
+        schema:
+          type:
+          - integer
+          - 'null'
+          format: int32
+      - name: sv_claim
+        in: query
+        description: 'For a symbolic allele, what the call claims (`SVCLAIM`): `D`, `J` or `DJ`.'
+        required: false
+        schema:
+          oneOf:
+          - $ref: '#/components/schemas/SvClaim'
+          - type: 'null'
+      - name: imprecise
+        in: query
+        description: For a symbolic allele, whether the breakpoints are imprecise (`IMPRECISE`).
+        required: false
+        schema:
+          type:
+          - boolean
+          - 'null'
       responses:
         '200':
           description: Seqvars consequence information.
@@ -216,6 +252,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SeqvarsCsqResponse'
+        '400':
+          description: Invalid variant, e.g. a symbolic allele without its end.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomError'
         '500':
           description: Internal server error.
           content:
@@ -1250,12 +1292,36 @@ components:
           description: SPDI deletion.
         alternative:
           type: string
-          description: SPDI insertion.
+          description: |-
+            SPDI insertion; also a symbolic allele such as `<DEL>`, or a breakend such as
+            `G]13:123456]`.
         hgnc_id:
           type:
           - string
           - 'null'
           description: Optionally, the HGNC ID of the gene to limit to.
+        end:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: For a symbolic allele, the position of the last changed base (`END`).
+        sv_length:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: For a symbolic allele, its length (`SVLEN`); for `<INS>`, the number of inserted bases.
+        sv_claim:
+          oneOf:
+          - $ref: '#/components/schemas/SvClaim'
+            description: 'For a symbolic allele, what the call claims (`SVCLAIM`): `D`, `J` or `DJ`.'
+          - type: 'null'
+        imprecise:
+          type:
+          - boolean
+          - 'null'
+          description: For a symbolic allele, whether the breakpoints are imprecise (`IMPRECISE`).
     SeqvarsCsqResponse:
       type: object
       description: Response of the `/api/v1/seqvars/csq` endpoint.
@@ -1585,6 +1651,13 @@ components:
       - upstream_variant
       - downstream_variant
       - intergenic_variant
+    SvClaim:
+      type: string
+      description: '`SVCLAIM` of VCF 4.5: what the call of a structural variant claims.'
+      enum:
+      - D
+      - J
+      - DJ
     Transcript:
       type: object
       description: Transcript information.
