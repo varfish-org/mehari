@@ -11496,7 +11496,7 @@ mod test {
                 chromosome: "1".into(),
                 position: i32::try_from(position)?,
                 reference: reference.into(),
-                alternative: alternative.into(),
+                alternative,
             })?
             .unwrap_or_default();
         let ann = anns
