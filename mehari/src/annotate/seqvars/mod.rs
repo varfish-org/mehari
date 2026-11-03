@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
-use self::consequence::terms::AnnField;
+use self::consequence::terms::{ANN_KEY, AnnField};
 use crate::annotate::cli::{PredictorSettings, Sources};
 use crate::annotate::seqvars::consequence::logic::ConsequencePredictor;
 use crate::common::contig::ContigManager;
@@ -58,6 +58,22 @@ pub enum OutputFormat {
     Jsonl,
 }
 
+/// Accepts an INFO key that matches the VCF specification's
+/// `^([A-Za-z_][0-9A-Za-z_.]*|1000G)$`.
+fn parse_ann_key(key: &str) -> Result<String, String> {
+    let mut chars = key.chars();
+    let valid = key == "1000G"
+        || (chars
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.')));
+    if valid {
+        Ok(key.to_string())
+    } else {
+        Err("an INFO key must match ^([A-Za-z_][0-9A-Za-z_.]*|1000G)$".to_string())
+    }
+}
+
 /// Command line arguments for `annotate seqvars` sub command.
 #[derive(Parser, Debug)]
 #[command(about = "Annotate sequence variant VCF files", long_about = None)]
@@ -87,6 +103,10 @@ pub struct Args {
     #[arg(long, value_enum, default_value_t = OutputFormat::Vcf)]
     pub output_format: OutputFormat,
 
+    /// INFO key to write the annotations to.
+    #[arg(long, default_value = ANN_KEY, value_parser = parse_ann_key)]
+    pub ann_key: String,
+
     /// For debug purposes, maximal number of variants to annotate.
     #[arg(long)]
     pub max_var_count: Option<usize>,
@@ -115,13 +135,30 @@ pub enum AnnotationOption {
 
 fn build_header(
     header_in: &VcfHeader,
-    with_annotations: bool,
+    ann_key: Option<&str>,
     with_frequencies: bool,
     with_clinvar: bool,
     annotators: &[AnnotatorEnum],
     additional_records: &[(String, String)],
     custom_columns: &[String],
 ) -> Result<VcfHeader, anyhow::Error> {
+    if let Some(ann_key) = ann_key {
+        // The annotations would replace the values of such a field, or its header their names.
+        let other_fields = build_header(
+            &VcfHeader::default(),
+            None,
+            with_frequencies,
+            with_clinvar,
+            annotators,
+            &[],
+            &[],
+        )?;
+        anyhow::ensure!(
+            !other_fields.infos().contains_key(ann_key),
+            "--ann-key {ann_key} is also an INFO field that this run writes"
+        );
+    }
+
     let mut header_out = header_in.clone();
     *header_out.file_format_mut() = FileFormat::default();
 
@@ -218,7 +255,7 @@ fn build_header(
         );
     }
 
-    if with_annotations {
+    if let Some(ann_key) = ann_key {
         let fields = AnnField::ann_field_names(custom_columns).join(" | ");
         // `Source` and `Version` are the VCF specification's attributes to identify the producer
         // of an INFO field; consumers can tell `ANN` from mehari apart from SnpEff's.
@@ -231,7 +268,7 @@ fn build_header(
             .insert("Source".parse()?, "mehari".into());
         ann.other_fields_mut()
             .insert("Version".parse()?, env!("CARGO_PKG_VERSION").into());
-        header_out.infos_mut().insert("ANN".into(), ann);
+        header_out.infos_mut().insert(ann_key.into(), ann);
     }
 
     if with_clinvar {
@@ -298,6 +335,8 @@ pub trait AsyncAnnotatedVariantWriter {
 
     fn set_custom_columns(&mut self, _custom_columns: Vec<String>) {}
 
+    fn set_ann_key(&mut self, _ann_key: String) {}
+
     /// Returns the conversion that `write_annotated_record` applies to a record before writing.
     ///
     /// Callers may apply it beforehand, e.g., on worker threads; writing a converted record
@@ -312,6 +351,7 @@ pub trait AsyncAnnotatedVariantWriter {
 pub(crate) fn prepare_vcf_record(
     record: AnnotatedVariant,
     custom_columns: &[String],
+    ann_key: &str,
 ) -> noodles::vcf::variant::RecordBuf {
     let mut out_record = record.vcf;
 
@@ -328,7 +368,7 @@ pub(crate) fn prepare_vcf_record(
                     .insert($key.into(), Some(field::Value::$variant(v)));
             }
         };
-        ($key:literal, array $array_variant:ident, $iter:expr) => {
+        ($key:expr, array $array_variant:ident, $iter:expr) => {
             out_record.info_mut().insert(
                 $key.into(),
                 Some(field::Value::Array(field::value::Array::$array_variant(
@@ -387,7 +427,7 @@ pub(crate) fn prepare_vcf_record(
             .consequences
             .iter()
             .map(|ann| ann.format(custom_columns));
-        insert_field!("ANN", array String, formatted_anns);
+        insert_field!(ann_key, array String, formatted_anns);
     }
 
     out_record
@@ -471,6 +511,7 @@ impl<Inner: tokio::io::AsyncWrite + Unpin> AsyncAnnotatedVariantWriter
 pub struct SeqvarsVcfWriter {
     pub inner: crate::common::noodles::VariantWriter,
     pub custom_columns: Vec<String>,
+    pub ann_key: String,
 }
 
 impl SeqvarsVcfWriter {
@@ -478,13 +519,18 @@ impl SeqvarsVcfWriter {
         Self {
             inner,
             custom_columns: Vec::new(),
+            ann_key: ANN_KEY.to_string(),
         }
     }
 
     /// Moves the annotation into the VCF record; preparing the result again changes nothing.
-    fn prepare(record: AnnotatedVariant, custom_columns: &[String]) -> AnnotatedVariant {
+    fn prepare(
+        record: AnnotatedVariant,
+        custom_columns: &[String],
+        ann_key: &str,
+    ) -> AnnotatedVariant {
         AnnotatedVariant {
-            vcf: prepare_vcf_record(record, custom_columns),
+            vcf: prepare_vcf_record(record, custom_columns, ann_key),
             annotation: VariantAnnotation {
                 consequences: vec![],
                 frequencies: None,
@@ -508,7 +554,10 @@ impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
         record: AnnotatedVariant,
     ) -> Result<(), anyhow::Error> {
         self.inner
-            .write_annotated_record(header, Self::prepare(record, &self.custom_columns))
+            .write_annotated_record(
+                header,
+                Self::prepare(record, &self.custom_columns, &self.ann_key),
+            )
             .await
     }
 
@@ -520,17 +569,23 @@ impl AsyncAnnotatedVariantWriter for SeqvarsVcfWriter {
         self.custom_columns = custom_columns;
     }
 
+    fn set_ann_key(&mut self, ann_key: String) {
+        self.ann_key = ann_key;
+    }
+
     fn record_preparer(
         &self,
     ) -> impl Fn(AnnotatedVariant) -> AnnotatedVariant + Send + Sync + 'static {
         let custom_columns = self.custom_columns.clone();
-        move |record| Self::prepare(record, &custom_columns)
+        let ann_key = self.ann_key.clone();
+        move |record| Self::prepare(record, &custom_columns, &ann_key)
     }
 }
 
 pub struct SeqvarJsonlWriter {
     inner: Pin<Box<dyn AsyncWrite>>,
     custom_columns: Vec<String>,
+    ann_key: String,
 }
 
 impl SeqvarJsonlWriter {
@@ -538,6 +593,7 @@ impl SeqvarJsonlWriter {
         Self {
             inner,
             custom_columns: Vec::new(),
+            ann_key: ANN_KEY.to_string(),
         }
     }
 }
@@ -566,7 +622,7 @@ impl AsyncAnnotatedVariantWriter for SeqvarJsonlWriter {
         // Extract INFO fields minus the heavy ANN strings
         let mut info_map = serde_json::Map::new();
         for (key, value) in record.vcf.info().as_ref() {
-            if key == "ANN" {
+            if key == &self.ann_key {
                 continue;
             }
             let json_val = match value {
@@ -616,6 +672,10 @@ impl AsyncAnnotatedVariantWriter for SeqvarJsonlWriter {
     }
     fn set_custom_columns(&mut self, custom_columns: Vec<String>) {
         self.custom_columns = custom_columns;
+    }
+
+    fn set_ann_key(&mut self, ann_key: String) {
+        self.ann_key = ann_key;
     }
 }
 
@@ -1015,10 +1075,11 @@ async fn run_with_writer(
         .transcripts
         .as_ref()
         .is_some_and(|v| !v.is_empty());
-    if with_annotations && header_in.infos().contains_key("ANN") {
+    if with_annotations && header_in.infos().contains_key(&args.ann_key) {
         tracing::warn!(
-            "The input already has an ANN field. It is removed from all records, \
-            and ANN in the output only holds mehari's annotations."
+            "The input already has the INFO field {0}. It is removed from all records, \
+            and {0} in the output only holds mehari's annotations.",
+            args.ann_key
         );
     }
     let with_frequencies = args
@@ -1039,10 +1100,11 @@ async fn run_with_writer(
         .unwrap_or_default();
 
     writer.set_custom_columns(custom_columns.clone());
+    writer.set_ann_key(args.ann_key.clone());
 
     let header_out = build_header(
         &header_in,
-        with_annotations,
+        with_annotations.then_some(args.ann_key.as_str()),
         with_frequencies,
         with_clinvar,
         &annotator.annotators,
@@ -1128,6 +1190,7 @@ async fn run_with_writer(
                 std::mem::replace(&mut next_batch, Vec::with_capacity(batch_size));
             let annotator_clone = annotator.clone();
             let preparer = preparer.clone();
+            let ann_key = args.ann_key.clone();
 
             processing_handle = Some(tokio::task::spawn_blocking(move || {
                 use rayon::prelude::*;
@@ -1137,9 +1200,10 @@ async fn run_with_writer(
                     .map(|mut record| {
                         let annotation = annotator_clone.annotate(&record)?;
                         if with_annotations {
-                            // The header now describes mehari's `ANN`, so annotations from the
-                            // input must go, also for records that get no consequences.
-                            record.info_mut().as_mut().shift_remove("ANN");
+                            // The header now describes mehari's annotations under this key, so
+                            // those from the input must go, also for records that get no
+                            // consequences.
+                            record.info_mut().as_mut().shift_remove(&ann_key);
                         }
                         let annotated = AnnotatedVariant {
                             vcf: record,
@@ -1776,6 +1840,7 @@ mod test {
         ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, AnnField,
     };
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
+    use clap::Parser;
     use clap_verbosity_flag::Verbosity;
     use futures::TryStreamExt;
     use noodles::vcf::Header as VcfHeader;
@@ -1826,6 +1891,7 @@ mod test {
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
+            ann_key: "ANN".into(),
             sources: Sources {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
@@ -1851,10 +1917,59 @@ mod test {
         Ok(())
     }
 
+    /// Only the fields that the run writes are taken, not those of sources it does not use.
+    #[rstest::rstest]
+    #[case::frequencies("gnomad_exomes_an", true, false, false)]
+    #[case::clinvar("clinvar_vcv", false, true, false)]
+    #[case::source_not_used("clinvar_vcv", false, false, true)]
+    #[case::other_source_used("clinvar_vcv", true, false, true)]
+    #[case::default_key("ANN", true, true, true)]
+    fn ann_key_must_differ_from_other_fields_of_the_run(
+        #[case] ann_key: &str,
+        #[case] with_frequencies: bool,
+        #[case] with_clinvar: bool,
+        #[case] valid: bool,
+    ) {
+        let header = build_header(
+            &VcfHeader::default(),
+            Some(ann_key),
+            with_frequencies,
+            with_clinvar,
+            &[],
+            &[],
+            &[],
+        );
+        assert_eq!(header.is_ok(), valid, "{ann_key}");
+    }
+
+    #[tokio::test]
+    async fn ann_key_of_another_field_of_the_run_stops_it() {
+        let sources = Sources {
+            frequencies: Some(vec!["tests/data/annotate/db/grch37/seqvars/freqs".into()]),
+            ..transcripts()
+        };
+        let error =
+            annotate_input_with_field(sources, "ANN", "gnomad_exomes_an", OutputFormat::Vcf)
+                .await
+                .unwrap_err();
+        assert!(
+            error.to_string().contains("--ann-key gnomad_exomes_an"),
+            "{error}"
+        );
+    }
+
     /// The `ANN` header names mehari as its source, and a reader still finds the field names.
     #[test]
     fn ann_header_has_source_and_version() -> Result<(), anyhow::Error> {
-        let header = build_header(&VcfHeader::default(), true, false, false, &[], &[], &[])?;
+        let header = build_header(
+            &VcfHeader::default(),
+            Some("ANN"),
+            false,
+            false,
+            &[],
+            &[],
+            &[],
+        )?;
 
         let mut buf = Vec::new();
         noodles::vcf::io::Writer::new(&mut buf).write_header(&header)?;
@@ -1871,7 +1986,7 @@ mod test {
 
         let read_back: VcfHeader = text.parse()?;
         assert_eq!(
-            AnnField::ann_field_names_from_header(&read_back),
+            AnnField::ann_field_names_from_header(&read_back, "ANN"),
             Some(AnnField::ann_field_names(&[]))
         );
         let info = read_back.infos().get("ANN").unwrap();
@@ -1883,23 +1998,31 @@ mod test {
         Ok(())
     }
 
-    /// Annotates a VCF whose `ANN` comes from another tool, and returns the record lines.
+    /// Annotates a VCF whose field `input_key` comes from another tool, and returns the output
+    /// lines.
     ///
     /// The records have no transcript nearby, a variant in BRCA1, and a deletion allele.
-    async fn annotate_input_with_ann(sources: Sources) -> Result<Vec<String>, anyhow::Error> {
+    async fn annotate_input_with_field(
+        sources: Sources,
+        input_key: &str,
+        ann_key: &str,
+        output_format: OutputFormat,
+    ) -> Result<Vec<String>, anyhow::Error> {
         let temp = TempDir::default();
         let path_in = temp.join("input.vcf");
         let path_out = temp.join("output.vcf");
         std::fs::write(
             &path_in,
-            "##fileformat=VCFv4.2\n\
-             ##INFO=<ID=ANN,Number=.,Type=String,Description=\"Functional annotations: \
-             'Allele | Annotation'\">\n\
-             ##contig=<ID=17,length=81195210>\n\
-             #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
-             17\t1000\t.\tA\tT\t.\t.\tANN=T|from_input\n\
-             17\t41215920\t.\tG\tT\t.\t.\tANN=T|from_input\n\
-             17\t41215921\t.\tG\t*\t.\t.\tANN=*|from_input\n",
+            format!(
+                "##fileformat=VCFv4.2\n\
+                 ##INFO=<ID={input_key},Number=.,Type=String,Description=\"Functional annotations: \
+                 'Allele | Annotation'\">\n\
+                 ##contig=<ID=17,length=81195210>\n\
+                 #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                 17\t1000\t.\tA\tT\t.\t.\t{input_key}=T|from_input\n\
+                 17\t41215920\t.\tG\tT\t.\t.\t{input_key}=T|from_input\n\
+                 17\t41215921\t.\tG\t*\t.\t.\t{input_key}=*|from_input\n"
+            ),
         )?;
 
         let args_common = crate::common::Args {
@@ -1913,35 +2036,80 @@ mod test {
             predictor_settings: PredictorSettings::default(),
             input: path_in.into_os_string().into_string().unwrap(),
             output: path_out.into_os_string().into_string().unwrap(),
-            output_format: OutputFormat::Vcf,
+            output_format,
             max_var_count: None,
+            ann_key: ann_key.into(),
             sources,
         };
         run(&args_common, &args).await?;
 
         Ok(std::fs::read_to_string(&args.output)?
             .lines()
-            .filter(|line| !line.starts_with('#'))
             .map(String::from)
             .collect())
     }
 
-    /// The `ANN` header then describes mehari's columns, so no input annotation may remain.
+    fn transcripts() -> Sources {
+        Sources {
+            transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
+            ..Default::default()
+        }
+    }
+
+    fn records(lines: &[String]) -> Vec<&String> {
+        lines.iter().filter(|line| !line.starts_with('#')).collect()
+    }
+
+    /// The header then describes mehari's columns, so no input annotation may remain.
+    async fn assert_input_field_is_replaced(key: &str) -> Result<(), anyhow::Error> {
+        let lines = annotate_input_with_field(transcripts(), key, key, OutputFormat::Vcf).await?;
+        let records = records(&lines);
+
+        assert_eq!(records.len(), 3);
+        assert!(!records[0].contains(&format!("{key}=")), "{}", records[0]);
+        assert!(records[1].contains(&format!("{key}=T|")), "{}", records[1]);
+        assert!(!records[1].contains("from_input"), "{}", records[1]);
+        assert!(!records[2].contains(&format!("{key}=")), "{}", records[2]);
+        Ok(())
+    }
+
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn input_ann_is_replaced_when_annotating_transcripts() -> Result<(), anyhow::Error> {
-        let records = annotate_input_with_ann(Sources {
-            transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
-            ..Default::default()
-        })
-        .await?;
+        assert_input_field_is_replaced("ANN").await?;
+        assert!(logs_contain("The input already has the INFO field ANN"));
+        Ok(())
+    }
 
-        assert!(logs_contain("The input already has an ANN field"));
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn input_field_under_chosen_key_is_replaced() -> Result<(), anyhow::Error> {
+        assert_input_field_is_replaced("MEHARI").await?;
+        assert!(logs_contain("The input already has the INFO field MEHARI"));
+        Ok(())
+    }
+
+    /// With another key, an `ANN` from another tool stays next to mehari's annotations.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn input_ann_is_kept_with_another_key() -> Result<(), anyhow::Error> {
+        let lines =
+            annotate_input_with_field(transcripts(), "ANN", "MEHARI", OutputFormat::Vcf).await?;
+        let records = records(&lines);
+
+        assert!(!logs_contain("The input already has the INFO field"));
+        let header_line = |prefix: &str| lines.iter().find(|line| line.starts_with(prefix));
+        let ann = header_line("##INFO=<ID=ANN,").unwrap();
+        assert!(!ann.contains("Source="), "{ann}");
+        let mehari = header_line("##INFO=<ID=MEHARI,").unwrap();
+        assert!(mehari.contains(",Source=\"mehari\""), "{mehari}");
+
         assert_eq!(records.len(), 3);
-        assert!(!records[0].contains("ANN="), "{}", records[0]);
-        assert!(records[1].contains("ANN=T|"), "{}", records[1]);
-        assert!(!records[1].contains("from_input"), "{}", records[1]);
-        assert!(!records[2].contains("ANN="), "{}", records[2]);
+        for record in &records {
+            assert!(record.contains("from_input"), "{record}");
+        }
+        assert!(!records[0].contains("MEHARI="), "{}", records[0]);
+        assert!(records[1].contains("MEHARI=T|"), "{}", records[1]);
         Ok(())
     }
 
@@ -1949,17 +2117,74 @@ mod test {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn input_ann_is_kept_without_transcripts() -> Result<(), anyhow::Error> {
-        let records = annotate_input_with_ann(Sources {
+        let sources = Sources {
             frequencies: Some(vec!["tests/data/annotate/db/grch37/seqvars/freqs".into()]),
             ..Default::default()
-        })
-        .await?;
+        };
+        let lines = annotate_input_with_field(sources, "ANN", "ANN", OutputFormat::Vcf).await?;
+        let records = records(&lines);
 
-        assert!(!logs_contain("The input already has an ANN field"));
+        assert!(!logs_contain("The input already has the INFO field"));
         assert_eq!(records.len(), 3);
         for record in &records {
             assert!(record.contains("from_input"), "{record}");
         }
+        Ok(())
+    }
+
+    /// `vcfInfo` of JSONL leaves out the field of the annotations, and only that one.
+    #[rstest::rstest]
+    #[case::default_key("ANN", false)]
+    #[case::other_key("MEHARI", true)]
+    #[tokio::test]
+    async fn jsonl_info_keeps_fields_under_other_keys(
+        #[case] ann_key: &str,
+        #[case] ann_in_info: bool,
+    ) -> Result<(), anyhow::Error> {
+        let lines =
+            annotate_input_with_field(transcripts(), "ANN", ann_key, OutputFormat::Jsonl).await?;
+
+        assert_eq!(lines.len(), 3);
+        for line in &lines {
+            let record: serde_json::Value = serde_json::from_str(line)?;
+            let info = record["vcfInfo"].as_object().unwrap();
+            assert_eq!(info.contains_key("ANN"), ann_in_info, "{line}");
+            assert!(!info.contains_key("MEHARI"), "{line}");
+        }
+        Ok(())
+    }
+
+    /// The default keeps `ANN`, and other keys must match the VCF specification's pattern.
+    #[rstest::rstest]
+    #[case("ANN", true)]
+    #[case("_ann.2", true)]
+    #[case("1000G", true)]
+    #[case("", false)]
+    #[case("1ANN", false)]
+    #[case(".ANN", false)]
+    #[case("A-B", false)]
+    #[case("A B", false)]
+    #[case("A=B", false)]
+    #[case("A;B", false)]
+    fn ann_key_follows_vcf_specification(#[case] key: &str, #[case] valid: bool) {
+        let args = Args::try_parse_from([
+            "seqvars",
+            "--input",
+            "in.vcf",
+            "--transcripts",
+            "txs",
+            "--ann-key",
+            key,
+        ]);
+        assert_eq!(args.is_ok(), valid, "{key}");
+    }
+
+    #[test]
+    fn ann_key_defaults_to_ann() -> Result<(), anyhow::Error> {
+        assert_eq!(
+            Args::try_parse_from(["seqvars", "--input", "in.vcf", "--transcripts", "txs"])?.ann_key,
+            "ANN"
+        );
         Ok(())
     }
 
@@ -1996,6 +2221,7 @@ mod test {
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
+            ann_key: "ANN".into(),
             sources: Sources {
                 transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
                 ..Default::default()
@@ -2063,6 +2289,7 @@ mod test {
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
+            ann_key: "ANN".into(),
             sources: Sources {
                 transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
                 ..Default::default()
@@ -2117,6 +2344,7 @@ mod test {
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
+            ann_key: "ANN".into(),
             sources: Sources {
                 transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
                 ..Default::default()
@@ -2129,7 +2357,7 @@ mod test {
             .await?
             .read_header()
             .await?;
-        let names = AnnField::ann_field_names_from_header(&header).unwrap_or_default();
+        let names = AnnField::ann_field_names_from_header(&header, "ANN").unwrap_or_default();
         let compound_columns = read_vcf(&args.output)
             .await?
             .iter()
@@ -2189,6 +2417,7 @@ mod test {
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
+            ann_key: "ANN".into(),
             sources: Sources {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
@@ -2257,6 +2486,7 @@ mod test {
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
+            ann_key: "ANN".into(),
             sources: Sources {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
@@ -2318,6 +2548,7 @@ mod test {
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
+            ann_key: "ANN".into(),
             sources: Sources {
                 transcripts: Some(vec![format!("{prefix}/mt-origin.txs.bin.zst")]),
                 ..Default::default()
@@ -2374,6 +2605,7 @@ mod test {
             output: temp.join("output.vcf").to_string_lossy().into(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
+            ann_key: "ANN".into(),
             sources: Sources {
                 transcripts: Some(vec![format!("{prefix}/mt-origin.txs.bin.zst")]),
                 ..Default::default()
@@ -2416,6 +2648,7 @@ mod test {
             output: temp.join("output.vcf").to_string_lossy().into(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
+            ann_key: "ANN".into(),
             sources: Sources {
                 transcripts: Some(vec![
                     "tests/data/annotate/db/grch38/mt-origin.txs.bin.zst".into(),
@@ -2497,6 +2730,7 @@ mod test {
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
+            ann_key: "ANN".into(),
             sources: Sources {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),
@@ -2567,6 +2801,7 @@ mod test {
             output: path_out.into_os_string().into_string().unwrap(),
             output_format: OutputFormat::Vcf,
             max_var_count: None,
+            ann_key: "ANN".into(),
             sources: Sources {
                 frequencies: Some(vec![format!("{prefix}/{assembly}/seqvars/freqs")]),
                 clinvar: Some(vec![format!("{prefix}/{assembly}/seqvars/clinvar")]),

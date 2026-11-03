@@ -7027,6 +7027,7 @@ mod test {
                     ..Default::default()
                 },
                 max_var_count: None,
+                ann_key: "ANN".into(),
                 sources: crate::annotate::seqvars::Sources {
                     transcripts: Some(vec![tx_path.into()]),
                     frequencies: None,
@@ -11495,7 +11496,7 @@ mod test {
                 chromosome: "1".into(),
                 position: i32::try_from(position)?,
                 reference: reference.into(),
-                alternative: alternative.into(),
+                alternative,
             })?
             .unwrap_or_default();
         let ann = anns

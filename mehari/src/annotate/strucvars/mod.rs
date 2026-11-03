@@ -3080,6 +3080,7 @@ pub fn build_vcf_record_converter<T: AsRef<str>>(
 /// Convert the records in the VCF reader to the JSONL file per contig in `tmp_dir`.
 ///
 /// Note that we will consider the "25 canonical" contigs only (chr1..chr22, chrX, chrY, chrM).
+#[allow(clippy::too_many_arguments)]
 pub async fn run_vcf_to_jsonl(
     pedigree: &PedigreeByName,
     reader: &mut impl NoodlesVariantReader,

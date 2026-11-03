@@ -17,6 +17,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 
+/// The INFO key of the annotations, unless `--ann-key` names another.
+pub const ANN_KEY: &str = "ANN";
+
 pub const ANN_TX_SEQ_REF: &str = "tx_sequence_ref";
 pub const ANN_TX_SEQ_ALT: &str = "tx_sequence_alt";
 pub const ANN_AA_SEQ_REF: &str = "aa_sequence_ref";
@@ -1053,10 +1056,13 @@ impl AnnField {
         result
     }
 
-    /// The field names in the description of the `ANN` header, as `annotate seqvars` writes
-    /// them, e.g. `Functional annotations: 'Allele | Annotation | ...'`.
-    pub fn ann_field_names_from_header(header: &noodles::vcf::Header) -> Option<Vec<String>> {
-        let description = header.infos().get("ANN")?.description();
+    /// The field names in the description of the header of the INFO field `key`, as
+    /// `annotate seqvars` writes them, e.g. `Functional annotations: 'Allele | Annotation | ...'`.
+    pub fn ann_field_names_from_header(
+        header: &noodles::vcf::Header,
+        key: &str,
+    ) -> Option<Vec<String>> {
+        let description = header.infos().get(key)?.description();
         let names = description.split('\'').nth(1)?;
         Some(
             names
@@ -1775,7 +1781,11 @@ mod test {
                 ),
             )
             .build();
-        let names = AnnField::ann_field_names_from_header(&header).unwrap_or_default();
+        assert_eq!(
+            AnnField::ann_field_names_from_header(&header, "OTHER"),
+            None
+        );
+        let names = AnnField::ann_field_names_from_header(&header, "ANN").unwrap_or_default();
         assert_eq!(names, AnnField::ann_field_names(&columns));
 
         let value = format!("{}|ACG|TCG|T|S", dummy_ann_string());
