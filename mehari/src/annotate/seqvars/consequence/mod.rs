@@ -332,6 +332,94 @@ pub enum SvType {
     Other(String),
 }
 
+/// A breakend from its ALT, e.g. `G]17:198982]` (VCF 4.5): the base at `POS` joins a piece of
+/// the mate contig, with the bases `inserted` between them.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Breakend {
+    /// Whether `POS` and the bases in front of it stay, as in `t[p[` and `t]p]`, else `POS` and
+    /// the bases behind it, as in `]p]t` and `[p[t`.
+    pub keeps_left: bool,
+    /// The bases of t besides the one at `POS`, in the order of the joined chromosome.
+    pub inserted: String,
+    /// `None` for a single breakend, e.g. `G.`.
+    pub mate: Option<Mate>,
+    /// Whether `POS` is uncertain: with `IMPRECISE` and a `CIPOS` other than `0,0` or none. The
+    /// INFO of the record tells, not the ALT, so `from_str` gives `false`.
+    pub imprecise: bool,
+    /// The confidence interval around `POS` as offsets `(min, max)`, if given.
+    pub cipos: Option<(i32, i32)>,
+}
+
+/// The mate of a `Breakend`.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Mate {
+    pub chromosome: String,
+    /// 1-based; 0 and the contig length + 1 are the telomeres.
+    pub position: i32,
+    /// Whether the joined piece runs from `position` to the end of the contig, as `[` says, else
+    /// from the start of the contig to `position`.
+    pub extends_right: bool,
+}
+
+/// The bracket forms `t[p[`, `t]p]`, `]p]t` and `[p[t`, with `.` for t at a telomere, and the
+/// single breakends `t.` and `.t`.
+impl std::str::FromStr for Breakend {
+    type Err = anyhow::Error;
+
+    fn from_str(alt: &str) -> Result<Self, Self::Err> {
+        let (t, keeps_left, mate) = match alt.find(['[', ']']) {
+            Some(open) => {
+                let bracket = &alt[open..=open];
+                let (mate, tail) = (alt[open + 1..].split_once(bracket))
+                    .ok_or_else(|| anyhow!("unclosed bracket in breakend {alt:?}"))?;
+                let (t, keeps_left) = match (&alt[..open], tail) {
+                    (head, "") => (head, true),
+                    ("", tail) => (tail, false),
+                    _ => anyhow::bail!("bases on both sides of breakend {alt:?}"),
+                };
+                let (chromosome, position) = (mate.rsplit_once(':'))
+                    .filter(|(chromosome, _)| !chromosome.is_empty())
+                    .ok_or_else(|| anyhow!("no mate contig in breakend {alt:?}"))?;
+                let position = (position.parse::<i32>().ok())
+                    .filter(|position| *position >= 0)
+                    .ok_or_else(|| anyhow!("invalid mate position in breakend {alt:?}"))?;
+                let mate = Mate {
+                    chromosome: chromosome.into(),
+                    position,
+                    extends_right: bracket == "[",
+                };
+                (t, keeps_left, Some(mate))
+            }
+            None => match (alt.strip_suffix('.'), alt.strip_prefix('.')) {
+                (Some(t), _) => (t, true, None),
+                (_, Some(t)) => (t, false, None),
+                _ => anyhow::bail!("not a breakend: {alt:?}"),
+            },
+        };
+        // The base at `POS` ends t on the side away from the mate; t is `.` at a telomere.
+        let inserted = if t == "." && mate.is_some() {
+            ""
+        } else {
+            anyhow::ensure!(
+                !t.is_empty() && t.bytes().all(|base| base.is_ascii_alphabetic()),
+                "invalid bases in breakend {alt:?}"
+            );
+            if keeps_left {
+                &t[1..]
+            } else {
+                &t[..t.len() - 1]
+            }
+        };
+        Ok(Self {
+            keeps_left,
+            inserted: inserted.to_ascii_uppercase(),
+            mate,
+            imprecise: false,
+            cipos: None,
+        })
+    }
+}
+
 /// A variant description how VCF would do it.
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct VcfVariant {
@@ -462,7 +550,7 @@ impl<'a> fmt::Display for FormattedLoc<'a> {
 
 #[cfg(test)]
 mod test {
-    use super::load_tx_db;
+    use super::{Breakend, Mate, load_tx_db};
     use crate::pbs::txs::{SourceVersion, Transcript, TranscriptDb, TxSeqDatabase};
     use prost::Message;
     use temp_testdir::TempDir;
@@ -525,5 +613,62 @@ mod test {
     #[case::no_transcripts(&[])]
     fn database_loads(#[case] gene_ids: &[&str]) {
         assert!(write_and_load(gene_ids, &["0.38.0"]).is_ok());
+    }
+
+    /// The breakend of an ALT: the side that stays, the bases of t besides the one at `POS`, and
+    /// the mate as `(chromosome, position, extends_right)`. The examples are those of VCF 4.5.
+    #[rstest::rstest]
+    #[case::joins_right("G[13:123457[", true, "", Some(("13", 123457, true)))]
+    #[case::joins_left_reversed("G]13:123457]", true, "", Some(("13", 123457, false)))]
+    #[case::left_joins("]13:123457]G", false, "", Some(("13", 123457, false)))]
+    #[case::right_joins_reversed("[13:123457[G", false, "", Some(("13", 123457, true)))]
+    #[case::inserted_left("CAGTNNNNNCA[2:321682[", true, "AGTNNNNNCA", Some(("2", 321682, true)))]
+    #[case::inserted_right("]13:123456]AGTNNNNNCAT", false, "AGTNNNNNCA", Some(("13", 123456, false)))]
+    #[case::telomere(".[13:123457[", true, "", Some(("13", 123457, true)))]
+    #[case::mate_at_telomere("]1:0]A", false, "", Some(("1", 0, false)))]
+    #[case::mate_contig_with_colon("A[HLA-A*01:01:01:01:100[", true, "", Some(("HLA-A*01:01:01:01", 100, true)))]
+    #[case::single_left("G.", true, "", None)]
+    #[case::single_right(".A", false, "", None)]
+    #[case::single_inserted("GAC.", true, "AC", None)]
+    #[case::lower_case("gac[2:321682[", true, "AC", Some(("2", 321682, true)))]
+    #[case::lower_case_right("]13:123456]acG", false, "AC", Some(("13", 123456, false)))]
+    fn breakend_from_alt(
+        #[case] alt: &str,
+        #[case] keeps_left: bool,
+        #[case] inserted: &str,
+        #[case] mate: Option<(&str, i32, bool)>,
+    ) -> Result<(), anyhow::Error> {
+        let mate = mate.map(|(chromosome, position, extends_right)| Mate {
+            chromosome: chromosome.into(),
+            position,
+            extends_right,
+        });
+        let expected = Breakend {
+            keeps_left,
+            inserted: inserted.into(),
+            mate,
+            imprecise: false,
+            cipos: None,
+        };
+        assert_eq!(alt.parse::<Breakend>()?, expected);
+        Ok(())
+    }
+
+    /// A malformed breakend, or another allele, is an error, not a panic.
+    #[rstest::rstest]
+    #[case::bases_on_both_sides("A]1:100]C")]
+    #[case::mixed_brackets("A[1:100]")]
+    #[case::unclosed_bracket("A[1:100")]
+    #[case::no_bases("[1:100[")]
+    #[case::no_position("A[1[")]
+    #[case::no_contig("A[:100[")]
+    #[case::negative_position("A[1:-1[")]
+    #[case::invalid_bases("A-[1:100[")]
+    #[case::telomere_without_mate(".")]
+    #[case::sequence("ACGT")]
+    #[case::symbolic("<DEL>")]
+    #[case::star("*")]
+    fn malformed_breakend(#[case] alt: &str) {
+        assert!(alt.parse::<Breakend>().is_err());
     }
 }
