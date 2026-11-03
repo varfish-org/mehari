@@ -974,6 +974,9 @@ pub enum Message {
     /// The breakpoints of this structural variant are uncertain; the annotation uses the
     /// positions as called.
     InfoImpreciseBreakpoints,
+    /// The protein terms assume normal splicing of the remaining exons, as the HGVS description
+    /// gives no protein (`p.?`), e.g. for the deletion of whole exons.
+    InfoAssumesNormalSplicing,
     /// The 3' shift of HGVS put this indel onto an essential splice site, but the same change at
     /// another position of its repeat leaves that splice site intact.
     InfoSpliceSiteIntactAtEquivalentPosition,

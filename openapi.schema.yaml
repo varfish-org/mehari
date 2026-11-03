@@ -1141,6 +1141,7 @@ components:
       - info_non_reference_annotation
       - info_restrict_fallback
       - info_imprecise_breakpoints
+      - info_assumes_normal_splicing
       - info_splice_site_intact_at_equivalent_position
     MessageCode:
       type: string
