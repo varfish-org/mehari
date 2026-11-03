@@ -1,4 +1,4 @@
-package mehari:plugin@0.1.1;
+package mehari:plugin@0.1.2;
 
 /// The mehari run.
 interface host {
@@ -19,6 +19,39 @@ interface types {
         position: s32,
         reference: string,
         alternative: string,
+    }
+
+    /// A structural variant from a symbolic allele such as `<DEL>`, which has no bases; the
+    /// position of its `vcf-variant` is the base in front of the change.
+    record structural-variant {
+        /// `deletion`, `duplication` (a copy elsewhere), `tandem-duplication`, `inversion`,
+        /// `insertion` or `copy-number-change` (of unknown direction).
+        kind: string,
+        /// 1-based position of the last changed base; the variant position for an insertion.
+        end: s32,
+        /// The number of inserted bases, if known; insertions only.
+        length: option<s32>,
+        /// Whether the breakpoints are uncertain: `IMPRECISE`, a confidence interval, or a claim
+        /// of abundance only (`SVCLAIM=D`), which every `<CNV>` and `<CN#>` allele makes.
+        imprecise: bool,
+    }
+
+    /// A breakend from its ALT, e.g. `G]17:198982]`: the base at the variant position joins a
+    /// piece of the mate's chromosome, with the `inserted` bases between them.
+    record breakend {
+        /// Whether the variant position and the bases in front of it stay, as in `t[p[` and
+        /// `t]p]`; else the variant position and the bases behind it, as in `]p]t` and `[p[t`.
+        keeps-left: bool,
+        /// The bases of t besides the one at the variant position, in the order of the joined
+        /// chromosome.
+        inserted: string,
+        /// The mate's chromosome and 1-based position, 0 or the chromosome length + 1 at a
+        /// telomere; none for a single breakend, e.g. `G.`.
+        mate-chromosome: option<string>,
+        mate-position: option<s32>,
+        /// Whether the joined piece runs from the mate position to the end of its chromosome, as
+        /// `[` says, else from the start of the chromosome to the mate position.
+        mate-extends-right: option<bool>,
     }
 
     /// A 1-based number out of a total, e.g. exon 3 of 12.
@@ -86,6 +119,10 @@ interface types {
         variants: func() -> list<vcf-variant>;
         /// One annotation per reported transcript.
         annotations: func() -> list<annotation>;
+        /// The structural variant, if the variant is a symbolic allele such as `<DEL>`.
+        structural-variant: func() -> option<structural-variant>;
+        /// The breakend, if the variant is one.
+        breakend: func() -> option<breakend>;
     }
 
     /// The annotation of one transcript. Values are computed when first requested and shared
@@ -158,7 +195,9 @@ interface types {
         reference-cds-start: func() -> option<s32>;
         reference-cds-end: func() -> option<s32>;
         /// The same with the variant applied, on coding transcripts only; intronic variants leave
-        /// them unchanged. Translation may continue past the first stop codon (`*`).
+        /// them unchanged. Translation may continue past the first stop codon (`*`). None for a
+        /// breakend, and for a structural variant unless mehari takes its bases from the
+        /// reference, as for a short precise one.
         alternative-transcript: func() -> option<string>;
         alternative-protein: func() -> option<string>;
         alternative-cds-start: func() -> option<s32>;

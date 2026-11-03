@@ -18,15 +18,22 @@ class TranscriptPlugin(exports.TranscriptPlugin):
         setup.add_string_column("nmd")
 
     def annotate(self, prediction: Prediction) -> None:
+        event = (
+            prediction.structural_variant() is not None
+            or prediction.breakend() is not None
+        )
         for annotation in prediction.annotations():
-            value = predict(annotation)
+            value = predict(annotation, event)
             if value is not None:
                 annotation.set_string("nmd", value)
 
 
-def predict(annotation: Annotation) -> str | None:
-    """One value for every stop-gained or frameshift annotation."""
+def predict(annotation: Annotation, event: bool) -> str | None:
+    """One value for every stop-gained or frameshift annotation; none for one of a structural
+    variant or a breakend (`event`) without an alternative transcript."""
     if not {"stop_gained", "frameshift_variant"} & set(annotation.consequences()):
+        return None
+    if event and annotation.alternative_transcript() is None:
         return None
     return classify(annotation) or "unknown"
 

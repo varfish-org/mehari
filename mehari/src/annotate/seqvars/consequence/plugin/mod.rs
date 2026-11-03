@@ -18,9 +18,9 @@ use hgvs::parser::HgvsVariant;
 use itertools::Itertools;
 use strum::VariantArray;
 
-use super::VcfVariant;
 use super::logic::{HgvsVariantExt, apply_n_edits};
 use super::terms::AnnField;
+use super::{Breakend, StructuralVariant, VcfVariant};
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::db::TranscriptDatabase;
 use crate::errors::SeqvarsError;
@@ -158,6 +158,17 @@ impl BuiltinPlugin {
     }
 }
 
+/// A variant without bases of its own, whose ALT shows only its kind.
+///
+/// Experimental, see the [module](self) documentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Event<'a> {
+    /// A symbolic allele such as `<DEL>`, see `ConsequencePredictor::predict_sv`.
+    StructuralVariant(&'a StructuralVariant),
+    /// See `ConsequencePredictor::predict_breakend`.
+    Breakend(&'a Breakend),
+}
+
 /// Fills custom ANN columns for the transcripts of a variant.
 ///
 /// Experimental, see the [module](self) documentation.
@@ -168,14 +179,16 @@ pub trait TranscriptPlugin: Debug + Send + Sync {
     /// Called once per prediction with all of its reported annotations.
     ///
     /// `variants` holds the input variant as given in the VCF, or the variants of a compound
-    /// group. The HGVS descriptions in `ann` and `context.var_c` follow HGVS normalization, which
-    /// shifts towards the transcript's 3' end and so depends on its strand.
+    /// group; `event` is what the input variant is if it has no bases. The HGVS descriptions in
+    /// `ann` and `context.var_c` follow HGVS normalization, which shifts towards the transcript's
+    /// 3' end and so depends on its strand.
     /// Writes into `ann.custom_fields`; keys not listed in `columns` are not output. `txs` is a
     /// `Vec` so that a plugin can move the annotations, e.g. to lend them to a WebAssembly
     /// component.
     fn annotate(
         &self,
         variants: &[VcfVariant],
+        event: Option<Event<'_>>,
         txs: &mut Vec<TxAnnotation>,
     ) -> Result<(), SeqvarsError>;
 }
@@ -270,6 +283,13 @@ impl TxContext {
         self
     }
 
+    /// No alternative sequence, for a variant without bases: hgvs-rs would apply its
+    /// description as if it had them, e.g. as a deletion for a copy number change.
+    pub(crate) fn without_alt_data(mut self) -> Self {
+        self.alt_data = OnceCell::from(None);
+        self
+    }
+
     /// 1-based transcript positions of the first and the last variant base, if both lie in
     /// exons. Insertions span the two bases they lie between.
     pub fn tx_span(&self) -> Option<(i32, i32)> {
@@ -307,7 +327,7 @@ impl TxContext {
     }
 
     /// Transcript and protein sequence with the variant applied; `None` if the variant changes
-    /// splicing, as the alternative transcript is unknown then.
+    /// splicing, as the alternative transcript is unknown then, or has no bases.
     pub fn alt_data(&self) -> Option<&AltTranscriptData> {
         self.alt_data
             .get_or_init(|| {
