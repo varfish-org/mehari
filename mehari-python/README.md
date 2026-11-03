@@ -32,6 +32,15 @@ result1 = annotator.annotate("17:41197701:G:C")
 result2 = annotator.annotate(chromosome="3", position=193332511, reference="G", alternative="T")
 ```
 
+A symbolic allele such as `<DEL>` takes the INFO fields of its VCF record as keyword arguments: `end` (`END`), `sv_length` (`SVLEN`), `sv_claim` (`SVCLAIM`) and `imprecise` (`IMPRECISE`).
+A breakend needs only its ALT.
+A variant that cannot be annotated, e.g. a `<DEL>` without `end`, raises a `ValueError` with the reason.
+
+```python
+result3 = annotator.annotate("17:41197710:N:<DEL>", end=41197760)
+result4 = annotator.annotate("17:41215930:G:G]13:32900000]")
+```
+
 To annotate multiple phased variants together as a single compound event (Experimental):
 > **Note:** Mehari does not infer phasing.
 > When using `annotate_multiple`, mehari assumes all provided variants are on the same chromosome, exist on the same
@@ -66,6 +75,9 @@ df = pl.DataFrame(
 
 annotated_df = annotator.annotate(df)
 ```
+
+For symbolic alleles, the DataFrame may hold the columns `end`, `sv_length`, `sv_claim` and `imprecise`; a null value stands for a missing field.
+As keyword arguments next to a DataFrame, they raise a `ValueError`.
 
 ## Schemas and types
 

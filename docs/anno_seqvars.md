@@ -39,6 +39,12 @@ A breakend, e.g. `A]13:123456]`, joins the base at `POS` to a piece of the mate 
 Records with another symbolic allele, with a symbolic allele without a length, with a malformed breakend, or with another allele at position 0 have no such representation: they stay in the output without annotations, and Mehari warns about their number.
 Records without an alternate allele (`ALT` `.`) stay in the output, too.
 Mehari stops at a record with more than one alternate allele. Split such records beforehand with `bcftools norm -m-any`, without `-f`, which rejects `N` as `REF`.
+
+The REST endpoint `/api/v1/seqvars/csq` of `mehari server` and the Python bindings annotate symbolic alleles and breakends the same way.
+A symbolic allele takes the values of its INFO fields `END`, `SVLEN`, `SVCLAIM` and `IMPRECISE` from the parameters `end`, `sv_length`, `sv_claim` and `imprecise`, e.g. `alternative=<DEL>&end=41197760`.
+A breakend needs only its `alternative`.
+`*`, `<*>`, `<NON_REF>` and `.` are no variants of their own and give no annotations.
+A symbolic allele without an end past `POS`, an unsupported symbolic allele, a malformed breakend and an `sv_claim` other than `D`, `J` and `DJ` give status 400 with the reason, and a `ValueError` in Python.
 You can find the VCF variant specification [here on Github](https://samtools.github.io/hts-specs/).
 
 ## Sequence Variant Annotation

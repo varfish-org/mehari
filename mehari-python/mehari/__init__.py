@@ -116,7 +116,15 @@ class SeqvarsAnnotator:
         )
 
     @typing.overload
-    def annotate(self, data: str) -> AnnotationResultDict: ...
+    def annotate(
+        self,
+        data: str,
+        *,
+        end: int | None = None,
+        sv_length: int | None = None,
+        sv_claim: str | None = None,
+        imprecise: bool = False,
+    ) -> AnnotationResultDict: ...
 
     @typing.overload
     def annotate(self, data: pl.DataFrame) -> pl.DataFrame: ...
@@ -126,7 +134,16 @@ class SeqvarsAnnotator:
 
     @typing.overload
     def annotate(
-        self, *, chromosome: str, position: int, reference: str, alternative: str
+        self,
+        *,
+        chromosome: str,
+        position: int,
+        reference: str,
+        alternative: str,
+        end: int | None = None,
+        sv_length: int | None = None,
+        sv_claim: str | None = None,
+        imprecise: bool = False,
     ) -> AnnotationResultDict: ...
 
     def annotate(
@@ -137,11 +154,30 @@ class SeqvarsAnnotator:
         position: int | None = None,
         reference: str | None = None,
         alternative: str | None = None,
+        end: int | None = None,
+        sv_length: int | None = None,
+        sv_claim: str | None = None,
+        imprecise: bool = False,
     ) -> typing.Any:
         """
         Annotates genetic variants.
         Supports Polars DataFrames/LazyFrames, 'chr:pos:ref:alt' strings, or explicit kwargs.
+
+        A symbolic allele such as '<DEL>' takes the INFO fields END, SVLEN, SVCLAIM and IMPRECISE
+        from `end`, `sv_length`, `sv_claim` and `imprecise`, or from the columns of these names
+        in a DataFrame. A breakend such as 'G]13:123456]' needs none of them. A variant that
+        cannot be annotated, e.g. a '<DEL>' without its end, raises a ValueError.
         """
+        sv_info = dict(
+            end=end, sv_length=sv_length, sv_claim=sv_claim, imprecise=imprecise
+        )
+
+        if isinstance(data, (pl.DataFrame, pl.LazyFrame)) and (
+            any(v is not None for v in (end, sv_length, sv_claim)) or imprecise
+        ):
+            raise ValueError(
+                "A DataFrame takes end, sv_length, sv_claim and imprecise as its columns."
+            )
 
         if isinstance(data, pl.DataFrame):
             return self._process_dataframe(data)
@@ -154,16 +190,22 @@ class SeqvarsAnnotator:
 
         if isinstance(data, str):
             try:
-                c, p, r, a = data.split(":")
-                return self._annotator.annotate(c, int(p), r, a)
+                # The ALT of a breakend contains colons.
+                c, p, r, a = data.split(":", 3)
+                position = int(p)
             except ValueError:
                 raise ValueError(
                     f"Invalid format '{data}'. Expected 'chr:pos:ref:alt' (e.g., '17:41197701:G:C')"
                 )
+            return self._annotator.annotate(c, position, r, a, **sv_info)
 
         if all(v is not None for v in (chromosome, position, reference, alternative)):
             return self._annotator.annotate(
-                str(chromosome), int(position), str(reference), str(alternative)
+                str(chromosome),
+                int(position),
+                str(reference),
+                str(alternative),
+                **sv_info,
             )
 
         raise ValueError(
@@ -177,6 +219,8 @@ class SeqvarsAnnotator:
         """
         Annotate multiple phased variants together as a single compound event.
         All variants must be on the same chromosome and must not overlap.
+        A symbolic allele or a breakend is never evaluated together with others, so a group
+        with one gives no annotations.
 
         Args:
             variants: An iterable of 'chr:pos:ref:alt' strings OR dictionaries strictly matching
@@ -187,7 +231,8 @@ class SeqvarsAnnotator:
         for var in variants:
             if isinstance(var, str):
                 try:
-                    c, p, r, a = var.split(":")
+                    # The ALT of a breakend contains colons.
+                    c, p, r, a = var.split(":", 3)
                     parsed_variants.append((c, int(p), r, a))
                 except ValueError as e:
                     raise ValueError(

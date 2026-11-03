@@ -134,6 +134,149 @@ def test_annotate_lazy_streaming(annotator, sample_variants):
     assert "splice_acceptor_variant" in nm_130837["consequences"]
 
 
+def brca1(annotations: list[dict]) -> dict:
+    """The annotation of BRCA1 NM_007294.4."""
+    return next(c for c in annotations if c.get("feature_id") == "NM_007294.4")
+
+
+def test_annotate_symbolic_allele(annotator):
+    """
+    A symbolic allele takes its end from `end`, as from END in a VCF: here the deletion of 50
+    bases in the last exon of BRCA1.
+    """
+    result = annotator.annotate("17:41197710:N:<DEL>", end=41197760)
+
+    nm_007294 = brca1(result["annotation"])
+    assert nm_007294["hgvs_g"] == "g.41197711_41197760del"
+    assert "frameshift_variant" in nm_007294["consequences"]
+
+
+@pytest.mark.parametrize(
+    "variant, sv_info, message",
+    [
+        ("17:41197710:N:<DEL>", {}, "has no end past its position"),
+        ("17:41197710:N:<DEL>", {"end": 41197700}, "has no end past its position"),
+        ("17:41197710:N:<FOO>", {"end": 41197760}, "is not supported"),
+        ("17:41197710:N:G]13:x]", {}, "invalid mate position"),
+        ("17:41197710:N:<DEL>", {"end": 41197760, "sv_claim": "X"}, "SVCLAIM"),
+    ],
+)
+def test_annotate_rejects_bad_structural_variant(annotator, variant, sv_info, message):
+    """
+    A symbolic allele that cannot be annotated, a malformed breakend and an unknown claim
+    raise a ValueError with the reason, from the string form, the DataFrame form and kwargs.
+    """
+    with pytest.raises(ValueError, match=message):
+        annotator.annotate(variant, **sv_info)
+
+    chromosome, position, reference, alternative = variant.split(":", 3)
+    with pytest.raises(ValueError, match=message):
+        annotator.annotate(
+            chromosome=chromosome,
+            position=int(position),
+            reference=reference,
+            alternative=alternative,
+            **sv_info,
+        )
+
+    columns = {"end": None, "sv_length": None, "sv_claim": None} | sv_info
+    df = pl.DataFrame(
+        {
+            "chromosome": [chromosome],
+            "position": [int(position)],
+            "reference": [reference],
+            "alternative": [alternative],
+        }
+        | {key: [value] for key, value in columns.items()},
+        schema_overrides={
+            "position": pl.Int32,
+            "end": pl.Int32,
+            "sv_length": pl.Int32,
+            "sv_claim": pl.String,
+        },
+    )
+    with pytest.raises(ValueError, match=message):
+        annotator.annotate(df)
+
+
+def test_annotate_dataframe_rejects_sv_kwargs(annotator, sample_variants):
+    """
+    A DataFrame holds the INFO fields of symbolic alleles in its columns, so keyword arguments
+    for them are an error rather than ignored.
+    """
+    with pytest.raises(ValueError, match="columns"):
+        annotator.annotate(sample_variants, end=41197760)
+    with pytest.raises(ValueError, match="columns"):
+        annotator.annotate(sample_variants.lazy(), imprecise=True)
+
+
+def test_annotate_breakend(annotator):
+    """
+    A breakend needs no more than its ALT. It keeps the bases in front of 17:41215930, so
+    BRCA1 on the minus strand loses its 5' end.
+    """
+    result = annotator.annotate(
+        chromosome="17", position=41215930, reference="G", alternative="G]13:32900000]"
+    )
+
+    nm_007294 = brca1(result["annotation"])
+    assert (
+        nm_007294["hgvs_g"] == "g.41215931_qterdelins[NC_000013.10:g.pter_32900000inv]"
+    )
+    assert "feature_truncation" in nm_007294["consequences"]
+
+
+@pytest.mark.parametrize("alternative", ["*", "<*>", "<NON_REF>", "."])
+def test_annotate_no_variant_of_its_own(annotator, alternative):
+    """
+    `*`, `<*>`, `<NON_REF>` and ALT `.` are no variants of their own, so they have no
+    annotations, as in `annotate seqvars`.
+    """
+    result = annotator.annotate(f"17:41197701:G:{alternative}")
+
+    assert result["annotation"] == []
+
+
+def test_annotate_dataframe_with_structural_variants(annotator):
+    """
+    The optional columns end, sv_length, sv_claim and imprecise hold the INFO fields of
+    symbolic alleles; null stands for a missing field.
+    """
+    df = pl.DataFrame(
+        {
+            "chromosome": ["17", "17", "17", "17"],
+            "position": [41197701, 41197710, 41197710, 41215930],
+            "reference": ["G", "N", "N", "G"],
+            "alternative": ["C", "<DEL>", "<DEL>", "G]13:32900000]"],
+            "end": [None, 41197760, None, None],
+            "sv_length": [None, None, -50, None],
+            "sv_claim": [None, None, "D", None],
+            "imprecise": [None, True, None, None],
+        },
+        schema_overrides={"position": pl.Int32, "end": pl.Int32, "sv_length": pl.Int32},
+    )
+    rows = annotator.annotate(df).get_column("annotation").to_list()
+
+    assert "missense_variant" in brca1(rows[0])["consequences"]
+    for row in rows[1:3]:
+        nm_007294 = brca1(row)
+        assert nm_007294["hgvs_g"] == "g.(?_41197711)_(41197760_?)del"
+        assert "INFO_IMPRECISE_BREAKPOINTS" in nm_007294["messages"]
+    assert "feature_truncation" in brca1(rows[3])["consequences"]
+
+
+def test_annotate_multiple_with_breakend(annotator):
+    """
+    A breakend's ALT holds colons. A group with one is not evaluated together, as in
+    `annotate seqvars`, so it gives no annotations.
+    """
+    result = annotator.annotate_multiple(
+        ["17:41215930:G:G]13:32900000]", "17:41197701:G:C"]
+    )
+
+    assert result["annotation"] == []
+
+
 def test_annotate_batch_forwards_rust_warnings(annotator, sample_variants, caplog):
     """
     Batch annotation logs from rayon worker threads. These log records must reach
