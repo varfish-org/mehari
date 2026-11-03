@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.50.0](https://github.com/varfish-org/mehari/compare/mehari-v0.49.1...mehari-v0.50.0) (2026-11-03)
+
+
+### Features
+
+* **annotate:** add --ann-key option ([#1159](https://github.com/varfish-org/mehari/issues/1159)) ([#1161](https://github.com/varfish-org/mehari/issues/1161)) ([2b6c2a4](https://github.com/varfish-org/mehari/commit/2b6c2a49a59a642f5c2bda4a9855e15e0ffe1a5a))
+* **annotate:** add Source and Version to ANN header ([#1157](https://github.com/varfish-org/mehari/issues/1157)) ([18e23c4](https://github.com/varfish-org/mehari/commit/18e23c474f153199bb32be4fa955cb8fc9f5f420))
+
 ## [0.49.1](https://github.com/varfish-org/mehari/compare/mehari-v0.49.0...mehari-v0.49.1) (2026-10-28)
 
 
