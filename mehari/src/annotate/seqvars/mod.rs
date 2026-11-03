@@ -1711,11 +1711,6 @@ fn is_event(record: &VcfRecord) -> bool {
 /// The structural variant of `record`, if its symbolic allele is supported, see
 /// `StructuralVariant::from_info`. `file_format` decides what `CN` means, see `copy_number`.
 fn structural_variant(record: &VcfRecord, file_format: FileFormat) -> Option<StructuralVariant> {
-    use noodles::vcf::variant::record::info::field::key::{
-        END_CONFIDENCE_INTERVALS, END_POSITION, IS_IMPRECISE, POSITION_CONFIDENCE_INTERVALS,
-        SV_TYPE,
-    };
-
     let pos = i32::try_from(record.variant_start()?.get()).ok()?;
     let [alt] = record.alternate_bases().as_ref() else {
         return None;
@@ -1724,8 +1719,19 @@ fn structural_variant(record: &VcfRecord, file_format: FileFormat) -> Option<Str
     if !alt.starts_with('<') {
         return None;
     }
+    StructuralVariant::from_info(pos, alt, &sv_info(record, file_format))
+}
+
+/// The INFO fields of `record` that decide the structural variant of a symbolic allele.
+/// `file_format` decides what `CN` means, see `copy_number`.
+fn sv_info(record: &VcfRecord, file_format: FileFormat) -> SvInfo {
+    use noodles::vcf::variant::record::info::field::key::{
+        END_CONFIDENCE_INTERVALS, END_POSITION, IS_IMPRECISE, POSITION_CONFIDENCE_INTERVALS,
+        SV_TYPE,
+    };
+
     let info = record.info();
-    let sv_info = SvInfo {
+    SvInfo {
         end: compound::integer(record, END_POSITION),
         sv_length: compound::sv_length(record),
         sv_type: compound::string(record, SV_TYPE).and_then(|sv_type| sv_type.parse().ok()),
@@ -1735,8 +1741,7 @@ fn structural_variant(record: &VcfRecord, file_format: FileFormat) -> Option<Str
         cipos: confidence_interval(record, POSITION_CONFIDENCE_INTERVALS),
         ciend: confidence_interval(record, END_CONFIDENCE_INTERVALS),
         imprecise: info.get(IS_IMPRECISE).is_some(),
-    };
-    StructuralVariant::from_info(pos, alt, &sv_info)
+    }
 }
 
 /// The copy number of the allele of `record` from `CN`, rounded. Since VCF 4.4, `CN` is that of

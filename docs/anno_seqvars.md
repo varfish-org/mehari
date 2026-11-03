@@ -116,7 +116,7 @@ You can enable this behavior by passing the `--enable-compound-variants` flag.
 The evaluation strategy can be managed via `--phasing-strategy` (options include `strict` [default], `relaxed`, or `ignore`).
 `--compound-window-size` sets the maximum distance in bp between neighbouring variants of a group (unlimited if not set; a good value for peptide analyses is 33).
 
-A variant without bases, e.g., a structural variant or a breakend, is not evaluated together with others. If it shares a haplotype with a variant on a transcript, all annotations of that variant on that transcript get the message `WARNING_COMPOUND_INCOMPLETE`, as do its own annotations. So do the annotations of variants in a group that fails validation.
+A variant without bases, e.g., a structural variant or a breakend, is not evaluated together with others. If the phasing strategy places it on a haplotype, all its own annotations get the message `WARNING_COMPOUND_INCOMPLETE`, whether another variant shares that haplotype or not. If it shares a haplotype with a variant on a transcript, all annotations of that variant on that transcript get the message too. So do the annotations of variants in a group that fails validation.
 
 ## Interpreting Annotation Output
 

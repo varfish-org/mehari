@@ -2,7 +2,7 @@ use crate::annotate::cli::PhasingStrategy;
 use crate::annotate::seqvars::consequence::logic::PADDING;
 use crate::annotate::seqvars::consequence::span_end;
 use noodles::vcf::variant::RecordBuf;
-use noodles::vcf::variant::record::info::field::key::{END_POSITION, SV_LENGTHS};
+use noodles::vcf::variant::record::info::field::key::{END_POSITION, SV_LENGTHS, SV_TYPE};
 use noodles::vcf::variant::record_buf::info::field::Value as InfoValue;
 use noodles::vcf::variant::record_buf::info::field::value::Array;
 use noodles::vcf::variant::record_buf::samples::sample::Value;
@@ -106,15 +106,21 @@ pub(crate) fn integer(record: &RecordBuf, key: &str) -> Option<i32> {
 /// The own `SVLEN` of an allele decides, as in VCF 4.5. `END` holds the longest allele of a record,
 /// and stays so when `bcftools norm` splits the record, which also leaves an `SVLEN` with
 /// `Number=.` unsplit. An `SVLEN` of 0 is the length difference of VCF 4.3 and earlier, e.g. of an
-/// `<INV>`, so `END` decides. An insertion and a breakend lie at their position.
+/// `<INV>`, so `END` decides. An insertion, also a custom allele with `SVTYPE=INS`, and a breakend
+/// lie at their position, see `span_end`.
 pub fn event_end(record: &RecordBuf, pos: i32) -> i32 {
-    let alternate_bases = record.alternate_bases();
-    let spans_bases = (alternate_bases.as_ref().first())
-        .is_some_and(|alt| alt.starts_with('<') && !alt.starts_with("<INS"));
-    if !spans_bases {
-        return pos;
+    match record.alternate_bases().as_ref().first() {
+        Some(alt) if alt.starts_with('<') => span_end(
+            pos,
+            alt,
+            string(record, SV_TYPE)
+                .and_then(|sv_type| sv_type.parse().ok())
+                .as_ref(),
+            sv_length(record),
+            integer(record, END_POSITION),
+        ),
+        _ => pos,
     }
-    span_end(pos, sv_length(record), integer(record, END_POSITION))
 }
 
 /// Sliding window buffer that accumulates variants and groups them by transcript and phasing.
@@ -504,6 +510,7 @@ mod test {
     use super::*;
     use crate::annotate::seqvars::consequence::VcfVariant;
     use noodles::core::Position;
+    use noodles::vcf::variant::record::info::field::key::{END_POSITION, SV_TYPE};
     use noodles::vcf::variant::record_buf::samples::Keys;
     use noodles::vcf::variant::record_buf::{AlternateBases, Samples};
     use rstest::rstest;
@@ -786,6 +793,24 @@ mod test {
         }
         let record = RecordBuf::builder()
             .set_alternate_bases(AlternateBases::from(vec![alternative.to_string()]))
+            .set_info(info.into_iter().collect())
+            .build();
+
+        assert_eq!(event_end(&record, 1000), expected);
+    }
+
+    /// A custom allele counts as its `SVTYPE`, as in `StructuralVariant::from_info`: an insertion
+    /// lies at its position, a deletion spans its `SVLEN`.
+    #[rstest]
+    #[case::insertion("INS", 1000)]
+    #[case::deletion("DEL", 1300)]
+    fn event_end_of_custom_allele(#[case] sv_type: &str, #[case] expected: i32) {
+        let info = [
+            (SV_LENGTHS.to_string(), Some(InfoValue::Integer(300))),
+            (SV_TYPE.to_string(), Some(InfoValue::String(sv_type.into()))),
+        ];
+        let record = RecordBuf::builder()
+            .set_alternate_bases(AlternateBases::from(vec!["<MYSV>".to_string()]))
             .set_info(info.into_iter().collect())
             .build();
 

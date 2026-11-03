@@ -379,28 +379,7 @@ impl StructuralVariant {
     /// length. Without `CIPOS`, `POS` is precise, and `CIEND` defaults to `CIPOS`; a precise
     /// allele of an `IMPRECISE` record has intervals of 0.
     pub fn from_info(pos: i32, alt: &str, info: &SvInfo) -> Option<Self> {
-        let mut parts = alt.strip_prefix('<')?.strip_suffix('>')?.split(':');
-        let (base, subtype) = (parts.next()?, parts.next());
-
-        // A custom allele, which `##ALT` declares, counts as its `SVTYPE` if that is the type of
-        // a symbolic allele.
-        let base = match base {
-            "DEL" | "DUP" | "INV" | "INS" | "CNV" => base,
-            _ if base
-                .strip_prefix("CN")
-                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) =>
-            {
-                base
-            }
-            _ => match info.sv_type.as_ref()? {
-                SvType::Del => "DEL",
-                SvType::Ins => "INS",
-                SvType::Dup => "DUP",
-                SvType::Inv => "INV",
-                SvType::Cnv => "CNV",
-                SvType::Bnd | SvType::Other(_) => return None,
-            },
-        };
+        let (base, subtype) = symbolic_type(alt, info.sv_type.as_ref())?;
         let abundance_only = info.claim == Some(SvClaim::Abundance);
         let copy_number = |copies: Option<i32>| match copies {
             Some(0) => SvKind::Deletion,
@@ -435,10 +414,7 @@ impl StructuralVariant {
                 (copy_number(Some(copies)), true)
             }
         };
-        let end = match kind {
-            SvKind::Insertion { .. } => pos,
-            _ => span_end(pos, info.sv_length, info.end),
-        };
+        let end = span_end(pos, alt, info.sv_type.as_ref(), info.sv_length, info.end);
         if end == pos && !matches!(kind, SvKind::Insertion { .. }) {
             return None;
         }
@@ -458,10 +434,46 @@ impl StructuralVariant {
     }
 }
 
-/// The last base of a symbolic allele at `pos` that spans bases. The own `SVLEN` of an allele
-/// decides, as in VCF 4.5, else `END`, see `compound::event_end`. An `SVLEN` of 0 is the length
-/// difference of VCF 4.3 and earlier, e.g. of an `<INV>`, so `END` decides.
-pub fn span_end(pos: i32, sv_length: Option<i32>, end: Option<i32>) -> i32 {
+/// The type of the symbolic allele `alt` and its subtype, e.g. `DEL` and `ME` for
+/// `<DEL:ME:ALU>`. A custom allele, which `##ALT` declares, counts as its `SVTYPE`, `sv_type`, if
+/// that is the type of a symbolic allele.
+fn symbolic_type<'a>(alt: &'a str, sv_type: Option<&SvType>) -> Option<(&'a str, Option<&'a str>)> {
+    let mut parts = alt.strip_prefix('<')?.strip_suffix('>')?.split(':');
+    let (base, subtype) = (parts.next()?, parts.next());
+    let base = match base {
+        "DEL" | "DUP" | "INV" | "INS" | "CNV" => base,
+        _ if base
+            .strip_prefix("CN")
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) =>
+        {
+            base
+        }
+        _ => match sv_type? {
+            SvType::Del => "DEL",
+            SvType::Ins => "INS",
+            SvType::Dup => "DUP",
+            SvType::Inv => "INV",
+            SvType::Cnv => "CNV",
+            SvType::Bnd | SvType::Other(_) => return None,
+        },
+    };
+    Some((base, subtype))
+}
+
+/// The last base of the symbolic allele `alt` at `pos` with the INFO fields `SVTYPE`, `SVLEN`
+/// and `END`, see `compound::event_end`. An insertion lies at `pos`. Else the own `SVLEN` of the
+/// allele decides, as in VCF 4.5, then `END`. An `SVLEN` of 0 is the length difference of VCF
+/// 4.3 and earlier, e.g. of an `<INV>`, so `END` decides.
+pub fn span_end(
+    pos: i32,
+    alt: &str,
+    sv_type: Option<&SvType>,
+    sv_length: Option<i32>,
+    end: Option<i32>,
+) -> i32 {
+    if symbolic_type(alt, sv_type).is_some_and(|(base, _)| base == "INS") {
+        return pos;
+    }
     match (sv_length, end) {
         (Some(len), _) if len != 0 => pos.saturating_add(len.saturating_abs()),
         (_, Some(end)) => pos.max(end),
