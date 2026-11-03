@@ -62,6 +62,8 @@ class AnnotationDict(typing.TypedDict):
 
 class AnnotationResultDict(typing.TypedDict):
     annotation: list[AnnotationDict]
+    # The gene fusions of a structural variant or a breakend, as 'GENE1::GENE2'.
+    fusions: list[str]
 
 
 class SeqvarsAnnotator:
@@ -112,7 +114,8 @@ class SeqvarsAnnotator:
                     .cast(pl.List(FeatureBiotypeEnum)),
                 )
             )
-            .alias("annotation")
+            .alias("annotation"),
+            res_df.get_column("fusions"),
         )
 
     @typing.overload

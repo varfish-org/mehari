@@ -37,6 +37,7 @@ A symbolic allele such as `<DEL>` takes the INFO fields of its VCF record as key
 `cipos` and `ciend` are pairs `(min, max)`, as a tuple or a list.
 A breakend needs only its ALT, and takes `imprecise` and `cipos` for the uncertainty of its position.
 A variant that cannot be annotated, e.g. a `<DEL>` without `end`, raises a `ValueError` with the reason.
+The result lists the gene fusions of a structural variant or breakend in `fusions`, e.g. `["OPA1::BRCA1"]`, as the `FUSION` INFO field of `mehari annotate seqvars` does.
 
 ```python
 result3 = annotator.annotate(
@@ -123,6 +124,8 @@ This column is a polars `List(Struct)` with the following fields:
 - `distance`: `Int32`
 - `strand`: `Int32`
 - `messages`: `List(String)`
+
+It also appends a "fusions" column, a `List(String)` of the gene fusions of each structural variant or breakend.
 
 
 ## Building a transcript database

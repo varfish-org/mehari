@@ -3418,6 +3418,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
                         vcf: vcf_record,
                         annotation: crate::annotate::seqvars::VariantAnnotation {
                             consequences: vec![],
+                            fusions: vec![],
                             frequencies: None,
                             clinvar: None,
                             cadd: None,

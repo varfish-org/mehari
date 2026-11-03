@@ -154,6 +154,8 @@ impl ArrowAnnField {
 #[derive(Deserialize, Serialize)]
 struct ArrowResult {
     pub annotation: Vec<ArrowAnnField>,
+    /// The gene fusions of a structural variant or a breakend, as `GENE1::GENE2`.
+    pub fusions: Vec<String>,
 }
 
 #[pyclass(name = "SeqvarsAnnotator")]
@@ -235,11 +237,18 @@ impl PySeqvarsAnnotator {
 
         let ann_field_struct = DataType::Struct(ann_field_inner_fields.into());
         let annotation_list_field = Field::new("item", ann_field_struct, true);
-        let fields = vec![Arc::new(Field::new(
-            "annotation",
-            DataType::List(Arc::new(annotation_list_field)),
-            true,
-        ))];
+        let fields = vec![
+            Arc::new(Field::new(
+                "annotation",
+                DataType::List(Arc::new(annotation_list_field)),
+                true,
+            )),
+            Arc::new(Field::new(
+                "fusions",
+                DataType::List(Arc::new(Field::new("item", DataType::Utf8, false))),
+                false,
+            )),
+        ];
 
         Ok(Self {
             predictor,
@@ -294,13 +303,14 @@ impl PySeqvarsAnnotator {
             imprecise,
         };
 
-        let ann_fields_opt = self
+        let annotations = self
             .predictor
             .predict_with_info(&variant, &info)
-            .map_err(prediction_error)?;
+            .map_err(prediction_error)?
+            .unwrap_or_default();
 
-        let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
-            .unwrap_or_default()
+        let arrow_anns: Vec<ArrowAnnField> = annotations
+            .anns
             .into_iter()
             .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
             .collect();
@@ -308,12 +318,14 @@ impl PySeqvarsAnnotator {
         #[derive(Serialize)]
         struct SingleResult {
             annotation: Vec<ArrowAnnField>,
+            fusions: Vec<String>,
         }
 
         let py_dict = pythonize(
             py,
             &SingleResult {
                 annotation: arrow_anns,
+                fusions: annotations.fusions,
             },
         )
         .map_err(|e| {
@@ -486,7 +498,7 @@ impl PySeqvarsAnnotator {
                         reference: ref_arr.value(i).to_string(),
                         alternative: alt_arr.value(i).to_string(),
                     };
-                    let ann_fields = match info_of(i)
+                    let annotations = match info_of(i)
                         .and_then(|info| self.predictor.predict_with_info(&variant, &info))
                     {
                         // As `annotate seqvars`, which carries on past such records.
@@ -498,13 +510,15 @@ impl PySeqvarsAnnotator {
                     }
                     .unwrap_or_default();
 
-                    let arrow_anns: Vec<ArrowAnnField> = ann_fields
+                    let arrow_anns: Vec<ArrowAnnField> = annotations
+                        .anns
                         .into_iter()
                         .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
                         .collect();
 
                     Ok(ArrowResult {
                         annotation: arrow_anns,
+                        fusions: annotations.fusions,
                     })
                 })
                 .collect()
@@ -554,15 +568,18 @@ impl PySeqvarsAnnotator {
             .map(|f| ArrowAnnField::from_ann_field(f, &self.custom_columns))
             .collect();
 
+        // A group holds no structural variants, so it fuses no genes.
         #[derive(Serialize)]
         struct SingleResult {
             annotation: Vec<ArrowAnnField>,
+            fusions: Vec<String>,
         }
 
         let py_dict = pythonize(
             py,
             &SingleResult {
                 annotation: arrow_anns,
+                fusions: Vec::new(),
             },
         )
         .map_err(|e| {

@@ -273,6 +273,15 @@ fn build_header(
         ann.other_fields_mut()
             .insert("Version".parse()?, env!("CARGO_PKG_VERSION").into());
         header_out.infos_mut().insert(ann_key.into(), ann);
+        header_out.infos_mut().insert(
+            "FUSION".into(),
+            Map::<Info>::new(
+                Number::Unknown,
+                InfoType::String,
+                "Gene fusions of a structural variant or breakend as GENE1::GENE2: the 5' gene \
+                 first, or for a bidirectional fusion the gene before the junction",
+            ),
+        );
     }
 
     if with_clinvar {
@@ -396,6 +405,10 @@ pub(crate) fn prepare_vcf_record(
         insert_field!("helix_an", opt_scalar Integer, freqs.helix_an);
         insert_field!("helix_hom", opt_scalar Integer, freqs.helix_hom);
         insert_field!("helix_het", opt_scalar Integer, freqs.helix_het);
+    }
+
+    if !record.annotation.fusions.is_empty() {
+        insert_field!("FUSION", array String, record.annotation.fusions.iter());
     }
 
     if let Some(clinvar) = &record.annotation.clinvar {
@@ -537,6 +550,7 @@ impl SeqvarsVcfWriter {
             vcf: prepare_vcf_record(record, custom_columns, ann_key),
             annotation: VariantAnnotation {
                 consequences: vec![],
+                fusions: vec![],
                 frequencies: None,
                 clinvar: None,
                 cadd: None,
@@ -657,6 +671,7 @@ impl AsyncAnnotatedVariantWriter for SeqvarJsonlWriter {
                 "frequencies": record.annotation.frequencies,
                 "clinvar": record.annotation.clinvar,
                 "per-transcript": record.annotation.consequences,
+                "fusions": record.annotation.fusions,
             },
             "vcfInfo": info_map,
         });
@@ -858,6 +873,7 @@ impl Annotator {
         let vcf_var = from_vcf_allele(vcf_record, 0);
         let mut annotation = VariantAnnotation {
             consequences: vec![],
+            fusions: vec![],
             frequencies: None,
             clinvar: None,
             cadd: None,
@@ -879,12 +895,14 @@ impl Annotator {
                     reference: vcf_var.reference,
                     alternative: vcf_var.alternative,
                 };
-                annotation.consequences = match (sv, breakend) {
+                let annotations = match (sv, breakend) {
                     (Some(sv), _) => predictor.predict_sv(&var, &sv)?,
                     (_, Some(breakend)) => predictor.predict_breakend(&var, &breakend)?,
                     (None, None) => None,
                 }
                 .unwrap_or_default();
+                annotation.consequences = annotations.anns;
+                annotation.fusions = annotations.fusions;
             }
             return Ok(annotation);
         }
@@ -1849,6 +1867,8 @@ pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usiz
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariantAnnotation {
     pub consequences: Vec<AnnField>,
+    /// The gene fusions of a structural variant or breakend, see `Fusion::label`.
+    pub fusions: Vec<String>,
     pub frequencies: Option<FreqResult>,
     pub clinvar: Option<ClinvarResult>,
     pub cadd: Option<cadd::CaddResult>,
@@ -1996,6 +2016,7 @@ impl VariantProcessor {
                     .and_then(std::collections::VecDeque::pop_front)
                     .unwrap_or_else(|| VariantAnnotation {
                         consequences: vec![],
+                        fusions: vec![],
                         frequencies: None,
                         clinvar: None,
                         cadd: None,

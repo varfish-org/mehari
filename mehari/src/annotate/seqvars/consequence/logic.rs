@@ -7,8 +7,8 @@ use super::terms::{
 };
 use crate::annotate::cli::HgvsParentheses;
 use crate::annotate::seqvars::consequence::{
-    Breakend, Config, Consequences, FormattedLoc, StructuralVariant, SvInfo, SvKind, SvType,
-    VcfVariant, symbolic_type,
+    Annotations, Breakend, Config, Consequences, FormattedLoc, Fusion, StructuralVariant, SvInfo,
+    SvKind, SvType, VcfVariant, symbolic_type,
 };
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
@@ -26,6 +26,7 @@ use hgvs::{
     },
 };
 use itertools::Itertools;
+use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -732,6 +733,23 @@ const PROTEIN_TERMS: Consequences = enumflags2::make_bitflags!(Consequence::{
         | IncompleteTerminalCodonVariant
 });
 
+/// One side of a `Junction`: the 1-based base `pos` of `chrom_acc` at the junction, and whether
+/// the piece reads in the direction of its chromosome on the joined chromosome.
+struct Piece<'a> {
+    chrom_acc: &'a str,
+    pos: i32,
+    forward: bool,
+}
+
+/// A novel adjacency of a structural variant: the piece `before` it and the piece `after` it, in
+/// the reading direction of the joined chromosome.
+struct Junction<'a> {
+    before: Piece<'a>,
+    after: Piece<'a>,
+    /// Whether a deletion makes the junction, which fuses transcripts in the sense of SO.
+    deletion: bool,
+}
+
 /// The terms of the essential splice sites.
 const SPLICE_SITES: Consequences =
     enumflags2::make_bitflags!(Consequence::{SpliceDonorVariant | SpliceAcceptorVariant});
@@ -939,11 +957,13 @@ impl ConsequencePredictor {
     /// `<DEL>`, as `predict` gives them for the same change with its bases. The change has no
     /// bases: hgvs-rs takes those of the transcript, so that `p.` is exact, and `shift_sv` and
     /// `trim_inversion` read those at its ends from the reference, if there is one.
+    /// The rows of the transcripts that its junctions fuse get the fusion terms, see
+    /// `sv_fusions`, before they are picked and the plugins see them.
     pub fn predict_sv(
         &self,
         var: &VcfVariant,
         sv: &StructuralVariant,
-    ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
+    ) -> Result<Option<Annotations>, SeqvarsError> {
         let Some(chrom_acc) = self.chrom_acc(var) else {
             return Ok(None);
         };
@@ -966,9 +986,14 @@ impl ConsequencePredictor {
         let insertion = matches!(sv.kind, SvKind::Insertion { .. });
         // Plugins may want predictions without annotations, too.
         if end < start && !insertion {
-            return Ok(Some(self.run_plugins(variants, event, Vec::new())?));
+            return self.finish_event(variants, event, Vec::new(), &[]);
         }
-        let adjust = |ann: &mut AnnField| self.adjust_sv_annotation(ann, sv, chrom_acc, start, end);
+        let fusions = self.sv_fusions(var, sv)?;
+        let fusion_terms = Self::fusion_terms(&fusions);
+        let adjust = |ann: &mut AnnField| {
+            self.adjust_sv_annotation(ann, sv, chrom_acc, start, end);
+            Self::apply_fusions(ann, &fusion_terms);
+        };
 
         // A precise inversion keeps the outer bases that equal the complement of the base at the
         // other end, as the explicit allele does, see `trim_inversion`. A palindrome changes
@@ -976,7 +1001,7 @@ impl ConsequencePredictor {
         let (mut loc_start, mut loc_end) = (start, end);
         if sv.kind == SvKind::Inversion && !sv.imprecise && self.provider.reference_available() {
             match self.trim_inversion(chrom_acc, start, end)? {
-                None => return Ok(Some(self.run_plugins(variants, event, Vec::new())?)),
+                None => return self.finish_event(variants, event, Vec::new(), &fusions),
                 Some((pos, pos_end)) if pos == pos_end => {
                     let base = self.genome_bases(chrom_acc, pos - 1, pos)?;
                     let var_g = Self::get_var_g(
@@ -1000,7 +1025,7 @@ impl ConsequencePredictor {
                         |_| None,
                         adjust,
                     )?;
-                    return Ok(Some(self.run_plugins(variants, event, txs)?));
+                    return self.finish_event(variants, event, txs, &fusions);
                 }
                 Some(trimmed) => (loc_start, loc_end) = trimmed,
             }
@@ -1089,7 +1114,25 @@ impl ConsequencePredictor {
         if !transcript_holds_bases {
             Self::drop_alt_data(&mut txs);
         }
-        Ok(Some(self.run_plugins(variants, event, txs)?))
+        self.finish_event(variants, event, txs, &fusions)
+    }
+
+    /// The annotations `txs` of a structural variant or a breakend after the plugins, with the
+    /// labels of its `fusions`.
+    fn finish_event(
+        &self,
+        variants: &[VcfVariant],
+        event: Option<Event<'_>>,
+        txs: Vec<TxAnnotation>,
+        fusions: &[Fusion],
+    ) -> Result<Option<Annotations>, SeqvarsError> {
+        Ok(Some(Annotations {
+            anns: self.run_plugins(variants, event, txs)?,
+            fusions: (fusions.iter().map(|fusion| fusion.label.clone()))
+                .sorted()
+                .dedup()
+                .collect(),
+        }))
     }
 
     /// Adjust the annotation `ann` of `sv` from `start` to `end`, which `predict_g` made for its
@@ -1215,12 +1258,13 @@ impl ConsequencePredictor {
     /// telomere, `POS` 0 or N+1, touches no transcript. HGVS describes a breakend on the
     /// chromosome only, see `breakend_hgvs_g`, and the positions on the transcript would be those
     /// of the deletion, so they stay empty. An imprecise breakend keeps the terms at `POS`, and
-    /// its annotations carry the message `INFO_IMPRECISE_BREAKPOINTS`.
+    /// its annotations carry the message `INFO_IMPRECISE_BREAKPOINTS`. The fusions of its
+    /// junction are added as in `predict_sv`, see `breakend_fusions`.
     pub fn predict_breakend(
         &self,
         var: &VcfVariant,
         breakend: &Breakend,
-    ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
+    ) -> Result<Option<Annotations>, SeqvarsError> {
         let Some(chrom_acc) = self.chrom_acc(var) else {
             return Ok(None);
         };
@@ -1228,8 +1272,10 @@ impl ConsequencePredictor {
         let length = self.contig_length(chrom_acc);
         if pos == 0 || length.is_some_and(|length| pos > length) {
             let (variants, event) = (std::slice::from_ref(var), Some(Event::Breakend(breakend)));
-            return Ok(Some(self.run_plugins(variants, event, Vec::new())?));
+            return self.finish_event(variants, event, Vec::new(), &[]);
         }
+        let fusions = self.breakend_fusions(var, breakend)?;
+        let fusion_terms = Self::fusion_terms(&fusions);
 
         let deletion = |start: i32, end: i32| HgvsVariant::GenomeVariant {
             accession: Accession {
@@ -1274,6 +1320,7 @@ impl ConsequencePredictor {
             if breakend.imprecise {
                 (ann.messages.get_or_insert_with(Vec::new)).push(Message::InfoImpreciseBreakpoints);
             }
+            Self::apply_fusions(ann, &fusion_terms);
         };
         let mut txs = self.predict_g(
             var, &var_g, &var_g, &var_g, chrom_acc, true, true, lost_side, adjust,
@@ -1281,7 +1328,7 @@ impl ConsequencePredictor {
         // The derivative transcript is not the deletion of the lost side.
         Self::drop_alt_data(&mut txs);
         let (variants, event) = (std::slice::from_ref(var), Some(Event::Breakend(breakend)));
-        Ok(Some(self.run_plugins(variants, event, txs)?))
+        self.finish_event(variants, event, txs, &fusions)
     }
 
     /// Leave the annotations `txs` without alternative transcript, see `TxContext::alt_data`.
@@ -1303,7 +1350,7 @@ impl ConsequencePredictor {
         &self,
         var: &VcfVariant,
         info: &SvInfo,
-    ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
+    ) -> Result<Option<Annotations>, SeqvarsError> {
         let invalid = |reason: String| Err(SeqvarsError::InvalidVariant(reason));
         let alt = &var.alternative;
         if let Some(SvType::Other(sv_type)) = &info.sv_type
@@ -1324,7 +1371,11 @@ impl ConsequencePredictor {
             }
         }
         if is_sequence_allele(alt) || matches!(alt.as_str(), "*" | "<*>" | "<NON_REF>" | ".") {
-            return self.predict(var);
+            let anns = self.predict(var)?;
+            return Ok(anns.map(|anns| Annotations {
+                anns,
+                fusions: Vec::new(),
+            }));
         }
         if alt.starts_with('<') {
             if let Some(sv) = StructuralVariant::from_info(var.position, alt, info) {
@@ -1420,6 +1471,215 @@ impl ConsequencePredictor {
         })
     }
 
+    /// The gene fusions that the junctions of the structural variant `sv` of `var` make, see
+    /// `junction_fusions`. A deletion joins its flanks, a tandem dup the end of its bases to
+    /// their start, and an inversion its left flank to the reversed bases and those to the
+    /// right flank. A dup whose copy lies elsewhere, a copy number change, an insertion and a
+    /// call without a claim of adjacency (`StructuralVariant::junction`) make no known junction,
+    /// nor does a change without bases.
+    fn sv_fusions(
+        &self,
+        var: &VcfVariant,
+        sv: &StructuralVariant,
+    ) -> Result<Vec<Fusion>, SeqvarsError> {
+        let Some(chrom_acc) = self.chrom_acc(var) else {
+            return Ok(Vec::new());
+        };
+        let (start, end) = (var.position + 1, sv.end);
+        if !sv.junction || end < start {
+            return Ok(Vec::new());
+        }
+        let piece = |pos: i32, forward: bool| Piece {
+            chrom_acc,
+            pos,
+            forward,
+        };
+        let junctions = match sv.kind {
+            SvKind::Deletion => vec![Junction {
+                before: piece(start - 1, true),
+                after: piece(end.saturating_add(1), true),
+                deletion: true,
+            }],
+            SvKind::Duplication { tandem: true } => vec![Junction {
+                before: piece(end, true),
+                after: piece(start, true),
+                deletion: false,
+            }],
+            SvKind::Inversion => vec![
+                Junction {
+                    before: piece(start - 1, true),
+                    after: piece(end, false),
+                    deletion: false,
+                },
+                Junction {
+                    before: piece(start, false),
+                    after: piece(end.saturating_add(1), true),
+                    deletion: false,
+                },
+            ],
+            _ => Vec::new(),
+        };
+        self.junction_fusions(&junctions)
+    }
+
+    /// The gene fusions that the junction of `breakend` of `var` makes, see `junction_fusions`.
+    /// None for a single breakend or a mate at a telomere.
+    fn breakend_fusions(
+        &self,
+        var: &VcfVariant,
+        breakend: &Breakend,
+    ) -> Result<Vec<Fusion>, SeqvarsError> {
+        let (Some(chrom_acc), Some(mate)) = (self.chrom_acc(var), &breakend.mate) else {
+            return Ok(Vec::new());
+        };
+        let Some(mate_acc) = self.provider.contig_manager.get_accession(&mate.chromosome) else {
+            return Ok(Vec::new());
+        };
+        let mate_len = self.provider.contig_manager.get_length(&mate.chromosome);
+        let beyond = usize::try_from(mate.position).ok().zip(mate_len);
+        if mate.position < 1 || beyond.is_some_and(|(pos, len)| pos > len) {
+            return Ok(Vec::new());
+        }
+        let own = Piece {
+            chrom_acc,
+            pos: var.position,
+            forward: true,
+        };
+        // The joined piece reads forward if it extends right of the mate behind the kept left
+        // side, or ends at the mate in front of the kept right side, see `Mate::extends_right`.
+        let joined = Piece {
+            chrom_acc: mate_acc,
+            pos: mate.position,
+            forward: mate.extends_right == breakend.keeps_left,
+        };
+        let junction = if breakend.keeps_left {
+            Junction {
+                before: own,
+                after: joined,
+                deletion: false,
+            }
+        } else {
+            Junction {
+                before: joined,
+                after: own,
+                deletion: false,
+            }
+        };
+        self.junction_fusions(&[junction])
+    }
+
+    /// The fusions of transcripts of different genes at the two sides of each junction. A
+    /// transcript contributes its 5' part if it reads towards the junction in the piece before
+    /// it, and its 3' part if it reads away from the junction in the piece behind it. Two 5' or
+    /// two 3' parts joined are a bidirectional fusion; a 3' part joined to a 5' part is a
+    /// unidirectional fusion read the other way.
+    ///
+    /// Genes that are joined in the reference already are no fusion: a transcript that spans
+    /// both sides of a junction on one contig, e.g. of overlapping genes or a readthrough gene.
+    /// Genes are the same by HGNC ID where both have one, else by gene ID, so that transcripts
+    /// of one gene from several sources are no fusion either.
+    fn junction_fusions(&self, junctions: &[Junction]) -> Result<Vec<Fusion>, SeqvarsError> {
+        let same_gene = |a: &Transcript, b: &Transcript| match (&a.hgnc_id, &b.hgnc_id) {
+            (Some(hgnc_a), Some(hgnc_b)) => hgnc_a == hgnc_b,
+            _ => a.gene_id == b.gene_id,
+        };
+        let mut fusions = Vec::new();
+        for junction in junctions {
+            let before = self.transcripts_at(junction.before.chrom_acc, junction.before.pos)?;
+            let after = self.transcripts_at(junction.after.chrom_acc, junction.after.pos)?;
+            let one_contig = junction.before.chrom_acc == junction.after.chrom_acc;
+            let spans_both = |tx: &Transcript, other_side: &[(&Transcript, bool)]| {
+                one_contig && other_side.iter().any(|(other, _)| other.id == tx.id)
+            };
+            for (tx_a, plus_a) in &before {
+                for (tx_b, plus_b) in &after {
+                    if same_gene(tx_a, tx_b)
+                        || spans_both(tx_a, &after)
+                        || spans_both(tx_b, &before)
+                    {
+                        continue;
+                    }
+                    let five_prime_a = *plus_a == junction.before.forward;
+                    let three_prime_b = *plus_b == junction.after.forward;
+                    let (five, three) = if !five_prime_a && !three_prime_b {
+                        (tx_b, tx_a)
+                    } else {
+                        (tx_a, tx_b)
+                    };
+                    // The database writes `<MISSING>` for a gene without a symbol.
+                    let gene = |tx: &Transcript| {
+                        if tx.gene_symbol.is_empty() || tx.gene_symbol == "<MISSING>" {
+                            tx.gene_id.clone()
+                        } else {
+                            tx.gene_symbol.clone()
+                        }
+                    };
+                    fusions.push(Fusion {
+                        transcripts: (five.id.clone(), three.id.clone()),
+                        label: format!("{}::{}", gene(five), gene(three)),
+                        bidirectional: five_prime_a != three_prime_b,
+                        deletion: junction.deletion,
+                    });
+                }
+            }
+        }
+        Ok(fusions)
+    }
+
+    /// The transcripts whose span, from the first to the last exon, holds the 1-based base `pos`
+    /// of `chrom_acc`, with whether they lie on the plus strand.
+    fn transcripts_at(
+        &self,
+        chrom_acc: &str,
+        pos: i32,
+    ) -> Result<Vec<(&Transcript, bool)>, SeqvarsError> {
+        let records = self
+            .provider
+            .get_tx_for_region(chrom_acc, ALT_ALN_METHOD, pos - 1, pos)
+            .map_err(|e| SeqvarsError::Provider(e.to_string()))?;
+        let mut txs = (records.iter())
+            .filter_map(|record| {
+                Some((
+                    self.provider.get_tx(&record.tx_ac)?,
+                    record.alt_strand != -1,
+                ))
+            })
+            .collect_vec();
+        txs.sort_by(|(a, _), (b, _)| a.id.cmp(&b.id));
+        Ok(txs)
+    }
+
+    /// The fusion terms of each transcript that `fusions` join, by its ID: `gene_fusion` with
+    /// its direction, and `transcript_fusion` for a deletion.
+    fn fusion_terms(fusions: &[Fusion]) -> FxHashMap<&str, Consequences> {
+        let mut terms = FxHashMap::<&str, Consequences>::default();
+        for fusion in fusions {
+            let mut these = Consequences::from(Consequence::GeneFusion);
+            these |= if fusion.bidirectional {
+                Consequence::BidirectionalGeneFusion
+            } else {
+                Consequence::UnidirectionalGeneFusion
+            };
+            if fusion.deletion {
+                these |= Consequence::TranscriptFusion;
+            }
+            for tx in [&fusion.transcripts.0, &fusion.transcripts.1] {
+                *terms.entry(tx.as_str()).or_default() |= these;
+            }
+        }
+        terms
+    }
+
+    /// Add the fusion terms of its transcript from `fusion_terms` to `ann`, see `fusion_terms`.
+    fn apply_fusions(ann: &mut AnnField, fusion_terms: &FxHashMap<&str, Consequences>) {
+        let Some(mut terms) = fusion_terms.get(ann.feature_id.as_str()).copied() else {
+            return;
+        };
+        terms.extend(ann.consequences.iter().copied());
+        ann.consequences = terms.iter().collect();
+        ann.putative_impact = ann.consequences[0].into();
+    }
+
     /// The accession of the chromosome of `var`, or `None` with a warning.
     fn chrom_acc(&self, var: &VcfVariant) -> Option<&str> {
         let chrom_acc = self.provider.contig_manager.get_accession(&var.chromosome);
@@ -1440,7 +1700,8 @@ impl ConsequencePredictor {
     ///
     /// Without `protein`, the protein change is not projected, as for a change whose annotations
     /// drop `p.`. `adjust` changes each annotation to its final form, e.g. to the terms of a
-    /// structural variant, before the transcripts are picked by them and the plugins see them.
+    /// structural variant with its fusion terms, before the transcripts are picked by them and
+    /// the plugins see them.
     ///
     /// The callers run the plugins on the result, after `predict_sv` and `predict_breakend` have
     /// adjusted it, so that plugins see the annotations as they are output.
@@ -11670,9 +11931,11 @@ pub(crate) mod test {
                     end: i32::try_from(end)?,
                     imprecise: false,
                     intervals: (None, None),
+                    junction: true,
                 },
             )?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .anns;
 
         assert!(!explicit.is_empty());
         let shifted = explicit[0].hgvs_g != Some(format!("g.{start}_{end}del"));
@@ -11709,6 +11972,7 @@ pub(crate) mod test {
             end: i32::try_from(end).unwrap(),
             imprecise: false,
             intervals: (None, None),
+            junction: true,
         }
     }
 
@@ -11730,7 +11994,8 @@ pub(crate) mod test {
                 },
                 sv,
             )?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .anns;
         (anns.into_iter())
             .find(|ann| ann.feature_id == "NM_000001.1")
             .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1"))
@@ -11783,7 +12048,8 @@ pub(crate) mod test {
                 },
                 &precise_sv(SvKind::Duplication { tandem: true }, end),
             )?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .anns;
 
         assert!(!explicit.is_empty());
         assert_eq!(without_alleles(symbolic), without_alleles(explicit));
@@ -11889,7 +12155,8 @@ pub(crate) mod test {
                 },
                 &precise_sv(SvKind::Deletion, end as usize),
             )?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .anns;
 
         assert_eq!(explicit[0].hgvs_g.as_deref(), Some("g.1010_15000del"));
         assert!(
@@ -11978,7 +12245,8 @@ pub(crate) mod test {
                 },
                 &precise_sv(SvKind::Inversion, end),
             )?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .anns;
         let first_hgvs_g = symbolic.first().and_then(|ann| ann.hgvs_g.clone());
         if with_reference {
             assert_eq!(first_hgvs_g.as_deref(), hgvs_g);
@@ -12212,6 +12480,7 @@ pub(crate) mod test {
             end,
             imprecise: true,
             intervals,
+            junction: true,
         };
         let hgvs_g = match kind {
             SvKind::Insertion { .. } => "g.499_500insN",
@@ -12271,7 +12540,8 @@ pub(crate) mod test {
                 },
                 &precise_sv(SvKind::Duplication { tandem: false }, 1390),
             )?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .anns;
         let picked = (anns.iter())
             .map(|ann| (ann.feature_id.as_str(), ann.consequences.clone()))
             .collect::<Vec<_>>();
@@ -12312,11 +12582,13 @@ pub(crate) mod test {
                     end,
                     imprecise: false,
                     intervals: (None, None),
+                    junction: true,
                 },
             )
         };
+        let anns = |end| predict(end).map(|anns| anns.map(|anns| anns.anns));
 
-        assert_eq!(predict(end)?, predict(contig_end)?);
+        assert_eq!(anns(end)?, anns(contig_end)?);
         assert!(logs_contain(&format!(
             "the end {end} lies beyond the contig, which ends at {contig_end}"
         )));
@@ -12344,7 +12616,7 @@ pub(crate) mod test {
             end: i32::MAX,
             ..precise_sv(kind, 1)
         };
-        assert_eq!(predictor.predict_sv(&var, &sv)?, None);
+        assert!(predictor.predict_sv(&var, &sv)?.is_none());
         Ok(())
     }
 
@@ -12365,7 +12637,7 @@ pub(crate) mod test {
             alternative: "<DEL>".into(),
         };
         let anns = predictor.predict_sv(&var, &precise_sv(SvKind::Deletion, 1170))?;
-        assert_eq!(anns, Some(Vec::new()));
+        assert_eq!(anns.map(|anns| anns.anns), Some(Vec::new()));
         assert_eq!(*plugin.calls.lock().unwrap(), [0]);
         Ok(())
     }
@@ -12430,7 +12702,7 @@ pub(crate) mod test {
             alternative: alternative.into(),
         };
         let anns = predictor.predict_breakend(&var, &alternative.parse()?)?;
-        Ok(anns.unwrap_or_default())
+        Ok(anns.unwrap_or_default().anns)
     }
 
     /// A breakend inside the transcript loses the side that it does not keep, so it has the
@@ -12520,7 +12792,7 @@ pub(crate) mod test {
             alternative: alternative.into(),
         };
         assert_eq!(
-            predictor.predict_breakend(&var, &alternative.parse()?)?,
+            (predictor.predict_breakend(&var, &alternative.parse()?)?).map(|anns| anns.anns),
             Some(vec![])
         );
         assert_eq!(*plugin.calls.lock().unwrap(), [0]);
@@ -12651,7 +12923,9 @@ pub(crate) mod test {
             cipos,
             ..alternative.parse()?
         };
-        let anns = (predictor.predict_breakend(&var, &breakend)?).unwrap_or_default();
+        let anns = (predictor.predict_breakend(&var, &breakend)?)
+            .unwrap_or_default()
+            .anns;
         let precise = predict_breakend_at(&predictor, pos, alternative)?;
         let terms = |anns: &[AnnField]| {
             anns.iter()
@@ -12760,6 +13034,7 @@ pub(crate) mod test {
             end: 1180,
             imprecise,
             intervals: (None, None),
+            junction: true,
         });
         let breakend = alternative.parse::<Breakend>();
         let (anns, event) = match (&sv, &breakend) {
@@ -12773,7 +13048,7 @@ pub(crate) mod test {
             ),
             (None, Err(error)) => anyhow::bail!("{error}"),
         };
-        let anns = anns.unwrap_or_default();
+        let anns = anns.unwrap_or_default().anns;
 
         assert!(!anns.is_empty());
         for ann in &anns {
@@ -12788,6 +13063,249 @@ pub(crate) mod test {
                 Some(expected.as_str())
             );
         }
+        Ok(())
+    }
+
+    /// `tx` moved by `offset` bases on the genome, as transcript `id` of gene `gene`.
+    fn moved_tx(mut tx: Transcript, offset: i32, id: &str, gene: &str) -> Transcript {
+        tx.id = id.into();
+        tx.gene_symbol = gene.into();
+        tx.gene_id = gene.to_lowercase();
+        for alignment in &mut tx.genome_alignments {
+            alignment.cds_start = alignment.cds_start.map(|pos| pos + offset);
+            alignment.cds_end = alignment.cds_end.map(|pos| pos + offset);
+            for exon in &mut alignment.exons {
+                exon.alt_start_i += offset;
+                exon.alt_end_i += offset;
+            }
+        }
+        tx
+    }
+
+    /// `exons_tx(3, 20)` moved by `offset` as `NM_000002.1` of `GENE2`, on the minus strand if
+    /// `minus`.
+    fn gene2(offset: i32, minus: bool) -> Transcript {
+        let mut tx = moved_tx(exons_tx(3, 20).0, offset, "NM_000002.1", "GENE2");
+        if minus {
+            tx.genome_alignments[0].strand = Strand::Minus.into();
+        }
+        tx
+    }
+
+    /// `NM_000003.1` of the readthrough gene `GENE1-GENE2`, with the exons of `exons_tx(3, 20)`
+    /// and of `gene2(1000, false)`.
+    fn readthrough() -> Transcript {
+        let mut tx = moved_tx(exons_tx(3, 20).0, 0, "NM_000003.1", "GENE1-GENE2");
+        let exons = gene2(1000, false).genome_alignments[0].exons.clone();
+        tx.genome_alignments[0]
+            .exons
+            .extend((exons.into_iter()).map(|exon| ExonAlignment {
+                ord: exon.ord + 3,
+                ..exon
+            }));
+        tx
+    }
+
+    /// A junction joins genes that do not already span both of its sides, which genes that
+    /// overlap, a readthrough gene and a gene with its own transcripts do; a gene keeps its
+    /// identity across sources by its HGNC ID. `GENE1` is `exons_tx(3, 20)` at chr1:1001-1380 with
+    /// `HGNC:1`, the deletions run from `pos` + 1 to `end`. A deletion without bases has no
+    /// junction.
+    #[rstest::rstest]
+    #[case::same_strand_overlap(vec![gene2(200, false)], 1230, 1300, vec![])]
+    #[case::antisense_overlap(vec![gene2(200, true)], 1230, 1300, vec![])]
+    #[case::readthrough(vec![gene2(1000, false), readthrough()], 1070, 1100, vec![])]
+    #[case::readthrough_besides_fusion(vec![gene2(1000, false), readthrough()], 1299, 2100, vec!["GENE1::GENE2"])]
+    #[case::same_hgnc_id(vec![Transcript { hgnc_id: Some("HGNC:1".into()), ..gene2(1000, false) }], 1299, 2100, vec![])]
+    #[case::adjacent_genes(vec![gene2(380, false)], 1380, 1381, vec!["GENE1::GENE2"])]
+    #[case::deletion_without_bases(vec![gene2(380, false)], 1380, 1380, vec![])]
+    fn fusions_join_genes_anew(
+        #[case] others: Vec<Transcript>,
+        #[case] pos: i32,
+        #[case] end: i32,
+        #[case] expected: Vec<&str>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = exons_tx(3, 20);
+        let tx = Transcript {
+            hgnc_id: Some("HGNC:1".into()),
+            ..tx
+        };
+        let txs = std::iter::once(tx)
+            .chain(others)
+            .map(|tx| (tx, seq.clone()))
+            .collect();
+        let predictor = predictor_with_txs(txs, Default::default(), None);
+        let var = VcfVariant {
+            chromosome: "1".into(),
+            position: pos,
+            reference: "N".into(),
+            alternative: "<DEL>".into(),
+        };
+        let sv = precise_sv(SvKind::Deletion, usize::try_from(end)?);
+
+        let fusions = predictor.sv_fusions(&var, &sv)?;
+        let labels = (fusions.iter()).map(|f| f.label.as_str()).collect_vec();
+        assert_eq!(labels, expected);
+        Ok(())
+    }
+
+    /// `GENE1` as `exons_tx(3, 20)` at chr1:1001-1380 and `GENE2` as the same transcript at
+    /// chr1:2001-2380, with the genome: `three_exon_genome` for both, with `T` bases between.
+    fn two_gene_predictor(config: Config) -> (ConsequencePredictor, String) {
+        let (tx, seq) = exons_tx(3, 20);
+        let (tx_1, seq_1) = (tx.clone(), seq.clone());
+        let tx_2 = moved_tx(tx, 1000, "NM_000002.1", "GENE2");
+        let layout = three_exon_genome(&seq);
+        let genome = format!(
+            "{}{}{}{}",
+            &layout[..1380],
+            "T".repeat(620),
+            &layout[1000..1380],
+            "C".repeat(100)
+        );
+        let predictor = predictor_with_txs(vec![(tx_1, seq_1), (tx_2, seq)], config, None);
+        (predictor, genome)
+    }
+
+    /// The fusions of structural variants and breakends between `GENE1` and `GENE2`, both on the
+    /// plus strand, with the rows that get the terms: a deletion from intron 2 of `GENE1` into
+    /// intron 1 of `GENE2` reads `GENE1` into `GENE2`; the tandem dup of the same bases joins
+    /// the end of `GENE2`'s bases to the start of `GENE1`'s; the inversion joins the genes head
+    /// to head and tail to tail. The breakends are the junctions of these. A copy number call
+    /// claims no junction.
+    #[rstest::rstest]
+    #[case::deletion("<DEL>", 1299, 2100, vec![("NM_000001.1", "NM_000002.1", "GENE1::GENE2", false, true)])]
+    #[case::tandem_dup("<DUP:TANDEM>", 1299, 2100, vec![("NM_000002.1", "NM_000001.1", "GENE2::GENE1", false, false)])]
+    #[case::inversion("<INV>", 1299, 2100, vec![("NM_000001.1", "NM_000002.1", "GENE1::GENE2", true, false), ("NM_000001.1", "NM_000002.1", "GENE1::GENE2", true, false)])]
+    #[case::within_gene("<DEL>", 1099, 1300, vec![])]
+    #[case::into_intergenic("<DEL>", 1299, 1600, vec![])]
+    #[case::copy_elsewhere("<CNV>", 1299, 2100, vec![])]
+    #[case::abundance_deletion("<CN0>", 1299, 2100, vec![])]
+    #[case::left_kept_forward("T[1:2101[", 1299, 0, vec![("NM_000001.1", "NM_000002.1", "GENE1::GENE2", false, false)])]
+    #[case::left_kept_reversed("T]1:2100]", 1299, 0, vec![("NM_000001.1", "NM_000002.1", "GENE1::GENE2", true, false)])]
+    #[case::right_kept_forward("]1:1299]T", 2101, 0, vec![("NM_000001.1", "NM_000002.1", "GENE1::GENE2", false, false)])]
+    #[case::right_kept_reversed("[1:1300[T", 2101, 0, vec![("NM_000001.1", "NM_000002.1", "GENE1::GENE2", true, false)])]
+    #[case::single_breakend("T.", 1299, 0, vec![])]
+    fn fusions_of_junctions(
+        #[case] alternative: &str,
+        #[case] pos: i32,
+        #[case] end: i32,
+        #[case] expected: Vec<(&str, &str, &str, bool, bool)>,
+    ) -> Result<(), anyhow::Error> {
+        let config = ConfigBuilder::default()
+            .plugins(vec![Arc::new(SeenPlugin)])
+            .build()?;
+        let (predictor, genome) = two_gene_predictor(config);
+        let var = VcfVariant {
+            chromosome: "1".into(),
+            position: pos,
+            reference: genome[pos as usize - 1..pos as usize].into(),
+            alternative: alternative.into(),
+        };
+        let (fusions, annotations) = if let Ok(breakend) = alternative.parse::<Breakend>() {
+            (
+                predictor.breakend_fusions(&var, &breakend)?,
+                predictor.predict_breakend(&var, &breakend)?,
+            )
+        } else {
+            let info = SvInfo {
+                end: Some(end),
+                ..Default::default()
+            };
+            let sv = StructuralVariant::from_info(pos, alternative, &info)
+                .ok_or_else(|| anyhow::anyhow!("unsupported {alternative}"))?;
+            (
+                predictor.sv_fusions(&var, &sv)?,
+                predictor.predict_sv(&var, &sv)?,
+            )
+        };
+        let expected = (expected.into_iter())
+            .map(|(five, three, label, bidirectional, deletion)| Fusion {
+                transcripts: (five.into(), three.into()),
+                label: label.into(),
+                bidirectional,
+                deletion,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(fusions, expected);
+
+        // The rows get the terms before the plugins see them.
+        let annotations = annotations.unwrap_or_default();
+        let labels = (fusions.iter().map(|f| f.label.clone()))
+            .dedup()
+            .collect_vec();
+        assert_eq!(annotations.fusions, labels);
+        for ann in &annotations.anns {
+            let fused = (fusions.iter())
+                .any(|f| f.transcripts.0 == ann.feature_id || f.transcripts.1 == ann.feature_id);
+            let has = |csq| ann.consequences.contains(&csq);
+            assert_eq!(has(Consequence::GeneFusion), fused, "{ann:?}");
+            let seen = ann.custom_fields["seen"].as_deref().unwrap_or_default();
+            assert_eq!(seen.contains("GeneFusion"), fused, "{seen}");
+            if fused {
+                assert_eq!(
+                    ann.putative_impact,
+                    super::super::terms::PutativeImpact::High
+                );
+                assert_eq!(
+                    has(Consequence::TranscriptFusion),
+                    fusions.iter().any(|f| f.deletion),
+                    "{ann:?}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// `--pick` ranks the rows by their fusion terms: the deletion of chr1:1381-2100 fuses
+    /// `GENE1` and `GENE2`, but lies downstream of `GENE1`'s `NM_000001.1`, which stays the
+    /// picked transcript of `GENE1` over `NM_000003.1`, whose third intron holds the deletion:
+    /// its exon 3 ends at 1340, and exon 4 lies at 2301-2380. As `NM_000003.1` spans the whole
+    /// deletion, it fuses nothing.
+    #[test]
+    fn pick_ranks_fusion_terms() -> Result<(), anyhow::Error> {
+        let (tx, seq) = exons_tx(3, 20);
+        let gene1 = moved_tx(tx.clone(), 0, "NM_000001.1", "GENE1");
+        let mut longer = moved_tx(tx, 0, "NM_000003.1", "GENE1");
+        let exons = &mut longer.genome_alignments[0].exons;
+        exons[2] = ExonAlignment {
+            alt_end_i: 1340,
+            alt_cds_end_i: Some(140),
+            cigar: "20M".into(),
+            ..exons[2].clone()
+        };
+        exons.push(ExonAlignment {
+            alt_start_i: 2300,
+            alt_end_i: 2380,
+            ord: 3,
+            alt_cds_start_i: Some(141),
+            alt_cds_end_i: Some(220),
+            cigar: "80M".into(),
+        });
+        let config = ConfigBuilder::default()
+            .transcript_settings(TranscriptSettings::most_severe(PickUnit::Gene))
+            .build()?;
+        let txs = vec![
+            (gene1, seq.clone()),
+            (longer, format!("{}{}", &seq[..140], "CAGT".repeat(20))),
+            (gene2(1000, false), seq),
+        ];
+        let predictor = predictor_with_txs(txs, config, None);
+        let var = VcfVariant {
+            chromosome: "1".into(),
+            position: 1380,
+            reference: "N".into(),
+            alternative: "<DEL>".into(),
+        };
+
+        let annotations =
+            (predictor.predict_sv(&var, &precise_sv(SvKind::Deletion, 2100))?).unwrap_or_default();
+        assert_eq!(annotations.fusions, ["GENE1::GENE2"]);
+        let gene1 = (annotations.anns.iter())
+            .find(|ann| ann.gene_symbol == "GENE1")
+            .ok_or_else(|| anyhow::anyhow!("no row of GENE1"))?;
+        assert_eq!(gene1.feature_id, "NM_000001.1", "{gene1:?}");
+        assert_eq!(gene1.consequences[0], Consequence::GeneFusion, "{gene1:?}");
         Ok(())
     }
 

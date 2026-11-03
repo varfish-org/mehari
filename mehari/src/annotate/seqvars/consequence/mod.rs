@@ -281,6 +281,9 @@ pub struct StructuralVariant {
     /// The confidence intervals around `POS` and `end`, if given. On an imprecise allele, a
     /// missing one is unknown.
     pub intervals: (Option<ConfidenceInterval>, Option<ConfidenceInterval>),
+    /// Whether the call claims that its breakpoints are joined: an `SVCLAIM` with `J`, or no
+    /// `SVCLAIM` on an allele other than `<CNV>` and `<CN#>`, which claim abundance only.
+    pub junction: bool,
 }
 
 /// A confidence interval around a position as offsets `(min, max)`.
@@ -438,11 +441,17 @@ impl StructuralVariant {
         let intervals = (info.cipos, info.ciend.or(info.cipos));
         let imprecise =
             abundance_only || info.imprecise && intervals != (Some((0, 0)), Some((0, 0)));
+        let junction = match info.claim {
+            Some(SvClaim::Adjacency | SvClaim::Both) => true,
+            Some(SvClaim::Abundance) => false,
+            None => matches!(base, "DEL" | "DUP" | "INV" | "INS"),
+        };
         Some(Self {
             kind,
             end,
             imprecise,
             intervals,
+            junction,
         })
     }
 
@@ -546,6 +555,32 @@ pub struct Mate {
     /// Whether the joined piece runs from `position` to the end of the contig, as `[` says, else
     /// from the start of the contig to `position`.
     pub extends_right: bool,
+}
+
+/// Two transcripts of different genes that a junction of a structural variant joins, see
+/// `ConsequencePredictor::sv_fusions`.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Fusion {
+    /// The transcript whose 5' part the junction keeps and the one whose 3' part follows it, or
+    /// the transcripts before and behind a head-to-head or tail-to-tail junction on the joined
+    /// chromosome, as a bidirectional fusion has no 5' gene.
+    pub transcripts: (String, String),
+    /// The genes in the same order, as `GENE1::GENE2`, by symbol or else by ID.
+    pub label: String,
+    /// Whether the genes point into or away from each other on the joined chromosome, i.e. lie
+    /// on alternate strands of it, else they read in one direction.
+    pub bidirectional: bool,
+    /// Whether a deletion makes the junction.
+    pub deletion: bool,
+}
+
+/// The annotations of an allele, see `ConsequencePredictor::predict_with_info`.
+#[derive(Debug, Default, Clone)]
+pub struct Annotations {
+    /// One per reported transcript.
+    pub anns: Vec<terms::AnnField>,
+    /// The gene fusions of a structural variant or a breakend, sorted, see `Fusion::label`.
+    pub fusions: Vec<String>,
 }
 
 /// The bracket forms `t[p[`, `t]p]`, `]p]t` and `[p[t`, with `.` for t at a telomere, and the
@@ -737,7 +772,7 @@ impl<'a> fmt::Display for FormattedLoc<'a> {
 
 #[cfg(test)]
 mod test {
-    use super::{Breakend, Mate, load_tx_db};
+    use super::{Breakend, Mate, SvClaim, load_tx_db};
     use crate::pbs::txs::{SourceVersion, Transcript, TranscriptDb, TxSeqDatabase};
     use prost::Message;
     use temp_testdir::TempDir;
@@ -857,5 +892,30 @@ mod test {
     #[case::star("*")]
     fn malformed_breakend(#[case] alt: &str) {
         assert!(alt.parse::<Breakend>().is_err());
+    }
+
+    /// A call claims that its breakpoints are joined with `J` in `SVCLAIM`, or without
+    /// `SVCLAIM` unless it is a copy number allele.
+    #[rstest::rstest]
+    #[case::deletion("<DEL>", None, None, true)]
+    #[case::abundance_claim("<DEL>", Some(SvClaim::Abundance), None, false)]
+    #[case::both_claims("<DEL>", Some(SvClaim::Both), None, true)]
+    #[case::inversion("<INV>", None, None, true)]
+    #[case::cn0("<CN0>", None, None, false)]
+    #[case::cnv_lost("<CNV>", None, Some(0), false)]
+    fn junction_claim(
+        #[case] alt: &str,
+        #[case] claim: Option<SvClaim>,
+        #[case] copy_number: Option<i32>,
+        #[case] expected: bool,
+    ) {
+        let info = super::SvInfo {
+            end: Some(2000),
+            claim,
+            copy_number,
+            ..Default::default()
+        };
+        let sv = super::StructuralVariant::from_info(1000, alt, &info);
+        assert_eq!(sv.map(|sv| sv.junction), Some(expected));
     }
 }

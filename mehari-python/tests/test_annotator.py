@@ -369,6 +369,30 @@ def test_annotate_no_variant_of_its_own(annotator, alternative):
     assert result["annotation"] == []
 
 
+def test_annotate_reports_fusions(annotator):
+    """
+    A breakend that joins the 3' part of BRCA1 to the reversed 5' part of OPA1 fuses the genes,
+    in the result and in the column fusions of a DataFrame.
+    """
+    result = annotator.annotate("17:41215930:G:G]3:193360000]")
+
+    assert result["fusions"] == ["OPA1::BRCA1"]
+    assert "gene_fusion" in brca1(result["annotation"])["consequences"]
+    assert annotator.annotate("17:41197701:G:C")["fusions"] == []
+
+    df = pl.DataFrame(
+        {
+            "chromosome": ["17", "17"],
+            "position": [41197701, 41215930],
+            "reference": ["G", "G"],
+            "alternative": ["C", "G]3:193360000]"],
+        },
+        schema_overrides={"position": pl.Int32},
+    )
+    fusions = annotator.annotate(df).get_column("fusions").to_list()
+    assert fusions == [[], ["OPA1::BRCA1"]]
+
+
 def test_annotate_dataframe_with_structural_variants(annotator):
     """
     The optional columns end, sv_length, sv_claim and imprecise hold the INFO fields of

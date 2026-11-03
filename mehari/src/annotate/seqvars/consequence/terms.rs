@@ -58,7 +58,7 @@ pub enum PutativeImpact {
 
 /// Putative impact.
 #[bitflags]
-#[repr(u64)]
+#[repr(u128)]
 #[derive(
     Debug,
     PartialEq,
@@ -135,6 +135,21 @@ pub enum Consequence {
     /// SO:internal_feature_elongation
     InternalFeatureElongation,
 
+    /// "A sequence variant whereby a two genes have become joined."
+    /// SO:gene_fusion
+    GeneFusion,
+
+    /// "A sequence variant whereby two genes, on the same strand have become joined."
+    /// SO:unidirectional_gene_fusion
+    UnidirectionalGeneFusion,
+
+    /// "A sequence variant whereby two genes, on alternate strands have become joined."
+    /// SO:bidirectional_gene_fusion
+    BidirectionalGeneFusion,
+
+    /// "A feature fusion where the deletion brings together transcript regions."
+    /// SO:transcript_fusion
+    TranscriptFusion,
     /// "A partially_duplicated_transcript where the 5' end of the transcript is duplicated."
     /// SO:five_prime_duplicated_transcript
     FivePrimeDuplicatedTranscript,
@@ -371,7 +386,11 @@ impl From<Consequence> for PutativeImpact {
             | TranscriptAmplification
             | FeatureElongation
             | FeatureTruncation
-            | InternalFeatureElongation => PutativeImpact::High,
+            | InternalFeatureElongation
+            | GeneFusion
+            | UnidirectionalGeneFusion
+            | BidirectionalGeneFusion
+            | TranscriptFusion => PutativeImpact::High,
             // One intact copy of the transcript remains; the partial copy may give an
             // aberrant product.
             FivePrimeDuplicatedTranscript
