@@ -1128,8 +1128,13 @@ async fn run_with_writer(
 
                 batch_to_process
                     .into_par_iter()
-                    .map(|record| {
+                    .map(|mut record| {
                         let annotation = annotator_clone.annotate(&record)?;
+                        if with_annotations {
+                            // The header now describes mehari's `ANN`, so annotations from the
+                            // input must go, also for records that get no consequences.
+                            record.info_mut().as_mut().shift_remove("ANN");
+                        }
                         let annotated = AnnotatedVariant {
                             vcf: record,
                             annotation,
@@ -1869,6 +1874,82 @@ mod test {
             Some("mehari")
         );
 
+        Ok(())
+    }
+
+    /// Annotates a VCF whose `ANN` comes from another tool, and returns the record lines.
+    ///
+    /// The records have no transcript nearby, a variant in BRCA1, and a deletion allele.
+    async fn annotate_input_with_ann(sources: Sources) -> Result<Vec<String>, anyhow::Error> {
+        let temp = TempDir::default();
+        let path_in = temp.join("input.vcf");
+        let path_out = temp.join("output.vcf");
+        std::fs::write(
+            &path_in,
+            "##fileformat=VCFv4.2\n\
+             ##INFO=<ID=ANN,Number=.,Type=String,Description=\"Functional annotations: \
+             'Allele | Annotation'\">\n\
+             ##contig=<ID=17,length=81195210>\n\
+             #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+             17\t1000\t.\tA\tT\t.\t.\tANN=T|from_input\n\
+             17\t41215920\t.\tG\tT\t.\t.\tANN=T|from_input\n\
+             17\t41215921\t.\tG\t*\t.\t.\tANN=*|from_input\n",
+        )?;
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let args = Args {
+            threads: 1,
+            reference: None,
+            in_memory_reference: true,
+            assembly: Some("grch37".into()),
+            predictor_settings: PredictorSettings::default(),
+            input: path_in.into_os_string().into_string().unwrap(),
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
+            max_var_count: None,
+            sources,
+        };
+        run(&args_common, &args).await?;
+
+        Ok(std::fs::read_to_string(&args.output)?
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .map(String::from)
+            .collect())
+    }
+
+    /// The `ANN` header then describes mehari's columns, so no input annotation may remain.
+    #[tokio::test]
+    async fn input_ann_is_replaced_when_annotating_transcripts() -> Result<(), anyhow::Error> {
+        let records = annotate_input_with_ann(Sources {
+            transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
+            ..Default::default()
+        })
+        .await?;
+
+        assert_eq!(records.len(), 3);
+        assert!(!records[0].contains("ANN="), "{}", records[0]);
+        assert!(records[1].contains("ANN=T|"), "{}", records[1]);
+        assert!(!records[1].contains("from_input"), "{}", records[1]);
+        assert!(!records[2].contains("ANN="), "{}", records[2]);
+        Ok(())
+    }
+
+    /// Without transcripts, mehari leaves the `ANN` header and the annotations alone.
+    #[tokio::test]
+    async fn input_ann_is_kept_without_transcripts() -> Result<(), anyhow::Error> {
+        let records = annotate_input_with_ann(Sources {
+            frequencies: Some(vec!["tests/data/annotate/db/grch37/seqvars/freqs".into()]),
+            ..Default::default()
+        })
+        .await?;
+
+        assert_eq!(records.len(), 3);
+        for record in &records {
+            assert!(record.contains("from_input"), "{record}");
+        }
         Ok(())
     }
 
