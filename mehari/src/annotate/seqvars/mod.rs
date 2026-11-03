@@ -6,9 +6,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
-use self::consequence::terms::{ANN_KEY, AnnField};
+use self::consequence::terms::{ANN_KEY, AnnField, Message};
 use crate::annotate::cli::{PredictorSettings, Sources};
-use crate::annotate::seqvars::consequence::logic::ConsequencePredictor;
+use crate::annotate::seqvars::consequence::logic::{ConsequencePredictor, is_sequence_allele};
 use crate::common::contig::ContigManager;
 use crate::common::noodles::{NoodlesVariantReader, open_variant_reader, open_variant_writer};
 use crate::db::keys::Var;
@@ -856,8 +856,7 @@ impl Annotator {
             dbsnp: None,
         };
 
-        // Skip records with a deletion as alternative allele.
-        if vcf_var.alternative == "*" {
+        if !is_annotatable(vcf_record) {
             return Ok(annotation);
         }
 
@@ -1126,6 +1125,7 @@ async fn run_with_writer(
     let mut prev = Instant::now();
     let mut total_read = 0usize;
     let mut total_written = 0usize;
+    let mut total_unsupported = 0usize;
 
     writer.write_noodles_header(&header_out).await?;
 
@@ -1165,7 +1165,11 @@ async fn run_with_writer(
                         );
                         anyhow::bail!("multi-allelic records not supported");
                     }
-                    if let Some(provider) = &reference_provider
+                    if is_event(&vcf_record) {
+                        total_unsupported += 1;
+                    }
+                    if is_annotatable(&vcf_record)
+                        && let Some(provider) = &reference_provider
                         && ref_differs(provider, &vcf_record) == Some(true)
                     {
                         tracing::warn!(
@@ -1276,6 +1280,13 @@ async fn run_with_writer(
     );
     if let Some(predictor) = annotator.consequence_predictor() {
         predictor.log_restrict_summary();
+    }
+    if total_unsupported > 0 {
+        tracing::warn!(
+            "{} record(s) stay without annotations: symbolic alleles, breakends and records at \
+             position 0 are not supported",
+            total_unsupported.separate_with_commas()
+        );
     }
     writer.shutdown().await?;
     Ok(())
@@ -1627,13 +1638,26 @@ fn _source_from_source_enum(val: i32) -> String {
     }
 }
 
+/// Whether `record` can be annotated. Symbolic alleles, breakends and `*` have no bases, and
+/// position 0 lies in front of the first base of the contig.
+fn is_annotatable(record: &VcfRecord) -> bool {
+    record.variant_start().is_some()
+        && (record.alternate_bases().as_ref().iter()).all(|alt| is_sequence_allele(alt))
+}
+
+/// Whether `record` is a variant that cannot be annotated, unlike `*`, `<*>` and `<NON_REF>`, which
+/// are no variants of their own.
+fn is_event(record: &VcfRecord) -> bool {
+    !is_annotatable(record)
+        && !(record.alternate_bases().as_ref().iter())
+            .all(|alt| matches!(alt.as_str(), "*" | "<*>" | "<NON_REF>"))
+}
+
 /// Create for all alternate alleles from the given VCF record.
 pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usize) -> Var {
     let chrom = value.reference_sequence_name().to_string();
-    let pos: usize = value
-        .variant_start()
-        .expect("Telomeric breakends not supported")
-        .get();
+    // Position 0 lies in front of the first base of the contig, e.g., at a telomeric breakend.
+    let pos: usize = value.variant_start().map_or(0, |pos| pos.get());
     let pos = i32::try_from(pos).unwrap();
     let reference = value.reference_bases().to_string();
     Var {
@@ -1704,6 +1728,7 @@ impl VariantProcessor {
 
         if self.buffer.should_flush(&vcf_var.chrom, vcf_var.pos) {
             ready_records.extend(self.process_buffer_flush()?);
+            self.buffer.forget_events(&vcf_var.chrom, vcf_var.pos);
         }
         let csq_var = VcfVariant {
             chromosome: vcf_var.chrom,
@@ -1720,32 +1745,51 @@ impl VariantProcessor {
             );
         }
 
-        let (tx_accessions, min_start, max_end) =
-            if let Some(predictor) = self.annotator.consequence_predictor() {
-                consequence::get_transcript_boundaries(
-                    predictor,
-                    &csq_var.chromosome,
-                    csq_var.position,
-                    csq_var.reference.len(),
-                )
-            } else {
-                (std::collections::HashSet::new(), i32::MAX, -1)
-            };
+        // An event reaches its transcripts by its length, as it has no bases.
+        let event_end = is_event(&record).then(|| compound::event_end(&record, csq_var.position));
+        let len = event_end.map_or(csq_var.reference.len(), |end| {
+            (end - csq_var.position + 1) as usize
+        });
+        let (tx_accessions, min_start, max_end) = if let Some(predictor) =
+            self.annotator.consequence_predictor()
+            && (event_end.is_some() || is_annotatable(&record))
+        {
+            consequence::get_transcript_boundaries(
+                predictor,
+                &csq_var.chromosome,
+                csq_var.position,
+                len,
+            )
+        } else {
+            (std::collections::HashSet::new(), i32::MAX, -1)
+        };
 
         // Note: We don't support multi allelic records at the moment, so this is a constant 1.
         let alt_allele_idx = 1;
         // Currently, phasing is evaluated based on the first sample in the VCF only.
         let sample_idx = 0;
 
-        self.buffer.push(
-            csq_var,
-            record,
-            tx_accessions,
-            min_start,
-            max_end,
-            sample_idx,
-            alt_allele_idx,
-        );
+        if let Some(end) = event_end {
+            self.buffer.push_event(
+                csq_var,
+                record,
+                tx_accessions,
+                max_end,
+                end,
+                sample_idx,
+                alt_allele_idx,
+            );
+        } else {
+            self.buffer.push(
+                csq_var,
+                record,
+                tx_accessions,
+                min_start,
+                max_end,
+                sample_idx,
+                alt_allele_idx,
+            );
+        }
 
         Ok(ready_records)
     }
@@ -1755,6 +1799,7 @@ impl VariantProcessor {
     }
 
     fn process_buffer_flush(&mut self) -> anyhow::Result<Vec<AnnotatedVariant>> {
+        let mut incomplete = self.buffer.transcripts_with_events();
         let (variants, compound_groups) = self.buffer.flush();
         let predictor = self.annotator.consequence_predictor();
 
@@ -1802,12 +1847,29 @@ impl VariantProcessor {
                     // single-variant annotations.
                     Err(SeqvarsError::GroupValidation(e)) => {
                         tracing::warn!("Skipping compound variant {}: {}", group(), e);
+                        // The group forms on all transcripts that its variants share.
+                        for &i in &group_indices {
+                            let shared = (variants[i].tx_accessions.iter()).filter(|tx| {
+                                (group_indices.iter())
+                                    .all(|&j| variants[j].tx_accessions.contains(*tx))
+                            });
+                            incomplete[i].extend(shared.cloned());
+                        }
                     }
                     // Other errors, e.g. of a plugin, stop the run, as for single variants.
                     Err(e) => {
                         return Err(Error::from(e)
                             .context(format!("Failed to annotate compound variant {}", group())));
                     }
+                }
+            }
+        }
+
+        for (annotation, transcripts) in result_annotations.iter_mut().zip(&incomplete) {
+            for ann in &mut annotation.consequences {
+                if transcripts.contains(&ann.feature_id) {
+                    (ann.messages.get_or_insert_with(Vec::new))
+                        .push(Message::WarningCompoundIncomplete);
                 }
             }
         }
@@ -2047,6 +2109,213 @@ mod test {
             .lines()
             .map(String::from)
             .collect())
+    }
+
+    /// The message on rows of variants that were not evaluated with all their phased partners.
+    const INCOMPLETE: &str = "WARNING_COMPOUND_INCOMPLETE";
+
+    /// Two SNVs in BRCA1 that form a compound group, and records that cannot be annotated.
+    const RECORDS_WITHOUT_BASES: &str = "\
+        17\t0\ttelomere\tN\t.[13:32900000[\t.\t.\t.\tGT\t1/1\n\
+        17\t0\ttelomere_ins\tN\tNA\t.\t.\t.\tGT\t1/1\n\
+        17\t41197701\tsnv1\tG\tC\t.\t.\t.\tGT\t1/1\n\
+        17\t41197710\tdel\tN\t<DEL>\t.\t.\t.\tGT\t1/1\n\
+        17\t41215920\tsnv2\tG\tT\t.\t.\t.\tGT\t1/1\n\
+        17\t41215930\tbnd\tG\tG]13:32900000]\t.\t.\t.\tGT\t1/1\n\
+        17\t41215940\tstar\tG\t*\t.\t.\t.\tGT\t1/1\n\
+        17\t41215950\tany\tG\t<*>\t.\t.\t.\tGT\t1/1\n\
+        17\t41215960\tnon_ref\tG\t<NON_REF>\t.\t.\t.\tGT\t1/1\n";
+
+    /// Annotates `records`, and returns the ID and the `ANN` rows of each record.
+    async fn annotate_records(
+        records: &str,
+        compound: bool,
+    ) -> Result<Vec<(String, Vec<String>)>, anyhow::Error> {
+        let temp = TempDir::default();
+        let path_in = temp.join("input.vcf");
+        let path_out = temp.join("output.vcf");
+        std::fs::write(
+            &path_in,
+            format!(
+                "##fileformat=VCFv4.2\n\
+                 ##INFO=<ID=END,Number=1,Type=Integer,Description=\"End\">\n\
+                 ##INFO=<ID=SVLEN,Number=.,Type=Integer,Description=\"Length\">\n\
+                 ##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n\
+                 ##contig=<ID=13,length=115169878>\n\
+                 ##contig=<ID=17,length=81195210>\n\
+                 #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample\n\
+                 {records}"
+            ),
+        )?;
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let mut predictor_settings = PredictorSettings::default();
+        predictor_settings
+            .compound_settings
+            .enable_compound_variants = compound;
+        predictor_settings.compound_settings.phasing_strategy = PhasingStrategy::Strict;
+        let args = Args {
+            threads: 1,
+            reference: None,
+            in_memory_reference: true,
+            assembly: Some("grch37".into()),
+            predictor_settings,
+            input: path_in.into_os_string().into_string().unwrap(),
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
+            max_var_count: None,
+            ann_key: "ANN".into(),
+            sources: transcripts(),
+        };
+        run(&args_common, &args).await?;
+
+        Ok(std::fs::read_to_string(&args.output)?
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .map(|line| {
+                let fields = line.split('\t').collect::<Vec<_>>();
+                let rows = fields[7]
+                    .strip_prefix("ANN=")
+                    .map_or_else(Vec::new, |anns| anns.split(',').map(String::from).collect());
+                (fields[2].to_string(), rows)
+            })
+            .collect())
+    }
+
+    /// Records without bases stay in the output without annotations, also at position 0. Mehari
+    /// counts them in one warning, but not `*`, `<*>` and `<NON_REF>`, which are no variants of
+    /// their own.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn records_without_bases_pass_through() -> Result<(), anyhow::Error> {
+        let records = annotate_records(RECORDS_WITHOUT_BASES, false).await?;
+
+        let annotated = records
+            .iter()
+            .map(|(id, rows)| (id.as_str(), !rows.is_empty()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            annotated,
+            [
+                ("telomere", false),
+                ("telomere_ins", false),
+                ("snv1", true),
+                ("del", false),
+                ("snv2", true),
+                ("bnd", false),
+                ("star", false),
+                ("any", false),
+                ("non_ref", false),
+            ]
+        );
+        assert!(logs_contain(
+            "4 record(s) stay without annotations: symbolic alleles"
+        ));
+        // Without compound mode, nothing is evaluated together.
+        let rows = records.iter().flat_map(|(_, rows)| rows);
+        assert!(rows.into_iter().all(|row| !row.contains(INCOMPLETE)));
+        Ok(())
+    }
+
+    /// An event is not evaluated with the variants phased with it, but all their rows say so. The
+    /// other variants are still evaluated together.
+    #[tokio::test]
+    async fn phased_event_marks_rows_of_partners() -> Result<(), anyhow::Error> {
+        for (id, rows) in annotate_records(RECORDS_WITHOUT_BASES, true).await? {
+            if id.starts_with("snv") {
+                assert!(rows.iter().any(|row| row.contains("|comp_1|")), "{rows:?}");
+                assert!(rows.iter().all(|row| row.contains(INCOMPLETE)), "{rows:?}");
+            } else {
+                assert!(rows.is_empty(), "{id}: {rows:?}");
+            }
+        }
+        Ok(())
+    }
+
+    /// An event reaches the transcripts along its length, not only those at its position. The
+    /// event starts about 96 kb in front of BRCA1 at chr17:41196312.
+    #[rstest::rstest]
+    #[case::svlen_into_gene("SVLEN=-100000", true)]
+    #[case::svlen_short("SVLEN=-1000", false)]
+    #[case::end_into_gene("END=41200000", true)]
+    #[tokio::test]
+    async fn event_reaches_transcripts_by_length(
+        #[case] info: &str,
+        #[case] marked: bool,
+    ) -> Result<(), anyhow::Error> {
+        let records = format!(
+            "17\t41100000\tdel\tN\t<DEL>\t.\t.\t{info}\tGT\t1/1\n\
+             17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t1/1\n"
+        );
+        let records = annotate_records(&records, true).await?;
+        let rows = &records[1].1;
+        assert!(!rows.is_empty());
+        assert!(
+            rows.iter().all(|row| row.contains(INCOMPLETE) == marked),
+            "{rows:?}"
+        );
+        Ok(())
+    }
+
+    /// `*`, `<*>` and `<NON_REF>` are no events, so the group is complete without them.
+    #[tokio::test]
+    async fn no_variant_alleles_leave_groups_complete() -> Result<(), anyhow::Error> {
+        let records = "\
+            17\t41197701\tsnv1\tG\tC\t.\t.\t.\tGT\t1/1\n\
+            17\t41197710\tstar\tG\t*\t.\t.\t.\tGT\t1/1\n\
+            17\t41197720\tany\tG\t<*>\t.\t.\t.\tGT\t1/1\n\
+            17\t41197730\tnon_ref\tG\t<NON_REF>\t.\t.\t.\tGT\t1/1\n\
+            17\t41215920\tsnv2\tG\tT\t.\t.\t.\tGT\t1/1\n";
+        let records = annotate_records(records, true).await?;
+        let rows = records
+            .iter()
+            .flat_map(|(_, rows)| rows)
+            .collect::<Vec<_>>();
+        assert!(rows.iter().any(|row| row.contains("|comp_1|")), "{rows:?}");
+        assert!(rows.iter().all(|row| !row.contains(INCOMPLETE)), "{rows:?}");
+        Ok(())
+    }
+
+    /// Only an event on the same haplotype as a variant marks its rows. The SNV has `0|1`.
+    #[rstest::rstest]
+    #[case::unphased("0/1", false)]
+    #[case::other_haplotype("1|0", false)]
+    #[case::same_haplotype("0|1", true)]
+    #[case::homozygous("1/1", true)]
+    #[tokio::test]
+    async fn event_marks_rows_on_its_haplotype(
+        #[case] genotype: &str,
+        #[case] marked: bool,
+    ) -> Result<(), anyhow::Error> {
+        let records = format!(
+            "17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t0|1\n\
+             17\t41197710\tdel\tN\t<DEL>\t.\t.\tSVLEN=-50\tGT\t{genotype}\n"
+        );
+        let records = annotate_records(&records, true).await?;
+        let rows = &records[0].1;
+        assert!(!rows.is_empty());
+        assert!(
+            rows.iter().all(|row| row.contains(INCOMPLETE) == marked),
+            "{rows:?}"
+        );
+        Ok(())
+    }
+
+    /// A group that fails validation is not evaluated together, which the rows of its variants
+    /// say, not only the log. The deletion covers the SNV.
+    #[tokio::test]
+    async fn invalid_group_marks_rows() -> Result<(), anyhow::Error> {
+        let records = "\
+            17\t41197700\tdel\tAG\tA\t.\t.\t.\tGT\t1/1\n\
+            17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t1/1\n";
+        for (_, rows) in annotate_records(records, true).await? {
+            assert!(!rows.is_empty());
+            assert!(rows.iter().all(|row| !row.contains("|comp_")), "{rows:?}");
+            assert!(rows.iter().all(|row| row.contains(INCOMPLETE)), "{rows:?}");
+        }
+        Ok(())
     }
 
     fn transcripts() -> Sources {

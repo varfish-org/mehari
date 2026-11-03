@@ -936,6 +936,9 @@ pub enum Message {
     WarningTranscriptIncomplete,
     WarningTranscriptMultipleStopCodons,
     WarningTranscriptsNoStartCodon,
+    /// Compound mode did not evaluate this variant on this transcript together with all variants
+    /// on its haplotype, e.g., because one is a structural variant.
+    WarningCompoundIncomplete,
     InfoRealignThreePrime,
     InfoCompoundAnnotation,
     InfoNonReferenceAnnotation,

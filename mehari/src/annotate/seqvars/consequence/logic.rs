@@ -844,6 +844,11 @@ impl ConsequencePredictor {
     ///
     /// If there was any error during the prediction.
     pub fn predict(&self, var: &VcfVariant) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
+        // The text of a symbolic allele or breakend would end up in the HGVS descriptions.
+        if !is_sequence_allele(&var.alternative) {
+            return Ok(None);
+        }
+
         // Normalize variant by stripping common prefix and suffix. An `N` in ALT is one unknown
         // base, also an ALT of `N` alone.
         let norm_var = self.normalize_variant(var);
@@ -3567,6 +3572,10 @@ impl ConsequencePredictor {
         &self,
         variants: &[VcfVariant],
     ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
+        if !(variants.iter()).all(|var| is_sequence_allele(&var.alternative)) {
+            return Ok(None);
+        }
+
         // Run each input variant through single-variant normalization first. Like in `predict`,
         // a VCF indel then lies behind its first REF base, as the VCF specification defines.
         let normalized_variants: Vec<VcfVariant> =
@@ -4633,6 +4642,12 @@ fn vep_overlaps_stop_codon(var_g: &HgvsVariant, alignment: &GenomeAlignment) -> 
     end >= from && start <= to
 }
 
+/// Whether `alternative` lists bases, or none for a deletion, unlike a symbolic allele (`<DEL>`),
+/// a breakend (`G]13:123]`) and `*`.
+pub(crate) fn is_sequence_allele(alternative: &str) -> bool {
+    alternative.bytes().all(|base| base.is_ascii_alphabetic())
+}
+
 /// Whether `bases` hold only A, C, G and T in either case, as VEP's `seq_is_unambiguous_dna`
 /// checks.
 fn is_unambiguous(bases: &str) -> bool {
@@ -4901,6 +4916,36 @@ mod test {
             }],
             ..Default::default()
         }
+    }
+
+    /// Symbolic alleles, breakends and `*` have no bases. Their text must not end up in an HGVS
+    /// description, e.g., `g.100delins<DEL>`.
+    #[rstest::rstest]
+    #[case::deletion("<DEL>")]
+    #[case::mobile_element("<INS:ME:ALU>")]
+    #[case::non_ref("<NON_REF>")]
+    #[case::any_allele("<*>")]
+    #[case::spanning_deletion("*")]
+    #[case::breakend_behind("G]13:32900000]")]
+    #[case::breakend_in_front("[13:32900000[G")]
+    #[case::single_breakend("G.")]
+    fn no_annotations_without_bases(#[case] alternative: &str) -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
+        let predictor = ConsequencePredictor::new(provider, Default::default());
+        let var = |position: i32, alternative: &str| VcfVariant {
+            chromosome: "17".into(),
+            position,
+            reference: "G".into(),
+            alternative: alternative.into(),
+        };
+
+        let single = predictor.predict(&var(41197701, alternative))?;
+        assert!(single.is_none(), "{single:?}");
+        let group =
+            predictor.predict_multiple(&[var(41197701, alternative), var(41197720, "C")])?;
+        assert!(group.is_none(), "{group:?}");
+        Ok(())
     }
 
     /// Without a reference genome, mehari warns that HGVS descriptions may not be shifted and
