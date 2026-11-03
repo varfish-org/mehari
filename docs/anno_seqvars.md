@@ -92,6 +92,11 @@ The variant effect/consequence will be formatted similar to the one in, followin
 The `##INFO=<ID=ANN,...>` header line carries the VCF specification's `Source="mehari"` and `Version` (the mehari version) attributes, so that tools can tell it from SnpEff's `ANN` field.
 An `ANN` field in the input is therefore removed when annotating with transcripts, also for records that get no consequences, and mehari warns about this once per run.
 
+`--ann-key` writes the annotations to another INFO key, e.g. to keep the `ANN` field of another tool next to mehari's.
+Mehari then only removes and warns about an input field under that key.
+The key must match the pattern of the VCF specification, `^([A-Za-z_][0-9A-Za-z_.]*|1000G)$`.
+`mehari postprocess proteome` and `mehari postprocess varfish-seqvars` read `ANN` by default; pass them the same `--ann-key`.
+
 `Gene_ID` is the gene ID of the transcript's gene record in the annotation, with its version if it has one, e.g. `672` for BRCA1 in RefSeq or `ENSG00000182378.15` for PLCXD1 in GENCODE.
 `HGNC_ID`, which mehari adds after `Gene_ID`, is the HGNC ID of the gene, e.g. `HGNC:1100` for BRCA1, and empty for a gene without one.
 Mehari refuses a transcript database that predates annotation gene IDs, i.e., one in which no transcript has a gene ID.

@@ -1,5 +1,5 @@
 use crate::annotate::genotype_string;
-use crate::annotate::seqvars::consequence::terms::{AnnField, FeatureBiotype};
+use crate::annotate::seqvars::consequence::terms::{ANN_KEY, AnnField, FeatureBiotype};
 use crate::annotate::seqvars::{AnnotatedVariant, VariantAnnotation};
 use crate::common::TsvContigStyle;
 use crate::common::contig::ContigManager;
@@ -48,6 +48,10 @@ pub struct Args {
     /// Assembly to use.
     #[arg(long, required = true)]
     pub assembly: String,
+
+    /// INFO key to read the annotations from.
+    #[arg(long, default_value = ANN_KEY)]
+    pub ann_key: String,
 }
 
 pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyhow::Error> {
@@ -81,16 +85,24 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
     writer.write_header()?;
 
     // 4. Process Records Stream
-    let ann_names = AnnField::ann_field_names_from_header(&header);
+    let ann_key = &args.ann_key;
+    let ann_names = AnnField::ann_field_names_from_header(&header, ann_key);
+    if ann_names.is_none() {
+        tracing::warn!(
+            "The header has no field names for the INFO key {ann_key}, \
+            so the rows get no transcript annotations."
+        );
+    }
     let mut records = reader.records(&header).await;
     while let Some(record) = records.try_next().await? {
         // Parse ANN fields into the Sidecar
         let consequences =
             if let Some(Some(field::Value::Array(field::value::Array::String(arr)))) =
-                record.info().get("ANN")
+                record.info().get(ann_key)
             {
-                let names = (ann_names.as_deref())
-                    .context("ANN values, but no field names in the ANN header")?;
+                let names = (ann_names.as_deref()).with_context(|| {
+                    format!("{ann_key} values, but no field names in the {ann_key} header")
+                })?;
                 arr.iter()
                     .flatten()
                     .map(|s| AnnField::parse_named(s, names))
@@ -1144,13 +1156,85 @@ mod tests {
             .collect()
     }
 
-    /// The input is a VCF of an older mehari version, with the HGNC ID in `Gene_ID` and without
-    /// `HGNC_ID`, or the same VCF in the current layout. Both give the same rows.
-    #[rstest]
-    #[case::older_version(false)]
-    #[case::hgnc_id_field(true)]
+    /// `vcf` with its annotations under `key`, and an `ANN` from another tool that has none of
+    /// the fields that mehari writes.
+    fn with_ann_key(vcf: &str, key: &str) -> String {
+        vcf.lines()
+            .flat_map(|line| {
+                if line.starts_with("##INFO=<ID=ANN,") {
+                    vec![
+                        line.replace("ID=ANN,", &format!("ID={key},")),
+                        "##INFO=<ID=ANN,Number=.,Type=String,Description=\"Functional \
+                         annotations: 'Allele | Annotation'\">"
+                            .to_string(),
+                    ]
+                } else if line.starts_with('#') {
+                    vec![line.to_string()]
+                } else {
+                    let mut columns: Vec<_> = line.split('\t').map(String::from).collect();
+                    let info = columns[7].replace("ANN=", &format!("{key}="));
+                    columns[7] = format!("ANN=T|from_other_tool;{info}");
+                    vec![columns.join("\t")]
+                }
+            })
+            .map(|line| line + "\n")
+            .collect()
+    }
+
+    fn export_args(input: &Path, output: &Path, ann_key: &str) -> Args {
+        let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        Args {
+            input: input.display().to_string(),
+            pedigree: base_path
+                .join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped")
+                .display()
+                .to_string(),
+            output: output.display().to_string(),
+            hgnc: base_path
+                .join("tests/data/annotate/db/hgnc.tsv")
+                .display()
+                .to_string(),
+            tsv_contig_style: TsvContigStyle::Auto,
+            assembly: "GRCh38".to_string(),
+            ann_key: ann_key.to_string(),
+        }
+    }
+
+    /// A key that the VCF does not have gives rows without annotations, so it gets a warning.
     #[tokio::test]
-    async fn smoke_test_export_tsv(#[case] hgnc_id_field: bool) -> Result<(), anyhow::Error> {
+    #[tracing_test::traced_test]
+    async fn warns_about_unknown_ann_key() -> Result<(), anyhow::Error> {
+        let temp = TempDir::default();
+        let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.mehari.vcf");
+        let args = export_args(&input, &temp.join("output.tsv"), "MEHARI");
+
+        run(
+            &crate::common::Args {
+                verbose: Default::default(),
+            },
+            &args,
+        )
+        .await?;
+
+        assert!(logs_contain(
+            "The header has no field names for the INFO key MEHARI"
+        ));
+        Ok(())
+    }
+
+    /// The input is a VCF of an older mehari version, with the HGNC ID in `Gene_ID` and without
+    /// `HGNC_ID`, or the same VCF in the current layout, or with the annotations under another
+    /// key. All give the same rows.
+    #[rstest]
+    #[case::older_version(false, "ANN")]
+    #[case::hgnc_id_field(true, "ANN")]
+    #[case::other_key(false, "MEHARI")]
+    #[tokio::test]
+    async fn smoke_test_export_tsv(
+        #[case] hgnc_id_field: bool,
+        #[case] ann_key: &str,
+    ) -> Result<(), anyhow::Error> {
         let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
         let temp = TempDir::default();
@@ -1162,25 +1246,20 @@ mod tests {
             std::fs::write(&path, with_hgnc_id_field(&std::fs::read_to_string(&input)?))?;
             input = path;
         }
+        if ann_key != "ANN" {
+            let path = temp.join("input_with_ann_key.vcf");
+            std::fs::write(
+                &path,
+                with_ann_key(&std::fs::read_to_string(&input)?, ann_key),
+            )?;
+            input = path;
+        }
 
         let args_common = crate::common::Args {
             verbose: Default::default(),
         };
 
-        let args = Args {
-            input: input.display().to_string(),
-            pedigree: base_path
-                .join("tests/data/annotate/seqvars/brca2_zar1l/brca2_zar1l.ped")
-                .display()
-                .to_string(),
-            output: path_out.display().to_string(),
-            hgnc: base_path
-                .join("tests/data/annotate/db/hgnc.tsv")
-                .display()
-                .to_string(),
-            tsv_contig_style: TsvContigStyle::Auto,
-            assembly: "GRCh38".to_string(),
-        };
+        let args = export_args(&input, &path_out, ann_key);
 
         run(&args_common, &args).await?;
 

@@ -7027,6 +7027,7 @@ mod test {
                     ..Default::default()
                 },
                 max_var_count: None,
+                ann_key: "ANN".into(),
                 sources: crate::annotate::seqvars::Sources {
                     transcripts: Some(vec![tx_path.into()]),
                     frequencies: None,

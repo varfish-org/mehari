@@ -1,5 +1,5 @@
 use crate::annotate::seqvars::consequence::terms::{
-    ANN_AA_SEQ_ALT, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, AnnField,
+    ANN_AA_SEQ_ALT, ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS, ANN_KEY, AnnField,
 };
 use crate::common::noodles::NoodlesVariantReader;
 use anyhow::{Context, Error};
@@ -37,6 +37,10 @@ pub struct Args {
     /// Deduplication strategy for the FASTA output.
     #[arg(long, value_enum, default_value_t = DedupMode::None)]
     pub deduplicate: DedupMode,
+
+    /// INFO key to read the annotations from.
+    #[arg(long, default_value = ANN_KEY)]
+    pub ann_key: String,
 }
 
 struct ParsedEvent {
@@ -52,23 +56,25 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
     let mut reader = crate::common::noodles::open_variant_reader(&args.path_input_vcf).await?;
     let header = reader.read_header().await?;
 
-    let columns = AnnField::ann_field_names_from_header(&header)
-        .context("VCF has no field names in its INFO/ANN header. Was it processed by Mehari?")?;
+    let ann_key = &args.ann_key;
+    let columns = AnnField::ann_field_names_from_header(&header, ann_key).with_context(|| {
+        format!("VCF has no field names in its INFO/{ann_key} header. Was it processed by Mehari?")
+    })?;
 
     let aa_seq_idx = columns.iter().position(|c| c == ANN_AA_SEQ_ALT)
         .context(format!("VCF was not annotated with {ANN_AA_SEQ_ALT}. Please run 'annotate seqvars' with '--plugin aa-sequence-alt' first."))?;
     let feature_id_idx = columns
         .iter()
         .position(|c| c == "Feature_ID")
-        .context("Required column 'Feature_ID' not found in ANN header")?;
+        .with_context(|| format!("Required column 'Feature_ID' not found in {ann_key} header"))?;
     let gene_name_idx = columns
         .iter()
         .position(|c| c == "Gene_Name")
-        .context("Required column 'Gene_Name' not found in ANN header")?;
+        .with_context(|| format!("Required column 'Gene_Name' not found in {ann_key} header"))?;
     let hgvs_p_idx = columns
         .iter()
         .position(|c| c == "HGVS.p")
-        .context("Required column 'HGVS.p' not found in ANN header")?;
+        .with_context(|| format!("Required column 'HGVS.p' not found in {ann_key} header"))?;
 
     let group_id_idx = columns
         .iter()
@@ -98,7 +104,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
 
         if let Some(Some(Value::Array(
             vcf::variant::record_buf::info::field::value::Array::String(ann_array),
-        ))) = record.info().get("ANN")
+        ))) = record.info().get(ann_key)
         {
             for ann_str in ann_array.iter().flatten() {
                 let fields: Vec<&str> = ann_str.split('|').collect();
@@ -220,4 +226,60 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), Error
         args.deduplicate
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+    use temp_testdir::TempDir;
+
+    /// Only `MEHARI` has the protein sequence, so reading `ANN` finds none.
+    #[rstest]
+    #[case::chosen_key("MEHARI", true)]
+    #[case::other_field("ANN", false)]
+    #[tokio::test]
+    async fn reads_annotations_from_ann_key(
+        #[case] ann_key: &str,
+        #[case] finds_sequence: bool,
+    ) -> Result<(), Error> {
+        let temp = TempDir::default();
+        let path_in = temp.join("input.vcf");
+        let path_out = temp.join("output.fasta");
+        std::fs::write(
+            &path_in,
+            format!(
+                "##fileformat=VCFv4.2\n\
+                 ##INFO=<ID=ANN,Number=.,Type=String,Description=\"Functional annotations: \
+                 'Allele | Annotation'\">\n\
+                 ##INFO=<ID=MEHARI,Number=.,Type=String,Description=\"Functional annotations: \
+                 'Feature_ID | Gene_Name | HGVS.p | {ANN_AA_SEQ_ALT}'\">\n\
+                 ##contig=<ID=17,length=81195210>\n\
+                 #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                 17\t1000\t.\tA\tT\t.\t.\tANN=T|other_tool;MEHARI=NM_1|GENE|p.Ala2Thr|MTK\n"
+            ),
+        )?;
+
+        let result = run(
+            &crate::common::Args {
+                verbose: Default::default(),
+            },
+            &Args {
+                path_input_vcf: path_in.display().to_string(),
+                path_output_fasta: path_out.display().to_string(),
+                deduplicate: DedupMode::None,
+                ann_key: ann_key.to_string(),
+            },
+        )
+        .await;
+
+        assert_eq!(result.is_ok(), finds_sequence, "{result:?}");
+        if finds_sequence {
+            assert_eq!(
+                std::fs::read_to_string(&path_out)?,
+                ">GENE|NM_1 variant=p.Ala2Thr group=Single vars=17:1000:A:T\nMTK\n"
+            );
+        }
+        Ok(())
+    }
 }
