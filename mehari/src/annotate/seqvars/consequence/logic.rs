@@ -7,7 +7,7 @@ use super::terms::{
 };
 use crate::annotate::cli::HgvsParentheses;
 use crate::annotate::seqvars::consequence::{
-    Breakend, Config, Consequences, FormattedLoc, StructuralVariant, SvKind, VcfVariant,
+    Breakend, Config, Consequences, FormattedLoc, StructuralVariant, SvInfo, SvKind, VcfVariant,
 };
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
@@ -1268,6 +1268,22 @@ impl ConsequencePredictor {
         self.predict_g(
             var, &var_g, &var_g, &var_g, chrom_acc, true, true, lost_side, adjust,
         )
+    }
+
+    /// The annotations of `var`, also of a symbolic allele, with `info` from the INFO fields of
+    /// its record, see `predict_sv`, or of a breakend, see `predict_breakend`.
+    pub fn predict_with_info(
+        &self,
+        var: &VcfVariant,
+        info: &SvInfo,
+    ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
+        if let Some(sv) = StructuralVariant::from_info(var.position, &var.alternative, info) {
+            self.predict_sv(var, &sv)
+        } else if let Ok(breakend) = var.alternative.parse::<Breakend>() {
+            self.predict_breakend(var, &breakend)
+        } else {
+            self.predict(var)
+        }
     }
 
     /// The g. description of `breakend` at `pos` on a contig of `length` bases, after the

@@ -1,5 +1,6 @@
 use crate::annotate::cli::PhasingStrategy;
 use crate::annotate::seqvars::consequence::logic::PADDING;
+use crate::annotate::seqvars::consequence::span_end;
 use noodles::vcf::variant::RecordBuf;
 use noodles::vcf::variant::record::info::field::key::{END_POSITION, SV_LENGTHS};
 use noodles::vcf::variant::record_buf::info::field::Value as InfoValue;
@@ -88,7 +89,7 @@ pub(crate) fn string(record: &RecordBuf, key: &str) -> Option<String> {
 
 /// The value of the INFO field `key` of `record`, if it is one integer. Files without a header
 /// line for `key` give a string below VCF 4.3.
-fn integer(record: &RecordBuf, key: &str) -> Option<i32> {
+pub(crate) fn integer(record: &RecordBuf, key: &str) -> Option<i32> {
     match record.info().get(key).flatten() {
         Some(InfoValue::Integer(value)) => Some(*value),
         Some(InfoValue::String(value)) => value.parse().ok(),
@@ -113,10 +114,7 @@ pub fn event_end(record: &RecordBuf, pos: i32) -> i32 {
     if !spans_bases {
         return pos;
     }
-    if let Some(len) = sv_length(record).filter(|&len| len != 0) {
-        return pos.saturating_add(len.saturating_abs());
-    }
-    integer(record, END_POSITION).map_or(pos, |end| pos.max(end))
+    span_end(pos, sv_length(record), integer(record, END_POSITION))
 }
 
 /// Sliding window buffer that accumulates variants and groups them by transcript and phasing.

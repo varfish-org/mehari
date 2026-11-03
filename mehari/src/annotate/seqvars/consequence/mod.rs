@@ -332,6 +332,129 @@ pub enum SvType {
     Other(String),
 }
 
+/// The INFO fields of the record of a symbolic allele that `StructuralVariant::from_info` reads.
+#[derive(Debug, Default, Clone)]
+pub struct SvInfo {
+    /// `END`: the last base of the longest allele of the record.
+    pub end: Option<i32>,
+    /// `SVLEN` of the allele.
+    pub sv_length: Option<i32>,
+    /// `SVTYPE`, which a custom allele counts as.
+    pub sv_type: Option<SvType>,
+    /// `SVCLAIM`.
+    pub claim: Option<SvClaim>,
+    /// `CN` of a `<CNV>`.
+    pub copy_number: Option<i32>,
+    /// `CIPOS` as offsets `(min, max)`.
+    pub cipos: Option<(i32, i32)>,
+    /// `CIEND` as offsets `(min, max)`; `CIPOS` counts if it is unset.
+    pub ciend: Option<(i32, i32)>,
+    /// `IMPRECISE`.
+    pub imprecise: bool,
+}
+
+impl StructuralVariant {
+    /// The structural variant of the symbolic allele `alt` at `pos` with the INFO fields `info`,
+    /// if the allele is supported, with its last base from `SVLEN` or `END`, see `span_end`. As in
+    /// VCF 4.5, a `<DEL>` or `<DUP>` with a claim of abundance only (`SVCLAIM=D`) is a copy number
+    /// call with uncertain breakpoints, and so is a `<CNV>` with `CN`, the copy number of the
+    /// allele: with 0 copies one of a deletion, with 2 or more one of a duplication, and with 1
+    /// no variant (`None`, as VCF 4.5 treats it like `GT=0`). So are `<CN0>`, `<CN1>` and
+    /// `<CN2>`, as older files write them. `<CNV>` without `CN` has no direction. `<CNV:TR>`, a
+    /// copy number of tandem repeats, is not supported. An `<INS>` of no bases has an unknown
+    /// length. Without `CIPOS`, `POS` is precise, and `CIEND` defaults to `CIPOS`; a precise
+    /// allele of an `IMPRECISE` record has intervals of 0.
+    pub fn from_info(pos: i32, alt: &str, info: &SvInfo) -> Option<Self> {
+        let mut parts = alt.strip_prefix('<')?.strip_suffix('>')?.split(':');
+        let (base, subtype) = (parts.next()?, parts.next());
+
+        // A custom allele, which `##ALT` declares, counts as its `SVTYPE` if that is the type of
+        // a symbolic allele.
+        let base = match base {
+            "DEL" | "DUP" | "INV" | "INS" | "CNV" => base,
+            _ if base
+                .strip_prefix("CN")
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) =>
+            {
+                base
+            }
+            _ => match info.sv_type.as_ref()? {
+                SvType::Del => "DEL",
+                SvType::Ins => "INS",
+                SvType::Dup => "DUP",
+                SvType::Inv => "INV",
+                SvType::Cnv => "CNV",
+                SvType::Bnd | SvType::Other(_) => return None,
+            },
+        };
+        let abundance_only = info.claim == Some(SvClaim::Abundance);
+        let copy_number = |copies: Option<i32>| match copies {
+            Some(0) => SvKind::Deletion,
+            Some(copies) if copies >= 2 => SvKind::Duplication { tandem: false },
+            _ => SvKind::CopyNumberChange,
+        };
+        let (kind, abundance_only) = match base {
+            "CNV" if subtype == Some("TR") => return None,
+            "CNV" if info.copy_number == Some(1) => return None,
+            "DEL" => (SvKind::Deletion, abundance_only),
+            "DUP" => {
+                let tandem = match info.claim {
+                    Some(SvClaim::Adjacency | SvClaim::Both) => true,
+                    Some(SvClaim::Abundance) => false,
+                    None => subtype == Some("TANDEM"),
+                };
+                (SvKind::Duplication { tandem }, abundance_only)
+            }
+            "INV" => (SvKind::Inversion, false),
+            "INS" => (
+                SvKind::Insertion {
+                    length: (info.sv_length.map(i32::saturating_abs)).filter(|&length| length > 0),
+                },
+                false,
+            ),
+            "CNV" => (copy_number(info.copy_number), true),
+            _ => {
+                let copies = base.strip_prefix("CN")?.parse().ok()?;
+                if copies == 1 {
+                    return None;
+                }
+                (copy_number(Some(copies)), true)
+            }
+        };
+        let end = match kind {
+            SvKind::Insertion { .. } => pos,
+            _ => span_end(pos, info.sv_length, info.end),
+        };
+        if end == pos && !matches!(kind, SvKind::Insertion { .. }) {
+            return None;
+        }
+        // `CIEND` defaults to `CIPOS`. As in VCF 4.5, `IMPRECISE` makes the breakpoints
+        // uncertain, unless both intervals are 0, as for a precise allele of the record, and a
+        // missing `CIPOS` is unknown. Without `IMPRECISE`, the intervals give the micro-homology
+        // of a precise call.
+        let intervals = (info.cipos, info.ciend.or(info.cipos));
+        let imprecise =
+            abundance_only || info.imprecise && intervals != (Some((0, 0)), Some((0, 0)));
+        Some(Self {
+            kind,
+            end,
+            imprecise,
+            intervals,
+        })
+    }
+}
+
+/// The last base of a symbolic allele at `pos` that spans bases. The own `SVLEN` of an allele
+/// decides, as in VCF 4.5, else `END`, see `compound::event_end`. An `SVLEN` of 0 is the length
+/// difference of VCF 4.3 and earlier, e.g. of an `<INV>`, so `END` decides.
+pub fn span_end(pos: i32, sv_length: Option<i32>, end: Option<i32>) -> i32 {
+    match (sv_length, end) {
+        (Some(len), _) if len != 0 => pos.saturating_add(len.saturating_abs()),
+        (_, Some(end)) => pos.max(end),
+        (_, None) => pos,
+    }
+}
+
 /// A breakend from its ALT, e.g. `G]17:198982]` (VCF 4.5): the base at `POS` joins a piece of
 /// the mate contig, with the bases `inserted` between them.
 #[derive(Debug, PartialEq, Eq, Clone)]
