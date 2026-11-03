@@ -20,7 +20,7 @@ use anyhow::Error;
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use clinvar::{ClinvarAnnotator, ClinvarResult};
-use consequence::{ConsequenceAnnotator, VcfVariant};
+use consequence::{ConsequenceAnnotator, StructuralVariant, SvKind, VcfVariant};
 use frequency::{FreqResult, FrequencyAnnotator};
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -35,6 +35,7 @@ use noodles::vcf::variant::io::Write as VcfWrite;
 use noodles::vcf::variant::record::AlternateBases;
 use noodles::vcf::variant::record_buf::info::field;
 use noodles::vcf::{Header as VcfHeader, header::record::value::map::Map};
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use thousands::Separable;
@@ -856,6 +857,19 @@ impl Annotator {
             dbsnp: None,
         };
 
+        // A structural variant gets consequences only: the databases hold no symbolic alleles.
+        if let Some(sv) = structural_variant(vcf_record) {
+            if let Some(predictor) = self.consequence_predictor() {
+                let var = VcfVariant {
+                    chromosome: vcf_var.chrom,
+                    position: vcf_var.pos,
+                    reference: vcf_var.reference,
+                    alternative: vcf_var.alternative,
+                };
+                annotation.consequences = predictor.predict_sv(&var, &sv)?.unwrap_or_default();
+            }
+            return Ok(annotation);
+        }
         if !is_annotatable(vcf_record) {
             return Ok(annotation);
         }
@@ -1165,7 +1179,7 @@ async fn run_with_writer(
                         );
                         anyhow::bail!("multi-allelic records not supported");
                     }
-                    if is_event(&vcf_record) {
+                    if is_event(&vcf_record) && structural_variant(&vcf_record).is_none() {
                         total_unsupported += 1;
                     }
                     if is_annotatable(&vcf_record)
@@ -1283,8 +1297,8 @@ async fn run_with_writer(
     }
     if total_unsupported > 0 {
         tracing::warn!(
-            "{} record(s) stay without annotations: symbolic alleles, breakends and records at \
-             position 0 are not supported",
+            "{} record(s) stay without annotations: breakends, records at position 0 and \
+             symbolic alleles other than <DEL> with SVLEN or END are not supported",
             total_unsupported.separate_with_commas()
         );
     }
@@ -1645,12 +1659,42 @@ fn is_annotatable(record: &VcfRecord) -> bool {
         && (record.alternate_bases().as_ref().iter()).all(|alt| is_sequence_allele(alt))
 }
 
-/// Whether `record` is a variant that cannot be annotated, unlike `*`, `<*>` and `<NON_REF>`, which
-/// are no variants of their own.
+/// Whether `record` is a variant without bases, which is not evaluated together with others,
+/// unlike `*`, `<*>` and `<NON_REF>`, which are no variants of their own.
 fn is_event(record: &VcfRecord) -> bool {
     !is_annotatable(record)
         && !(record.alternate_bases().as_ref().iter())
             .all(|alt| matches!(alt.as_str(), "*" | "<*>" | "<NON_REF>"))
+}
+
+/// The structural variant of `record`, if its symbolic allele is supported: `<DEL>` and its
+/// subtypes, with the last deleted base from `SVLEN` or `END`, see `compound::event_end`.
+fn structural_variant(record: &VcfRecord) -> Option<StructuralVariant> {
+    let pos = i32::try_from(record.variant_start()?.get()).ok()?;
+    let [alt] = record.alternate_bases().as_ref() else {
+        return None;
+    };
+    let kind = match alt
+        .strip_prefix('<')?
+        .strip_suffix('>')?
+        .split(':')
+        .next()?
+    {
+        "DEL" => SvKind::Deletion,
+        _ => return None,
+    };
+    let end = compound::event_end(record, pos);
+    (end > pos).then_some(StructuralVariant { kind, end })
+}
+
+/// The key of the annotation of `var` from `record` in `VariantProcessor`. Two events at one
+/// position with one allele can differ in their end.
+fn annotation_key(var: &VcfVariant, record: &VcfRecord) -> String {
+    if is_event(record) {
+        format!("{var}:{}", compound::event_end(record, var.position))
+    } else {
+        var.to_string()
+    }
 }
 
 /// Create for all alternate alleles from the given VCF record.
@@ -1699,7 +1743,9 @@ impl AnnotatedVariant {
 struct VariantProcessor {
     annotator: Arc<Annotator>,
     buffer: crate::annotate::seqvars::compound::VariantBuffer,
-    annotations: std::collections::HashMap<String, VariantAnnotation>,
+    /// The annotations of the variants in `buffer` by `annotation_key`, in input order, as
+    /// records at one position can have the same key.
+    annotations: FxHashMap<String, std::collections::VecDeque<VariantAnnotation>>,
 }
 
 impl VariantProcessor {
@@ -1736,17 +1782,27 @@ impl VariantProcessor {
             reference: vcf_var.reference,
             alternative: vcf_var.alternative,
         };
-        let key = csq_var.to_string();
-        if self.annotations.insert(key.clone(), annotation).is_some() {
-            tracing::warn!(
-                "Duplicate SPDI detected in annotation buffer: {}; \
-                 the earlier annotation was overwritten.",
-                key
-            );
-        }
+        // Note: We don't support multi allelic records at the moment, so this is a constant 1.
+        let alt_allele_idx = 1;
+        // Currently, phasing is evaluated based on the first sample in the VCF only.
+        let sample_idx = 0;
 
         // An event reaches its transcripts by its length, as it has no bases.
         let event_end = is_event(&record).then(|| compound::event_end(&record, csq_var.position));
+        // An event is never evaluated together with the variants on its haplotype, which all
+        // its rows say, see `VariantBuffer::push_event`.
+        let mut annotation = annotation;
+        if event_end.is_some() && self.buffer.is_phased(&record, sample_idx, alt_allele_idx) {
+            for ann in &mut annotation.consequences {
+                (ann.messages.get_or_insert_with(Vec::new))
+                    .push(Message::WarningCompoundIncomplete);
+            }
+        }
+        (self.annotations)
+            .entry(annotation_key(&csq_var, &record))
+            .or_default()
+            .push_back(annotation);
+
         let len = event_end.map_or(csq_var.reference.len(), |end| {
             (end - csq_var.position + 1) as usize
         });
@@ -1763,11 +1819,6 @@ impl VariantProcessor {
         } else {
             (std::collections::HashSet::new(), i32::MAX, -1)
         };
-
-        // Note: We don't support multi allelic records at the moment, so this is a constant 1.
-        let alt_allele_idx = 1;
-        // Currently, phasing is evaluated based on the first sample in the VCF only.
-        let sample_idx = 0;
 
         if let Some(end) = event_end {
             self.buffer.push_event(
@@ -1803,11 +1854,12 @@ impl VariantProcessor {
         let (variants, compound_groups) = self.buffer.flush();
         let predictor = self.annotator.consequence_predictor();
 
+        let mut annotations = std::mem::take(&mut self.annotations);
         let mut result_annotations: Vec<VariantAnnotation> = variants
             .iter()
             .map(|b| {
-                self.annotations
-                    .remove(&b.vcf_var.to_string())
+                (annotations.get_mut(&annotation_key(&b.vcf_var, &b.record)))
+                    .and_then(std::collections::VecDeque::pop_front)
                     .unwrap_or_else(|| VariantAnnotation {
                         consequences: vec![],
                         frequencies: None,
@@ -2176,8 +2228,8 @@ mod test {
             .filter(|line| !line.starts_with('#'))
             .map(|line| {
                 let fields = line.split('\t').collect::<Vec<_>>();
-                let rows = fields[7]
-                    .strip_prefix("ANN=")
+                let rows = (fields[7].split(';'))
+                    .find_map(|info| info.strip_prefix("ANN="))
                     .map_or_else(Vec::new, |anns| anns.split(',').map(String::from).collect());
                 (fields[2].to_string(), rows)
             })
@@ -2211,7 +2263,7 @@ mod test {
             ]
         );
         assert!(logs_contain(
-            "4 record(s) stay without annotations: symbolic alleles"
+            "4 record(s) stay without annotations: breakends"
         ));
         // Without compound mode, nothing is evaluated together.
         let rows = records.iter().flat_map(|(_, rows)| rows);
@@ -2231,6 +2283,76 @@ mod test {
                 assert!(rows.is_empty(), "{id}: {rows:?}");
             }
         }
+        Ok(())
+    }
+
+    /// A `<DEL>` with its length is annotated as the deletion of its bases. In compound mode, its
+    /// rows say that it was not evaluated with the variants on its haplotype, as the rows of
+    /// those variants do.
+    #[rstest::rstest]
+    #[case::phased("0|1", true)]
+    #[case::unphased("0/1", false)]
+    #[tokio::test]
+    async fn symbolic_deletion_is_annotated(
+        #[case] genotype: &str,
+        #[case] marked: bool,
+    ) -> Result<(), anyhow::Error> {
+        let records = format!(
+            "17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t0|1\n\
+             17\t41197710\tdel\tN\t<DEL>\t.\t.\tSVLEN=-50\tGT\t{genotype}\n"
+        );
+        let records = annotate_records(&records, true).await?;
+        let (snv, del) = (&records[0].1, &records[1].1);
+        assert!(
+            del.iter().any(
+                |row| row.starts_with("<DEL>|3_prime_UTR_exon_variant|MODIFIER|BRCA1|")
+                    && row.contains("|g.41197711_41197760del|")
+            ),
+            "{del:?}"
+        );
+        assert!(
+            del.iter().all(|row| row.contains(INCOMPLETE) == marked),
+            "{del:?}"
+        );
+        assert!(
+            snv.iter().all(|row| row.contains(INCOMPLETE) == marked),
+            "{snv:?}"
+        );
+        Ok(())
+    }
+
+    /// Two `<DEL>` of one length at one position keep their own rows in compound mode: only the
+    /// phased one was not evaluated with the variants on its haplotype.
+    #[tokio::test]
+    async fn symbolic_deletions_at_one_position() -> Result<(), anyhow::Error> {
+        let records = "17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t0|1\n\
+                       17\t41197710\tphased\tN\t<DEL>\t.\t.\tSVLEN=-50\tGT\t0|1\n\
+                       17\t41197710\tunphased\tN\t<DEL>\t.\t.\tSVLEN=-50\tGT\t0/1\n";
+        let records = annotate_records(records, true).await?;
+        for (id, rows) in &records[1..] {
+            let marked = id == "phased";
+            assert!(!rows.is_empty(), "{id}");
+            assert!(
+                rows.iter().all(|row| row.contains(INCOMPLETE) == marked),
+                "{id}: {rows:?}"
+            );
+        }
+        Ok(())
+    }
+
+    /// A `<DEL>` with the largest END ends at the end of the contig, also in compound mode.
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn symbolic_deletion_with_largest_end(
+        #[values(false, true)] compound: bool,
+    ) -> Result<(), anyhow::Error> {
+        let records = "17\t41197710\tdel\tN\t<DEL>\t.\t.\tEND=2147483647\tGT\t0|1\n";
+        let rows = &annotate_records(records, compound).await?[0].1;
+        assert!(
+            rows.iter()
+                .any(|row| row.contains("|g.41197711_81195210del|")),
+            "{rows:?}"
+        );
         Ok(())
     }
 

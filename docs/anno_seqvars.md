@@ -14,7 +14,9 @@ In a VCF file, this will typically look as follows:
 In the literature, there generally is made a distinction between sequence (or: small) variants and structural variants.
 There, small variants are those affecting up to 50bp while structural variants are those that are larger.
 Mehari does not enforce such a restriction but attempt to annotate all variants based on their VCF representation (chromosome, 1-based position, reference base and alternative bases).
-Records with a symbolic allele (e.g., `<DEL>`), a breakend, or at position 0 have no such representation: they stay in the output without annotations, and Mehari warns about their number.
+A `<DEL>` record is annotated like the deletion of the bases behind `POS` up to `SVLEN` or `END` (the `SVLEN` of the allele counts first, as in VCF 4.5).
+A deletion that reaches beyond the contig ends at its last base, with a warning.
+Records with another symbolic allele, a breakend, or at position 0 have no such representation: they stay in the output without annotations, and Mehari warns about their number.
 You can find the VCF variant specification [here on Github](https://samtools.github.io/hts-specs/).
 
 ## Sequence Variant Annotation
@@ -86,7 +88,7 @@ You can enable this behavior by passing the `--enable-compound-variants` flag.
 The evaluation strategy can be managed via `--phasing-strategy` (options include `strict` [default], `relaxed`, or `ignore`).
 `--compound-window-size` sets the maximum distance in bp between neighbouring variants of a group (unlimited if not set; a good value for peptide analyses is 33).
 
-A variant without bases, e.g., a structural variant or a breakend, is not evaluated together with others. If it shares a haplotype with a variant on a transcript, all annotations of that variant on that transcript get the message `WARNING_COMPOUND_INCOMPLETE`. So do the annotations of variants in a group that fails validation.
+A variant without bases, e.g., a structural variant or a breakend, is not evaluated together with others. If it shares a haplotype with a variant on a transcript, all annotations of that variant on that transcript get the message `WARNING_COMPOUND_INCOMPLETE`, as do its own annotations. So do the annotations of variants in a group that fails validation.
 
 ## Interpreting Annotation Output
 

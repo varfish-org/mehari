@@ -248,7 +248,7 @@ pub fn get_transcript_boundaries(
             chrom,
             logic::ALT_ALN_METHOD,
             pos - logic::PADDING,
-            pos + ref_len as i32 + logic::PADDING,
+            (pos.saturating_add(ref_len as i32)).saturating_add(logic::PADDING),
         )
         .unwrap_or_default();
 
@@ -265,6 +265,22 @@ pub fn get_transcript_boundaries(
     }
 
     (accessions, min_start, max_end)
+}
+
+/// A structural variant from a symbolic allele such as `<DEL>`, which has no bases. The
+/// `VcfVariant` of its record holds the padding base at `POS`, the base in front of the change.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct StructuralVariant {
+    pub kind: SvKind,
+    /// 1-based position of the last changed base.
+    pub end: i32,
+}
+
+/// The type of a `StructuralVariant`.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum SvKind {
+    /// `<DEL>` and its subtypes, e.g. `<DEL:ME:ALU>`.
+    Deletion,
 }
 
 /// A variant description how VCF would do it.

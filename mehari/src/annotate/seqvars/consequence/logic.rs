@@ -6,7 +6,9 @@ use super::terms::{
     Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, Rank, SoFeature,
 };
 use crate::annotate::cli::HgvsParentheses;
-use crate::annotate::seqvars::consequence::{Config, Consequences, FormattedLoc, VcfVariant};
+use crate::annotate::seqvars::consequence::{
+    Config, Consequences, FormattedLoc, StructuralVariant, SvKind, VcfVariant,
+};
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::errors::{GroupValidationError, SeqvarsError};
@@ -39,6 +41,10 @@ pub struct ConsequencePredictor {
     /// Assembly mapper for variant consequence prediction.
     #[derivative(Debug = "ignore")]
     mapper: assembly::Mapper,
+
+    /// `mapper` for variants without bases, see `mapper_for`.
+    #[derivative(Debug = "ignore")]
+    sv_mapper: assembly::Mapper,
 
     /// Configuration for the predictor.
     #[derivative(Debug = "ignore")]
@@ -722,12 +728,13 @@ impl ConsequencePredictor {
 
         let reference_available = provider.reference_available();
 
-        let mapper_config = assembly::Config {
+        // Variants without bases get no reference bases and no renormalization, see `mapper_for`.
+        let mapper_config = |with_bases: bool| assembly::Config {
             // TODO: add ability to construct assembly mapper/config with custom mappings (for contig <-> accession lookups) in hgvs-rs to avoid lock-in to bioutils assemblies.
             assembly: provider.assembly(),
-            replace_reference: reference_available,
+            replace_reference: reference_available && with_bases,
             strict_bounds: false,
-            renormalize_g: reference_available && config.renormalize_g,
+            renormalize_g: reference_available && config.renormalize_g && with_bases,
             genome_seq_available: reference_available,
             normalize: config.normalize,
             // The bases of an insertion or dup at an exon edge are intronic if they keep the
@@ -738,16 +745,28 @@ impl ConsequencePredictor {
             ins_at_boundary_is_intronic: false,
             ..Default::default()
         };
-        let mapper = assembly::Mapper::new(mapper_config, provider.clone());
+        let mapper = assembly::Mapper::new(mapper_config(true), provider.clone());
+        let sv_mapper = assembly::Mapper::new(mapper_config(false), provider.clone());
         tracing::info!("... done building transcript interval trees");
 
         ConsequencePredictor {
             provider,
             mapper,
+            sv_mapper,
             config,
             custom_columns,
             restrict_dropped_genes: AtomicUsize::new(0),
             restrict_dropped_variants: AtomicUsize::new(0),
+        }
+    }
+
+    /// The mapper for `var_g`. A variant without bases, i.e. a structural variant from a
+    /// symbolic allele, gets no reference bases filled in and no renormalization, which would
+    /// read its whole span from the genome for every transcript.
+    fn mapper_for(&self, var_g: &HgvsVariant) -> &assembly::Mapper {
+        match var_g.na_edit() {
+            Some(NaEdit::DelRef { reference }) if reference.is_empty() => &self.sv_mapper,
+            _ => &self.mapper,
         }
     }
 
@@ -860,30 +879,90 @@ impl ConsequencePredictor {
             ));
         }
 
-        // Obtain accession from chromosome name.
-        let chrom_acc = self
-            .provider
-            .contig_manager
-            .get_accession(&norm_var.chromosome);
-        let chrom_acc = if let Some(chrom_acc) = chrom_acc {
-            chrom_acc
-        } else {
-            tracing::warn!(
-                "Could not determine chromosome accession for {:?}; giving up on annotation",
-                &norm_var
-            );
+        let Some(chrom_acc) = self.chrom_acc(&norm_var) else {
             return Ok(None);
         };
 
         // We follow hgvs conventions and therefore normalize input variants
         let var_g = Self::get_var_g(&norm_var, chrom_acc);
         let (var_g_fwd, var_g_rev) = self.normalize_g(&var_g, chrom_acc)?;
+        self.predict_g(var, &var_g, &var_g_fwd, &var_g_rev, chrom_acc)
+    }
+
+    /// The annotations of the structural variant `sv` of `var`, a symbolic allele such as
+    /// `<DEL>`, as `predict` gives them for the same change with its bases.
+    pub fn predict_sv(
+        &self,
+        var: &VcfVariant,
+        sv: &StructuralVariant,
+    ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
+        let Some(chrom_acc) = self.chrom_acc(var) else {
+            return Ok(None);
+        };
+        // `POS` is the base in front of the change.
+        let (start, mut end) = (var.position + 1, sv.end);
+        if let Some(length) = self.contig_length(chrom_acc)
+            && end > length
+        {
+            tracing::warn!(
+                "{var}: the end {end} lies beyond the contig, which ends at {length}; annotating \
+                 up to there"
+            );
+            end = length;
+        }
+        if end < start {
+            return Ok(None);
+        }
+        let var_g = HgvsVariant::GenomeVariant {
+            accession: Accession {
+                value: chrom_acc.to_string(),
+            },
+            gene_symbol: None,
+            loc_edit: GenomeLocEdit {
+                loc: Mu::Certain(GenomeInterval {
+                    start: Some(start),
+                    end: Some(end),
+                }),
+                edit: Mu::Certain(match sv.kind {
+                    SvKind::Deletion => NaEdit::DelRef {
+                        reference: String::new(),
+                    },
+                }),
+            },
+        };
+        let (var_g_fwd, var_g_rev) = self.shift_sv(&var_g, chrom_acc)?;
+        self.predict_g(var, &var_g, &var_g_fwd, &var_g_rev, chrom_acc)
+    }
+
+    /// The accession of the chromosome of `var`, or `None` with a warning.
+    fn chrom_acc(&self, var: &VcfVariant) -> Option<&str> {
+        let chrom_acc = self.provider.contig_manager.get_accession(&var.chromosome);
+        if chrom_acc.is_none() {
+            tracing::warn!(
+                "Could not determine chromosome accession for {:?}; giving up on annotation",
+                var
+            );
+        }
+        chrom_acc.map(String::as_str)
+    }
+
+    /// The annotations of `var` on the transcripts in reach of `var_g`, its g. description on
+    /// the chromosome `chrom_acc`, shifted 3' on the plus strand as `var_g_fwd` and on the minus
+    /// strand as `var_g_rev`.
+    fn predict_g(
+        &self,
+        var: &VcfVariant,
+        var_g: &HgvsVariant,
+        var_g_fwd: &HgvsVariant,
+        var_g_rev: &HgvsVariant,
+        chrom_acc: &str,
+    ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
         // Get all affected transcripts.
-        let (var_start_fwd, var_end_fwd) = Self::get_var_start_end(&var_g_fwd);
-        let (var_start_rev, var_end_rev) = Self::get_var_start_end(&var_g_rev);
+        let (var_start_fwd, var_end_fwd) = Self::get_var_start_end(var_g_fwd);
+        let (var_start_rev, var_end_rev) = Self::get_var_start_end(var_g_rev);
 
         let qry_start = var_start_fwd.min(var_start_rev) - PADDING;
-        let qry_end = var_end_fwd.max(var_end_rev) + PADDING;
+        let qry_end = var_end_fwd.max(var_end_rev).saturating_add(PADDING);
 
         let mut txs = self
             .provider
@@ -892,9 +971,9 @@ impl ConsequencePredictor {
         txs.sort_by(|a, b| a.tx_ac.cmp(&b.tx_ac));
         txs.retain(|tx| {
             let var_g = if tx.alt_strand == -1 {
-                &var_g_rev
+                var_g_rev
             } else {
-                &var_g_fwd
+                var_g_fwd
             };
             self.in_reach(&tx.tx_ac, var_g)
         });
@@ -909,7 +988,7 @@ impl ConsequencePredictor {
             }
             let hgvs_g = self
                 .writes_hgvs(&var.alternative)
-                .then(|| self.format_hgvs_g(&var_g));
+                .then(|| self.format_hgvs_g(var_g));
 
             let ann = AnnField {
                 allele: Allele::Alt {
@@ -952,32 +1031,32 @@ impl ConsequencePredictor {
         // An indel in a repeat has two ends, one 3'-shifted on each strand.
         let shifts = var_g_fwd != var_g_rev;
         // The same for all transcripts on a strand.
-        let hgvs_g_fwd = self.format_hgvs_g(&var_g_fwd);
+        let hgvs_g_fwd = self.format_hgvs_g(var_g_fwd);
         let hgvs_g_rev = if shifts {
-            self.format_hgvs_g(&var_g_rev)
+            self.format_hgvs_g(var_g_rev)
         } else {
             hgvs_g_fwd.clone()
         };
         let anns = self.select_annotations(txs, |tx| {
             if tx.alt_strand == -1 {
-                let other_g = shifts.then_some(&var_g_fwd);
+                let other_g = shifts.then_some(var_g_fwd);
                 self.build_ann_field(
                     var,
-                    &var_g_rev,
+                    var_g_rev,
                     &hgvs_g_rev,
-                    &var_g,
+                    var_g,
                     other_g,
                     tx.clone(),
                     var_start_rev,
                     var_end_rev,
                 )
             } else {
-                let other_g = shifts.then_some(&var_g_rev);
+                let other_g = shifts.then_some(var_g_rev);
                 self.build_ann_field(
                     var,
-                    &var_g_fwd,
+                    var_g_fwd,
                     &hgvs_g_fwd,
-                    &var_g,
+                    var_g,
                     other_g,
                     tx.clone(),
                     var_start_fwd,
@@ -1047,6 +1126,89 @@ impl ConsequencePredictor {
             Self::shift_var_g(&right, -lap),
             Self::shift_var_g(&left, -lap),
         ))
+    }
+
+    /// `var_g`, a deletion without bases, shifted 3' on the plus and on the minus strand as
+    /// `normalize_g` shifts a variant with bases, by reading the bases at the ends of the deletion
+    /// instead of all of its bases: a deletion shifts by one base while its first base equals
+    /// the base behind it. Without a reference, there is no shift.
+    fn shift_sv(
+        &self,
+        var_g: &HgvsVariant,
+        chrom_acc: &str,
+    ) -> Result<(HgvsVariant, HgvsVariant), SeqvarsError> {
+        let loc = match var_g {
+            HgvsVariant::GenomeVariant { loc_edit, .. } if self.mapper.config.renormalize_g => {
+                loc_edit.loc.inner()
+            }
+            _ => return Ok((var_g.clone(), var_g.clone())),
+        };
+        let (Some(start), Some(end)) = (loc.start, loc.end) else {
+            return Ok((var_g.clone(), var_g.clone()));
+        };
+        let right = self.shift_run(chrom_acc, start, end, 1)?;
+        let left = self.shift_run(chrom_acc, start, end, -1)?;
+        Ok((
+            Self::shift_var_g(var_g, right),
+            Self::shift_var_g(var_g, -left),
+        ))
+    }
+
+    /// How many bases the deletion of the 1-based bases `start` to `end` of `chrom_acc` shifts
+    /// in `direction`, 1 for 3' on the plus strand and -1 for 3' on the minus strand, reading a
+    /// window of bases at each of its ends at a time.
+    fn shift_run(
+        &self,
+        chrom_acc: &str,
+        start: i32,
+        end: i32,
+        direction: i32,
+    ) -> Result<i32, SeqvarsError> {
+        const WINDOW: i32 = 64;
+        // A window ends at the contig, so one that starts there is empty.
+        let length = self.contig_length(chrom_acc).unwrap_or(i32::MAX);
+        let fetch = |begin: i32, end: i32| {
+            let begin = usize::try_from(begin.clamp(0, length)).unwrap_or_default();
+            let end = usize::try_from(end.clamp(0, length)).unwrap_or_default();
+            if begin >= end {
+                return Ok(String::new());
+            }
+            self.provider
+                .get_seq_part(chrom_acc, Some(begin), Some(end))
+                .map_err(|e| SeqvarsError::Provider(e.to_string()))
+        };
+        let mut shift = 0;
+        loop {
+            // The bases that leave the deletion and those that enter it, as 0-based ranges.
+            let (leaving, entering) = if direction > 0 {
+                let (from, behind) = (start - 1 + shift, end + shift);
+                (
+                    (from, from.saturating_add(WINDOW)),
+                    (behind, behind.saturating_add(WINDOW)),
+                )
+            } else {
+                let to = start - 1 - shift;
+                ((to - WINDOW, to), (end - shift - WINDOW, end - shift))
+            };
+            let leaving = fetch(leaving.0, leaving.1)?;
+            let entering = fetch(entering.0, entering.1)?;
+            let pairs: Box<dyn Iterator<Item = (char, char)>> = if direction > 0 {
+                Box::new(leaving.chars().zip(entering.chars()))
+            } else {
+                Box::new(leaving.chars().rev().zip(entering.chars().rev()))
+            };
+            let equal = pairs
+                .take_while(|(leaving, entering)| leaving.eq_ignore_ascii_case(entering))
+                .count();
+            shift += i32::try_from(equal).unwrap_or_default();
+            // A window that is not full ends at the contig.
+            if equal < usize::try_from(WINDOW).unwrap_or_default()
+                || leaving.len() < WINDOW as usize
+                || entering.len() < WINDOW as usize
+            {
+                return Ok(shift);
+            }
+        }
     }
 
     /// Annotate the transcripts near the variant that `Config::transcript_settings` selects.
@@ -1443,7 +1605,7 @@ impl ConsequencePredictor {
             unshifted_g: None,
         };
 
-        projection.n = self.mapper.g_to_n(var_g, &tx.id).map_or_else(
+        projection.n = self.mapper_for(var_g).g_to_n(var_g, &tx.id).map_or_else(
             |e| match e {
                 Error::NonAdjacentExons(_, _, _, _) => {
                     tracing::warn!("{}, {}: NonAdjacentExons, skipping", &tx.id, var_g);
@@ -3549,6 +3711,13 @@ impl ConsequencePredictor {
             .and_then(|len| i32::try_from(len).ok())
     }
 
+    /// Length of `chrom_acc` in the reference genome, else in the assembly.
+    fn contig_length(&self, chrom_acc: &str) -> Option<i32> {
+        (self.provider.reference_length(chrom_acc))
+            .or_else(|| self.provider.contig_manager.get_length(chrom_acc))
+            .and_then(|len| i32::try_from(len).ok())
+    }
+
     /// Shift the positions of the genome variant `var_g` by `offset`.
     fn shift_var_g(var_g: &HgvsVariant, offset: i32) -> HgvsVariant {
         let mut var_g = var_g.clone();
@@ -4449,12 +4618,14 @@ impl ConsequencePredictor {
     /// and swallowing expected incomplete-transcript errors as `None`. With the protein comes the
     /// region of the transcript that `c_to_p` built it for. For a dup whose intron bases are
     /// unknown (`DuplicationReferenceMissing`), `c_to_p` builds nothing: the protein is `p.?` and
-    /// the region comes from the builder, see `variant_location`.
+    /// the region comes from the builder, see `variant_location`. A change without bases takes
+    /// those of the transcript, so the reference is not read, see `mapper_for`.
     fn safe_project_c_to_p(
         &self,
         var_c: &HgvsVariant,
     ) -> Result<Option<(HgvsVariant, Option<VariantLocation>)>, SeqvarsError> {
-        self.mapper.c_to_p_with_region(var_c).map_or_else(
+        let mapper = self.mapper_for(var_c);
+        mapper.c_to_p_with_region(var_c).map_or_else(
             |e| {
                 if matches!(e, Error::DuplicationReferenceMissing(_)) {
                     // The intron bases of the dup are unknown, so is its protein change.
@@ -10353,6 +10524,158 @@ mod test {
             ConsequencePredictor::keeps_splice_sites(alignment, var_start, var_end),
             expected
         );
+    }
+
+    /// A symbolic deletion is annotated like the same deletion with its bases, 3'-shifted on
+    /// each strand with a reference. The deletion of chr1:1071-1078 removes one `ACGTTGCA` of
+    /// the twelve in intron 1 (chr1:1063-1158), so it shifts to the end of the repeat. The
+    /// contig ends with 100 `C` at chr1:1381-1480, so the deletion of chr1:1407-1416 shifts to
+    /// its end.
+    #[rstest::rstest]
+    #[case::in_repeat(1071, 1078, true)]
+    #[case::exon_2(1121, 1260, false)]
+    #[case::five_prime_end(950, 1100, false)]
+    #[case::all_exons(900, 1450, false)]
+    #[case::contig_end(1401, 1480, false)]
+    #[case::shift_to_contig_end(1407, 1416, true)]
+    fn symbolic_deletion_equals_explicit(
+        #[case] start: usize,
+        #[case] end: usize,
+        #[case] shifts: bool,
+        #[values(false, true)] with_reference: bool,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = exons_tx(3, 20);
+        let genome = three_exon_genome(&seq);
+        let mut reference = NamedTempFile::new()?;
+        write!(reference, ">1\n{genome}\n")?;
+        let reference = with_reference.then(|| reference.path());
+        let predictor = predictor_with_reference(tx, seq, Default::default(), reference);
+        // The base in front of the deletion pads both alleles.
+        let padding = &genome[start - 2..start - 1];
+        let explicit = predictor
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: i32::try_from(start)? - 1,
+                reference: genome[start - 2..end].into(),
+                alternative: padding.into(),
+            })?
+            .unwrap_or_default();
+        let symbolic = predictor
+            .predict_sv(
+                &VcfVariant {
+                    chromosome: "1".into(),
+                    position: i32::try_from(start)? - 1,
+                    reference: padding.into(),
+                    alternative: "<DEL>".into(),
+                },
+                &StructuralVariant {
+                    kind: SvKind::Deletion,
+                    end: i32::try_from(end)?,
+                },
+            )?
+            .unwrap_or_default();
+
+        assert!(!explicit.is_empty());
+        let shifted = explicit[0].hgvs_g != Some(format!("g.{start}_{end}del"));
+        assert_eq!(shifted, with_reference && shifts, "{explicit:?}");
+        let without_allele = |anns: Vec<AnnField>| {
+            (anns.into_iter())
+                .map(|mut ann| {
+                    ann.allele = Allele::Alt {
+                        alternative: String::new(),
+                    };
+                    ann
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(without_allele(symbolic), without_allele(explicit));
+        Ok(())
+    }
+
+    /// A symbolic deletion with its end beyond the contig ends at the last base of the contig,
+    /// chr1:1480 in the reference, or in the assembly without one.
+    #[tracing_test::traced_test]
+    #[rstest::rstest]
+    #[case::behind_contig(1481, true, 1480)]
+    #[case::largest(i32::MAX, true, 1480)]
+    #[case::largest_without_reference(i32::MAX, false, 248_956_422)]
+    fn symbolic_deletion_beyond_contig(
+        #[case] end: i32,
+        #[case] with_reference: bool,
+        #[case] contig_end: i32,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = exons_tx(3, 20);
+        let mut reference = NamedTempFile::new()?;
+        write!(reference, ">1\n{}\n", three_exon_genome(&seq))?;
+        let reference = with_reference.then(|| reference.path());
+        let predictor = predictor_with_reference(tx, seq, Default::default(), reference);
+        let predict = |end| {
+            predictor.predict_sv(
+                &VcfVariant {
+                    chromosome: "1".into(),
+                    position: 1400,
+                    reference: "C".into(),
+                    alternative: "<DEL>".into(),
+                },
+                &StructuralVariant {
+                    kind: SvKind::Deletion,
+                    end,
+                },
+            )
+        };
+
+        assert_eq!(predict(end)?, predict(contig_end)?);
+        assert!(logs_contain(&format!(
+            "the end {end} lies beyond the contig, which ends at {contig_end}"
+        )));
+        Ok(())
+    }
+
+    /// `shift_sv` shifts a deletion without bases as `normalize_g` shifts it with its bases, also
+    /// by more than one window: the deletion of chr1:1101-1104 in the 100 `CA` at
+    /// chr1:1001-1200 shifts to chr1:1197-1200 on the plus and to chr1:1001-1004 on the minus
+    /// strand.
+    #[test]
+    fn shift_sv_equals_normalize_g() -> Result<(), anyhow::Error> {
+        let (tx, seq) = exons_tx(3, 20);
+        let mut reference = NamedTempFile::new()?;
+        let genome = format!(
+            "{}{}{}",
+            "T".repeat(1000),
+            "CA".repeat(100),
+            "G".repeat(100)
+        );
+        write!(reference, ">1\n{genome}\n")?;
+        let predictor =
+            predictor_with_reference(tx, seq, Default::default(), Some(reference.path()));
+        let chrom_acc = "NC_000001.11";
+        let deletion = |reference: &str| HgvsVariant::GenomeVariant {
+            accession: Accession {
+                value: chrom_acc.into(),
+            },
+            gene_symbol: None,
+            loc_edit: GenomeLocEdit {
+                loc: Mu::Certain(GenomeInterval {
+                    start: Some(1101),
+                    end: Some(1104),
+                }),
+                edit: Mu::Certain(NaEdit::DelRef {
+                    reference: reference.into(),
+                }),
+            },
+        };
+        let positions = |(fwd, rev): (HgvsVariant, HgvsVariant)| {
+            (
+                ConsequencePredictor::get_var_start_end(&fwd),
+                ConsequencePredictor::get_var_start_end(&rev),
+            )
+        };
+
+        let shifted = positions(predictor.shift_sv(&deletion(""), chrom_acc)?);
+        let normalized = positions(predictor.normalize_g(&deletion("CACA"), chrom_acc)?);
+        assert_eq!(shifted, normalized);
+        assert_eq!(normalized, ((1196, 1200), (1000, 1004)));
+        Ok(())
     }
 
     /// The terms of a dup over whole exons on either strand: the exon in front of the CDS on

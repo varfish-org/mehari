@@ -197,6 +197,15 @@ impl VariantBuffer {
         );
     }
 
+    /// Whether the allele `alt_allele_idx` of sample `sample_idx` in `record` lies on a
+    /// haplotype that the phasing strategy evaluates together.
+    pub fn is_phased(&self, record: &RecordBuf, sample_idx: usize, alt_allele_idx: usize) -> bool {
+        (self
+            .extract_phasing(record, sample_idx, alt_allele_idx)
+            .iter())
+        .any(|group| !matches!(group, PhaseGroup::Unphased))
+    }
+
     /// Forget the events whose transcripts no variant from `next_pos` on can reach.
     pub fn forget_events(&mut self, next_chrom: &str, next_pos: i32) {
         self.events.retain(|event| {
