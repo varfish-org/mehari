@@ -14,9 +14,21 @@ In a VCF file, this will typically look as follows:
 In the literature, there generally is made a distinction between sequence (or: small) variants and structural variants.
 There, small variants are those affecting up to 50bp while structural variants are those that are larger.
 Mehari does not enforce such a restriction but attempt to annotate all variants based on their VCF representation (chromosome, 1-based position, reference base and alternative bases).
-A `<DEL>` record is annotated like the deletion of the bases behind `POS` up to `SVLEN` or `END` (the `SVLEN` of the allele counts first, as in VCF 4.5).
-A deletion that reaches beyond the contig ends at its last base, with a warning.
-Records with another symbolic allele, a breakend, or at position 0 have no such representation: they stay in the output without annotations, and Mehari warns about their number.
+Symbolic alleles are annotated as the change they stand for, from the base behind `POS` up to `SVLEN` or `END` (the `SVLEN` of the allele counts first, as in VCF 4.5, unless it is 0, the length difference of an `<INV>` in older files):
+
+- `<DEL>` like the deletion of these bases, `<INV>` like their inversion. With a reference, a precise inversion leaves out the outer bases that equal the complement of the base at the other end, as the explicit allele does.
+- `<DUP>` like the tandem duplication of these bases if the copy follows them: with an adjacency claim (`SVCLAIM` `J` or `DJ`), or as `<DUP:TANDEM>` without `SVCLAIM`. Otherwise the copy lies elsewhere, so the transcript stays as it is and its copy number rises (`copy_number_increase`, or `transcript_amplification` for a dup of all exons); HGVS describes the copy as an insertion at an unknown place.
+- `<INS>` like the insertion of `SVLEN` unknown bases, `N[len]`, with the frame terms of that length, or of an unknown number (`N[?]`, also for `SVLEN=0`), which elongates the transcript from within (`internal_feature_elongation`) and changes the CDS in an unknown way.
+- `<CNV>` as a copy number change without direction (`copy_number_change`, no HGVS). With `CN`, it is a copy number call of a deletion or duplication, as is `<DEL>` or `<DUP>` with `SVCLAIM=D`. From VCF 4.4 on, `CN` is the copy number of the allele, rounded: 0 is a deletion, 1 no change, 2 or more a duplication. In older files, it is the total copy number: 0 and 1 are a deletion, 2 no change, 3 or more a duplication. A `<CNV>` without change has no annotations, as VCF 4.5 treats it like `GT=0`. `<CN0>` is a deletion, `<CN1>` no change and `<CN2>` or more a duplication, as older files write them. `<CNV:TR>`, the copy number of a tandem repeat, is not supported.
+- Uncertain breakpoints keep the terms of the positions as called, which are not shifted. They have no `c.`, `p.?` and no positions in the transcript, and write `g.` with the intervals, e.g. `g.(1111_1131)_(1240_1280)del`, with `?` for an unknown one, and with the position alone for an interval of one base. Overlapping intervals are cut so that the positions ascend; if the start interval lies behind the end interval, there is no `g.`. An `<INS>` without `CIPOS` has no `g.`. Their annotations carry the message `INFO_IMPRECISE_BREAKPOINTS`. As in VCF 4.5, breakpoints are uncertain with `IMPRECISE`, unless `CIPOS` and `CIEND` (which defaults to `CIPOS`) are both 0; without `CIPOS`, the interval around `POS` is unknown. Without `IMPRECISE`, `CIPOS` and `CIEND` describe the micro-homology of a precise call, which is annotated as such. Breakpoints are also uncertain with `SVCLAIM=D`, and for every `<CNV>` and `<CNn>`.
+- A change that reaches beyond the contig ends at its last base, with a warning.
+- The change of a symbolic allele has no bases, so Mehari takes those of the transcript for `p.`, which is the same as for the explicit allele.
+
+A symbolic allele other than these, e.g. `<MYDEL>`, counts as its `SVTYPE` if that is one of the above.
+An `SVCLAIM` other than `D`, `J` and `DJ` counts as none, with a warning.
+Records with another symbolic allele, with a symbolic allele without a length, a breakend, or at position 0 have no such representation: they stay in the output without annotations, and Mehari warns about their number.
+Records without an alternate allele (`ALT` `.`) stay in the output, too.
+Mehari stops at a record with more than one alternate allele. Split such records beforehand with `bcftools norm -m-any`, without `-f`, which rejects `N` as `REF`.
 You can find the VCF variant specification [here on Github](https://samtools.github.io/hts-specs/).
 
 ## Sequence Variant Annotation

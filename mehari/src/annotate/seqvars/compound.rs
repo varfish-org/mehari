@@ -68,11 +68,44 @@ impl<'a> From<&'a BufferedVariant> for Member<'a> {
     }
 }
 
+/// The `SVLEN` of the allele of `record`, if it has one value: `Number=.` of older headers keeps
+/// the values of all alleles of a split record.
+pub fn sv_length(record: &RecordBuf) -> Option<i32> {
+    integer(record, SV_LENGTHS)
+}
+
+/// The value of the INFO field `key` of `record`, if it is one string.
+pub(crate) fn string(record: &RecordBuf, key: &str) -> Option<String> {
+    match record.info().get(key).flatten() {
+        Some(InfoValue::String(value)) => Some(value.clone()),
+        Some(InfoValue::Array(Array::String(values))) => match &values[..] {
+            [Some(value)] => Some(value.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The value of the INFO field `key` of `record`, if it is one integer. Files without a header
+/// line for `key` give a string below VCF 4.3.
+fn integer(record: &RecordBuf, key: &str) -> Option<i32> {
+    match record.info().get(key).flatten() {
+        Some(InfoValue::Integer(value)) => Some(*value),
+        Some(InfoValue::String(value)) => value.parse().ok(),
+        Some(InfoValue::Array(Array::Integer(values))) => match values[..] {
+            [Some(value)] => Some(value),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// The last reference position of the event in `record` at `pos`.
 ///
 /// The own `SVLEN` of an allele decides, as in VCF 4.5. `END` holds the longest allele of a record,
 /// and stays so when `bcftools norm` splits the record, which also leaves an `SVLEN` with
-/// `Number=.` unsplit. An insertion and a breakend lie at their position.
+/// `Number=.` unsplit. An `SVLEN` of 0 is the length difference of VCF 4.3 and earlier, e.g. of an
+/// `<INV>`, so `END` decides. An insertion and a breakend lie at their position.
 pub fn event_end(record: &RecordBuf, pos: i32) -> i32 {
     let alternate_bases = record.alternate_bases();
     let spans_bases = (alternate_bases.as_ref().first())
@@ -80,21 +113,10 @@ pub fn event_end(record: &RecordBuf, pos: i32) -> i32 {
     if !spans_bases {
         return pos;
     }
-    let len = match record.info().get(SV_LENGTHS).flatten() {
-        Some(InfoValue::Integer(len)) => Some(*len),
-        Some(InfoValue::Array(Array::Integer(lens))) => match lens[..] {
-            [Some(len)] => Some(len),
-            _ => None,
-        },
-        _ => None,
-    };
-    if let Some(len) = len {
+    if let Some(len) = sv_length(record).filter(|&len| len != 0) {
         return pos.saturating_add(len.saturating_abs());
     }
-    match record.info().get(END_POSITION).flatten() {
-        Some(InfoValue::Integer(end)) => pos.max(*end),
-        _ => pos,
-    }
+    integer(record, END_POSITION).map_or(pos, |end| pos.max(end))
 }
 
 /// Sliding window buffer that accumulates variants and groups them by transcript and phasing.

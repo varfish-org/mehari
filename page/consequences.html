@@ -391,7 +391,7 @@
               
               <text x="${L.u5_1.x}" y="${L.txY - 5}" class="svg-label macro-label">Transcript Bounds</text>
               <rect x="${L.u5_1.x}" y="${L.txY}" width="${L.u3_2.x + L.u3_2.w - L.u5_1.x}" height="${L.txH}" class="hitbox macro-box" rx="4"
-                    data-csq="transcript_ablation non_coding_transcript_variant" />
+                    data-csq="transcript_ablation transcript_amplification non_coding_transcript_variant" />
       
               <!-- Intergenic / Upstream / Downstream -->
               <rect x="${L.xGeneStart}" y="${L.utrY - 5}" width="${L.u5_1.x - L.xGeneStart}" height="${L.utrH + 10}" class="hitbox" 
@@ -467,6 +467,7 @@
         const consequences = {
             // HIGH
             "transcript_ablation": { impact: "high", def: "A feature ablation whereby the deleted region includes a transcript feature." },
+            "transcript_amplification": { impact: "high", def: "A feature amplification of a region containing a transcript." },
             "exon_loss_variant": { impact: "high", def: "A sequence variant whereby an exon is lost from the transcript." },
             "splice_acceptor_variant": { impact: "high", def: "A splice variant that changes the 2 base region at the 3' end of an intron." },
             "splice_donor_variant": { impact: "high", def: "A splice variant that changes the 2 base region at the 5' end of an intron." },
@@ -522,10 +523,11 @@
             "downstream_gene_variant": { impact: "modifier", def: "A sequence variant located 3' of a gene." },
             "intergenic_variant": { impact: "modifier", def: "A sequence variant located in the intergenic region, between genes." },
             "intron_variant": { impact: "modifier", def: "A transcript variant occurring within an intron." },
+            "copy_number_change": { impact: "modifier", def: "A sequence variant where copies of a feature (CNV) are either increased or decreased." },
+            "copy_number_increase": { impact: "modifier", def: "A sequence variant where copies of a feature are increased relative to the reference." },
             "gene_variant": { impact: "modifier", def: "A sequence variant where the structure of the gene is changed." },
 
             // UNSUPPORTED (Currently hidden from UI rendering)
-            "transcript_amplification": { impact: "high", supported: false, def: "A feature amplification of a region containing a transcript." },
             "mature_miRNA_variant": { impact: "modifier", supported: false, def: "A transcript variant located with the sequence of the mature miRNA." },
             "TFBS_ablation": { impact: "modifier", supported: false, def: "A feature ablation whereby the deleted region includes a transcription factor binding site." },
             "TFBS_amplification": { impact: "modifier", supported: false, def: "A feature amplification of a region containing a transcription factor binding site." },
