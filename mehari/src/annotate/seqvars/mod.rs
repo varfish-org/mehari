@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
-use self::consequence::terms::{ANN_KEY, AnnField};
+use self::consequence::terms::{ANN_KEY, AnnField, Message};
 use crate::annotate::cli::{PredictorSettings, Sources};
 use crate::annotate::seqvars::consequence::logic::{ConsequencePredictor, is_sequence_allele};
 use crate::common::contig::ContigManager;
@@ -1728,6 +1728,7 @@ impl VariantProcessor {
 
         if self.buffer.should_flush(&vcf_var.chrom, vcf_var.pos) {
             ready_records.extend(self.process_buffer_flush()?);
+            self.buffer.forget_events(&vcf_var.chrom, vcf_var.pos);
         }
         let csq_var = VcfVariant {
             chromosome: vcf_var.chrom,
@@ -1744,15 +1745,20 @@ impl VariantProcessor {
             );
         }
 
+        // An event reaches its transcripts by its length, as it has no bases.
+        let event_end = is_event(&record).then(|| compound::event_end(&record, csq_var.position));
+        let len = event_end.map_or(csq_var.reference.len(), |end| {
+            (end - csq_var.position + 1) as usize
+        });
         let (tx_accessions, min_start, max_end) = if let Some(predictor) =
             self.annotator.consequence_predictor()
-            && is_annotatable(&record)
+            && (event_end.is_some() || is_annotatable(&record))
         {
             consequence::get_transcript_boundaries(
                 predictor,
                 &csq_var.chromosome,
                 csq_var.position,
-                csq_var.reference.len(),
+                len,
             )
         } else {
             (std::collections::HashSet::new(), i32::MAX, -1)
@@ -1763,15 +1769,27 @@ impl VariantProcessor {
         // Currently, phasing is evaluated based on the first sample in the VCF only.
         let sample_idx = 0;
 
-        self.buffer.push(
-            csq_var,
-            record,
-            tx_accessions,
-            min_start,
-            max_end,
-            sample_idx,
-            alt_allele_idx,
-        );
+        if let Some(end) = event_end {
+            self.buffer.push_event(
+                csq_var,
+                record,
+                tx_accessions,
+                max_end,
+                end,
+                sample_idx,
+                alt_allele_idx,
+            );
+        } else {
+            self.buffer.push(
+                csq_var,
+                record,
+                tx_accessions,
+                min_start,
+                max_end,
+                sample_idx,
+                alt_allele_idx,
+            );
+        }
 
         Ok(ready_records)
     }
@@ -1781,6 +1799,7 @@ impl VariantProcessor {
     }
 
     fn process_buffer_flush(&mut self) -> anyhow::Result<Vec<AnnotatedVariant>> {
+        let mut incomplete = self.buffer.transcripts_with_events();
         let (variants, compound_groups) = self.buffer.flush();
         let predictor = self.annotator.consequence_predictor();
 
@@ -1828,12 +1847,29 @@ impl VariantProcessor {
                     // single-variant annotations.
                     Err(SeqvarsError::GroupValidation(e)) => {
                         tracing::warn!("Skipping compound variant {}: {}", group(), e);
+                        // The group forms on all transcripts that its variants share.
+                        for &i in &group_indices {
+                            let shared = (variants[i].tx_accessions.iter()).filter(|tx| {
+                                (group_indices.iter())
+                                    .all(|&j| variants[j].tx_accessions.contains(*tx))
+                            });
+                            incomplete[i].extend(shared.cloned());
+                        }
                     }
                     // Other errors, e.g. of a plugin, stop the run, as for single variants.
                     Err(e) => {
                         return Err(Error::from(e)
                             .context(format!("Failed to annotate compound variant {}", group())));
                     }
+                }
+            }
+        }
+
+        for (annotation, transcripts) in result_annotations.iter_mut().zip(&incomplete) {
+            for ann in &mut annotation.consequences {
+                if transcripts.contains(&ann.feature_id) {
+                    (ann.messages.get_or_insert_with(Vec::new))
+                        .push(Message::WarningCompoundIncomplete);
                 }
             }
         }
@@ -2075,6 +2111,9 @@ mod test {
             .collect())
     }
 
+    /// The message on rows of variants that were not evaluated with all their phased partners.
+    const INCOMPLETE: &str = "WARNING_COMPOUND_INCOMPLETE";
+
     /// Two SNVs in BRCA1 that form a compound group, and records that cannot be annotated.
     const RECORDS_WITHOUT_BASES: &str = "\
         17\t0\ttelomere\tN\t.[13:32900000[\t.\t.\t.\tGT\t1/1\n\
@@ -2174,6 +2213,108 @@ mod test {
         assert!(logs_contain(
             "4 record(s) stay without annotations: symbolic alleles"
         ));
+        // Without compound mode, nothing is evaluated together.
+        let rows = records.iter().flat_map(|(_, rows)| rows);
+        assert!(rows.into_iter().all(|row| !row.contains(INCOMPLETE)));
+        Ok(())
+    }
+
+    /// An event is not evaluated with the variants phased with it, but all their rows say so. The
+    /// other variants are still evaluated together.
+    #[tokio::test]
+    async fn phased_event_marks_rows_of_partners() -> Result<(), anyhow::Error> {
+        for (id, rows) in annotate_records(RECORDS_WITHOUT_BASES, true).await? {
+            if id.starts_with("snv") {
+                assert!(rows.iter().any(|row| row.contains("|comp_1|")), "{rows:?}");
+                assert!(rows.iter().all(|row| row.contains(INCOMPLETE)), "{rows:?}");
+            } else {
+                assert!(rows.is_empty(), "{id}: {rows:?}");
+            }
+        }
+        Ok(())
+    }
+
+    /// An event reaches the transcripts along its length, not only those at its position. The
+    /// event starts about 96 kb in front of BRCA1 at chr17:41196312.
+    #[rstest::rstest]
+    #[case::svlen_into_gene("SVLEN=-100000", true)]
+    #[case::svlen_short("SVLEN=-1000", false)]
+    #[case::end_into_gene("END=41200000", true)]
+    #[tokio::test]
+    async fn event_reaches_transcripts_by_length(
+        #[case] info: &str,
+        #[case] marked: bool,
+    ) -> Result<(), anyhow::Error> {
+        let records = format!(
+            "17\t41100000\tdel\tN\t<DEL>\t.\t.\t{info}\tGT\t1/1\n\
+             17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t1/1\n"
+        );
+        let records = annotate_records(&records, true).await?;
+        let rows = &records[1].1;
+        assert!(!rows.is_empty());
+        assert!(
+            rows.iter().all(|row| row.contains(INCOMPLETE) == marked),
+            "{rows:?}"
+        );
+        Ok(())
+    }
+
+    /// `*`, `<*>` and `<NON_REF>` are no events, so the group is complete without them.
+    #[tokio::test]
+    async fn no_variant_alleles_leave_groups_complete() -> Result<(), anyhow::Error> {
+        let records = "\
+            17\t41197701\tsnv1\tG\tC\t.\t.\t.\tGT\t1/1\n\
+            17\t41197710\tstar\tG\t*\t.\t.\t.\tGT\t1/1\n\
+            17\t41197720\tany\tG\t<*>\t.\t.\t.\tGT\t1/1\n\
+            17\t41197730\tnon_ref\tG\t<NON_REF>\t.\t.\t.\tGT\t1/1\n\
+            17\t41215920\tsnv2\tG\tT\t.\t.\t.\tGT\t1/1\n";
+        let records = annotate_records(records, true).await?;
+        let rows = records
+            .iter()
+            .flat_map(|(_, rows)| rows)
+            .collect::<Vec<_>>();
+        assert!(rows.iter().any(|row| row.contains("|comp_1|")), "{rows:?}");
+        assert!(rows.iter().all(|row| !row.contains(INCOMPLETE)), "{rows:?}");
+        Ok(())
+    }
+
+    /// Only an event on the same haplotype as a variant marks its rows. The SNV has `0|1`.
+    #[rstest::rstest]
+    #[case::unphased("0/1", false)]
+    #[case::other_haplotype("1|0", false)]
+    #[case::same_haplotype("0|1", true)]
+    #[case::homozygous("1/1", true)]
+    #[tokio::test]
+    async fn event_marks_rows_on_its_haplotype(
+        #[case] genotype: &str,
+        #[case] marked: bool,
+    ) -> Result<(), anyhow::Error> {
+        let records = format!(
+            "17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t0|1\n\
+             17\t41197710\tdel\tN\t<DEL>\t.\t.\tSVLEN=-50\tGT\t{genotype}\n"
+        );
+        let records = annotate_records(&records, true).await?;
+        let rows = &records[0].1;
+        assert!(!rows.is_empty());
+        assert!(
+            rows.iter().all(|row| row.contains(INCOMPLETE) == marked),
+            "{rows:?}"
+        );
+        Ok(())
+    }
+
+    /// A group that fails validation is not evaluated together, which the rows of its variants
+    /// say, not only the log. The deletion covers the SNV.
+    #[tokio::test]
+    async fn invalid_group_marks_rows() -> Result<(), anyhow::Error> {
+        let records = "\
+            17\t41197700\tdel\tAG\tA\t.\t.\t.\tGT\t1/1\n\
+            17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t1/1\n";
+        for (_, rows) in annotate_records(records, true).await? {
+            assert!(!rows.is_empty());
+            assert!(rows.iter().all(|row| !row.contains("|comp_")), "{rows:?}");
+            assert!(rows.iter().all(|row| row.contains(INCOMPLETE)), "{rows:?}");
+        }
         Ok(())
     }
 

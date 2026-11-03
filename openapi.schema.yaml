@@ -1130,6 +1130,7 @@ components:
       - warning_transcript_incomplete
       - warning_transcript_multiple_stop_codons
       - warning_transcripts_no_start_codon
+      - warning_compound_incomplete
       - info_realign_three_prime
       - info_compound_annotation
       - info_non_reference_annotation

@@ -86,6 +86,8 @@ You can enable this behavior by passing the `--enable-compound-variants` flag.
 The evaluation strategy can be managed via `--phasing-strategy` (options include `strict` [default], `relaxed`, or `ignore`).
 `--compound-window-size` sets the maximum distance in bp between neighbouring variants of a group (unlimited if not set; a good value for peptide analyses is 33).
 
+A variant without bases, e.g., a structural variant or a breakend, is not evaluated together with others. If it shares a haplotype with a variant on a transcript, all annotations of that variant on that transcript get the message `WARNING_COMPOUND_INCOMPLETE`. So do the annotations of variants in a group that fails validation.
+
 ## Interpreting Annotation Output
 
 The variant effect/consequence will be formatted similar to the one in, following the `ANN` field standard [documented here](https://pcingola.github.io/SnpEff/se_inputoutput/#ann-field-vcf-output-files).
