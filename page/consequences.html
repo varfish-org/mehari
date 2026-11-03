@@ -338,7 +338,7 @@
 
         // Groups of consequences mapped to regions
         const csqGroups = {
-            exons: "exon_loss_variant coding_sequence_variant missense_variant synonymous_variant frameshift_variant frameshift_elongation frameshift_truncation stop_gained inframe_insertion inframe_deletion disruptive_inframe_insertion disruptive_inframe_deletion conservative_inframe_insertion conservative_inframe_deletion protein_altering_variant rare_amino_acid_variant selenocysteine_gain selenocysteine_loss non_coding_transcript_exon_variant feature_elongation feature_truncation",
+            exons: "exon_loss_variant coding_sequence_variant missense_variant synonymous_variant frameshift_variant frameshift_elongation frameshift_truncation stop_gained inframe_insertion inframe_deletion disruptive_inframe_insertion disruptive_inframe_deletion conservative_inframe_insertion conservative_inframe_deletion protein_altering_variant rare_amino_acid_variant selenocysteine_gain selenocysteine_loss non_coding_transcript_exon_variant feature_elongation feature_truncation internal_feature_elongation",
             deepIntron: "intron_variant coding_transcript_intron_variant non_coding_transcript_intron_variant"
         };
 
@@ -478,6 +478,9 @@
             "start_lost": { impact: "high", def: "A codon variant that changes at least one base of the canonical start codon." },
             "feature_elongation": { impact: "high", def: "A sequence variant that causes the extension of a genomic feature." },
             "feature_truncation": { impact: "high", def: "A sequence variant that causes the reduction of a genomic feature." },
+            "internal_feature_elongation": { impact: "high", def: "A sequence variant that causes the extension of a genomic feature from within the feature rather than from the terminus of the feature." },
+            "five_prime_duplicated_transcript": { impact: "moderate", def: "A partially duplicated transcript where the 5' end of the transcript is duplicated." },
+            "three_prime_duplicated_transcript": { impact: "moderate", def: "A partially duplicated transcript where the 3' end of the transcript is duplicated." },
 
             // MODERATE
             "disruptive_inframe_insertion": { impact: "moderate", def: "An inframe increase in cds length that inserts one or more codons into the coding sequence within an existing codon." },

@@ -131,6 +131,18 @@ pub enum Consequence {
     /// SO:feature_truncation, VEP:feature_truncation
     FeatureTruncation,
 
+    /// "A sequence variant that causes the extension of a genomic feature from within the feature rather than from the terminus of the feature, with regard to the reference sequence."
+    /// SO:internal_feature_elongation
+    InternalFeatureElongation,
+
+    /// "A partially_duplicated_transcript where the 5' end of the transcript is duplicated."
+    /// SO:five_prime_duplicated_transcript
+    FivePrimeDuplicatedTranscript,
+
+    /// "A partially_duplicated_transcript where the 3' end of the transcript is duplicated."
+    /// SO:three_prime_duplicated_transcript
+    ThreePrimeDuplicatedTranscript,
+
     // moderate impact
     /// "An inframe increase in cds length that inserts one or more codons into the coding sequence within an existing codon."
     /// SO:disruptive_inframe_insertion, VEP:inframe_insertion
@@ -350,8 +362,13 @@ impl From<Consequence> for PutativeImpact {
             | StartLost
             | TranscriptAmplification
             | FeatureElongation
-            | FeatureTruncation => PutativeImpact::High,
-            DisruptiveInframeInsertion
+            | FeatureTruncation
+            | InternalFeatureElongation => PutativeImpact::High,
+            // One intact copy of the transcript remains; the partial copy may give an
+            // aberrant product.
+            FivePrimeDuplicatedTranscript
+            | ThreePrimeDuplicatedTranscript
+            | DisruptiveInframeInsertion
             | DisruptiveInframeDeletion
             | ConservativeInframeInsertion
             | ConservativeInframeDeletion
@@ -1457,6 +1474,10 @@ mod test {
     fn consequence_to_impact() {
         {
             let p: PutativeImpact = Consequence::MissenseVariant.into();
+            assert_eq!(p, PutativeImpact::Moderate,);
+        }
+        {
+            let p: PutativeImpact = Consequence::FivePrimeDuplicatedTranscript.into();
             assert_eq!(p, PutativeImpact::Moderate,);
         }
         {
