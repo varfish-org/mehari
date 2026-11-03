@@ -121,7 +121,7 @@ fn build_header(
     annotators: &[AnnotatorEnum],
     additional_records: &[(String, String)],
     custom_columns: &[String],
-) -> VcfHeader {
+) -> Result<VcfHeader, anyhow::Error> {
     let mut header_out = header_in.clone();
     *header_out.file_format_mut() = FileFormat::default();
 
@@ -220,14 +220,18 @@ fn build_header(
 
     if with_annotations {
         let fields = AnnField::ann_field_names(custom_columns).join(" | ");
-        header_out.infos_mut().insert(
-            "ANN".into(),
-            Map::<Info>::new(
-                Number::Unknown,
-                InfoType::String,
-                format!("Functional annotations: '{fields}'"),
-            ),
+        // `Source` and `Version` are the VCF specification's attributes to identify the producer
+        // of an INFO field; consumers can tell `ANN` from mehari apart from SnpEff's.
+        let mut ann = Map::<Info>::new(
+            Number::Unknown,
+            InfoType::String,
+            format!("Functional annotations: '{fields}'"),
         );
+        ann.other_fields_mut()
+            .insert("Source".parse()?, "mehari".into());
+        ann.other_fields_mut()
+            .insert("Version".parse()?, env!("CARGO_PKG_VERSION").into());
+        header_out.infos_mut().insert("ANN".into(), ann);
     }
 
     if with_clinvar {
@@ -260,7 +264,7 @@ fn build_header(
             .unwrap();
     }
 
-    header_out
+    Ok(header_out)
 }
 
 /// Return path component for the assembly.
@@ -1011,6 +1015,12 @@ async fn run_with_writer(
         .transcripts
         .as_ref()
         .is_some_and(|v| !v.is_empty());
+    if with_annotations && header_in.infos().contains_key("ANN") {
+        tracing::warn!(
+            "The input already has an ANN field. It is removed from all records, \
+            and ANN in the output only holds mehari's annotations."
+        );
+    }
     let with_frequencies = args
         .sources
         .frequencies
@@ -1038,7 +1048,7 @@ async fn run_with_writer(
         &annotator.annotators,
         &additional_header_info,
         &custom_columns,
-    );
+    )?;
 
     // Perform the VCF annotation. The compound processor moves into each batch's blocking task
     // and back, so that compound predictions do not run on the async runtime.
@@ -1124,8 +1134,13 @@ async fn run_with_writer(
 
                 batch_to_process
                     .into_par_iter()
-                    .map(|record| {
+                    .map(|mut record| {
                         let annotation = annotator_clone.annotate(&record)?;
+                        if with_annotations {
+                            // The header now describes mehari's `ANN`, so annotations from the
+                            // input must go, also for records that get no consequences.
+                            record.info_mut().as_mut().shift_remove("ANN");
+                        }
                         let annotated = AnnotatedVariant {
                             vcf: record,
                             annotation,
@@ -1747,6 +1762,7 @@ impl VariantProcessor {
 #[cfg(test)]
 mod test {
     use super::binning::bin_from_range;
+    use super::build_header;
     use super::consequence::{ConsequenceAnnotator, VcfVariant, load_tx_db};
     use super::{
         AnnotatedVariant, Annotator, AnnotatorEnum, Args, OutputFormat, VariantProcessor,
@@ -1762,6 +1778,7 @@ mod test {
     use crate::common::noodles::{NoodlesVariantReader, open_variant_reader};
     use clap_verbosity_flag::Verbosity;
     use futures::TryStreamExt;
+    use noodles::vcf::Header as VcfHeader;
     use pretty_assertions::assert_eq;
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
@@ -1820,14 +1837,129 @@ mod test {
         run(&args_common, &args).await?;
 
         let actual = std::fs::read_to_string(args.output)?;
-        // remove vcf header lines starting with ##mehari
+        // remove vcf header lines starting with ##mehari, and normalize the version of mehari
+        // that the `ANN` header line carries, as it changes with every release
+        let version = format!("Version=\"{}\"", env!("CARGO_PKG_VERSION"));
         let actual = actual
             .lines()
             .filter(|line| !line.starts_with("##mehari"))
+            .map(|line| line.replace(&version, "Version=\"[VERSION]\""))
             .collect::<Vec<_>>()
             .join("\n");
         insta::assert_snapshot!(actual);
 
+        Ok(())
+    }
+
+    /// The `ANN` header names mehari as its source, and a reader still finds the field names.
+    #[test]
+    fn ann_header_has_source_and_version() -> Result<(), anyhow::Error> {
+        let header = build_header(&VcfHeader::default(), true, false, false, &[], &[], &[])?;
+
+        let mut buf = Vec::new();
+        noodles::vcf::io::Writer::new(&mut buf).write_header(&header)?;
+        let text = String::from_utf8(buf)?;
+        let line = text
+            .lines()
+            .find(|line| line.starts_with("##INFO=<ID=ANN,"))
+            .unwrap();
+        assert!(line.contains(",Source=\"mehari\""), "{line}");
+        assert!(
+            line.ends_with(&format!(",Version=\"{}\">", env!("CARGO_PKG_VERSION"))),
+            "{line}"
+        );
+
+        let read_back: VcfHeader = text.parse()?;
+        assert_eq!(
+            AnnField::ann_field_names_from_header(&read_back),
+            Some(AnnField::ann_field_names(&[]))
+        );
+        let info = read_back.infos().get("ANN").unwrap();
+        assert_eq!(
+            info.other_fields().get("Source").map(|v| v.as_str()),
+            Some("mehari")
+        );
+
+        Ok(())
+    }
+
+    /// Annotates a VCF whose `ANN` comes from another tool, and returns the record lines.
+    ///
+    /// The records have no transcript nearby, a variant in BRCA1, and a deletion allele.
+    async fn annotate_input_with_ann(sources: Sources) -> Result<Vec<String>, anyhow::Error> {
+        let temp = TempDir::default();
+        let path_in = temp.join("input.vcf");
+        let path_out = temp.join("output.vcf");
+        std::fs::write(
+            &path_in,
+            "##fileformat=VCFv4.2\n\
+             ##INFO=<ID=ANN,Number=.,Type=String,Description=\"Functional annotations: \
+             'Allele | Annotation'\">\n\
+             ##contig=<ID=17,length=81195210>\n\
+             #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+             17\t1000\t.\tA\tT\t.\t.\tANN=T|from_input\n\
+             17\t41215920\t.\tG\tT\t.\t.\tANN=T|from_input\n\
+             17\t41215921\t.\tG\t*\t.\t.\tANN=*|from_input\n",
+        )?;
+
+        let args_common = crate::common::Args {
+            verbose: Verbosity::new(0, 1),
+        };
+        let args = Args {
+            threads: 1,
+            reference: None,
+            in_memory_reference: true,
+            assembly: Some("grch37".into()),
+            predictor_settings: PredictorSettings::default(),
+            input: path_in.into_os_string().into_string().unwrap(),
+            output: path_out.into_os_string().into_string().unwrap(),
+            output_format: OutputFormat::Vcf,
+            max_var_count: None,
+            sources,
+        };
+        run(&args_common, &args).await?;
+
+        Ok(std::fs::read_to_string(&args.output)?
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .map(String::from)
+            .collect())
+    }
+
+    /// The `ANN` header then describes mehari's columns, so no input annotation may remain.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn input_ann_is_replaced_when_annotating_transcripts() -> Result<(), anyhow::Error> {
+        let records = annotate_input_with_ann(Sources {
+            transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
+            ..Default::default()
+        })
+        .await?;
+
+        assert!(logs_contain("The input already has an ANN field"));
+        assert_eq!(records.len(), 3);
+        assert!(!records[0].contains("ANN="), "{}", records[0]);
+        assert!(records[1].contains("ANN=T|"), "{}", records[1]);
+        assert!(!records[1].contains("from_input"), "{}", records[1]);
+        assert!(!records[2].contains("ANN="), "{}", records[2]);
+        Ok(())
+    }
+
+    /// Without transcripts, mehari leaves the `ANN` header and the annotations alone.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn input_ann_is_kept_without_transcripts() -> Result<(), anyhow::Error> {
+        let records = annotate_input_with_ann(Sources {
+            frequencies: Some(vec!["tests/data/annotate/db/grch37/seqvars/freqs".into()]),
+            ..Default::default()
+        })
+        .await?;
+
+        assert!(!logs_contain("The input already has an ANN field"));
+        assert_eq!(records.len(), 3);
+        for record in &records {
+            assert!(record.contains("from_input"), "{record}");
+        }
         Ok(())
     }
 
