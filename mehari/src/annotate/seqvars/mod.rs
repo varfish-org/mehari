@@ -142,6 +142,23 @@ fn build_header(
     additional_records: &[(String, String)],
     custom_columns: &[String],
 ) -> Result<VcfHeader, anyhow::Error> {
+    if let Some(ann_key) = ann_key {
+        // The annotations would replace the values of such a field, or its header their names.
+        let other_fields = build_header(
+            &VcfHeader::default(),
+            None,
+            with_frequencies,
+            with_clinvar,
+            annotators,
+            &[],
+            &[],
+        )?;
+        anyhow::ensure!(
+            !other_fields.infos().contains_key(ann_key),
+            "--ann-key {ann_key} is also an INFO field that this run writes"
+        );
+    }
+
     let mut header_out = header_in.clone();
     *header_out.file_format_mut() = FileFormat::default();
 
@@ -1898,6 +1915,47 @@ mod test {
         insta::assert_snapshot!(actual);
 
         Ok(())
+    }
+
+    /// Only the fields that the run writes are taken, not those of sources it does not use.
+    #[rstest::rstest]
+    #[case::frequencies("gnomad_exomes_an", true, false, false)]
+    #[case::clinvar("clinvar_vcv", false, true, false)]
+    #[case::source_not_used("clinvar_vcv", false, false, true)]
+    #[case::other_source_used("clinvar_vcv", true, false, true)]
+    #[case::default_key("ANN", true, true, true)]
+    fn ann_key_must_differ_from_other_fields_of_the_run(
+        #[case] ann_key: &str,
+        #[case] with_frequencies: bool,
+        #[case] with_clinvar: bool,
+        #[case] valid: bool,
+    ) {
+        let header = build_header(
+            &VcfHeader::default(),
+            Some(ann_key),
+            with_frequencies,
+            with_clinvar,
+            &[],
+            &[],
+            &[],
+        );
+        assert_eq!(header.is_ok(), valid, "{ann_key}");
+    }
+
+    #[tokio::test]
+    async fn ann_key_of_another_field_of_the_run_stops_it() {
+        let sources = Sources {
+            frequencies: Some(vec!["tests/data/annotate/db/grch37/seqvars/freqs".into()]),
+            ..transcripts()
+        };
+        let error =
+            annotate_input_with_field(sources, "ANN", "gnomad_exomes_an", OutputFormat::Vcf)
+                .await
+                .unwrap_err();
+        assert!(
+            error.to_string().contains("--ann-key gnomad_exomes_an"),
+            "{error}"
+        );
     }
 
     /// The `ANN` header names mehari as its source, and a reader still finds the field names.

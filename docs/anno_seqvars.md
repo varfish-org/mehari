@@ -94,7 +94,7 @@ An `ANN` field in the input is therefore removed when annotating with transcript
 
 `--ann-key` writes the annotations to another INFO key, e.g. to keep the `ANN` field of another tool next to mehari's.
 Mehari then only removes and warns about an input field under that key.
-The key must match the pattern of the VCF specification, `^([A-Za-z_][0-9A-Za-z_.]*|1000G)$`.
+The key must match the pattern of the VCF specification, `^([A-Za-z_][0-9A-Za-z_.]*|1000G)$`, and must differ from the other INFO fields that the run writes.
 `mehari postprocess proteome` and `mehari postprocess varfish-seqvars` read `ANN` by default; pass them the same `--ann-key`.
 
 `Gene_ID` is the gene ID of the transcript's gene record in the annotation, with its version if it has one, e.g. `672` for BRCA1 in RefSeq or `ENSG00000182378.15` for PLCXD1 in GENCODE.
