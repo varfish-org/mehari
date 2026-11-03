@@ -14,6 +14,7 @@ In a VCF file, this will typically look as follows:
 In the literature, there generally is made a distinction between sequence (or: small) variants and structural variants.
 There, small variants are those affecting up to 50bp while structural variants are those that are larger.
 Mehari does not enforce such a restriction but attempt to annotate all variants based on their VCF representation (chromosome, 1-based position, reference base and alternative bases).
+Records with a symbolic allele (e.g., `<DEL>`), a breakend, or at position 0 have no such representation: they stay in the output without annotations, and Mehari warns about their number.
 You can find the VCF variant specification [here on Github](https://samtools.github.io/hts-specs/).
 
 ## Sequence Variant Annotation
