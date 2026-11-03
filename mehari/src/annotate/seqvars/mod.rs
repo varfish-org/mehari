@@ -1015,6 +1015,12 @@ async fn run_with_writer(
         .transcripts
         .as_ref()
         .is_some_and(|v| !v.is_empty());
+    if with_annotations && header_in.infos().contains_key("ANN") {
+        tracing::warn!(
+            "The input already has an ANN field. It is removed from all records, \
+            and ANN in the output only holds mehari's annotations."
+        );
+    }
     let with_frequencies = args
         .sources
         .frequencies
@@ -1922,6 +1928,7 @@ mod test {
 
     /// The `ANN` header then describes mehari's columns, so no input annotation may remain.
     #[tokio::test]
+    #[tracing_test::traced_test]
     async fn input_ann_is_replaced_when_annotating_transcripts() -> Result<(), anyhow::Error> {
         let records = annotate_input_with_ann(Sources {
             transcripts: Some(vec!["tests/data/annotate/db/grch37/txs.bin.zst".into()]),
@@ -1929,6 +1936,7 @@ mod test {
         })
         .await?;
 
+        assert!(logs_contain("The input already has an ANN field"));
         assert_eq!(records.len(), 3);
         assert!(!records[0].contains("ANN="), "{}", records[0]);
         assert!(records[1].contains("ANN=T|"), "{}", records[1]);
@@ -1939,6 +1947,7 @@ mod test {
 
     /// Without transcripts, mehari leaves the `ANN` header and the annotations alone.
     #[tokio::test]
+    #[tracing_test::traced_test]
     async fn input_ann_is_kept_without_transcripts() -> Result<(), anyhow::Error> {
         let records = annotate_input_with_ann(Sources {
             frequencies: Some(vec!["tests/data/annotate/db/grch37/seqvars/freqs".into()]),
@@ -1946,6 +1955,7 @@ mod test {
         })
         .await?;
 
+        assert!(!logs_contain("The input already has an ANN field"));
         assert_eq!(records.len(), 3);
         for record in &records {
             assert!(record.contains("from_input"), "{record}");
