@@ -2113,10 +2113,23 @@ impl ConsequencePredictor {
         let hgvs = self.writes_hgvs(&orig_var.alternative);
         let hgvs_g = hgvs.then(|| hgvs_g.to_string());
         let hgvs_projection = projection.filter(|_| hgvs);
+        // HGVS does not describe bases beyond the ends of a reference sequence, so a variant
+        // with an end outside the transcript has no n. or c. description. An insertion at a
+        // transcript end joins the exon, see `determine_transcript_context`.
+        let is_ins = matches!(var_g, HgvsVariant::GenomeVariant { loc_edit, .. }
+            if loc_edit.edit.inner().is_ins());
+        // Exons are stored in genome position order.
+        let tx_start = alignment.exons.first().map(|exon| exon.alt_start_i);
+        let tx_end = alignment.exons.last().map(|exon| exon.alt_end_i);
+        let within_tx = is_ins
+            || tx_start.is_some_and(|start| var_start >= start)
+                && tx_end.is_some_and(|end| var_end <= end);
         let hgvs_n = hgvs_projection
+            .filter(|_| within_tx)
             .and_then(|p| p.n.as_ref())
             .map(|var| FormattedLoc(var).to_string());
         let hgvs_c = hgvs_projection
+            .filter(|_| within_tx)
             .and_then(|p| p.c.as_ref())
             .map(|var| FormattedLoc(var).to_string());
         let hgvs_p = hgvs_projection
@@ -6089,18 +6102,18 @@ mod test {
     // ENST00000413051 has no 5' UTR, and the copy lands behind c.2, in the start codon. The copy
     // can also go in front of c.1, so hgvs-rs places the dup in the 5' UTR and gives `p.?`, and
     // the start codon remains. With VEP terms, the position of the copy counts, not its 5' UTR
-    // region.
-    #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", false, "c.-21_2dup", "p.?", vec![Consequence::StartRetainedVariant, Consequence::FivePrimeUtrExonVariant])]
-    #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", true, "c.-21_2dup", "p.?", vec![Consequence::FrameshiftVariant])]
+    // region. `c.-21_2dup` reaches in front of the transcript, so there is no c.
+    #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", false, None, "p.?", vec![Consequence::StartRetainedVariant, Consequence::FivePrimeUtrExonVariant])]
+    #[case("22:37746290:C:CGCGGCGGCGGGCGGCCGAGAGGG", "ENST00000413051", true, None, "p.?", vec![Consequence::FrameshiftVariant])]
     // the copy lands in the last three exon bases
-    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", false, "c.491_504dup", "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
+    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", false, Some("c.491_504dup"), "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::ExonicSpliceRegionVariant])]
     // VEP's changed codons at the 3'-shifted position hold the new stop codon
-    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", true, "c.491_504dup", "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
+    #[case("22:50256598:C:CCTTCAGCTCACAGT", "ENST00000215659", true, Some("c.491_504dup"), "p.(Lys168_Ile169insThrValSerTer)", vec![Consequence::StopGained, Consequence::FrameshiftVariant, Consequence::SpliceRegionVariant])]
     fn annotate_dup_csqs(
         #[case] spdi: &str,
         #[case] tx_id: &str,
         #[case] vep_consequence_terms: bool,
-        #[case] expected_hgvs_c: &str,
+        #[case] expected_hgvs_c: Option<&str>,
         #[case] expected_hgvs_p: &str,
         #[case] expected_csqs: Vec<Consequence>,
     ) -> Result<(), anyhow::Error> {
@@ -6115,7 +6128,7 @@ mod test {
                 ann.hgvs_p.as_deref(),
                 &ann.consequences
             ),
-            (Some(expected_hgvs_c), Some(expected_hgvs_p), &expected_csqs),
+            (expected_hgvs_c, Some(expected_hgvs_p), &expected_csqs),
             "spdi = {spdi}"
         );
 
@@ -8545,8 +8558,8 @@ mod test {
     /// produces; without one (`p.?`), the change of the CDS is a `coding_sequence_variant`.
     ///
     /// GLA `ENST00000218516.4` ends 6 bases behind its stop codon. `c.1286_*7del` deletes 12
-    /// bases and reaches past the transcript end, so `p.?`. IRF7 `c.1507_*40del` forms a new stop
-    /// codon at the position of the old one.
+    /// bases and reaches past the transcript end, so `p.?` and no c. IRF7 `c.1507_*40del` forms a
+    /// new stop codon at the position of the old one.
     #[rstest::rstest]
     #[case::gla(
         "X",
@@ -8554,7 +8567,7 @@ mod test {
         "TAAACATTTTAAA",
         "ENST00000218516.4",
         false,
-        ("c.1286_*7del", "p.?"),
+        (None, "p.?"),
         vec![
             Consequence::CodingSequenceVariant,
             Consequence::ThreePrimeUtrExonVariant
@@ -8567,7 +8580,7 @@ mod test {
         "TAAACATTTTAAA",
         "ENST00000218516.4",
         true,
-        ("c.1286_*7del", "p.?"),
+        (None, "p.?"),
         vec![Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant]
     )]
     #[case::irf7(
@@ -8576,7 +8589,7 @@ mod test {
         "TGGGCTGCTCCAGCTTTCTGGAGTTCTCATTAGACTGGGTTCTAGGC",
         "ENST00000525445.6",
         false,
-        ("c.1507_*40del", "p.(Ala503ThrfsTer2)"),
+        (Some("c.1507_*40del"), "p.(Ala503ThrfsTer2)"),
         vec![
             Consequence::MissenseVariant,
             Consequence::StopRetainedVariant,
@@ -8590,7 +8603,7 @@ mod test {
         "TGGGCTGCTCCAGCTTTCTGGAGTTCTCATTAGACTGGGTTCTAGGC",
         "ENST00000525445.6",
         true,
-        ("c.1507_*40del", "p.(Ala503ThrfsTer2)"),
+        (Some("c.1507_*40del"), "p.(Ala503ThrfsTer2)"),
         vec![Consequence::StopRetainedVariant, Consequence::ThreePrimeUtrVariant]
     )]
     fn deletion_over_stop_codon_without_frameshift(
@@ -8599,7 +8612,7 @@ mod test {
         #[case] reference: &str,
         #[case] tx_id: &str,
         #[case] vep_consequence_terms: bool,
-        #[case] expected_hgvs: (&str, &str),
+        #[case] expected_hgvs: (Option<&str>, &str),
         #[case] expected_csqs: Vec<Consequence>,
     ) -> Result<(), anyhow::Error> {
         let tx_db = load_tx_db(
@@ -8633,18 +8646,19 @@ mod test {
                 ann.hgvs_p.as_deref(),
                 &ann.consequences
             ),
-            (Some(expected_hgvs.0), Some(expected_hgvs.1), &expected_csqs)
+            (expected_hgvs.0, Some(expected_hgvs.1), &expected_csqs)
         );
         Ok(())
     }
 
     /// As above, on a test transcript. Its 3' UTR decides where the new frame reads a stop codon.
     #[rstest::rstest]
-    // `c.14_*7delinsCCC` replaces 12 bases by 3 and reaches past the transcript end, so `p.?`.
+    // `c.14_*7delinsCCC` replaces 12 bases by 3 and reaches past the transcript end, so `p.?`
+    // and no c.
     #[case::delins(
         "CGCATC",
         (1033, "TGGTAACGCATCA", "TCCC"),
-        ("c.14_*7delinsCCC", "p.?"),
+        (None, "p.?"),
         vec![
             Consequence::CodingSequenceVariant,
             Consequence::ThreePrimeUtrExonVariant
@@ -8654,7 +8668,7 @@ mod test {
     #[case::delins_in_frame_in_transcript(
         "CGCATC",
         (1033, "TGGTAACGCATCA", "TCC"),
-        ("c.14_*7delinsCC", "p.?"),
+        (None, "p.?"),
         vec![
             Consequence::CodingSequenceVariant,
             Consequence::ThreePrimeUtrExonVariant
@@ -8663,7 +8677,7 @@ mod test {
     #[case::new_stop_in_front(
         "ACAGTAAGCAT",
         (1030, "CTGTGGTAAAC", "C"),
-        ("c.11_*2del", "p.(Leu4GlnfsTer2)"),
+        (Some("c.11_*2del"), "p.(Leu4GlnfsTer2)"),
         vec![
             Consequence::StopGained,
             Consequence::FrameshiftVariant,
@@ -8673,7 +8687,7 @@ mod test {
     #[case::new_stop_behind(
         "ACCGCATTAAGC",
         (1033, "TGGTAAAC", "T"),
-        ("c.14_*2del", "p.(Trp5SerfsTer3)"),
+        (Some("c.14_*2del"), "p.(Trp5SerfsTer3)"),
         vec![
             Consequence::FrameshiftVariant,
             Consequence::StopLost,
@@ -8685,7 +8699,7 @@ mod test {
     #[case::no_new_stop_reading_past_old_one(
         "ACCGCATCAGCGCC",
         (1033, "TGGTAAAC", "T"),
-        ("c.14_*2del", "p.(Trp5SerfsTer?)"),
+        (Some("c.14_*2del"), "p.(Trp5SerfsTer?)"),
         vec![
             Consequence::FrameshiftVariant,
             Consequence::StopLost,
@@ -8696,7 +8710,7 @@ mod test {
     fn indel_through_stop_codon(
         #[case] utr3: &str,
         #[case] variant: (i32, &str, &str),
-        #[case] expected_hgvs: (&str, &str),
+        #[case] expected_hgvs: (Option<&str>, &str),
         #[case] expected_csqs: Vec<Consequence>,
     ) -> Result<(), anyhow::Error> {
         let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", utr3);
@@ -8719,7 +8733,7 @@ mod test {
                 ann.hgvs_p.as_deref(),
                 &ann.consequences
             ),
-            (Some(expected_hgvs.0), Some(expected_hgvs.1), &expected_csqs)
+            (expected_hgvs.0, Some(expected_hgvs.1), &expected_csqs)
         );
         Ok(())
     }
@@ -9256,22 +9270,22 @@ mod test {
     /// `T` bases behind the transcript.
     #[rstest::rstest]
     // `TGG TAA` to `TGC TCA`: the protein reads on to the `TAA` of the 3' UTR.
-    #[case::delins_longer("GCATAACAGT", (1035, 3, Some("CTC")), false, "c.15_17delinsCTC", vec![Consequence::StopLost, Consequence::FeatureElongation])]
-    #[case::delins_longer_vep("GCATAACAGT", (1035, 3, Some("CTC")), true, "c.15_17delinsCTC", vec![Consequence::StopLost])]
+    #[case::delins_longer("GCATAACAGT", (1035, 3, Some("CTC")), false, Some("c.15_17delinsCTC"), vec![Consequence::StopLost, Consequence::FeatureElongation])]
+    #[case::delins_longer_vep("GCATAACAGT", (1035, 3, Some("CTC")), true, Some("c.15_17delinsCTC"), vec![Consequence::StopLost])]
     // The inversion of c.10 to c.*6 changes Leu4 and forms a stop codon in place of Trp5.
-    #[case::inversion_shorter("CTAAGCATCA", (1030, 15, None), false, "c.10_*6inv", vec![Consequence::StopGained, Consequence::ThreePrimeUtrExonVariant])]
-    #[case::inversion_shorter_vep("CTAAGCATCA", (1030, 15, None), true, "c.10_*6inv", vec![Consequence::StopGained, Consequence::ThreePrimeUtrVariant])]
+    #[case::inversion_shorter("CTAAGCATCA", (1030, 15, None), false, Some("c.10_*6inv"), vec![Consequence::StopGained, Consequence::ThreePrimeUtrExonVariant])]
+    #[case::inversion_shorter_vep("CTAAGCATCA", (1030, 15, None), true, Some("c.10_*6inv"), vec![Consequence::StopGained, Consequence::ThreePrimeUtrVariant])]
     // The inversion of c.16 to c.*1 changes the stop codon, and the protein reads on.
-    #[case::inversion_longer("GCATAACAGT", (1036, 4, None), false, "c.16_*1inv", vec![Consequence::StopLost, Consequence::FeatureElongation, Consequence::ThreePrimeUtrExonVariant])]
-    #[case::inversion_longer_vep("GCATAACAGT", (1036, 4, None), true, "c.16_*1inv", vec![Consequence::StopLost, Consequence::ThreePrimeUtrVariant])]
+    #[case::inversion_longer("GCATAACAGT", (1036, 4, None), false, Some("c.16_*1inv"), vec![Consequence::StopLost, Consequence::FeatureElongation, Consequence::ThreePrimeUtrExonVariant])]
+    #[case::inversion_longer_vep("GCATAACAGT", (1036, 4, None), true, Some("c.16_*1inv"), vec![Consequence::StopLost, Consequence::ThreePrimeUtrVariant])]
     // An inversion from c.13 past the transcript end, so `p.?`.
-    #[case::inversion_past_transcript_end("GCATAACAGT", (1033, 19, None), false, "c.13_*13inv", vec![Consequence::CodingSequenceVariant, Consequence::ThreePrimeUtrExonVariant])]
-    #[case::inversion_past_transcript_end_vep("GCATAACAGT", (1033, 19, None), true, "c.13_*13inv", vec![Consequence::CodingSequenceVariant, Consequence::ThreePrimeUtrVariant])]
+    #[case::inversion_past_transcript_end("GCATAACAGT", (1033, 19, None), false, None, vec![Consequence::CodingSequenceVariant, Consequence::ThreePrimeUtrExonVariant])]
+    #[case::inversion_past_transcript_end_vep("GCATAACAGT", (1033, 19, None), true, None, vec![Consequence::CodingSequenceVariant, Consequence::ThreePrimeUtrVariant])]
     fn stop_terms_from_protein(
         #[case] utr3: &str,
         #[case] (position, ref_len, alternative): (usize, usize, Option<&str>),
         #[case] vep_compatibility_mode: bool,
-        #[case] expected_c: &str,
+        #[case] expected_c: Option<&str>,
         #[case] expected_csqs: Vec<Consequence>,
     ) -> Result<(), anyhow::Error> {
         let (tx, seq) = one_exon_tx("CAGTCAGTCAGTCAGTCAGT", "ATGGCCAAGCTGTGGTAA", utr3);
@@ -9298,7 +9312,7 @@ mod test {
             .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1: {anns:?}"))?;
         assert_eq!(
             (ann.hgvs_c.as_deref(), &ann.consequences),
-            (Some(expected_c), &expected_csqs),
+            (expected_c, &expected_csqs),
             "{:?}",
             ann.hgvs_p
         );
@@ -11049,7 +11063,8 @@ mod test {
 
     /// A dup whose bases overlap the transcript keeps its annotation, also if its copy goes
     /// farther than `PADDING` behind the transcript. The dup of chr1:1011-6020 covers the stop
-    /// codon, the 3' UTR and the 5003 `T` bases behind the transcript.
+    /// codon, the 3' UTR and the 5003 `T` bases behind the transcript, so it has no c.
+    /// description: HGVS does not describe bases beyond the end of the transcript.
     #[rstest::rstest]
     fn dup_over_transcript_end_keeps_annotation(
         #[values(false, true)] vep_compatibility_mode: bool,
@@ -11081,11 +11096,66 @@ mod test {
 
         assert_eq!(
             found,
-            Some((
-                Some("c.7_*5007dup"),
-                vec![Consequence::CodingSequenceVariant]
-            )),
+            Some((None, vec![Consequence::CodingSequenceVariant])),
             "{anns:?}"
+        );
+        Ok(())
+    }
+
+    /// Exons are stored in genome position order on both strands, which the annotation relies on,
+    /// e.g. for the transcript span in `build_ann_field`.
+    #[rstest::rstest]
+    #[case("tests/data/annotate/db/grch37/txs.bin.zst")]
+    #[case("tests/data/annotate/db/grch38/txs.bin.zst")]
+    fn exons_in_genome_order(#[case] tx_path: &str) -> Result<(), anyhow::Error> {
+        let tx_db = load_tx_db(tx_path)?;
+        let alignments = (tx_db.tx_db.iter().flat_map(|db| &db.transcripts))
+            .flat_map(|tx| &tx.genome_alignments)
+            .collect::<Vec<_>>();
+        for strand in [Strand::Plus, Strand::Minus] {
+            assert!(alignments.iter().any(|a| a.strand == i32::from(strand)));
+        }
+        for alignment in alignments {
+            assert!(
+                (alignment.exons).is_sorted_by_key(|exon| exon.alt_start_i),
+                "{alignment:?}"
+            );
+        }
+        Ok(())
+    }
+
+    /// A deletion that starts in front of the transcript has no n. or c. description, as HGVS
+    /// does not describe bases beyond the ends of a reference sequence. Its terms and p. stay.
+    /// The deletion of chr1:998-1006 covers the first 6 bases of the transcript at 1001.
+    #[test]
+    fn deletion_over_transcript_start_has_no_hgvs_c() -> Result<(), anyhow::Error> {
+        let (tx, seq) = one_exon_tx("CAGT", "ATGGCCTAA", "CAGT");
+        let mut reference = NamedTempFile::new()?;
+        write!(
+            reference,
+            ">1\n{}{seq}{}\n",
+            "T".repeat(1000),
+            "C".repeat(100)
+        )?;
+        let anns = predictor_with_reference(tx, seq, Default::default(), Some(reference.path()))
+            .predict(&VcfVariant {
+                chromosome: "1".into(),
+                position: 997,
+                reference: "TTTTCAGTAT".into(),
+                alternative: "T".into(),
+            })?
+            .unwrap_or_default();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .expect("transcript annotated");
+
+        assert_eq!(ann.hgvs_g.as_deref(), Some("g.998_1006del"));
+        assert_eq!((&ann.hgvs_n, &ann.hgvs_c), (&None, &None), "{ann:?}");
+        assert_eq!(ann.hgvs_p.as_deref(), Some("p.Met1?"));
+        assert!(
+            ann.consequences.contains(&Consequence::StartLost),
+            "{ann:?}"
         );
         Ok(())
     }
