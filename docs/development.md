@@ -1,28 +1,15 @@
 ## Building from scratch
-To reduce compile times, we recommend using a pre-built version of `rocksdb`, either from the system package manager or e.g. via `conda`:
+By default, the RocksDB bundled with the `rocksdb` crate (see `librocksdb-sys` in `Cargo.lock`) is built from source.
+This takes a while on the first build but guarantees that every build, including the Docker image and the bioconda package, reads and writes the same database format.
 
-```bash
-# Ubuntu
-sudo apt-get install librocksdb-dev
-
-# Conda
-conda install -c conda-forge rocksdb
-```
-
-In either case, either add
-```toml
-[env]
-ROCKSDB_LIB_DIR = "/usr/lib/" # in case of the system package manager, adjust the path accordingly for conda
-SNAPPY_LIB_DIR = "/usr/lib/"  # same as above
-```
-to `.cargo/config.toml` or set the environment variables `ROCKSDB_LIB_DIR` and `SNAPPY_LIB_DIR` to the appropriate paths:
+To reduce compile times locally, you can link a pre-built `rocksdb` instead by setting the environment variables `ROCKSDB_LIB_DIR` and `SNAPPY_LIB_DIR`:
 
 ```bash
 export ROCKSDB_LIB_DIR=/usr/lib/
 export SNAPPY_LIB_DIR=/usr/lib/
 ```
 
-By default, the environment variables are defined in the `.cargo/config.toml` as described above, i.e. may need adjustments if not using the system package manager.
+Note that the system package may be too old: Ubuntu 24.04 ships RocksDB 8.9, which cannot read databases written by the bundled RocksDB (table `format_version` 7).
 
 You will need a recent version of protoc, e.g.:
 

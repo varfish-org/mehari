@@ -12,7 +12,7 @@ Variant effect prediction (HGVS, VEP-compatible consequences) for VCF, in Rust. 
 - CLI subcommands: `db` / `annotate` / `server`.
 
 ## Build / test / lint (real commands)
-- Prereqs: `protoc`; system `librocksdb-dev libsnappy-dev libsqlite3-dev`. `.cargo/config.toml` points RocksDB/snappy at `/usr/lib/` — don't break it.
+- Prereqs: `protoc`, `clang`, system `libsqlite3-dev`. RocksDB/snappy are the versions bundled with `librocksdb-sys`, built from source — don't link a system RocksDB (Ubuntu's 8.9 can't read the `format_version` 7 the bundled one writes).
 - Build `cargo build` · test `cargo test` (CI) / `cargo test --all-features` · format `cargo fmt -- --check` · lint `cargo clippy --workspace --all-features` · coverage `cargo llvm-cov --all-features --workspace`.
 - Run: `cargo run -p mehari --bin mehari -- <args>`.
 - Python bindings: from `mehari-python/`, `uv sync` then `uv run pytest`.
