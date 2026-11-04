@@ -748,6 +748,8 @@ struct Junction<'a> {
     after: Piece<'a>,
     /// Whether a deletion makes the junction, which fuses transcripts in the sense of SO.
     deletion: bool,
+    /// The number of bases inserted between the pieces.
+    inserted: usize,
 }
 
 /// The terms of the essential splice sites.
@@ -1499,27 +1501,31 @@ impl ConsequencePredictor {
                 before: piece(start - 1, true),
                 after: piece(end.saturating_add(1), true),
                 deletion: true,
+                inserted: 0,
             }],
             SvKind::Duplication { tandem: true } => vec![Junction {
                 before: piece(end, true),
                 after: piece(start, true),
                 deletion: false,
+                inserted: 0,
             }],
             SvKind::Inversion => vec![
                 Junction {
                     before: piece(start - 1, true),
                     after: piece(end, false),
                     deletion: false,
+                    inserted: 0,
                 },
                 Junction {
                     before: piece(start, false),
                     after: piece(end.saturating_add(1), true),
                     deletion: false,
+                    inserted: 0,
                 },
             ],
             _ => Vec::new(),
         };
-        self.junction_fusions(&junctions)
+        self.junction_fusions(&junctions, sv.imprecise)
     }
 
     /// The gene fusions that the junction of `breakend` of `var` makes, see `junction_fusions`.
@@ -1552,33 +1558,36 @@ impl ConsequencePredictor {
             pos: mate.position,
             forward: mate.extends_right == breakend.keeps_left,
         };
-        let junction = if breakend.keeps_left {
-            Junction {
-                before: own,
-                after: joined,
-                deletion: false,
-            }
+        let (before, after) = if breakend.keeps_left {
+            (own, joined)
         } else {
-            Junction {
-                before: joined,
-                after: own,
-                deletion: false,
-            }
+            (joined, own)
         };
-        self.junction_fusions(&[junction])
+        let junction = Junction {
+            before,
+            after,
+            deletion: false,
+            inserted: breakend.inserted.len(),
+        };
+        self.junction_fusions(&[junction], breakend.imprecise)
     }
 
     /// The fusions of transcripts of different genes at the two sides of each junction. A
     /// transcript contributes its 5' part if it reads towards the junction in the piece before
     /// it, and its 3' part if it reads away from the junction in the piece behind it. Two 5' or
     /// two 3' parts joined are a bidirectional fusion; a 3' part joined to a 5' part is a
-    /// unidirectional fusion read the other way.
+    /// unidirectional fusion read the other way. The reading frame of a unidirectional fusion
+    /// is known where the junctions are precise (not `imprecise`), see `fusion_frame`.
     ///
     /// Genes that are joined in the reference already are no fusion: a transcript that spans
     /// both sides of a junction on one contig, e.g. of overlapping genes or a readthrough gene.
     /// Genes are the same by HGNC ID where both have one, else by gene ID, so that transcripts
     /// of one gene from several sources are no fusion either.
-    fn junction_fusions(&self, junctions: &[Junction]) -> Result<Vec<Fusion>, SeqvarsError> {
+    fn junction_fusions(
+        &self,
+        junctions: &[Junction],
+        imprecise: bool,
+    ) -> Result<Vec<Fusion>, SeqvarsError> {
         let same_gene = |a: &Transcript, b: &Transcript| match (&a.hgnc_id, &b.hgnc_id) {
             (Some(hgnc_a), Some(hgnc_b)) => hgnc_a == hgnc_b,
             _ => a.gene_id == b.gene_id,
@@ -1601,11 +1610,17 @@ impl ConsequencePredictor {
                     }
                     let five_prime_a = *plus_a == junction.before.forward;
                     let three_prime_b = *plus_b == junction.after.forward;
+                    let a = (*tx_a, *plus_a, junction.before.pos);
+                    let b = (*tx_b, *plus_b, junction.after.pos);
                     let (five, three) = if !five_prime_a && !three_prime_b {
-                        (tx_b, tx_a)
+                        (b, a)
                     } else {
-                        (tx_a, tx_b)
+                        (a, b)
                     };
+                    let bidirectional = five_prime_a != three_prime_b;
+                    let frame = (!bidirectional && !imprecise)
+                        .then(|| Self::fusion_frame(five, three, junction.inserted))
+                        .flatten();
                     // The database writes `<MISSING>` for a gene without a symbol.
                     let gene = |tx: &Transcript| {
                         if tx.gene_symbol.is_empty() || tx.gene_symbol == "<MISSING>" {
@@ -1615,15 +1630,73 @@ impl ConsequencePredictor {
                         }
                     };
                     fusions.push(Fusion {
-                        transcripts: (five.id.clone(), three.id.clone()),
-                        label: format!("{}::{}", gene(five), gene(three)),
-                        bidirectional: five_prime_a != three_prime_b,
+                        transcripts: (five.0.id.clone(), three.0.id.clone()),
+                        label: format!("{}::{}", gene(five.0), gene(three.0)),
+                        bidirectional,
                         deletion: junction.deletion,
+                        in_frame: frame.map(|(in_frame, _)| in_frame),
+                        assumes_splicing: frame.is_some_and(|(_, in_intron)| in_intron),
                     });
                 }
             }
         }
         Ok(fusions)
+    }
+
+    /// The reading frame of a unidirectional fusion, and whether it assumes normal splicing.
+    /// `five` is the transcript whose 5' part the junction keeps, and `three` the one whose 3'
+    /// part follows, `inserted` bases after it. Each comes with whether it lies on the plus
+    /// strand and with its 1-based base at the junction. The frame stays (`true`) if the CDS
+    /// bases that `five` keeps, from its CDS start to the last kept exon base, plus `inserted`,
+    /// less those that `three` skips in front of the first joined exon base, are a multiple of
+    /// 3. Splicing is assumed if a junction base lies in an intron. `None` if a junction base
+    /// lies outside the CDS of its transcript, from the start codon to the stop codon, e.g. in a
+    /// UTR, if a transcript has no CDS, if `five` keeps less than its start codon or its whole
+    /// stop codon, which ends its protein in front of the junction, or if `three` joins from its
+    /// stop codon on, which adds no amino acid.
+    fn fusion_frame(
+        five: (&Transcript, bool, i32),
+        three: (&Transcript, bool, i32),
+        inserted: usize,
+    ) -> Option<(bool, bool)> {
+        // The CDS bases in front of `pos` in the direction of the transcript, with `pos` itself
+        // if `with_pos`, all CDS bases, and whether `pos` lies in an intron.
+        let in_front = |(tx, plus, pos): (&Transcript, bool, i32), with_pos: bool| {
+            let alignment = tx.genome_alignments.first()?;
+            let (cds_start, cds_end) = alignment.cds_start.zip(alignment.cds_end)?;
+            if pos <= cds_start || pos > cds_end {
+                return None;
+            }
+            // 0-based and end-exclusive.
+            let (start, end) = match (plus, with_pos) {
+                (true, true) => (cds_start, pos),
+                (true, false) => (cds_start, pos - 1),
+                (false, true) => (pos - 1, cds_end),
+                (false, false) => (pos, cds_end),
+            };
+            let exon_bases = |start: i32, end: i32| -> i32 {
+                (alignment.exons.iter())
+                    .map(|exon| (end.min(exon.alt_end_i) - start.max(exon.alt_start_i)).max(0))
+                    .sum()
+            };
+            let in_intron = !(alignment.exons.iter())
+                .any(|exon| exon.alt_start_i < pos && pos <= exon.alt_end_i);
+            Some((
+                exon_bases(start, end),
+                exon_bases(cds_start, cds_end),
+                in_intron,
+            ))
+        };
+        let (kept, five_len, five_in_intron) = in_front(five, true)?;
+        let (skipped, three_len, three_in_intron) = in_front(three, false)?;
+        if kept < 3 || kept >= five_len || skipped >= three_len - 3 {
+            return None;
+        }
+        let inserted = i32::try_from(inserted % 3).unwrap_or_default();
+        Some((
+            (kept + inserted - skipped) % 3 == 0,
+            five_in_intron || three_in_intron,
+        ))
     }
 
     /// The transcripts whose span, from the first to the last exon, holds the 1-based base `pos`
@@ -1650,9 +1723,11 @@ impl ConsequencePredictor {
     }
 
     /// The fusion terms of each transcript that `fusions` join, by its ID: `gene_fusion` with
-    /// its direction, and `transcript_fusion` for a deletion.
-    fn fusion_terms(fusions: &[Fusion]) -> FxHashMap<&str, Consequences> {
-        let mut terms = FxHashMap::<&str, Consequences>::default();
+    /// its direction, the reading frame of a unidirectional fusion where it is known, and
+    /// `transcript_fusion` for a deletion; and whether a junction lies in an intron, so that the
+    /// frame assumes normal splicing.
+    fn fusion_terms(fusions: &[Fusion]) -> FxHashMap<&str, (Consequences, bool)> {
+        let mut terms = FxHashMap::<&str, (Consequences, bool)>::default();
         for fusion in fusions {
             let mut these = Consequences::from(Consequence::GeneFusion);
             these |= if fusion.bidirectional {
@@ -1660,21 +1735,42 @@ impl ConsequencePredictor {
             } else {
                 Consequence::UnidirectionalGeneFusion
             };
+            let mut assumes_splicing = false;
+            if let Some(in_frame) = fusion.in_frame {
+                these |= if in_frame {
+                    Consequence::InframeUnidirectionalGeneFusion
+                } else {
+                    Consequence::FrameshiftUnidirectionalGeneFusion
+                };
+                assumes_splicing = fusion.assumes_splicing;
+            }
             if fusion.deletion {
                 these |= Consequence::TranscriptFusion;
             }
             for tx in [&fusion.transcripts.0, &fusion.transcripts.1] {
-                *terms.entry(tx.as_str()).or_default() |= these;
+                let entry = terms.entry(tx.as_str()).or_default();
+                entry.0 |= these;
+                entry.1 |= assumes_splicing;
             }
         }
         terms
     }
 
-    /// Add the fusion terms of its transcript from `fusion_terms` to `ann`, see `fusion_terms`.
-    fn apply_fusions(ann: &mut AnnField, fusion_terms: &FxHashMap<&str, Consequences>) {
-        let Some(mut terms) = fusion_terms.get(ann.feature_id.as_str()).copied() else {
+    /// Add the fusion terms of its transcript from `fusion_terms` to `ann`, with the message
+    /// `INFO_ASSUMES_NORMAL_SPLICING` where the frame assumes normal splicing, see
+    /// `fusion_terms`.
+    fn apply_fusions(ann: &mut AnnField, fusion_terms: &FxHashMap<&str, (Consequences, bool)>) {
+        let Some((mut terms, assumes_splicing)) =
+            fusion_terms.get(ann.feature_id.as_str()).copied()
+        else {
             return;
         };
+        if assumes_splicing {
+            let messages = ann.messages.get_or_insert_with(Vec::new);
+            if !messages.contains(&Message::InfoAssumesNormalSplicing) {
+                messages.push(Message::InfoAssumesNormalSplicing);
+            }
+        }
         terms.extend(ann.consequences.iter().copied());
         ann.consequences = terms.iter().collect();
         ann.putative_impact = ann.consequences[0].into();
@@ -13225,6 +13321,9 @@ pub(crate) mod test {
                 label: label.into(),
                 bidirectional,
                 deletion,
+                // A junction lies outside a CDS, or the fusion is bidirectional.
+                in_frame: None,
+                assumes_splicing: false,
             })
             .collect::<Vec<_>>();
         assert_eq!(fusions, expected);
@@ -13252,6 +13351,99 @@ pub(crate) mod test {
                     fusions.iter().any(|f| f.deletion),
                     "{ann:?}"
                 );
+            }
+        }
+        Ok(())
+    }
+
+    /// `tx` as a non-coding transcript.
+    fn non_coding(mut tx: Transcript) -> Transcript {
+        tx.biotype = TranscriptBiotype::NonCoding.into();
+        (tx.protein, tx.start_codon, tx.stop_codon) = (None, None, None);
+        for alignment in &mut tx.genome_alignments {
+            (alignment.cds_start, alignment.cds_end) = (None, None);
+        }
+        tx
+    }
+
+    /// The reading frame of a unidirectional fusion: the CDS bases that the 5' gene keeps up to
+    /// the junction, plus those inserted there, less those that the 3' gene skips in front of
+    /// it, are a multiple of 3 or not. `GENE1` is `exons_tx(3, 20)` at chr1:1001-1380, and
+    /// `gene_2` lies 1000 bases behind it. The CDS runs from 1021 to 1180 (2021 to 2180): 40
+    /// bases in exon 1, which ends at 1060, and 20 in exon 2, which starts at 1161; the stop
+    /// codon is 1178-1180. On the minus strand, the coordinates stay, so the CDS starts in exon
+    /// 2. A junction in an intron assumes normal splicing. A junction outside a CDS, a 5' part
+    /// with less than its start codon or with its whole stop codon, a 3' part from its stop
+    /// codon on, a non-coding transcript and an imprecise call give no frame.
+    #[rstest::rstest]
+    #[case::deletion_in_frame("<DEL>", 1050, 2050, gene2(1000, false), Some(true), false)]
+    #[case::deletion_frameshift("<DEL>", 1050, 2051, gene2(1000, false), Some(false), false)]
+    #[case::deletion_in_introns("<DEL>", 1099, 2100, gene2(1000, false), Some(true), true)]
+    #[case::dup_in_frame("<DUP:TANDEM>", 1050, 2050, gene2(1000, false), Some(true), false)]
+    #[case::dup_frameshift("<DUP:TANDEM>", 1050, 2051, gene2(1000, false), Some(false), false)]
+    #[case::left_kept_in_frame("N[1:2051[", 1050, 0, gene2(1000, false), Some(true), false)]
+    #[case::left_kept_frameshift("N[1:2052[", 1050, 0, gene2(1000, false), Some(false), false)]
+    #[case::right_kept_in_frame("]1:1050]N", 2051, 0, gene2(1000, false), Some(true), false)]
+    #[case::right_kept_frameshift("]1:1051]N", 2051, 0, gene2(1000, false), Some(false), false)]
+    #[case::inserted_base("NA[1:2051[", 1050, 0, gene2(1000, false), Some(false), false)]
+    #[case::inserted_bases("NAC[1:2051[", 1050, 0, gene2(1000, false), Some(false), false)]
+    #[case::inserted_codon("NACG[1:2051[", 1050, 0, gene2(1000, false), Some(true), false)]
+    #[case::inserted_base_right_kept("]1:1050]AN", 2051, 0, gene2(1000, false), Some(false), false)]
+    #[case::five_in_start_codon("<DEL>", 1022, 2050, gene2(1000, false), None, false)]
+    #[case::five_keeps_stop_codon("<DEL>", 1180, 2050, gene2(1000, false), None, false)]
+    #[case::three_in_stop_codon("<DEL>", 1050, 2177, gene2(1000, false), None, false)]
+    #[case::minus_five_in_frame("[1:2100[N", 1041, 0, gene2(1000, true), Some(true), true)]
+    #[case::minus_five_frameshift("[1:2171[N", 1041, 0, gene2(1000, true), Some(false), false)]
+    #[case::minus_three_in_frame("N]1:2100]", 1040, 0, gene2(1000, true), Some(true), true)]
+    #[case::minus_three_frameshift("N]1:2170]", 1040, 0, gene2(1000, true), Some(false), false)]
+    #[case::utr("<DEL>", 1010, 2050, gene2(1000, false), None, false)]
+    #[case::non_coding("<DEL>", 1050, 2050, non_coding(gene2(1000, false)), None, false)]
+    fn fusion_frames(
+        #[case] alternative: &str,
+        #[case] pos: i32,
+        #[case] end: i32,
+        #[case] gene_2: Transcript,
+        #[case] in_frame: Option<bool>,
+        #[case] assumes_splicing: bool,
+    ) -> Result<(), anyhow::Error> {
+        let (gene_1, seq) = exons_tx(3, 20);
+        let txs = vec![(gene_1, seq.clone()), (gene_2, seq)];
+        let predictor = predictor_with_txs(txs, Default::default(), None);
+        let var = VcfVariant {
+            chromosome: "1".into(),
+            position: pos,
+            reference: "N".into(),
+            alternative: alternative.into(),
+        };
+
+        for imprecise in [false, true] {
+            let info = SvInfo {
+                end: Some(end),
+                imprecise,
+                ..Default::default()
+            };
+            let annotations = (predictor.predict_with_info(&var, &info)?).unwrap_or_default();
+            let in_frame = in_frame.filter(|_| !imprecise);
+            for id in ["NM_000001.1", "NM_000002.1"] {
+                let ann = (annotations.anns.iter())
+                    .find(|ann| ann.feature_id == id)
+                    .ok_or_else(|| anyhow::anyhow!("no row of {id}"))?;
+                let has = |csq| ann.consequences.contains(&csq);
+                assert!(has(Consequence::UnidirectionalGeneFusion), "{ann:?}");
+                assert_eq!(
+                    has(Consequence::InframeUnidirectionalGeneFusion),
+                    in_frame == Some(true),
+                    "{ann:?}"
+                );
+                assert_eq!(
+                    has(Consequence::FrameshiftUnidirectionalGeneFusion),
+                    in_frame == Some(false),
+                    "{ann:?}"
+                );
+                let messages = ann.messages.iter().flatten();
+                let splicing = messages.filter(|m| **m == Message::InfoAssumesNormalSplicing);
+                let expected = usize::from(assumes_splicing && !imprecise);
+                assert_eq!(splicing.count(), expected, "{ann:?}");
             }
         }
         Ok(())

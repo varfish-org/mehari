@@ -143,6 +143,14 @@ pub enum Consequence {
     /// SO:unidirectional_gene_fusion
     UnidirectionalGeneFusion,
 
+    /// "A sequence variant whereby two genes, on the same strand have become joined without a disruption of the translational reading frame, because the number of nucleotides between the reading frames of the joined genes is a multiple of three."
+    /// SO:inframe_unidirectional_gene_fusion
+    InframeUnidirectionalGeneFusion,
+
+    /// "A sequence variant whereby two genes, on the same strand have become joined with a disruption of the translational reading frame, because the number of nucleotides between the reading frames of the joined genes is not a multiple of three."
+    /// SO:frameshift_unidirectional_gene_fusion
+    FrameshiftUnidirectionalGeneFusion,
+
     /// "A sequence variant whereby two genes, on alternate strands have become joined."
     /// SO:bidirectional_gene_fusion
     BidirectionalGeneFusion,
@@ -389,6 +397,8 @@ impl From<Consequence> for PutativeImpact {
             | InternalFeatureElongation
             | GeneFusion
             | UnidirectionalGeneFusion
+            | InframeUnidirectionalGeneFusion
+            | FrameshiftUnidirectionalGeneFusion
             | BidirectionalGeneFusion
             | TranscriptFusion => PutativeImpact::High,
             // One intact copy of the transcript remains; the partial copy may give an
@@ -994,7 +1004,8 @@ pub enum Message {
     /// positions as called.
     InfoImpreciseBreakpoints,
     /// The protein terms assume normal splicing of the remaining exons, as the HGVS description
-    /// gives no protein (`p.?`), e.g. for the deletion of whole exons.
+    /// gives no protein (`p.?`), e.g. for the deletion of whole exons. So does the frame term of
+    /// a gene fusion with a junction in an intron.
     InfoAssumesNormalSplicing,
     /// The 3' shift of HGVS put this indel onto an essential splice site, but the same change at
     /// another position of its repeat leaves that splice site intact.

@@ -572,6 +572,11 @@ pub struct Fusion {
     pub bidirectional: bool,
     /// Whether a deletion makes the junction.
     pub deletion: bool,
+    /// Whether a unidirectional fusion keeps the reading frame of the 5' gene in the 3' gene,
+    /// see `ConsequencePredictor::fusion_frame`; `None` where that is unknown.
+    pub in_frame: Option<bool>,
+    /// Whether `in_frame` assumes normal splicing, as a junction lies in an intron.
+    pub assumes_splicing: bool,
 }
 
 /// The annotations of an allele, see `ConsequencePredictor::predict_with_info`.

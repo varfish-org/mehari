@@ -716,6 +716,8 @@ components:
       - internal_feature_elongation
       - gene_fusion
       - unidirectional_gene_fusion
+      - inframe_unidirectional_gene_fusion
+      - frameshift_unidirectional_gene_fusion
       - bidirectional_gene_fusion
       - transcript_fusion
       - five_prime_duplicated_transcript
