@@ -265,4 +265,28 @@ mod tests {
 
         Ok(())
     }
+
+    /// Databases written by RocksDB >= 11 use table format version 7 by default (e.g., the
+    /// frequency databases built with the bioconda annonars) and must be readable.
+    #[test]
+    fn test_read_rocksdb_table_format_version_7() -> Result<(), anyhow::Error> {
+        let tmp = temp_testdir::TempDir::default();
+
+        let mut block_opts = rocksdb::BlockBasedOptions::default();
+        block_opts.set_format_version(7);
+        let mut options = rocksdb::Options::default();
+        options.create_if_missing(true);
+        options.set_block_based_table_factory(&block_opts);
+        {
+            let db = rocksdb::DB::open(&options, tmp.as_ref())?;
+            db.put(b"key", b"value")?;
+            db.flush()?;
+        }
+
+        let db =
+            rocksdb::DB::open_for_read_only(&rocksdb::Options::default(), tmp.as_ref(), false)?;
+        assert_eq!(db.get(b"key")?, Some(b"value".to_vec()));
+
+        Ok(())
+    }
 }
