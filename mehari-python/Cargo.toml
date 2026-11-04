@@ -17,6 +17,7 @@ rayon = "1.11.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_arrow = { version = "0.15.1", features = ["arrow-60"] }
 strum = "0.28.0"
+tracing = "0.1"
 anyhow = "1.0.102"
 
 [workspace]  # workaround to avoid pulling in jemalloc

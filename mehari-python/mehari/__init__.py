@@ -124,6 +124,10 @@ class SeqvarsAnnotator:
         sv_length: int | None = None,
         sv_claim: str | None = None,
         imprecise: bool = False,
+        sv_type: str | None = None,
+        cn: float | None = None,
+        cipos: tuple[int, int] | list[int] | None = None,
+        ciend: tuple[int, int] | list[int] | None = None,
     ) -> AnnotationResultDict: ...
 
     @typing.overload
@@ -144,6 +148,10 @@ class SeqvarsAnnotator:
         sv_length: int | None = None,
         sv_claim: str | None = None,
         imprecise: bool = False,
+        sv_type: str | None = None,
+        cn: float | None = None,
+        cipos: tuple[int, int] | list[int] | None = None,
+        ciend: tuple[int, int] | list[int] | None = None,
     ) -> AnnotationResultDict: ...
 
     def annotate(
@@ -158,25 +166,45 @@ class SeqvarsAnnotator:
         sv_length: int | None = None,
         sv_claim: str | None = None,
         imprecise: bool = False,
+        sv_type: str | None = None,
+        cn: float | None = None,
+        cipos: tuple[int, int] | list[int] | None = None,
+        ciend: tuple[int, int] | list[int] | None = None,
     ) -> typing.Any:
         """
         Annotates genetic variants.
         Supports Polars DataFrames/LazyFrames, 'chr:pos:ref:alt' strings, or explicit kwargs.
 
-        A symbolic allele such as '<DEL>' takes the INFO fields END, SVLEN, SVCLAIM and IMPRECISE
-        from `end`, `sv_length`, `sv_claim` and `imprecise`, or from the columns of these names
-        in a DataFrame. A breakend such as 'G]13:123456]' needs none of them. A variant that
-        cannot be annotated, e.g. a '<DEL>' without its end, raises a ValueError.
+        A symbolic allele such as '<DEL>' takes the INFO fields END, SVLEN, SVCLAIM, IMPRECISE,
+        SVTYPE, CN, CIPOS and CIEND from `end`, `sv_length`, `sv_claim`, `imprecise`, `sv_type`,
+        `cn`, `cipos` and `ciend`, or from the columns of these names in a DataFrame. `sv_type`
+        is the type that a custom allele such as '<FOO>' counts as, `cn` the copy number of the
+        allele (VCF 4.4), rounded, and `cipos` and `ciend` are pairs (min, max), in a DataFrame
+        list columns. A breakend such as 'G]13:123456]' takes `imprecise` and `cipos`. A variant
+        that cannot be annotated, e.g. a '<DEL>' without its end, raises a ValueError; in a
+        DataFrame, its row gets no annotations and a warning.
         """
         sv_info = dict(
-            end=end, sv_length=sv_length, sv_claim=sv_claim, imprecise=imprecise
+            end=end,
+            sv_length=sv_length,
+            sv_claim=sv_claim,
+            imprecise=imprecise,
+            sv_type=sv_type,
+            cn=cn,
+            cipos=cipos,
+            ciend=ciend,
         )
 
         if isinstance(data, (pl.DataFrame, pl.LazyFrame)) and (
-            any(v is not None for v in (end, sv_length, sv_claim)) or imprecise
+            any(
+                v is not None
+                for v in (end, sv_length, sv_claim, sv_type, cn, cipos, ciend)
+            )
+            or imprecise
         ):
             raise ValueError(
-                "A DataFrame takes end, sv_length, sv_claim and imprecise as its columns."
+                "A DataFrame takes end, sv_length, sv_claim, imprecise, sv_type, cn, cipos and "
+                "ciend as its columns."
             )
 
         if isinstance(data, pl.DataFrame):

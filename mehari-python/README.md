@@ -32,13 +32,19 @@ result1 = annotator.annotate("17:41197701:G:C")
 result2 = annotator.annotate(chromosome="3", position=193332511, reference="G", alternative="T")
 ```
 
-A symbolic allele such as `<DEL>` takes the INFO fields of its VCF record as keyword arguments: `end` (`END`), `sv_length` (`SVLEN`), `sv_claim` (`SVCLAIM`) and `imprecise` (`IMPRECISE`).
-A breakend needs only its ALT.
+A symbolic allele such as `<DEL>` takes the INFO fields of its VCF record as keyword arguments: `end` (`END`), `sv_length` (`SVLEN`), `sv_type` (`SVTYPE`, which a custom allele such as `<FOO>` counts as), `sv_claim` (`SVCLAIM`), `cn` (`CN`), `cipos` (`CIPOS`), `ciend` (`CIEND`) and `imprecise` (`IMPRECISE`).
+`cn` is the copy number of the allele as in VCF 4.4, rounded; for an older file, convert its total copy number first. A `<CNV>` with `cn=1` is no variant and gets no annotations.
+`cipos` and `ciend` are pairs `(min, max)`, as a tuple or a list.
+A breakend needs only its ALT, and takes `imprecise` and `cipos` for the uncertainty of its position.
 A variant that cannot be annotated, e.g. a `<DEL>` without `end`, raises a `ValueError` with the reason.
 
 ```python
-result3 = annotator.annotate("17:41197710:N:<DEL>", end=41197760)
-result4 = annotator.annotate("17:41215930:G:G]13:32900000]")
+result3 = annotator.annotate(
+    "17:41197710:N:<DEL>", end=41197760, imprecise=True, cipos=(-5, 5)
+)
+result4 = annotator.annotate(
+    "17:41215930:G:G]13:32900000]", imprecise=True, cipos=(-500, 500)
+)
 ```
 
 To annotate multiple phased variants together as a single compound event (Experimental):
@@ -76,8 +82,10 @@ df = pl.DataFrame(
 annotated_df = annotator.annotate(df)
 ```
 
-For symbolic alleles, the DataFrame may hold the columns `end`, `sv_length`, `sv_claim` and `imprecise`; a null value stands for a missing field.
+For symbolic alleles and breakends, the DataFrame may hold the columns `end`, `sv_length`, `sv_type`, `sv_claim`, `cn`, `cipos`, `ciend` and `imprecise`; a null value stands for a missing field.
+`cipos` and `ciend` are list columns of two integers each, `pl.List` or `pl.Array`, e.g. `[-500, 500]`.
 As keyword arguments next to a DataFrame, they raise a `ValueError`.
+A row that cannot be annotated gets no annotations and a warning with the reason, and the other rows are annotated.
 
 ## Schemas and types
 

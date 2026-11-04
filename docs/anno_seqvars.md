@@ -41,10 +41,17 @@ Records without an alternate allele (`ALT` `.`) stay in the output, too.
 Mehari stops at a record with more than one alternate allele. Split such records beforehand with `bcftools norm -m-any`, without `-f`, which rejects `N` as `REF`.
 
 The REST endpoint `/api/v1/seqvars/csq` of `mehari server` and the Python bindings annotate symbolic alleles and breakends the same way.
-A symbolic allele takes the values of its INFO fields `END`, `SVLEN`, `SVCLAIM` and `IMPRECISE` from the parameters `end`, `sv_length`, `sv_claim` and `imprecise`, e.g. `alternative=<DEL>&end=41197760`.
-A breakend needs only its `alternative`.
+They take one record at a time, so a breakend is annotated on its own, without its mates.
+A symbolic allele takes the values of its INFO fields `END`, `SVLEN`, `SVTYPE`, `SVCLAIM`, `CN`, `CIPOS`, `CIEND` and `IMPRECISE` from the parameters `end`, `sv_length`, `sv_type`, `sv_claim`, `cn`, `cipos`, `ciend` and `imprecise`, e.g. `alternative=<DEL>&end=41197760&cipos=-500,500`.
+`sv_type` counts for a custom allele such as `<FOO>` only, as `SVTYPE` does in `annotate seqvars`.
+`cn` is always the copy number of the allele as in VCF 4.4, rounded, since no file header gives the VCF version; for an older file, convert its total copy number first.
+`cipos` and `ciend` are pairs `min,max` in the query string, and pairs `(min, max)` in Python.
+A breakend needs only its `alternative`, and takes `imprecise` and `cipos` for the uncertainty of its position.
+A `<CNV>` with `cn` 1 is no variant and gets no annotations.
 `*`, `<*>`, `<NON_REF>` and `.` are no variants of their own and give no annotations.
-A symbolic allele without an end past `POS`, an unsupported symbolic allele, a malformed breakend and an `sv_claim` other than `D`, `J` and `DJ` give status 400 with the reason, and a `ValueError` in Python.
+A symbolic allele without an end past `POS`, an unsupported symbolic allele, a malformed breakend, an `sv_claim` other than `D`, `J` and `DJ`, an `sv_type` other than `DEL`, `INS`, `DUP`, `INV`, `CNV` and `BND` for a custom allele, a negative `cn`, and a `cipos` or `ciend` that is not two integers or has its minimum above its maximum give status 400 with the reason, and a `ValueError` in Python.
+In a Python DataFrame, such a row gets no annotations and a warning instead, as `annotate seqvars` carries on past such records.
+`annotate seqvars` reads an `SVCLAIM` other than `D`, `J` and `DJ` as none, with a warning.
 You can find the VCF variant specification [here on Github](https://samtools.github.io/hts-specs/).
 
 ## Sequence Variant Annotation
