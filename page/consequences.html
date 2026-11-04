@@ -266,6 +266,103 @@
             filter: grayscale(100%);
             transition: opacity 0.2s;
         }
+
+        /* --- Mode Switch, Structural Variants and Breakends --- */
+        .mode-switch {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.4rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .mode-group {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #757575;
+            margin-left: 0.75rem;
+        }
+
+        .mode-btn {
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 0.8rem;
+            padding: 0.35rem 0.7rem;
+            border: 1px solid #cfd8dc;
+            border-radius: 4px;
+            background: #fff;
+            color: #455a64;
+            cursor: pointer;
+        }
+
+        .mode-btn:hover {
+            border-color: #90a4ae;
+        }
+
+        .mode-btn.active {
+            background: #263238;
+            border-color: #263238;
+            color: #eceff1;
+        }
+
+        .mode-note {
+            font-size: 0.9rem;
+            line-height: 1.4;
+            color: #555;
+            margin: 0 0 1rem;
+        }
+
+        .sv-bar {
+            fill: #eceff1;
+            stroke: #90a4ae;
+            stroke-width: 1.5;
+        }
+
+        .sv-bar.lost {
+            stroke-dasharray: 4 3;
+        }
+
+        .sv-bar-label,
+        .gene-label {
+            font-size: 11px;
+            fill: #455a64;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+
+        .gene-label {
+            font-weight: bold;
+            fill: #263238;
+        }
+
+        .junction-line {
+            stroke: #455a64;
+            stroke-width: 2;
+            stroke-dasharray: 3 3;
+        }
+
+        .gene-a {
+            fill: #90a4ae;
+            stroke: #607d8b;
+            stroke-width: 1.5;
+        }
+
+        .gene-b {
+            fill: #cfd8dc;
+            stroke: #90a4ae;
+            stroke-width: 1.5;
+        }
+
+        #def-msg {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: #cfd8dc;
+            margin-top: 0.5rem;
+        }
+
+        #def-msg:empty {
+            display: none;
+        }
     </style>
 </head>
 
@@ -276,9 +373,29 @@
         <div id="def-term">Variant Annotations</div>
         <div id="def-text">Hover over regions in the diagram or terms in the list to display their Sequence Ontology
             definitions.</div>
+        <div id="def-msg"></div>
     </div>
-    <div class="gene-container">
+    <div class="mode-switch">
+        <button type="button" class="mode-btn active" data-mode="small" aria-pressed="true">Small variants</button>
+        <span class="mode-group">Structural variants</span>
+        <button type="button" class="mode-btn" data-mode="DEL" aria-pressed="false">&lt;DEL&gt;</button>
+        <button type="button" class="mode-btn" data-mode="DUP" aria-pressed="false">&lt;DUP&gt; tandem</button>
+        <button type="button" class="mode-btn" data-mode="DUPX" aria-pressed="false">&lt;DUP&gt; elsewhere</button>
+        <button type="button" class="mode-btn" data-mode="INV" aria-pressed="false">&lt;INV&gt;</button>
+        <button type="button" class="mode-btn" data-mode="INS" aria-pressed="false">&lt;INS&gt;</button>
+        <button type="button" class="mode-btn" data-mode="CNV" aria-pressed="false">&lt;CNV&gt;</button>
+        <span class="mode-group">Junctions</span>
+        <button type="button" class="mode-btn" data-mode="BND" aria-pressed="false">Breakends and fusions</button>
+    </div>
+    <p class="mode-note" id="mode-note" hidden></p>
+    <div class="gene-container" id="small-view">
         <svg viewBox="0 0 1200 280" id="gene-svg"></svg>
+    </div>
+    <div class="gene-container" id="sv-view" hidden>
+        <svg viewBox="0 0 1200 215" id="sv-svg"></svg>
+    </div>
+    <div class="gene-container" id="bnd-view" hidden>
+        <svg viewBox="0 0 1200 540" id="bnd-svg"></svg>
     </div>
     <div class="consequences-grid" id="lists-container">
         <div class="impact-col high">
@@ -462,6 +579,246 @@
         document.getElementById('gene-svg').innerHTML = svgHTML;
 
         // ==========================================
+        // 2b. STRUCTURAL VARIANTS AND BREAKENDS
+        // ==========================================
+        // Spans of symbolic alleles and junctions of breakends on the plus-strand transcript
+        // above, with the terms that mehari gives them without --vep-compatibility-mode, see the
+        // rules and tests in mehari/src/annotate/seqvars/consequence/logic.rs. As for the small
+        // variants, a hitbox lists the alternatives together, e.g., the frame terms of a deletion
+        // inside an exon. `msg` lists the messages that come with the terms.
+        const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        const hitAttrs = h => `class="hitbox" data-csq="${h.csq}" data-title="${esc(h.title)}" data-note="${esc(h.note || '')}" data-msg="${h.msg || ''}"`;
+        const hitRect = (x1, x2, y, h) =>
+            `<rect x="${x1 - 3}" y="${y - 3}" width="${x2 - x1 + 6}" height="28" rx="4" ${hitAttrs(h)}/>`;
+        const svBar = (x1, x2, y, label, lost = false) =>
+            `<rect x="${x1}" y="${y}" width="${x2 - x1}" height="22" rx="3" class="sv-bar${lost ? ' lost' : ''}"/>` +
+            `<text x="${(x1 + x2) / 2}" y="${y + 15}" class="sv-bar-label">${esc(label)}</text>`;
+
+        const SPLICING = 'INFO_ASSUMES_NORMAL_SPLICING';
+        const IMPRECISE = 'INFO_IMPRECISE_BREAKPOINTS';
+        const T = {
+            up: 'upstream_gene_variant intergenic_variant',
+            down: 'downstream_gene_variant intergenic_variant',
+            intron: 'coding_transcript_intron_variant',
+            exonLoss: 'exon_loss_variant splice_acceptor_variant splice_donor_variant splice_donor_5th_base_variant splice_donor_region_variant splice_polypyrimidine_tract_variant splice_region_variant exonic_splice_region_variant',
+            delFrame: 'frameshift_variant frameshift_truncation frameshift_elongation conservative_inframe_deletion disruptive_inframe_deletion stop_gained',
+            insFrame: 'frameshift_variant frameshift_truncation frameshift_elongation conservative_inframe_insertion disruptive_inframe_insertion stop_gained',
+        };
+        // The deletion of a transcript end, from an intron of the CDS: exons 1 and 2 with the
+        // start codon, or exons 3 to 5 with the stop codon.
+        T.fiveEnd = `${T.exonLoss} start_lost coding_sequence_variant 5_prime_UTR_exon_variant feature_truncation`;
+        T.threeEnd = `${T.exonLoss} coding_sequence_variant 3_prime_UTR_exon_variant feature_truncation`;
+
+        const svLaneY = { whole: 40, ends: 72, local: 104 };
+        const svGeoms = {
+            whole: { lane: 'whole', x1: 90, x2: 1120, label: 'whole transcript', title: 'over the whole transcript' },
+            fiveEnd: { lane: 'ends', x1: 70, x2: 500, label: "5' end", title: "over the 5' end of the transcript" },
+            threeEnd: { lane: 'ends', x1: 875, x2: 1130, label: "3' end", title: "over the 3' end of the transcript" },
+            upstream: { lane: 'local', x1: 52, x2: 118, label: 'upstream', title: 'upstream of the transcript' },
+            inExon: { lane: 'local', x1: 290, x2: 360, label: 'in exon', title: 'inside a CDS exon' },
+            inIntron: { lane: 'local', x1: 450, x2: 570, label: 'in intron', title: 'inside an intron' },
+            wholeExon: { lane: 'local', x1: 610, x2: 875, label: 'whole exon', title: 'over a whole exon, both ends in introns' },
+            downstream: { lane: 'local', x1: 1082, x2: 1148, label: 'downstream', title: 'downstream of the transcript' },
+        };
+        const endNote = 'From inside the transcript through its end. Only a symbolic allele adds feature_truncation; the same deletion with its bases does not.';
+        const exonModelNote = 'HGVS cannot translate this (p.?). The protein terms come from normal splicing of the remaining exons.';
+        const copyNote = 'The transcript stays as it is; there is no c., n. or p.';
+        const cnvNote = 'A change without direction has no HGVS.';
+        const svTypes = {
+            DEL: {
+                name: '<DEL>',
+                about: '<DEL> is annotated like the deletion of the bases behind POS up to END or SVLEN. Uncertain breakpoints (IMPRECISE, unless CIPOS and CIEND are 0,0) keep these terms and add INFO_IMPRECISE_BREAKPOINTS; CIPOS without IMPRECISE marks the micro-homology of a precise call. A deletion that joins two genes also gets the fusion terms, see Breakends and fusions.',
+                hits: {
+                    whole: { csq: 'transcript_ablation', note: 'The deletion of all exons ablates the transcript, with no other term.' },
+                    fiveEnd: { csq: T.fiveEnd, note: endNote },
+                    threeEnd: { csq: T.threeEnd, note: endNote },
+                    upstream: { csq: T.up },
+                    inExon: { csq: T.delFrame, note: 'The terms of the same deletion with its bases.' },
+                    inIntron: { csq: T.intron },
+                    wholeExon: { csq: `${T.exonLoss} ${T.delFrame}`, msg: SPLICING, note: exonModelNote },
+                    downstream: { csq: T.down },
+                },
+            },
+            DUP: {
+                name: '<DUP> tandem',
+                about: '<DUP> with SVCLAIM J or DJ, or <DUP:TANDEM> without SVCLAIM, is a tandem dup: its copy follows the duplicated bases. Its terms are those of the same dup with its bases. Uncertain breakpoints keep these terms and add INFO_IMPRECISE_BREAKPOINTS. A dup from one gene into another fuses them, see Breakends and fusions.',
+                hits: {
+                    whole: { csq: 'transcript_amplification', note: 'The dup of all exons amplifies the transcript.' },
+                    fiveEnd: { csq: 'five_prime_duplicated_transcript', note: 'A partial copy of the transcript, also from inside an exon. This term alone describes it.' },
+                    threeEnd: { csq: 'three_prime_duplicated_transcript', note: 'A partial copy of the transcript, also from inside an exon. This term alone describes it.' },
+                    upstream: { csq: T.up },
+                    inExon: { csq: T.insFrame, note: 'The terms of the copy, inserted behind the duplicated bases.' },
+                    inIntron: { csq: T.intron },
+                    wholeExon: { csq: `internal_feature_elongation ${T.insFrame}`, msg: SPLICING, note: 'The copy of the exon joins the transcript under normal splicing and elongates it from within (p.?). An in-frame copy or an elongating frameshift has its own term in place of internal_feature_elongation.' },
+                    downstream: { csq: T.down },
+                },
+            },
+            DUPX: {
+                name: '<DUP> elsewhere',
+                about: 'Any other <DUP>, e.g., without SVCLAIM or with SVCLAIM=D, has its copy elsewhere: the transcript stays as it is, and its copy number rises. HGVS.g describes the copy as an insertion at an unknown place. SVCLAIM=D and uncertain breakpoints add INFO_IMPRECISE_BREAKPOINTS.',
+                hits: {
+                    whole: { csq: 'transcript_amplification', note: 'The copy of all exons amplifies the transcript.' },
+                    fiveEnd: { csq: 'copy_number_increase', note: copyNote },
+                    threeEnd: { csq: 'copy_number_increase', note: copyNote },
+                    upstream: { csq: T.up },
+                    inExon: { csq: 'copy_number_increase', note: copyNote },
+                    inIntron: { csq: 'copy_number_increase', note: copyNote },
+                    wholeExon: { csq: 'copy_number_increase', note: copyNote },
+                    downstream: { csq: T.down },
+                },
+            },
+            INV: {
+                name: '<INV>',
+                about: '<INV> is annotated like the inversion of the bases behind POS up to END or SVLEN. With a reference, a precise inversion leaves out the outer bases that stay the same. Uncertain breakpoints keep these terms and add INFO_IMPRECISE_BREAKPOINTS. An inversion from one gene into another fuses them, see Breakends and fusions.',
+                hits: {
+                    whole: { csq: 'gene_variant', note: 'The inversion of all exons leaves the transcript as it is.' },
+                    fiveEnd: { csq: T.fiveEnd, note: endNote.replace('deletion', 'inversion') },
+                    threeEnd: { csq: T.threeEnd, note: endNote.replace('deletion', 'inversion') },
+                    upstream: { csq: T.up },
+                    inExon: { csq: 'missense_variant stop_gained', note: 'The terms of the same inversion with its bases.' },
+                    inIntron: { csq: T.intron },
+                    wholeExon: { csq: `${T.exonLoss} ${T.delFrame}`, msg: SPLICING, note: `${exonModelNote} The inverted exon is lost, as by its deletion.` },
+                    downstream: { csq: T.down },
+                },
+            },
+            INS: {
+                name: '<INS>',
+                about: '<INS> is annotated like the insertion of SVLEN unknown bases behind POS, N[len], or of an unknown number, N[?], also for SVLEN=0. Uncertain breakpoints keep these terms and add INFO_IMPRECISE_BREAKPOINTS.',
+                markers: [
+                    { x: 85, label: 'upstream', csq: T.up, title: 'upstream of the transcript' },
+                    { x: 325, label: 'N[len]', csq: 'frameshift_variant conservative_inframe_insertion disruptive_inframe_insertion', title: 'with SVLEN, inside a CDS exon', note: 'The frame terms of that length. The bases are unknown, so p.?.' },
+                    { x: 510, label: 'in intron', csq: T.intron, title: 'inside an intron' },
+                    { x: 775, label: 'N[?]', csq: 'internal_feature_elongation coding_sequence_variant', title: 'without SVLEN, inside a CDS exon', note: 'Without a length, the insertion elongates the transcript from within and changes the CDS in an unknown way (p.?).' },
+                    { x: 1115, label: 'downstream', csq: T.down, title: 'downstream of the transcript' },
+                ],
+            },
+            CNV: {
+                name: '<CNV>',
+                about: '<CNV> without CN is a copy number change without direction: every row gets INFO_IMPRECISE_BREAKPOINTS. With CN, it is the call of a deletion or a duplication, as are <CN0>, <CN2> and higher, and <DEL> or <DUP> with SVCLAIM=D: the terms of <DEL> or of <DUP> elsewhere, with INFO_IMPRECISE_BREAKPOINTS, and no fusion.',
+                hits: Object.fromEntries(Object.keys(svGeoms).map(key => [key, {
+                    csq: key === 'upstream' ? T.up : key === 'downstream' ? T.down : 'copy_number_change',
+                    msg: IMPRECISE,
+                    note: key === 'upstream' || key === 'downstream' ? '' : cnvNote,
+                }])),
+            },
+        };
+
+        let svSVG = '';
+        for (const [mode, type] of Object.entries(svTypes)) {
+            let group = '';
+            for (const [key, h] of Object.entries(type.hits || {})) {
+                const g = svGeoms[key];
+                const y = svLaneY[g.lane];
+                group += svBar(g.x1, g.x2, y, g.label);
+                group += hitRect(g.x1, g.x2, y, { ...h, title: `${type.name} ${g.title}` });
+            }
+            for (const m of type.markers || []) {
+                const y = svLaneY.local;
+                group += `<polygon points="${m.x - 9},${y} ${m.x + 9},${y} ${m.x},${y + 22}" class="sv-bar"/>`;
+                group += `<text x="${m.x}" y="${y - 6}" class="sv-bar-label">${esc(m.label)}</text>`;
+                group += hitRect(m.x - 12, m.x + 12, y, { ...m, title: `${type.name} ${m.title}` });
+            }
+            svSVG += `<g class="sv-type" data-mode="${mode}" display="none">${group}</g>`;
+        }
+        document.getElementById('sv-svg').innerHTML = svSVG;
+
+        // A breakend inside the transcript, at the junction in intron 1, loses the side that it
+        // does not keep. Breakends outside leave the transcript whole.
+        const jx = 550;
+        const bndNote = 'HGVS.g describes the derivative chromosome; there is no c., n. or p. A single breakend gets the same terms without HGVS. With IMPRECISE, unless CIPOS is 0,0, the terms stay and INFO_IMPRECISE_BREAKPOINTS is added; CIPOS without IMPRECISE marks the micro-homology of a precise call.';
+        const diamond = (x, y) => `<polygon points="${x},${y - 9} ${x + 9},${y} ${x},${y + 9} ${x - 9},${y}" class="sv-bar"/>`;
+        let bndSVG = `
+              <line x1="${jx}" y1="${svLaneY.ends - 8}" x2="${jx}" y2="${L.cdsY + L.cdsH + 5}" class="junction-line"/>
+              <text x="${jx}" y="${svLaneY.ends - 14}" class="sv-bar-label">junction at POS</text>
+              ${svBar(jx, 1086, svLaneY.ends, 't[p[ or t]p]: keeps the left side, loses the right', true)}
+              ${hitRect(jx, 1086, svLaneY.ends, { csq: T.threeEnd, title: 'Breakend t[p[ or t]p] inside the transcript', note: `The transcript loses the right side, its 3' end: the terms of its deletion, with feature_truncation. ${bndNote}` })}
+              ${svBar(114, jx, svLaneY.local, ']p]t or [p[t: keeps the right side, loses the left', true)}
+              ${hitRect(114, jx, svLaneY.local, { csq: T.fiveEnd, title: 'Breakend ]p]t or [p[t inside the transcript', note: `The transcript loses the left side, its 5' end: the terms of its deletion, with feature_truncation. ${bndNote}` })}
+              ${diamond(85, L.axisY)}
+              <text x="85" y="${L.axisY + 26}" class="sv-bar-label">junction</text>
+              <rect x="73" y="${L.axisY - 12}" width="24" height="24" rx="4" ${hitAttrs({ csq: T.up, title: 'Breakend upstream of the transcript', note: 'The transcript stays whole.' })}/>
+              ${diamond(1115, L.axisY)}
+              <text x="1115" y="${L.axisY + 26}" class="sv-bar-label">junction</text>
+              <rect x="1103" y="${L.axisY - 12}" width="24" height="24" rx="4" ${hitAttrs({ csq: T.down, title: 'Breakend downstream of the transcript', note: 'The transcript stays whole.' })}/>`;
+
+        // Junctions between gene A and gene B, both on the plus strand: the junction a lies in A,
+        // b in B. A row draws the parts of the genes that a junction joins, with their direction.
+        const arrow = (x1, x2, y, right, cls, label) => {
+            const points = right
+                ? `${x1},${y} ${x2 - 10},${y} ${x2},${y + 11} ${x2 - 10},${y + 22} ${x1},${y + 22}`
+                : `${x1 + 10},${y} ${x2},${y} ${x2},${y + 22} ${x1 + 10},${y + 22} ${x1},${y + 11}`;
+            return `<polygon points="${points}" class="${cls}"/><text x="${(x1 + x2) / 2}" y="${y + 15}" class="gene-label">${esc(label)}</text>`;
+        };
+        const tick = (x, y) => `<line x1="${x}" y1="${y - 6}" x2="${x}" y2="${y + 28}" class="junction-line"/>`;
+        const fusionNote = 'Both rows also keep the terms of their own change, e.g., of the deletion of their ends.';
+        const frameNote = "Where both junctions lie in the CDS, between the start codon and the stop codon, the reading frame adds inframe_unidirectional_gene_fusion or frameshift_unidirectional_gene_fusion: the CDS bases that the 5' transcript keeps, plus the bases inserted at the junction, less those that the 3' transcript skips, are a multiple of three or not. A junction in an intron assumes normal splicing (INFO_ASSUMES_NORMAL_SPLICING); an imprecise call gets no frame term.";
+        const fusionRows = [
+            {
+                label: '<DEL> from a to b', fusion: 'A::B',
+                parts: y => arrow(330, 530, y, true, 'gene-a', "A 5'") + arrow(530, 730, y, true, 'gene-b', "B 3'") + tick(530, y),
+                csq: 'gene_fusion unidirectional_gene_fusion inframe_unidirectional_gene_fusion frameshift_unidirectional_gene_fusion transcript_fusion feature_truncation',
+                title: '<DEL> from gene A into gene B',
+                note: `The deletion joins the 5' part of A to the 3' part of B. ${frameNote} A deletion from A into a gene on the other strand gives bidirectional_gene_fusion with transcript_fusion. A copy number call (<CNV>, <CN0>, SVCLAIM=D) claims no junction, so no fusion. ${fusionNote}`,
+            },
+            {
+                label: '<DUP> tandem from a to b', fusion: 'B::A',
+                parts: y => arrow(330, 530, y, true, 'gene-b', "B 5'") + arrow(530, 730, y, true, 'gene-a', "A 3'") + tick(530, y),
+                csq: 'gene_fusion unidirectional_gene_fusion inframe_unidirectional_gene_fusion frameshift_unidirectional_gene_fusion three_prime_duplicated_transcript five_prime_duplicated_transcript',
+                title: '<DUP> tandem from gene A into gene B',
+                note: `The copy follows the duplicated bases, so their end in B joins their start in A: the 5' part of B reads into the 3' part of A. A gets three_prime_duplicated_transcript, B five_prime_duplicated_transcript. ${frameNote}`,
+            },
+            {
+                label: '<INV> from a to b', fusion: 'A::B',
+                parts: y => arrow(330, 480, y, true, 'gene-a', "A 5'") + arrow(480, 630, y, false, 'gene-b', "B 5'") + tick(480, y)
+                    + `<line x1="630" y1="${y + 11}" x2="680" y2="${y + 11}" class="track-line"/>`
+                    + arrow(680, 830, y, false, 'gene-a', "A 3'") + arrow(830, 980, y, true, 'gene-b', "B 3'") + tick(830, y),
+                csq: 'gene_fusion bidirectional_gene_fusion feature_truncation',
+                title: '<INV> from gene A into gene B',
+                note: `Both ends of the inversion are junctions: one joins the two 5' parts (head to head), the other the two 3' parts (tail to tail). ${fusionNote}`,
+            },
+            {
+                label: 'breakend t[p[ at a, mate b', fusion: 'A::B',
+                parts: y => arrow(330, 530, y, true, 'gene-a', "A 5'") + arrow(530, 730, y, true, 'gene-b', "B 3'") + tick(530, y),
+                csq: 'gene_fusion unidirectional_gene_fusion inframe_unidirectional_gene_fusion frameshift_unidirectional_gene_fusion feature_truncation',
+                title: 'Breakend t[p[ at a in gene A, mate b in gene B',
+                note: `The kept left side of a reads into the piece right of b: the 5' part of A into the 3' part of B. ]p]t at a joins the piece left of b in front of the right side of a: B::A, also unidirectional. ${frameNote} The rows of A get the terms of the lost side; the rows of B get theirs from the mate record.`,
+            },
+            {
+                label: 'breakend t]p] at a, mate b', fusion: 'A::B',
+                parts: y => arrow(330, 530, y, true, 'gene-a', "A 5'") + arrow(530, 730, y, false, 'gene-b', "B 5'") + tick(530, y),
+                csq: 'gene_fusion bidirectional_gene_fusion feature_truncation',
+                title: 'Breakend t]p] at a in gene A, mate b in gene B',
+                note: "The kept left side of a joins the piece left of b, reversed: two 5' parts meet. [p[t at a joins two 3' parts, B::A. A bidirectional fusion has no 5' gene, so FUSION names the gene in front of the junction first. The rows of B get their terms from the mate record.",
+            },
+        ];
+        const fy = 250;
+        bndSVG += `
+              <text x="50" y="${fy}" class="svg-label">Junctions between gene A and gene B, both on the plus strand</text>
+              <text x="50" y="${fy + 41}" class="svg-legend">reference</text>
+              <line x1="130" y1="${fy + 36}" x2="1150" y2="${fy + 36}" class="track-line"/>
+              ${arrow(160, 520, fy + 25, true, 'gene-a', 'gene A')}
+              ${arrow(680, 1040, fy + 25, true, 'gene-b', 'gene B')}
+              ${tick(440, fy + 25)}<text x="440" y="${fy + 66}" class="sv-bar-label">a</text>
+              ${tick(760, fy + 25)}<text x="760" y="${fy + 66}" class="sv-bar-label">b</text>`;
+        fusionRows.forEach((row, i) => {
+            const y = fy + 80 + 42 * i;
+            bndSVG += `
+              <text x="50" y="${y + 15}" class="svg-legend">${esc(row.label)}</text>
+              ${row.parts(y)}
+              <text x="1150" y="${y + 15}" class="svg-legend" text-anchor="end">FUSION=${row.fusion}</text>
+              <rect x="40" y="${y - 8}" width="1120" height="38" rx="4" ${hitAttrs(row)}/>`;
+        });
+        document.getElementById('bnd-svg').innerHTML = bndSVG;
+
+        // Both drawings show the transcript of the small variants.
+        for (const id of ['sv-svg', 'bnd-svg']) {
+            const svg = document.getElementById(id);
+            const base = document.getElementById('base-layer').cloneNode(true);
+            base.removeAttribute('id');
+            svg.insertBefore(base, svg.firstChild);
+        }
+
+        // ==========================================
         // 3. DATA DICTIONARY & UI LOGIC
         // ==========================================
         const consequences = {
@@ -567,6 +924,7 @@
         const defPanel = document.getElementById('def-panel');
         const defTerm = document.getElementById('def-term');
         const defText = document.getElementById('def-text');
+        const defMsg = document.getElementById('def-msg');
 
         const defaultDefColor = '#546e7a';
         const impactColors = { high: '#e53935', moderate: '#fb8c00', low: '#43a047', modifier: '#8e24aa', default: '#007bff' };
@@ -578,6 +936,7 @@
             defText.textContent = "Hover over regions in the diagram or terms in the list to display their Sequence Ontology definitions.";
             defPanel.style.borderColor = defaultDefColor;
             defTerm.style.color = '#80cbc4';
+            defMsg.textContent = '';
         }
 
         function setDefinition(termKeys, primaryTerm = null) {
@@ -636,6 +995,7 @@
             });
 
             setDefinition(csqList);
+            describeHitbox(hitbox, csqList.length);
         }
 
         csqItems.forEach(item => {
@@ -683,6 +1043,39 @@
             hitbox.addEventListener('mouseleave', resetUI);
             hitbox.addEventListener('blur', resetUI);
         });
+
+        // The geometry of a hitbox of the structural variants or breakends, and its messages.
+        function describeHitbox(hitbox, count) {
+            const title = hitbox.getAttribute('data-title');
+            if (!title) return;
+            const note = hitbox.getAttribute('data-note');
+            defTerm.textContent = title;
+            defText.textContent = `${note ? note + ' ' : ''}Maps to ${count} potential consequence${count === 1 ? '' : 's'}, highlighted below.`;
+            const msg = hitbox.getAttribute('data-msg');
+            defMsg.textContent = msg ? `Messages: ${msg.split(' ').join(', ')}` : '';
+        }
+
+        // Switch between the small variants, one kind of symbolic allele, and the breakends.
+        const modeNote = document.getElementById('mode-note');
+        const bndAbout = 'A breakend joins the base at POS to a piece of the mate contig, as in VCF 4.5: t[p[ and t]p] keep the left side, ]p]t and [p[t the right side. Each record gets the terms of its own junction. The records of a deletion, tandem dup or inversion written as breakends, grouped by MATEID or EVENT, also get the rows of that event, so a transcript between the junctions of a deletion gets transcript_ablation. Gene fusions come from the junctions of deletions, tandem dups, inversions and breakends; the INFO field FUSION lists them as GENE1::GENE2.';
+        function setMode(mode) {
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                const active = btn.getAttribute('data-mode') === mode;
+                btn.classList.toggle('active', active);
+                btn.setAttribute('aria-pressed', String(active));
+            });
+            document.getElementById('small-view').hidden = mode !== 'small';
+            document.getElementById('sv-view').hidden = !svTypes[mode];
+            document.getElementById('bnd-view').hidden = mode !== 'BND';
+            document.querySelectorAll('.sv-type').forEach(g =>
+                g.setAttribute('display', g.getAttribute('data-mode') === mode ? 'inline' : 'none'));
+            const about = svTypes[mode] ? svTypes[mode].about : mode === 'BND' ? bndAbout : '';
+            modeNote.textContent = about ? `${about} The terms are those without --vep-compatibility-mode.` : '';
+            modeNote.hidden = !about;
+            resetUI();
+        }
+        document.querySelectorAll('.mode-btn').forEach(btn =>
+            btn.addEventListener('click', () => setMode(btn.getAttribute('data-mode'))));
     </script>
 </body>
 
