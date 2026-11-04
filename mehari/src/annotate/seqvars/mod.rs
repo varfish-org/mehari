@@ -22,7 +22,7 @@ use clap::Parser;
 use clinvar::{ClinvarAnnotator, ClinvarResult};
 use consequence::{
     Breakend, ConfidenceInterval, ConsequenceAnnotator, StructuralVariant, SvClaim, SvInfo,
-    VcfVariant,
+    VcfVariant, round_copy_number,
 };
 use frequency::{FreqResult, FrequencyAnnotator};
 use indexmap::IndexMap;
@@ -1765,11 +1765,7 @@ fn copy_number(record: &VcfRecord, file_format: FileFormat) -> Option<i32> {
         },
         _ => return None,
     };
-    if !copies.is_finite() || copies < 0.0 {
-        return None;
-    }
-    // Saturates at `i32::MAX`.
-    let copies = copies.round() as i32;
+    let copies = round_copy_number(copies).ok()?;
     Some(if file_format >= FileFormat::new(4, 4) {
         copies
     } else {
@@ -1778,13 +1774,10 @@ fn copy_number(record: &VcfRecord, file_format: FileFormat) -> Option<i32> {
 }
 
 /// Whether `record` is a `<CNV>` whose `CN` keeps the copy number of the reference, or a `<CN1>`,
-/// which VCF 4.5 treats as no variant, like `GT=0`.
+/// which VCF 4.5 treats as no variant, like `GT=0`, see `StructuralVariant::keeps_copy_number`.
 fn keeps_copy_number(record: &VcfRecord, file_format: FileFormat) -> bool {
     match record.alternate_bases().as_ref() {
-        [alt] if alt == "<CN1>" => true,
-        [alt] if alt == "<CNV>" || (alt.starts_with("<CNV:") && alt != "<CNV:TR>") => {
-            copy_number(record, file_format) == Some(1)
-        }
+        [alt] => StructuralVariant::keeps_copy_number(alt, &sv_info(record, file_format)),
         _ => false,
     }
 }
@@ -1809,8 +1802,7 @@ fn confidence_interval(record: &VcfRecord, key: &str) -> Option<ConfidenceInterv
 }
 
 /// The breakend of `record`, if its allele is a well-formed one, with the uncertainty of its
-/// position from `IMPRECISE` and `CIPOS`. As in VCF 4.5, `CIPOS` without `IMPRECISE` is the
-/// micro-homology of a precise call, and `IMPRECISE` without `CIPOS` leaves the interval open.
+/// position from `IMPRECISE` and `CIPOS`, see `Breakend::from_info`.
 fn breakend(record: &VcfRecord) -> Option<Breakend> {
     use noodles::vcf::variant::record::info::field::key::{
         IS_IMPRECISE, POSITION_CONFIDENCE_INTERVALS,
@@ -1819,11 +1811,12 @@ fn breakend(record: &VcfRecord) -> Option<Breakend> {
     let [alt] = record.alternate_bases().as_ref() else {
         return None;
     };
-    let mut breakend: Breakend = alt.parse().ok()?;
-    breakend.cipos = confidence_interval(record, POSITION_CONFIDENCE_INTERVALS);
-    breakend.imprecise =
-        record.info().get(IS_IMPRECISE).is_some() && breakend.cipos != Some((0, 0));
-    Some(breakend)
+    let info = SvInfo {
+        cipos: confidence_interval(record, POSITION_CONFIDENCE_INTERVALS),
+        imprecise: record.info().get(IS_IMPRECISE).is_some(),
+        ..Default::default()
+    };
+    Breakend::from_info(alt, &info).ok()
 }
 
 /// The key of the annotation of `var` from `record` in `VariantProcessor`. Two events at one

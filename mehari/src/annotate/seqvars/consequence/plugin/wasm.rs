@@ -1309,11 +1309,12 @@ mod test {
     /// What the probe sees of a structural variant and a breakend in BRCA1: what they are,
     /// `HGVS.g` as mehari writes it, and no alternative transcript.
     #[rstest::rstest]
-    #[case::imprecise_deletion("N", "<DEL>", "deletion:41197760::true", "")]
-    #[case::breakend("G", "G]13:32900000]", "", "true::13:32900000:false")]
+    #[case::imprecise_deletion("N", "<DEL>", true, "deletion:41197760::true", "")]
+    #[case::breakend("G", "G]13:32900000]", false, "", "true::13:32900000:false")]
     fn probe_reports_event(
         #[case] reference: &str,
         #[case] alternative: &str,
+        #[case] imprecise: bool,
         #[case] structural_variant: &str,
         #[case] breakend: &str,
     ) -> Result<(), anyhow::Error> {
@@ -1326,7 +1327,7 @@ mod test {
         };
         let info = SvInfo {
             end: Some(41197760),
-            imprecise: true,
+            imprecise,
             ..Default::default()
         };
         let ann = (predictor

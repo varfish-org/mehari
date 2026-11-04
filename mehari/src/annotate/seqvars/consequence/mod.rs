@@ -8,6 +8,7 @@ use crate::annotate::seqvars;
 use crate::annotate::seqvars::consequence::terms::Consequence;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::db::keys::Var;
+use crate::errors::SeqvarsError;
 use crate::pbs::txs::TxSeqDatabase;
 use anyhow::{Error, anyhow};
 use enumflags2::BitFlags;
@@ -346,7 +347,8 @@ pub enum SvType {
     Other(String),
 }
 
-/// The INFO fields of the record of a symbolic allele that `StructuralVariant::from_info` reads.
+/// The INFO fields of the record of a symbolic allele that `StructuralVariant::from_info` reads,
+/// and of a breakend that `Breakend::from_info` reads.
 #[derive(Debug, Default, Clone)]
 pub struct SvInfo {
     /// `END`: the last base of the longest allele of the record.
@@ -365,6 +367,17 @@ pub struct SvInfo {
     pub ciend: Option<(i32, i32)>,
     /// `IMPRECISE`.
     pub imprecise: bool,
+}
+
+/// The copy number `copies` of an allele, e.g. from `CN`, rounded to whole copies; saturates at
+/// `i32::MAX`. A negative or non-finite number gives `SeqvarsError::InvalidVariant`.
+pub fn round_copy_number(copies: f64) -> Result<i32, SeqvarsError> {
+    if !copies.is_finite() || copies < 0.0 {
+        return Err(SeqvarsError::InvalidVariant(format!(
+            "CN {copies} is not a copy number of 0 or more"
+        )));
+    }
+    Ok(copies.round() as i32)
 }
 
 impl StructuralVariant {
@@ -432,6 +445,17 @@ impl StructuralVariant {
             intervals,
         })
     }
+
+    /// Whether the symbolic allele `alt` with the INFO fields `info` keeps the copy number of the
+    /// reference, so that `from_info` gives `None` as for no variant: a `<CNV>` with a `CN` of 1,
+    /// or a `<CN1>`.
+    pub fn keeps_copy_number(alt: &str, info: &SvInfo) -> bool {
+        match symbolic_type(alt, info.sv_type.as_ref()) {
+            Some(("CNV", subtype)) => subtype != Some("TR") && info.copy_number == Some(1),
+            Some((base, _)) => base.strip_prefix("CN").and_then(|n| n.parse().ok()) == Some(1),
+            None => false,
+        }
+    }
 }
 
 /// The type of the symbolic allele `alt` and its subtype, e.g. `DEL` and `ME` for
@@ -493,10 +517,24 @@ pub struct Breakend {
     /// `None` for a single breakend, e.g. `G.`.
     pub mate: Option<Mate>,
     /// Whether `POS` is uncertain: with `IMPRECISE` and a `CIPOS` other than `0,0` or none. The
-    /// INFO of the record tells, not the ALT, so `from_str` gives `false`.
+    /// INFO of the record tells, not the ALT, so `from_str` gives `false`, and `from_info`
+    /// reads it.
     pub imprecise: bool,
     /// The confidence interval around `POS` as offsets `(min, max)`, if given.
     pub cipos: Option<(i32, i32)>,
+}
+
+impl Breakend {
+    /// The breakend of `alt` with the uncertainty of `POS` from the INFO fields `info`. As in
+    /// VCF 4.5, `IMPRECISE` makes `POS` uncertain unless `CIPOS` is `0,0`, and a missing `CIPOS`
+    /// leaves the interval open; `CIPOS` without `IMPRECISE` is the micro-homology of a precise
+    /// call.
+    pub fn from_info(alt: &str, info: &SvInfo) -> Result<Self, Error> {
+        let mut breakend: Self = alt.parse()?;
+        breakend.cipos = info.cipos;
+        breakend.imprecise = info.imprecise && info.cipos != Some((0, 0));
+        Ok(breakend)
+    }
 }
 
 /// The mate of a `Breakend`.
