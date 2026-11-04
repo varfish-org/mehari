@@ -1116,7 +1116,7 @@ mod test {
         assert_eq!(actual, expected);
         assert!(expected.iter().flatten().any(|(_, value)| value.is_some()));
 
-        // A frameshifting deletion without bases near c.3020, which has no alternative transcript.
+        // An imprecise frameshifting deletion near c.3020, which has no alternative transcript.
         let sv = VcfVariant {
             chromosome: "17".into(),
             position: 41244519,
@@ -1125,6 +1125,7 @@ mod test {
         };
         let info = SvInfo {
             end: Some(41244529),
+            imprecise: true,
             ..Default::default()
         };
         let nmd_sv = |predictor: &ConsequencePredictor| {
@@ -1153,7 +1154,7 @@ mod test {
 
     /// A plugin built for an earlier interface version still loads. It cannot tell the row of a
     /// structural variant, so it gives `unknown` where the current build declines: for the
-    /// frameshifting deletion without bases near c.3020, as in `assert_matches_builtin`.
+    /// imprecise frameshifting deletion near c.3020, as in `assert_matches_builtin`.
     #[rstest::rstest]
     #[case::interface_0_1_0(NMD_0_1_0_WASM, Some("unknown"))]
     #[case::current(NMD_WASM, None)]
@@ -1169,6 +1170,7 @@ mod test {
         };
         let info = SvInfo {
             end: Some(41244529),
+            imprecise: true,
             ..Default::default()
         };
         let ann = (predictor(vec![Arc::new(load(path, &[])?)])?
@@ -1185,9 +1187,9 @@ mod test {
         Ok(())
     }
 
-    /// A short precise deletion takes its bases from the reference, so its row has an
-    /// alternative transcript, and the NMD plugin predicts as the built-in one does: here c.11del
-    /// in `exons_tx`.
+    /// The transcript holds the bases of a precise deletion, so its row has an alternative
+    /// transcript, and the NMD plugin predicts as the built-in one does: here c.11del in
+    /// `exons_tx`.
     #[test]
     fn nmd_plugin_predicts_short_deletion() -> Result<(), anyhow::Error> {
         use std::io::Write as _;

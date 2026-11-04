@@ -1066,7 +1066,7 @@ impl ConsequencePredictor {
             sv.kind,
             SvKind::Duplication { tandem: false } | SvKind::CopyNumberChange
         );
-        let txs = self.predict_g(
+        let mut txs = self.predict_g(
             var,
             &var_g,
             &var_g_fwd,
@@ -1077,6 +1077,17 @@ impl ConsequencePredictor {
             |_| None,
             adjust,
         )?;
+        // The transcript holds the bases of a precise deletion, tandem dup or inversion, so
+        // its alternative transcript is known. hgvs-rs would apply any other description as if
+        // it had bases, e.g. as a deletion for a copy number change.
+        let transcript_holds_bases = !sv.imprecise
+            && matches!(
+                sv.kind,
+                SvKind::Deletion | SvKind::Duplication { tandem: true } | SvKind::Inversion
+            );
+        if !transcript_holds_bases {
+            Self::drop_alt_data(&mut txs);
+        }
         Ok(Some(self.run_plugins(variants, event, txs)?))
     }
 
@@ -1263,11 +1274,20 @@ impl ConsequencePredictor {
                 (ann.messages.get_or_insert_with(Vec::new)).push(Message::InfoImpreciseBreakpoints);
             }
         };
-        let txs = self.predict_g(
+        let mut txs = self.predict_g(
             var, &var_g, &var_g, &var_g, chrom_acc, true, true, lost_side, adjust,
         )?;
+        // The derivative transcript is not the deletion of the lost side.
+        Self::drop_alt_data(&mut txs);
         let (variants, event) = (std::slice::from_ref(var), Some(Event::Breakend(breakend)));
         Ok(Some(self.run_plugins(variants, event, txs)?))
+    }
+
+    /// Leave the annotations `txs` without alternative transcript, see `TxContext::alt_data`.
+    fn drop_alt_data(txs: &mut [TxAnnotation]) {
+        for tx in txs {
+            tx.context = std::mem::replace(&mut tx.context, TxContext::empty()).without_alt_data();
+        }
     }
 
     /// The annotations of `var`, also of a symbolic allele, with `info` from the INFO fields of
@@ -3281,14 +3301,7 @@ impl ConsequencePredictor {
         };
 
         let context = self.projection_context(tx_record.tx_ac, owned_projection, alignment);
-        Ok(Some(TxAnnotation {
-            context: if without_bases {
-                context.without_alt_data()
-            } else {
-                context
-            },
-            ann,
-        }))
+        Ok(Some(TxAnnotation { context, ann }))
     }
 
     fn adjust_vep_terms(
@@ -12689,19 +12702,23 @@ pub(crate) mod test {
     }
 
     /// Plugins see the rows of a structural variant or a breakend as they are output, what the
-    /// variant is, and no alternative transcript: hgvs-rs would apply the description without
-    /// bases, e.g. as a deletion for a copy number change. The change at chr1:1171-1180 lies in
-    /// exon 2, in the CDS.
+    /// variant is, and the alternative transcript of a precise deletion, tandem dup or
+    /// inversion, whose bases the transcript holds. The others have none: hgvs-rs would apply
+    /// the description without bases, e.g. as a deletion for a copy number change. The change at
+    /// chr1:1171-1180 lies in exon 2, in the CDS.
     #[rstest::rstest]
-    #[case::deletion("<DEL>", Some((SvKind::Deletion, false)))]
-    #[case::imprecise_deletion("<DEL>", Some((SvKind::Deletion, true)))]
-    #[case::dup_elsewhere("<DUP>", Some((SvKind::Duplication { tandem: false }, false)))]
-    #[case::copy_number_change("<CNV>", Some((SvKind::CopyNumberChange, false)))]
-    #[case::insertion("<INS>", Some((SvKind::Insertion { length: Some(10) }, false)))]
-    #[case::breakend("G[13:123457[", None)]
+    #[case::deletion("<DEL>", Some((SvKind::Deletion, false)), true)]
+    #[case::imprecise_deletion("<DEL>", Some((SvKind::Deletion, true)), false)]
+    #[case::tandem_dup("<DUP:TANDEM>", Some((SvKind::Duplication { tandem: true }, false)), true)]
+    #[case::inversion("<INV>", Some((SvKind::Inversion, false)), true)]
+    #[case::dup_elsewhere("<DUP>", Some((SvKind::Duplication { tandem: false }, false)), false)]
+    #[case::copy_number_change("<CNV>", Some((SvKind::CopyNumberChange, false)), false)]
+    #[case::insertion("<INS>", Some((SvKind::Insertion { length: Some(10) }, false)), false)]
+    #[case::breakend("G[13:123457[", None, false)]
     fn plugins_see_final_rows(
         #[case] alternative: &str,
         #[case] sv: Option<(SvKind, bool)>,
+        #[case] alt_data: bool,
     ) -> Result<(), anyhow::Error> {
         let (tx, seq) = exons_tx(3, 20);
         let config = ConfigBuilder::default()
@@ -12737,7 +12754,7 @@ pub(crate) mod test {
         assert!(!anns.is_empty());
         for ann in &anns {
             let expected = format!(
-                "{:?} {:?} {:?} false",
+                "{:?} {:?} {:?} {alt_data}",
                 Some(event),
                 ann.hgvs_g,
                 ann.consequences

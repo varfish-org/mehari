@@ -349,9 +349,9 @@ mod test {
         Ok(())
     }
 
-    /// A frameshifting deletion without bases has no alternative transcript, so its PTC is
-    /// unknown and it gets no prediction; nor in VEP compatibility mode, as VEP's plugin skips
-    /// structural variants. The deletion of chr17:41244520-41244529 lies near c.3020.
+    /// An imprecise frameshifting deletion has no alternative transcript, so its PTC is unknown
+    /// and it gets no prediction; nor in VEP compatibility mode, as VEP's plugin skips structural
+    /// variants. The deletion of chr17:41244520-41244529 lies near c.3020.
     #[rstest::rstest]
     fn no_prediction_without_bases(
         #[values(false, true)] vep_compatible: bool,
@@ -375,7 +375,7 @@ mod test {
         let sv = StructuralVariant {
             kind: SvKind::Deletion,
             end: 41244529,
-            imprecise: false,
+            imprecise: true,
             intervals: (None, None),
         };
         let anns = predictor.predict_sv(&var, &sv)?.unwrap();

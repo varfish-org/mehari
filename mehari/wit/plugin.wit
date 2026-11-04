@@ -196,8 +196,8 @@ interface types {
         reference-cds-end: func() -> option<s32>;
         /// The same with the variant applied, on coding transcripts only; intronic variants leave
         /// them unchanged. Translation may continue past the first stop codon (`*`). None for a
-        /// breakend, and for a structural variant unless mehari takes its bases from the
-        /// reference, as for a short precise one.
+        /// breakend, an imprecise structural variant, and one whose change the transcript does
+        /// not hold: a dup elsewhere, a copy number change and an insertion of unknown bases.
         alternative-transcript: func() -> option<string>;
         alternative-protein: func() -> option<string>;
         alternative-cds-start: func() -> option<s32>;
