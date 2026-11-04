@@ -966,6 +966,17 @@ impl ConsequencePredictor {
         var: &VcfVariant,
         sv: &StructuralVariant,
     ) -> Result<Option<Annotations>, SeqvarsError> {
+        self.predict_sv_with_inserted(var, sv, [0, 0])
+    }
+
+    /// `predict_sv` with `inserted` bases at the junctions of `sv`, in the order of
+    /// `sv_fusions`, as the breakends of an event tell, see `mates::derive_events`.
+    pub(crate) fn predict_sv_with_inserted(
+        &self,
+        var: &VcfVariant,
+        sv: &StructuralVariant,
+        inserted: [usize; 2],
+    ) -> Result<Option<Annotations>, SeqvarsError> {
         let Some(chrom_acc) = self.chrom_acc(var) else {
             return Ok(None);
         };
@@ -990,7 +1001,7 @@ impl ConsequencePredictor {
         if end < start && !insertion {
             return self.finish_event(variants, event, Vec::new(), &[]);
         }
-        let fusions = self.sv_fusions(var, sv)?;
+        let fusions = self.sv_fusions(var, sv, inserted)?;
         let fusion_terms = Self::fusion_terms(&fusions);
         let adjust = |ann: &mut AnnField| {
             self.adjust_sv_annotation(ann, sv, chrom_acc, start, end);
@@ -1476,13 +1487,15 @@ impl ConsequencePredictor {
     /// The gene fusions that the junctions of the structural variant `sv` of `var` make, see
     /// `junction_fusions`. A deletion joins its flanks, a tandem dup the end of its bases to
     /// their start, and an inversion its left flank to the reversed bases and those to the
-    /// right flank. A dup whose copy lies elsewhere, a copy number change, an insertion and a
-    /// call without a claim of adjacency (`StructuralVariant::junction`) make no known junction,
-    /// nor does a change without bases.
+    /// right flank, each junction with the number of bases in `inserted` there, in this order. A
+    /// dup whose copy lies elsewhere, a copy number change, an insertion and a call without a
+    /// claim of adjacency (`StructuralVariant::junction`) make no known junction, nor does a
+    /// change without bases.
     fn sv_fusions(
         &self,
         var: &VcfVariant,
         sv: &StructuralVariant,
+        inserted: [usize; 2],
     ) -> Result<Vec<Fusion>, SeqvarsError> {
         let Some(chrom_acc) = self.chrom_acc(var) else {
             return Ok(Vec::new());
@@ -1501,26 +1514,26 @@ impl ConsequencePredictor {
                 before: piece(start - 1, true),
                 after: piece(end.saturating_add(1), true),
                 deletion: true,
-                inserted: 0,
+                inserted: inserted[0],
             }],
             SvKind::Duplication { tandem: true } => vec![Junction {
                 before: piece(end, true),
                 after: piece(start, true),
                 deletion: false,
-                inserted: 0,
+                inserted: inserted[0],
             }],
             SvKind::Inversion => vec![
                 Junction {
                     before: piece(start - 1, true),
                     after: piece(end, false),
                     deletion: false,
-                    inserted: 0,
+                    inserted: inserted[0],
                 },
                 Junction {
                     before: piece(start, false),
                     after: piece(end.saturating_add(1), true),
                     deletion: false,
-                    inserted: 0,
+                    inserted: inserted[1],
                 },
             ],
             _ => Vec::new(),
@@ -13239,7 +13252,7 @@ pub(crate) mod test {
         };
         let sv = precise_sv(SvKind::Deletion, usize::try_from(end)?);
 
-        let fusions = predictor.sv_fusions(&var, &sv)?;
+        let fusions = predictor.sv_fusions(&var, &sv, [0, 0])?;
         let labels = (fusions.iter()).map(|f| f.label.as_str()).collect_vec();
         assert_eq!(labels, expected);
         Ok(())
@@ -13311,7 +13324,7 @@ pub(crate) mod test {
             let sv = StructuralVariant::from_info(pos, alternative, &info)
                 .ok_or_else(|| anyhow::anyhow!("unsupported {alternative}"))?;
             (
-                predictor.sv_fusions(&var, &sv)?,
+                predictor.sv_fusions(&var, &sv, [0, 0])?,
                 predictor.predict_sv(&var, &sv)?,
             )
         };
@@ -13445,6 +13458,37 @@ pub(crate) mod test {
                 let expected = usize::from(assumes_splicing && !imprecise);
                 assert_eq!(splicing.count(), expected, "{ann:?}");
             }
+        }
+        Ok(())
+    }
+
+    /// Bases inserted at the junction of a deletion, which its breakends can tell, count in the
+    /// frame, see `fusion_frames`.
+    #[rstest::rstest]
+    #[case::none(0, Consequence::InframeUnidirectionalGeneFusion)]
+    #[case::one(1, Consequence::FrameshiftUnidirectionalGeneFusion)]
+    #[case::codon(3, Consequence::InframeUnidirectionalGeneFusion)]
+    fn fusion_frame_with_inserted_bases(
+        #[case] inserted: usize,
+        #[case] frame: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let (gene_1, seq) = exons_tx(3, 20);
+        let txs = vec![(gene_1, seq.clone()), (gene2(1000, false), seq)];
+        let predictor = predictor_with_txs(txs, Default::default(), None);
+        let var = VcfVariant {
+            chromosome: "1".into(),
+            position: 1050,
+            reference: "N".into(),
+            alternative: "<DEL>".into(),
+        };
+        let sv = precise_sv(SvKind::Deletion, 2050);
+        let annotations = predictor.predict_sv_with_inserted(&var, &sv, [inserted, 0])?;
+        let anns = annotations.unwrap_or_default().anns;
+        for id in ["NM_000001.1", "NM_000002.1"] {
+            let ann = (anns.iter())
+                .find(|ann| ann.feature_id == id)
+                .ok_or_else(|| anyhow::anyhow!("no row of {id}"))?;
+            assert!(ann.consequences.contains(&frame), "{ann:?}");
         }
         Ok(())
     }
