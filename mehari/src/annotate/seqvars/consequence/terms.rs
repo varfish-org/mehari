@@ -1010,6 +1010,10 @@ pub enum Message {
     /// The 3' shift of HGVS put this indel onto an essential splice site, but the same change at
     /// another position of its repeat leaves that splice site intact.
     InfoSpliceSiteIntactAtEquivalentPosition,
+    /// The row stands for every transcript of its gene that the change contains whole; they all
+    /// get the same terms. It is the row of the transcript that `--pick-order` ranks first,
+    /// without `severity`.
+    InfoOneRowPerGene,
 }
 
 /// Representation of an `ANN` field.

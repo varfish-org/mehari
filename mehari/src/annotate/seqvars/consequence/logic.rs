@@ -1775,6 +1775,10 @@ impl ConsequencePredictor {
     /// structural variant with its fusion terms, before the transcripts are picked by them and
     /// the plugins see them.
     ///
+    /// A change other than an insertion that contains transcripts whole gives one row per gene
+    /// for them, see `pick::select`, except in VEP compatibility mode, as VEP reports every
+    /// transcript. The change of one base at a breakend contains none.
+    ///
     /// The callers run the plugins on the result, after `predict_sv` and `predict_breakend` have
     /// adjusted it, so that plugins see the annotations as they are output.
     #[allow(clippy::too_many_arguments)]
@@ -1870,7 +1874,17 @@ impl ConsequencePredictor {
         } else {
             hgvs_g_fwd.clone()
         };
-        self.select_annotations(txs, |tx| {
+        let contained = |record: &TxForRegionRecord, tx: &Transcript| {
+            let (var_g, start, end) = if record.alt_strand == -1 {
+                (var_g_rev, var_start_rev, var_end_rev)
+            } else {
+                (var_g_fwd, var_start_fwd, var_end_fwd)
+            };
+            !self.config.vep_compatibility_mode
+                && !var_g.na_edit().is_some_and(NaEdit::is_ins)
+                && Self::contains_tx(tx, start, end)
+        };
+        self.select_annotations(txs, contained, |tx| {
             let tx_ann = if let Some(tx_g) = tx_var_g(tx) {
                 let (start, end) = Self::get_var_start_end(&tx_g);
                 let hgvs_g = self.format_hgvs_g(&tx_g);
@@ -1922,6 +1936,16 @@ impl ConsequencePredictor {
                 adjust(&mut tx_ann.ann);
                 tx_ann
             }))
+        })
+    }
+
+    /// Whether the change of the bases from the 0-based `start` up to `end` contains all exons of
+    /// `tx`.
+    fn contains_tx(tx: &Transcript, start: i32, end: i32) -> bool {
+        (tx.genome_alignments.first()).is_some_and(|alignment| {
+            !alignment.exons.is_empty()
+                && (alignment.exons.iter())
+                    .all(|exon| start <= exon.alt_start_i && exon.alt_end_i <= end)
         })
     }
 
@@ -2122,15 +2146,25 @@ impl ConsequencePredictor {
     }
 
     /// Annotate the transcripts near the variant that `Config::transcript_settings` selects.
+    /// `contained` tells whether the change contains a transcript whole, see `pick::select`.
     fn select_annotations(
         &self,
         txs: Vec<TxForRegionRecord>,
+        contained: impl Fn(&TxForRegionRecord, &Transcript) -> bool,
         annotate: impl FnMut(&TxForRegionRecord) -> Result<Option<TxAnnotation>, SeqvarsError>,
     ) -> Result<Vec<TxAnnotation>, SeqvarsError> {
         let cands = txs
             .into_iter()
             .filter_map(|record| match self.provider.get_tx(&record.tx_ac) {
-                Some(tx) => Some(Candidate::new(record, tx, self.provider.gene_key(tx))),
+                Some(tx) => {
+                    let contained = contained(&record, tx);
+                    Some(Candidate::new(
+                        record,
+                        tx,
+                        self.provider.gene_key(tx),
+                        contained,
+                    ))
+                }
                 None => {
                     tracing::warn!(
                         "Requested transcript accession {}, got None (potentially filtered)",
@@ -5144,7 +5178,9 @@ impl ConsequencePredictor {
             return Ok(None);
         }
 
-        let multi_anns = self.select_annotations(txs, |tx_record| {
+        // A group of variants keeps one row per transcript.
+        let contained = |_: &TxForRegionRecord, _: &Transcript| false;
+        let multi_anns = self.select_annotations(txs, contained, |tx_record| {
             let hgvs_g = hgvs_g.as_ref().map(|(fwd, rev)| {
                 if tx_record.alt_strand == -1 {
                     rev.clone()
@@ -9777,8 +9813,9 @@ pub(crate) mod test {
                     .build()?,
             );
 
+            let contained = |_: &TxForRegionRecord, _: &Transcript| false;
             let reported: Vec<_> = predictor
-                .select_annotations(txs.clone(), |record| {
+                .select_annotations(txs.clone(), contained, |record| {
                     Ok(Some(TxAnnotation {
                         context: TxContext::empty(),
                         ann: AnnField {
@@ -12399,7 +12436,12 @@ pub(crate) mod test {
             (&ann.hgvs_c, &ann.hgvs_p, &ann.cdna_pos),
             (&None, &None, &None)
         );
-        assert_eq!(ann.messages, Some(vec![Message::InfoImpreciseBreakpoints]));
+        // A change of all exons, chr1:1001-1380, gives the row of their gene.
+        let mut messages = vec![Message::InfoImpreciseBreakpoints];
+        if start <= 1001 && end >= 1380 {
+            messages.push(Message::InfoOneRowPerGene);
+        }
+        assert_eq!(ann.messages, Some(messages));
         Ok(())
     }
 
@@ -13329,6 +13371,155 @@ pub(crate) mod test {
                 );
             }
         }
+        Ok(())
+    }
+
+    /// `GENE1` with `NM_000001.1` and `NM_000003.1`, a MANE Select transcript, as
+    /// `exons_tx(3, 20)` at chr1:1001-1380, and `NM_000004.1` of `GENE1` and `NM_000002.1` of
+    /// `GENE2` as the same transcript at chr1:2001-2380, with the genome of `two_gene_predictor`
+    /// as the reference.
+    fn gene_rows_predictor(
+        config: Config,
+    ) -> Result<(ConsequencePredictor, String, NamedTempFile), anyhow::Error> {
+        let (_, genome) = two_gene_predictor(Default::default());
+        let mut reference = NamedTempFile::new()?;
+        write!(reference, ">1\n{genome}\n")?;
+        let (tx, seq) = exons_tx(3, 20);
+        let mane = Transcript {
+            tags: vec![TranscriptTag::ManeSelect.into()],
+            ..moved_tx(tx.clone(), 0, "NM_000003.1", "GENE1")
+        };
+        let txs = [
+            moved_tx(tx.clone(), 0, "NM_000001.1", "GENE1"),
+            mane,
+            moved_tx(tx.clone(), 1000, "NM_000004.1", "GENE1"),
+            moved_tx(tx, 1000, "NM_000002.1", "GENE2"),
+        ];
+        let txs = (txs.into_iter()).map(|tx| (tx, seq.clone())).collect();
+        let predictor = predictor_with_txs(txs, config, Some(reference.path()));
+        Ok((predictor, genome, reference))
+    }
+
+    /// The rows of `anns`: the feature ID, with ` one_row_per_gene` for the message
+    /// `INFO_ONE_ROW_PER_GENE` and ` pick` for the mark of `--flag-pick`.
+    fn gene_rows(anns: &[AnnField]) -> Vec<String> {
+        (anns.iter())
+            .map(|ann| {
+                let one_row =
+                    (ann.messages.iter().flatten()).any(|m| *m == Message::InfoOneRowPerGene);
+                let picked = (ann.custom_fields.get(ANN_PICK)).is_some_and(Option::is_some);
+                let one_row = if one_row { " one_row_per_gene" } else { "" };
+                let picked = if picked { " pick" } else { "" };
+                format!("{}{one_row}{picked}", ann.feature_id)
+            })
+            .collect()
+    }
+
+    /// The rows of a change of chr1:951-2100 in `gene_rows_predictor`, one per transcript.
+    const ROW_PER_TRANSCRIPT: &[&str] =
+        &["NM_000001.1", "NM_000002.1", "NM_000003.1", "NM_000004.1"];
+    /// The same with one row for the transcripts of `GENE1` that the change contains whole.
+    const ROW_PER_GENE: &[&str] = &["NM_000002.1", "NM_000003.1 one_row_per_gene", "NM_000004.1"];
+
+    /// A change that contains transcripts whole gives one row per gene for them: the row of the
+    /// transcript that `--pick-order` ranks first, `NM_000003.1` by its MANE tag, with the
+    /// message `INFO_ONE_ROW_PER_GENE`. The change of chr1:951-2100 contains the transcripts of
+    /// `GENE1` at chr1:1001-1380 and crosses the start of those at chr1:2001-2380, which keep
+    /// their rows, also `NM_000004.1` of `GENE1`. An insertion and a breakend contain no
+    /// transcript, and VEP reports every transcript. `--pick` and `--flag-pick` pick among the
+    /// rows that remain; `pick` is `--pick gene`, with `--flag-pick` if true.
+    #[rstest::rstest]
+    #[case::deletion("<DEL>", false, None, ROW_PER_GENE)]
+    #[case::dup_elsewhere("<DUP>", false, None, ROW_PER_GENE)]
+    #[case::tandem_dup("<DUP:TANDEM>", false, None, ROW_PER_GENE)]
+    #[case::inversion("<INV>", false, None, ROW_PER_GENE)]
+    #[case::copy_number_change("<CNV>", false, None, ROW_PER_GENE)]
+    #[case::copy_number_deletion("<CN0>", false, None, ROW_PER_GENE)]
+    #[case::insertion("<INS>", false, None, ROW_PER_TRANSCRIPT)]
+    #[case::breakend("T[1:2101[", false, None, ROW_PER_TRANSCRIPT)]
+    #[case::vep("<DEL>", true, None, ROW_PER_TRANSCRIPT)]
+    #[case::pick("<DEL>", false, Some(false), &["NM_000002.1", "NM_000003.1 one_row_per_gene"])]
+    #[case::flag_pick("<DEL>", false, Some(true), &["NM_000002.1 pick", "NM_000003.1 one_row_per_gene pick", "NM_000004.1"])]
+    fn rows_of_contained_transcripts(
+        #[case] alternative: &str,
+        #[case] vep_compatibility_mode: bool,
+        #[case] pick: Option<bool>,
+        #[case] expected: &[&str],
+    ) -> Result<(), anyhow::Error> {
+        let transcript_settings = TranscriptSettings {
+            pick: pick.map(|_| PickUnit::Gene),
+            flag_pick: pick == Some(true),
+            ..Default::default()
+        };
+        let config = ConfigBuilder::default()
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .transcript_settings(transcript_settings)
+            .build()?;
+        let (predictor, genome, _reference) = gene_rows_predictor(config)?;
+        let var = VcfVariant {
+            chromosome: "1".into(),
+            position: 950,
+            reference: genome[949..950].into(),
+            alternative: alternative.into(),
+        };
+        let info = SvInfo {
+            end: Some(2100),
+            ..Default::default()
+        };
+        let variant =
+            Variant::from_info(var, &info)?.ok_or_else(|| anyhow::anyhow!("no variant"))?;
+        let anns = (predictor.predict_variant(&variant)?)
+            .unwrap_or_default()
+            .anns;
+        assert_eq!(gene_rows(&anns), expected);
+        Ok(())
+    }
+
+    /// The explicit allele of a change of chr1:951-2100 gives the same rows as the symbolic one.
+    #[rstest::rstest]
+    #[case::deletion("<DEL>")]
+    #[case::inversion("<INV>")]
+    fn rows_of_contained_transcripts_explicit(
+        #[case] alternative: &str,
+    ) -> Result<(), anyhow::Error> {
+        let (predictor, genome, _reference) = gene_rows_predictor(Default::default())?;
+        let bases = &genome[950..2100];
+        let explicit = if alternative == "<DEL>" {
+            VcfVariant {
+                chromosome: "1".into(),
+                position: 950,
+                reference: genome[949..2100].into(),
+                alternative: genome[949..950].into(),
+            }
+        } else {
+            VcfVariant {
+                chromosome: "1".into(),
+                position: 951,
+                reference: bases.into(),
+                alternative: revcomp(bases),
+            }
+        };
+        let explicit = (predictor.predict(&explicit)?).unwrap_or_default();
+        let symbolic = VcfVariant {
+            chromosome: "1".into(),
+            position: 950,
+            reference: genome[949..950].into(),
+            alternative: alternative.into(),
+        };
+        let sv = StructuralVariant::from_info(
+            950,
+            alternative,
+            &SvInfo {
+                end: Some(2100),
+                ..Default::default()
+            },
+        )
+        .ok_or_else(|| anyhow::anyhow!("unsupported {alternative}"))?;
+        let symbolic = (predictor.predict_sv(&symbolic, &sv)?)
+            .unwrap_or_default()
+            .anns;
+        assert_eq!(gene_rows(&explicit), ROW_PER_GENE);
+        assert_eq!(without_alleles(symbolic), without_alleles(explicit));
         Ok(())
     }
 
