@@ -115,6 +115,9 @@ pub(crate) struct SeqvarsCsqResponse {
     pub query: SeqvarsCsqQuery,
     /// The resulting records for the scored genes.
     pub result: Vec<SeqvarsCsqResultEntry>,
+    /// The gene fusions of a structural variant or a breakend as `GENE1::GENE2`, as in the
+    /// `FUSION` INFO field of `annotate seqvars`.
+    pub fusions: Vec<String>,
 }
 
 /// Implementation of endpoints.
@@ -154,6 +157,7 @@ async fn handle_impl(
     let position = i32::try_from(position).map_err(|_| {
         CustomError::bad_request(anyhow::anyhow!("position {position} is too large"))
     })?;
+    let mut fusions = Vec::new();
     let g_var = VcfVariant {
         chromosome,
         position,
@@ -171,7 +175,7 @@ async fn handle_impl(
         ciend: interval("ciend", ciend.as_deref())?,
         imprecise: imprecise.unwrap_or_default(),
     };
-    let ann_fields = predictor
+    let annotations = predictor
         .predict_with_info(&g_var, &info)
         .map_err(|e| match e {
             SeqvarsError::InvalidVariant(_)
@@ -179,8 +183,9 @@ async fn handle_impl(
             | SeqvarsError::UnknownChromosomeAccession => super::CustomError::bad_request(e.into()),
             _ => super::CustomError::new(anyhow::anyhow!("prediction failed: {}", e)),
         })?;
-    if let Some(ann_fields) = ann_fields {
-        for ann_field in ann_fields {
+    if let Some(annotations) = annotations {
+        fusions = annotations.fusions;
+        for ann_field in annotations.anns {
             if let Some(hgnc_id) = &hgnc_id {
                 // Skip if HGNC gene ID is given but does not match.
                 if !has_hgnc_id(&predictor.provider, &ann_field.feature_id, hgnc_id) {
@@ -250,6 +255,7 @@ async fn handle_impl(
             .map_err(|e| CustomError::new(anyhow::anyhow!("Problem determining version: {}", e)))?,
         query: query.into_inner(),
         result,
+        fusions,
     };
 
     Ok(Json(result))
@@ -494,6 +500,24 @@ mod test {
             .await?
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         assert!(response.result.is_empty());
+        Ok(())
+    }
+
+    /// The response lists the gene fusions, here of the breakend that joins the 3' part of BRCA1
+    /// on chr17 to the reversed 5' part of OPA1 on chr3, which reads into it; the rows of BRCA1
+    /// get the fusion terms.
+    #[tokio::test]
+    async fn fusions() -> Result<(), anyhow::Error> {
+        use crate::annotate::seqvars::consequence::terms::Consequence;
+
+        let response = csq(41215930, "G", "G]3:193360000]", "")
+            .await?
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert_eq!(response.fusions, ["OPA1::BRCA1"]);
+        let brca1 = (response.result.iter())
+            .find(|entry| entry.feature_id == "NM_007294.4")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_007294.4"))?;
+        assert!(brca1.consequences.contains(&Consequence::GeneFusion));
         Ok(())
     }
 

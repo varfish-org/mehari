@@ -115,6 +115,7 @@ pub async fn run(_common: &crate::common::Args, args: &Args) -> Result<(), anyho
             vcf: record,
             annotation: VariantAnnotation {
                 consequences,
+                fusions: vec![],
                 frequencies: None, // TSV writer pulls freqs directly from INFO below
                 clinvar: None,
                 cadd: None,
@@ -1074,6 +1075,7 @@ mod tests {
         let record = AnnotatedVariant {
             vcf: Default::default(),
             annotation: VariantAnnotation {
+                fusions: vec![],
                 consequences: vec![
                     ann(refseq_gene_id, "NM_007294.4")?,
                     ann(ensembl_gene_id, "ENST00000357654.9")?,

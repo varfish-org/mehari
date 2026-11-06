@@ -714,6 +714,12 @@ components:
       - feature_elongation
       - feature_truncation
       - internal_feature_elongation
+      - gene_fusion
+      - unidirectional_gene_fusion
+      - inframe_unidirectional_gene_fusion
+      - frameshift_unidirectional_gene_fusion
+      - bidirectional_gene_fusion
+      - transcript_fusion
       - five_prime_duplicated_transcript
       - three_prime_duplicated_transcript
       - disruptive_inframe_insertion
@@ -1399,6 +1405,7 @@ components:
       - version
       - query
       - result
+      - fusions
       properties:
         version:
           $ref: '#/components/schemas/VersionsInfoResponse'
@@ -1411,6 +1418,13 @@ components:
           items:
             $ref: '#/components/schemas/SeqvarsCsqResultEntry'
           description: The resulting records for the scored genes.
+        fusions:
+          type: array
+          items:
+            type: string
+          description: |-
+            The gene fusions of a structural variant or a breakend as `GENE1::GENE2`, as in the
+            `FUSION` INFO field of `annotate seqvars`.
     SeqvarsCsqResultEntry:
       type: object
       description: One entry in `SeqvarsCsqResponse`.

@@ -377,8 +377,9 @@ mod test {
             end: 41244529,
             imprecise: true,
             intervals: (None, None),
+            junction: true,
         };
-        let anns = predictor.predict_sv(&var, &sv)?.unwrap();
+        let anns = predictor.predict_sv(&var, &sv)?.unwrap().anns;
         let ann = anns
             .iter()
             .find(|ann| ann.feature_id == "NM_007294.4")

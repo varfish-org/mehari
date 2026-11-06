@@ -1133,6 +1133,7 @@ mod test {
                 .predict_with_info(&sv, &info)
                 .unwrap()
                 .unwrap()
+                .anns
                 .into_iter()
                 .map(|ann| (ann.feature_id, ann.custom_fields.get(ANN_NMD).cloned()))
                 .collect_vec()
@@ -1176,6 +1177,7 @@ mod test {
         let ann = (predictor(vec![Arc::new(load(path, &[])?)])?
             .predict_with_info(&sv, &info)?
             .unwrap_or_default()
+            .anns
             .into_iter())
         .find(|ann| ann.feature_id == "NM_007294.4")
         .ok_or_else(|| anyhow::anyhow!("no annotation for NM_007294.4"))?;
@@ -1218,6 +1220,7 @@ mod test {
                 predictor_with_reference(tx.clone(), seq.clone(), config, Some(reference.path()));
             let ann = (predictor.predict_with_info(&var, &info)?)
                 .unwrap_or_default()
+                .anns
                 .into_iter()
                 .find(|ann| ann.feature_id == "NM_000001.1")
                 .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1"))?;
@@ -1333,6 +1336,7 @@ mod test {
         let ann = (predictor
             .predict_with_info(&var, &info)?
             .unwrap()
+            .anns
             .into_iter())
         .find(|ann| ann.feature_id == "NM_007294.4")
         .unwrap();
