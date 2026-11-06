@@ -7,7 +7,7 @@ use super::terms::{
 };
 use crate::annotate::cli::HgvsParentheses;
 use crate::annotate::seqvars::consequence::{
-    Config, Consequences, FormattedLoc, StructuralVariant, SvKind, VcfVariant,
+    Breakend, Config, Consequences, FormattedLoc, StructuralVariant, SvKind, VcfVariant,
 };
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
@@ -928,6 +928,7 @@ impl ConsequencePredictor {
             chrom_acc,
             false,
             true,
+            |_| None,
             |_| {},
         )
     }
@@ -991,7 +992,15 @@ impl ConsequencePredictor {
                     );
                     let (var_g_fwd, var_g_rev) = self.normalize_g(&var_g, chrom_acc)?;
                     return self.predict_g(
-                        var, &var_g, &var_g_fwd, &var_g_rev, chrom_acc, false, true, adjust,
+                        var,
+                        &var_g,
+                        &var_g_fwd,
+                        &var_g_rev,
+                        chrom_acc,
+                        false,
+                        true,
+                        |_| None,
+                        adjust,
                     );
                 }
                 Some(trimmed) => (loc_start, loc_end) = trimmed,
@@ -1060,7 +1069,15 @@ impl ConsequencePredictor {
             SvKind::Duplication { tandem: false } | SvKind::CopyNumberChange
         );
         self.predict_g(
-            var, &var_g, &var_g_fwd, &var_g_rev, chrom_acc, true, protein, adjust,
+            var,
+            &var_g,
+            &var_g_fwd,
+            &var_g_rev,
+            chrom_acc,
+            true,
+            protein,
+            |_| None,
+            adjust,
         )
     }
 
@@ -1179,6 +1196,148 @@ impl ConsequencePredictor {
         }
     }
 
+    /// The annotations of `breakend`, the allele of `var`. A transcript with `POS` inside loses
+    /// the side that the breakend does not keep, so it gets the terms of the deletion of that
+    /// side. The deletion ends one base past the transcript, which makes it a deletion over the
+    /// transcript end, as the lost side is, and `tx_consequences` adds `feature_truncation`. The
+    /// other transcripts in reach of `POS` stay whole, up- or downstream of it. A breakend at a
+    /// telomere, `POS` 0 or N+1, touches no transcript. HGVS describes a breakend on the
+    /// chromosome only, see `breakend_hgvs_g`, and the positions on the transcript would be those
+    /// of the deletion, so they stay empty. An imprecise breakend keeps the terms at `POS`, and
+    /// its annotations carry the message `INFO_IMPRECISE_BREAKPOINTS`.
+    pub fn predict_breakend(
+        &self,
+        var: &VcfVariant,
+        breakend: &Breakend,
+    ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
+        let Some(chrom_acc) = self.chrom_acc(var) else {
+            return Ok(None);
+        };
+        let pos = var.position;
+        let length = self.contig_length(chrom_acc);
+        if pos == 0 || length.is_some_and(|length| pos > length) {
+            return Ok(Some(
+                self.run_plugins(std::slice::from_ref(var), Vec::new())?,
+            ));
+        }
+
+        let deletion = |start: i32, end: i32| HgvsVariant::GenomeVariant {
+            accession: Accession {
+                value: chrom_acc.to_string(),
+            },
+            gene_symbol: None,
+            loc_edit: GenomeLocEdit {
+                loc: Mu::Certain(GenomeInterval {
+                    start: Some(start),
+                    end: Some(end),
+                }),
+                edit: Mu::Certain(NaEdit::DelRef {
+                    reference: String::new(),
+                }),
+            },
+        };
+        let lost_side = |tx: &TxForRegionRecord| {
+            let exons = &(self.provider.get_tx(&tx.tx_ac)?.genome_alignments.first()?).exons;
+            let first = (exons.iter()).map(|exon| exon.alt_start_i + 1).min()?;
+            let last = (exons.iter()).map(|exon| exon.alt_end_i).max()?;
+            (first..=last).contains(&pos).then(|| {
+                if breakend.keeps_left {
+                    deletion(pos + 1, last + 1)
+                } else {
+                    // A transcript at the first base of the contig has no base in front of it.
+                    deletion((first - 1).max(1), pos - 1)
+                }
+            })
+        };
+        let var_g = deletion(pos, pos);
+        let hgvs_g = (self.writes_hgvs(&var.alternative))
+            .then(|| self.breakend_hgvs_g(pos, length, breakend))
+            .flatten();
+        let adjust = |ann: &mut AnnField| {
+            ann.hgvs_g.clone_from(&hgvs_g);
+            ann.hgvs_n = None;
+            ann.hgvs_c = None;
+            ann.hgvs_p = None;
+            ann.cdna_pos = None;
+            ann.cds_pos = None;
+            ann.protein_pos = None;
+            if breakend.imprecise {
+                (ann.messages.get_or_insert_with(Vec::new)).push(Message::InfoImpreciseBreakpoints);
+            }
+        };
+        self.predict_g(
+            var, &var_g, &var_g, &var_g, chrom_acc, true, true, lost_side, adjust,
+        )
+    }
+
+    /// The g. description of `breakend` at `pos` on a contig of `length` bases, after the
+    /// translocation examples of HGVS: the side that the breakend loses becomes the inserted
+    /// bases and the joined piece of the mate contig, with `inv` for a reversed piece, e.g.
+    /// `g.1001_qterdelins[NC_000013.11:g.123457_qter]` for `t[p[` at 1000. A mate at a telomere
+    /// joins no piece. An imprecise breakend has its first or last lost base within `CIPOS`,
+    /// inside the contig, e.g. `g.(501_1501)_qterdelins[...]` for `CIPOS=-500,500`, or at the one
+    /// position where both bounds meet. `None` where
+    /// HGVS has no description: for a single breakend, a mate without an accession (e.g. on a
+    /// decoy), a breakend that loses no base, and an imprecise one without `CIPOS`.
+    fn breakend_hgvs_g(
+        &self,
+        pos: i32,
+        length: Option<i32>,
+        breakend: &Breakend,
+    ) -> Option<String> {
+        let mate = breakend.mate.as_ref()?;
+        let mate_acc = self
+            .provider
+            .contig_manager
+            .get_accession(&mate.chromosome)?;
+        let cipos = match (breakend.imprecise, breakend.cipos) {
+            (false, _) => None,
+            (true, Some(cipos)) => Some(cipos),
+            (true, None) => return None,
+        };
+        let within = |base: i32, (min, max): (i32, i32)| {
+            let clamp = |base: i32| base.min(length.unwrap_or(i32::MAX)).max(1);
+            let (first, last) = (
+                clamp(base.saturating_add(min)),
+                clamp(base.saturating_add(max)),
+            );
+            if first == last {
+                first.to_string()
+            } else {
+                format!("({first}_{last})")
+            }
+        };
+        let lost = match (breakend.keeps_left, cipos) {
+            (true, Some(cipos)) => format!("{}_qter", within(pos + 1, cipos)),
+            (false, Some(cipos)) => format!("pter_{}", within(pos - 1, cipos)),
+            (true, None) => (length != Some(pos)).then(|| format!("{}_qter", pos + 1))?,
+            (false, None) => (pos != 1).then(|| format!("pter_{}", pos - 1))?,
+        };
+        let telomere = mate.position == 0
+            || (self.contig_length(mate_acc)).is_some_and(|length| mate.position > length);
+        let piece = (!telomere).then(|| {
+            let range = if mate.extends_right {
+                format!("{}_qter", mate.position)
+            } else {
+                format!("pter_{}", mate.position)
+            };
+            let inv = if mate.extends_right == breakend.keeps_left {
+                ""
+            } else {
+                "inv"
+            };
+            format!("{mate_acc}:g.{range}{inv}")
+        });
+        let inserted = &breakend.inserted;
+        Some(match piece {
+            None if inserted.is_empty() => format!("g.{lost}del"),
+            None => format!("g.{lost}delins{inserted}"),
+            Some(piece) if inserted.is_empty() => format!("g.{lost}delins[{piece}]"),
+            Some(piece) if breakend.keeps_left => format!("g.{lost}delins[{inserted};{piece}]"),
+            Some(piece) => format!("g.{lost}delins[{piece};{inserted}]"),
+        })
+    }
+
     /// The accession of the chromosome of `var`, or `None` with a warning.
     fn chrom_acc(&self, var: &VcfVariant) -> Option<&str> {
         let chrom_acc = self.provider.contig_manager.get_accession(&var.chromosome);
@@ -1193,7 +1352,9 @@ impl ConsequencePredictor {
 
     /// The annotations of `var` on the transcripts in reach of `var_g`, its g. description on
     /// the chromosome `chrom_acc`, shifted 3' on the plus strand as `var_g_fwd` and on the minus
-    /// strand as `var_g_rev`.
+    /// strand as `var_g_rev`. `tx_var_g` gives the change on a transcript where it differs, as
+    /// the side that a breakend loses ends with the transcript, see `predict_breakend`; which
+    /// transcripts are in reach still depends on `var_g` alone.
     ///
     /// Without `protein`, the protein change is not projected, as for a change whose annotations
     /// drop `p.`. `adjust` changes each annotation to its final form, e.g. to the terms of a
@@ -1208,6 +1369,7 @@ impl ConsequencePredictor {
         chrom_acc: &str,
         without_bases: bool,
         protein: bool,
+        tx_var_g: impl Fn(&TxForRegionRecord) -> Option<HgvsVariant>,
         adjust: impl Fn(&mut AnnField),
     ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
         // Get all affected transcripts.
@@ -1295,7 +1457,23 @@ impl ConsequencePredictor {
             hgvs_g_fwd.clone()
         };
         let anns = self.select_annotations(txs, |tx| {
-            let tx_ann = if tx.alt_strand == -1 {
+            let tx_ann = if let Some(tx_g) = tx_var_g(tx) {
+                let (start, end) = Self::get_var_start_end(&tx_g);
+                let hgvs_g = self.format_hgvs_g(&tx_g);
+                self.build_ann_field(
+                    var,
+                    &tx_g,
+                    &hgvs_g,
+                    &tx_g,
+                    None,
+                    None,
+                    tx.clone(),
+                    start,
+                    end,
+                    without_bases,
+                    protein,
+                )
+            } else if tx.alt_strand == -1 {
                 let other_g = shifts.then_some(var_g_fwd);
                 self.build_ann_field(
                     var,
@@ -12155,6 +12333,285 @@ mod test {
         let normalized = positions(predictor.normalize_g(&deletion("CACA"), chrom_acc)?);
         assert_eq!(shifted, normalized);
         assert_eq!(normalized, ((1196, 1200), (1000, 1004)));
+        Ok(())
+    }
+
+    /// The annotations of the breakend `alternative` at `pos` on chr1.
+    fn predict_breakend_at(
+        predictor: &ConsequencePredictor,
+        pos: i32,
+        alternative: &str,
+    ) -> Result<Vec<AnnField>, anyhow::Error> {
+        let var = VcfVariant {
+            chromosome: "1".into(),
+            position: pos,
+            reference: "N".into(),
+            alternative: alternative.into(),
+        };
+        let anns = predictor.predict_breakend(&var, &alternative.parse()?)?;
+        Ok(anns.unwrap_or_default())
+    }
+
+    /// A breakend inside the transcript loses the side that it does not keep, so it has the
+    /// terms of the symbolic deletion of that side over the transcript end, among them
+    /// `feature_truncation` and the loss of the exons on that side, and of the start codon where
+    /// it lies there. Exon 2 at chr1:1161-1220 holds the end of the CDS, intron 1 lies at
+    /// chr1:1061-1160.
+    #[rstest::rstest]
+    #[case::exon_2_keeps_left(1170, "G[13:123457[", (1171, 1450), &[Consequence::ExonLossVariant, Consequence::FeatureTruncation])]
+    #[case::exon_2_keeps_right(1170, "]13:123457]G", (950, 1169), &[Consequence::ExonLossVariant, Consequence::StartLost, Consequence::FeatureTruncation])]
+    #[case::intron_1_keeps_left(1100, "G]13:123457]", (1101, 1450), &[Consequence::ExonLossVariant, Consequence::FeatureTruncation])]
+    #[case::intron_1_keeps_right(1100, "[13:123457[G", (950, 1099), &[Consequence::ExonLossVariant, Consequence::StartLost, Consequence::FeatureTruncation])]
+    fn breakend_in_transcript(
+        #[case] pos: usize,
+        #[case] alternative: &str,
+        #[case] (start, end): (usize, usize),
+        #[case] expected: &[Consequence],
+    ) -> Result<(), anyhow::Error> {
+        let (predictor, genome, _reference) = three_exon_predictor(false)?;
+        let anns = predict_breakend_at(&predictor, i32::try_from(pos)?, alternative)?;
+        let ann = (anns.iter())
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1"))?;
+        let deletion = predict_sv_on_tx(
+            &predictor,
+            &genome,
+            start - 1,
+            "<DEL>",
+            &precise_sv(SvKind::Deletion, end),
+        )?;
+
+        assert!(
+            (expected.iter()).all(|csq| ann.consequences.contains(csq)),
+            "{ann:?}"
+        );
+        assert_eq!(ann.consequences, deletion.consequences);
+        assert_eq!(
+            ann.allele,
+            Allele::Alt {
+                alternative: alternative.into()
+            }
+        );
+        assert_eq!(
+            (&ann.hgvs_n, &ann.hgvs_c, &ann.hgvs_p, &ann.cdna_pos),
+            (&None, &None, &None, &None)
+        );
+        Ok(())
+    }
+
+    /// A breakend that joins outside the transcript leaves it whole, up- or downstream of it,
+    /// also one that keeps the last base of the transcript at chr1:1380.
+    #[rstest::rstest]
+    #[case::upstream(900, "G[13:123457[", Consequence::UpstreamGeneVariant)]
+    #[case::downstream(1400, "]13:123457]G", Consequence::DownstreamGeneVariant)]
+    #[case::behind_last_base(1380, "G[13:123457[", Consequence::DownstreamGeneVariant)]
+    fn breakend_outside_transcript(
+        #[case] pos: i32,
+        #[case] alternative: &str,
+        #[case] expected: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let (predictor, _genome, _reference) = three_exon_predictor(false)?;
+        let anns = predict_breakend_at(&predictor, pos, alternative)?;
+        let csqs = anns.iter().map(|ann| &ann.consequences).collect_vec();
+        assert_eq!(csqs, [&vec![expected]], "{anns:?}");
+        Ok(())
+    }
+
+    /// A breakend at a telomere touches no transcript, and the plugins see it without rows.
+    #[rstest::rstest]
+    #[case::start(0, ".[13:123457[")]
+    #[case::end(248_956_423, "]13:123457].")]
+    fn breakend_at_telomere(
+        #[case] pos: i32,
+        #[case] alternative: &str,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = exons_tx(3, 20);
+        let plugin = Arc::new(CountingPlugin::default());
+        let config = ConfigBuilder::default()
+            .keep_intergenic(true)
+            .plugins(vec![plugin.clone()])
+            .build()?;
+        let predictor = predictor_with_reference(tx, seq, config, None);
+        let var = VcfVariant {
+            chromosome: "1".into(),
+            position: pos,
+            reference: "N".into(),
+            alternative: alternative.into(),
+        };
+        assert_eq!(
+            predictor.predict_breakend(&var, &alternative.parse()?)?,
+            Some(vec![])
+        );
+        assert_eq!(*plugin.calls.lock().unwrap(), [0]);
+        Ok(())
+    }
+
+    /// The g. description of a breakend replaces the side that it loses with the inserted bases
+    /// and the joined piece of the mate contig, reversed with `inv`, in the order of the joined
+    /// chromosome. A mate at a telomere joins no piece: chr13 has 114,364,328 bases. A breakend
+    /// at chr1:1 that keeps the right side loses no base. These, a single breakend and a mate
+    /// without an accession have no description.
+    #[rstest::rstest]
+    #[case::joins_right(
+        "G[13:123457[",
+        1170,
+        Some("g.1171_qterdelins[NC_000013.11:g.123457_qter]")
+    )]
+    #[case::joins_left_reversed(
+        "G]13:123457]",
+        1170,
+        Some("g.1171_qterdelins[NC_000013.11:g.pter_123457inv]")
+    )]
+    #[case::left_joins(
+        "]13:123457]G",
+        1170,
+        Some("g.pter_1169delins[NC_000013.11:g.pter_123457]")
+    )]
+    #[case::right_joins_reversed(
+        "[13:123457[G",
+        1170,
+        Some("g.pter_1169delins[NC_000013.11:g.123457_qterinv]")
+    )]
+    #[case::inserted_joins_right(
+        "GACG[13:123457[",
+        1170,
+        Some("g.1171_qterdelins[ACG;NC_000013.11:g.123457_qter]")
+    )]
+    #[case::inserted_joins_left_reversed(
+        "GACG]13:123457]",
+        1170,
+        Some("g.1171_qterdelins[ACG;NC_000013.11:g.pter_123457inv]")
+    )]
+    #[case::inserted_left_joins(
+        "]13:123457]ACGG",
+        1170,
+        Some("g.pter_1169delins[NC_000013.11:g.pter_123457;ACG]")
+    )]
+    #[case::inserted_right_joins_reversed(
+        "[13:123457[ACGG",
+        1170,
+        Some("g.pter_1169delins[NC_000013.11:g.123457_qterinv;ACG]")
+    )]
+    #[case::same_contig("G[1:5000[", 1170, Some("g.1171_qterdelins[NC_000001.11:g.5000_qter]"))]
+    #[case::mate_at_start("]13:0]G", 1170, Some("g.pter_1169del"))]
+    #[case::mate_at_start_inserted("]13:0]ACGG", 1170, Some("g.pter_1169delinsACG"))]
+    #[case::mate_at_end("G[13:114364329[", 1170, Some("g.1171_qterdel"))]
+    #[case::loses_nothing("]13:123457]G", 1, None)]
+    #[case::single("G.", 1170, None)]
+    #[case::decoy_mate("G[chrUn_KI270302v1:100[", 1170, None)]
+    fn hgvs_g_of_breakend(
+        #[case] alternative: &str,
+        #[case] pos: i32,
+        #[case] expected: Option<&str>,
+    ) -> Result<(), anyhow::Error> {
+        let (predictor, _genome, _reference) = three_exon_predictor(false)?;
+        let anns = predict_breakend_at(&predictor, pos, alternative)?;
+        assert!(!anns.is_empty());
+        assert!(
+            anns.iter().all(|ann| ann.hgvs_g.as_deref() == expected),
+            "{anns:?}"
+        );
+        Ok(())
+    }
+
+    /// A breakend at the last base of the contig that keeps the left side loses no base, so it has
+    /// no g. description, nor has any breakend in VEP compatibility mode. chr1 has 248,956,422
+    /// bases, far from the transcript, so its only annotation is intergenic.
+    #[rstest::rstest]
+    #[case::loses_nothing(248_956_422, false)]
+    #[case::vep_compatibility_mode(1170, true)]
+    fn breakend_without_hgvs_g(
+        #[case] pos: i32,
+        #[case] vep_compatibility_mode: bool,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = exons_tx(3, 20);
+        let config = ConfigBuilder::default()
+            .keep_intergenic(true)
+            .vep_compatibility_mode(vep_compatibility_mode)
+            .build()?;
+        let predictor = predictor_with_reference(tx, seq, config, None);
+        let anns = predict_breakend_at(&predictor, pos, "G[13:123457[")?;
+        assert!(!anns.is_empty());
+        assert!(anns.iter().all(|ann| ann.hgvs_g.is_none()), "{anns:?}");
+        Ok(())
+    }
+
+    /// An imprecise breakend keeps the terms at `POS`, and all its annotations say that it is
+    /// imprecise. Its g. description has the first or the last lost base within `CIPOS`, inside
+    /// chr1 of 248,956,422 bases, as one position where both bounds meet, and without `CIPOS`
+    /// there is none. A precise breakend ignores `CIPOS`, e.g. `0,0`.
+    #[rstest::rstest]
+    #[case::keeps_left("G[13:123457[", 1170, (true, Some((-500, 500))), Some("g.(671_1671)_qterdelins[NC_000013.11:g.123457_qter]"))]
+    #[case::keeps_right("]13:123457]G", 1170, (true, Some((-500, 500))), Some("g.pter_(669_1669)delins[NC_000013.11:g.pter_123457]"))]
+    #[case::from_first_base("G[13:123457[", 100, (true, Some((-500, 500))), Some("g.(1_601)_qterdelins[NC_000013.11:g.123457_qter]"))]
+    #[case::to_last_base("]13:123457]G", 248_956_000, (true, Some((-100, 1000))), Some("g.pter_(248955899_248956422)delins[NC_000013.11:g.pter_123457]"))]
+    #[case::without_interval("G[13:123457[", 1170, (true, None), None)]
+    #[case::clamped_to_one_base("G[13:123457[", 100, (true, Some((-500, -200))), Some("g.1_qterdelins[NC_000013.11:g.123457_qter]"))]
+    #[case::one_base("]13:123457]G", 1170, (true, Some((5, 5))), Some("g.pter_1174delins[NC_000013.11:g.pter_123457]"))]
+    #[case::zero_interval("G[13:123457[", 1170, (false, Some((0, 0))), Some("g.1171_qterdelins[NC_000013.11:g.123457_qter]"))]
+    #[case::precise_with_interval("G[13:123457[", 1170, (false, Some((-500, 500))), Some("g.1171_qterdelins[NC_000013.11:g.123457_qter]"))]
+    fn imprecise_breakend(
+        #[case] alternative: &str,
+        #[case] pos: i32,
+        #[case] (imprecise, cipos): (bool, Option<(i32, i32)>),
+        #[case] expected: Option<&str>,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = exons_tx(3, 20);
+        let config = ConfigBuilder::default().keep_intergenic(true).build()?;
+        let predictor = predictor_with_reference(tx, seq, config, None);
+        let var = VcfVariant {
+            chromosome: "1".into(),
+            position: pos,
+            reference: "N".into(),
+            alternative: alternative.into(),
+        };
+        let breakend = Breakend {
+            imprecise,
+            cipos,
+            ..alternative.parse()?
+        };
+        let anns = (predictor.predict_breakend(&var, &breakend)?).unwrap_or_default();
+        let precise = predict_breakend_at(&predictor, pos, alternative)?;
+        let terms = |anns: &[AnnField]| {
+            anns.iter()
+                .map(|ann| ann.consequences.clone())
+                .collect_vec()
+        };
+        assert_eq!(terms(&anns), terms(&precise));
+        let messages = imprecise.then(|| vec![Message::InfoImpreciseBreakpoints]);
+        assert!(!anns.is_empty());
+        for ann in &anns {
+            assert_eq!(
+                (ann.hgvs_g.as_deref(), &ann.messages),
+                (expected, &messages)
+            );
+        }
+        Ok(())
+    }
+
+    /// A breakend that keeps the right side of a transcript at the first base of the contig
+    /// loses the bases from there, as there is no position 0 in front of it. At that base, it
+    /// loses none, so the transcript stays whole.
+    #[rstest::rstest]
+    #[case::exon_2(170, Consequence::StartLost)]
+    #[case::first_base(1, Consequence::UpstreamGeneVariant)]
+    fn breakend_in_transcript_at_contig_start(
+        #[case] pos: i32,
+        #[case] expected: Consequence,
+    ) -> Result<(), anyhow::Error> {
+        let (mut tx, seq) = exons_tx(3, 20);
+        let alignment = &mut tx.genome_alignments[0];
+        for exon in &mut alignment.exons {
+            (exon.alt_start_i, exon.alt_end_i) = (exon.alt_start_i - 1000, exon.alt_end_i - 1000);
+        }
+        alignment.cds_start = alignment.cds_start.map(|start| start - 1000);
+        alignment.cds_end = alignment.cds_end.map(|end| end - 1000);
+        let predictor = predictor_with_reference(tx, seq, Default::default(), None);
+        let anns = predict_breakend_at(&predictor, pos, "]13:123457]G")?;
+        let ann = (anns.iter())
+            .find(|ann| ann.feature_id == "NM_000001.1")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1"))?;
+        assert!(ann.consequences.contains(&expected), "{ann:?}");
         Ok(())
     }
 

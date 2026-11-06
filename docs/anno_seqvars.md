@@ -27,7 +27,16 @@ Symbolic alleles are annotated as the change they stand for, from the base behin
 
 A symbolic allele other than these, e.g. `<MYDEL>`, counts as its `SVTYPE` if that is one of the above.
 An `SVCLAIM` other than `D`, `J` and `DJ` counts as none, with a warning.
-Records with another symbolic allele, with a symbolic allele without a length, a breakend, or at position 0 have no such representation: they stay in the output without annotations, and Mehari warns about their number.
+
+A breakend, e.g. `A]13:123456]`, joins the base at `POS` to a piece of the mate contig, as in VCF 4.5. Each record is annotated on its own:
+
+- A transcript with `POS` inside loses the side that the breakend does not keep. It gets the terms of the deletion of that side over its end, with `feature_truncation`. Transcripts nearby stay whole, up- or downstream of `POS`.
+- `HGVS.g` describes the derivative chromosome as in the translocation examples of HGVS: the lost side becomes the inserted bases and the joined piece, e.g. `g.1001_qterdelins[NC_000013.11:g.pter_123456inv]` for `A]13:123456]` at position 1000. There is no `c.`, `n.` or `p.`.
+- A single breakend (`G.`, `.A`) gets the same terms without HGVS, and a breakend at a telomere (`POS` 0) gets none.
+- A breakend with `IMPRECISE` and a `CIPOS` other than `0,0` or none is imprecise. It keeps the terms at `POS` and carries the message `INFO_IMPRECISE_BREAKPOINTS`. Its `HGVS.g` has the first or last lost base within `CIPOS`, e.g. `g.(501_1501)_qterdelins[...]` for `CIPOS=-500,500`, and is empty without `CIPOS`. Without `IMPRECISE`, `CIPOS` marks the micro-homology of a precise call, as in VCF 4.5, so the breakend is precise.
+- The transcripts at the mate get their annotations from the record of the mate. A caller that writes one record per adjacency with `CHR2` and `END` instead leaves them without annotations.
+
+Records with another symbolic allele, with a symbolic allele without a length, with a malformed breakend, or with another allele at position 0 have no such representation: they stay in the output without annotations, and Mehari warns about their number.
 Records without an alternate allele (`ALT` `.`) stay in the output, too.
 Mehari stops at a record with more than one alternate allele. Split such records beforehand with `bcftools norm -m-any`, without `-f`, which rejects `N` as `REF`.
 You can find the VCF variant specification [here on Github](https://samtools.github.io/hts-specs/).

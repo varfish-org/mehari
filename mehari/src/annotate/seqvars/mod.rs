@@ -20,7 +20,10 @@ use anyhow::Error;
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use clinvar::{ClinvarAnnotator, ClinvarResult};
-use consequence::{ConsequenceAnnotator, StructuralVariant, SvClaim, SvKind, SvType, VcfVariant};
+use consequence::{
+    Breakend, ConfidenceInterval, ConsequenceAnnotator, StructuralVariant, SvClaim, SvKind, SvType,
+    VcfVariant,
+};
 use frequency::{FreqResult, FrequencyAnnotator};
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -862,8 +865,13 @@ impl Annotator {
             dbsnp: None,
         };
 
-        // A structural variant gets consequences only: the databases hold no symbolic alleles.
-        if let Some(sv) = structural_variant(vcf_record, file_format) {
+        // A structural variant or a breakend gets consequences only: the databases hold no
+        // symbolic alleles.
+        let (sv, breakend) = (
+            structural_variant(vcf_record, file_format),
+            breakend(vcf_record),
+        );
+        if sv.is_some() || breakend.is_some() {
             if let Some(predictor) = self.consequence_predictor() {
                 let var = VcfVariant {
                     chromosome: vcf_var.chrom,
@@ -871,7 +879,12 @@ impl Annotator {
                     reference: vcf_var.reference,
                     alternative: vcf_var.alternative,
                 };
-                annotation.consequences = predictor.predict_sv(&var, &sv)?.unwrap_or_default();
+                annotation.consequences = match (sv, breakend) {
+                    (Some(sv), _) => predictor.predict_sv(&var, &sv)?,
+                    (_, Some(breakend)) => predictor.predict_breakend(&var, &breakend)?,
+                    (None, None) => None,
+                }
+                .unwrap_or_default();
             }
             return Ok(annotation);
         }
@@ -1190,6 +1203,7 @@ async fn run_with_writer(
                     }
                     if is_event(&vcf_record)
                         && structural_variant(&vcf_record, file_format).is_none()
+                        && breakend(&vcf_record).is_none()
                         && !keeps_copy_number(&vcf_record, file_format)
                     {
                         total_unsupported += 1;
@@ -1315,8 +1329,9 @@ async fn run_with_writer(
     }
     if total_unsupported > 0 {
         tracing::warn!(
-            "{} record(s) stay without annotations: breakends, records at position 0, symbolic \
-             alleles without a length and unknown symbolic alleles are not supported",
+            "{} record(s) stay without annotations: malformed breakends, other records at \
+             position 0, symbolic alleles without a length and unknown symbolic alleles are not \
+             supported",
             total_unsupported.separate_with_commas()
         );
     }
@@ -1704,8 +1719,6 @@ fn structural_variant(record: &VcfRecord, file_format: FileFormat) -> Option<Str
     use noodles::vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, IS_IMPRECISE, POSITION_CONFIDENCE_INTERVALS, SV_TYPE,
     };
-    use noodles::vcf::variant::record_buf::info::field::Value as InfoValue;
-    use noodles::vcf::variant::record_buf::info::field::value::Array;
 
     let pos = i32::try_from(record.variant_start()?.get()).ok()?;
     let [alt] = record.alternate_bases().as_ref() else {
@@ -1714,22 +1727,6 @@ fn structural_variant(record: &VcfRecord, file_format: FileFormat) -> Option<Str
     let mut parts = alt.strip_prefix('<')?.strip_suffix('>')?.split(':');
     let (base, subtype) = (parts.next()?, parts.next());
     let info = record.info();
-    // The outer bounds of the pairs, each in order: a split record keeps the pairs of all its
-    // alleles. Files without a header line for `key` give a string below VCF 4.3.
-    let interval = |key: &str| {
-        let values: Vec<Option<i32>> = match info.get(key).flatten()? {
-            InfoValue::Array(Array::Integer(values)) => values.clone(),
-            InfoValue::String(values) => {
-                values.split(',').map(|value| value.parse().ok()).collect()
-            }
-            _ => return None,
-        };
-        let pairs = values.chunks(2).filter_map(|pair| match pair {
-            [Some(a), Some(b)] => Some((*a.min(b), *a.max(b))),
-            _ => None,
-        });
-        pairs.reduce(|(min_a, max_a), (min_b, max_b)| (min_a.min(min_b), max_a.max(max_b)))
-    };
 
     // A custom allele, which `##ALT` declares, counts as its `SVTYPE` if that is the type of a
     // symbolic allele.
@@ -1799,8 +1796,11 @@ fn structural_variant(record: &VcfRecord, file_format: FileFormat) -> Option<Str
     // `CIEND` defaults to `CIPOS`. As in VCF 4.5, `IMPRECISE` makes the breakpoints uncertain,
     // unless both intervals are 0, as for a precise allele of the record, and a missing `CIPOS`
     // is unknown. Without `IMPRECISE`, the intervals give the micro-homology of a precise call.
-    let cipos = interval(POSITION_CONFIDENCE_INTERVALS);
-    let intervals = (cipos, interval(END_CONFIDENCE_INTERVALS).or(cipos));
+    let cipos = confidence_interval(record, POSITION_CONFIDENCE_INTERVALS);
+    let intervals = (
+        cipos,
+        confidence_interval(record, END_CONFIDENCE_INTERVALS).or(cipos),
+    );
     let imprecise = abundance_only
         || info.get(IS_IMPRECISE).is_some() && intervals != (Some((0, 0)), Some((0, 0)));
     Some(StructuralVariant {
@@ -1854,6 +1854,43 @@ fn keeps_copy_number(record: &VcfRecord, file_format: FileFormat) -> bool {
         }
         _ => false,
     }
+}
+
+/// The confidence interval `key` of `record`, e.g. `CIPOS`, as offsets `(min, max)`: the outer
+/// bounds of its pairs, each in order, as a split record keeps the pairs of all its alleles.
+/// Files without a header line for `key` give a string below VCF 4.3.
+fn confidence_interval(record: &VcfRecord, key: &str) -> Option<ConfidenceInterval> {
+    use noodles::vcf::variant::record_buf::info::field::Value as InfoValue;
+    use noodles::vcf::variant::record_buf::info::field::value::Array;
+
+    let values: Vec<Option<i32>> = match record.info().get(key).flatten()? {
+        InfoValue::Array(Array::Integer(values)) => values.clone(),
+        InfoValue::String(values) => values.split(',').map(|value| value.parse().ok()).collect(),
+        _ => return None,
+    };
+    let pairs = values.chunks(2).filter_map(|pair| match pair {
+        [Some(a), Some(b)] => Some((*a.min(b), *a.max(b))),
+        _ => None,
+    });
+    pairs.reduce(|(min_a, max_a), (min_b, max_b)| (min_a.min(min_b), max_a.max(max_b)))
+}
+
+/// The breakend of `record`, if its allele is a well-formed one, with the uncertainty of its
+/// position from `IMPRECISE` and `CIPOS`. As in VCF 4.5, `CIPOS` without `IMPRECISE` is the
+/// micro-homology of a precise call, and `IMPRECISE` without `CIPOS` leaves the interval open.
+fn breakend(record: &VcfRecord) -> Option<Breakend> {
+    use noodles::vcf::variant::record::info::field::key::{
+        IS_IMPRECISE, POSITION_CONFIDENCE_INTERVALS,
+    };
+
+    let [alt] = record.alternate_bases().as_ref() else {
+        return None;
+    };
+    let mut breakend: Breakend = alt.parse().ok()?;
+    breakend.cipos = confidence_interval(record, POSITION_CONFIDENCE_INTERVALS);
+    breakend.imprecise =
+        record.info().get(IS_IMPRECISE).is_some() && breakend.cipos != Some((0, 0));
+    Some(breakend)
 }
 
 /// The key of the annotation of `var` from `record` in `VariantProcessor`. Two events at one
@@ -2115,11 +2152,11 @@ mod test {
     use super::consequence::{
         ConfidenceInterval, ConsequenceAnnotator, SvKind, VcfVariant, load_tx_db,
     };
-    use super::structural_variant;
     use super::{
         AnnotatedVariant, Annotator, AnnotatorEnum, Args, OutputFormat, VariantProcessor,
         VcfRecord, run,
     };
+    use super::{breakend, structural_variant};
     use crate::annotate::cli::{CompoundSettings, PhasingStrategy};
     use crate::annotate::cli::{PickUnit, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
@@ -2342,7 +2379,7 @@ mod test {
     /// The message on rows of variants that were not evaluated with all their phased partners.
     const INCOMPLETE: &str = "WARNING_COMPOUND_INCOMPLETE";
 
-    /// Two SNVs in BRCA1 that form a compound group, and records that cannot be annotated.
+    /// Two SNVs in BRCA1 that form a compound group, and records without bases.
     const RECORDS_WITHOUT_BASES: &str = "\
         17\t0\ttelomere\tN\t.[13:32900000[\t.\t.\t.\tGT\t1/1\n\
         17\t0\ttelomere_ins\tN\tNA\t.\t.\t.\tGT\t1/1\n\
@@ -2370,6 +2407,8 @@ mod test {
                 "##fileformat=VCFv4.2\n\
                  ##INFO=<ID=END,Number=1,Type=Integer,Description=\"End\">\n\
                  ##INFO=<ID=SVLEN,Number=.,Type=Integer,Description=\"Length\">\n\
+                 ##INFO=<ID=IMPRECISE,Number=0,Type=Flag,Description=\"Imprecise\">\n\
+                 ##INFO=<ID=CIPOS,Number=.,Type=Integer,Description=\"Interval\">\n\
                  ##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n\
                  ##contig=<ID=13,length=115169878>\n\
                  ##contig=<ID=17,length=81195210>\n\
@@ -2414,9 +2453,10 @@ mod test {
             .collect())
     }
 
-    /// Records without bases stay in the output without annotations, also at position 0. Mehari
-    /// counts them in one warning, but not `*`, `<*>`, `<NON_REF>` and `ALT` `.`, which are no
-    /// variants of their own, nor a `<CNV>` with the total copy number 2 of VCF 4.2.
+    /// Records that cannot be annotated stay in the output without annotations, also at position
+    /// 0, where a breakend touches no transcript. Mehari counts them in one warning, but not that
+    /// breakend, nor `*`, `<*>`, `<NON_REF>` and `ALT` `.`, which are no variants of their own,
+    /// nor a `<CNV>` with the total copy number 2 of VCF 4.2.
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn records_without_bases_pass_through() -> Result<(), anyhow::Error> {
@@ -2434,7 +2474,7 @@ mod test {
                 ("snv1", true),
                 ("del", false),
                 ("snv2", true),
-                ("bnd", false),
+                ("bnd", true),
                 ("star", false),
                 ("any", false),
                 ("non_ref", false),
@@ -2443,7 +2483,7 @@ mod test {
             ]
         );
         assert!(logs_contain(
-            "4 record(s) stay without annotations: breakends"
+            "2 record(s) stay without annotations: malformed breakends"
         ));
         // Without compound mode, nothing is evaluated together.
         let rows = records.iter().flat_map(|(_, rows)| rows);
@@ -2481,13 +2521,16 @@ mod test {
         Ok(())
     }
 
-    /// An event is not evaluated with the variants phased with it, but all their rows say so. The
-    /// other variants are still evaluated together.
+    /// An event is not evaluated with the variants phased with it, but all their rows say so, as
+    /// do the rows of the breakend. The other variants are still evaluated together.
     #[tokio::test]
     async fn phased_event_marks_rows_of_partners() -> Result<(), anyhow::Error> {
         for (id, rows) in annotate_records(RECORDS_WITHOUT_BASES, true).await? {
             if id.starts_with("snv") {
                 assert!(rows.iter().any(|row| row.contains("|comp_1|")), "{rows:?}");
+                assert!(rows.iter().all(|row| row.contains(INCOMPLETE)), "{rows:?}");
+            } else if id == "bnd" {
+                assert!(!rows.is_empty());
                 assert!(rows.iter().all(|row| row.contains(INCOMPLETE)), "{rows:?}");
             } else {
                 assert!(rows.is_empty(), "{id}: {rows:?}");
@@ -2595,6 +2638,25 @@ mod test {
         );
     }
 
+    /// The uncertainty of a breakend from the INFO of its record, see `Breakend::imprecise`.
+    /// Without `IMPRECISE`, `CIPOS` is the micro-homology of a precise call. A split record keeps
+    /// the pairs of all its alleles.
+    #[rstest::rstest]
+    #[case::precise(vec![], (false, None))]
+    #[case::imprecise_flag(vec![("IMPRECISE", InfoValue::Flag)], (true, None))]
+    #[case::interval_without_flag(vec![("CIPOS", InfoValue::Array(Array::Integer(vec![Some(-500), Some(500)])))], (false, Some((-500, 500))))]
+    #[case::imprecise_interval(vec![("IMPRECISE", InfoValue::Flag), ("CIPOS", InfoValue::Array(Array::Integer(vec![Some(-500), Some(500)])))], (true, Some((-500, 500))))]
+    #[case::imprecise_zero_interval(vec![("IMPRECISE", InfoValue::Flag), ("CIPOS", InfoValue::Array(Array::Integer(vec![Some(0), Some(0)])))], (false, Some((0, 0))))]
+    #[case::split_record(vec![("IMPRECISE", InfoValue::Flag), ("CIPOS", InfoValue::Array(Array::Integer(vec![Some(-10), Some(10), Some(0), Some(0)])))], (true, Some((-10, 10))))]
+    fn breakend_of_record(
+        #[case] info: Vec<(&str, InfoValue)>,
+        #[case] expected: (bool, Option<(i32, i32)>),
+    ) {
+        let breakend = breakend(&sv_record("G]13:32900000]", info));
+        let fields = breakend.map(|breakend| (breakend.imprecise, breakend.cipos));
+        assert_eq!(fields, Some(expected));
+    }
+
     /// A `<DEL>` with its length is annotated as the deletion of its bases. In compound mode, its
     /// rows say that it was not evaluated with the variants on its haplotype, as the rows of
     /// those variants do.
@@ -2661,6 +2723,59 @@ mod test {
             rows.iter()
                 .any(|row| row.contains("|g.41197711_81195210del|")),
             "{rows:?}"
+        );
+        Ok(())
+    }
+
+    /// A breakend is annotated from its allele alone. It lies in BRCA1, on the minus strand, and
+    /// keeps the bases in front of it, so the transcripts lose their 5' ends. In compound mode,
+    /// its rows say that it was not evaluated with the variants on its haplotype, as the rows of
+    /// those variants do.
+    #[rstest::rstest]
+    #[case::phased("0|1", true)]
+    #[case::unphased("0/1", false)]
+    #[tokio::test]
+    async fn breakend_is_annotated(
+        #[case] genotype: &str,
+        #[case] marked: bool,
+    ) -> Result<(), anyhow::Error> {
+        let records = format!(
+            "17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t0|1\n\
+             17\t41215930\tbnd\tG\tG]13:32900000]\t.\t.\t.\tGT\t{genotype}\n"
+        );
+        let records = annotate_records(&records, true).await?;
+        let (snv, bnd) = (&records[0].1, &records[1].1);
+        assert!(
+            bnd.iter().any(|row| row.starts_with("G]13:32900000]|")
+                && row.contains("start_lost")
+                && row.contains("feature_truncation")
+                && row.contains("|g.41215931_qterdelins[NC_000013.10:g.pter_32900000inv]|")),
+            "{bnd:?}"
+        );
+        assert!(
+            bnd.iter().all(|row| row.contains(INCOMPLETE) == marked),
+            "{bnd:?}"
+        );
+        assert!(
+            snv.iter().all(|row| row.contains(INCOMPLETE) == marked),
+            "{snv:?}"
+        );
+        Ok(())
+    }
+
+    /// An imprecise breakend has an uncertain g. description, and its rows say so.
+    #[tokio::test]
+    async fn imprecise_breakend_is_annotated() -> Result<(), anyhow::Error> {
+        let records =
+            "17\t41215930\tbnd\tG\tG]13:32900000]\t.\t.\tIMPRECISE;CIPOS=-500,500\tGT\t0/1\n";
+        let records = annotate_records(records, false).await?;
+        let bnd = &records[0].1;
+        assert!(!bnd.is_empty());
+        assert!(
+            bnd.iter().all(|row| row
+                .contains("|g.(41215431_41216431)_qterdelins[NC_000013.10:g.pter_32900000inv]|")
+                && row.contains("INFO_IMPRECISE_BREAKPOINTS")),
+            "{bnd:?}"
         );
         Ok(())
     }
