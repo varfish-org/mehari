@@ -21,8 +21,8 @@ use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use clinvar::{ClinvarAnnotator, ClinvarResult};
 use consequence::{
-    Breakend, ConfidenceInterval, ConsequenceAnnotator, StructuralVariant, SvClaim, SvInfo,
-    VcfVariant, round_copy_number,
+    ConfidenceInterval, ConsequenceAnnotator, SvClaim, SvInfo, Variant, VariantKind, VcfVariant,
+    round_copy_number,
 };
 use frequency::{FreqResult, FrequencyAnnotator};
 use indexmap::IndexMap;
@@ -865,13 +865,13 @@ impl Annotator {
         Self { annotators }
     }
 
-    /// The annotation of `vcf_record` from a file of `file_format`. A breakend record also gets
-    /// the rows and fusions of `event`, the event of its pair, see `mates::MateGrouper`.
+    /// The annotation of `vcf_record` with its allele `variant`, see `classify`. A breakend record
+    /// also gets the rows and fusions of `event`, the event of its pair, see `mates::MateGrouper`.
     pub fn annotate(
         &self,
         vcf_record: &VcfRecord,
-        file_format: FileFormat,
-        event: Option<&mates::GroupEvent>,
+        variant: &Classified,
+        event: Option<&mates::RecordEvent>,
     ) -> anyhow::Result<VariantAnnotation> {
         let vcf_var = from_vcf_allele(vcf_record, 0);
         let mut annotation = VariantAnnotation {
@@ -886,31 +886,18 @@ impl Annotator {
 
         // A structural variant or a breakend gets consequences only: the databases hold no
         // symbolic alleles.
-        let (sv, breakend) = (
-            structural_variant(vcf_record, file_format),
-            breakend(vcf_record),
-        );
-        if sv.is_some() || breakend.is_some() {
+        if let Ok(Some(variant)) = variant
+            && !matches!(variant.kind, VariantKind::Sequence)
+        {
             if let Some(predictor) = self.consequence_predictor() {
-                let var = VcfVariant {
-                    chromosome: vcf_var.chrom,
-                    position: vcf_var.pos,
-                    reference: vcf_var.reference,
-                    alternative: vcf_var.alternative,
-                };
-                let annotations = match (sv, breakend) {
-                    (Some(sv), _) => predictor.predict_sv(&var, &sv)?,
-                    (_, Some(breakend)) => predictor.predict_breakend(&var, &breakend)?,
-                    (None, None) => None,
-                }
-                .unwrap_or_default();
+                let annotations = predictor.predict_variant(variant)?.unwrap_or_default();
                 annotation.consequences = annotations.anns;
                 annotation.fusions = annotations.fusions;
                 // Every row of a record has its allele, also a row of its event.
                 if let Some(event) = event {
                     let event = event.annotations(predictor)?;
                     let allele = Allele::Alt {
-                        alternative: var.alternative,
+                        alternative: variant.var.alternative.clone(),
                     };
                     let rows = event.anns.iter().map(|ann| AnnField {
                         allele: allele.clone(),
@@ -1203,7 +1190,6 @@ async fn run_with_writer(
         VariantProcessor::new(
             annotator.clone(),
             &args.predictor_settings.compound_settings,
-            header_in.file_format(),
         )
     });
 
@@ -1233,8 +1219,9 @@ async fn run_with_writer(
         (!enable_compound && worker_threads > 1).then(|| Arc::new(writer.record_preparer()));
 
     let mut next_batch = Vec::with_capacity(batch_size);
-    // Each record with the end of its event as a breakend of a group, if any.
-    type Batch = Vec<(AnnotatedVariant, Option<i32>)>;
+    // Each record with its allele, see `classify`, and the end of its event as a breakend of a
+    // group, if any.
+    type Batch = Vec<(AnnotatedVariant, Classified, Option<i32>)>;
     let mut processing_handle: Option<tokio::task::JoinHandle<anyhow::Result<Batch>>> = None;
 
     loop {
@@ -1259,11 +1246,8 @@ async fn run_with_writer(
                         );
                         anyhow::bail!("multi-allelic records not supported");
                     }
-                    if is_event(&vcf_record)
-                        && structural_variant(&vcf_record, file_format).is_none()
-                        && breakend(&vcf_record).is_none()
-                        && !keeps_copy_number(&vcf_record, file_format)
-                    {
+                    let variant = classify(&vcf_record, file_format);
+                    if is_event(&vcf_record) && variant.is_err() {
                         total_unsupported += 1;
                     }
                     if is_event(&vcf_record)
@@ -1283,7 +1267,7 @@ async fn run_with_writer(
                             vcf_record.variant_start().map_or(0, |pos| pos.get())
                         );
                     }
-                    next_batch.extend(grouper.push(vcf_record));
+                    next_batch.extend(grouper.push(vcf_record, variant));
                     total_read += 1;
                 }
                 // EOF
@@ -1309,9 +1293,9 @@ async fn run_with_writer(
 
                 batch_to_process
                     .into_par_iter()
-                    .map(|(mut record, event)| {
+                    .map(|(mut record, variant, event)| {
                         let annotation =
-                            annotator_clone.annotate(&record, file_format, event.as_deref())?;
+                            annotator_clone.annotate(&record, &variant, event.as_ref())?;
                         let group_end = event.map(|event| event.end());
                         if with_annotations {
                             // The header now describes mehari's annotations under this key, so
@@ -1327,7 +1311,7 @@ async fn run_with_writer(
                             Some(prepare) => prepare(annotated),
                             None => annotated,
                         };
-                        Ok((annotated, group_end))
+                        Ok((annotated, variant, group_end))
                     })
                     .collect::<anyhow::Result<Vec<_>>>()
             }));
@@ -1343,10 +1327,11 @@ async fn run_with_writer(
                     let (ready_records, batch_processor) =
                         tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
                             let mut ready_records = Vec::new();
-                            for (annotated_record, group_end) in processed_batch {
+                            for (annotated_record, variant, group_end) in processed_batch {
                                 ready_records.extend(batch_processor.process_annotated_record(
                                     annotated_record.vcf,
                                     annotated_record.annotation,
+                                    &variant,
                                     group_end,
                                 )?);
                             }
@@ -1357,7 +1342,7 @@ async fn run_with_writer(
                     ready_records
                 }
                 None => (processed_batch.into_iter())
-                    .map(|(annotated, _)| annotated)
+                    .map(|(annotated, _, _)| annotated)
                     .collect(),
             };
 
@@ -1783,22 +1768,40 @@ fn is_event(record: &VcfRecord) -> bool {
             .all(|alt| matches!(alt.as_str(), "*" | "<*>" | "<NON_REF>"))
 }
 
-/// The structural variant of `record`, if its symbolic allele is supported, see
-/// `StructuralVariant::from_info`. `file_format` decides what `CN` means, see `copy_number`.
-fn structural_variant(record: &VcfRecord, file_format: FileFormat) -> Option<StructuralVariant> {
-    let pos = i32::try_from(record.variant_start()?.get()).ok()?;
-    let [alt] = record.alternate_bases().as_ref() else {
-        return None;
+/// The allele of a record, see `classify`: `Err` for one that is not supported.
+type Classified = Result<Option<Variant>, SeqvarsError>;
+
+/// The allele of `record`, classified once and passed on with it, see `Variant::from_info`.
+/// `file_format` decides what `CN` means, see `copy_number`. An `SVCLAIM` other than `D`, `J`
+/// and `DJ` counts as none, and at position 0 only a breakend is supported.
+fn classify(record: &VcfRecord, file_format: FileFormat) -> Classified {
+    let Var {
+        chrom,
+        pos,
+        reference,
+        alternative,
+    } = from_vcf_allele(record, 0);
+    let var = VcfVariant {
+        chromosome: chrom,
+        position: pos,
+        reference,
+        alternative,
     };
-    // Read no fields for the other alleles.
-    if !alt.starts_with('<') {
-        return None;
+    let variant = Variant::from_info(var, &sv_info(record, file_format))?;
+    // Position 0 lies in front of the first base of the contig, see `is_annotatable`.
+    if pos == 0
+        && (variant.as_ref())
+            .is_some_and(|variant| !matches!(variant.kind, VariantKind::Breakend(_)))
+    {
+        return Err(SeqvarsError::InvalidVariant(
+            "only a breakend can lie at position 0".into(),
+        ));
     }
-    StructuralVariant::from_info(pos, alt, &sv_info(record, file_format))
+    Ok(variant)
 }
 
-/// The INFO fields of `record` that decide the structural variant of a symbolic allele.
-/// `file_format` decides what `CN` means, see `copy_number`.
+/// The INFO fields of `record` that decide its allele, see `classify`. `file_format` decides
+/// what `CN` means, see `copy_number`.
 fn sv_info(record: &VcfRecord, file_format: FileFormat) -> SvInfo {
     use noodles::vcf::variant::record::info::field::key::{
         END_CONFIDENCE_INTERVALS, END_POSITION, IS_IMPRECISE, POSITION_CONFIDENCE_INTERVALS,
@@ -1848,15 +1851,6 @@ fn copy_number(record: &VcfRecord, file_format: FileFormat) -> Option<i32> {
     })
 }
 
-/// Whether `record` is a `<CNV>` whose `CN` keeps the copy number of the reference, or a `<CN1>`,
-/// which VCF 4.5 treats as no variant, like `GT=0`, see `StructuralVariant::keeps_copy_number`.
-fn keeps_copy_number(record: &VcfRecord, file_format: FileFormat) -> bool {
-    match record.alternate_bases().as_ref() {
-        [alt] => StructuralVariant::keeps_copy_number(alt, &sv_info(record, file_format)),
-        _ => false,
-    }
-}
-
 /// The confidence interval `key` of `record`, e.g. `CIPOS`, as offsets `(min, max)`: the outer
 /// bounds of its pairs, each in order, as a split record keeps the pairs of all its alleles.
 /// Files without a header line for `key` give a string below VCF 4.3.
@@ -1876,28 +1870,10 @@ fn confidence_interval(record: &VcfRecord, key: &str) -> Option<ConfidenceInterv
     pairs.reduce(|(min_a, max_a), (min_b, max_b)| (min_a.min(min_b), max_a.max(max_b)))
 }
 
-/// The breakend of `record`, if its allele is a well-formed one, with the uncertainty of its
-/// position from `IMPRECISE` and `CIPOS`, see `Breakend::from_info`.
-fn breakend(record: &VcfRecord) -> Option<Breakend> {
-    use noodles::vcf::variant::record::info::field::key::{
-        IS_IMPRECISE, POSITION_CONFIDENCE_INTERVALS,
-    };
-
-    let [alt] = record.alternate_bases().as_ref() else {
-        return None;
-    };
-    let info = SvInfo {
-        cipos: confidence_interval(record, POSITION_CONFIDENCE_INTERVALS),
-        imprecise: record.info().get(IS_IMPRECISE).is_some(),
-        ..Default::default()
-    };
-    Breakend::from_info(alt, &info).ok()
-}
-
-/// The key of the annotation of `var` from `record` of a file of `file_format` in
-/// `VariantProcessor`. Two events at one position with one allele can differ in their end.
-fn annotation_key(var: &VcfVariant, record: &VcfRecord, file_format: FileFormat) -> String {
-    if is_event(record) && !keeps_copy_number(record, file_format) {
+/// The key of the annotation of `var` from `record` in `VariantProcessor`. Two events at one
+/// position with one allele can differ in their end.
+fn annotation_key(var: &VcfVariant, record: &VcfRecord) -> String {
+    if is_event(record) {
         format!("{var}:{}", compound::event_end(record, var.position))
     } else {
         var.to_string()
@@ -1954,8 +1930,6 @@ impl AnnotatedVariant {
 struct VariantProcessor {
     annotator: Arc<Annotator>,
     buffer: crate::annotate::seqvars::compound::VariantBuffer,
-    /// The format of the input, which decides what `CN` means, see `keeps_copy_number`.
-    file_format: FileFormat,
     /// The annotations of the variants in `buffer` by `annotation_key`, in input order, as
     /// records at one position can have the same key.
     annotations: FxHashMap<String, std::collections::VecDeque<VariantAnnotation>>,
@@ -1965,7 +1939,6 @@ impl VariantProcessor {
     pub fn new(
         annotator: Arc<Annotator>,
         compound_settings: &crate::annotate::cli::CompoundSettings,
-        file_format: FileFormat,
     ) -> Self {
         Self {
             annotator,
@@ -1973,17 +1946,18 @@ impl VariantProcessor {
                 compound_settings.phasing_strategy,
                 compound_settings.compound_window_size,
             ),
-            file_format,
             annotations: Default::default(),
         }
     }
 
     /// Takes an already-annotated record, buffers it, and returns any records ready to be written.
-    /// `group_end` is the end of the event of `record` as a breakend of a group, if any.
+    /// `variant` is its allele, see `classify`, and `group_end` the end of the event of `record` as
+    /// a breakend of a group, if any.
     pub fn process_annotated_record(
         &mut self,
         record: VcfRecord,
         annotation: VariantAnnotation,
+        variant: &Classified,
         group_end: Option<i32>,
     ) -> anyhow::Result<Vec<AnnotatedVariant>> {
         let mut ready_records = Vec::new();
@@ -2007,7 +1981,7 @@ impl VariantProcessor {
         // An event reaches its transcripts by its length, as it has no bases. A breakend reaches
         // up to the end of the event of its pair, so the first record of the event reaches all
         // its transcripts. A copy number of the reference is no event.
-        let is_event = is_event(&record) && !keeps_copy_number(&record, self.file_format);
+        let is_event = is_event(&record) && !matches!(variant, Ok(None));
         let event_end = is_event.then(|| {
             let end = compound::event_end(&record, csq_var.position);
             group_end.map_or(end, |group_end| end.max(group_end))
@@ -2022,7 +1996,7 @@ impl VariantProcessor {
             }
         }
         (self.annotations)
-            .entry(annotation_key(&csq_var, &record, self.file_format))
+            .entry(annotation_key(&csq_var, &record))
             .or_default()
             .push_back(annotation);
 
@@ -2081,7 +2055,7 @@ impl VariantProcessor {
         let mut result_annotations: Vec<VariantAnnotation> = variants
             .iter()
             .map(|b| {
-                (annotations.get_mut(&annotation_key(&b.vcf_var, &b.record, self.file_format)))
+                (annotations.get_mut(&annotation_key(&b.vcf_var, &b.record)))
                     .and_then(std::collections::VecDeque::pop_front)
                     .unwrap_or_else(|| VariantAnnotation {
                         consequences: vec![],
@@ -2165,14 +2139,15 @@ impl VariantProcessor {
 mod test {
     use super::binning::bin_from_range;
     use super::build_header;
+    use super::classify;
     use super::consequence::{
-        ConfidenceInterval, ConsequenceAnnotator, SvKind, VcfVariant, load_tx_db,
+        Breakend, ConfidenceInterval, ConsequenceAnnotator, StructuralVariant, SvKind, Variant,
+        VariantKind, VcfVariant, load_tx_db,
     };
     use super::{
         AnnotatedVariant, Annotator, AnnotatorEnum, Args, OutputFormat, VariantProcessor,
         VcfRecord, run,
     };
-    use super::{breakend, structural_variant};
     use crate::annotate::cli::{CompoundSettings, PhasingStrategy};
     use crate::annotate::cli::{PickUnit, PredictorSettings};
     use crate::annotate::cli::{Sources, TranscriptSettings};
@@ -2583,6 +2558,31 @@ mod test {
 
     type Intervals = (Option<ConfidenceInterval>, Option<ConfidenceInterval>);
 
+    /// The structural variant of `record`, see `classify`.
+    fn structural_variant(
+        record: &VcfRecord,
+        file_format: FileFormat,
+    ) -> Option<StructuralVariant> {
+        match classify(record, file_format) {
+            Ok(Some(Variant {
+                kind: VariantKind::Structural(sv),
+                ..
+            })) => Some(sv),
+            _ => None,
+        }
+    }
+
+    /// The breakend of `record`, see `classify`.
+    fn breakend(record: &VcfRecord) -> Option<Breakend> {
+        match classify(record, FileFormat::default()) {
+            Ok(Some(Variant {
+                kind: VariantKind::Breakend(breakend),
+                ..
+            })) => Some(breakend),
+            _ => None,
+        }
+    }
+
     /// The structural variant of a record, see `structural_variant`. `SVLEN` as `Number=A` and
     /// `SVCLAIM` as `Number=A` come as arrays of one value.
     #[rstest::rstest]
@@ -2624,6 +2624,8 @@ mod test {
     #[case::tandem_repeat_copy_number("<CNV:TR>", vec![("END", InfoValue::Integer(1050)), ("CN", InfoValue::Float(2.5))], None)]
     #[case::complex("<CPX>", vec![("END", InfoValue::Integer(1050))], None)]
     #[case::custom_by_sv_type("<MYDEL>", vec![("END", InfoValue::Integer(1050)), ("SVTYPE", InfoValue::String("DEL".into()))], Some((SvKind::Deletion, 1050, false, (None, None))))]
+    #[case::custom_by_other_sv_type("<MYDEL>", vec![("END", InfoValue::Integer(1050)), ("SVTYPE", InfoValue::String("CN0".into()))], None)]
+    #[case::no_variant_with_sv_type("<*>", vec![("END", InfoValue::Integer(1050)), ("SVTYPE", InfoValue::String("DEL".into()))], None)]
     #[case::breakend("G]13:100]", vec![("END", InfoValue::Integer(1050))], None)]
     fn structural_variant_of_record(
         #[case] alternative: &str,
@@ -2659,7 +2661,7 @@ mod test {
         let sv = structural_variant(&record, file_format);
         assert_eq!(sv.map(|sv| sv.kind), expected);
         assert_eq!(
-            super::keeps_copy_number(&record, file_format),
+            matches!(classify(&record, file_format), Ok(None)),
             expected.is_none()
         );
     }
@@ -3937,8 +3939,7 @@ mod test {
             phasing_strategy: PhasingStrategy::Ignore,
             ..Default::default()
         };
-        let mut processor =
-            VariantProcessor::new(annotator.clone(), &compound_settings, FileFormat::default());
+        let mut processor = VariantProcessor::new(annotator.clone(), &compound_settings);
         for &(chrom, pos, reference, alternative) in variants {
             let record = VcfRecord::builder()
                 .set_reference_sequence_name(chrom)

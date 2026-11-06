@@ -975,7 +975,7 @@ mod test {
     use crate::annotate::seqvars::consequence::logic::ConsequencePredictor;
     use crate::annotate::seqvars::consequence::plugin::NmdPlugin;
     use crate::annotate::seqvars::consequence::terms::{ANN_NMD, Consequence};
-    use crate::annotate::seqvars::consequence::{ConfigBuilder, SvInfo, load_tx_db};
+    use crate::annotate::seqvars::consequence::{ConfigBuilder, SvInfo, Variant, load_tx_db};
     use crate::annotate::seqvars::provider::Provider as MehariProvider;
 
     /// Built from `plugins/nmd`, see its README.
@@ -1128,9 +1128,10 @@ mod test {
             imprecise: true,
             ..Default::default()
         };
+        let sv = Variant::from_info(sv, &info)?.unwrap();
         let nmd_sv = |predictor: &ConsequencePredictor| {
             predictor
-                .predict_with_info(&sv, &info)
+                .predict_variant(&sv)
                 .unwrap()
                 .unwrap()
                 .anns
@@ -1174,8 +1175,9 @@ mod test {
             imprecise: true,
             ..Default::default()
         };
+        let sv = Variant::from_info(sv, &info)?.unwrap();
         let ann = (predictor(vec![Arc::new(load(path, &[])?)])?
-            .predict_with_info(&sv, &info)?
+            .predict_variant(&sv)?
             .unwrap_or_default()
             .anns
             .into_iter())
@@ -1214,11 +1216,12 @@ mod test {
             end: Some(1031),
             ..Default::default()
         };
+        let var = Variant::from_info(var, &info)?.unwrap();
         let nmd = |plugin: Arc<dyn TranscriptPlugin>| -> Result<Option<String>, anyhow::Error> {
             let config = ConfigBuilder::default().plugins(vec![plugin]).build()?;
             let predictor =
                 predictor_with_reference(tx.clone(), seq.clone(), config, Some(reference.path()));
-            let ann = (predictor.predict_with_info(&var, &info)?)
+            let ann = (predictor.predict_variant(&var)?)
                 .unwrap_or_default()
                 .anns
                 .into_iter()
@@ -1333,13 +1336,10 @@ mod test {
             imprecise,
             ..Default::default()
         };
-        let ann = (predictor
-            .predict_with_info(&var, &info)?
-            .unwrap()
-            .anns
-            .into_iter())
-        .find(|ann| ann.feature_id == "NM_007294.4")
-        .unwrap();
+        let var = Variant::from_info(var, &info)?.unwrap();
+        let ann = (predictor.predict_variant(&var)?.unwrap().anns.into_iter())
+            .find(|ann| ann.feature_id == "NM_007294.4")
+            .unwrap();
         let report = report(&ann);
 
         assert_eq!(report["structural-variant"], structural_variant);

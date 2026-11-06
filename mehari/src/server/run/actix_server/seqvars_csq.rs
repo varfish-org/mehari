@@ -14,7 +14,9 @@ use crate::annotate::seqvars::consequence::terms::FeatureTag;
 use crate::annotate::seqvars::consequence::terms::{
     AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank,
 };
-use crate::annotate::seqvars::consequence::{SvClaim, SvInfo, VcfVariant, round_copy_number};
+use crate::annotate::seqvars::consequence::{
+    SvClaim, SvInfo, Variant, VcfVariant, round_copy_number,
+};
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
 use crate::errors::SeqvarsError;
 
@@ -175,8 +177,8 @@ async fn handle_impl(
         ciend: interval("ciend", ciend.as_deref())?,
         imprecise: imprecise.unwrap_or_default(),
     };
-    let annotations = predictor
-        .predict_with_info(&g_var, &info)
+    let annotations = Variant::from_info(g_var, &info)
+        .and_then(|variant| variant.map_or(Ok(None), |variant| predictor.predict_variant(&variant)))
         .map_err(|e| match e {
             SeqvarsError::InvalidVariant(_)
             | SeqvarsError::InvalidCoordinates(_, _)

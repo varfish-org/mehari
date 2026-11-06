@@ -11,7 +11,7 @@ use mehari::annotate::seqvars::consequence::terms::{
     AnnField, Consequence, FeatureBiotype, Pos, PutativeImpact, Rank,
 };
 use mehari::annotate::seqvars::consequence::{
-    ConfigBuilder, SvClaim, SvInfo, VcfVariant, round_copy_number,
+    ConfigBuilder, SvClaim, SvInfo, Variant, VcfVariant, round_copy_number,
 };
 use mehari::annotate::seqvars::provider::Provider as MehariProvider;
 use mehari::common::progress::{Progress, ProgressBar, Unit, hidden_bar};
@@ -303,9 +303,10 @@ impl PySeqvarsAnnotator {
             imprecise,
         };
 
-        let annotations = self
-            .predictor
-            .predict_with_info(&variant, &info)
+        let annotations = Variant::from_info(variant, &info)
+            .and_then(|variant| {
+                variant.map_or(Ok(None), |variant| self.predictor.predict_variant(&variant))
+            })
             .map_err(prediction_error)?
             .unwrap_or_default();
 
@@ -499,8 +500,12 @@ impl PySeqvarsAnnotator {
                         alternative: alt_arr.value(i).to_string(),
                     };
                     let annotations = match info_of(i)
-                        .and_then(|info| self.predictor.predict_with_info(&variant, &info))
-                    {
+                        .and_then(|info| Variant::from_info(variant.clone(), &info))
+                        .and_then(|variant| {
+                            variant.map_or(Ok(None), |variant| {
+                                self.predictor.predict_variant(&variant)
+                            })
+                        }) {
                         // As `annotate seqvars`, which carries on past such records.
                         Err(e @ SeqvarsError::InvalidVariant(_)) => {
                             tracing::warn!("No annotations for {variant}: {e}");

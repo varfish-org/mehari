@@ -1,4 +1,5 @@
 //! Compute molecular consequence of variants.
+use super::event::BreakendEvent;
 use super::pick::{self, Candidate};
 use super::plugin::{Event, TxAnnotation, TxContext};
 use super::terms::{ANN_PICK, FeatureTag, GroupedAlleles};
@@ -7,8 +8,8 @@ use super::terms::{
 };
 use crate::annotate::cli::HgvsParentheses;
 use crate::annotate::seqvars::consequence::{
-    Annotations, Breakend, Config, Consequences, FormattedLoc, Fusion, StructuralVariant, SvInfo,
-    SvKind, SvType, VcfVariant, symbolic_type,
+    Annotations, Breakend, Config, Consequences, FormattedLoc, Fusion, StructuralVariant, SvKind,
+    Variant, VariantKind, VcfVariant,
 };
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
@@ -961,7 +962,7 @@ impl ConsequencePredictor {
     /// `trim_inversion` read those at its ends from the reference, if there is one.
     /// The rows of the transcripts that its junctions fuse get the fusion terms, see
     /// `sv_fusions`, before they are picked and the plugins see them.
-    pub fn predict_sv(
+    fn predict_sv(
         &self,
         var: &VcfVariant,
         sv: &StructuralVariant,
@@ -970,8 +971,8 @@ impl ConsequencePredictor {
     }
 
     /// `predict_sv` with `inserted` bases at the junctions of `sv`, in the order of
-    /// `sv_fusions`, as the breakends of an event tell, see `mates::derive_events`.
-    pub(crate) fn predict_sv_with_inserted(
+    /// `sv_fusions`, as the breakends of an event tell, see `predict_event`.
+    fn predict_sv_with_inserted(
         &self,
         var: &VcfVariant,
         sv: &StructuralVariant,
@@ -1273,7 +1274,7 @@ impl ConsequencePredictor {
     /// of the deletion, so they stay empty. An imprecise breakend keeps the terms at `POS`, and
     /// its annotations carry the message `INFO_IMPRECISE_BREAKPOINTS`. The fusions of its
     /// junction are added as in `predict_sv`, see `breakend_fusions`.
-    pub fn predict_breakend(
+    fn predict_breakend(
         &self,
         var: &VcfVariant,
         breakend: &Breakend,
@@ -1351,69 +1352,31 @@ impl ConsequencePredictor {
         }
     }
 
-    /// The annotations of `var`, also of a symbolic allele, with `info` from the INFO fields of
-    /// its record, see `predict_sv`, or of a breakend, see `Breakend::from_info` and
-    /// `predict_breakend`. `*`, `<*>`, `<NON_REF>` and `ALT` `.` are no variants of their own
-    /// and have none. A symbolic allele that keeps the copy number of the reference is no
-    /// variant (`None`), see `StructuralVariant::keeps_copy_number`. A symbolic allele that
-    /// `StructuralVariant::from_info` rejects otherwise, a malformed breakend, a type other than
-    /// those of `SVTYPE` for a custom allele, which alone takes it, see `symbolic_type`, and a
-    /// confidence interval with its minimum above its maximum give `SeqvarsError::InvalidVariant`.
-    pub fn predict_with_info(
-        &self,
-        var: &VcfVariant,
-        info: &SvInfo,
-    ) -> Result<Option<Annotations>, SeqvarsError> {
-        let invalid = |reason: String| Err(SeqvarsError::InvalidVariant(reason));
-        let alt = &var.alternative;
-        if let Some(SvType::Other(sv_type)) = &info.sv_type
-            && alt.starts_with('<')
-            && symbolic_type(alt, None).is_none()
-        {
-            return invalid(format!(
-                "SVTYPE {sv_type:?} is none of DEL, INS, DUP, INV, CNV and BND"
-            ));
-        }
-        for (key, interval) in [("CIPOS", info.cipos), ("CIEND", info.ciend)] {
-            if let Some((min, max)) = interval
-                && min > max
-            {
-                return invalid(format!(
-                    "{key} {min},{max} has its minimum above its maximum"
-                ));
-            }
-        }
-        if is_sequence_allele(alt) || matches!(alt.as_str(), "*" | "<*>" | "<NON_REF>" | ".") {
-            let anns = self.predict(var)?;
-            return Ok(anns.map(|anns| Annotations {
+    /// The annotations of `variant`: of a sequence allele as `predict` gives them, of a
+    /// structural variant, see `predict_sv`, and of a breakend, see `predict_breakend`.
+    pub fn predict_variant(&self, variant: &Variant) -> Result<Option<Annotations>, SeqvarsError> {
+        let var = &variant.var;
+        match &variant.kind {
+            VariantKind::Sequence => Ok(self.predict(var)?.map(|anns| Annotations {
                 anns,
                 fusions: Vec::new(),
-            }));
+            })),
+            VariantKind::Structural(sv) => self.predict_sv(var, sv),
+            VariantKind::Breakend(breakend) => self.predict_breakend(var, breakend),
         }
-        if alt.starts_with('<') {
-            if let Some(sv) = StructuralVariant::from_info(var.position, alt, info) {
-                return self.predict_sv(var, &sv);
-            }
-            if StructuralVariant::keeps_copy_number(alt, info) {
-                return Ok(None);
-            }
-            // With a length, the allele passes, so its end is what is missing.
-            let with_length = SvInfo {
-                sv_length: Some(1),
-                ..info.clone()
-            };
-            return invalid(
-                if StructuralVariant::from_info(var.position, alt, &with_length).is_some() {
-                    format!("{alt} has no end past its position (END or SVLEN)")
-                } else {
-                    format!("{alt} is not supported")
-                },
-            );
-        }
-        match Breakend::from_info(alt, info) {
-            Ok(breakend) => self.predict_breakend(var, &breakend),
-            Err(e) => invalid(e.to_string()),
-        }
+    }
+
+    /// The annotations of the variants that the breakends of `event` describe, one per variant
+    /// of `event.derived` in its order, as `predict_sv` gives them with the bases inserted at
+    /// their junctions. Each member of a variant receives its rows besides those of its own
+    /// junction, which `predict_variant` gives.
+    pub fn predict_event(&self, event: &BreakendEvent) -> Result<Vec<Annotations>, SeqvarsError> {
+        (event.derived.iter())
+            .map(|derived| {
+                (self.predict_sv_with_inserted(&derived.var, &derived.sv, derived.inserted))
+                    .map(Option::unwrap_or_default)
+            })
+            .collect()
     }
 
     /// The g. description of `breakend` at `pos` on a contig of `length` bases, after the
@@ -6425,7 +6388,7 @@ pub(crate) mod test {
     use crate::annotate::seqvars::consequence::terms::{
         ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_NMD, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
     };
-    use crate::annotate::seqvars::consequence::{ConfidenceInterval, ConfigBuilder};
+    use crate::annotate::seqvars::consequence::{ConfidenceInterval, ConfigBuilder, SvInfo};
     use crate::annotate::seqvars::{
         Args, AsyncAnnotatedVariantWriter, OutputFormat, run_with_writer,
     };
@@ -13435,7 +13398,8 @@ pub(crate) mod test {
                 imprecise,
                 ..Default::default()
             };
-            let annotations = (predictor.predict_with_info(&var, &info)?).unwrap_or_default();
+            let variant = Variant::from_info(var.clone(), &info)?.unwrap();
+            let annotations = (predictor.predict_variant(&variant)?).unwrap_or_default();
             let in_frame = in_frame.filter(|_| !imprecise);
             for id in ["NM_000001.1", "NM_000002.1"] {
                 let ann = (annotations.anns.iter())
