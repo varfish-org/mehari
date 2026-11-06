@@ -630,6 +630,9 @@ components:
       - transcript_amplification
       - feature_elongation
       - feature_truncation
+      - internal_feature_elongation
+      - five_prime_duplicated_transcript
+      - three_prime_duplicated_transcript
       - disruptive_inframe_insertion
       - disruptive_inframe_deletion
       - conservative_inframe_insertion
