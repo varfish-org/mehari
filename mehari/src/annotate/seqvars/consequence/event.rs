@@ -7,7 +7,7 @@ use super::{Breakend, StructuralVariant, SvKind, VcfVariant};
 
 /// The breakends of one event, e.g. the records of one `EVENT`, with the variants that their
 /// pairs describe.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BreakendEvent {
     pub members: Vec<EventMember>,
     /// The variants that pairs of `members` describe, see `BreakendEvent::new`.
@@ -72,13 +72,16 @@ pub struct DerivedVariant {
 }
 
 impl BreakendEvent {
-    /// The event of `members`, breakends on `chromosome`, with the variants that their pairs
-    /// describe, see `derive_events`. If a member of a pair has an `EVENTTYPE`, only a variant
-    /// of that type is derived from it: `DEL`, `DUP:TANDEM` or `DUP`, or `INV`. Any other type,
+    /// The event of `members`, with the variants that their pairs on each contig describe, see
+    /// `derive_events`. If a member of a pair has an `EVENTTYPE`, only a variant of that type is
+    /// derived from it: `DEL`, `DUP:TANDEM` or `DUP`, or `INV`. Any other type,
     /// e.g. `TRA` or `DOUBLEMINUTE`, and members of different types give none. `EVENTTYPE` is
     /// per allele, so a group that a shared ID forms from two adjacencies checks each on its own.
-    pub fn new(chromosome: &str, members: Vec<EventMember>) -> Self {
-        let mut derived = derive_events(chromosome, &members);
+    pub fn new(members: Vec<EventMember>) -> Self {
+        let mut derived = (members.iter().map(|member| &member.var.chromosome))
+            .unique()
+            .flat_map(|chromosome| derive_events(chromosome, &members))
+            .collect_vec();
         derived.retain(|derived| {
             let types = (derived.members.iter())
                 .filter_map(|&i| members[i].event_type.as_ref())
@@ -107,15 +110,16 @@ impl BreakendEvent {
     }
 }
 
-/// The pairs of `members` whose breakends join each other on `chromosome`, the one at the lower
-/// position first. Two members that `MATEID` links both ways pair if the mate position of each
-/// lies within the `CIPOS` of the other, as VCF 4.5 writes the mate position of an imprecise
+/// The pairs of `members` on `chromosome` whose breakends join each other there, the one at the
+/// lower position first. Two members that `MATEID` links both ways pair if the mate position of
+/// each lies within the `CIPOS` of the other, as VCF 4.5 writes the mate position of an imprecise
 /// breakend where the mate would lie if the own position were exact. Other members pair if the
 /// mate position of each is the position of the other.
 fn pairs(chromosome: &str, members: &[EventMember]) -> Vec<(usize, usize)> {
     let mate = |i: usize| {
         (members[i].breakend.mate.as_ref())
             .filter(|mate| mate.chromosome == chromosome)
+            .filter(|_| members[i].var.chromosome == chromosome)
             .map(|mate| mate.position)
     };
     let links =
@@ -440,7 +444,7 @@ mod test {
                 ..member(position, alt, None)
             })
             .collect_vec();
-        let event = BreakendEvent::new("17", members);
+        let event = BreakendEvent::new(members);
         assert_eq!(event.derived.len(), usize::from(derived));
     }
 
