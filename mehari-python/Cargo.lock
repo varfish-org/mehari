@@ -2382,6 +2382,7 @@ dependencies = [
  "serde",
  "serde_arrow",
  "strum",
+ "tracing",
 ]
 
 [[package]]

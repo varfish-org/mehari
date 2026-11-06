@@ -1,4 +1,4 @@
-use super::{TranscriptPlugin, TxAnnotation, TxContext};
+use super::{Event, TranscriptPlugin, TxAnnotation, TxContext};
 use crate::annotate::seqvars::consequence::VcfVariant;
 use crate::annotate::seqvars::consequence::terms::{
     ANN_AA_SEQ_ALT, ANN_AA_SEQ_REF, ANN_TX_SEQ_ALT, ANN_TX_SEQ_REF,
@@ -38,6 +38,7 @@ impl TranscriptPlugin for SequencePlugin {
     fn annotate(
         &self,
         _variants: &[VcfVariant],
+        _event: Option<Event<'_>>,
         txs: &mut Vec<TxAnnotation>,
     ) -> Result<(), SeqvarsError> {
         for TxAnnotation { context, ann } in txs {

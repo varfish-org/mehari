@@ -138,6 +138,31 @@ fn report(prediction: &Prediction, a: &Annotation) -> String {
             "variant-position",
             show(variants.first().map(|var| var.position)),
         ),
+        (
+            "structural-variant",
+            show(prediction.structural_variant().map(|sv| {
+                format!(
+                    "{}:{}:{}:{}",
+                    sv.kind,
+                    sv.end,
+                    show(sv.length),
+                    sv.imprecise
+                )
+            })),
+        ),
+        (
+            "breakend",
+            show(prediction.breakend().map(|b| {
+                format!(
+                    "{}:{}:{}:{}:{}",
+                    b.keeps_left,
+                    b.inserted,
+                    show(b.mate_chromosome),
+                    show(b.mate_position),
+                    show(b.mate_extends_right)
+                )
+            })),
+        ),
         ("feature-id", a.feature_id()),
         ("feature-type", a.feature_type()),
         ("consequences", a.consequences().join("+")),

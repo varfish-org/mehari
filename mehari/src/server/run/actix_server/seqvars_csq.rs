@@ -10,12 +10,13 @@ use actix_web::{
 };
 
 use super::{CustomError, versions::VersionsInfoResponse};
-use crate::annotate::seqvars::consequence::VcfVariant;
 use crate::annotate::seqvars::consequence::terms::FeatureTag;
 use crate::annotate::seqvars::consequence::terms::{
     AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, PutativeImpact, Rank,
 };
+use crate::annotate::seqvars::consequence::{SvClaim, SvInfo, VcfVariant, round_copy_number};
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
+use crate::errors::SeqvarsError;
 
 /// Query parameters of the `/api/v1/seqvars/csq` endpoint.
 #[derive(
@@ -32,10 +33,31 @@ pub(crate) struct SeqvarsCsqQuery {
     pub position: u32,
     /// SPDI deletion.
     pub reference: String,
-    /// SPDI insertion.
+    /// SPDI insertion; also a symbolic allele such as `<DEL>`, or a breakend such as
+    /// `G]13:123456]`.
     pub alternative: String,
     /// Optionally, the HGNC ID of the gene to limit to.
     pub hgnc_id: Option<String>,
+    /// For a symbolic allele, the position of the last changed base (`END`).
+    pub end: Option<i32>,
+    /// For a symbolic allele, its length (`SVLEN`); for `<INS>`, the number of inserted bases.
+    pub sv_length: Option<i32>,
+    /// For a symbolic allele, what the call claims (`SVCLAIM`): `D`, `J` or `DJ`.
+    pub sv_claim: Option<SvClaim>,
+    /// For a symbolic allele or a breakend, whether the breakpoints are imprecise (`IMPRECISE`).
+    pub imprecise: Option<bool>,
+    /// For a custom symbolic allele such as `<FOO>`, the type it counts as (`SVTYPE`): `DEL`,
+    /// `INS`, `DUP`, `INV`, `CNV` or `BND`.
+    pub sv_type: Option<String>,
+    /// For a symbolic allele, the copy number of the allele (`CN` as of VCF 4.4), rounded: for a
+    /// `<CNV>`, 0 is a deletion, 1 no variant and 2 or more a duplication.
+    pub cn: Option<f64>,
+    /// For a symbolic allele or a breakend, the confidence interval around `position` (`CIPOS`)
+    /// as `min,max`, e.g. `-500,500`.
+    pub cipos: Option<String>,
+    /// For a symbolic allele, the confidence interval around `end` (`CIEND`) as `min,max`;
+    /// `cipos` if unset.
+    pub ciend: Option<String>,
 }
 
 /// One entry in `SeqvarsCsqResponse`.
@@ -108,6 +130,14 @@ async fn handle_impl(
         reference,
         alternative,
         hgnc_id,
+        end,
+        sv_length,
+        sv_claim,
+        imprecise,
+        sv_type,
+        cn,
+        cipos,
+        ciend,
     } = query.clone().into_inner();
 
     let predictor = data
@@ -121,15 +151,34 @@ async fn handle_impl(
         })?;
 
     let mut result = Vec::new();
+    let position = i32::try_from(position).map_err(|_| {
+        CustomError::bad_request(anyhow::anyhow!("position {position} is too large"))
+    })?;
     let g_var = VcfVariant {
         chromosome,
-        position: position as i32,
+        position,
         reference,
         alternative,
     };
+    let info = SvInfo {
+        end,
+        sv_length,
+        sv_type: sv_type.and_then(|sv_type| sv_type.parse().ok()),
+        claim: sv_claim,
+        copy_number: (cn.map(round_copy_number).transpose())
+            .map_err(|e| CustomError::bad_request(e.into()))?,
+        cipos: interval("cipos", cipos.as_deref())?,
+        ciend: interval("ciend", ciend.as_deref())?,
+        imprecise: imprecise.unwrap_or_default(),
+    };
     let ann_fields = predictor
-        .predict(&g_var)
-        .map_err(|e| super::CustomError::new(anyhow::anyhow!("prediction failed: {}", e)))?;
+        .predict_with_info(&g_var, &info)
+        .map_err(|e| match e {
+            SeqvarsError::InvalidVariant(_)
+            | SeqvarsError::InvalidCoordinates(_, _)
+            | SeqvarsError::UnknownChromosomeAccession => super::CustomError::bad_request(e.into()),
+            _ => super::CustomError::new(anyhow::anyhow!("prediction failed: {}", e)),
+        })?;
     if let Some(ann_fields) = ann_fields {
         for ann_field in ann_fields {
             if let Some(hgnc_id) = &hgnc_id {
@@ -206,6 +255,21 @@ async fn handle_impl(
     Ok(Json(result))
 }
 
+/// The confidence interval `value` of the query parameter `name` as `min,max`, e.g. `-500,500`.
+fn interval(name: &str, value: Option<&str>) -> Result<Option<(i32, i32)>, CustomError> {
+    value
+        .map(|value| {
+            (value.split_once(','))
+                .and_then(|(min, max)| Some((min.parse().ok()?, max.parse().ok()?)))
+                .ok_or_else(|| {
+                    CustomError::bad_request(anyhow::anyhow!(
+                        "{name} {value:?} is not two integers min,max"
+                    ))
+                })
+        })
+        .transpose()
+}
+
 /// Whether the gene of the transcript `tx_ac` has the HGNC ID `hgnc_id`.
 fn has_hgnc_id(provider: &MehariProvider, tx_ac: &str, hgnc_id: &str) -> bool {
     provider.get_tx(tx_ac).and_then(|tx| tx.hgnc_id.as_deref()) == Some(hgnc_id)
@@ -232,6 +296,7 @@ async fn handle(
     ),
     responses(
         (status = 200, description = "Seqvars consequence information.", body = SeqvarsCsqResponse),
+        (status = 400, description = "Invalid variant, e.g. a symbolic allele without its end.", body = CustomError),
         (status = 500, description = "Internal server error.", body = CustomError)
     )
 )]
@@ -259,5 +324,259 @@ mod test {
             super::has_hgnc_id(&provider, "NM_000001.1", hgnc_id),
             expected
         );
+    }
+
+    /// The response for `alternative` at `position` on chr17 of GRCh37, with `reference` and the
+    /// further query parameters `params`, e.g. `end=41197760&cipos=-500,500`.
+    async fn csq(
+        position: u32,
+        reference: &str,
+        alternative: &str,
+        params: &str,
+    ) -> Result<Result<super::SeqvarsCsqResponse, super::CustomError>, anyhow::Error> {
+        use crate::annotate::seqvars::consequence::logic::ConsequencePredictor;
+        use crate::annotate::seqvars::consequence::{ConfigBuilder, load_tx_db};
+        use crate::annotate::seqvars::provider::Provider;
+        use crate::server::run::actix_server::WebServerData;
+        use actix_web::web::{Data, Path, Query};
+        use std::sync::Arc;
+
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(Provider::new(tx_db, None::<&str>, true));
+        let predictor =
+            ConsequencePredictor::new(provider.clone(), ConfigBuilder::default().build()?);
+        let data = WebServerData {
+            provider: [("grch37".to_string(), provider)].into(),
+            seqvars_predictors: [("grch37".to_string(), predictor)].into(),
+            ..Default::default()
+        };
+        let query = Query::<super::SeqvarsCsqQuery>::from_query(&format!(
+            "assembly=grch37&chromosome=17&position={position}&reference={reference}\
+             &alternative={alternative}&{params}"
+        ))?;
+        let response = super::handle_impl(Data::new(data), Path::from(()), query).await;
+        Ok(response.map(|response| response.into_inner()))
+    }
+
+    /// A symbolic allele with its end or length, and a breakend, are annotated as in `annotate
+    /// seqvars`; all lie in BRCA1. A custom allele counts as its `sv_type`, which other alleles
+    /// ignore. A `<CNV>` with 0 copies (`cn`, rounded) and a call with `sv_claim=D` are imprecise
+    /// deletions, and `imprecise` makes the breakpoints imprecise, within `cipos` and `ciend`
+    /// where given, also of a breakend.
+    #[rstest::rstest]
+    #[case::deletion(
+        41197710,
+        "N",
+        "<DEL>",
+        "end=41197760",
+        "g.41197711_41197760del",
+        false
+    )]
+    #[case::custom_allele(
+        41197710,
+        "N",
+        "<FOO>",
+        "end=41197760&sv_type=DEL",
+        "g.41197711_41197760del",
+        false
+    )]
+    #[case::copy_number_loss(
+        41197710,
+        "N",
+        "<CNV>",
+        "end=41197760&cn=0.4",
+        "g.(?_41197711)_(41197760_?)del",
+        true
+    )]
+    #[case::imprecise_deletion(
+        41197710,
+        "N",
+        "<DEL>",
+        "end=41197760&imprecise=true&cipos=-5,5",
+        "g.(41197706_41197716)_(41197755_41197765)del",
+        true
+    )]
+    #[case::imprecise_without_intervals(
+        41197710,
+        "N",
+        "<DEL>",
+        "end=41197760&imprecise=true",
+        "g.(?_41197711)_(41197760_?)del",
+        true
+    )]
+    #[case::end_interval(
+        41197710,
+        "N",
+        "<DEL>",
+        "end=41197760&imprecise=true&cipos=-5,5&ciend=-10,10",
+        "g.(41197706_41197716)_(41197750_41197770)del",
+        true
+    )]
+    #[case::length(
+        41197710,
+        "N",
+        "<DEL>",
+        "sv_length=50",
+        "g.41197711_41197760del",
+        false
+    )]
+    #[case::copy_number_call(
+        41197710,
+        "N",
+        "<DEL>",
+        "end=41197760&sv_claim=D",
+        "g.(?_41197711)_(41197760_?)del",
+        true
+    )]
+    #[case::type_of_standard_allele(
+        41197710,
+        "N",
+        "<DEL>",
+        "end=41197760&sv_type=CPX",
+        "g.41197711_41197760del",
+        false
+    )]
+    #[case::breakend(
+        41215930,
+        "G",
+        "G]13:32900000]",
+        "",
+        "g.41215931_qterdelins[NC_000013.10:g.pter_32900000inv]",
+        false
+    )]
+    #[case::imprecise_breakend(
+        41215930,
+        "G",
+        "G]13:32900000]",
+        "imprecise=true&cipos=-500,500",
+        "g.(41215431_41216431)_qterdelins[NC_000013.10:g.pter_32900000inv]",
+        true
+    )]
+    #[case::type_of_breakend(
+        41215930,
+        "G",
+        "G]13:32900000]",
+        "sv_type=TRA",
+        "g.41215931_qterdelins[NC_000013.10:g.pter_32900000inv]",
+        false
+    )]
+    #[tokio::test]
+    async fn structural_variant(
+        #[case] position: u32,
+        #[case] reference: &str,
+        #[case] alternative: &str,
+        #[case] params: &str,
+        #[case] hgvs_g: &str,
+        #[case] imprecise: bool,
+    ) -> Result<(), anyhow::Error> {
+        use crate::annotate::seqvars::consequence::terms::Message;
+
+        let response = csq(position, reference, alternative, params)
+            .await?
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let brca1 = (response.result.iter())
+            .find(|entry| entry.feature_id == "NM_007294.4")
+            .ok_or_else(|| anyhow::anyhow!("no annotation for NM_007294.4"))?;
+        assert_eq!(brca1.hgvs_g.as_deref(), Some(hgvs_g));
+        let messages = brca1.messages.as_deref().unwrap_or_default();
+        assert_eq!(
+            messages.contains(&Message::InfoImpreciseBreakpoints),
+            imprecise
+        );
+        Ok(())
+    }
+
+    /// A `<CNV>` that keeps the copy number of the reference, `cn=1`, is no variant, as in
+    /// `annotate seqvars`.
+    #[tokio::test]
+    async fn copy_number_kept() -> Result<(), anyhow::Error> {
+        let response = csq(41197710, "N", "<CNV>", "end=41197760&cn=1")
+            .await?
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert!(response.result.is_empty());
+        Ok(())
+    }
+
+    /// `*`, `<*>`, `<NON_REF>` and `ALT` `.` are no variants of their own, so they have no
+    /// annotations, as in `annotate seqvars`.
+    #[rstest::rstest]
+    #[case::spanning_deletion("*")]
+    #[case::any_allele("<*>")]
+    #[case::non_ref("<NON_REF>")]
+    #[case::no_allele(".")]
+    #[tokio::test]
+    async fn no_variant_of_its_own(#[case] alternative: &str) -> Result<(), anyhow::Error> {
+        let response = csq(41197701, "G", alternative, "")
+            .await?
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        assert!(response.result.is_empty());
+        Ok(())
+    }
+
+    /// A symbolic allele that cannot be annotated, a malformed breakend, an unknown type, a
+    /// negative copy number, a malformed confidence interval and a position past `i32::MAX` are a
+    /// bad request, with the reason as JSON.
+    #[rstest::rstest]
+    #[case::deletion_without_end(41197710, "<DEL>", "", "has no end past its position")]
+    #[case::end_before_position(41197710, "<DEL>", "end=41197700", "has no end past its position")]
+    #[case::unknown_symbolic_allele(41197710, "<FOO>", "end=41197760", "is not supported")]
+    #[case::malformed_breakend(41197710, "G]13:x]", "", "invalid mate position")]
+    #[case::unknown_type(41197710, "<FOO>", "end=41197760&sv_type=FOO", "SVTYPE")]
+    #[case::negative_copy_number(41197710, "<CNV>", "end=41197760&cn=-1", "CN")]
+    #[case::malformed_interval(41197710, "<DEL>", "end=41197760&cipos=-500", "cipos")]
+    #[case::reversed_interval(41197710, "<DEL>", "end=41197760&ciend=500,-500", "CIEND")]
+    #[case::position_too_large(1 << 31, "C", "", "position")]
+    #[tokio::test]
+    async fn bad_request(
+        #[case] position: u32,
+        #[case] alternative: &str,
+        #[case] params: &str,
+        #[case] message: &str,
+    ) -> Result<(), anyhow::Error> {
+        use actix_web::ResponseError as _;
+
+        let result = csq(position, "N", alternative, params).await?;
+
+        let error = result.err().ok_or_else(|| anyhow::anyhow!("no error"))?;
+        let response = error.error_response();
+        assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response
+                .headers()
+                .get(actix_web::http::header::CONTENT_TYPE),
+            Some(&actix_web::http::header::HeaderValue::from_static(
+                "application/json"
+            ))
+        );
+        let body = actix_web::body::to_bytes(response.into_body())
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let body: serde_json::Value = serde_json::from_slice(&body)?;
+        assert!(
+            body["err"]
+                .as_str()
+                .is_some_and(|err| err.contains(message)),
+            "{body}"
+        );
+        Ok(())
+    }
+
+    /// An `sv_claim` other than `D`, `J` and `DJ` fails to deserialize, a bad request.
+    #[test]
+    fn unknown_claim() -> Result<(), anyhow::Error> {
+        use actix_web::ResponseError as _;
+
+        let error = actix_web::web::Query::<super::SeqvarsCsqQuery>::from_query(
+            "assembly=grch37&chromosome=17&position=41197710&reference=N&alternative=<DEL>\
+             &end=41197760&sv_claim=X",
+        )
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("no error"))?;
+        assert_eq!(
+            error.status_code(),
+            actix_web::http::StatusCode::BAD_REQUEST
+        );
+        assert!(error.to_string().contains("unknown variant `X`"), "{error}");
+        Ok(())
     }
 }

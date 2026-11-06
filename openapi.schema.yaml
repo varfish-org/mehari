@@ -197,13 +197,90 @@ paths:
           type: string
       - name: alternative
         in: query
-        description: SPDI insertion.
+        description: |-
+          SPDI insertion; also a symbolic allele such as `<DEL>`, or a breakend such as
+          `G]13:123456]`.
         required: true
         schema:
           type: string
       - name: hgnc_id
         in: query
         description: Optionally, the HGNC ID of the gene to limit to.
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
+      - name: end
+        in: query
+        description: For a symbolic allele, the position of the last changed base (`END`).
+        required: false
+        schema:
+          type:
+          - integer
+          - 'null'
+          format: int32
+      - name: sv_length
+        in: query
+        description: For a symbolic allele, its length (`SVLEN`); for `<INS>`, the number of inserted bases.
+        required: false
+        schema:
+          type:
+          - integer
+          - 'null'
+          format: int32
+      - name: sv_claim
+        in: query
+        description: 'For a symbolic allele, what the call claims (`SVCLAIM`): `D`, `J` or `DJ`.'
+        required: false
+        schema:
+          oneOf:
+          - $ref: '#/components/schemas/SvClaim'
+          - type: 'null'
+      - name: imprecise
+        in: query
+        description: For a symbolic allele or a breakend, whether the breakpoints are imprecise (`IMPRECISE`).
+        required: false
+        schema:
+          type:
+          - boolean
+          - 'null'
+      - name: sv_type
+        in: query
+        description: |-
+          For a custom symbolic allele such as `<FOO>`, the type it counts as (`SVTYPE`): `DEL`,
+          `INS`, `DUP`, `INV`, `CNV` or `BND`.
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
+      - name: cn
+        in: query
+        description: |-
+          For a symbolic allele, the copy number of the allele (`CN` as of VCF 4.4), rounded: for a
+          `<CNV>`, 0 is a deletion, 1 no variant and 2 or more a duplication.
+        required: false
+        schema:
+          type:
+          - number
+          - 'null'
+          format: double
+      - name: cipos
+        in: query
+        description: |-
+          For a symbolic allele or a breakend, the confidence interval around `position` (`CIPOS`)
+          as `min,max`, e.g. `-500,500`.
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
+      - name: ciend
+        in: query
+        description: |-
+          For a symbolic allele, the confidence interval around `end` (`CIEND`) as `min,max`;
+          `cipos` if unset.
         required: false
         schema:
           type:
@@ -216,6 +293,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SeqvarsCsqResponse'
+        '400':
+          description: Invalid variant, e.g. a symbolic allele without its end.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomError'
         '500':
           description: Internal server error.
           content:
@@ -1250,12 +1333,65 @@ components:
           description: SPDI deletion.
         alternative:
           type: string
-          description: SPDI insertion.
+          description: |-
+            SPDI insertion; also a symbolic allele such as `<DEL>`, or a breakend such as
+            `G]13:123456]`.
         hgnc_id:
           type:
           - string
           - 'null'
           description: Optionally, the HGNC ID of the gene to limit to.
+        end:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: For a symbolic allele, the position of the last changed base (`END`).
+        sv_length:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: For a symbolic allele, its length (`SVLEN`); for `<INS>`, the number of inserted bases.
+        sv_claim:
+          oneOf:
+          - $ref: '#/components/schemas/SvClaim'
+            description: 'For a symbolic allele, what the call claims (`SVCLAIM`): `D`, `J` or `DJ`.'
+          - type: 'null'
+        imprecise:
+          type:
+          - boolean
+          - 'null'
+          description: For a symbolic allele or a breakend, whether the breakpoints are imprecise (`IMPRECISE`).
+        sv_type:
+          type:
+          - string
+          - 'null'
+          description: |-
+            For a custom symbolic allele such as `<FOO>`, the type it counts as (`SVTYPE`): `DEL`,
+            `INS`, `DUP`, `INV`, `CNV` or `BND`.
+        cn:
+          type:
+          - number
+          - 'null'
+          format: double
+          description: |-
+            For a symbolic allele, the copy number of the allele (`CN` as of VCF 4.4), rounded: for a
+            `<CNV>`, 0 is a deletion, 1 no variant and 2 or more a duplication.
+        cipos:
+          type:
+          - string
+          - 'null'
+          description: |-
+            For a symbolic allele or a breakend, the confidence interval around `position` (`CIPOS`)
+            as `min,max`, e.g. `-500,500`.
+        ciend:
+          type:
+          - string
+          - 'null'
+          description: |-
+            For a symbolic allele, the confidence interval around `end` (`CIEND`) as `min,max`;
+            `cipos` if unset.
     SeqvarsCsqResponse:
       type: object
       description: Response of the `/api/v1/seqvars/csq` endpoint.
@@ -1585,6 +1721,13 @@ components:
       - upstream_variant
       - downstream_variant
       - intergenic_variant
+    SvClaim:
+      type: string
+      description: '`SVCLAIM` of VCF 4.5: what the call of a structural variant claims.'
+      enum:
+      - D
+      - J
+      - DJ
     Transcript:
       type: object
       description: Transcript information.

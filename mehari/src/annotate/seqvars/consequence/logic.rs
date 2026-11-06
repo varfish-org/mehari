@@ -1,13 +1,14 @@
 //! Compute molecular consequence of variants.
 use super::pick::{self, Candidate};
-use super::plugin::{TxAnnotation, TxContext};
+use super::plugin::{Event, TxAnnotation, TxContext};
 use super::terms::{ANN_PICK, FeatureTag, GroupedAlleles};
 use super::terms::{
     Allele, AnnField, Consequence, FeatureBiotype, FeatureType, Message, Pos, Rank, SoFeature,
 };
 use crate::annotate::cli::HgvsParentheses;
 use crate::annotate::seqvars::consequence::{
-    Breakend, Config, Consequences, FormattedLoc, StructuralVariant, SvKind, VcfVariant,
+    Breakend, Config, Consequences, FormattedLoc, StructuralVariant, SvInfo, SvKind, SvType,
+    VcfVariant, symbolic_type,
 };
 use crate::annotate::seqvars::provider::PbsTranscriptExt;
 use crate::annotate::seqvars::provider::Provider as MehariProvider;
@@ -868,10 +869,11 @@ impl ConsequencePredictor {
     fn run_plugins(
         &self,
         variants: &[VcfVariant],
+        event: Option<Event<'_>>,
         mut txs: Vec<TxAnnotation>,
     ) -> Result<Vec<AnnField>, SeqvarsError> {
         for plugin in &self.config.plugins {
-            plugin.annotate(variants, &mut txs)?;
+            plugin.annotate(variants, event, &mut txs)?;
         }
         Ok(txs.into_iter().map(|tx| tx.ann).collect())
     }
@@ -907,10 +909,9 @@ impl ConsequencePredictor {
         let norm_var = self.normalize_variant(var);
         // A variant without change has nothing to annotate. hgvs-rs would put the empty change
         // at both ends of the contig.
+        let variants = std::slice::from_ref(var);
         if norm_var.reference.is_empty() && norm_var.alternative.is_empty() {
-            return Ok(Some(
-                self.run_plugins(std::slice::from_ref(var), Vec::new())?,
-            ));
+            return Ok(Some(self.run_plugins(variants, None, Vec::new())?));
         }
 
         let Some(chrom_acc) = self.chrom_acc(&norm_var) else {
@@ -920,7 +921,7 @@ impl ConsequencePredictor {
         // We follow hgvs conventions and therefore normalize input variants
         let var_g = Self::get_var_g(&norm_var, chrom_acc);
         let (var_g_fwd, var_g_rev) = self.normalize_g(&var_g, chrom_acc)?;
-        self.predict_g(
+        let txs = self.predict_g(
             var,
             &var_g,
             &var_g_fwd,
@@ -930,7 +931,8 @@ impl ConsequencePredictor {
             true,
             |_| None,
             |_| {},
-        )
+        )?;
+        Ok(Some(self.run_plugins(variants, None, txs)?))
     }
 
     /// The annotations of the structural variant `sv` of `var`, a symbolic allele such as
@@ -945,6 +947,8 @@ impl ConsequencePredictor {
         let Some(chrom_acc) = self.chrom_acc(var) else {
             return Ok(None);
         };
+        let variants = std::slice::from_ref(var);
+        let event = Some(Event::StructuralVariant(sv));
         // `POS` is the base in front of the change.
         let Some(start) = var.position.checked_add(1) else {
             return Ok(None);
@@ -962,9 +966,7 @@ impl ConsequencePredictor {
         let insertion = matches!(sv.kind, SvKind::Insertion { .. });
         // Plugins may want predictions without annotations, too.
         if end < start && !insertion {
-            return Ok(Some(
-                self.run_plugins(std::slice::from_ref(var), Vec::new())?,
-            ));
+            return Ok(Some(self.run_plugins(variants, event, Vec::new())?));
         }
         let adjust = |ann: &mut AnnField| self.adjust_sv_annotation(ann, sv, chrom_acc, start, end);
 
@@ -974,11 +976,7 @@ impl ConsequencePredictor {
         let (mut loc_start, mut loc_end) = (start, end);
         if sv.kind == SvKind::Inversion && !sv.imprecise && self.provider.reference_available() {
             match self.trim_inversion(chrom_acc, start, end)? {
-                None => {
-                    return Ok(Some(
-                        self.run_plugins(std::slice::from_ref(var), Vec::new())?,
-                    ));
-                }
+                None => return Ok(Some(self.run_plugins(variants, event, Vec::new())?)),
                 Some((pos, pos_end)) if pos == pos_end => {
                     let base = self.genome_bases(chrom_acc, pos - 1, pos)?;
                     let var_g = Self::get_var_g(
@@ -991,7 +989,7 @@ impl ConsequencePredictor {
                         chrom_acc,
                     );
                     let (var_g_fwd, var_g_rev) = self.normalize_g(&var_g, chrom_acc)?;
-                    return self.predict_g(
+                    let txs = self.predict_g(
                         var,
                         &var_g,
                         &var_g_fwd,
@@ -1001,7 +999,8 @@ impl ConsequencePredictor {
                         true,
                         |_| None,
                         adjust,
-                    );
+                    )?;
+                    return Ok(Some(self.run_plugins(variants, event, txs)?));
                 }
                 Some(trimmed) => (loc_start, loc_end) = trimmed,
             }
@@ -1068,7 +1067,7 @@ impl ConsequencePredictor {
             sv.kind,
             SvKind::Duplication { tandem: false } | SvKind::CopyNumberChange
         );
-        self.predict_g(
+        let mut txs = self.predict_g(
             var,
             &var_g,
             &var_g_fwd,
@@ -1078,7 +1077,19 @@ impl ConsequencePredictor {
             protein,
             |_| None,
             adjust,
-        )
+        )?;
+        // The transcript holds the bases of a precise deletion, tandem dup or inversion, so
+        // its alternative transcript is known. hgvs-rs would apply any other description as if
+        // it had bases, e.g. as a deletion for a copy number change.
+        let transcript_holds_bases = !sv.imprecise
+            && matches!(
+                sv.kind,
+                SvKind::Deletion | SvKind::Duplication { tandem: true } | SvKind::Inversion
+            );
+        if !transcript_holds_bases {
+            Self::drop_alt_data(&mut txs);
+        }
+        Ok(Some(self.run_plugins(variants, event, txs)?))
     }
 
     /// Adjust the annotation `ann` of `sv` from `start` to `end`, which `predict_g` made for its
@@ -1216,9 +1227,8 @@ impl ConsequencePredictor {
         let pos = var.position;
         let length = self.contig_length(chrom_acc);
         if pos == 0 || length.is_some_and(|length| pos > length) {
-            return Ok(Some(
-                self.run_plugins(std::slice::from_ref(var), Vec::new())?,
-            ));
+            let (variants, event) = (std::slice::from_ref(var), Some(Event::Breakend(breakend)));
+            return Ok(Some(self.run_plugins(variants, event, Vec::new())?));
         }
 
         let deletion = |start: i32, end: i32| HgvsVariant::GenomeVariant {
@@ -1265,9 +1275,81 @@ impl ConsequencePredictor {
                 (ann.messages.get_or_insert_with(Vec::new)).push(Message::InfoImpreciseBreakpoints);
             }
         };
-        self.predict_g(
+        let mut txs = self.predict_g(
             var, &var_g, &var_g, &var_g, chrom_acc, true, true, lost_side, adjust,
-        )
+        )?;
+        // The derivative transcript is not the deletion of the lost side.
+        Self::drop_alt_data(&mut txs);
+        let (variants, event) = (std::slice::from_ref(var), Some(Event::Breakend(breakend)));
+        Ok(Some(self.run_plugins(variants, event, txs)?))
+    }
+
+    /// Leave the annotations `txs` without alternative transcript, see `TxContext::alt_data`.
+    fn drop_alt_data(txs: &mut [TxAnnotation]) {
+        for tx in txs {
+            tx.context = std::mem::replace(&mut tx.context, TxContext::empty()).without_alt_data();
+        }
+    }
+
+    /// The annotations of `var`, also of a symbolic allele, with `info` from the INFO fields of
+    /// its record, see `predict_sv`, or of a breakend, see `Breakend::from_info` and
+    /// `predict_breakend`. `*`, `<*>`, `<NON_REF>` and `ALT` `.` are no variants of their own
+    /// and have none. A symbolic allele that keeps the copy number of the reference is no
+    /// variant (`None`), see `StructuralVariant::keeps_copy_number`. A symbolic allele that
+    /// `StructuralVariant::from_info` rejects otherwise, a malformed breakend, a type other than
+    /// those of `SVTYPE` for a custom allele, which alone takes it, see `symbolic_type`, and a
+    /// confidence interval with its minimum above its maximum give `SeqvarsError::InvalidVariant`.
+    pub fn predict_with_info(
+        &self,
+        var: &VcfVariant,
+        info: &SvInfo,
+    ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
+        let invalid = |reason: String| Err(SeqvarsError::InvalidVariant(reason));
+        let alt = &var.alternative;
+        if let Some(SvType::Other(sv_type)) = &info.sv_type
+            && alt.starts_with('<')
+            && symbolic_type(alt, None).is_none()
+        {
+            return invalid(format!(
+                "SVTYPE {sv_type:?} is none of DEL, INS, DUP, INV, CNV and BND"
+            ));
+        }
+        for (key, interval) in [("CIPOS", info.cipos), ("CIEND", info.ciend)] {
+            if let Some((min, max)) = interval
+                && min > max
+            {
+                return invalid(format!(
+                    "{key} {min},{max} has its minimum above its maximum"
+                ));
+            }
+        }
+        if is_sequence_allele(alt) || matches!(alt.as_str(), "*" | "<*>" | "<NON_REF>" | ".") {
+            return self.predict(var);
+        }
+        if alt.starts_with('<') {
+            if let Some(sv) = StructuralVariant::from_info(var.position, alt, info) {
+                return self.predict_sv(var, &sv);
+            }
+            if StructuralVariant::keeps_copy_number(alt, info) {
+                return Ok(None);
+            }
+            // With a length, the allele passes, so its end is what is missing.
+            let with_length = SvInfo {
+                sv_length: Some(1),
+                ..info.clone()
+            };
+            return invalid(
+                if StructuralVariant::from_info(var.position, alt, &with_length).is_some() {
+                    format!("{alt} has no end past its position (END or SVLEN)")
+                } else {
+                    format!("{alt} is not supported")
+                },
+            );
+        }
+        match Breakend::from_info(alt, info) {
+            Ok(breakend) => self.predict_breakend(var, &breakend),
+            Err(e) => invalid(e.to_string()),
+        }
     }
 
     /// The g. description of `breakend` at `pos` on a contig of `length` bases, after the
@@ -1359,6 +1441,9 @@ impl ConsequencePredictor {
     /// Without `protein`, the protein change is not projected, as for a change whose annotations
     /// drop `p.`. `adjust` changes each annotation to its final form, e.g. to the terms of a
     /// structural variant, before the transcripts are picked by them and the plugins see them.
+    ///
+    /// The callers run the plugins on the result, after `predict_sv` and `predict_breakend` have
+    /// adjusted it, so that plugins see the annotations as they are output.
     #[allow(clippy::too_many_arguments)]
     fn predict_g(
         &self,
@@ -1371,7 +1456,7 @@ impl ConsequencePredictor {
         protein: bool,
         tx_var_g: impl Fn(&TxForRegionRecord) -> Option<HgvsVariant>,
         adjust: impl Fn(&mut AnnField),
-    ) -> Result<Option<Vec<AnnField>>, SeqvarsError> {
+    ) -> Result<Vec<TxAnnotation>, SeqvarsError> {
         // Get all affected transcripts.
         let (var_start_fwd, var_end_fwd) = Self::get_var_start_end(var_g_fwd);
         let (var_start_rev, var_end_rev) = Self::get_var_start_end(var_g_rev);
@@ -1400,9 +1485,7 @@ impl ConsequencePredictor {
         if txs.is_empty() {
             if !self.config.keep_intergenic {
                 // Plugins may want predictions without annotations, too.
-                return Ok(Some(
-                    self.run_plugins(std::slice::from_ref(var), Vec::new())?,
-                ));
+                return Ok(Vec::new());
             }
             let hgvs_g = self
                 .writes_hgvs(&var.alternative)
@@ -1442,9 +1525,7 @@ impl ConsequencePredictor {
                 context: self.tx_context(None, None, None),
                 ann,
             };
-            return Ok(Some(
-                self.run_plugins(std::slice::from_ref(var), vec![intergenic])?,
-            ));
+            return Ok(vec![intergenic]);
         }
 
         // An indel in a repeat has two ends, one 3'-shifted on each strand.
@@ -1456,7 +1537,7 @@ impl ConsequencePredictor {
         } else {
             hgvs_g_fwd.clone()
         };
-        let anns = self.select_annotations(txs, |tx| {
+        self.select_annotations(txs, |tx| {
             let tx_ann = if let Some(tx_g) = tx_var_g(tx) {
                 let (start, end) = Self::get_var_start_end(&tx_g);
                 let hgvs_g = self.format_hgvs_g(&tx_g);
@@ -1508,8 +1589,7 @@ impl ConsequencePredictor {
                 adjust(&mut tx_ann.ann);
                 tx_ann
             }))
-        })?;
-        Ok(Some(self.run_plugins(std::slice::from_ref(var), anns)?))
+        })
     }
 
     /// Whether the transcript `tx_ac` is in reach of `var_g`, shifted 3' on its strand. The
@@ -3244,10 +3324,8 @@ impl ConsequencePredictor {
             custom_fields: BTreeMap::new(),
         };
 
-        Ok(Some(TxAnnotation {
-            context: self.projection_context(tx_record.tx_ac, owned_projection, alignment),
-            ann,
-        }))
+        let context = self.projection_context(tx_record.tx_ac, owned_projection, alignment);
+        Ok(Some(TxAnnotation { context, ann }))
     }
 
     fn adjust_vep_terms(
@@ -4750,7 +4828,7 @@ impl ConsequencePredictor {
             )
         })?;
 
-        Ok(Some(self.run_plugins(variants, multi_anns)?))
+        Ok(Some(self.run_plugins(variants, None, multi_anns)?))
     }
 
     /// Ensures variants don't overlap and are in the correct order.
@@ -5965,7 +6043,7 @@ impl ConsequencePredictor {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
     use crate::annotate::cli::{
         PickCriterion, PickUnit, PredictorSettings, TagCriterion, TranscriptSettings,
@@ -8681,7 +8759,7 @@ mod test {
     }
 
     /// `predictor_with_config` with the reference genome at `reference`.
-    fn predictor_with_reference(
+    pub(crate) fn predictor_with_reference(
         tx: Transcript,
         seq: String,
         config: Config,
@@ -8888,6 +8966,7 @@ mod test {
         fn annotate(
             &self,
             _variants: &[VcfVariant],
+            _event: Option<Event<'_>>,
             txs: &mut Vec<crate::annotate::seqvars::consequence::plugin::TxAnnotation>,
         ) -> Result<(), SeqvarsError> {
             let mut seen = self.0.lock().unwrap();
@@ -10687,6 +10766,7 @@ mod test {
         fn annotate(
             &self,
             _variants: &[VcfVariant],
+            _event: Option<Event<'_>>,
             txs: &mut Vec<TxAnnotation>,
         ) -> Result<(), SeqvarsError> {
             self.calls.lock().unwrap().push(txs.len());
@@ -10778,6 +10858,7 @@ mod test {
         fn annotate(
             &self,
             _variants: &[VcfVariant],
+            _event: Option<Event<'_>>,
             _txs: &mut Vec<TxAnnotation>,
         ) -> Result<(), SeqvarsError> {
             Ok(())
@@ -11294,7 +11375,7 @@ mod test {
     }
 
     /// `two_exon_tx` with `exons` exons of 60 bases, each 100 bases behind the one before.
-    fn exons_tx(exons: i32, cds_start: usize) -> (Transcript, String) {
+    pub(crate) fn exons_tx(exons: i32, cds_start: usize) -> (Transcript, String) {
         let (tx, seq, _) = exons_tx_with_cds(exons, cds_start, 18);
         (tx, seq)
     }
@@ -11443,7 +11524,7 @@ mod test {
 
     /// The genome around the transcript of `exons_tx(3, _)` with the sequence `seq`: 1000 `T`
     /// bases, the exons with introns of `GT`, twelve `ACGTTGCA` and `AG`, and 100 `C` bases.
-    fn three_exon_genome(seq: &str) -> String {
+    pub(crate) fn three_exon_genome(seq: &str) -> String {
         let intron = format!("GT{}AG", "ACGTTGCA".repeat(12));
         format!(
             "{}{}{intron}{}{intron}{}{}",
@@ -12612,6 +12693,101 @@ mod test {
             .find(|ann| ann.feature_id == "NM_000001.1")
             .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1"))?;
         assert!(ann.consequences.contains(&expected), "{ann:?}");
+        Ok(())
+    }
+
+    /// Writes what it sees of each row into the column `seen`: the event, `HGVS.g`, the terms,
+    /// and whether there is an alternative transcript.
+    #[derive(Debug)]
+    struct SeenPlugin;
+
+    impl TranscriptPlugin for SeenPlugin {
+        fn columns(&self) -> Vec<String> {
+            vec!["seen".into()]
+        }
+
+        fn annotate(
+            &self,
+            _variants: &[VcfVariant],
+            event: Option<Event<'_>>,
+            txs: &mut Vec<TxAnnotation>,
+        ) -> Result<(), SeqvarsError> {
+            for tx in txs {
+                let seen = format!(
+                    "{event:?} {:?} {:?} {}",
+                    tx.ann.hgvs_g,
+                    tx.ann.consequences,
+                    tx.context.alt_data().is_some()
+                );
+                tx.ann.custom_fields.insert("seen".into(), Some(seen));
+            }
+            Ok(())
+        }
+    }
+
+    /// Plugins see the rows of a structural variant or a breakend as they are output, what the
+    /// variant is, and the alternative transcript of a precise deletion, tandem dup or
+    /// inversion, whose bases the transcript holds. The others have none: hgvs-rs would apply
+    /// the description without bases, e.g. as a deletion for a copy number change. The change at
+    /// chr1:1171-1180 lies in exon 2, in the CDS.
+    #[rstest::rstest]
+    #[case::deletion("<DEL>", Some((SvKind::Deletion, false)), true)]
+    #[case::imprecise_deletion("<DEL>", Some((SvKind::Deletion, true)), false)]
+    #[case::tandem_dup("<DUP:TANDEM>", Some((SvKind::Duplication { tandem: true }, false)), true)]
+    #[case::inversion("<INV>", Some((SvKind::Inversion, false)), true)]
+    #[case::dup_elsewhere("<DUP>", Some((SvKind::Duplication { tandem: false }, false)), false)]
+    #[case::copy_number_change("<CNV>", Some((SvKind::CopyNumberChange, false)), false)]
+    #[case::insertion("<INS>", Some((SvKind::Insertion { length: Some(10) }, false)), false)]
+    #[case::breakend("G[13:123457[", None, false)]
+    fn plugins_see_final_rows(
+        #[case] alternative: &str,
+        #[case] sv: Option<(SvKind, bool)>,
+        #[case] alt_data: bool,
+    ) -> Result<(), anyhow::Error> {
+        let (tx, seq) = exons_tx(3, 20);
+        let config = ConfigBuilder::default()
+            .plugins(vec![Arc::new(SeenPlugin)])
+            .build()?;
+        let predictor = predictor_with_reference(tx, seq, config, None);
+        let var = VcfVariant {
+            chromosome: "1".into(),
+            position: 1170,
+            reference: "N".into(),
+            alternative: alternative.into(),
+        };
+        let sv = sv.map(|(kind, imprecise)| StructuralVariant {
+            kind,
+            end: 1180,
+            imprecise,
+            intervals: (None, None),
+        });
+        let breakend = alternative.parse::<Breakend>();
+        let (anns, event) = match (&sv, &breakend) {
+            (Some(sv), _) => (
+                predictor.predict_sv(&var, sv)?,
+                Event::StructuralVariant(sv),
+            ),
+            (None, Ok(breakend)) => (
+                predictor.predict_breakend(&var, breakend)?,
+                Event::Breakend(breakend),
+            ),
+            (None, Err(error)) => anyhow::bail!("{error}"),
+        };
+        let anns = anns.unwrap_or_default();
+
+        assert!(!anns.is_empty());
+        for ann in &anns {
+            let expected = format!(
+                "{:?} {:?} {:?} {alt_data}",
+                Some(event),
+                ann.hgvs_g,
+                ann.consequences
+            );
+            assert_eq!(
+                ann.custom_fields["seen"].as_deref(),
+                Some(expected.as_str())
+            );
+        }
         Ok(())
     }
 

@@ -1,4 +1,6 @@
-use arrow::array::{Array, Int32Array, RecordBatch, StringArray};
+use arrow::array::{
+    Array, BooleanArray, Float64Array, Int32Array, ListArray, RecordBatch, StringArray,
+};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, FieldRef};
 use arrow::pyarrow::{FromPyArrow, ToPyArrow};
@@ -8,9 +10,12 @@ use mehari::annotate::seqvars::consequence::plugin::BuiltinPlugin;
 use mehari::annotate::seqvars::consequence::terms::{
     AnnField, Consequence, FeatureBiotype, Pos, PutativeImpact, Rank,
 };
-use mehari::annotate::seqvars::consequence::{ConfigBuilder, VcfVariant};
+use mehari::annotate::seqvars::consequence::{
+    ConfigBuilder, SvClaim, SvInfo, VcfVariant, round_copy_number,
+};
 use mehari::annotate::seqvars::provider::Provider as MehariProvider;
 use mehari::common::progress::{Progress, ProgressBar, Unit, hidden_bar};
+use mehari::errors::SeqvarsError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pythonize::pythonize;
@@ -244,7 +249,16 @@ impl PySeqvarsAnnotator {
     }
 
     /// Annotate a single variant. Returns a Python dictionary.
-    #[pyo3(signature = (chromosome, position, reference, alternative))]
+    ///
+    /// A symbolic allele such as `<DEL>` takes the INFO fields `END`, `SVLEN`, `SVCLAIM`,
+    /// `IMPRECISE`, `SVTYPE`, `CN`, `CIPOS` and `CIEND` from `end`, `sv_length`, `sv_claim`,
+    /// `imprecise`, `sv_type`, `cn`, `cipos` and `ciend`; a breakend takes `imprecise` and
+    /// `cipos`.
+    #[pyo3(signature = (
+        chromosome, position, reference, alternative, *, end=None, sv_length=None, sv_claim=None,
+        imprecise=false, sv_type=None, cn=None, cipos=None, ciend=None
+    ))]
+    #[allow(clippy::too_many_arguments)]
     fn annotate<'py>(
         &self,
         py: Python<'py>,
@@ -252,6 +266,14 @@ impl PySeqvarsAnnotator {
         position: i32,
         reference: &str,
         alternative: &str,
+        end: Option<i32>,
+        sv_length: Option<i32>,
+        sv_claim: Option<String>,
+        imprecise: bool,
+        sv_type: Option<String>,
+        cn: Option<f64>,
+        cipos: Option<Vec<Option<i32>>>,
+        ciend: Option<Vec<Option<i32>>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let variant = VcfVariant {
             chromosome: chromosome.to_string(),
@@ -259,14 +281,23 @@ impl PySeqvarsAnnotator {
             reference: reference.to_string(),
             alternative: alternative.to_string(),
         };
+        let info = SvInfo {
+            end,
+            sv_length,
+            sv_type: sv_type.and_then(|sv_type| sv_type.parse().ok()),
+            claim: (sv_claim.as_deref().map(claim).transpose()).map_err(prediction_error)?,
+            copy_number: (cn.map(round_copy_number).transpose()).map_err(prediction_error)?,
+            cipos: (cipos.map(|values| interval("cipos", &values)).transpose())
+                .map_err(prediction_error)?,
+            ciend: (ciend.map(|values| interval("ciend", &values)).transpose())
+                .map_err(prediction_error)?,
+            imprecise,
+        };
 
-        let ann_fields_opt = self.predictor.predict(&variant).map_err(|e| match e {
-            mehari::errors::SeqvarsError::UnknownChromosomeAccession
-            | mehari::errors::SeqvarsError::InvalidCoordinates(_, _) => {
-                pyo3::exceptions::PyValueError::new_err(e.to_string())
-            }
-            _ => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
-        })?;
+        let ann_fields_opt = self
+            .predictor
+            .predict_with_info(&variant, &info)
+            .map_err(prediction_error)?;
 
         let arrow_anns: Vec<ArrowAnnField> = ann_fields_opt
             .unwrap_or_default()
@@ -293,7 +324,9 @@ impl PySeqvarsAnnotator {
     }
 
     /// Batch annotation via arrow (e.g., for use with polars).
-    /// Expects an RecordBatch with columns: 'chromosome', 'position', 'reference', 'alternative'
+    /// Expects an RecordBatch with columns: 'chromosome', 'position', 'reference', 'alternative',
+    /// and optionally 'end', 'sv_length', 'sv_claim', 'imprecise', 'sv_type', 'cn', and the list
+    /// columns 'cipos' and 'ciend' for symbolic alleles and breakends, see `annotate`.
     #[pyo3(signature = (batch))]
     fn annotate_batch<'py>(
         &self,
@@ -354,16 +387,96 @@ impl PySeqvarsAnnotator {
             Ok(int_arr.clone())
         };
 
+        let get_bool_col = |name: &str| -> PyResult<BooleanArray> {
+            let col = record_batch.column_by_name(name).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!("Missing column '{}'", name))
+            })?;
+
+            let cast_col = cast(col, &DataType::Boolean).map_err(|e| {
+                pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Cannot cast '{}' to Boolean: {}",
+                    name, e
+                ))
+            })?;
+
+            let bool_arr = cast_col
+                .as_any()
+                .downcast_ref::<BooleanArray>()
+                .ok_or_else(|| {
+                    pyo3::exceptions::PyTypeError::new_err(format!(
+                        "Downcast failed for boolean column '{}'",
+                        name
+                    ))
+                })?;
+
+            Ok(bool_arr.clone())
+        };
+        // A missing column gives no values.
+        let has = |name: &str| record_batch.column_by_name(name).is_some();
+
         let chrom_arr = get_string_col("chromosome")?;
         let pos_arr = get_i32_col("position")?;
         let ref_arr = get_string_col("reference")?;
         let alt_arr = get_string_col("alternative")?;
+        let end_arr = has("end").then(|| get_i32_col("end")).transpose()?;
+        let sv_length_arr = has("sv_length")
+            .then(|| get_i32_col("sv_length"))
+            .transpose()?;
+        let sv_claim_arr = has("sv_claim")
+            .then(|| get_string_col("sv_claim"))
+            .transpose()?;
+        let imprecise_arr = has("imprecise")
+            .then(|| get_bool_col("imprecise"))
+            .transpose()?;
+        let sv_type_arr = has("sv_type")
+            .then(|| get_string_col("sv_type"))
+            .transpose()?;
+        let cn_arr = has("cn")
+            .then(|| column::<Float64Array>(&record_batch, "cn", &DataType::Float64))
+            .transpose()?;
+        let cipos_col = has("cipos")
+            .then(|| interval_column(&record_batch, "cipos"))
+            .transpose()?;
+        let ciend_col = has("ciend")
+            .then(|| interval_column(&record_batch, "ciend"))
+            .transpose()?;
+
+        // The INFO fields of row `i`; null values give no values either.
+        let info_of = |i: usize| -> Result<SvInfo, SeqvarsError> {
+            let interval_of = |name, col: &Option<Vec<Option<Vec<Option<i32>>>>>| {
+                (col.as_ref().and_then(|c| c[i].as_deref()))
+                    .map(|values| interval(name, values))
+                    .transpose()
+            };
+            Ok(SvInfo {
+                end: (end_arr.as_ref())
+                    .filter(|a| a.is_valid(i))
+                    .map(|a| a.value(i)),
+                sv_length: (sv_length_arr.as_ref())
+                    .filter(|a| a.is_valid(i))
+                    .map(|a| a.value(i)),
+                sv_type: (sv_type_arr.as_ref())
+                    .filter(|a| a.is_valid(i))
+                    .and_then(|a| a.value(i).parse().ok()),
+                claim: (sv_claim_arr.as_ref())
+                    .filter(|a| a.is_valid(i))
+                    .map(|a| claim(a.value(i)))
+                    .transpose()?,
+                copy_number: (cn_arr.as_ref())
+                    .filter(|a| a.is_valid(i))
+                    .map(|a| round_copy_number(a.value(i)))
+                    .transpose()?,
+                cipos: interval_of("cipos", &cipos_col)?,
+                ciend: interval_of("ciend", &ciend_col)?,
+                imprecise: (imprecise_arr.as_ref()).is_some_and(|a| a.is_valid(i) && a.value(i)),
+            })
+        };
 
         let num_rows = record_batch.num_rows();
         let indices: Vec<usize> = (0..num_rows).collect();
 
         // Release the GIL: the rayon workers log through pyo3-log, which needs the GIL.
-        let results: Result<Vec<ArrowResult>, anyhow::Error> = py.detach(|| {
+        let results: Result<Vec<ArrowResult>, SeqvarsError> = py.detach(|| {
             indices
                 .par_iter()
                 .map(|&i| {
@@ -373,8 +486,17 @@ impl PySeqvarsAnnotator {
                         reference: ref_arr.value(i).to_string(),
                         alternative: alt_arr.value(i).to_string(),
                     };
-
-                    let ann_fields = self.predictor.predict(&variant)?.unwrap_or_default();
+                    let ann_fields = match info_of(i)
+                        .and_then(|info| self.predictor.predict_with_info(&variant, &info))
+                    {
+                        // As `annotate seqvars`, which carries on past such records.
+                        Err(e @ SeqvarsError::InvalidVariant(_)) => {
+                            tracing::warn!("No annotations for {variant}: {e}");
+                            None
+                        }
+                        result => result?,
+                    }
+                    .unwrap_or_default();
 
                     let arrow_anns: Vec<ArrowAnnField> = ann_fields
                         .into_iter()
@@ -388,12 +510,7 @@ impl PySeqvarsAnnotator {
                 .collect()
         });
 
-        let results = results.map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Prediction failed during batch processing: {}",
-                e
-            ))
-        })?;
+        let results = results.map_err(prediction_error)?;
 
         let out_batch = serde_arrow::to_record_batch(&self.fields, &results).map_err(|e| {
             pyo3::exceptions::PyRuntimeError::new_err(format!("Serialization error: {}", e))
@@ -453,6 +570,69 @@ impl PySeqvarsAnnotator {
         })?;
 
         Ok(py_dict)
+    }
+}
+
+/// The column `name` of `batch`, cast to `data_type`.
+fn column<A: Array + Clone + 'static>(
+    batch: &RecordBatch,
+    name: &str,
+    data_type: &DataType,
+) -> PyResult<A> {
+    let col = batch.column_by_name(name).ok_or_else(|| {
+        pyo3::exceptions::PyValueError::new_err(format!("Missing column '{name}'"))
+    })?;
+    let cast_col = cast(col, data_type).map_err(|e| {
+        pyo3::exceptions::PyTypeError::new_err(format!("Cannot cast '{name}' to {data_type}: {e}"))
+    })?;
+    (cast_col.as_any().downcast_ref::<A>().cloned()).ok_or_else(|| {
+        pyo3::exceptions::PyTypeError::new_err(format!("Downcast failed for column '{name}'"))
+    })
+}
+
+/// The `SVCLAIM` `value`: `D`, `J` or `DJ`.
+fn claim(value: &str) -> Result<SvClaim, SeqvarsError> {
+    value.parse().map_err(|_| {
+        SeqvarsError::InvalidVariant(format!("SVCLAIM {value:?} is none of D, J and DJ"))
+    })
+}
+
+/// The confidence interval `name` as `(min, max)` from two integers.
+fn interval(name: &str, values: &[Option<i32>]) -> Result<(i32, i32), SeqvarsError> {
+    match values {
+        [Some(min), Some(max)] => Ok((*min, *max)),
+        _ => Err(SeqvarsError::InvalidVariant(format!(
+            "{name} must be two integers (min, max)"
+        ))),
+    }
+}
+
+/// The values of the list column `name` of `batch` per row, for `interval`; none for null.
+fn interval_column(batch: &RecordBatch, name: &str) -> PyResult<Vec<Option<Vec<Option<i32>>>>> {
+    let list: ListArray = column(batch, name, &DataType::new_list(DataType::Int32, true))?;
+    (0..list.len())
+        .map(|i| {
+            if list.is_null(i) {
+                return Ok(None);
+            }
+            let values = list.value(i);
+            let values = (values.as_any().downcast_ref::<Int32Array>()).ok_or_else(|| {
+                pyo3::exceptions::PyTypeError::new_err(format!(
+                    "Downcast failed for column '{name}'"
+                ))
+            })?;
+            Ok(Some(values.iter().collect()))
+        })
+        .collect()
+}
+
+/// A `ValueError` for a variant that cannot be annotated, else a `RuntimeError`.
+fn prediction_error(e: SeqvarsError) -> PyErr {
+    match e {
+        SeqvarsError::UnknownChromosomeAccession
+        | SeqvarsError::InvalidCoordinates(_, _)
+        | SeqvarsError::InvalidVariant(_) => pyo3::exceptions::PyValueError::new_err(e.to_string()),
+        _ => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
     }
 }
 

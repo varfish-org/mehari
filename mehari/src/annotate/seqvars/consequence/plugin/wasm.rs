@@ -11,9 +11,9 @@ use wasmtime::component::{Component, HasSelf, Linker, Resource, ResourceTable};
 use wasmtime::{Config, Engine, Store, bail, ensure, format_err};
 use wasmtime_wasi::{FsPerms, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use super::{RunInfo, TranscriptPlugin, TxAnnotation, TxContext};
-use crate::annotate::seqvars::consequence::VcfVariant;
+use super::{Event, RunInfo, TranscriptPlugin, TxAnnotation, TxContext};
 use crate::annotate::seqvars::consequence::terms::{AnnField, Pos};
+use crate::annotate::seqvars::consequence::{Breakend, StructuralVariant, SvKind, VcfVariant};
 use crate::errors::SeqvarsError;
 use crate::pbs::txs::{GenomeAlignment, Strand};
 
@@ -134,6 +134,8 @@ pub struct Annotation {
 struct Batch {
     call: u64,
     variants: Vec<VcfVariant>,
+    structural_variant: Option<types::StructuralVariant>,
+    breakend: Option<types::Breakend>,
     txs: Vec<TxAnnotation>,
 }
 
@@ -274,6 +276,7 @@ impl WasmPlugin {
         &self,
         (store, plugin): &mut Instance,
         variants: &[VcfVariant],
+        event: Option<Event<'_>>,
         txs: &mut Vec<TxAnnotation>,
     ) -> Result<(), SeqvarsError> {
         let error = |e: wasmtime::Error| plugin_error(&self.path, e);
@@ -284,9 +287,16 @@ impl WasmPlugin {
             .table
             .push(Prediction { call })
             .map_err(|e| error(e.into()))?;
+        let (structural_variant, breakend) = match event {
+            Some(Event::StructuralVariant(sv)) => (Some(structural_variant(sv)), None),
+            Some(Event::Breakend(b)) => (None, Some(breakend(b))),
+            None => (None, None),
+        };
         state.batch = Some(Batch {
             call,
             variants: variants.to_vec(),
+            structural_variant,
+            breakend,
             txs: std::mem::take(txs),
         });
         let result = plugin
@@ -313,6 +323,7 @@ impl TranscriptPlugin for WasmPlugin {
     fn annotate(
         &self,
         variants: &[VcfVariant],
+        event: Option<Event<'_>>,
         txs: &mut Vec<TxAnnotation>,
     ) -> Result<(), SeqvarsError> {
         if txs.is_empty() && !self.declaration.annotate_empty {
@@ -324,7 +335,9 @@ impl TranscriptPlugin for WasmPlugin {
             None => self.new_instance()?,
         };
         // An instance that trapped is not put back.
-        outside_runtime(&self.path, || self.call(&mut instance, variants, txs))?;
+        outside_runtime(&self.path, || {
+            self.call(&mut instance, variants, event, txs)
+        })?;
         slot.replace(Some(instance));
         Ok(())
     }
@@ -542,6 +555,19 @@ impl types::HostPrediction for HostState {
         (0..count)
             .map(|index| Ok(self.table.push(Annotation { call, index })?))
             .collect()
+    }
+
+    fn structural_variant(
+        &mut self,
+        p: Resource<Prediction>,
+    ) -> wasmtime::Result<Option<types::StructuralVariant>> {
+        let call = self.table.get(&p)?.call;
+        Ok(self.batch(call)?.structural_variant.clone())
+    }
+
+    fn breakend(&mut self, p: Resource<Prediction>) -> wasmtime::Result<Option<types::Breakend>> {
+        let call = self.table.get(&p)?.call;
+        Ok(self.batch(call)?.breakend.clone())
     }
 
     fn drop(&mut self, prediction: Resource<Prediction>) -> wasmtime::Result<()> {
@@ -910,6 +936,34 @@ fn position(pos: &Pos) -> types::Position {
     }
 }
 
+fn structural_variant(sv: &StructuralVariant) -> types::StructuralVariant {
+    let (kind, length) = match sv.kind {
+        SvKind::Deletion => ("deletion", None),
+        SvKind::Duplication { tandem: false } => ("duplication", None),
+        SvKind::Duplication { tandem: true } => ("tandem-duplication", None),
+        SvKind::Inversion => ("inversion", None),
+        SvKind::Insertion { length } => ("insertion", length),
+        SvKind::CopyNumberChange => ("copy-number-change", None),
+    };
+    types::StructuralVariant {
+        kind: kind.into(),
+        end: sv.end,
+        length,
+        imprecise: sv.imprecise,
+    }
+}
+
+fn breakend(breakend: &Breakend) -> types::Breakend {
+    let mate = breakend.mate.as_ref();
+    types::Breakend {
+        keeps_left: breakend.keeps_left,
+        inserted: breakend.inserted.clone(),
+        mate_chromosome: mate.map(|mate| mate.chromosome.clone()),
+        mate_position: mate.map(|mate| mate.position),
+        mate_extends_right: mate.map(|mate| mate.extends_right),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::collections::BTreeMap;
@@ -920,12 +974,14 @@ mod test {
     use super::*;
     use crate::annotate::seqvars::consequence::logic::ConsequencePredictor;
     use crate::annotate::seqvars::consequence::plugin::NmdPlugin;
-    use crate::annotate::seqvars::consequence::terms::ANN_NMD;
-    use crate::annotate::seqvars::consequence::{ConfigBuilder, load_tx_db};
+    use crate::annotate::seqvars::consequence::terms::{ANN_NMD, Consequence};
+    use crate::annotate::seqvars::consequence::{ConfigBuilder, SvInfo, load_tx_db};
     use crate::annotate::seqvars::provider::Provider as MehariProvider;
 
     /// Built from `plugins/nmd`, see its README.
     const NMD_WASM: &str = "tests/data/plugins/nmd.wasm";
+    /// Built from `plugins/nmd` for the plugin interface 0.1.0, which has no structural variants.
+    const NMD_0_1_0_WASM: &str = "tests/data/plugins/nmd-0.1.0.wasm";
     /// Built from `plugins/nmd-python`, see its README; too large to commit.
     const NMD_PYTHON_WASM: &str = "../plugins/nmd-python/nmd.wasm";
     /// Built from `plugins/probe`, see its README.
@@ -974,7 +1030,12 @@ mod test {
             .into_iter()
             .find(|ann| ann.feature_id == "NM_007294.4")
             .unwrap();
-        let report = ann.custom_fields["probe"]
+        Ok((report(&ann), ann))
+    }
+
+    /// The probe's report in `ann`.
+    fn report(ann: &AnnField) -> BTreeMap<String, String> {
+        ann.custom_fields["probe"]
             .as_deref()
             .unwrap()
             .split('~')
@@ -982,8 +1043,7 @@ mod test {
                 let (key, value) = pair.split_once('^').unwrap();
                 (key.to_string(), value.to_string())
             })
-            .collect();
-        Ok((report, ann))
+            .collect()
     }
 
     #[test]
@@ -1056,6 +1116,29 @@ mod test {
         assert_eq!(actual, expected);
         assert!(expected.iter().flatten().any(|(_, value)| value.is_some()));
 
+        // An imprecise frameshifting deletion near c.3020, which has no alternative transcript.
+        let sv = VcfVariant {
+            chromosome: "17".into(),
+            position: 41244519,
+            reference: "N".into(),
+            alternative: "<DEL>".into(),
+        };
+        let info = SvInfo {
+            end: Some(41244529),
+            imprecise: true,
+            ..Default::default()
+        };
+        let nmd_sv = |predictor: &ConsequencePredictor| {
+            predictor
+                .predict_with_info(&sv, &info)
+                .unwrap()
+                .unwrap()
+                .into_iter()
+                .map(|ann| (ann.feature_id, ann.custom_fields.get(ANN_NMD).cloned()))
+                .collect_vec()
+        };
+        assert_eq!(nmd_sv(&wasm), nmd_sv(&builtin));
+
         let nmd_group = |predictor: &ConsequencePredictor| {
             predictor
                 .predict_multiple(&group)
@@ -1066,6 +1149,88 @@ mod test {
                 .collect_vec()
         };
         assert_eq!(nmd_group(&wasm), nmd_group(&builtin));
+        Ok(())
+    }
+
+    /// A plugin built for an earlier interface version still loads. It cannot tell the row of a
+    /// structural variant, so it gives `unknown` where the current build declines: for the
+    /// imprecise frameshifting deletion near c.3020, as in `assert_matches_builtin`.
+    #[rstest::rstest]
+    #[case::interface_0_1_0(NMD_0_1_0_WASM, Some("unknown"))]
+    #[case::current(NMD_WASM, None)]
+    fn nmd_plugin_on_event_row(
+        #[case] path: &str,
+        #[case] expected: Option<&str>,
+    ) -> Result<(), anyhow::Error> {
+        let sv = VcfVariant {
+            chromosome: "17".into(),
+            position: 41244519,
+            reference: "N".into(),
+            alternative: "<DEL>".into(),
+        };
+        let info = SvInfo {
+            end: Some(41244529),
+            imprecise: true,
+            ..Default::default()
+        };
+        let ann = (predictor(vec![Arc::new(load(path, &[])?)])?
+            .predict_with_info(&sv, &info)?
+            .unwrap_or_default()
+            .into_iter())
+        .find(|ann| ann.feature_id == "NM_007294.4")
+        .ok_or_else(|| anyhow::anyhow!("no annotation for NM_007294.4"))?;
+
+        assert_eq!(
+            ann.custom_fields.get(ANN_NMD).cloned().flatten().as_deref(),
+            expected
+        );
+        Ok(())
+    }
+
+    /// The transcript holds the bases of a precise deletion, so its row has an alternative
+    /// transcript, and the NMD plugin predicts as the built-in one does: here c.11del in
+    /// `exons_tx`.
+    #[test]
+    fn nmd_plugin_predicts_short_deletion() -> Result<(), anyhow::Error> {
+        use std::io::Write as _;
+
+        use crate::annotate::seqvars::consequence::logic::test::{
+            exons_tx, predictor_with_reference, three_exon_genome,
+        };
+
+        let (tx, seq) = exons_tx(3, 20);
+        let genome = three_exon_genome(&seq);
+        let mut reference = tempfile::NamedTempFile::new()?;
+        write!(reference, ">1\n{genome}\n")?;
+        let var = VcfVariant {
+            chromosome: "1".into(),
+            position: 1030,
+            reference: genome[1029..1030].into(),
+            alternative: "<DEL>".into(),
+        };
+        let info = SvInfo {
+            end: Some(1031),
+            ..Default::default()
+        };
+        let nmd = |plugin: Arc<dyn TranscriptPlugin>| -> Result<Option<String>, anyhow::Error> {
+            let config = ConfigBuilder::default().plugins(vec![plugin]).build()?;
+            let predictor =
+                predictor_with_reference(tx.clone(), seq.clone(), config, Some(reference.path()));
+            let ann = (predictor.predict_with_info(&var, &info)?)
+                .unwrap_or_default()
+                .into_iter()
+                .find(|ann| ann.feature_id == "NM_000001.1")
+                .ok_or_else(|| anyhow::anyhow!("no annotation for NM_000001.1"))?;
+            assert!(
+                ann.consequences.contains(&Consequence::FrameshiftVariant),
+                "{ann:?}"
+            );
+            Ok(ann.custom_fields.get(ANN_NMD).cloned().flatten())
+        };
+
+        let builtin = nmd(Arc::new(NmdPlugin::default()))?;
+        assert!(builtin.is_some());
+        assert_eq!(nmd(Arc::new(load(NMD_WASM, &[])?))?, builtin);
         Ok(())
     }
 
@@ -1081,6 +1246,8 @@ mod test {
             ("vep", "true".into()),
             ("variants", "1".into()),
             ("variant-position", "41215920".into()),
+            ("structural-variant", String::new()),
+            ("breakend", String::new()),
             // As mehari reports them.
             ("feature-id", ann.feature_id.clone()),
             ("feature-type", ann.feature_type.to_string()),
@@ -1136,6 +1303,45 @@ mod test {
 
         assert_eq!(report, expected);
         assert_eq!(report["hgvs-p"], "p.(Ala1708Glu)");
+        Ok(())
+    }
+
+    /// What the probe sees of a structural variant and a breakend in BRCA1: what they are,
+    /// `HGVS.g` as mehari writes it, and no alternative transcript.
+    #[rstest::rstest]
+    #[case::imprecise_deletion("N", "<DEL>", true, "deletion:41197760::true", "")]
+    #[case::breakend("G", "G]13:32900000]", false, "", "true::13:32900000:false")]
+    fn probe_reports_event(
+        #[case] reference: &str,
+        #[case] alternative: &str,
+        #[case] imprecise: bool,
+        #[case] structural_variant: &str,
+        #[case] breakend: &str,
+    ) -> Result<(), anyhow::Error> {
+        let predictor = predictor(vec![Arc::new(load(PROBE_WASM, &[])?)])?;
+        let var = VcfVariant {
+            chromosome: "17".into(),
+            position: 41197710,
+            reference: reference.into(),
+            alternative: alternative.into(),
+        };
+        let info = SvInfo {
+            end: Some(41197760),
+            imprecise,
+            ..Default::default()
+        };
+        let ann = (predictor
+            .predict_with_info(&var, &info)?
+            .unwrap()
+            .into_iter())
+        .find(|ann| ann.feature_id == "NM_007294.4")
+        .unwrap();
+        let report = report(&ann);
+
+        assert_eq!(report["structural-variant"], structural_variant);
+        assert_eq!(report["breakend"], breakend);
+        assert_eq!(Some(&report["hgvs-g"]), ann.hgvs_g.as_ref());
+        assert_eq!(report["alternative-transcript"], "");
         Ok(())
     }
 

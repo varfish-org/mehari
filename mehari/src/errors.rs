@@ -23,6 +23,10 @@ pub enum SeqvarsError {
     #[error("Invalid coordinates start={0}, end={1} (max is 512M)")]
     InvalidCoordinates(i32, i32),
 
+    /// An allele or INFO field that cannot be annotated, e.g. a `<DEL>` without its end.
+    #[error("Invalid variant: {0}")]
+    InvalidVariant(String),
+
     #[error(transparent)]
     HgvsMapper(#[from] hgvs::mapper::Error),
 

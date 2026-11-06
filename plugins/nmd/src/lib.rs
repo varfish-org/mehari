@@ -27,8 +27,9 @@ impl Guest for Nmd {
     }
 
     fn annotate(prediction: &Prediction) -> Result<(), String> {
+        let event = prediction.structural_variant().is_some() || prediction.breakend().is_some();
         for annotation in prediction.annotations() {
-            if let Some(value) = predict(&annotation) {
+            if let Some(value) = predict(&annotation, event) {
                 annotation.set_string("nmd", value);
             }
         }
@@ -36,13 +37,15 @@ impl Guest for Nmd {
     }
 }
 
-/// One value for every stop-gained or frameshift annotation, see `NmdPrediction` in mehari.
-fn predict(annotation: &Annotation) -> Option<&'static str> {
+/// One value for every stop-gained or frameshift annotation, see `NmdPrediction` in mehari; none
+/// for one of a structural variant or a breakend (`event`) without an alternative transcript.
+fn predict(annotation: &Annotation, event: bool) -> Option<&'static str> {
     let truncating = annotation
         .consequences()
         .iter()
         .any(|csq| csq == "stop_gained" || csq == "frameshift_variant");
-    truncating.then(|| classify(annotation).unwrap_or("unknown"))
+    let declines = || event && annotation.alternative_transcript().is_none();
+    (truncating && !declines()).then(|| classify(annotation).unwrap_or("unknown"))
 }
 
 /// `None` if the premature stop codon (PTC) or the exon structure is unknown.

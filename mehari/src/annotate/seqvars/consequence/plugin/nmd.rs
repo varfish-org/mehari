@@ -1,7 +1,7 @@
 use hgvs::parser::{CdsFrom, CdsPos, HgvsVariant};
 use itertools::Itertools;
 
-use super::{TranscriptPlugin, TxAnnotation, TxContext};
+use super::{Event, TranscriptPlugin, TxAnnotation, TxContext};
 use crate::annotate::seqvars::consequence::VcfVariant;
 use crate::annotate::seqvars::consequence::terms::{ANN_NMD, AnnField, Consequence};
 use crate::errors::SeqvarsError;
@@ -21,10 +21,12 @@ const VEP_ESCAPING: &str = "NMD_escaping_variant";
 ///
 /// The rules apply to the PTC: for a frameshift, the first stop of the new reading frame. Every
 /// stop-gained or frameshift annotation gets an [`NmdPrediction`]; splice variants get none as
-/// their PTC is unknown.
+/// their PTC is unknown. A structural variant or a breakend without an alternative transcript
+/// gets none either.
 ///
 /// With `vep_compatible`, the plugin mimics VEP instead: it applies VEP's rules and thresholds
-/// to the variant position and reports `NMD_escaping_variant` or nothing.
+/// to the variant position and reports `NMD_escaping_variant` or nothing. VEP's plugin skips
+/// structural variants, so this one skips variants without bases.
 #[derive(Debug, Default)]
 pub struct NmdPlugin {
     pub vep_compatible: bool,
@@ -53,11 +55,13 @@ impl TranscriptPlugin for NmdPlugin {
     fn annotate(
         &self,
         variants: &[VcfVariant],
+        event: Option<Event<'_>>,
         txs: &mut Vec<TxAnnotation>,
     ) -> Result<(), SeqvarsError> {
         for TxAnnotation { context, ann } in txs {
             let value = if self.vep_compatible {
-                (vep_escapes(context, ann, variants) == Some(true)).then(|| VEP_ESCAPING.into())
+                let escapes = event.is_none() && vep_escapes(context, ann, variants) == Some(true);
+                escapes.then(|| VEP_ESCAPING.into())
             } else {
                 let truncating = ann.consequences.iter().any(|csq| {
                     matches!(
@@ -65,7 +69,7 @@ impl TranscriptPlugin for NmdPlugin {
                         Consequence::StopGained | Consequence::FrameshiftVariant
                     )
                 });
-                truncating.then(|| {
+                (truncating && (event.is_none() || context.alt_data().is_some())).then(|| {
                     predict(context)
                         .unwrap_or(NmdPrediction::Unknown)
                         .to_string()
@@ -342,6 +346,79 @@ mod test {
             ann.custom_fields.get(ANN_NMD).cloned().flatten().as_deref(),
             Some("unknown")
         );
+        Ok(())
+    }
+
+    /// An imprecise frameshifting deletion has no alternative transcript, so its PTC is unknown
+    /// and it gets no prediction; nor in VEP compatibility mode, as VEP's plugin skips structural
+    /// variants. The deletion of chr17:41244520-41244529 lies near c.3020.
+    #[rstest::rstest]
+    fn no_prediction_without_bases(
+        #[values(false, true)] vep_compatible: bool,
+    ) -> Result<(), anyhow::Error> {
+        use crate::annotate::seqvars::consequence::{StructuralVariant, SvKind};
+
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
+        let predictor = ConsequencePredictor::new(
+            provider,
+            ConfigBuilder::default()
+                .plugins(vec![Arc::new(NmdPlugin { vep_compatible })])
+                .build()?,
+        );
+        let var = VcfVariant {
+            chromosome: "17".into(),
+            position: 41244519,
+            reference: "N".into(),
+            alternative: "<DEL>".into(),
+        };
+        let sv = StructuralVariant {
+            kind: SvKind::Deletion,
+            end: 41244529,
+            imprecise: true,
+            intervals: (None, None),
+        };
+        let anns = predictor.predict_sv(&var, &sv)?.unwrap();
+        let ann = anns
+            .iter()
+            .find(|ann| ann.feature_id == "NM_007294.4")
+            .unwrap();
+
+        assert!(
+            ann.consequences.contains(&Consequence::FrameshiftVariant),
+            "{ann:?}"
+        );
+        assert_eq!(ann.custom_fields.get(ANN_NMD), None);
+        Ok(())
+    }
+
+    /// A frameshift whose alternative transcript depends on splicing gets `unknown`, but no
+    /// prediction where it is a row of a structural variant or a breakend. The row is made up:
+    /// an explicit allele across an exon edge gets `coding_sequence_variant`, not a frameshift.
+    #[rstest::rstest]
+    #[case::explicit_allele(false, Some("unknown"))]
+    #[case::event(true, None)]
+    fn alternative_transcript_depends_on_splicing(
+        #[case] event: bool,
+        #[case] expected: Option<&str>,
+    ) -> Result<(), anyhow::Error> {
+        use crate::annotate::seqvars::consequence::{Breakend, plugin::Event};
+
+        let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
+        let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
+        let context = TxContext::new(provider, Some("NM_007294.4".into()), None, None)
+            .with_alt_inputs(None, true, true);
+        let ann = AnnField {
+            consequences: vec![Consequence::FrameshiftVariant],
+            ..Default::default()
+        };
+        let mut txs = vec![TxAnnotation { context, ann }];
+        let breakend = "G]13:100]".parse::<Breakend>()?;
+        let event = event.then_some(Event::Breakend(&breakend));
+
+        NmdPlugin::default().annotate(&[], event, &mut txs)?;
+        let value = txs[0].ann.custom_fields.get(ANN_NMD).cloned().flatten();
+        assert_eq!(value.as_deref(), expected);
         Ok(())
     }
 }

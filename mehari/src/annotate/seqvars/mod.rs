@@ -21,8 +21,8 @@ use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use clinvar::{ClinvarAnnotator, ClinvarResult};
 use consequence::{
-    Breakend, ConfidenceInterval, ConsequenceAnnotator, StructuralVariant, SvClaim, SvKind, SvType,
-    VcfVariant,
+    Breakend, ConfidenceInterval, ConsequenceAnnotator, StructuralVariant, SvClaim, SvInfo,
+    VcfVariant, round_copy_number,
 };
 use frequency::{FreqResult, FrequencyAnnotator};
 use indexmap::IndexMap;
@@ -1708,107 +1708,40 @@ fn is_event(record: &VcfRecord) -> bool {
             .all(|alt| matches!(alt.as_str(), "*" | "<*>" | "<NON_REF>"))
 }
 
-/// The structural variant of `record`, if its symbolic allele is supported, with its last base
-/// from `SVLEN` or `END`, see `compound::event_end`. As in VCF 4.5, a `<DEL>` or `<DUP>` with a
-/// claim of abundance only (`SVCLAIM=D`) is a copy number call with uncertain breakpoints, and so
-/// is a `<CNV>` with `CN`, see `copy_number`: with 0 copies one of a deletion, with 2 or more one
-/// of a duplication, and with 1 no variant, see `keeps_copy_number`. So are `<CN0>`, `<CN1>` and
-/// `<CN2>`, as older files write them. `<CNV>` without `CN` has no direction. `<CNV:TR>`, a
-/// copy number of tandem repeats, is not supported. `file_format` is that of the input.
+/// The structural variant of `record`, if its symbolic allele is supported, see
+/// `StructuralVariant::from_info`. `file_format` decides what `CN` means, see `copy_number`.
 fn structural_variant(record: &VcfRecord, file_format: FileFormat) -> Option<StructuralVariant> {
-    use noodles::vcf::variant::record::info::field::key::{
-        END_CONFIDENCE_INTERVALS, IS_IMPRECISE, POSITION_CONFIDENCE_INTERVALS, SV_TYPE,
-    };
-
     let pos = i32::try_from(record.variant_start()?.get()).ok()?;
     let [alt] = record.alternate_bases().as_ref() else {
         return None;
     };
-    let mut parts = alt.strip_prefix('<')?.strip_suffix('>')?.split(':');
-    let (base, subtype) = (parts.next()?, parts.next());
-    let info = record.info();
-
-    // A custom allele, which `##ALT` declares, counts as its `SVTYPE` if that is the type of a
-    // symbolic allele.
-    let sv_type = compound::string(record, SV_TYPE).and_then(|sv_type| sv_type.parse().ok());
-    let base = match base {
-        "DEL" | "DUP" | "INV" | "INS" | "CNV" => base,
-        _ if base
-            .strip_prefix("CN")
-            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) =>
-        {
-            base
-        }
-        _ => match sv_type? {
-            SvType::Del => "DEL",
-            SvType::Ins => "INS",
-            SvType::Dup => "DUP",
-            SvType::Inv => "INV",
-            SvType::Cnv => "CNV",
-            SvType::Bnd | SvType::Other(_) => return None,
-        },
-    };
-    // An `SVCLAIM` other than those of VCF 4.5 counts as none.
-    let claim = compound::string(record, "SVCLAIM").and_then(|claim| claim.parse().ok());
-    let abundance_only = claim == Some(SvClaim::Abundance);
-    let copy_number_kind = |copies: Option<i32>| match copies {
-        Some(0) => SvKind::Deletion,
-        Some(copies) if copies >= 2 => SvKind::Duplication { tandem: false },
-        _ => SvKind::CopyNumberChange,
-    };
-    let (kind, abundance_only) = match base {
-        "CNV" if subtype == Some("TR") => return None,
-        "CNV" if copy_number(record, file_format) == Some(1) => return None,
-        "DEL" => (SvKind::Deletion, abundance_only),
-        "DUP" => {
-            let tandem = match claim {
-                Some(SvClaim::Adjacency | SvClaim::Both) => true,
-                Some(SvClaim::Abundance) => false,
-                None => subtype == Some("TANDEM"),
-            };
-            (SvKind::Duplication { tandem }, abundance_only)
-        }
-        "INV" => (SvKind::Inversion, false),
-        // An insertion of no bases has an unknown length.
-        "INS" => (
-            SvKind::Insertion {
-                length: (compound::sv_length(record).map(i32::saturating_abs))
-                    .filter(|&length| length > 0),
-            },
-            false,
-        ),
-        "CNV" => (copy_number_kind(copy_number(record, file_format)), true),
-        _ => {
-            let copies = base.strip_prefix("CN")?.parse().ok()?;
-            if copies == 1 {
-                return None;
-            }
-            (copy_number_kind(Some(copies)), true)
-        }
-    };
-    let end = match kind {
-        SvKind::Insertion { .. } => pos,
-        _ => compound::event_end(record, pos),
-    };
-    if end == pos && !matches!(kind, SvKind::Insertion { .. }) {
+    // Read no fields for the other alleles.
+    if !alt.starts_with('<') {
         return None;
     }
-    // `CIEND` defaults to `CIPOS`. As in VCF 4.5, `IMPRECISE` makes the breakpoints uncertain,
-    // unless both intervals are 0, as for a precise allele of the record, and a missing `CIPOS`
-    // is unknown. Without `IMPRECISE`, the intervals give the micro-homology of a precise call.
-    let cipos = confidence_interval(record, POSITION_CONFIDENCE_INTERVALS);
-    let intervals = (
-        cipos,
-        confidence_interval(record, END_CONFIDENCE_INTERVALS).or(cipos),
-    );
-    let imprecise = abundance_only
-        || info.get(IS_IMPRECISE).is_some() && intervals != (Some((0, 0)), Some((0, 0)));
-    Some(StructuralVariant {
-        kind,
-        end,
-        imprecise,
-        intervals,
-    })
+    StructuralVariant::from_info(pos, alt, &sv_info(record, file_format))
+}
+
+/// The INFO fields of `record` that decide the structural variant of a symbolic allele.
+/// `file_format` decides what `CN` means, see `copy_number`.
+fn sv_info(record: &VcfRecord, file_format: FileFormat) -> SvInfo {
+    use noodles::vcf::variant::record::info::field::key::{
+        END_CONFIDENCE_INTERVALS, END_POSITION, IS_IMPRECISE, POSITION_CONFIDENCE_INTERVALS,
+        SV_TYPE,
+    };
+
+    let info = record.info();
+    SvInfo {
+        end: compound::integer(record, END_POSITION),
+        sv_length: compound::sv_length(record),
+        sv_type: compound::string(record, SV_TYPE).and_then(|sv_type| sv_type.parse().ok()),
+        // An `SVCLAIM` other than those of VCF 4.5 counts as none.
+        claim: compound::string(record, "SVCLAIM").and_then(|claim| claim.parse().ok()),
+        copy_number: copy_number(record, file_format),
+        cipos: confidence_interval(record, POSITION_CONFIDENCE_INTERVALS),
+        ciend: confidence_interval(record, END_CONFIDENCE_INTERVALS),
+        imprecise: info.get(IS_IMPRECISE).is_some(),
+    }
 }
 
 /// The copy number of the allele of `record` from `CN`, rounded. Since VCF 4.4, `CN` is that of
@@ -1832,11 +1765,7 @@ fn copy_number(record: &VcfRecord, file_format: FileFormat) -> Option<i32> {
         },
         _ => return None,
     };
-    if !copies.is_finite() || copies < 0.0 {
-        return None;
-    }
-    // Saturates at `i32::MAX`.
-    let copies = copies.round() as i32;
+    let copies = round_copy_number(copies).ok()?;
     Some(if file_format >= FileFormat::new(4, 4) {
         copies
     } else {
@@ -1845,13 +1774,10 @@ fn copy_number(record: &VcfRecord, file_format: FileFormat) -> Option<i32> {
 }
 
 /// Whether `record` is a `<CNV>` whose `CN` keeps the copy number of the reference, or a `<CN1>`,
-/// which VCF 4.5 treats as no variant, like `GT=0`.
+/// which VCF 4.5 treats as no variant, like `GT=0`, see `StructuralVariant::keeps_copy_number`.
 fn keeps_copy_number(record: &VcfRecord, file_format: FileFormat) -> bool {
     match record.alternate_bases().as_ref() {
-        [alt] if alt == "<CN1>" => true,
-        [alt] if alt == "<CNV>" || (alt.starts_with("<CNV:") && alt != "<CNV:TR>") => {
-            copy_number(record, file_format) == Some(1)
-        }
+        [alt] => StructuralVariant::keeps_copy_number(alt, &sv_info(record, file_format)),
         _ => false,
     }
 }
@@ -1876,8 +1802,7 @@ fn confidence_interval(record: &VcfRecord, key: &str) -> Option<ConfidenceInterv
 }
 
 /// The breakend of `record`, if its allele is a well-formed one, with the uncertainty of its
-/// position from `IMPRECISE` and `CIPOS`. As in VCF 4.5, `CIPOS` without `IMPRECISE` is the
-/// micro-homology of a precise call, and `IMPRECISE` without `CIPOS` leaves the interval open.
+/// position from `IMPRECISE` and `CIPOS`, see `Breakend::from_info`.
 fn breakend(record: &VcfRecord) -> Option<Breakend> {
     use noodles::vcf::variant::record::info::field::key::{
         IS_IMPRECISE, POSITION_CONFIDENCE_INTERVALS,
@@ -1886,11 +1811,12 @@ fn breakend(record: &VcfRecord) -> Option<Breakend> {
     let [alt] = record.alternate_bases().as_ref() else {
         return None;
     };
-    let mut breakend: Breakend = alt.parse().ok()?;
-    breakend.cipos = confidence_interval(record, POSITION_CONFIDENCE_INTERVALS);
-    breakend.imprecise =
-        record.info().get(IS_IMPRECISE).is_some() && breakend.cipos != Some((0, 0));
-    Some(breakend)
+    let info = SvInfo {
+        cipos: confidence_interval(record, POSITION_CONFIDENCE_INTERVALS),
+        imprecise: record.info().get(IS_IMPRECISE).is_some(),
+        ..Default::default()
+    };
+    Breakend::from_info(alt, &info).ok()
 }
 
 /// The key of the annotation of `var` from `record` in `VariantProcessor`. Two events at one

@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use itertools::Itertools;
 
-use super::{TranscriptPlugin, TxAnnotation};
+use super::{Event, TranscriptPlugin, TxAnnotation};
 use crate::annotate::seqvars::consequence::VcfVariant;
 use crate::annotate::seqvars::consequence::terms::{ANN_COMPOUND_IDS, ANN_COMPOUND_VARIANTS};
 use crate::errors::SeqvarsError;
@@ -23,6 +23,7 @@ impl TranscriptPlugin for CompoundPlugin {
     fn annotate(
         &self,
         variants: &[VcfVariant],
+        _event: Option<Event<'_>>,
         txs: &mut Vec<TxAnnotation>,
     ) -> Result<(), SeqvarsError> {
         // Only groups with annotations get a number.
