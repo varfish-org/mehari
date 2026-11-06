@@ -20,6 +20,7 @@ use anyhow::Error;
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use clinvar::{ClinvarAnnotator, ClinvarResult};
+use consequence::event::BreakendEvent;
 use consequence::{
     ConfidenceInterval, ConsequenceAnnotator, SvClaim, SvInfo, Variant, VariantKind, VcfVariant,
     round_copy_number,
@@ -865,13 +866,14 @@ impl Annotator {
         Self { annotators }
     }
 
-    /// The annotation of `vcf_record` with its allele `variant`, see `classify`. A breakend record
-    /// also gets the rows and fusions of `event`, the event of its pair, see `mates::MateGrouper`.
+    /// The annotation of `vcf_record` with its allele `variant`, see `classify`. The last record
+    /// of a group of breakends also gets the rows and fusions of `event`, the event of its group,
+    /// see `mates::MateGrouper`.
     pub fn annotate(
         &self,
         vcf_record: &VcfRecord,
         variant: &Classified,
-        event: Option<&mates::RecordEvent>,
+        event: Option<&BreakendEvent>,
     ) -> anyhow::Result<VariantAnnotation> {
         let vcf_var = from_vcf_allele(vcf_record, 0);
         let mut annotation = VariantAnnotation {
@@ -895,18 +897,24 @@ impl Annotator {
                 annotation.fusions = annotations.fusions;
                 // Every row of a record has its allele, also a row of its event.
                 if let Some(event) = event {
-                    let event = event.annotations(predictor)?;
+                    let event = predictor.predict_event(event).map_err(|e| {
+                        anyhow::anyhow!(
+                            "failed to annotate the event of breakends of {}: {e}",
+                            variant.var
+                        )
+                    })?;
                     let allele = Allele::Alt {
                         alternative: variant.var.alternative.clone(),
                     };
-                    let rows = event.anns.iter().map(|ann| AnnField {
+                    let rows = (event.iter().flat_map(|event| &event.anns)).map(|ann| AnnField {
                         allele: allele.clone(),
                         ..ann.clone()
                     });
                     let settings = &predictor.config.transcript_settings;
                     let pick = settings.pick.is_some() && !settings.flag_pick;
                     add_event_rows(&mut annotation.consequences, rows, pick);
-                    annotation.fusions.extend(event.fusions.iter().cloned());
+                    (annotation.fusions)
+                        .extend(event.iter().flat_map(|event| event.fusions.iter().cloned()));
                     annotation.fusions.sort();
                     annotation.fusions.dedup();
                 }
@@ -932,7 +940,7 @@ impl Annotator {
     }
 }
 
-/// Adds `rows`, those of the event of breakends, to `anns`, those of one of its records.
+/// Adds `rows`, those of the event of breakends, to `anns`, those of the last record of its group.
 /// With `pick`, both were picked, and a transcript keeps one row: that of higher impact, the
 /// record's own on a tie.
 fn add_event_rows(anns: &mut Vec<AnnField>, rows: impl Iterator<Item = AnnField>, pick: bool) {
@@ -1200,8 +1208,8 @@ async fn run_with_writer(
     let mut total_written = 0usize;
     let mut total_unsupported = 0usize;
     let mut total_unknown_claims = 0usize;
-    // Holds records back until the breakend groups among them are closed.
-    let mut grouper = mates::MateGrouper::default();
+    // Holds the last record of a breakend group back until the group is closed.
+    let mut grouper = mates::MateGrouper::new(header_in.contigs().keys().cloned());
 
     writer.write_noodles_header(&header_out).await?;
 
@@ -1219,9 +1227,8 @@ async fn run_with_writer(
         (!enable_compound && worker_threads > 1).then(|| Arc::new(writer.record_preparer()));
 
     let mut next_batch = Vec::with_capacity(batch_size);
-    // Each record with its allele, see `classify`, and the end of its event as a breakend of a
-    // group, if any.
-    type Batch = Vec<(AnnotatedVariant, Classified, Option<i32>)>;
+    // Each record with its allele, see `classify`.
+    type Batch = Vec<(AnnotatedVariant, Classified)>;
     let mut processing_handle: Option<tokio::task::JoinHandle<anyhow::Result<Batch>>> = None;
 
     loop {
@@ -1296,7 +1303,6 @@ async fn run_with_writer(
                     .map(|(mut record, variant, event)| {
                         let annotation =
                             annotator_clone.annotate(&record, &variant, event.as_ref())?;
-                        let group_end = event.map(|event| event.end());
                         if with_annotations {
                             // The header now describes mehari's annotations under this key, so
                             // those from the input must go, also for records that get no
@@ -1311,7 +1317,7 @@ async fn run_with_writer(
                             Some(prepare) => prepare(annotated),
                             None => annotated,
                         };
-                        Ok((annotated, variant, group_end))
+                        Ok((annotated, variant))
                     })
                     .collect::<anyhow::Result<Vec<_>>>()
             }));
@@ -1327,12 +1333,11 @@ async fn run_with_writer(
                     let (ready_records, batch_processor) =
                         tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
                             let mut ready_records = Vec::new();
-                            for (annotated_record, variant, group_end) in processed_batch {
+                            for (annotated_record, variant) in processed_batch {
                                 ready_records.extend(batch_processor.process_annotated_record(
                                     annotated_record.vcf,
                                     annotated_record.annotation,
                                     &variant,
-                                    group_end,
                                 )?);
                             }
                             Ok((ready_records, batch_processor))
@@ -1342,7 +1347,7 @@ async fn run_with_writer(
                     ready_records
                 }
                 None => (processed_batch.into_iter())
-                    .map(|(annotated, _, _)| annotated)
+                    .map(|(annotated, _)| annotated)
                     .collect(),
             };
 
@@ -1951,14 +1956,12 @@ impl VariantProcessor {
     }
 
     /// Takes an already-annotated record, buffers it, and returns any records ready to be written.
-    /// `variant` is its allele, see `classify`, and `group_end` the end of the event of `record` as
-    /// a breakend of a group, if any.
+    /// `variant` is its allele, see `classify`.
     pub fn process_annotated_record(
         &mut self,
         record: VcfRecord,
         annotation: VariantAnnotation,
         variant: &Classified,
-        group_end: Option<i32>,
     ) -> anyhow::Result<Vec<AnnotatedVariant>> {
         let mut ready_records = Vec::new();
         let vcf_var = from_vcf_allele(&record, 0);
@@ -1979,12 +1982,21 @@ impl VariantProcessor {
         let sample_idx = 0;
 
         // An event reaches its transcripts by its length, as it has no bases. A breakend reaches
-        // up to the end of the event of its pair, so the first record of the event reaches all
-        // its transcripts. A copy number of the reference is no event.
+        // up to its mate behind it on the same contig, as the junction changes the bases in
+        // between, whether or not its group derives an event. A copy number of the reference is
+        // no event.
         let is_event = is_event(&record) && !matches!(variant, Ok(None));
         let event_end = is_event.then(|| {
             let end = compound::event_end(&record, csq_var.position);
-            group_end.map_or(end, |group_end| end.max(group_end))
+            match variant {
+                Ok(Some(Variant {
+                    kind: VariantKind::Breakend(breakend),
+                    ..
+                })) => (breakend.mate.as_ref())
+                    .filter(|mate| mate.chromosome == csq_var.chromosome)
+                    .map_or(end, |mate| end.max(mate.position)),
+                _ => end,
+            }
         });
         // An event is never evaluated together with the variants on its haplotype, which all
         // its rows say, see `VariantBuffer::push_event`.
@@ -2415,6 +2427,7 @@ mod test {
                  ##INFO=<ID=CIPOS,Number=.,Type=Integer,Description=\"Interval\">\n\
                  ##INFO=<ID=MATEID,Number=A,Type=String,Description=\"ID of mate breakend\">\n\
                  ##INFO=<ID=EVENT,Number=A,Type=String,Description=\"ID of associated event\">\n\
+                 ##INFO=<ID=EVENTTYPE,Number=A,Type=String,Description=\"Type of associated event\">\n\
                  ##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n\
                  ##contig=<ID=13,length=115169878>\n\
                  ##contig=<ID=17,length=81195210>\n\
@@ -2796,11 +2809,12 @@ mod test {
         row.contains("delins[")
     }
 
-    /// The breakends of a deletion, a tandem duplication or an inversion of all BRCA1
-    /// transcripts, which lie between 41196312 and 41277500, give each of their records the row
-    /// of the event, one for the gene, with the allele of the record, next to their own rows:
-    /// those of a breakend downstream or upstream of the transcripts. `EVENT` groups them as
-    /// `MATEID` does.
+    /// The breakends of a deletion, a tandem duplication, a double minute or an inversion of all
+    /// BRCA1 transcripts, which lie between 41196312 and 41277500, give their last record the
+    /// row of the event, one for the gene, with the allele of the record, next to its own rows:
+    /// those of a breakend downstream or upstream of the transcripts. The other records keep
+    /// their own rows. `EVENT` groups them as `MATEID` does, an `EVENTTYPE` of their event keeps
+    /// it, and that of a double minute makes it a copy elsewhere.
     #[rstest::rstest]
     #[case::deletion(
         "17\t41195000\tbnd1\tG\tG[17:41280000[\t.\t.\tMATEID=bnd2\tGT\t0/1\n\
@@ -2819,6 +2833,18 @@ mod test {
          17\t41280000\tbnd2\tT\tT[17:41195000[\t.\t.\tMATEID=bnd1\tGT\t0/1\n",
         "|BRCA1|",
         "|g.41195000_41280000dup|"
+    )]
+    #[case::tandem_duplication_by_event_type(
+        "17\t41195000\tbnd1\tG\t]17:41280000]G\t.\t.\tMATEID=bnd2;EVENTTYPE=DUP:TANDEM\tGT\t0/1\n\
+         17\t41280000\tbnd2\tT\tT[17:41195000[\t.\t.\tMATEID=bnd1;EVENTTYPE=DUP:TANDEM\tGT\t0/1\n",
+        "|BRCA1|",
+        "|g.41195000_41280000dup|"
+    )]
+    #[case::double_minute(
+        "17\t41195000\tbnd1\tG\t]17:41280000]G\t.\t.\tMATEID=bnd2;EVENTTYPE=DOUBLEMINUTE\tGT\t0/1\n\
+         17\t41280000\tbnd2\tT\tT[17:41195000[\t.\t.\tMATEID=bnd1;EVENTTYPE=DOUBLEMINUTE\tGT\t0/1\n",
+        "transcript_amplification|HIGH|BRCA1|",
+        "|g.?_?ins[NC_000017.10:g.41195000_41280000]|"
     )]
     #[case::inversion(
         "17\t41195000\tbnd1\tG\tG]17:41280000]\t.\t.\tMATEID=bnd3;EVENT=inv\tGT\t0/1\n\
@@ -2845,18 +2871,21 @@ mod test {
         let alts = records.lines().map(|line| line.split('\t').nth(4).unwrap());
         let annotated = annotate_records(records, false).await?;
         assert_eq!(annotated.len(), alts.clone().count());
-        for ((id, rows), alt) in annotated.iter().zip(alts) {
+        for (i, ((id, rows), alt)) in annotated.iter().zip(alts).enumerate() {
             assert!(
                 rows.iter().any(|row| is_breakend_row(row)),
                 "{id}: {rows:?}"
             );
             let event = (rows.iter()).filter(|row| row.contains(hgvs_g) && row.contains(term));
             let event = event.collect::<Vec<_>>();
-            assert_eq!(event.len(), 1, "{id}: {rows:?}");
-            assert!(
-                event[0].ends_with("|INFO_ONE_ROW_PER_GENE"),
-                "{id}: {rows:?}"
-            );
+            let last = i + 1 == annotated.len();
+            assert_eq!(event.len(), usize::from(last), "{id}: {rows:?}");
+            if last {
+                assert!(
+                    event[0].ends_with("|INFO_ONE_ROW_PER_GENE"),
+                    "{id}: {rows:?}"
+                );
+            }
             assert!(
                 rows.iter().all(|row| row.starts_with(&format!("{alt}|"))),
                 "{id}: {rows:?}"
@@ -2865,10 +2894,11 @@ mod test {
         Ok(())
     }
 
-    /// A group without an event keeps the rows of its breakends only. Mehari counts the records
+    /// A group without an event keeps the rows of its breakends only, also a pair whose
+    /// `EVENTTYPE` is not the event of its shape. Mehari counts the records
     /// whose mates never arrived in one warning, also at a contig change, but not those of a
-    /// translocation, whose mate lies on another contig, nor a head-to-head pair without its
-    /// tail-to-tail pair.
+    /// translocation, whose group completes on the contig of its last record, nor a head-to-head
+    /// pair without its tail-to-tail pair.
     #[tracing_test::traced_test]
     #[rstest::rstest]
     #[case::missing_mate(
@@ -2888,6 +2918,11 @@ mod test {
     #[case::head_to_head_pair(
         "17\t41195000\tbnd1\tG\tG]17:41280000]\t.\t.\tMATEID=bnd2\tGT\t0/1\n\
          17\t41280000\tbnd2\tT\tT]17:41195000]\t.\t.\tMATEID=bnd1\tGT\t0/1\n",
+        0
+    )]
+    #[case::deletion_as_insertion(
+        "17\t41195000\tbnd1\tG\tG[17:41280000[\t.\t.\tMATEID=bnd2;EVENTTYPE=INS\tGT\t0/1\n\
+         17\t41280000\tbnd2\tT\t]17:41195000]T\t.\t.\tMATEID=bnd1;EVENTTYPE=INS\tGT\t0/1\n",
         0
     )]
     #[tokio::test]
@@ -2915,10 +2950,92 @@ mod test {
         Ok(())
     }
 
-    /// The records between the breakends of a group wait for the group, so the output keeps the
-    /// order of the input. In compound mode, the rows of the breakends, also those of their
-    /// event, say that they were not evaluated with the variants on their haplotype, as the rows
-    /// of the SNV do.
+    /// The breakends of an inversion around BRCA2 that loses a few bases at both breaks, and of
+    /// a deletion of BRCA1 that takes in a fragment of chromosome 13, give the last record of
+    /// each group the rows of the segments between their breaks: the inversion and the two lost
+    /// pieces, and the deletion, each with one row per gene for the transcripts inside. The
+    /// fragment, which stays in one piece, gives none, and the other records keep their own rows.
+    #[tokio::test]
+    async fn breakend_group_walks_its_segments() -> Result<(), anyhow::Error> {
+        let records = "13\t32800000\tf1\tT\t]17:41195000]T\t.\t.\tEVENT=del\tGT\t0/1\n\
+                       13\t32800100\tf2\tG\tG[17:41280000[\t.\t.\tEVENT=del\tGT\t0/1\n\
+                       13\t32885000\ti1\tG\tG]13:32980000]\t.\t.\tEVENT=inv\tGT\t0/1\n\
+                       13\t32885010\ti2\tA\t[13:32980005[A\t.\t.\tEVENT=inv\tGT\t0/1\n\
+                       13\t32980000\ti3\tT\tT]13:32885000]\t.\t.\tEVENT=inv\tGT\t0/1\n\
+                       13\t32980005\ti4\tC\t[13:32885010[C\t.\t.\tEVENT=inv\tGT\t0/1\n\
+                       17\t41195000\td1\tG\tG[13:32800000[\t.\t.\tEVENT=del\tGT\t0/1\n\
+                       17\t41280000\td2\tT\t]13:32800100]T\t.\t.\tEVENT=del\tGT\t0/1\n";
+        let inv = "|g.32885010_32980000inv|";
+        let lost = ["|g.32885001_32885009del|", "|g.32980001_32980004del|"];
+        let del = "|g.41195001_41279999del|";
+        let annotated = annotate_records(records, false).await?;
+        assert_eq!(annotated.len(), 8);
+        for (id, rows) in &annotated {
+            let derived = (rows.iter()).filter(|row| !is_breakend_row(row));
+            let derived = derived.collect::<Vec<_>>();
+            let gene_row = |hgvs_g: &str, gene: &str| {
+                (derived.iter()).any(|row| {
+                    row.contains(hgvs_g)
+                        && row.contains(gene)
+                        && row.ends_with("|INFO_ONE_ROW_PER_GENE")
+                })
+            };
+            match id.as_str() {
+                "i4" => {
+                    assert!(gene_row(inv, "|BRCA2|"), "{id}: {rows:?}");
+                    assert!(
+                        (derived.iter()).any(|row| row.contains(lost[0])),
+                        "{id}: {rows:?}"
+                    );
+                    assert!(
+                        (derived.iter()).all(|row| [inv, lost[0], lost[1]]
+                            .iter()
+                            .any(|hgvs_g| row.contains(hgvs_g))),
+                        "{id}: {rows:?}"
+                    );
+                }
+                "d2" => {
+                    assert!(
+                        gene_row(del, "transcript_ablation|HIGH|BRCA1|"),
+                        "{id}: {rows:?}"
+                    );
+                    assert!(
+                        derived.iter().all(|row| row.contains(del)),
+                        "{id}: {rows:?}"
+                    );
+                }
+                _ => assert!(derived.is_empty(), "{id}: {rows:?}"),
+            }
+        }
+        Ok(())
+    }
+
+    /// The breakends of a contig inserted behind 41215930, whose mates lie on the contig `<ctg1>`
+    /// of an assembly, VCF 4.5 5.4.2, keep the rows of their own junctions, without `HGVS.g`, as
+    /// the reference lacks the contig, and get no event.
+    #[tokio::test]
+    async fn breakends_of_inserted_contig() -> Result<(), anyhow::Error> {
+        let records = "17\t41215930\tins1\tG\tG[<ctg1>:1[\t.\t.\tEVENT=ins\tGT\t0/1\n\
+                       17\t41215931\tins2\tA\t]<ctg1>:329]A\t.\t.\tEVENT=ins\tGT\t0/1\n";
+        let annotated = annotate_records(records, false).await?;
+        assert_eq!(annotated.len(), 2);
+        for (id, rows) in &annotated {
+            assert!(
+                rows.iter().any(|row| row.contains("feature_truncation")),
+                "{id}: {rows:?}"
+            );
+            assert!(
+                rows.iter().all(|row| !row.contains("|g.")),
+                "{id}: {rows:?}"
+            );
+        }
+        Ok(())
+    }
+
+    /// The output keeps the order of the input, and only the last record of a group has the rows
+    /// of its event. In compound mode, the rows of the breakends, also those of their event, say
+    /// that they were not evaluated with the variants on their haplotype, as the rows of the SNV
+    /// do.
     #[rstest::rstest]
     #[tokio::test]
     async fn breakend_group_keeps_order(
@@ -2935,12 +3052,11 @@ mod test {
             .collect::<Vec<_>>();
         assert_eq!(ids, ["bnd1", "snv", "bnd2"]);
         for (id, rows) in &annotated {
-            if id.starts_with("bnd") {
-                assert!(
-                    rows.iter().any(|row| row.contains("|transcript_ablation|")),
-                    "{id}: {rows:?}"
-                );
-            }
+            assert_eq!(
+                rows.iter().any(|row| row.contains("|transcript_ablation|")),
+                id == "bnd2",
+                "{id}: {rows:?}"
+            );
             assert!(!rows.is_empty(), "{id}");
             assert!(
                 rows.iter().all(|row| row.contains(INCOMPLETE) == compound),
@@ -2950,16 +3066,27 @@ mod test {
         Ok(())
     }
 
-    /// In compound mode, the first record of a breakend group reaches the transcripts of the
-    /// event, so the rows of a variant on its haplotype say that it was not evaluated with the
-    /// event, also on a transcript that neither breakend reaches.
+    /// In compound mode, a breakend reaches the transcripts up to its mate behind it on the same
+    /// contig, so the rows of a variant on its haplotype say that it was not evaluated with the
+    /// junction, also on a transcript that neither breakend reaches, and also when the mate never
+    /// arrives, so that there is no event.
+    #[rstest::rstest]
+    #[case::pair(
+        "MATEID=bnd2",
+        "17\t41290000\tbnd2\tT\t]17:41180000]T\t.\t.\tMATEID=bnd1\tGT\t0|1\n"
+    )]
+    #[case::missing_mate("MATEID=gone", "")]
     #[tokio::test]
-    async fn breakend_group_reaches_event_transcripts() -> Result<(), anyhow::Error> {
-        let records = "\
-            17\t41180000\tbnd1\tG\tG[17:41290000[\t.\t.\tMATEID=bnd2\tGT\t0|1\n\
-            17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t0|1\n\
-            17\t41290000\tbnd2\tT\t]17:41180000]T\t.\t.\tMATEID=bnd1\tGT\t0|1\n";
-        let annotated = annotate_records(records, true).await?;
+    async fn breakend_reaches_transcripts_up_to_its_mate(
+        #[case] info: &str,
+        #[case] mate: &str,
+    ) -> Result<(), anyhow::Error> {
+        let records = format!(
+            "17\t41180000\tbnd1\tG\tG[17:41290000[\t.\t.\t{info}\tGT\t0|1\n\
+             17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t0|1\n\
+             {mate}"
+        );
+        let annotated = annotate_records(&records, true).await?;
         let snv = &annotated[1].1;
         assert!(!snv.is_empty());
         assert!(snv.iter().all(|row| row.contains(INCOMPLETE)), "{snv:?}");
@@ -2971,10 +3098,10 @@ mod test {
         17\t41195000\tbnd1\tG\tG[17:41280000[\t.\t.\tMATEID=bnd2\tGT\t0/1\n\
         17\t41280000\tbnd2\tT\t]17:41195000]T\t.\t.\tMATEID=bnd1\tGT\t0/1\n";
 
-    /// With `--pick`, a transcript keeps one row on a breakend record, which has its own picked
-    /// rows and those of its event: the row of higher impact, here the `transcript_ablation` of
-    /// the event's row of BRCA1, that of NM_007294.4, over the `downstream_gene_variant` or
-    /// `upstream_gene_variant` of the breakend.
+    /// With `--pick`, a transcript keeps one row on a breakend record, and the last record of the
+    /// group has its own picked rows and those of its event: the row of higher impact, here the
+    /// `transcript_ablation` of the event's row of BRCA1, that of NM_007294.4, over the
+    /// `downstream_gene_variant` or `upstream_gene_variant` of the breakend.
     #[rstest::rstest]
     #[tokio::test]
     async fn breakend_group_with_pick_keeps_one_row_per_transcript(
@@ -2994,7 +3121,7 @@ mod test {
                 brca1.clone().count() > 0
                     && brca1
                         .into_iter()
-                        .all(|row| row.contains("transcript_ablation")),
+                        .all(|row| row.contains("transcript_ablation") == (id == "bnd2")),
                 "{id}: {rows:?}"
             );
         }
@@ -3003,8 +3130,8 @@ mod test {
 
     /// A plugin sees an event row of a breakend group as a row of the event: `variants()` gives
     /// the derived `<DEL>` at the `POS` of the event, `structural-variant()` its deletion and
-    /// `breakend()` nothing. The plugin runs once for the group, so its values in the event rows
-    /// are those of every record of the group.
+    /// `breakend()` nothing. The plugin runs once for the group, and its values go to the event
+    /// rows of the last record; the first record has none.
     #[cfg(feature = "wasm")]
     #[tokio::test]
     async fn plugin_sees_event_rows_as_event() -> Result<(), anyhow::Error> {
@@ -3024,7 +3151,7 @@ mod test {
         let (bnd1, bnd2) = (&annotated[0].1, &annotated[1].1);
         let event = event_rows(bnd2);
         assert!(!event.is_empty(), "{bnd2:?}");
-        assert_eq!(event_rows(bnd1), event);
+        assert!(event_rows(bnd1).is_empty(), "{bnd1:?}");
         let view = "~variant-position^41195000~structural-variant^deletion:41279999::false\
                     ~breakend^~";
         assert!(event.iter().all(|row| row.contains(view)), "{event:?}");

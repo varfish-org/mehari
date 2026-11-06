@@ -2,82 +2,43 @@
 //! see `MateGrouper`, each group with its event, see `BreakendEvent`.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, OnceLock};
 
 use itertools::Itertools;
 use noodles::vcf::variant::RecordBuf;
-use noodles::vcf::variant::record::info::field::key::{BREAKEND_EVENT_ID, MATE_BREAKEND_IDS};
+use noodles::vcf::variant::record::info::field::key::{
+    BREAKEND_EVENT_ID, EVENT_TYPE, MATE_BREAKEND_IDS,
+};
 use noodles::vcf::variant::record_buf::info::field::Value as InfoValue;
 use noodles::vcf::variant::record_buf::info::field::value::Array;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::consequence::event::{BreakendEvent, DerivedVariant, EventMember};
-use super::consequence::logic::ConsequencePredictor;
-use super::consequence::{Annotations, Variant, VariantKind};
+use super::consequence::event::{BreakendEvent, EventMember};
+use super::consequence::{Variant, VariantKind};
 use super::{Classified, compound};
 
-/// The event of a closed group, with the annotations of its derived variants, predicted once for
-/// all of its records, see `ConsequencePredictor::predict_event`.
-#[derive(Debug)]
-struct GroupEvent {
-    event: BreakendEvent,
-    annotations: OnceLock<Result<Vec<Annotations>, String>>,
-}
+/// A record that leaves `MateGrouper`, with its allele, and with the event of its group if it is
+/// the last record of a group whose event has a derived variant, see `BreakendEvent::derived`.
+pub type Grouped = (RecordBuf, Classified, Option<BreakendEvent>);
 
-/// The event of a grouped record: the derived variant `derived` of the event of its group, which
-/// its pairs describe, see `BreakendEvent::derived`.
-#[derive(Debug, Clone)]
-pub struct RecordEvent {
-    group: Arc<GroupEvent>,
-    derived: usize,
-}
+/// A place in the input: the rank of a contig, see `MateGrouper::ranks`, and a position on it.
+type Locus = (usize, i32);
 
-impl RecordEvent {
-    /// The variant that the pairs of the record describe.
-    fn variant(&self) -> &DerivedVariant {
-        &self.group.event.derived[self.derived]
-    }
-
-    /// The last changed base of the event.
-    pub fn end(&self) -> i32 {
-        self.variant().sv.end
-    }
-
-    /// The annotations of the event, see `ConsequencePredictor::predict_event`, predicted once
-    /// for all records of the group.
-    pub fn annotations(&self, predictor: &ConsequencePredictor) -> anyhow::Result<&Annotations> {
-        let annotations = (self.group.annotations.get_or_init(|| {
-            (predictor.predict_event(&self.group.event)).map_err(|e| e.to_string())
-        }))
-        .as_ref()
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "failed to annotate {}, the event of breakends: {e}",
-                self.variant().var
-            )
-        })?;
-        Ok(&annotations[self.derived])
-    }
-}
-
-/// A record that leaves `MateGrouper`, with its allele and its event, if any.
-pub type Grouped = (RecordBuf, Classified, Option<RecordEvent>);
-
-/// Holds the input records in order while a group of breakend records among them is open, so
-/// that each record of a group gets the event of its pair, see `push`.
+/// Holds the input records in order while the last record of a group of breakend records waits
+/// for the event of its group, see `push`.
 ///
 /// A breakend record with a mate and with `MATEID` or `EVENT` opens or joins a group: records
 /// with one `EVENT` form a group, and so do records that `MATEID` links. A group is open until
-/// the input passes its deadline, see `deadline`, or the contig changes, or the input ends. Then
-/// its pairs give their events, see `BreakendEvent::new`, and its records whose mates never arrived
-/// count as unresolved. A mate on another contig, e.g. of a translocation, is not waited for. A
-/// closed group is gone: a record that names its `EVENT` or one of its IDs opens a new group.
+/// the input passes its deadline, see `deadline`, or ends. Then its records whose mates never
+/// arrived count as unresolved, and its latest record gets its event, see `BreakendEvent::new`,
+/// if the group derives a variant. Only that record waits, with the records behind it; the
+/// others leave at once. A closed group is gone: a record that names its `EVENT` or one of its
+/// IDs opens a new group.
 #[derive(Default)]
 pub struct MateGrouper {
-    /// The held records in input order, each with its allele and its event, `None` while its
-    /// group is open.
+    /// The held records in input order, each with its allele and its event, `None` while it
+    /// waits for its group.
     #[allow(clippy::type_complexity)]
-    held: VecDeque<(RecordBuf, Classified, Option<Option<RecordEvent>>)>,
+    held: VecDeque<(RecordBuf, Classified, Option<Option<BreakendEvent>>)>,
     /// The input number of the first held record.
     first: usize,
     /// The open groups by number.
@@ -88,9 +49,11 @@ pub struct MateGrouper {
     events: FxHashMap<String, usize>,
     /// The open group of each `ID` and `MATEID`.
     ids: FxHashMap<String, usize>,
-    contig: String,
+    /// The rank of each contig: its index among the `##contig` lines of the header, then, for
+    /// the contigs that the header lacks, the order in which the input reaches them.
+    ranks: FxHashMap<String, usize>,
     /// No open group has an earlier deadline.
-    earliest: i32,
+    earliest: Locus,
     /// The number of records whose mates never arrived.
     pub unresolved: usize,
 }
@@ -98,41 +61,57 @@ pub struct MateGrouper {
 /// An open group of `MateGrouper`.
 #[derive(Default)]
 struct Group {
-    /// The input numbers of the records of `members`.
-    records: Vec<usize>,
-    members: Vec<EventMember>,
+    /// The members, with the variants that they derive.
+    event: BreakendEvent,
     /// The `EVENT`s of the members, its keys in `MateGrouper::events`.
     events: Vec<String>,
     /// The `ID`s and `MATEID`s of the members, its keys in `MateGrouper::ids`.
     ids: Vec<String>,
     /// See `deadline`.
-    deadline: i32,
+    deadline: Locus,
+    /// The input number of the latest member while the group derives a variant: it waits for
+    /// the event.
+    carrier: Option<usize>,
 }
 
 impl MateGrouper {
+    /// A grouper for an input whose header has the `##contig` lines `contigs`, in their order.
+    pub fn new<S: Into<String>>(contigs: impl IntoIterator<Item = S>) -> Self {
+        let ranks = (contigs.into_iter().enumerate())
+            .map(|(rank, contig)| (contig.into(), rank))
+            .collect();
+        Self {
+            ranks,
+            ..Default::default()
+        }
+    }
+
     /// Takes the next record of the input with its allele `variant`, see `super::classify`, and
     /// gives the records that are ready, in input order.
     pub fn push(&mut self, record: RecordBuf, variant: Classified) -> Vec<Grouped> {
-        let mut ready = Vec::new();
-        if record.reference_sequence_name() != self.contig {
-            ready = self.finish();
-            self.contig = record.reference_sequence_name().to_string();
-        }
+        let contig = record.reference_sequence_name();
+        let rank = match self.ranks.get(contig) {
+            Some(&rank) => rank,
+            None => {
+                let rank = self.ranks.len();
+                self.ranks.insert(contig.to_string(), rank);
+                rank
+            }
+        };
         let position = record.variant_start().map_or(0, |pos| pos.get());
-        let position = i32::try_from(position).unwrap_or(i32::MAX);
-        self.close_passed(position);
+        let locus = (rank, i32::try_from(position).unwrap_or(i32::MAX));
+        self.close_passed(locus);
         let number = self.first + self.held.len();
         let member = member(&record, &variant);
-        // A record in no group is ready at once.
+        // A record in no group is ready at once, a member once it joins, see `join`.
         self.held
             .push_back((record, variant, member.is_none().then_some(None)));
         if let Some((member, event)) = member {
             self.join(number, member, event);
             // A group whose mates lie in front of the record and are gone closes at once.
-            self.close_passed(position);
+            self.close_passed(locus);
         }
-        ready.extend(self.drain());
-        ready
+        self.drain()
     }
 
     /// Closes the open groups, and gives all held records, as at the end of the input.
@@ -143,7 +122,7 @@ impl MateGrouper {
         self.drain()
     }
 
-    /// The held records in front of the first one of an open group.
+    /// The held records in front of the first one that waits for its group.
     fn drain(&mut self) -> Vec<Grouped> {
         let mut ready = Vec::new();
         while let Some((_, _, Some(_))) = self.held.front() {
@@ -157,6 +136,8 @@ impl MateGrouper {
 
     /// Adds `member`, the record of the input with the number `record`, with its `EVENT` to the
     /// open group that one of its keys names, or to a new group. The groups that it names merge.
+    /// The record waits for the event if the group with it derives a variant, and the member
+    /// that waited before leaves.
     fn join(&mut self, record: usize, member: EventMember, event: Option<String>) {
         let named = (event.iter().filter_map(|event| self.events.get(event)))
             .chain((member.ids.iter().chain(&member.mate_ids)).filter_map(|id| self.ids.get(id)))
@@ -168,6 +149,7 @@ impl MateGrouper {
             self.next - 1
         });
         let mut group = self.groups.remove(&number).unwrap_or_default();
+        let mut members = std::mem::take(&mut group.event.members);
         for other in named.iter().skip(1) {
             if let Some(other) = self.groups.remove(other) {
                 for key in &other.events {
@@ -176,10 +158,10 @@ impl MateGrouper {
                 for key in &other.ids {
                     self.ids.insert(key.clone(), number);
                 }
-                group.records.extend(other.records);
-                group.members.extend(other.members);
+                members.extend(other.event.members);
                 group.events.extend(other.events);
                 group.ids.extend(other.ids);
+                self.release(other.carrier);
             }
         }
         if let Some(key) = event {
@@ -190,20 +172,34 @@ impl MateGrouper {
             self.ids.insert(key.clone(), number);
             group.ids.push(key.clone());
         }
-        group.records.push(record);
-        group.members.push(member);
-        group.deadline = deadline(&self.contig, &group.members);
+        members.push(member);
+        group.event = BreakendEvent::new(members);
+        group.deadline = self.deadline(&group.event.members);
         self.earliest = self.earliest.min(group.deadline);
+        self.release(group.carrier.take());
+        if group.event.derived.is_empty() {
+            self.release(Some(record));
+        } else {
+            group.carrier = Some(record);
+        }
         self.groups.insert(number, group);
     }
 
-    /// Closes the groups whose deadline lies in front of `position`.
-    fn close_passed(&mut self, position: i32) {
-        if position <= self.earliest {
+    /// Lets the held record with the input number `record`, if any, leave without an event.
+    fn release(&mut self, record: Option<usize>) {
+        if let Some((_, _, slot)) = record.and_then(|record| self.held.get_mut(record - self.first))
+        {
+            *slot = Some(None);
+        }
+    }
+
+    /// Closes the groups whose deadline lies in front of `locus`.
+    fn close_passed(&mut self, locus: Locus) {
+        if locus <= self.earliest {
             return;
         }
         let passed = (self.groups.iter())
-            .filter(|(_, group)| group.deadline < position)
+            .filter(|(_, group)| group.deadline < locus)
             .map(|(&number, _)| number)
             .collect_vec();
         for number in passed {
@@ -212,11 +208,11 @@ impl MateGrouper {
         self.earliest = (self.groups.values())
             .map(|group| group.deadline)
             .min()
-            .unwrap_or(i32::MAX);
+            .unwrap_or((usize::MAX, i32::MAX));
     }
 
-    /// Closes the group `number`: the records of its pairs get their events, see
-    /// `BreakendEvent::new`, and those whose mates never arrived count as unresolved.
+    /// Closes the group `number`: its records whose mates never arrived count as unresolved, and
+    /// the member that waits gets the event.
     fn close(&mut self, number: usize) {
         let Some(group) = self.groups.remove(&number) else {
             return;
@@ -227,26 +223,38 @@ impl MateGrouper {
         for key in &group.ids {
             self.ids.remove(key);
         }
-        self.unresolved += missing_mates(&self.contig, &group.members);
-        let group_event = Arc::new(GroupEvent {
-            event: BreakendEvent::new(&self.contig, group.members),
-            annotations: OnceLock::new(),
-        });
-        let mut events = vec![None; group.records.len()];
-        for (derived, variant) in group_event.event.derived.iter().enumerate() {
-            for &i in &variant.members {
-                events[i] = Some(RecordEvent {
-                    group: group_event.clone(),
-                    derived,
-                });
-            }
+        self.unresolved += missing_mates(&group.event.members);
+        if let Some((_, _, slot)) =
+            (group.carrier).and_then(|record| self.held.get_mut(record - self.first))
+        {
+            *slot = Some(Some(group.event));
         }
-        // Records leave only once their group is closed, so those of the members are held.
-        for (record, event) in group.records.iter().zip(events) {
-            if let Some((_, _, slot)) = self.held.get_mut(record - self.first) {
-                *slot = Some(event);
-            }
-        }
+    }
+
+    /// The locus after which a group of `members` stops waiting for mates: that of the farthest
+    /// mate, with the largest `CIPOS` maximum among them added to its position, as an imprecise
+    /// mate can lie behind the position that its partner names, see `BreakendEvent::new`. A mate
+    /// on a contig that the header lacks and that the input has not reached ranks last, and one
+    /// on an assembly contig is not waited for, see `is_assembly`. Without a mate to wait for,
+    /// the first locus.
+    fn deadline(&self, members: &[EventMember]) -> Locus {
+        let slack = (members.iter())
+            .filter_map(|member| member.breakend.cipos)
+            .map(|(_, max)| max.max(0))
+            .max()
+            .unwrap_or(0);
+        (members.iter())
+            .filter_map(|member| member.breakend.mate.as_ref())
+            .filter(|mate| !is_assembly(&mate.chromosome))
+            .map(|mate| {
+                let rank = self.ranks.get(&mate.chromosome).copied();
+                (
+                    rank.unwrap_or(usize::MAX),
+                    mate.position.saturating_add(slack),
+                )
+            })
+            .max()
+            .unwrap_or((0, i32::MIN))
     }
 }
 
@@ -270,6 +278,8 @@ fn member(record: &RecordBuf, variant: &Classified) -> Option<(EventMember, Opti
         breakend,
         ids: record.ids().as_ref().iter().cloned().collect(),
         mate_ids,
+        event_type: compound::string(record, EVENT_TYPE)
+            .and_then(|event_type| event_type.parse().ok()),
     };
     Some((member, event))
 }
@@ -283,37 +293,25 @@ fn mate_ids(record: &RecordBuf) -> Vec<String> {
     }
 }
 
-/// The position after which a group of `members` on `chromosome` stops waiting for mates: the
-/// largest mate position on `chromosome`, plus the largest `CIPOS` maximum among them, as an
-/// imprecise mate can lie behind the position that its partner names, see
-/// `BreakendEvent::new`. `i32::MIN` without a mate on `chromosome`.
-fn deadline(chromosome: &str, members: &[EventMember]) -> i32 {
-    let slack = (members.iter())
-        .filter_map(|member| member.breakend.cipos)
-        .map(|(_, max)| max.max(0))
-        .max()
-        .unwrap_or(0);
-    (members.iter())
-        .filter_map(|member| member.breakend.mate.as_ref())
-        .filter(|mate| mate.chromosome == chromosome)
-        .map(|mate| mate.position)
-        .max()
-        .map_or(i32::MIN, |position| position.saturating_add(slack))
+/// Whether `contig` is that of an assembly, e.g. `<ctg1>` of an inserted contig in VCF 4.5,
+/// which has no records in the input.
+fn is_assembly(contig: &str) -> bool {
+    contig.starts_with('<')
 }
 
-/// The number of `members` whose mates on `chromosome` are not among them: those that `MATEID`
-/// names, else those at the mate positions of their breakends.
-fn missing_mates(chromosome: &str, members: &[EventMember]) -> usize {
+/// The number of `members` whose mates are not among them: those that `MATEID` names, else those
+/// at the mate positions of their breakends. A mate on an assembly contig is no record.
+fn missing_mates(members: &[EventMember]) -> usize {
     let ids = members
         .iter()
         .flat_map(|member| &member.ids)
         .collect::<FxHashSet<_>>();
     (members.iter())
         .filter(|member| match &member.breakend.mate {
-            Some(mate) if mate.chromosome != chromosome => false,
-            Some(mate) if member.mate_ids.is_empty() => !members
-                .iter()
-                .any(|other| other.var.position == mate.position),
+            Some(mate) if is_assembly(&mate.chromosome) => false,
+            Some(mate) if member.mate_ids.is_empty() => !members.iter().any(|other| {
+                other.var.chromosome == mate.chromosome && other.var.position == mate.position
+            }),
             _ => !member.mate_ids.iter().all(|id| ids.contains(id)),
         })
         .count()
@@ -378,6 +376,7 @@ mod test {
     #[case::translocation(vec![("13", 100, "]17:200]T", "a", "b"), ("17", 200, "G[13:100[", "b", "a")], 0)]
     #[case::head_to_head_pair(vec![("17", 100, "G]17:200]", "a", "b"), ("17", 200, "T]17:100]", "b", "a")], 0)]
     #[case::deletion(vec![("17", 100, "G[17:200[", "a", "b"), ("17", 200, "]17:100]T", "b", "a")], 0)]
+    #[case::inserted_contig(vec![("17", 100, "G[<ctg1>:1[", "a", "c"), ("17", 101, "]<ctg1>:329]T", "b", "d")], 0)]
     fn unresolved_records(
         #[case] records: Vec<(&str, usize, &str, &str, &str)>,
         #[case] unresolved: usize,
@@ -396,71 +395,150 @@ mod test {
         assert_eq!(grouper.unresolved, unresolved);
     }
 
-    /// A group holds the records from its first one until the input passes its deadline, the
-    /// largest mate position plus the largest `CIPOS` maximum, so a missing mate costs nothing
-    /// beyond that: the records behind it flow. A record whose mate lies in front of it in a
-    /// closed group does not wait.
+    /// A record leaves at once, unless it is the latest member of a group that derives a
+    /// variant: then it waits with the records behind it until the input passes the deadline of
+    /// the group, the farthest mate plus the largest `CIPOS` maximum, and gets the event. The
+    /// contigs rank in the order of the header, 2, 13 and 17, so a translocation completes on its
+    /// last record. A group whose mate never arrives closes at its deadline, at once if the mate
+    /// lies in front of the record, and at the end of the input if the mate lies on a contig
+    /// that the header lacks, here 21; its records whose mates never arrived count, also one of
+    /// a group whose event the latest member then gets. `unresolved` is that count after the
+    /// input and after `finish`.
     #[rstest::rstest]
+    #[case::deletion_pair(
+        &[("17", 100, "G[17:200[", "a", "MATEID=b"), ("17", 150, "C", "s", ""), ("17", 200, "]17:100]T", "b", "MATEID=a"), ("17", 201, "C", "t", "")],
+        &[1, 1, 0, 2],
+        &["b"],
+        (0, 0),
+    )]
+    #[case::imprecise_pair(
+        &[("17", 100, "G[17:205[", "a", "MATEID=b;IMPRECISE;CIPOS=-10,10"), ("17", 200, "]17:95]T", "b", "MATEID=a;IMPRECISE;CIPOS=-10,10"), ("17", 215, "C", "s", ""), ("17", 216, "C", "t", "")],
+        &[1, 0, 0, 3],
+        &["b"],
+        (0, 0),
+    )]
     #[case::missing_mate(
-        &[(100, "G[17:200[", "MATEID=gone"), (150, "C", ""), (200, "C", ""), (201, "C", ""), (300, "C", "")],
-        &[0, 0, 0, 4, 1],
+        &[("17", 100, "G[17:200[", "a", "MATEID=gone"), ("17", 150, "C", "s", ""), ("17", 200, "C", "t", ""), ("17", 201, "C", "u", "")],
+        &[1, 1, 1, 1],
+        &[],
+        (1, 1),
     )]
     #[case::imprecise_missing_mate(
-        &[(100, "G[17:200[", "MATEID=gone;IMPRECISE;CIPOS=-10,10"), (201, "C", ""), (210, "C", ""), (211, "C", "")],
-        &[0, 0, 0, 4],
+        &[("17", 100, "G[17:200[", "a", "MATEID=gone;IMPRECISE;CIPOS=-10,10"), ("17", 201, "C", "s", ""), ("17", 210, "C", "t", ""), ("17", 211, "C", "u", "")],
+        &[1, 1, 1, 1],
+        &[],
+        (1, 1),
     )]
     #[case::mate_in_closed_group(
-        &[(100, "G[17:200[", "MATEID=b"), (200, "]17:100]T", "MATEID=a"), (300, "]17:100]T", "MATEID=a")],
-        &[0, 0, 3],
+        &[("17", 100, "G[17:200[", "a", "MATEID=b"), ("17", 200, "]17:100]T", "b", "MATEID=a"), ("17", 300, "]17:100]T", "c", "MATEID=a")],
+        &[1, 0, 2],
+        &["b"],
+        (1, 1),
     )]
-    fn records_wait_until_deadline(
-        #[case] records: &[(usize, &str, &str)],
+    #[case::dangling_member(
+        &[("17", 100, "G[17:200[", "a", "EVENT=e"), ("17", 150, "G[17:400[", "c", "EVENT=e"), ("17", 200, "]17:100]T", "b", "EVENT=e"), ("17", 300, "C", "s", ""), ("17", 401, "C", "t", "")],
+        &[1, 1, 0, 0, 3],
+        &["b"],
+        (1, 1),
+    )]
+    #[case::translocation(
+        &[("2", 100, "G[13:200[", "a", "MATEID=b"), ("2", 300, "C", "s", ""), ("13", 200, "]2:100]T", "b", "MATEID=a"), ("13", 300, "C", "t", "")],
+        &[1, 1, 1, 1],
+        &[],
+        (0, 0),
+    )]
+    #[case::event_across_contigs(
+        &[("13", 100, "G[13:200[", "a", "EVENT=e"), ("13", 150, "G[17:500[", "c", "EVENT=e"), ("13", 200, "]13:100]T", "b", "EVENT=e"), ("17", 500, "]13:150]T", "d", "EVENT=e")],
+        &[1, 1, 0, 1],
+        &["d"],
+        (0, 0),
+    )]
+    #[case::mate_on_contig_without_header_line(
+        &[("17", 100, "G[21:200[", "a", "MATEID=gone"), ("17", 300, "C", "s", "")],
+        &[1, 1],
+        &[],
+        (0, 1),
+    )]
+    #[case::mate_on_passed_contig(
+        &[("17", 100, "G[13:200[", "a", "MATEID=gone")],
+        &[1],
+        &[],
+        (1, 1),
+    )]
+    fn records_leave_at_once_but_last(
+        #[case] records: &[(&str, usize, &str, &str, &str)],
         #[case] ready: &[usize],
+        #[case] carriers: &[&str],
+        #[case] unresolved: (usize, usize),
     ) {
-        let mut grouper = MateGrouper::default();
-        let ids = ["a", "b", "c", "d", "e"];
-        let pushed = (records.iter().zip(ids))
-            .map(|(&(position, alt, info), id)| {
-                push(&mut grouper, record("17", position, alt, id, info)).len()
-            })
-            .collect_vec();
+        let mut grouper = MateGrouper::new(["2", "13", "17"]);
+        let mut grouped = Vec::new();
+        let mut pushed = Vec::new();
+        for &(contig, position, alt, id, info) in records {
+            let out = push(&mut grouper, record(contig, position, alt, id, info));
+            pushed.push(out.len());
+            grouped.extend(out);
+        }
         assert_eq!(pushed, ready);
-        assert!(grouper.finish().is_empty());
-        assert_eq!(grouper.unresolved, 1);
+        let after_input = grouper.unresolved;
+        grouped.extend(grouper.finish());
+        assert_eq!((after_input, grouper.unresolved), unresolved);
+        let with_event = (grouped.iter())
+            .filter(|(_, _, event)| event.is_some())
+            .map(|(record, _, _)| record.ids().as_ref().iter().join(";"))
+            .collect_vec();
+        assert_eq!(with_event, carriers);
+        assert_eq!(grouped.len(), records.len());
     }
 
-    /// The event of each record as its POS, end and whether it is imprecise: each pair of a
-    /// group gives its own, also a pair whose IDs an earlier pair had, and two pairs of one
-    /// `EVENT`, one after the other or interleaved. Two records that `MATEID` links pair if the
-    /// mate position of each lies within the `CIPOS` of the other, VCF 4.5 5.4.8.
+    /// The variants of the event that the records get, as the index of the record, POS, end and
+    /// whether it is imprecise: the last record of a group gets them all. Two pairs one after the
+    /// other give two deletions, also when the second has the IDs of the first. Two interleaved
+    /// pairs of one `EVENT` lose the bases between their inner breakends; the bases between an
+    /// outer and an inner one move, so their place is unknown. Two records that `MATEID` links
+    /// pair if the mate position of each lies within the `CIPOS` of the other, VCF 4.5 5.4.8. A
+    /// breakend with two mates, split into two records with its ID, VCF 4.5 5.4.3, pairs with
+    /// each mate on its own. The junction of a double minute closes a circle, a copy elsewhere.
     #[rstest::rstest]
     #[case::reused_ids(
         &[(100, "G[17:200[", "a", "MATEID=b"), (200, "]17:100]T", "b", "MATEID=a"), (300, "G[17:400[", "a", "MATEID=b"), (400, "]17:300]T", "b", "MATEID=a")],
-        &[Some((100, 199, false)), Some((100, 199, false)), Some((300, 399, false)), Some((300, 399, false))],
+        &[(1, 100, 199, false), (3, 300, 399, false)],
     )]
     #[case::event_of_pairs_in_turn(
         &[(100, "G[17:200[", "a", "EVENT=e"), (200, "]17:100]T", "b", "EVENT=e"), (300, "G[17:400[", "c", "EVENT=e"), (400, "]17:300]T", "d", "EVENT=e")],
-        &[Some((100, 199, false)), Some((100, 199, false)), Some((300, 399, false)), Some((300, 399, false))],
+        &[(1, 100, 199, false), (3, 300, 399, false)],
     )]
     #[case::event_of_interleaved_pairs(
         &[(100, "G[17:300[", "a", "EVENT=e"), (200, "G[17:400[", "b", "EVENT=e"), (300, "]17:100]T", "c", "EVENT=e"), (400, "]17:200]T", "d", "EVENT=e")],
-        &[Some((100, 299, false)), Some((200, 399, false)), Some((100, 299, false)), Some((200, 399, false))],
+        &[(3, 200, 299, false)],
     )]
     #[case::imprecise_pair(
         &[(100, "G[17:205[", "a", "MATEID=b;IMPRECISE;CIPOS=-10,10"), (200, "]17:95]T", "b", "MATEID=a;IMPRECISE;CIPOS=-10,10")],
-        &[Some((100, 199, true)), Some((100, 199, true))],
+        &[(1, 100, 199, true)],
     )]
     #[case::imprecise_pair_beyond_cipos(
         &[(100, "G[17:215[", "a", "MATEID=b;IMPRECISE;CIPOS=-10,10"), (200, "]17:95]T", "b", "MATEID=a;IMPRECISE;CIPOS=-10,10")],
-        &[None, None],
+        &[],
     )]
     #[case::imprecise_pair_without_mate_ids(
         &[(100, "G[17:205[", "a", "EVENT=e;IMPRECISE;CIPOS=-10,10"), (200, "]17:95]T", "b", "EVENT=e;IMPRECISE;CIPOS=-10,10")],
-        &[None, None],
+        &[],
+    )]
+    #[case::multiple_mates(
+        &[(100, "G[17:200[", "u", "MATEID=v"), (100, "G[13:300[", "u", "MATEID=z"), (200, "]17:100]T", "v", "MATEID=u")],
+        &[(2, 100, 199, false)],
+    )]
+    #[case::multiple_mates_in_other_order(
+        &[(100, "G[13:300[", "u", "MATEID=z"), (100, "G[17:200[", "u", "MATEID=v"), (200, "]17:100]T", "v", "MATEID=u")],
+        &[(2, 100, 199, false)],
+    )]
+    #[case::double_minute(
+        &[(100, "]17:200]G", "a", "MATEID=b;EVENTTYPE=DOUBLEMINUTE"), (200, "T[17:100[", "b", "MATEID=a;EVENTTYPE=DOUBLEMINUTE")],
+        &[(1, 99, 200, false)],
     )]
     fn events_of_pairs(
         #[case] records: &[(usize, &str, &str, &str)],
-        #[case] expected: &[Option<(i32, i32, bool)>],
+        #[case] expected: &[(usize, i32, i32, bool)],
     ) {
         let mut grouper = MateGrouper::default();
         let mut grouped = Vec::new();
@@ -468,11 +546,11 @@ mod test {
             grouped.extend(push(&mut grouper, record("17", position, alt, id, info)));
         }
         grouped.extend(grouper.finish());
-        let events = (grouped.iter())
-            .map(|(_, _, event)| {
-                (event.as_ref()).map(|event| {
-                    let derived = event.variant();
-                    (derived.var.position, derived.sv.end, derived.sv.imprecise)
+        let events = (grouped.iter().enumerate())
+            .flat_map(|(i, (_, _, event))| {
+                (event.iter().flat_map(|event| &event.derived)).map(move |derived| {
+                    let sv = &derived.sv;
+                    (i, derived.var.position, sv.end, sv.imprecise)
                 })
             })
             .collect_vec();
