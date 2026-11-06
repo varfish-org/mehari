@@ -2415,6 +2415,7 @@ mod test {
                  ##INFO=<ID=CIPOS,Number=.,Type=Integer,Description=\"Interval\">\n\
                  ##INFO=<ID=MATEID,Number=A,Type=String,Description=\"ID of mate breakend\">\n\
                  ##INFO=<ID=EVENT,Number=A,Type=String,Description=\"ID of associated event\">\n\
+                 ##INFO=<ID=EVENTTYPE,Number=A,Type=String,Description=\"Type of associated event\">\n\
                  ##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n\
                  ##contig=<ID=13,length=115169878>\n\
                  ##contig=<ID=17,length=81195210>\n\
@@ -2800,7 +2801,7 @@ mod test {
     /// transcripts, which lie between 41196312 and 41277500, give each of their records the row
     /// of the event, one for the gene, with the allele of the record, next to their own rows:
     /// those of a breakend downstream or upstream of the transcripts. `EVENT` groups them as
-    /// `MATEID` does.
+    /// `MATEID` does, and an `EVENTTYPE` of their event keeps it.
     #[rstest::rstest]
     #[case::deletion(
         "17\t41195000\tbnd1\tG\tG[17:41280000[\t.\t.\tMATEID=bnd2\tGT\t0/1\n\
@@ -2817,6 +2818,12 @@ mod test {
     #[case::tandem_duplication(
         "17\t41195000\tbnd1\tG\t]17:41280000]G\t.\t.\tMATEID=bnd2\tGT\t0/1\n\
          17\t41280000\tbnd2\tT\tT[17:41195000[\t.\t.\tMATEID=bnd1\tGT\t0/1\n",
+        "|BRCA1|",
+        "|g.41195000_41280000dup|"
+    )]
+    #[case::tandem_duplication_by_event_type(
+        "17\t41195000\tbnd1\tG\t]17:41280000]G\t.\t.\tMATEID=bnd2;EVENTTYPE=DUP:TANDEM\tGT\t0/1\n\
+         17\t41280000\tbnd2\tT\tT[17:41195000[\t.\t.\tMATEID=bnd1;EVENTTYPE=DUP:TANDEM\tGT\t0/1\n",
         "|BRCA1|",
         "|g.41195000_41280000dup|"
     )]
@@ -2865,7 +2872,8 @@ mod test {
         Ok(())
     }
 
-    /// A group without an event keeps the rows of its breakends only. Mehari counts the records
+    /// A group without an event keeps the rows of its breakends only, also a pair whose
+    /// `EVENTTYPE` is not the event of its shape. Mehari counts the records
     /// whose mates never arrived in one warning, also at a contig change, but not those of a
     /// translocation, whose mate lies on another contig, nor a head-to-head pair without its
     /// tail-to-tail pair.
@@ -2890,6 +2898,16 @@ mod test {
          17\t41280000\tbnd2\tT\tT]17:41195000]\t.\t.\tMATEID=bnd1\tGT\t0/1\n",
         0
     )]
+    #[case::double_minute(
+        "17\t41195000\tbnd1\tG\t]17:41280000]G\t.\t.\tMATEID=bnd2;EVENTTYPE=DOUBLEMINUTE\tGT\t0/1\n\
+         17\t41280000\tbnd2\tT\tT[17:41195000[\t.\t.\tMATEID=bnd1;EVENTTYPE=DOUBLEMINUTE\tGT\t0/1\n",
+        0
+    )]
+    #[case::deletion_as_translocation(
+        "17\t41195000\tbnd1\tG\tG[17:41280000[\t.\t.\tMATEID=bnd2;EVENTTYPE=TRA\tGT\t0/1\n\
+         17\t41280000\tbnd2\tT\t]17:41195000]T\t.\t.\tMATEID=bnd1;EVENTTYPE=TRA\tGT\t0/1\n",
+        0
+    )]
     #[tokio::test]
     async fn breakend_group_without_event(
         #[case] records: &str,
@@ -2911,6 +2929,28 @@ mod test {
             assert!(logs_contain(&format!(
                 "{count} breakend record(s) whose MATEID or EVENT mates never arrived"
             )));
+        }
+        Ok(())
+    }
+
+    /// The breakends of a contig inserted behind 41215930, whose mates lie on the contig `<ctg1>`
+    /// of an assembly, VCF 4.5 5.4.2, keep the rows of their own junctions, without `HGVS.g`, as
+    /// the reference lacks the contig, and get no event.
+    #[tokio::test]
+    async fn breakends_of_inserted_contig() -> Result<(), anyhow::Error> {
+        let records = "17\t41215930\tins1\tG\tG[<ctg1>:1[\t.\t.\tEVENT=ins\tGT\t0/1\n\
+                       17\t41215931\tins2\tA\t]<ctg1>:329]A\t.\t.\tEVENT=ins\tGT\t0/1\n";
+        let annotated = annotate_records(records, false).await?;
+        assert_eq!(annotated.len(), 2);
+        for (id, rows) in &annotated {
+            assert!(
+                rows.iter().any(|row| row.contains("feature_truncation")),
+                "{id}: {rows:?}"
+            );
+            assert!(
+                rows.iter().all(|row| !row.contains("|g.")),
+                "{id}: {rows:?}"
+            );
         }
         Ok(())
     }

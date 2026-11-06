@@ -24,6 +24,38 @@ pub struct EventMember {
     pub ids: Vec<String>,
     /// The `MATEID`s of its record.
     pub mate_ids: Vec<String>,
+    /// The `EVENTTYPE` of its record, e.g. `DEL`.
+    pub event_type: Option<EventType>,
+}
+
+/// `EVENTTYPE` of VCF 4.5: the type of the event of a breakend. `Other` keeps a type that the
+/// spec does not reserve.
+#[derive(Debug, PartialEq, Eq, Hash, Clone, strum::EnumString, strum::Display)]
+#[strum(serialize_all = "UPPERCASE")]
+pub enum EventType {
+    Del,
+    #[strum(serialize = "DEL:ME")]
+    DelMe,
+    Ins,
+    #[strum(serialize = "INS:ME")]
+    InsMe,
+    Dup,
+    #[strum(serialize = "DUP:TANDEM")]
+    DupTandem,
+    #[strum(serialize = "DUP:DISPERSED")]
+    DupDispersed,
+    Inv,
+    Tra,
+    #[strum(serialize = "TRA:BALANCED")]
+    TraBalanced,
+    #[strum(serialize = "TRA:UNBALANCED")]
+    TraUnbalanced,
+    Chromothripsis,
+    Chromoplexy,
+    Bfb,
+    DoubleMinute,
+    #[strum(default)]
+    Other(String),
 }
 
 /// A variant that pairs of breakends of a `BreakendEvent` describe, as a symbolic allele with
@@ -41,9 +73,36 @@ pub struct DerivedVariant {
 
 impl BreakendEvent {
     /// The event of `members`, breakends on `chromosome`, with the variants that their pairs
-    /// describe, see `derive_events`.
+    /// describe, see `derive_events`. If a member of a pair has an `EVENTTYPE`, only a variant
+    /// of that type is derived from it: `DEL`, `DUP:TANDEM` or `DUP`, or `INV`. Any other type,
+    /// e.g. `TRA` or `DOUBLEMINUTE`, and members of different types give none. `EVENTTYPE` is
+    /// per allele, so a group that a shared ID forms from two adjacencies checks each on its own.
     pub fn new(chromosome: &str, members: Vec<EventMember>) -> Self {
-        let derived = derive_events(chromosome, &members);
+        let mut derived = derive_events(chromosome, &members);
+        derived.retain(|derived| {
+            let types = (derived.members.iter())
+                .filter_map(|&i| members[i].event_type.as_ref())
+                .unique()
+                .collect_vec();
+            let fits = match types[..] {
+                [] => true,
+                [event_type] => matches!(
+                    (event_type, derived.sv.kind),
+                    ("DEL", SvKind::Deletion)
+                        | ("DUP:TANDEM" | "DUP", SvKind::Duplication { .. })
+                        | ("INV", SvKind::Inversion)
+                ),
+                _ => false,
+            };
+            if !fits {
+                tracing::debug!(
+                    "{}: not derived from breakends with EVENTTYPE {}",
+                    derived.var,
+                    types.iter().join(",")
+                );
+            }
+            fits
+        });
         Self { members, derived }
     }
 }
@@ -202,7 +261,7 @@ fn derive_events(chromosome: &str, members: &[EventMember]) -> Vec<DerivedVarian
 
 #[cfg(test)]
 mod test {
-    use super::{EventMember, derive_events};
+    use super::{BreakendEvent, EventMember, EventType, derive_events};
     use crate::annotate::seqvars::consequence::{StructuralVariant, SvKind, VcfVariant};
     use itertools::Itertools;
 
@@ -221,6 +280,7 @@ mod test {
             breakend,
             ids: Vec::new(),
             mate_ids: Vec::new(),
+            event_type: None,
         }
     }
 
@@ -351,5 +411,59 @@ mod test {
             .map(|derived| (derived.members, derived.inserted))
             .collect_vec();
         assert_eq!(events, [(indices.to_vec(), inserted)]);
+    }
+
+    /// `EVENTTYPE` keeps a derived variant of its type only: a pair that looks like a deletion
+    /// or a tandem duplication can be part of a translocation or a double minute.
+    #[rstest::rstest]
+    #[case::deletion(&[(100, "G[17:200[", Some("DEL")), (200, "]17:100]T", Some("DEL"))], true)]
+    #[case::deletion_as_translocation(&[(100, "G[17:200[", Some("TRA")), (200, "]17:100]T", Some("TRA"))], false)]
+    #[case::different_types(&[(100, "G[17:200[", Some("DEL")), (200, "]17:100]T", Some("DUP"))], false)]
+    #[case::tandem_duplication(&[(100, "]17:200]G", Some("DUP:TANDEM")), (200, "T[17:100[", None)], true)]
+    #[case::duplication(&[(100, "]17:200]G", Some("DUP")), (200, "T[17:100[", Some("DUP"))], true)]
+    #[case::double_minute(&[(100, "]17:200]G", Some("DOUBLEMINUTE")), (200, "T[17:100[", Some("DOUBLEMINUTE"))], false)]
+    #[case::inversion(
+        &[(100, "G]17:200]", Some("INV")), (101, "[17:201[T", Some("INV")), (200, "A]17:100]", Some("INV")), (201, "[17:101[C", Some("INV"))],
+        true,
+    )]
+    #[case::per_pair(
+        &[(100, "T[17:200[", Some("DEL")), (200, "]17:100]A", Some("DEL")), (300, "T[17:400[", Some("TRA")), (400, "]17:300]A", Some("TRA"))],
+        true,
+    )]
+    fn event_type_restricts_event(
+        #[case] records: &[(i32, &str, Option<&str>)],
+        #[case] derived: bool,
+    ) {
+        let members = (records.iter())
+            .map(|&(position, alt, event_type)| EventMember {
+                event_type: event_type.map(|event_type| event_type.parse().unwrap()),
+                ..member(position, alt, None)
+            })
+            .collect_vec();
+        let event = BreakendEvent::new("17", members);
+        assert_eq!(event.derived.len(), usize::from(derived));
+    }
+
+    /// `EVENTTYPE` reads and writes the values that VCF 4.5 reserves, and keeps any other.
+    #[rstest::rstest]
+    #[case("DEL", EventType::Del)]
+    #[case("DEL:ME", EventType::DelMe)]
+    #[case("INS", EventType::Ins)]
+    #[case("INS:ME", EventType::InsMe)]
+    #[case("DUP", EventType::Dup)]
+    #[case("DUP:TANDEM", EventType::DupTandem)]
+    #[case("DUP:DISPERSED", EventType::DupDispersed)]
+    #[case("INV", EventType::Inv)]
+    #[case("TRA", EventType::Tra)]
+    #[case("TRA:BALANCED", EventType::TraBalanced)]
+    #[case("TRA:UNBALANCED", EventType::TraUnbalanced)]
+    #[case("CHROMOTHRIPSIS", EventType::Chromothripsis)]
+    #[case("CHROMOPLEXY", EventType::Chromoplexy)]
+    #[case("BFB", EventType::Bfb)]
+    #[case("DOUBLEMINUTE", EventType::DoubleMinute)]
+    #[case("del", EventType::Other("del".into()))]
+    fn event_type_values(#[case] value: &str, #[case] event_type: EventType) {
+        assert_eq!(value.parse(), Ok(event_type.clone()));
+        assert_eq!(event_type.to_string(), value);
     }
 }

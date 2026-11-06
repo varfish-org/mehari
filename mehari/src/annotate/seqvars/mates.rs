@@ -6,7 +6,9 @@ use std::sync::{Arc, OnceLock};
 
 use itertools::Itertools;
 use noodles::vcf::variant::RecordBuf;
-use noodles::vcf::variant::record::info::field::key::{BREAKEND_EVENT_ID, MATE_BREAKEND_IDS};
+use noodles::vcf::variant::record::info::field::key::{
+    BREAKEND_EVENT_ID, EVENT_TYPE, MATE_BREAKEND_IDS,
+};
 use noodles::vcf::variant::record_buf::info::field::Value as InfoValue;
 use noodles::vcf::variant::record_buf::info::field::value::Array;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -270,6 +272,8 @@ fn member(record: &RecordBuf, variant: &Classified) -> Option<(EventMember, Opti
         breakend,
         ids: record.ids().as_ref().iter().cloned().collect(),
         mate_ids,
+        event_type: compound::string(record, EVENT_TYPE)
+            .and_then(|event_type| event_type.parse().ok()),
     };
     Some((member, event))
 }
@@ -378,6 +382,7 @@ mod test {
     #[case::translocation(vec![("13", 100, "]17:200]T", "a", "b"), ("17", 200, "G[13:100[", "b", "a")], 0)]
     #[case::head_to_head_pair(vec![("17", 100, "G]17:200]", "a", "b"), ("17", 200, "T]17:100]", "b", "a")], 0)]
     #[case::deletion(vec![("17", 100, "G[17:200[", "a", "b"), ("17", 200, "]17:100]T", "b", "a")], 0)]
+    #[case::inserted_contig(vec![("17", 100, "G[<ctg1>:1[", "a", "c"), ("17", 101, "]<ctg1>:329]T", "b", "d")], 0)]
     fn unresolved_records(
         #[case] records: Vec<(&str, usize, &str, &str, &str)>,
         #[case] unresolved: usize,
@@ -432,7 +437,9 @@ mod test {
     /// The event of each record as its POS, end and whether it is imprecise: each pair of a
     /// group gives its own, also a pair whose IDs an earlier pair had, and two pairs of one
     /// `EVENT`, one after the other or interleaved. Two records that `MATEID` links pair if the
-    /// mate position of each lies within the `CIPOS` of the other, VCF 4.5 5.4.8.
+    /// mate position of each lies within the `CIPOS` of the other, VCF 4.5 5.4.8. A breakend with
+    /// two mates, split into two records with its ID, VCF 4.5 5.4.3, pairs with each mate on its
+    /// own, and an `EVENTTYPE` that the pair does not have gives no event.
     #[rstest::rstest]
     #[case::reused_ids(
         &[(100, "G[17:200[", "a", "MATEID=b"), (200, "]17:100]T", "b", "MATEID=a"), (300, "G[17:400[", "a", "MATEID=b"), (400, "]17:300]T", "b", "MATEID=a")],
@@ -456,6 +463,18 @@ mod test {
     )]
     #[case::imprecise_pair_without_mate_ids(
         &[(100, "G[17:205[", "a", "EVENT=e;IMPRECISE;CIPOS=-10,10"), (200, "]17:95]T", "b", "EVENT=e;IMPRECISE;CIPOS=-10,10")],
+        &[None, None],
+    )]
+    #[case::multiple_mates(
+        &[(100, "G[17:200[", "u", "MATEID=v"), (100, "G[13:300[", "u", "MATEID=z"), (200, "]17:100]T", "v", "MATEID=u")],
+        &[Some((100, 199, false)), None, Some((100, 199, false))],
+    )]
+    #[case::multiple_mates_in_other_order(
+        &[(100, "G[13:300[", "u", "MATEID=z"), (100, "G[17:200[", "u", "MATEID=v"), (200, "]17:100]T", "v", "MATEID=u")],
+        &[None, Some((100, 199, false)), Some((100, 199, false))],
+    )]
+    #[case::double_minute(
+        &[(100, "]17:200]G", "a", "MATEID=b;EVENTTYPE=DOUBLEMINUTE"), (200, "T[17:100[", "b", "MATEID=a;EVENTTYPE=DOUBLEMINUTE")],
         &[None, None],
     )]
     fn events_of_pairs(
