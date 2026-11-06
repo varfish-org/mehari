@@ -1,3 +1,4 @@
+pub mod event;
 pub mod logic;
 mod pick;
 pub mod plugin;

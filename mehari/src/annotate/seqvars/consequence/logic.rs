@@ -1,4 +1,5 @@
 //! Compute molecular consequence of variants.
+use super::event::BreakendEvent;
 use super::pick::{self, Candidate};
 use super::plugin::{Event, TxAnnotation, TxContext};
 use super::terms::{ANN_PICK, FeatureTag, GroupedAlleles};
@@ -970,8 +971,8 @@ impl ConsequencePredictor {
     }
 
     /// `predict_sv` with `inserted` bases at the junctions of `sv`, in the order of
-    /// `sv_fusions`, as the breakends of an event tell, see `mates::derive_events`.
-    pub(crate) fn predict_sv_with_inserted(
+    /// `sv_fusions`, as the breakends of an event tell, see `predict_event`.
+    fn predict_sv_with_inserted(
         &self,
         var: &VcfVariant,
         sv: &StructuralVariant,
@@ -1363,6 +1364,19 @@ impl ConsequencePredictor {
             VariantKind::Structural(sv) => self.predict_sv(var, sv),
             VariantKind::Breakend(breakend) => self.predict_breakend(var, breakend),
         }
+    }
+
+    /// The annotations of the variants that the breakends of `event` describe, one per variant
+    /// of `event.derived` in its order, as `predict_sv` gives them with the bases inserted at
+    /// their junctions. Each member of a variant receives its rows besides those of its own
+    /// junction, which `predict_variant` gives.
+    pub fn predict_event(&self, event: &BreakendEvent) -> Result<Vec<Annotations>, SeqvarsError> {
+        (event.derived.iter())
+            .map(|derived| {
+                (self.predict_sv_with_inserted(&derived.var, &derived.sv, derived.inserted))
+                    .map(Option::unwrap_or_default)
+            })
+            .collect()
     }
 
     /// The g. description of `breakend` at `pos` on a contig of `length` bases, after the

@@ -871,7 +871,7 @@ impl Annotator {
         &self,
         vcf_record: &VcfRecord,
         variant: &Classified,
-        event: Option<&mates::GroupEvent>,
+        event: Option<&mates::RecordEvent>,
     ) -> anyhow::Result<VariantAnnotation> {
         let vcf_var = from_vcf_allele(vcf_record, 0);
         let mut annotation = VariantAnnotation {
@@ -1295,7 +1295,7 @@ async fn run_with_writer(
                     .into_par_iter()
                     .map(|(mut record, variant, event)| {
                         let annotation =
-                            annotator_clone.annotate(&record, &variant, event.as_deref())?;
+                            annotator_clone.annotate(&record, &variant, event.as_ref())?;
                         let group_end = event.map(|event| event.end());
                         if with_annotations {
                             // The header now describes mehari's annotations under this key, so
