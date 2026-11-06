@@ -2809,11 +2809,12 @@ mod test {
         row.contains("delins[")
     }
 
-    /// The breakends of a deletion, a tandem duplication or an inversion of all BRCA1
-    /// transcripts, which lie between 41196312 and 41277500, give their last record the row of
-    /// the event, one for the gene, with the allele of the record, next to its own rows: those
-    /// of a breakend downstream or upstream of the transcripts. The other records keep their own
-    /// rows. `EVENT` groups them as `MATEID` does, and an `EVENTTYPE` of their event keeps it.
+    /// The breakends of a deletion, a tandem duplication, a double minute or an inversion of all
+    /// BRCA1 transcripts, which lie between 41196312 and 41277500, give their last record the
+    /// row of the event, one for the gene, with the allele of the record, next to its own rows:
+    /// those of a breakend downstream or upstream of the transcripts. The other records keep
+    /// their own rows. `EVENT` groups them as `MATEID` does, an `EVENTTYPE` of their event keeps
+    /// it, and that of a double minute makes it a copy elsewhere.
     #[rstest::rstest]
     #[case::deletion(
         "17\t41195000\tbnd1\tG\tG[17:41280000[\t.\t.\tMATEID=bnd2\tGT\t0/1\n\
@@ -2838,6 +2839,12 @@ mod test {
          17\t41280000\tbnd2\tT\tT[17:41195000[\t.\t.\tMATEID=bnd1;EVENTTYPE=DUP:TANDEM\tGT\t0/1\n",
         "|BRCA1|",
         "|g.41195000_41280000dup|"
+    )]
+    #[case::double_minute(
+        "17\t41195000\tbnd1\tG\t]17:41280000]G\t.\t.\tMATEID=bnd2;EVENTTYPE=DOUBLEMINUTE\tGT\t0/1\n\
+         17\t41280000\tbnd2\tT\tT[17:41195000[\t.\t.\tMATEID=bnd1;EVENTTYPE=DOUBLEMINUTE\tGT\t0/1\n",
+        "transcript_amplification|HIGH|BRCA1|",
+        "|g.?_?ins[NC_000017.10:g.41195000_41280000]|"
     )]
     #[case::inversion(
         "17\t41195000\tbnd1\tG\tG]17:41280000]\t.\t.\tMATEID=bnd3;EVENT=inv\tGT\t0/1\n\
@@ -2913,14 +2920,9 @@ mod test {
          17\t41280000\tbnd2\tT\tT]17:41195000]\t.\t.\tMATEID=bnd1\tGT\t0/1\n",
         0
     )]
-    #[case::double_minute(
-        "17\t41195000\tbnd1\tG\t]17:41280000]G\t.\t.\tMATEID=bnd2;EVENTTYPE=DOUBLEMINUTE\tGT\t0/1\n\
-         17\t41280000\tbnd2\tT\tT[17:41195000[\t.\t.\tMATEID=bnd1;EVENTTYPE=DOUBLEMINUTE\tGT\t0/1\n",
-        0
-    )]
-    #[case::deletion_as_translocation(
-        "17\t41195000\tbnd1\tG\tG[17:41280000[\t.\t.\tMATEID=bnd2;EVENTTYPE=TRA\tGT\t0/1\n\
-         17\t41280000\tbnd2\tT\t]17:41195000]T\t.\t.\tMATEID=bnd1;EVENTTYPE=TRA\tGT\t0/1\n",
+    #[case::deletion_as_insertion(
+        "17\t41195000\tbnd1\tG\tG[17:41280000[\t.\t.\tMATEID=bnd2;EVENTTYPE=INS\tGT\t0/1\n\
+         17\t41280000\tbnd2\tT\t]17:41195000]T\t.\t.\tMATEID=bnd1;EVENTTYPE=INS\tGT\t0/1\n",
         0
     )]
     #[tokio::test]
@@ -2944,6 +2946,66 @@ mod test {
             assert!(logs_contain(&format!(
                 "{count} breakend record(s) whose MATEID or EVENT mates never arrived"
             )));
+        }
+        Ok(())
+    }
+
+    /// The breakends of an inversion around BRCA2 that loses a few bases at both breaks, and of
+    /// a deletion of BRCA1 that takes in a fragment of chromosome 13, give the last record of
+    /// each group the rows of the segments between their breaks: the inversion and the two lost
+    /// pieces, and the deletion, each with one row per gene for the transcripts inside. The
+    /// fragment, which stays in one piece, gives none, and the other records keep their own rows.
+    #[tokio::test]
+    async fn breakend_group_walks_its_segments() -> Result<(), anyhow::Error> {
+        let records = "13\t32800000\tf1\tT\t]17:41195000]T\t.\t.\tEVENT=del\tGT\t0/1\n\
+                       13\t32800100\tf2\tG\tG[17:41280000[\t.\t.\tEVENT=del\tGT\t0/1\n\
+                       13\t32885000\ti1\tG\tG]13:32980000]\t.\t.\tEVENT=inv\tGT\t0/1\n\
+                       13\t32885010\ti2\tA\t[13:32980005[A\t.\t.\tEVENT=inv\tGT\t0/1\n\
+                       13\t32980000\ti3\tT\tT]13:32885000]\t.\t.\tEVENT=inv\tGT\t0/1\n\
+                       13\t32980005\ti4\tC\t[13:32885010[C\t.\t.\tEVENT=inv\tGT\t0/1\n\
+                       17\t41195000\td1\tG\tG[13:32800000[\t.\t.\tEVENT=del\tGT\t0/1\n\
+                       17\t41280000\td2\tT\t]13:32800100]T\t.\t.\tEVENT=del\tGT\t0/1\n";
+        let inv = "|g.32885010_32980000inv|";
+        let lost = ["|g.32885001_32885009del|", "|g.32980001_32980004del|"];
+        let del = "|g.41195001_41279999del|";
+        let annotated = annotate_records(records, false).await?;
+        assert_eq!(annotated.len(), 8);
+        for (id, rows) in &annotated {
+            let derived = (rows.iter()).filter(|row| !is_breakend_row(row));
+            let derived = derived.collect::<Vec<_>>();
+            let gene_row = |hgvs_g: &str, gene: &str| {
+                (derived.iter()).any(|row| {
+                    row.contains(hgvs_g)
+                        && row.contains(gene)
+                        && row.ends_with("|INFO_ONE_ROW_PER_GENE")
+                })
+            };
+            match id.as_str() {
+                "i4" => {
+                    assert!(gene_row(inv, "|BRCA2|"), "{id}: {rows:?}");
+                    assert!(
+                        (derived.iter()).any(|row| row.contains(lost[0])),
+                        "{id}: {rows:?}"
+                    );
+                    assert!(
+                        (derived.iter()).all(|row| [inv, lost[0], lost[1]]
+                            .iter()
+                            .any(|hgvs_g| row.contains(hgvs_g))),
+                        "{id}: {rows:?}"
+                    );
+                }
+                "d2" => {
+                    assert!(
+                        gene_row(del, "transcript_ablation|HIGH|BRCA1|"),
+                        "{id}: {rows:?}"
+                    );
+                    assert!(
+                        derived.iter().all(|row| row.contains(del)),
+                        "{id}: {rows:?}"
+                    );
+                }
+                _ => assert!(derived.is_empty(), "{id}: {rows:?}"),
+            }
         }
         Ok(())
     }

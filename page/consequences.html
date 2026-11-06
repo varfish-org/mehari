@@ -1057,7 +1057,7 @@
 
         // Switch between the small variants, one kind of symbolic allele, and the breakends.
         const modeNote = document.getElementById('mode-note');
-        const bndAbout = 'A breakend joins the base at POS to a piece of the mate contig, as in VCF 4.5: t[p[ and t]p] keep the left side, ]p]t and [p[t the right side. Each record gets the terms of its own junction. For a deletion, tandem dup or inversion written as breakends, grouped by MATEID or EVENT, the last record of the group also gets the rows of that event, so a transcript between the junctions of a deletion gets transcript_ablation. Gene fusions come from the junctions of deletions, tandem dups, inversions and breakends; the INFO field FUSION lists them as GENE1::GENE2.';
+        const bndAbout = 'A breakend joins the base at POS to a piece of the mate contig, as in VCF 4.5: t[p[ and t]p] keep the left side, ]p]t and [p[t the right side. Each record gets the terms of its own junction. For breakends grouped by MATEID or EVENT, the last record of the group also gets the rows of the segments between their breaks that the group loses, inverts or duplicates, so a transcript between the junctions of a deletion gets transcript_ablation. Gene fusions come from the junctions of deletions, tandem dups, inversions and breakends; the INFO field FUSION lists them as GENE1::GENE2.';
         function setMode(mode) {
             document.querySelectorAll('.mode-btn').forEach(btn => {
                 const active = btn.getAttribute('data-mode') === mode;

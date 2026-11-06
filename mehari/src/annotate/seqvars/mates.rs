@@ -30,9 +30,9 @@ type Locus = (usize, i32);
 /// with one `EVENT` form a group, and so do records that `MATEID` links. A group is open until
 /// the input passes its deadline, see `deadline`, or ends. Then its records whose mates never
 /// arrived count as unresolved, and its latest record gets its event, see `BreakendEvent::new`,
-/// if a pair of the group derives a variant. Only that record waits, with the records behind
-/// it; the others leave at once. A closed group is gone: a record that names its `EVENT` or one
-/// of its IDs opens a new group.
+/// if the group derives a variant. Only that record waits, with the records behind it; the
+/// others leave at once. A closed group is gone: a record that names its `EVENT` or one of its
+/// IDs opens a new group.
 #[derive(Default)]
 pub struct MateGrouper {
     /// The held records in input order, each with its allele and its event, `None` while it
@@ -492,12 +492,13 @@ mod test {
     }
 
     /// The variants of the event that the records get, as the index of the record, POS, end and
-    /// whether it is imprecise: the last record of a group gets them all. Each pair of a group gives its own variant, also
-    /// a pair whose IDs an earlier pair had, and two pairs of one `EVENT`, one after the other or
-    /// interleaved. Two records that `MATEID` links pair if the mate position of each lies
-    /// within the `CIPOS` of the other, VCF 4.5 5.4.8. A breakend with two mates, split into two
-    /// records with its ID, VCF 4.5 5.4.3, pairs with each mate on its own, and an `EVENTTYPE`
-    /// that the pair does not have gives no variant.
+    /// whether it is imprecise: the last record of a group gets them all. Two pairs one after the
+    /// other give two deletions, also when the second has the IDs of the first. Two interleaved
+    /// pairs of one `EVENT` lose the bases between their inner breakends; the bases between an
+    /// outer and an inner one move, so their place is unknown. Two records that `MATEID` links
+    /// pair if the mate position of each lies within the `CIPOS` of the other, VCF 4.5 5.4.8. A
+    /// breakend with two mates, split into two records with its ID, VCF 4.5 5.4.3, pairs with
+    /// each mate on its own. The junction of a double minute closes a circle, a copy elsewhere.
     #[rstest::rstest]
     #[case::reused_ids(
         &[(100, "G[17:200[", "a", "MATEID=b"), (200, "]17:100]T", "b", "MATEID=a"), (300, "G[17:400[", "a", "MATEID=b"), (400, "]17:300]T", "b", "MATEID=a")],
@@ -509,7 +510,7 @@ mod test {
     )]
     #[case::event_of_interleaved_pairs(
         &[(100, "G[17:300[", "a", "EVENT=e"), (200, "G[17:400[", "b", "EVENT=e"), (300, "]17:100]T", "c", "EVENT=e"), (400, "]17:200]T", "d", "EVENT=e")],
-        &[(3, 100, 299, false), (3, 200, 399, false)],
+        &[(3, 200, 299, false)],
     )]
     #[case::imprecise_pair(
         &[(100, "G[17:205[", "a", "MATEID=b;IMPRECISE;CIPOS=-10,10"), (200, "]17:95]T", "b", "MATEID=a;IMPRECISE;CIPOS=-10,10")],
@@ -533,7 +534,7 @@ mod test {
     )]
     #[case::double_minute(
         &[(100, "]17:200]G", "a", "MATEID=b;EVENTTYPE=DOUBLEMINUTE"), (200, "T[17:100[", "b", "MATEID=a;EVENTTYPE=DOUBLEMINUTE")],
-        &[],
+        &[(1, 99, 200, false)],
     )]
     fn events_of_pairs(
         #[case] records: &[(usize, &str, &str, &str)],
