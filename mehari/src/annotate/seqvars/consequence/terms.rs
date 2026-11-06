@@ -341,6 +341,14 @@ pub enum Consequence {
     /// SO:intron_variant, VEP:intron_variant
     IntronVariant,
 
+    /// "A sequence variant where copies of a feature (CNV) are either increased or decreased."
+    /// SO:copy_number_change
+    CopyNumberChange,
+
+    /// "A sequence variant where copies of a feature are increased relative to the reference."
+    /// SO:copy_number_increase
+    CopyNumberIncrease,
+
     /// "A sequence variant where the structure of the gene is changed."
     /// SO:gene_variant
     GeneVariant,
@@ -410,6 +418,8 @@ impl From<Consequence> for PutativeImpact {
             | RegulatoryRegionVariant
             | IntergenicVariant
             | IntronVariant
+            | CopyNumberChange
+            | CopyNumberIncrease
             | GeneVariant => PutativeImpact::Modifier,
         }
     }
@@ -961,6 +971,12 @@ pub enum Message {
     InfoNonReferenceAnnotation,
     /// The transcript lacks the `--restrict-transcripts` tags and was kept by `--restrict-fallback`.
     InfoRestrictFallback,
+    /// The breakpoints of this structural variant are uncertain; the annotation uses the
+    /// positions as called.
+    InfoImpreciseBreakpoints,
+    /// The protein terms assume normal splicing of the remaining exons, as the HGVS description
+    /// gives no protein (`p.?`), e.g. for the deletion of whole exons.
+    InfoAssumesNormalSplicing,
     /// The 3' shift of HGVS put this indel onto an essential splice site, but the same change at
     /// another position of its repeat leaves that splice site intact.
     InfoSpliceSiteIntactAtEquivalentPosition,

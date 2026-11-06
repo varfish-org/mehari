@@ -248,7 +248,7 @@ pub fn get_transcript_boundaries(
             chrom,
             logic::ALT_ALN_METHOD,
             pos - logic::PADDING,
-            pos + ref_len as i32 + logic::PADDING,
+            (pos.saturating_add(ref_len as i32)).saturating_add(logic::PADDING),
         )
         .unwrap_or_default();
 
@@ -265,6 +265,71 @@ pub fn get_transcript_boundaries(
     }
 
     (accessions, min_start, max_end)
+}
+
+/// A structural variant from a symbolic allele such as `<DEL>`, which has no bases. The
+/// `VcfVariant` of its record holds the padding base at `POS`, the base in front of the change.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct StructuralVariant {
+    pub kind: SvKind,
+    /// 1-based position of the last changed base; `POS` for an insertion.
+    pub end: i32,
+    /// Whether the breakpoints are uncertain: `IMPRECISE`, unless both confidence intervals are
+    /// 0, or a claim of abundance only (`SVCLAIM=D`).
+    pub imprecise: bool,
+    /// The confidence intervals around `POS` and `end`, if given. On an imprecise allele, a
+    /// missing one is unknown.
+    pub intervals: (Option<ConfidenceInterval>, Option<ConfidenceInterval>),
+}
+
+/// A confidence interval around a position as offsets `(min, max)`.
+pub type ConfidenceInterval = (i32, i32);
+
+/// The type of a `StructuralVariant`. A subtype, e.g. `<DEL:ME:ALU>`, does not change it.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum SvKind {
+    Deletion,
+    /// `tandem` if the copy follows the original, i.e. with an adjacency claim (`SVCLAIM` with
+    /// `J`), or `<DUP:TANDEM>` without `SVCLAIM`.
+    Duplication {
+        tandem: bool,
+    },
+    Inversion,
+    /// Of `length` bases, if `SVLEN` is given.
+    Insertion {
+        length: Option<i32>,
+    },
+    /// `<CNV>` without a known direction.
+    CopyNumberChange,
+}
+
+/// `SVCLAIM` of VCF 4.5: what the call of a structural variant claims.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, strum::EnumString, strum::Display)]
+pub enum SvClaim {
+    /// `D`: a change of the copy number.
+    #[strum(serialize = "D")]
+    Abundance,
+    /// `J`: breakpoints that are joined.
+    #[strum(serialize = "J")]
+    Adjacency,
+    /// `DJ`: both.
+    #[strum(serialize = "DJ")]
+    Both,
+}
+
+/// `SVTYPE`, which VCF 4.4 deprecates. `Other` keeps a type that callers define, e.g. `TRA` or
+/// `CPX`.
+#[derive(Debug, PartialEq, Eq, Clone, strum::EnumString, strum::Display)]
+#[strum(serialize_all = "UPPERCASE")]
+pub enum SvType {
+    Del,
+    Ins,
+    Dup,
+    Inv,
+    Cnv,
+    Bnd,
+    #[strum(default)]
+    Other(String),
 }
 
 /// A variant description how VCF would do it.

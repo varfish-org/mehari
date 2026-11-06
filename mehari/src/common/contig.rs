@@ -220,6 +220,12 @@ impl ContigManager {
         self.get_chrom_no(alias).is_some_and(Self::is_mitochondrial)
     }
 
+    /// Get the length of the contig.
+    pub fn get_length(&self, alias: &str) -> Option<usize> {
+        let accession = self.get_accession(alias)?;
+        self.accession_to_info.get(accession).map(|seq| seq.length)
+    }
+
     /// Get the length of the contig if it is circular (i.e., mitochondrial DNA).
     pub fn get_circular_length(&self, alias: &str) -> Option<usize> {
         if !self.is_mitochondrial_alias(alias) {

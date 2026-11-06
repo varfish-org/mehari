@@ -20,7 +20,7 @@ use anyhow::Error;
 use biocommons_bioutils::assemblies::Assembly;
 use clap::Parser;
 use clinvar::{ClinvarAnnotator, ClinvarResult};
-use consequence::{ConsequenceAnnotator, VcfVariant};
+use consequence::{ConsequenceAnnotator, StructuralVariant, SvClaim, SvKind, SvType, VcfVariant};
 use frequency::{FreqResult, FrequencyAnnotator};
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -35,6 +35,7 @@ use noodles::vcf::variant::io::Write as VcfWrite;
 use noodles::vcf::variant::record::AlternateBases;
 use noodles::vcf::variant::record_buf::info::field;
 use noodles::vcf::{Header as VcfHeader, header::record::value::map::Map};
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use thousands::Separable;
@@ -845,7 +846,12 @@ impl Annotator {
         Self { annotators }
     }
 
-    pub fn annotate(&self, vcf_record: &VcfRecord) -> anyhow::Result<VariantAnnotation> {
+    /// The annotation of `vcf_record` from a file of `file_format`.
+    pub fn annotate(
+        &self,
+        vcf_record: &VcfRecord,
+        file_format: FileFormat,
+    ) -> anyhow::Result<VariantAnnotation> {
         let vcf_var = from_vcf_allele(vcf_record, 0);
         let mut annotation = VariantAnnotation {
             consequences: vec![],
@@ -856,6 +862,19 @@ impl Annotator {
             dbsnp: None,
         };
 
+        // A structural variant gets consequences only: the databases hold no symbolic alleles.
+        if let Some(sv) = structural_variant(vcf_record, file_format) {
+            if let Some(predictor) = self.consequence_predictor() {
+                let var = VcfVariant {
+                    chromosome: vcf_var.chrom,
+                    position: vcf_var.pos,
+                    reference: vcf_var.reference,
+                    alternative: vcf_var.alternative,
+                };
+                annotation.consequences = predictor.predict_sv(&var, &sv)?.unwrap_or_default();
+            }
+            return Ok(annotation);
+        }
         if !is_annotatable(vcf_record) {
             return Ok(annotation);
         }
@@ -1126,11 +1145,13 @@ async fn run_with_writer(
     let mut total_read = 0usize;
     let mut total_written = 0usize;
     let mut total_unsupported = 0usize;
+    let mut total_unknown_claims = 0usize;
 
     writer.write_noodles_header(&header_out).await?;
 
     use futures::TryStreamExt;
     let mut records = reader.records(&header_in).await;
+    let file_format = header_in.file_format();
 
     let worker_threads = rayon::current_num_threads();
     let batch_size = worker_threads * 1024;
@@ -1157,16 +1178,27 @@ async fn run_with_writer(
 
             match records.try_next().await? {
                 Some(vcf_record) => {
-                    if vcf_record.alternate_bases().len() != 1 {
+                    // A record without an alternate allele (`ALT` `.`) passes through.
+                    if vcf_record.alternate_bases().len() > 1 {
                         tracing::error!(
                             "Found record with more than one alternate allele.  This is currently not supported. \
-                    Please use `bcftools norm` to split multi-allelic records.  Record: {:?}",
+                    Please split multi-allelic records with `bcftools norm -m-any`, without `-f`, \
+                    which rejects `N` as `REF`.  Record: {:?}",
                             &vcf_record
                         );
                         anyhow::bail!("multi-allelic records not supported");
                     }
-                    if is_event(&vcf_record) {
+                    if is_event(&vcf_record)
+                        && structural_variant(&vcf_record, file_format).is_none()
+                        && !keeps_copy_number(&vcf_record, file_format)
+                    {
                         total_unsupported += 1;
+                    }
+                    if is_event(&vcf_record)
+                        && compound::string(&vcf_record, "SVCLAIM")
+                            .is_some_and(|claim| claim.parse::<SvClaim>().is_err())
+                    {
+                        total_unknown_claims += 1;
                     }
                     if is_annotatable(&vcf_record)
                         && let Some(provider) = &reference_provider
@@ -1202,7 +1234,7 @@ async fn run_with_writer(
                 batch_to_process
                     .into_par_iter()
                     .map(|mut record| {
-                        let annotation = annotator_clone.annotate(&record)?;
+                        let annotation = annotator_clone.annotate(&record, file_format)?;
                         if with_annotations {
                             // The header now describes mehari's annotations under this key, so
                             // those from the input must go, also for records that get no
@@ -1283,9 +1315,15 @@ async fn run_with_writer(
     }
     if total_unsupported > 0 {
         tracing::warn!(
-            "{} record(s) stay without annotations: symbolic alleles, breakends and records at \
-             position 0 are not supported",
+            "{} record(s) stay without annotations: breakends, records at position 0, symbolic \
+             alleles without a length and unknown symbolic alleles are not supported",
             total_unsupported.separate_with_commas()
+        );
+    }
+    if total_unknown_claims > 0 {
+        tracing::warn!(
+            "{} record(s) have an SVCLAIM other than D, J and DJ, which counts as none",
+            total_unknown_claims.separate_with_commas()
         );
     }
     writer.shutdown().await?;
@@ -1638,22 +1676,198 @@ fn _source_from_source_enum(val: i32) -> String {
     }
 }
 
-/// Whether `record` can be annotated. Symbolic alleles, breakends and `*` have no bases, and
-/// position 0 lies in front of the first base of the contig.
+/// Whether `record` can be annotated. Symbolic alleles, breakends and `*` have no bases, `ALT`
+/// `.` has no allele, and position 0 lies in front of the first base of the contig.
 fn is_annotatable(record: &VcfRecord) -> bool {
+    let alternate_bases = record.alternate_bases().as_ref();
     record.variant_start().is_some()
-        && (record.alternate_bases().as_ref().iter()).all(|alt| is_sequence_allele(alt))
+        && !alternate_bases.is_empty()
+        && (alternate_bases.iter()).all(|alt| is_sequence_allele(alt))
 }
 
-/// Whether `record` is a variant that cannot be annotated, unlike `*`, `<*>` and `<NON_REF>`, which
-/// are no variants of their own.
+/// Whether `record` is a variant without bases, which is not evaluated together with others,
+/// unlike `*`, `<*>` and `<NON_REF>`, which are no variants of their own.
 fn is_event(record: &VcfRecord) -> bool {
     !is_annotatable(record)
         && !(record.alternate_bases().as_ref().iter())
             .all(|alt| matches!(alt.as_str(), "*" | "<*>" | "<NON_REF>"))
 }
 
-/// Create for all alternate alleles from the given VCF record.
+/// The structural variant of `record`, if its symbolic allele is supported, with its last base
+/// from `SVLEN` or `END`, see `compound::event_end`. As in VCF 4.5, a `<DEL>` or `<DUP>` with a
+/// claim of abundance only (`SVCLAIM=D`) is a copy number call with uncertain breakpoints, and so
+/// is a `<CNV>` with `CN`, see `copy_number`: with 0 copies one of a deletion, with 2 or more one
+/// of a duplication, and with 1 no variant, see `keeps_copy_number`. So are `<CN0>`, `<CN1>` and
+/// `<CN2>`, as older files write them. `<CNV>` without `CN` has no direction. `<CNV:TR>`, a
+/// copy number of tandem repeats, is not supported. `file_format` is that of the input.
+fn structural_variant(record: &VcfRecord, file_format: FileFormat) -> Option<StructuralVariant> {
+    use noodles::vcf::variant::record::info::field::key::{
+        END_CONFIDENCE_INTERVALS, IS_IMPRECISE, POSITION_CONFIDENCE_INTERVALS, SV_TYPE,
+    };
+    use noodles::vcf::variant::record_buf::info::field::Value as InfoValue;
+    use noodles::vcf::variant::record_buf::info::field::value::Array;
+
+    let pos = i32::try_from(record.variant_start()?.get()).ok()?;
+    let [alt] = record.alternate_bases().as_ref() else {
+        return None;
+    };
+    let mut parts = alt.strip_prefix('<')?.strip_suffix('>')?.split(':');
+    let (base, subtype) = (parts.next()?, parts.next());
+    let info = record.info();
+    // The outer bounds of the pairs, each in order: a split record keeps the pairs of all its
+    // alleles. Files without a header line for `key` give a string below VCF 4.3.
+    let interval = |key: &str| {
+        let values: Vec<Option<i32>> = match info.get(key).flatten()? {
+            InfoValue::Array(Array::Integer(values)) => values.clone(),
+            InfoValue::String(values) => {
+                values.split(',').map(|value| value.parse().ok()).collect()
+            }
+            _ => return None,
+        };
+        let pairs = values.chunks(2).filter_map(|pair| match pair {
+            [Some(a), Some(b)] => Some((*a.min(b), *a.max(b))),
+            _ => None,
+        });
+        pairs.reduce(|(min_a, max_a), (min_b, max_b)| (min_a.min(min_b), max_a.max(max_b)))
+    };
+
+    // A custom allele, which `##ALT` declares, counts as its `SVTYPE` if that is the type of a
+    // symbolic allele.
+    let sv_type = compound::string(record, SV_TYPE).and_then(|sv_type| sv_type.parse().ok());
+    let base = match base {
+        "DEL" | "DUP" | "INV" | "INS" | "CNV" => base,
+        _ if base
+            .strip_prefix("CN")
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) =>
+        {
+            base
+        }
+        _ => match sv_type? {
+            SvType::Del => "DEL",
+            SvType::Ins => "INS",
+            SvType::Dup => "DUP",
+            SvType::Inv => "INV",
+            SvType::Cnv => "CNV",
+            SvType::Bnd | SvType::Other(_) => return None,
+        },
+    };
+    // An `SVCLAIM` other than those of VCF 4.5 counts as none.
+    let claim = compound::string(record, "SVCLAIM").and_then(|claim| claim.parse().ok());
+    let abundance_only = claim == Some(SvClaim::Abundance);
+    let copy_number_kind = |copies: Option<i32>| match copies {
+        Some(0) => SvKind::Deletion,
+        Some(copies) if copies >= 2 => SvKind::Duplication { tandem: false },
+        _ => SvKind::CopyNumberChange,
+    };
+    let (kind, abundance_only) = match base {
+        "CNV" if subtype == Some("TR") => return None,
+        "CNV" if copy_number(record, file_format) == Some(1) => return None,
+        "DEL" => (SvKind::Deletion, abundance_only),
+        "DUP" => {
+            let tandem = match claim {
+                Some(SvClaim::Adjacency | SvClaim::Both) => true,
+                Some(SvClaim::Abundance) => false,
+                None => subtype == Some("TANDEM"),
+            };
+            (SvKind::Duplication { tandem }, abundance_only)
+        }
+        "INV" => (SvKind::Inversion, false),
+        // An insertion of no bases has an unknown length.
+        "INS" => (
+            SvKind::Insertion {
+                length: (compound::sv_length(record).map(i32::saturating_abs))
+                    .filter(|&length| length > 0),
+            },
+            false,
+        ),
+        "CNV" => (copy_number_kind(copy_number(record, file_format)), true),
+        _ => {
+            let copies = base.strip_prefix("CN")?.parse().ok()?;
+            if copies == 1 {
+                return None;
+            }
+            (copy_number_kind(Some(copies)), true)
+        }
+    };
+    let end = match kind {
+        SvKind::Insertion { .. } => pos,
+        _ => compound::event_end(record, pos),
+    };
+    if end == pos && !matches!(kind, SvKind::Insertion { .. }) {
+        return None;
+    }
+    // `CIEND` defaults to `CIPOS`. As in VCF 4.5, `IMPRECISE` makes the breakpoints uncertain,
+    // unless both intervals are 0, as for a precise allele of the record, and a missing `CIPOS`
+    // is unknown. Without `IMPRECISE`, the intervals give the micro-homology of a precise call.
+    let cipos = interval(POSITION_CONFIDENCE_INTERVALS);
+    let intervals = (cipos, interval(END_CONFIDENCE_INTERVALS).or(cipos));
+    let imprecise = abundance_only
+        || info.get(IS_IMPRECISE).is_some() && intervals != (Some((0, 0)), Some((0, 0)));
+    Some(StructuralVariant {
+        kind,
+        end,
+        imprecise,
+        intervals,
+    })
+}
+
+/// The copy number of the allele of `record` from `CN`, rounded. Since VCF 4.4, `CN` is that of
+/// the allele, before it was the total of a diploid sample, so 0 and 1 copies give 0, 2 give 1,
+/// and each more one more. Files without a header line for `CN` give a string below VCF 4.3.
+fn copy_number(record: &VcfRecord, file_format: FileFormat) -> Option<i32> {
+    use noodles::vcf::variant::record_buf::info::field::Value as InfoValue;
+    use noodles::vcf::variant::record_buf::info::field::value::Array;
+
+    let copies = match record.info().get("CN").flatten()? {
+        InfoValue::Integer(copies) => f64::from(*copies),
+        InfoValue::Float(copies) => f64::from(*copies),
+        InfoValue::String(copies) => copies.parse().ok()?,
+        InfoValue::Array(Array::Integer(copies)) => match copies[..] {
+            [Some(copies)] => f64::from(copies),
+            _ => return None,
+        },
+        InfoValue::Array(Array::Float(copies)) => match copies[..] {
+            [Some(copies)] => f64::from(copies),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    if !copies.is_finite() || copies < 0.0 {
+        return None;
+    }
+    // Saturates at `i32::MAX`.
+    let copies = copies.round() as i32;
+    Some(if file_format >= FileFormat::new(4, 4) {
+        copies
+    } else {
+        (copies - 1).max(0)
+    })
+}
+
+/// Whether `record` is a `<CNV>` whose `CN` keeps the copy number of the reference, or a `<CN1>`,
+/// which VCF 4.5 treats as no variant, like `GT=0`.
+fn keeps_copy_number(record: &VcfRecord, file_format: FileFormat) -> bool {
+    match record.alternate_bases().as_ref() {
+        [alt] if alt == "<CN1>" => true,
+        [alt] if alt == "<CNV>" || (alt.starts_with("<CNV:") && alt != "<CNV:TR>") => {
+            copy_number(record, file_format) == Some(1)
+        }
+        _ => false,
+    }
+}
+
+/// The key of the annotation of `var` from `record` in `VariantProcessor`. Two events at one
+/// position with one allele can differ in their end.
+fn annotation_key(var: &VcfVariant, record: &VcfRecord) -> String {
+    if is_event(record) {
+        format!("{var}:{}", compound::event_end(record, var.position))
+    } else {
+        var.to_string()
+    }
+}
+
+/// Create for all alternate alleles from the given VCF record. A record without alternate
+/// allele gives `.`, as `ALT` has it.
 pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usize) -> Var {
     let chrom = value.reference_sequence_name().to_string();
     // Position 0 lies in front of the first base of the contig, e.g., at a telomeric breakend.
@@ -1664,7 +1878,8 @@ pub fn from_vcf_allele(value: &noodles::vcf::variant::RecordBuf, allele_no: usiz
         chrom,
         pos,
         reference,
-        alternative: value.alternate_bases().as_ref()[allele_no].to_string(),
+        alternative: (value.alternate_bases().as_ref().get(allele_no))
+            .map_or_else(|| ".".to_string(), String::clone),
     }
 }
 
@@ -1699,7 +1914,9 @@ impl AnnotatedVariant {
 struct VariantProcessor {
     annotator: Arc<Annotator>,
     buffer: crate::annotate::seqvars::compound::VariantBuffer,
-    annotations: std::collections::HashMap<String, VariantAnnotation>,
+    /// The annotations of the variants in `buffer` by `annotation_key`, in input order, as
+    /// records at one position can have the same key.
+    annotations: FxHashMap<String, std::collections::VecDeque<VariantAnnotation>>,
 }
 
 impl VariantProcessor {
@@ -1736,17 +1953,27 @@ impl VariantProcessor {
             reference: vcf_var.reference,
             alternative: vcf_var.alternative,
         };
-        let key = csq_var.to_string();
-        if self.annotations.insert(key.clone(), annotation).is_some() {
-            tracing::warn!(
-                "Duplicate SPDI detected in annotation buffer: {}; \
-                 the earlier annotation was overwritten.",
-                key
-            );
-        }
+        // Note: We don't support multi allelic records at the moment, so this is a constant 1.
+        let alt_allele_idx = 1;
+        // Currently, phasing is evaluated based on the first sample in the VCF only.
+        let sample_idx = 0;
 
         // An event reaches its transcripts by its length, as it has no bases.
         let event_end = is_event(&record).then(|| compound::event_end(&record, csq_var.position));
+        // An event is never evaluated together with the variants on its haplotype, which all
+        // its rows say, see `VariantBuffer::push_event`.
+        let mut annotation = annotation;
+        if event_end.is_some() && self.buffer.is_phased(&record, sample_idx, alt_allele_idx) {
+            for ann in &mut annotation.consequences {
+                (ann.messages.get_or_insert_with(Vec::new))
+                    .push(Message::WarningCompoundIncomplete);
+            }
+        }
+        (self.annotations)
+            .entry(annotation_key(&csq_var, &record))
+            .or_default()
+            .push_back(annotation);
+
         let len = event_end.map_or(csq_var.reference.len(), |end| {
             (end - csq_var.position + 1) as usize
         });
@@ -1763,11 +1990,6 @@ impl VariantProcessor {
         } else {
             (std::collections::HashSet::new(), i32::MAX, -1)
         };
-
-        // Note: We don't support multi allelic records at the moment, so this is a constant 1.
-        let alt_allele_idx = 1;
-        // Currently, phasing is evaluated based on the first sample in the VCF only.
-        let sample_idx = 0;
 
         if let Some(end) = event_end {
             self.buffer.push_event(
@@ -1803,11 +2025,12 @@ impl VariantProcessor {
         let (variants, compound_groups) = self.buffer.flush();
         let predictor = self.annotator.consequence_predictor();
 
+        let mut annotations = std::mem::take(&mut self.annotations);
         let mut result_annotations: Vec<VariantAnnotation> = variants
             .iter()
             .map(|b| {
-                self.annotations
-                    .remove(&b.vcf_var.to_string())
+                (annotations.get_mut(&annotation_key(&b.vcf_var, &b.record)))
+                    .and_then(std::collections::VecDeque::pop_front)
                     .unwrap_or_else(|| VariantAnnotation {
                         consequences: vec![],
                         frequencies: None,
@@ -1889,7 +2112,10 @@ impl VariantProcessor {
 mod test {
     use super::binning::bin_from_range;
     use super::build_header;
-    use super::consequence::{ConsequenceAnnotator, VcfVariant, load_tx_db};
+    use super::consequence::{
+        ConfidenceInterval, ConsequenceAnnotator, SvKind, VcfVariant, load_tx_db,
+    };
+    use super::structural_variant;
     use super::{
         AnnotatedVariant, Annotator, AnnotatorEnum, Args, OutputFormat, VariantProcessor,
         VcfRecord, run,
@@ -1906,6 +2132,8 @@ mod test {
     use clap_verbosity_flag::Verbosity;
     use futures::TryStreamExt;
     use noodles::vcf::Header as VcfHeader;
+    use noodles::vcf::header::FileFormat;
+    use noodles::vcf::variant::record_buf::info::field::Value as InfoValue;
     use pretty_assertions::assert_eq;
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
@@ -2124,7 +2352,9 @@ mod test {
         17\t41215930\tbnd\tG\tG]13:32900000]\t.\t.\t.\tGT\t1/1\n\
         17\t41215940\tstar\tG\t*\t.\t.\t.\tGT\t1/1\n\
         17\t41215950\tany\tG\t<*>\t.\t.\t.\tGT\t1/1\n\
-        17\t41215960\tnon_ref\tG\t<NON_REF>\t.\t.\t.\tGT\t1/1\n";
+        17\t41215960\tnon_ref\tG\t<NON_REF>\t.\t.\t.\tGT\t1/1\n\
+        17\t41215970\tno_alt\tG\t.\t.\t.\t.\tGT\t0/0\n\
+        17\t41215980\tcn2\tG\t<CNV>\t.\t.\tEND=41216000;CN=2\tGT\t0/1\n";
 
     /// Annotates `records`, and returns the ID and the `ANN` rows of each record.
     async fn annotate_records(
@@ -2176,8 +2406,8 @@ mod test {
             .filter(|line| !line.starts_with('#'))
             .map(|line| {
                 let fields = line.split('\t').collect::<Vec<_>>();
-                let rows = fields[7]
-                    .strip_prefix("ANN=")
+                let rows = (fields[7].split(';'))
+                    .find_map(|info| info.strip_prefix("ANN="))
                     .map_or_else(Vec::new, |anns| anns.split(',').map(String::from).collect());
                 (fields[2].to_string(), rows)
             })
@@ -2185,8 +2415,8 @@ mod test {
     }
 
     /// Records without bases stay in the output without annotations, also at position 0. Mehari
-    /// counts them in one warning, but not `*`, `<*>` and `<NON_REF>`, which are no variants of
-    /// their own.
+    /// counts them in one warning, but not `*`, `<*>`, `<NON_REF>` and `ALT` `.`, which are no
+    /// variants of their own, nor a `<CNV>` with the total copy number 2 of VCF 4.2.
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn records_without_bases_pass_through() -> Result<(), anyhow::Error> {
@@ -2208,14 +2438,46 @@ mod test {
                 ("star", false),
                 ("any", false),
                 ("non_ref", false),
+                ("no_alt", false),
+                ("cn2", false),
             ]
         );
         assert!(logs_contain(
-            "4 record(s) stay without annotations: symbolic alleles"
+            "4 record(s) stay without annotations: breakends"
         ));
         // Without compound mode, nothing is evaluated together.
         let rows = records.iter().flat_map(|(_, rows)| rows);
         assert!(rows.into_iter().all(|row| !row.contains(INCOMPLETE)));
+        Ok(())
+    }
+
+    /// A record with more than one alternate allele aborts the run, with the command that splits
+    /// it.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn multi_allelic_record_names_split_command() {
+        let records = "17\t41197701\tsnv\tG\tC,T\t.\t.\t.\tGT\t1/2\n";
+        assert!(annotate_records(records, false).await.is_err());
+        assert!(logs_contain(
+            "split multi-allelic records with `bcftools norm -m-any`, without `-f`, which rejects \
+             `N` as `REF`"
+        ));
+    }
+
+    /// An `SVCLAIM` other than `D`, `J` and `DJ` counts as none, so this `<DUP>` is no tandem
+    /// dup. Mehari counts such records in one warning.
+    #[tokio::test]
+    #[tracing_test::traced_test]
+    async fn unknown_claim_counts_as_none() -> Result<(), anyhow::Error> {
+        let records = "17\t41197710\tdup\tN\t<DUP>\t.\t.\tSVLEN=50;SVCLAIM=JD\tGT\t0/1\n";
+        let records = annotate_records(records, false).await?;
+        assert!(
+            (records[0].1.iter()).any(|row| row.starts_with("<DUP>|copy_number_increase|")),
+            "{records:?}"
+        );
+        assert!(logs_contain(
+            "1 record(s) have an SVCLAIM other than D, J and DJ, which counts as none"
+        ));
         Ok(())
     }
 
@@ -2231,6 +2493,175 @@ mod test {
                 assert!(rows.is_empty(), "{id}: {rows:?}");
             }
         }
+        Ok(())
+    }
+
+    /// A record at 1000 with the allele `alternative` and the INFO fields `info`.
+    fn sv_record(alternative: &str, info: Vec<(&str, InfoValue)>) -> VcfRecord {
+        use noodles::core::Position;
+        use noodles::vcf::variant::record_buf::AlternateBases;
+
+        VcfRecord::builder()
+            .set_variant_start(Position::try_from(1000).unwrap())
+            .set_alternate_bases(AlternateBases::from(vec![alternative.to_string()]))
+            .set_info(
+                (info.into_iter())
+                    .map(|(key, value)| (key.to_string(), Some(value)))
+                    .collect(),
+            )
+            .build()
+    }
+
+    type Intervals = (Option<ConfidenceInterval>, Option<ConfidenceInterval>);
+
+    /// The structural variant of a record, see `structural_variant`. `SVLEN` as `Number=A` and
+    /// `SVCLAIM` as `Number=A` come as arrays of one value.
+    #[rstest::rstest]
+    #[case::deletion("<DEL>", vec![("SVLEN", InfoValue::Integer(-50))], Some((SvKind::Deletion, 1050, false, (None, None))))]
+    #[case::deletion_by_end("<DEL:ME:ALU>", vec![("END", InfoValue::Integer(1500))], Some((SvKind::Deletion, 1500, false, (None, None))))]
+    #[case::deletion_without_length("<DEL>", vec![], None)]
+    #[case::abundance_claim("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("SVCLAIM", InfoValue::Array(Array::String(vec![Some("D".into())])))], Some((SvKind::Deletion, 1050, true, (None, None))))]
+    #[case::imprecise_flag("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("IMPRECISE", InfoValue::Flag)], Some((SvKind::Deletion, 1050, true, (None, None))))]
+    #[case::zero_intervals("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("CIPOS", InfoValue::Array(Array::Integer(vec![Some(0), Some(0)])))], Some((SvKind::Deletion, 1050, false, (Some((0, 0)), Some((0, 0))))))]
+    #[case::intervals("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("CIPOS", InfoValue::Array(Array::Integer(vec![Some(-10), Some(10)]))), ("CIEND", InfoValue::Array(Array::Integer(vec![Some(-20), Some(20)])))], Some((SvKind::Deletion, 1050, false, (Some((-10, 10)), Some((-20, 20))))))]
+    #[case::imprecise_zero_intervals("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("IMPRECISE", InfoValue::Flag), ("CIPOS", InfoValue::Array(Array::Integer(vec![Some(0), Some(0)])))], Some((SvKind::Deletion, 1050, false, (Some((0, 0)), Some((0, 0))))))]
+    #[case::end_interval_only("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("CIEND", InfoValue::Array(Array::Integer(vec![Some(-20), Some(20)])))], Some((SvKind::Deletion, 1050, false, (None, Some((-20, 20))))))]
+    #[case::split_record_outer_intervals("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("CIPOS", InfoValue::Array(Array::Integer(vec![Some(-5), Some(5), Some(-20), Some(20)])))], Some((SvKind::Deletion, 1050, false, (Some((-20, 20)), Some((-20, 20))))))]
+    #[case::imprecise_intervals("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("IMPRECISE", InfoValue::Flag), ("CIPOS", InfoValue::Array(Array::Integer(vec![Some(-10), Some(10)]))), ("CIEND", InfoValue::Array(Array::Integer(vec![Some(-20), Some(20)])))], Some((SvKind::Deletion, 1050, true, (Some((-10, 10)), Some((-20, 20))))))]
+    #[case::imprecise_end_interval_only("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("IMPRECISE", InfoValue::Flag), ("CIEND", InfoValue::Array(Array::Integer(vec![Some(-20), Some(20)])))], Some((SvKind::Deletion, 1050, true, (None, Some((-20, 20))))))]
+    #[case::imprecise_zero_end_interval_only("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("IMPRECISE", InfoValue::Flag), ("CIEND", InfoValue::Array(Array::Integer(vec![Some(0), Some(0)])))], Some((SvKind::Deletion, 1050, true, (None, Some((0, 0))))))]
+    #[case::imprecise_reversed_interval("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("IMPRECISE", InfoValue::Flag), ("CIPOS", InfoValue::Array(Array::Integer(vec![Some(10), Some(-10)])))], Some((SvKind::Deletion, 1050, true, (Some((-10, 10)), Some((-10, 10))))))]
+    #[case::interval_strings_without_header("<DEL>", vec![("SVLEN", InfoValue::Integer(-50)), ("IMPRECISE", InfoValue::Flag), ("CIPOS", InfoValue::String("-10,10".into())), ("CIEND", InfoValue::String("-20,20".into()))], Some((SvKind::Deletion, 1050, true, (Some((-10, 10)), Some((-20, 20))))))]
+    #[case::dup("<DUP>", vec![("SVLEN", InfoValue::Integer(50))], Some((SvKind::Duplication { tandem: false }, 1050, false, (None, None))))]
+    #[case::dup_tandem("<DUP:TANDEM>", vec![("SVLEN", InfoValue::Integer(50))], Some((SvKind::Duplication { tandem: true }, 1050, false, (None, None))))]
+    #[case::dup_junction_claim("<DUP>", vec![("SVLEN", InfoValue::Integer(50)), ("SVCLAIM", InfoValue::String("DJ".into()))], Some((SvKind::Duplication { tandem: true }, 1050, false, (None, None))))]
+    #[case::dup_tandem_abundance_claim("<DUP:TANDEM>", vec![("SVLEN", InfoValue::Integer(50)), ("SVCLAIM", InfoValue::String("D".into()))], Some((SvKind::Duplication { tandem: false }, 1050, true, (None, None))))]
+    #[case::unknown_claim("<DUP>", vec![("SVLEN", InfoValue::Integer(50)), ("SVCLAIM", InfoValue::String("JD".into()))], Some((SvKind::Duplication { tandem: false }, 1050, false, (None, None))))]
+    #[case::inversion("<INV>", vec![("END", InfoValue::Integer(1500))], Some((SvKind::Inversion, 1500, false, (None, None))))]
+    #[case::inversion_length_difference("<INV>", vec![("SVLEN", InfoValue::Integer(0)), ("END", InfoValue::Integer(1500))], Some((SvKind::Inversion, 1500, false, (None, None))))]
+    #[case::strings_without_header("<DEL>", vec![("SVLEN", InfoValue::String("-50".into())), ("END", InfoValue::String("1050".into()))], Some((SvKind::Deletion, 1050, false, (None, None))))]
+    #[case::end_string_without_header("<DEL>", vec![("END", InfoValue::String("1050".into()))], Some((SvKind::Deletion, 1050, false, (None, None))))]
+    #[case::insertion("<INS>", vec![("SVLEN", InfoValue::Integer(300))], Some((SvKind::Insertion { length: Some(300) }, 1000, false, (None, None))))]
+    #[case::insertion_unknown_length("<INS:ME:ALU>", vec![], Some((SvKind::Insertion { length: None }, 1000, false, (None, None))))]
+    #[case::insertion_length_0("<INS>", vec![("SVLEN", InfoValue::Integer(0))], Some((SvKind::Insertion { length: None }, 1000, false, (None, None))))]
+    #[case::cnv("<CNV>", vec![("SVLEN", InfoValue::Integer(50))], Some((SvKind::CopyNumberChange, 1050, true, (None, None))))]
+    #[case::cnv_lost("<CNV>", vec![("SVLEN", InfoValue::Integer(50)), ("CN", InfoValue::Integer(0))], Some((SvKind::Deletion, 1050, true, (None, None))))]
+    #[case::cnv_gained("<CNV>", vec![("SVLEN", InfoValue::Integer(50)), ("CN", InfoValue::Array(Array::Integer(vec![Some(3)])))], Some((SvKind::Duplication { tandem: false }, 1050, true, (None, None))))]
+    #[case::cn0("<CN0>", vec![("END", InfoValue::Integer(1050))], Some((SvKind::Deletion, 1050, true, (None, None))))]
+    #[case::cn1("<CN1>", vec![("END", InfoValue::Integer(1050))], None)]
+    #[case::cn2("<CN2>", vec![("END", InfoValue::Integer(1050))], Some((SvKind::Duplication { tandem: false }, 1050, true, (None, None))))]
+    #[case::cn_with_sign("<CN+2>", vec![("END", InfoValue::Integer(1050))], None)]
+    #[case::cn_negative("<CN-1>", vec![("END", InfoValue::Integer(1050))], None)]
+    #[case::tandem_repeat_copy_number("<CNV:TR>", vec![("END", InfoValue::Integer(1050)), ("CN", InfoValue::Float(2.5))], None)]
+    #[case::complex("<CPX>", vec![("END", InfoValue::Integer(1050))], None)]
+    #[case::custom_by_sv_type("<MYDEL>", vec![("END", InfoValue::Integer(1050)), ("SVTYPE", InfoValue::String("DEL".into()))], Some((SvKind::Deletion, 1050, false, (None, None))))]
+    #[case::breakend("G]13:100]", vec![("END", InfoValue::Integer(1050))], None)]
+    fn structural_variant_of_record(
+        #[case] alternative: &str,
+        #[case] info: Vec<(&str, InfoValue)>,
+        #[case] expected: Option<(SvKind, i32, bool, Intervals)>,
+    ) {
+        let sv = structural_variant(&sv_record(alternative, info), FileFormat::default());
+        let fields = sv.map(|sv| (sv.kind, sv.end, sv.imprecise, sv.intervals));
+        assert_eq!(fields, expected);
+    }
+
+    /// `CN` of a `<CNV>` is the copy number of the allele since VCF 4.4, as a float, and the
+    /// total of a diploid sample before. With the copy number of the reference, there is no
+    /// variant, and the record is supported.
+    #[rstest::rstest]
+    #[case::lost((4, 5), InfoValue::Array(Array::Float(vec![Some(0.0)])), Some(SvKind::Deletion))]
+    #[case::kept((4, 5), InfoValue::Array(Array::Float(vec![Some(1.0)])), None)]
+    #[case::gained((4, 4), InfoValue::Float(1.6), Some(SvKind::Duplication { tandem: false }))]
+    #[case::total_lost_one((4, 3), InfoValue::Integer(1), Some(SvKind::Deletion))]
+    #[case::total_kept((4, 3), InfoValue::Integer(2), None)]
+    #[case::total_gained((4, 3), InfoValue::Integer(3), Some(SvKind::Duplication { tandem: false }))]
+    #[case::total_string_without_header((4, 2), InfoValue::String("0".into()), Some(SvKind::Deletion))]
+    fn copy_number_by_file_format(
+        #[case] (major, minor): (u32, u32),
+        #[case] copy_number: InfoValue,
+        #[case] expected: Option<SvKind>,
+    ) {
+        let record = sv_record(
+            "<CNV>",
+            vec![("END", InfoValue::Integer(1050)), ("CN", copy_number)],
+        );
+        let file_format = FileFormat::new(major, minor);
+        let sv = structural_variant(&record, file_format);
+        assert_eq!(sv.map(|sv| sv.kind), expected);
+        assert_eq!(
+            super::keeps_copy_number(&record, file_format),
+            expected.is_none()
+        );
+    }
+
+    /// A `<DEL>` with its length is annotated as the deletion of its bases. In compound mode, its
+    /// rows say that it was not evaluated with the variants on its haplotype, as the rows of
+    /// those variants do.
+    #[rstest::rstest]
+    #[case::phased("0|1", true)]
+    #[case::unphased("0/1", false)]
+    #[tokio::test]
+    async fn symbolic_deletion_is_annotated(
+        #[case] genotype: &str,
+        #[case] marked: bool,
+    ) -> Result<(), anyhow::Error> {
+        let records = format!(
+            "17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t0|1\n\
+             17\t41197710\tdel\tN\t<DEL>\t.\t.\tSVLEN=-50\tGT\t{genotype}\n"
+        );
+        let records = annotate_records(&records, true).await?;
+        let (snv, del) = (&records[0].1, &records[1].1);
+        assert!(
+            del.iter().any(
+                |row| row.starts_with("<DEL>|3_prime_UTR_exon_variant|MODIFIER|BRCA1|")
+                    && row.contains("|g.41197711_41197760del|")
+            ),
+            "{del:?}"
+        );
+        assert!(
+            del.iter().all(|row| row.contains(INCOMPLETE) == marked),
+            "{del:?}"
+        );
+        assert!(
+            snv.iter().all(|row| row.contains(INCOMPLETE) == marked),
+            "{snv:?}"
+        );
+        Ok(())
+    }
+
+    /// Two `<DEL>` of one length at one position keep their own rows in compound mode: only the
+    /// phased one was not evaluated with the variants on its haplotype.
+    #[tokio::test]
+    async fn symbolic_deletions_at_one_position() -> Result<(), anyhow::Error> {
+        let records = "17\t41197701\tsnv\tG\tC\t.\t.\t.\tGT\t0|1\n\
+                       17\t41197710\tphased\tN\t<DEL>\t.\t.\tSVLEN=-50\tGT\t0|1\n\
+                       17\t41197710\tunphased\tN\t<DEL>\t.\t.\tSVLEN=-50\tGT\t0/1\n";
+        let records = annotate_records(records, true).await?;
+        for (id, rows) in &records[1..] {
+            let marked = id == "phased";
+            assert!(!rows.is_empty(), "{id}");
+            assert!(
+                rows.iter().all(|row| row.contains(INCOMPLETE) == marked),
+                "{id}: {rows:?}"
+            );
+        }
+        Ok(())
+    }
+
+    /// A `<DEL>` with the largest END ends at the end of the contig, also in compound mode.
+    #[rstest::rstest]
+    #[tokio::test]
+    async fn symbolic_deletion_with_largest_end(
+        #[values(false, true)] compound: bool,
+    ) -> Result<(), anyhow::Error> {
+        let records = "17\t41197710\tdel\tN\t<DEL>\t.\t.\tEND=2147483647\tGT\t0|1\n";
+        let rows = &annotate_records(records, compound).await?[0].1;
+        assert!(
+            rows.iter()
+                .any(|row| row.contains("|g.41197711_81195210del|")),
+            "{rows:?}"
+        );
         Ok(())
     }
 

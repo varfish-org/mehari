@@ -286,6 +286,13 @@ impl ReferenceReader for ReferenceReaderImpl {
             ReferenceReaderImpl::Unbuffered(v) => v.get(ac, start, end),
         }
     }
+
+    fn length(&self, ac: &str) -> Option<u64> {
+        match self {
+            ReferenceReaderImpl::InMemory(v) => v.length(ac),
+            ReferenceReaderImpl::Unbuffered(v) => v.length(ac),
+        }
+    }
 }
 
 impl Provider {
@@ -559,12 +566,11 @@ impl Provider {
     }
 
     /// The length of the chromosome `chrom`, by any of its names, in the reference genome, if
-    /// one is given and has it. This reads the whole chromosome.
+    /// one is given and has it.
     pub fn reference_length(&self, chrom: &str) -> Option<usize> {
         let reader = self.reference_reader.as_ref()?;
         let accession = self.contig_manager.get_accession(chrom)?;
-        let bases = reader.get(accession, None, None).ok().flatten()?;
-        Some(bases.len())
+        usize::try_from(reader.length(accession)?).ok()
     }
 
     /// The genetic code of `tx`. A selenoprotein without the positions of its selenocysteine

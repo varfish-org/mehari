@@ -14,6 +14,9 @@ pub trait ReferenceReader {
         start: Option<u64>,
         end: Option<u64>,
     ) -> anyhow::Result<Option<Vec<u8>>>;
+
+    /// The length of the sequence `ac`, if the reference has it.
+    fn length(&self, ac: &str) -> Option<u64>;
 }
 
 /// Read `[start, end)` of a circular sequence of length `len`, wrapping around the origin as
@@ -182,6 +185,11 @@ impl ReferenceReader for InMemoryFastaAccess {
         } else {
             Ok(None)
         }
+    }
+
+    fn length(&self, ac: &str) -> Option<u64> {
+        let seq = self.sequences.get(self.alias_to_id.get(ac)?)?;
+        Some(seq.len() as u64)
     }
 }
 
@@ -365,6 +373,10 @@ impl ReferenceReader for UnbufferedIndexedFastaAccess {
         } else {
             Ok(None)
         }
+    }
+
+    fn length(&self, ac: &str) -> Option<u64> {
+        self.alias_to_index.get(ac).map(|record| record.length)
     }
 }
 
