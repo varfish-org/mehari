@@ -2797,9 +2797,10 @@ mod test {
     }
 
     /// The breakends of a deletion, a tandem duplication or an inversion of all BRCA1
-    /// transcripts, which lie between 41196312 and 41277500, give each of their records the rows
-    /// of the event, with the allele of the record, next to their own rows: those of a breakend
-    /// downstream or upstream of the transcripts. `EVENT` groups them as `MATEID` does.
+    /// transcripts, which lie between 41196312 and 41277500, give each of their records the row
+    /// of the event, one for the gene, with the allele of the record, next to their own rows:
+    /// those of a breakend downstream or upstream of the transcripts. `EVENT` groups them as
+    /// `MATEID` does.
     #[rstest::rstest]
     #[case::deletion(
         "17\t41195000\tbnd1\tG\tG[17:41280000[\t.\t.\tMATEID=bnd2\tGT\t0/1\n\
@@ -2850,7 +2851,12 @@ mod test {
                 "{id}: {rows:?}"
             );
             let event = (rows.iter()).filter(|row| row.contains(hgvs_g) && row.contains(term));
-            assert_eq!(event.count(), 6, "{id}: {rows:?}");
+            let event = event.collect::<Vec<_>>();
+            assert_eq!(event.len(), 1, "{id}: {rows:?}");
+            assert!(
+                event[0].ends_with("|INFO_ONE_ROW_PER_GENE"),
+                "{id}: {rows:?}"
+            );
             assert!(
                 rows.iter().all(|row| row.starts_with(&format!("{alt}|"))),
                 "{id}: {rows:?}"
@@ -2967,7 +2973,8 @@ mod test {
 
     /// With `--pick`, a transcript keeps one row on a breakend record, which has its own picked
     /// rows and those of its event: the row of higher impact, here the `transcript_ablation` of
-    /// the event over the `downstream_gene_variant` or `upstream_gene_variant` of the breakend.
+    /// the event's row of BRCA1, that of NM_007294.4, over the `downstream_gene_variant` or
+    /// `upstream_gene_variant` of the breakend.
     #[rstest::rstest]
     #[tokio::test]
     async fn breakend_group_with_pick_keeps_one_row_per_transcript(
@@ -2982,7 +2989,7 @@ mod test {
                 .map(|row| row.split('|').nth(7).unwrap_or_default())
                 .collect::<HashSet<_>>();
             assert_eq!(transcripts.len(), rows.len(), "{id}: {rows:?}");
-            let brca1 = rows.iter().filter(|row| row.contains("|BRCA1|"));
+            let brca1 = rows.iter().filter(|row| row.contains("|NM_007294.4|"));
             assert!(
                 brca1.clone().count() > 0
                     && brca1

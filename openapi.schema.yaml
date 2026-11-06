@@ -1232,6 +1232,7 @@ components:
       - info_imprecise_breakpoints
       - info_assumes_normal_splicing
       - info_splice_site_intact_at_equivalent_position
+      - info_one_row_per_gene
     MessageCode:
       type: string
       description: Machine-readable code of a `GenesTranscriptsMessage`.

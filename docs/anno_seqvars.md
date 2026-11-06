@@ -98,6 +98,11 @@ Built-in plugins are `tx-sequence-ref`, `tx-sequence-alt`, `aa-sequence-ref` and
 ### Transcript Selection
 
 By default, Mehari reports one annotation per transcript near the variant, including transcripts up to 5 kbp upstream or downstream.
+A change that contains transcripts whole, from their first to their last exon, gives one annotation per gene for them, as they all get the same terms: a deletion, duplication, inversion or copy number change, explicit or symbolic, also the event of grouped breakends, but no insertion and no breakend on its own.
+It is the annotation of the transcript that `--pick-order` ranks first, marked with the message `INFO_ONE_ROW_PER_GENE`.
+The ranking leaves out `severity`, which cannot tell these transcripts apart, so only the kept transcript is annotated.
+Transcripts that the change does not contain whole keep their annotations, also those of the same gene, and VEP compatibility mode reports every transcript.
+Plugins and the options below see these annotations.
 Four options narrow this down:
 
 - `--restrict-transcripts mane-select,mane-plus-clinical` reports only transcripts with one of these tags.
@@ -105,7 +110,7 @@ Four options narrow this down:
   With `--restrict-fallback`, such a gene keeps its top-ranked transcript instead, marked with the message `INFO_RESTRICT_FALLBACK`.
 - `--pick gene`, `--pick transcript` or `--pick allele` reports one annotation per gene, per transcript or per allele.
   `transcript` only matters when a transcript appears more than once near the variant.
-- `--pick-order` ranks the candidates for `--pick` and `--restrict-fallback`.
+- `--pick-order` ranks the candidates for `--pick`, `--restrict-fallback` and the annotation of a gene that a change contains.
   Each criterion only breaks the ties left by the ones before it, and the lowest accession breaks any remaining tie.
   The default is `mane-select,mane-plus-clinical,refseq-select,ensembl-canonical,gencode-primary,basic,coding,unflagged,severity,length`.
   A tag also matches its backport to GRCh37, while `mane-select-backport` and the other `-backport` values match only the backport.

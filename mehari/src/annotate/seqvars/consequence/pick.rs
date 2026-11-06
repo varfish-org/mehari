@@ -1,5 +1,5 @@
 //! Transcript selection for `--restrict-transcripts`, `--pick`, `--pick-order` and
-//! `--flag-pick`.
+//! `--flag-pick`, and one row per gene for the transcripts that a change contains whole.
 
 use std::cmp::{Ordering, Reverse};
 
@@ -19,16 +19,25 @@ pub(crate) struct Candidate<'a> {
     tx: &'a Transcript,
     /// The key that groups the transcripts of one gene.
     gene: &'a str,
+    /// Whether the change contains the transcript whole, so that one row stands for all such
+    /// transcripts of its gene, see `select`.
+    contained: bool,
     /// `None` until annotated, then the annotation if the transcript gives one.
     ann: Option<Option<TxAnnotation>>,
 }
 
 impl<'a> Candidate<'a> {
-    pub(crate) fn new(record: TxForRegionRecord, tx: &'a Transcript, gene: &'a str) -> Self {
+    pub(crate) fn new(
+        record: TxForRegionRecord,
+        tx: &'a Transcript,
+        gene: &'a str,
+        contained: bool,
+    ) -> Self {
         Self {
             record,
             tx,
             gene,
+            contained,
             ann: None,
         }
     }
@@ -70,7 +79,11 @@ pub(crate) struct Selection {
     pub dropped_genes: usize,
 }
 
-/// Annotate `cands` and select the annotations to report according to `settings`.
+/// Annotate `cands` and select the annotations to report according to `settings`. Of the
+/// contained candidates of a gene, only the top-ranked one is reported, with the message
+/// `INFO_ONE_ROW_PER_GENE`: they all get the terms of the whole transcript, so `severity` does
+/// not rank them, and only that one is annotated. This comes after `--restrict-transcripts` and
+/// before `--pick`.
 ///
 /// `annotate` is only called where an annotation is needed: for the reported candidates and
 /// for those still tied when `--pick-order` reaches `severity`.
@@ -120,6 +133,21 @@ where
         }
     }
 
+    let mut one_row = vec![false; cands.len()];
+    let whole_order: Vec<_> = (order.iter().copied())
+        .filter(|&criterion| criterion != PickCriterion::Severity)
+        .collect();
+    let contained: Vec<_> = (0..cands.len())
+        .filter(|&i| report[i] && cands[i].contained)
+        .collect();
+    for (_, idxs) in group_by(&cands, &contained, |cand| cand.gene.to_string()) {
+        let top = best(&mut cands, &idxs, &whole_order, &mut annotate)?;
+        for &i in &idxs {
+            report[i] = Some(i) == top;
+            one_row[i] = Some(i) == top;
+        }
+    }
+
     if let Some(unit) = settings.pick {
         let pool: Vec<_> = (0..cands.len()).filter(|&i| report[i]).collect();
         let mut picked = vec![false; cands.len()];
@@ -149,6 +177,9 @@ where
                 .messages
                 .get_or_insert_with(Vec::new)
                 .push(Message::InfoRestrictFallback);
+        }
+        if one_row[i] {
+            (tx.ann.messages.get_or_insert_with(Vec::new)).push(Message::InfoOneRowPerGene);
         }
         if flagged[i] {
             tx.ann
@@ -375,6 +406,16 @@ mod test {
         txs: &[Transcript],
         csqs: &[(&str, Consequence)],
     ) -> Outcome {
+        run_contained(settings, txs, &[], csqs)
+    }
+
+    /// `run` with the change containing the transcripts `contained` whole.
+    fn run_contained(
+        settings: &TranscriptSettings,
+        txs: &[Transcript],
+        contained: &[&str],
+        csqs: &[(&str, Consequence)],
+    ) -> Outcome {
         let annotated = RefCell::new(Vec::new());
         let cands = txs
             .iter()
@@ -387,7 +428,8 @@ mod test {
                     start_i: 0,
                     end_i: 100,
                 };
-                Candidate::new(record, tx, &tx.gene_id)
+                let contained = contained.contains(&tx.id.as_str());
+                Candidate::new(record, tx, &tx.gene_id, contained)
             })
             .collect();
         let selection = select(settings, cands, |record| {
@@ -543,8 +585,8 @@ mod test {
             end_i: 100,
         };
         let cands = vec![
-            Candidate::new(record(0), &tx, &tx.gene_id),
-            Candidate::new(record(1), &tx, &tx.gene_id),
+            Candidate::new(record(0), &tx, &tx.gene_id, false),
+            Candidate::new(record(1), &tx, &tx.gene_id, false),
         ];
         let selection = select(
             &settings(Some(PickUnit::Transcript), &[P::Severity]),
@@ -631,6 +673,35 @@ mod test {
             .collect();
         assert_eq!(outcome.ids(), ["NM_1.1", "NM_2.1", "NM_3.1"]);
         assert_eq!(picks, [None, Some("1".to_string()), Some("1".to_string())]);
+    }
+
+    /// Of the contained candidates of a gene, the top-ranked one stands for the others, with
+    /// the message `INFO_ONE_ROW_PER_GENE`, and only it is annotated: `severity` does not rank
+    /// them, as they get the terms of the whole transcript. Here the length decides, also over a
+    /// more severe term. The other candidates keep their rows.
+    #[test]
+    fn contained_candidates_give_one_row_per_gene() {
+        let txs = [
+            tx("NM_1.1", "G1", &[], 10),
+            tx("NM_2.1", "G1", &[], 20),
+            tx("NM_3.1", "G1", &[], 10),
+            tx("NM_4.1", "G2", &[], 10),
+        ];
+        let csqs = [
+            ("NM_1.1", STOP),
+            ("NM_2.1", MISSENSE),
+            ("NM_3.1", MISSENSE),
+            ("NM_4.1", MISSENSE),
+        ];
+        let contained = ["NM_1.1", "NM_2.1", "NM_4.1"];
+        let outcome = run_contained(&TranscriptSettings::default(), &txs, &contained, &csqs);
+        assert_eq!(outcome.ids(), ["NM_2.1", "NM_3.1", "NM_4.1"]);
+        let messages: Vec<_> = (outcome.selection.anns.iter())
+            .map(|tx| tx.ann.messages.clone())
+            .collect();
+        let one_row = Some(vec![Message::InfoOneRowPerGene]);
+        assert_eq!(messages, [one_row.clone(), None, one_row]);
+        assert_eq!(outcome.annotated, ["NM_2.1", "NM_4.1", "NM_3.1"]);
     }
 
     #[test]

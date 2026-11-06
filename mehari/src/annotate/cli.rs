@@ -107,7 +107,8 @@ pub struct TranscriptSettings {
     #[arg(long, value_enum)]
     pub pick: Option<PickUnit>,
 
-    /// How to rank transcripts for `--pick` and `--restrict-fallback`, comma-separated.
+    /// How to rank transcripts for `--pick`, `--restrict-fallback` and the row of a gene that a
+    /// change contains whole, comma-separated.
     ///
     /// Each criterion only breaks the ties left by the ones before it, and the lowest
     /// accession breaks any remaining tie. A tag also matches its backport, a `-backport`
