@@ -12,8 +12,10 @@ use noodles::vcf::variant::record_buf::info::field::value::Array;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::consequence::logic::ConsequencePredictor;
-use super::consequence::{Annotations, Breakend, StructuralVariant, SvKind, VcfVariant};
-use super::{breakend, compound};
+use super::consequence::{
+    Annotations, Breakend, StructuralVariant, SvKind, Variant, VariantKind, VcfVariant,
+};
+use super::{Classified, compound};
 
 /// The event of a pair of breakend records, or of two pairs, see `derive_events`.
 #[derive(Debug)]
@@ -50,8 +52,8 @@ impl GroupEvent {
     }
 }
 
-/// A record that leaves `MateGrouper`, with its event, if any.
-pub type Grouped = (RecordBuf, Option<Arc<GroupEvent>>);
+/// A record that leaves `MateGrouper`, with its allele and its event, if any.
+pub type Grouped = (RecordBuf, Classified, Option<Arc<GroupEvent>>);
 
 /// Holds the input records in order while a group of breakend records among them is open, so
 /// that each record of a group gets the event of its pair, see `push`.
@@ -64,8 +66,10 @@ pub type Grouped = (RecordBuf, Option<Arc<GroupEvent>>);
 /// closed group is gone: a record that names its `EVENT` or one of its IDs opens a new group.
 #[derive(Default)]
 pub struct MateGrouper {
-    /// The held records in input order, each with its event, `None` while its group is open.
-    held: VecDeque<(RecordBuf, Option<Option<Arc<GroupEvent>>>)>,
+    /// The held records in input order, each with its allele and its event, `None` while its
+    /// group is open.
+    #[allow(clippy::type_complexity)]
+    held: VecDeque<(RecordBuf, Classified, Option<Option<Arc<GroupEvent>>>)>,
     /// The input number of the first held record.
     first: usize,
     /// The open groups by number.
@@ -96,8 +100,9 @@ struct Group {
 }
 
 impl MateGrouper {
-    /// Takes the next record of the input, and gives the records that are ready, in input order.
-    pub fn push(&mut self, record: RecordBuf) -> Vec<Grouped> {
+    /// Takes the next record of the input with its allele `variant`, see `super::classify`, and
+    /// gives the records that are ready, in input order.
+    pub fn push(&mut self, record: RecordBuf, variant: Classified) -> Vec<Grouped> {
         let mut ready = Vec::new();
         if record.reference_sequence_name() != self.contig {
             ready = self.finish();
@@ -106,10 +111,10 @@ impl MateGrouper {
         let position = record.variant_start().map_or(0, |pos| pos.get());
         let position = i32::try_from(position).unwrap_or(i32::MAX);
         self.close_passed(position);
-        let member = member(&record, self.first + self.held.len());
+        let member = member(&record, &variant, self.first + self.held.len());
         // A record in no group is ready at once.
         self.held
-            .push_back((record, member.is_none().then_some(None)));
+            .push_back((record, variant, member.is_none().then_some(None)));
         if let Some((member, event)) = member {
             self.join(member, event);
             // A group whose mates lie in front of the record and are gone closes at once.
@@ -130,10 +135,10 @@ impl MateGrouper {
     /// The held records in front of the first one of an open group.
     fn drain(&mut self) -> Vec<Grouped> {
         let mut ready = Vec::new();
-        while let Some((_, Some(_))) = self.held.front() {
-            if let Some((record, Some(event))) = self.held.pop_front() {
+        while let Some((_, _, Some(_))) = self.held.front() {
+            if let Some((record, variant, Some(event))) = self.held.pop_front() {
                 self.first += 1;
-                ready.push((record, event));
+                ready.push((record, variant, event));
             }
         }
         ready
@@ -219,22 +224,33 @@ impl MateGrouper {
         self.unresolved += missing_mates(&self.contig, &group.members);
         // Records leave only once their group is closed, so those of the members are held.
         for (member, event) in group.members.iter().zip(events) {
-            if let Some((_, slot)) = self.held.get_mut(member.record - self.first) {
+            if let Some((_, _, slot)) = self.held.get_mut(member.record - self.first) {
                 *slot = Some(event);
             }
         }
     }
 }
 
-/// The member of a group that `record`, the record of the input with the number `number`, is,
-/// with its `EVENT`: a breakend with a mate and with `MATEID` or `EVENT`.
-fn member(record: &RecordBuf, number: usize) -> Option<(Member, Option<String>)> {
+/// The member of a group that `record` with the allele `variant`, the record of the input with
+/// the number `number`, is, with its `EVENT`: a breakend with a mate and with `MATEID` or
+/// `EVENT`.
+fn member(
+    record: &RecordBuf,
+    variant: &Classified,
+    number: usize,
+) -> Option<(Member, Option<String>)> {
     let event = compound::string(record, BREAKEND_EVENT_ID);
     let mate_ids = mate_ids(record);
     if event.is_none() && mate_ids.is_empty() {
         return None;
     }
-    let breakend = breakend(record).filter(|breakend| breakend.mate.is_some())?;
+    let breakend = match variant {
+        Ok(Some(Variant {
+            kind: VariantKind::Breakend(breakend),
+            ..
+        })) if breakend.mate.is_some() => breakend.clone(),
+        _ => return None,
+    };
     let position = i32::try_from(record.variant_start().map_or(0, |pos| pos.get())).ok()?;
     let member = Member {
         record: number,
@@ -460,7 +476,8 @@ fn derive_events(chromosome: &str, members: &[Member]) -> Vec<(Vec<usize>, Group
 
 #[cfg(test)]
 mod test {
-    use super::{MateGrouper, Member, derive_events};
+    use super::{Grouped, MateGrouper, Member, derive_events};
+    use crate::annotate::seqvars::classify;
     use crate::annotate::seqvars::consequence::{StructuralVariant, SvKind, VcfVariant};
     use itertools::Itertools;
     use noodles::vcf::variant::RecordBuf;
@@ -497,6 +514,12 @@ mod test {
             .build()
     }
 
+    /// `MateGrouper::push` of `record` with its allele, see `classify`.
+    fn push(grouper: &mut MateGrouper, record: RecordBuf) -> Vec<Grouped> {
+        let variant = classify(&record, Default::default());
+        grouper.push(record, variant)
+    }
+
     /// A breakend record of `contig` at `position` with `alt`, the ID `id` and the `MATEID`
     /// `mate_id`.
     fn bnd_record(contig: &str, position: usize, alt: &str, id: &str, mate_id: &str) -> RecordBuf {
@@ -518,7 +541,11 @@ mod test {
         let mut grouper = MateGrouper::default();
         let mut ready = 0;
         for (contig, position, alt, id, mate_id) in &records {
-            ready += (grouper.push(bnd_record(contig, *position, alt, id, mate_id))).len();
+            ready += push(
+                &mut grouper,
+                bnd_record(contig, *position, alt, id, mate_id),
+            )
+            .len();
         }
         ready += grouper.finish().len();
         assert_eq!(ready, records.len());
@@ -550,7 +577,7 @@ mod test {
         let ids = ["a", "b", "c", "d", "e"];
         let pushed = (records.iter().zip(ids))
             .map(|(&(position, alt, info), id)| {
-                (grouper.push(record("17", position, alt, id, info))).len()
+                push(&mut grouper, record("17", position, alt, id, info)).len()
             })
             .collect_vec();
         assert_eq!(pushed, ready);
@@ -594,11 +621,11 @@ mod test {
         let mut grouper = MateGrouper::default();
         let mut grouped = Vec::new();
         for &(position, alt, id, info) in records {
-            grouped.extend(grouper.push(record("17", position, alt, id, info)));
+            grouped.extend(push(&mut grouper, record("17", position, alt, id, info)));
         }
         grouped.extend(grouper.finish());
         let events = (grouped.iter())
-            .map(|(_, event)| {
+            .map(|(_, _, event)| {
                 (event.as_ref()).map(|event| (event.var.position, event.sv.end, event.sv.imprecise))
             })
             .collect_vec();

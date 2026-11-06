@@ -356,7 +356,9 @@ mod test {
     fn no_prediction_without_bases(
         #[values(false, true)] vep_compatible: bool,
     ) -> Result<(), anyhow::Error> {
-        use crate::annotate::seqvars::consequence::{StructuralVariant, SvKind};
+        use crate::annotate::seqvars::consequence::{
+            StructuralVariant, SvKind, Variant, VariantKind,
+        };
 
         let tx_db = load_tx_db("tests/data/annotate/db/grch37/txs.bin.zst")?;
         let provider = Arc::new(MehariProvider::new(tx_db, None::<PathBuf>, true));
@@ -379,7 +381,11 @@ mod test {
             intervals: (None, None),
             junction: true,
         };
-        let anns = predictor.predict_sv(&var, &sv)?.unwrap().anns;
+        let variant = Variant {
+            var,
+            kind: VariantKind::Structural(sv),
+        };
+        let anns = predictor.predict_variant(&variant)?.unwrap().anns;
         let ann = anns
             .iter()
             .find(|ann| ann.feature_id == "NM_007294.4")

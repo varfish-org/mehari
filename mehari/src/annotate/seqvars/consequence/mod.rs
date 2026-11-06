@@ -579,7 +579,7 @@ pub struct Fusion {
     pub assumes_splicing: bool,
 }
 
-/// The annotations of an allele, see `ConsequencePredictor::predict_with_info`.
+/// The annotations of an allele, see `ConsequencePredictor::predict_variant`.
 #[derive(Debug, Default, Clone)]
 pub struct Annotations {
     /// One per reported transcript.
@@ -685,6 +685,87 @@ impl std::str::FromStr for VcfVariant {
             reference: reference.into(),
             alternative: alternative.into(),
         })
+    }
+}
+
+/// A variant with its allele classified once, see `Variant::from_info`.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Variant {
+    pub var: VcfVariant,
+    pub kind: VariantKind,
+}
+
+/// The allele of a `Variant`.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum VariantKind {
+    /// Bases, or none for a deletion.
+    Sequence,
+    /// A symbolic allele such as `<DEL>`.
+    Structural(StructuralVariant),
+    /// A breakend such as `G]17:198982]`.
+    Breakend(Breakend),
+}
+
+impl Variant {
+    /// `var` with its allele classified, with `info` from the INFO fields of its record: a
+    /// symbolic allele as a structural variant, see `StructuralVariant::from_info`, a breakend
+    /// as such, see `Breakend::from_info`, and bases as a sequence allele. `*`, `<*>`,
+    /// `<NON_REF>` and `ALT` `.` are no variants of their own (`None`). A symbolic allele that
+    /// keeps the copy number of the reference is no variant either, see
+    /// `StructuralVariant::keeps_copy_number`. A symbolic allele that
+    /// `StructuralVariant::from_info` rejects otherwise, a malformed breakend, a type other than
+    /// those of `SVTYPE` for a custom allele, which alone takes it, see `symbolic_type`, and a
+    /// confidence interval with its minimum above its maximum give `SeqvarsError::InvalidVariant`.
+    pub fn from_info(var: VcfVariant, info: &SvInfo) -> Result<Option<Self>, SeqvarsError> {
+        let invalid = |reason: String| Err(SeqvarsError::InvalidVariant(reason));
+        let alt = &var.alternative;
+        if let Some(SvType::Other(sv_type)) = &info.sv_type
+            && alt.starts_with('<')
+            && symbolic_type(alt, None).is_none()
+        {
+            return invalid(format!(
+                "SVTYPE {sv_type:?} is none of DEL, INS, DUP, INV, CNV and BND"
+            ));
+        }
+        for (key, interval) in [("CIPOS", info.cipos), ("CIEND", info.ciend)] {
+            if let Some((min, max)) = interval
+                && min > max
+            {
+                return invalid(format!(
+                    "{key} {min},{max} has its minimum above its maximum"
+                ));
+            }
+        }
+        let kind = if logic::is_sequence_allele(alt) {
+            VariantKind::Sequence
+        } else if matches!(alt.as_str(), "*" | "<*>" | "<NON_REF>" | ".") {
+            return Ok(None);
+        } else if alt.starts_with('<') {
+            if let Some(sv) = StructuralVariant::from_info(var.position, alt, info) {
+                VariantKind::Structural(sv)
+            } else if StructuralVariant::keeps_copy_number(alt, info) {
+                return Ok(None);
+            } else {
+                // With a length, the allele passes, so its end is what is missing.
+                let with_length = SvInfo {
+                    sv_length: Some(1),
+                    ..info.clone()
+                };
+                return invalid(
+                    if StructuralVariant::from_info(var.position, alt, &with_length).is_some() {
+                        format!("{alt} has no end past its position (END or SVLEN)")
+                    } else {
+                        format!("{alt} is not supported")
+                    },
+                );
+            }
+        } else {
+            match Breakend::from_info(alt, info) {
+                Ok(breakend) => VariantKind::Breakend(breakend),
+                Err(e) => return invalid(e.to_string()),
+            }
+        };
+        Ok(Some(Self { var, kind }))
     }
 }
 
