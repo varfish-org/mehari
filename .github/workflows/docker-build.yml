@@ -59,6 +59,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           push: ${{ github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork }}
           cache-from: type=gha
-          # Only the image's own layers: the builder stage changes with every commit. A failed
-          # export, e.g. of a layer that GitHub evicted meanwhile, only warns.
-          cache-to: type=gha,mode=min,ignore-error=true
+          # All layers, incl. the builder's toolchain and dependencies, but only from main: PRs
+          # would evict main's layers. A failed export, e.g. of a layer that GitHub evicted
+          # meanwhile, only warns.
+          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,mode=max,ignore-error=true' || '' }}

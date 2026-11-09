@@ -16,7 +16,7 @@ FROM ubuntu:noble AS builder
 
 # Install Rust toolchain and dependencies for compilation of C code (e.g., rocksdb)
 RUN apt-get update && \
-    apt-get install -y unzip wget curl build-essential clang librocksdb-dev libsqlite3-dev && \
+    apt-get install -y unzip wget curl build-essential clang libsqlite3-dev && \
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
     rustup component add rustfmt
@@ -28,20 +28,32 @@ RUN PREFIX=/usr/local bash /tmp/install-protoc.sh
 # Set the working directory.
 WORKDIR /usr/src/mehari
 
+# We want dependencies cached, so copy the manifests first.  RocksDB is the version
+# bundled with librocksdb-sys and built from source here.
 COPY README.md /usr/src/
 COPY Cargo.toml Cargo.lock ./
-COPY mehari/Cargo.toml mehari/build.rs ./mehari/
+COPY mehari/Cargo.toml ./mehari/
+COPY mehari-python/Cargo.toml ./mehari-python/
+COPY .cargo ./.cargo/
+
+# Build only the dependencies, against stubs of the crate; the stub build script pulls
+# in the build dependencies.  This layer is reused until the manifests, Cargo.lock, or
+# .cargo change.
+RUN mkdir mehari/src && \
+    echo 'fn main() {}' | tee mehari/build.rs > mehari/src/main.rs && \
+    touch mehari/src/lib.rs && \
+    /root/.cargo/bin/cargo build --release -p mehari
+
+# Copy in the rest of the sources.
+COPY mehari/build.rs ./mehari/
 COPY mehari/src ./mehari/src/
 COPY mehari/protos ./mehari/protos/
 COPY mehari/wit ./mehari/wit/
-COPY mehari-python/Cargo.toml ./mehari-python/
 COPY utils/alpine-linker-script.sh ./utils/
 RUN chmod a+rx ./utils/alpine-linker-script.sh
-COPY .cargo ./.cargo/
 
-
-# Touch main.rs to prevent cached release build.
-RUN touch ./mehari/src/main.rs
+# Touch the sources to prevent a cached release build of the stubs.
+RUN touch ./mehari/build.rs ./mehari/src/lib.rs ./mehari/src/main.rs
 
 # Build the application
 RUN /root/.cargo/bin/cargo build --release -p mehari
@@ -54,7 +66,7 @@ FROM ubuntu:noble AS runtime
 
 # Install dependencies (and cleanup afterward)
 RUN apt-get update && \
-    apt-get install -y librocksdb8.9 libsqlite3-0 && \
+    apt-get install -y libsqlite3-0 && \
     apt-get clean autoclean && \
     apt-get autoremove --yes && \
     rm -rf /var/lib/{apt,dpkg,cache,log}
@@ -63,6 +75,9 @@ RUN apt-get update && \
 COPY --from=builder \
     /usr/src/mehari/target/release/mehari \
     /usr/local/bin
+# Fail the build if the binary links a system RocksDB, which may be too old to read
+# databases written by the bundled one.
+RUN ! ldd /usr/local/bin/mehari | grep -q librocksdb
 
 # Copy the entrypoint script and make it executable.
 COPY utils/docker/entrypoint.sh /

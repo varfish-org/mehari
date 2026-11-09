@@ -36,7 +36,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
+          sudo apt-get install -y libsqlite3-dev
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -66,7 +66,11 @@ jobs:
       - name: Check that Cargo.lock is up to date
         run: cargo metadata --locked --format-version 1 > /dev/null
 
+      # Clippy does not link, so it needs no RocksDB build.
       - name: Lint with clippy
+        env:
+          ROCKSDB_LIB_DIR: /nonexistent
+          SNAPPY_LIB_DIR: /nonexistent
         run: cargo clippy --workspace --all-features
 
   Testing:
@@ -99,7 +103,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
+          sudo apt-get install -y libsqlite3-dev
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -110,6 +114,8 @@ jobs:
         uses: arduino/setup-protoc@v3.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: ./.github/actions/rocksdb
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -164,7 +170,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
+          sudo apt-get install -y libsqlite3-dev
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -177,6 +183,8 @@ jobs:
         uses: arduino/setup-protoc@v3.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: ./.github/actions/rocksdb
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -221,7 +229,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y librocksdb-dev libsnappy-dev libsqlite3-dev
+          sudo apt-get install -y libsqlite3-dev
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -232,6 +240,8 @@ jobs:
         uses: arduino/setup-protoc@v3.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: ./.github/actions/rocksdb
 
       - uses: Swatinem/rust-cache@v2
         with:
