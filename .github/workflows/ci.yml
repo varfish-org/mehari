@@ -66,7 +66,11 @@ jobs:
       - name: Check that Cargo.lock is up to date
         run: cargo metadata --locked --format-version 1 > /dev/null
 
+      # Clippy does not link, so it needs no RocksDB build.
       - name: Lint with clippy
+        env:
+          ROCKSDB_LIB_DIR: /nonexistent
+          SNAPPY_LIB_DIR: /nonexistent
         run: cargo clippy --workspace --all-features
 
   Testing:
@@ -110,6 +114,8 @@ jobs:
         uses: arduino/setup-protoc@v3.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: ./.github/actions/rocksdb
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -178,6 +184,8 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: ./.github/actions/rocksdb
+
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -232,6 +240,8 @@ jobs:
         uses: arduino/setup-protoc@v3.0.0
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: ./.github/actions/rocksdb
 
       - uses: Swatinem/rust-cache@v2
         with:

@@ -1,0 +1,58 @@
+name: RocksDB
+description: >-
+  Makes cargo link the RocksDB version pinned in Cargo.lock. It is built once per version and
+  shared by all jobs; unlike the Rust caches, its key holds neither the job nor the rustc version.
+
+runs:
+  using: composite
+  steps:
+    - name: Read the pinned version
+      id: pinned
+      shell: bash
+      run: |
+        version=$(grep -A1 '^name = "librocksdb-sys"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "key=rocksdb-$ImageOS-$(uname -m)-$version" >> "$GITHUB_OUTPUT"
+
+    - name: Restore RocksDB
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: ~/rocksdb
+        key: ${{ steps.pinned.outputs.key }}-${{ hashFiles('.github/actions/rocksdb/action.yml') }}
+
+    # Without jemalloc, so that builds without that feature link as well.
+    - name: Build RocksDB
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.pinned.outputs.version }}
+      run: |
+        build="$RUNNER_TEMP/rocksdb"
+        mkdir -p "$build/src" ~/rocksdb
+        touch "$build/src/lib.rs"
+        # Keeps the compression libraries at the versions the project links.
+        cp Cargo.lock "$build/"
+        cat > "$build/Cargo.toml" <<EOF
+        [package]
+        name = "rocksdb-build"
+        version = "0.0.0"
+        edition = "2024"
+
+        [dependencies]
+        librocksdb-sys = { version = "=${VERSION%%+*}", default-features = false, features = ["static", "bindgen-runtime", "snappy", "lz4", "zstd", "zlib", "bzip2"] }
+        EOF
+        # From inside, so that no .cargo/config.toml of the repository applies.
+        cd "$build"
+        cargo build --release
+        cp target/release/build/librocksdb-sys-*/out/lib{rocksdb,snappy}.a ~/rocksdb/
+
+    - name: Link RocksDB statically
+      shell: bash
+      run: |
+        {
+          echo "ROCKSDB_LIB_DIR=$HOME/rocksdb"
+          echo "ROCKSDB_STATIC=1"
+          echo "SNAPPY_LIB_DIR=$HOME/rocksdb"
+          echo "SNAPPY_STATIC=1"
+        } >> "$GITHUB_ENV"
