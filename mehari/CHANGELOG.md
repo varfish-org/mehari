@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.51.0](https://github.com/varfish-org/mehari/compare/mehari-v0.50.0...mehari-v0.51.0) (2026-11-09)
+
+
+### Features
+
+* **annotate:** annotate breakends ([#1171](https://github.com/varfish-org/mehari/issues/1171)) ([2c84425](https://github.com/varfish-org/mehari/commit/2c84425b5bb2cda412137621cd89303dfa18c325))
+* **annotate:** annotate symbolic structural variants ([#1170](https://github.com/varfish-org/mehari/issues/1170)) ([768d1c4](https://github.com/varfish-org/mehari/commit/768d1c4afd609eb6b4bf289ac8628eb335d5ac11))
+* **annotate:** events from grouped breakends ([#1174](https://github.com/varfish-org/mehari/issues/1174)) ([ad0b232](https://github.com/varfish-org/mehari/commit/ad0b232b3d199f7c654536c4f6976f985218b333))
+* **annotate:** gene fusions of structural variants and breakends ([#1173](https://github.com/varfish-org/mehari/issues/1173)) ([1498843](https://github.com/varfish-org/mehari/commit/14988438f6aa848eb7d50ff7c7e5326ba36ccdb5))
+* **annotate:** one row per gene for transcripts inside a large change ([#1176](https://github.com/varfish-org/mehari/issues/1176)) ([84c56ad](https://github.com/varfish-org/mehari/commit/84c56adf0c6ceedaffc5be5eeffc0cf9e78cc5d1))
+* **annotate:** variants of a breakend event from its breakpoint graph ([#1177](https://github.com/varfish-org/mehari/issues/1177)) ([f0048a7](https://github.com/varfish-org/mehari/commit/f0048a78142548e2ae4d1f6c1054c67069114e23))
+* structural variants and breakends on the server, in Python and for plugins ([#1172](https://github.com/varfish-org/mehari/issues/1172)) ([941c89d](https://github.com/varfish-org/mehari/commit/941c89df2016cab1ead18303f0986d10a6972ae7))
+
+
+### Bug Fixes
+
+* **annotate:** HGVS c. beyond the transcript and dup terms over whole exons ([#1169](https://github.com/varfish-org/mehari/issues/1169)) ([3a9b36c](https://github.com/varfish-org/mehari/commit/3a9b36c7c014b58e6f98ac62d5b50e4f3e6dbf7f))
+* **annotate:** skip symbolic alleles and breakends ([#1162](https://github.com/varfish-org/mehari/issues/1162)) ([9c5b920](https://github.com/varfish-org/mehari/commit/9c5b9208fe27d35f31d614ab69a8f99982d3205a))
+* build with the bundled RocksDB instead of system 8.9 ([#1167](https://github.com/varfish-org/mehari/issues/1167)) ([#1168](https://github.com/varfish-org/mehari/issues/1168)) ([e9306e7](https://github.com/varfish-org/mehari/commit/e9306e7736a7bafa3db3b5bfa6496fed85893e8b))
+
 ## [0.50.0](https://github.com/varfish-org/mehari/compare/mehari-v0.49.1...mehari-v0.50.0) (2026-11-03)
 
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.51.0](https://github.com/varfish-org/mehari/compare/mehari-python-v0.50.0...mehari-python-v0.51.0) (2026-11-09)
+
+
+### Features
+
+* **annotate:** gene fusions of structural variants and breakends ([#1173](https://github.com/varfish-org/mehari/issues/1173)) ([1498843](https://github.com/varfish-org/mehari/commit/14988438f6aa848eb7d50ff7c7e5326ba36ccdb5))
+* structural variants and breakends on the server, in Python and for plugins ([#1172](https://github.com/varfish-org/mehari/issues/1172)) ([941c89d](https://github.com/varfish-org/mehari/commit/941c89df2016cab1ead18303f0986d10a6972ae7))
+
 ## [0.50.0](https://github.com/varfish-org/mehari/compare/mehari-python-v0.49.1...mehari-python-v0.50.0) (2026-11-03)
 
 
