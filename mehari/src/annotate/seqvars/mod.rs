@@ -415,7 +415,9 @@ pub(crate) fn prepare_vcf_record(
 
     if let Some(clinvar) = &record.annotation.clinvar {
         insert_field!("clinvar_vcv", array String, clinvar.vcv.iter());
-        insert_field!("clinvar_germline_classification", array String, clinvar.germline_classification.iter());
+        if !clinvar.germline_classification.is_empty() {
+            insert_field!("clinvar_germline_classification", array String, clinvar.germline_classification.iter());
+        }
     }
 
     if let Some(cadd) = &record.annotation.cadd {
@@ -2157,8 +2159,8 @@ mod test {
         VariantKind, VcfVariant, load_tx_db,
     };
     use super::{
-        AnnotatedVariant, Annotator, AnnotatorEnum, Args, OutputFormat, VariantProcessor,
-        VcfRecord, run,
+        AnnotatedVariant, Annotator, AnnotatorEnum, Args, ClinvarResult, OutputFormat,
+        VariantAnnotation, VariantProcessor, VcfRecord, prepare_vcf_record, run,
     };
     use crate::annotate::cli::{CompoundSettings, PhasingStrategy};
     use crate::annotate::cli::{PickUnit, PredictorSettings};
@@ -2245,6 +2247,32 @@ mod test {
         insta::assert_snapshot!(actual);
 
         Ok(())
+    }
+
+    /// ClinVar variants with only somatic records have no germline classification, and the VCF
+    /// writer rejects an empty INFO array.
+    #[test]
+    fn empty_germline_classification_is_omitted() {
+        let record = AnnotatedVariant {
+            vcf: VcfRecord::default(),
+            annotation: VariantAnnotation {
+                consequences: vec![],
+                fusions: vec![],
+                frequencies: None,
+                clinvar: Some(ClinvarResult {
+                    vcv: vec!["VCV003764945.1".into()],
+                    germline_classification: vec![],
+                }),
+                cadd: None,
+                spliceai: None,
+                dbsnp: None,
+            },
+        };
+
+        let vcf = prepare_vcf_record(record, &[], "ANN");
+
+        assert!(vcf.info().get("clinvar_vcv").is_some());
+        assert!(vcf.info().get("clinvar_germline_classification").is_none());
     }
 
     /// Only the fields that the run writes are taken, not those of sources it does not use.
