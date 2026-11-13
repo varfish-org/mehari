@@ -294,9 +294,9 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "annonars"
-version = "0.45.2"
+version = "0.45.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ded6e2e96ec3c489a04c060af7be5737035eaec8ab299a08ea8af14866b4900"
+checksum = "1a51a75aaca60358f79266dc56dd063e6134d38be3ca49d9f3cd8a85e3edc3b8"
 dependencies = [
  "actix-web",
  "anyhow",
