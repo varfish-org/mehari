@@ -2272,9 +2272,12 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hxdmp"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a17b27f28a7466846baca75f0a5244e546e44178eb7f1c07a3820f413e91c6b0"
+checksum = "63580e4e5abaeabad113e73ac888763bd2d607ea9b01ebc0cf57a09aa5aa67dd"
+dependencies = [
+ "rustversion",
+]
 
 [[package]]
 name = "hybrid-array"
